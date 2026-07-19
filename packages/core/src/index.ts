@@ -14,7 +14,7 @@ export { g2Keyness, logRatio } from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
 export { mattr, mtld } from './stats/diversity.ts';
-export { V1_CAPS } from './contract/brands.ts';
+export { CapError, V1_CAPS } from './contract/brands.ts';
 export type * from './contract/brands.ts';
 export { canonicalJson, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
 export {

@@ -36,6 +36,12 @@ export interface HalfOpenRange<T> {
 export type TokenRange = HalfOpenRange<DocTokenPos>;
 export type CharRange = HalfOpenRange<Utf16Offset>;
 
+/** Typed cap violation — protocol adapters map this to CAP_EXCEEDED without
+ *  matching exception text (extends RangeError; existing guards still hold). */
+export class CapError extends RangeError {
+  override readonly name = 'CapError';
+}
+
 /** Enforced v1 limits — every position and terminal sentinel fits in Uint32. */
 export const V1_CAPS = {
   maxDocTokens: 2 ** 31 - 1,

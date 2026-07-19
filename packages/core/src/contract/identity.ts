@@ -8,7 +8,7 @@
  * validated before use — identity is not integrity.
  */
 
-import { V1_CAPS, type IndexArtifactHash, type IndexRecipeHash, type StructureHash, type TextHash } from './brands.ts';
+import { CapError, V1_CAPS, type IndexArtifactHash, type IndexRecipeHash, type StructureHash, type TextHash } from './brands.ts';
 import { canonicalJson, sha256Hex } from './hash.ts';
 import type { SegmenterFingerprint } from '../segment/intl.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
@@ -61,8 +61,11 @@ export interface StructureArtifactV1 {
 }
 
 export function rootOnlyStructure(text: TextHash, textLength: number): StructureArtifactV1 {
-  if (!Number.isInteger(textLength) || textLength < 0 || textLength > V1_CAPS.maxDocTextUtf16) {
+  if (!Number.isInteger(textLength) || textLength < 0) {
     throw new RangeError(`invalid text length ${textLength}`);
+  }
+  if (textLength > V1_CAPS.maxDocTextUtf16) {
+    throw new CapError(`text length ${textLength} exceeds the v1 cap`);
   }
   return {
     schema: 'texttrends/structure/1',

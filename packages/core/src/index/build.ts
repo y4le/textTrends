@@ -9,7 +9,7 @@
  * artifact is constructed (contract §1).
  */
 
-import { V1_CAPS, type IndexRecipeHash, type TextHash } from '../contract/brands.ts';
+import { CapError, V1_CAPS, type IndexRecipeHash, type TextHash } from '../contract/brands.ts';
 import { hashText } from '../contract/hash.ts';
 import {
   hashIndexRecipe,
@@ -157,7 +157,7 @@ export function buildDocumentIndex(
   identity: ShardIdentity,
 ): DocumentIndexV1 {
   if (text.length > V1_CAPS.maxDocTextUtf16) {
-    throw new RangeError(`document exceeds v1 text cap (${text.length})`);
+    throw new CapError(`document exceeds v1 text cap (${text.length})`);
   }
   validateBatch(text, seg);
   const segCount = seg.startsUtf16.length;
@@ -181,7 +181,7 @@ export function buildDocumentIndex(
     let id = lookup.get(key);
     if (id === undefined) {
       id = vocabulary.length;
-      if (id >= V1_CAPS.maxVocabSize) throw new RangeError('vocabulary exceeds v1 cap');
+      if (id >= V1_CAPS.maxVocabSize) throw new CapError('vocabulary exceeds v1 cap');
       vocabulary.push(key);
       lookup.set(key, id);
     }
@@ -198,7 +198,7 @@ export function buildDocumentIndex(
   }
 
   const tokenCount = typeIds.length;
-  if (tokenCount > V1_CAPS.maxDocTokens) throw new RangeError('document exceeds v1 token cap');
+  if (tokenCount > V1_CAPS.maxDocTokens) throw new CapError('document exceeds v1 token cap');
 
   const tokenTypeIds = Uint32Array.from(typeIds);
   const startsUtf16 = Uint32Array.from(starts);
@@ -291,7 +291,7 @@ export function validateShardStructure(shard: DocumentIndexV1): void {
   const n = tokens.length;
   const vocabSize = shard.vocabulary.length;
   if (n > V1_CAPS.maxDocTokens || vocabSize > V1_CAPS.maxVocabSize) {
-    throw new RangeError('shard exceeds v1 caps');
+    throw new CapError('shard exceeds v1 caps');
   }
   if (starts.length !== n || lengths.length !== n || classes.length !== n) {
     throw new RangeError('token arrays must be parallel');
@@ -334,6 +334,8 @@ export function validateShardStructure(shard: DocumentIndexV1): void {
       throw new RangeError(`token span at ${i} overlaps its predecessor`);
     }
     const end = start + len;
+    // Deliberately a plain RangeError, not CapError: a span leaving the v1
+    // address domain is corrupt artifact GEOMETRY, not a capacity request.
     if (end > V1_CAPS.maxDocTextUtf16) {
       throw new RangeError(`token span at ${i} leaves the v1 UTF-16 address domain`);
     }

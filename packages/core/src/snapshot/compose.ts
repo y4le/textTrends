@@ -15,6 +15,7 @@
  */
 
 import {
+  CapError,
   V1_CAPS,
   type CorpusSnapshotId,
   type BuildGeneration,
@@ -193,7 +194,7 @@ export async function composeSnapshot(
       if (corpus === undefined) {
         corpus = keys.length;
         if (corpus >= limits.maxVocabSize) {
-          throw new RangeError('snapshot vocabulary exceeds v1 cap');
+          throw new CapError('snapshot vocabulary exceeds v1 cap');
         }
         keyToCorpusId.set(key, corpus);
         keys.push(key);
@@ -202,7 +203,7 @@ export async function composeSnapshot(
     }
     const tokenCount = item.shard.tokenTypeIds.length;
     if (sequenceBase + tokenCount > limits.maxCorpusTokens) {
-      throw new RangeError('snapshot exceeds v1 corpus token cap');
+      throw new CapError('snapshot exceeds v1 corpus token cap');
     }
     refs.push({
       doc,
@@ -295,7 +296,7 @@ export async function validateSnapshot(
     }
     base += ref.tokenCount;
     if (base > limits.maxCorpusTokens) {
-      throw new RangeError('snapshot exceeds v1 corpus token cap');
+      throw new CapError('snapshot exceeds v1 corpus token cap');
     }
     for (let local = 0; local < shard.vocabulary.length; local++) {
       const key = shard.vocabulary[local] as string;
@@ -303,7 +304,7 @@ export async function validateSnapshot(
       if (corpus === undefined) {
         corpus = expectedKeys.length;
         if (corpus >= limits.maxVocabSize) {
-          throw new RangeError('snapshot vocabulary exceeds v1 cap');
+          throw new CapError('snapshot vocabulary exceeds v1 cap');
         }
         keyToCorpusId.set(key, corpus);
         expectedKeys.push(key);
