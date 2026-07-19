@@ -251,6 +251,167 @@ export function buildDocumentIndex(
   };
 }
 
+/**
+ * Full structural validation of a document-index shard against the v1 ABI —
+ * required whenever arrays arrive from outside this builder (loaded from
+ * storage, copied at a residency boundary): descriptor identity is NOT
+ * integrity. Checks constructors, parallel lengths, strictly increasing
+ * starts, overflow-table agreement, token classes, postings CSR permutation
+ * agreement with tokenTypeIds, and bounds sentinels.
+ */
+export function validateShardStructure(shard: DocumentIndexV1): void {
+  if (shard.schema !== 'texttrends/document-index/1') {
+    throw new RangeError(`unknown shard schema '${shard.schema}'`);
+  }
+  if (shard.tokenClassVersion !== 1) {
+    throw new RangeError(`unknown token class version ${shard.tokenClassVersion}`);
+  }
+  const u32 = (v: unknown, name: string): Uint32Array => {
+    if (!(v instanceof Uint32Array)) throw new RangeError(`${name} must be a Uint32Array`);
+    return v;
+  };
+  const u8 = (v: unknown, name: string): Uint8Array => {
+    if (!(v instanceof Uint8Array)) throw new RangeError(`${name} must be a Uint8Array`);
+    return v;
+  };
+  const tokens = u32(shard.tokenTypeIds, 'tokenTypeIds');
+  const starts = u32(shard.startsUtf16, 'startsUtf16');
+  const lengths = u8(shard.lengths8, 'lengths8');
+  const classes = u8(shard.tokenClasses, 'tokenClasses');
+  const longPos = u32(shard.longTokenPositions, 'longTokenPositions');
+  const longLen = u32(shard.longTokenLengths, 'longTokenLengths');
+  const offsets = u32(shard.postings.offsets, 'postings.offsets');
+  const positions = u32(shard.postings.positions, 'postings.positions');
+  const sentenceBounds = u32(shard.sentenceBounds, 'sentenceBounds');
+  const paragraphBounds = u32(shard.paragraphBounds, 'paragraphBounds');
+  if (!Array.isArray(shard.vocabulary) || shard.vocabulary.some((k) => typeof k !== 'string')) {
+    throw new RangeError('vocabulary must be an array of strings');
+  }
+
+  const n = tokens.length;
+  const vocabSize = shard.vocabulary.length;
+  if (n > V1_CAPS.maxDocTokens || vocabSize > V1_CAPS.maxVocabSize) {
+    throw new RangeError('shard exceeds v1 caps');
+  }
+  if (starts.length !== n || lengths.length !== n || classes.length !== n) {
+    throw new RangeError('token arrays must be parallel');
+  }
+  if (longPos.length !== longLen.length) {
+    throw new RangeError('overflow tables must be parallel');
+  }
+
+  if (new Set(shard.vocabulary).size !== vocabSize) {
+    throw new RangeError('vocabulary keys must be unique');
+  }
+
+  let overflowCursor = 0;
+  let prevEnd = 0; // end char of the previous token — spans must not overlap
+  for (let i = 0; i < n; i++) {
+    const start = starts[i] as number;
+    if ((tokens[i] as number) >= vocabSize) {
+      throw new RangeError(`tokenTypeIds[${i}] out of vocabulary range`);
+    }
+    if (!TOKEN_CLASS_VALUES.has(classes[i] as number)) {
+      throw new RangeError(`unknown token class at ${i}`);
+    }
+    // Resolve the ACTUAL length (overflow-aware) so span geometry is checked
+    // with real extents — strictly-increasing starts alone admit overlapping
+    // and zero-length spans (review round 5).
+    const len8 = lengths[i] as number;
+    let len = len8;
+    if (len8 === 255) {
+      if (overflowCursor >= longPos.length || (longPos[overflowCursor] as number) !== i) {
+        throw new RangeError(`missing overflow entry for token ${i}`);
+      }
+      len = longLen[overflowCursor] as number;
+      if (len <= 254) {
+        throw new RangeError(`overflow length for token ${i} must exceed 254`);
+      }
+      overflowCursor++;
+    }
+    if (len === 0) throw new RangeError(`zero-length token span at ${i}`);
+    if (start < prevEnd) {
+      throw new RangeError(`token span at ${i} overlaps its predecessor`);
+    }
+    const end = start + len;
+    if (end > V1_CAPS.maxDocTextUtf16) {
+      throw new RangeError(`token span at ${i} leaves the v1 UTF-16 address domain`);
+    }
+    prevEnd = end;
+  }
+  if (overflowCursor !== longPos.length) {
+    throw new RangeError('overflow table lists tokens without 255 sentinels');
+  }
+
+  // Postings CSR: offsets frame a permutation of [0, n) whose entries agree
+  // with tokenTypeIds, each run sorted strictly increasing.
+  if (offsets.length !== vocabSize + 1 || (offsets[0] as number) !== 0) {
+    throw new RangeError('postings offsets must have vocab+1 entries starting at 0');
+  }
+  if ((offsets[vocabSize] as number) !== n || positions.length !== n) {
+    throw new RangeError('postings must cover exactly the token count');
+  }
+  for (let t = 0; t < vocabSize; t++) {
+    const from = offsets[t] as number;
+    const to = offsets[t + 1] as number;
+    if (to < from) throw new RangeError(`postings offsets decrease at type ${t}`);
+    for (let i = from; i < to; i++) {
+      const p = positions[i] as number;
+      if (p >= n) throw new RangeError(`posting position ${p} out of range`);
+      if ((tokens[p] as number) !== t) {
+        throw new RangeError(`posting for type ${t} points at a different token type`);
+      }
+      if (i > from && p <= (positions[i - 1] as number)) {
+        throw new RangeError(`postings for type ${t} must be strictly increasing`);
+      }
+    }
+  }
+
+  const checkBounds = (bounds: Uint32Array, name: string): void => {
+    if (bounds.length < 1) throw new RangeError(`${name} must include a terminal sentinel`);
+    if ((bounds[0] as number) !== 0 && !(n === 0 && bounds.length === 1)) {
+      if (n === 0) throw new RangeError(`${name} for an empty shard must be [0]`);
+      throw new RangeError(`${name} must start at 0`);
+    }
+    for (let i = 1; i < bounds.length; i++) {
+      if ((bounds[i] as number) <= (bounds[i - 1] as number)) {
+        throw new RangeError(`${name} must be strictly increasing`);
+      }
+    }
+    if ((bounds[bounds.length - 1] as number) !== n) {
+      throw new RangeError(`${name} must end at the token count`);
+    }
+  };
+  checkBounds(sentenceBounds, 'sentenceBounds');
+  checkBounds(paragraphBounds, 'paragraphBounds');
+}
+
+/** Char length of the token at pos, honoring the 255-overflow table. */
+export function tokenCharLength(index: DocumentIndexV1, pos: number): number {
+  if (!Number.isInteger(pos) || pos < 0 || pos >= index.tokenTypeIds.length) {
+    throw new RangeError(`token position ${pos} out of range [0, ${index.tokenTypeIds.length})`);
+  }
+  const len8 = index.lengths8[pos] as number;
+  if (len8 !== 255) return len8;
+  // Overflow positions are sorted; binary search.
+  const arr = index.longTokenPositions;
+  let lo = 0;
+  let hi = arr.length - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    const v = arr[mid] as number;
+    if (v === pos) return index.longTokenLengths[mid] as number;
+    if (v < pos) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  throw new RangeError(`overflow length missing for token ${pos}`);
+}
+
+/** End char offset (exclusive) of the token at pos in the extracted text. */
+export function tokenEndChar(index: DocumentIndexV1, pos: number): number {
+  return (index.startsUtf16[pos] as number) + tokenCharLength(index, pos);
+}
+
 /** Postings for one local type id — a view into canonical storage (never transfer). */
 export function postingsFor(index: DocumentIndexV1, typeId: number): Uint32Array {
   if (!Number.isInteger(typeId) || typeId < 0 || typeId >= index.vocabulary.length) {

@@ -30,6 +30,9 @@ export {
   createDocumentIndex,
   paragraphCharStarts,
   postingsFor,
+  tokenCharLength,
+  tokenEndChar,
+  validateShardStructure,
   tokenKey,
   validateBatch,
   type DocumentIndexV1,
@@ -55,6 +58,22 @@ export {
   type SnapshotVocabularyV1,
 } from './snapshot/compose.ts';
 export { resolveSelection, type ResolvedSelection, type SelectionSpec } from './snapshot/selection.ts';
+export { trend, type NumericTrend, type TrendRequest } from './ops/trend.ts';
+export {
+  bindShards,
+  bindTexts,
+  DependencyError,
+  type BoundShards,
+  type BoundTexts,
+} from './ops/binding.ts';
+export {
+  kwicPage,
+  KWIC_MAX_PAGE,
+  materializeKwicPage,
+  type KwicRequest,
+  type KwicRow,
+  type NumericKwicPage,
+} from './ops/kwic.ts';
 export {
   occurrences,
   type GroupMember,

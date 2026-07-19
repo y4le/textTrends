@@ -52,6 +52,10 @@ export type ResolverTable = ReadonlyMap<string, ReadonlyMap<string, Resolver>>;
 
 /** Parallel arrays; members via CSR. All positions are document-local. */
 export interface NumericOccurrences {
+  /** Provenance: the coordinates these occurrences were computed under —
+   *  downstream kernels verify both before reinterpreting the positions. */
+  readonly snapshot: CorpusSnapshotV1['id'];
+  readonly selection: ResolvedSelection['hash'];
   readonly docOrdinal: Uint32Array;
   readonly pos: Uint32Array;
   readonly spanTokens: Uint32Array;
@@ -255,6 +259,8 @@ export function occurrences(
   }
 
   return {
+    snapshot: snapshot.id,
+    selection: selection.hash,
     docOrdinal: Uint32Array.from(docOrdinal),
     pos: Uint32Array.from(pos),
     spanTokens: Uint32Array.from(spanTokens),
