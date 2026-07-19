@@ -322,6 +322,22 @@ decisions with the reviewer's dissents noted, not as research consensus:
    speech-verb + registry-name rules first; alternating-turn propagation as a separate,
    lower-confidence tier; an explicit unattributed/abstain state; user corrections as
    first-class evidence. Opaque whole-corpus attribution and coreference stay cut.
+10. **Portable core; TS-first; WASM only behind benchmark gates** *(Claude and Codex
+    independently concurred, ~80% confidence each)*: the analysis engine lives in a
+    platform-neutral `packages/core` (no DOM/worker/fs/framework imports) consumed by
+    a Web Worker adapter in the app and an early Node CLI adapter (conformance
+    fixtures, benchmarks, batch export). Segmentation is an *injected adapter*
+    (`Intl.Segmenter` first) whose engine/version is recorded in provenance — browser
+    and Node are conformance-tested, never assumed identical. Index buffers are
+    immutable at the analysis boundary; operations are batched, numeric in/out — that
+    boundary is the designed WASM seam. No Rust now: a WASM pass is added only when an
+    optimized TS pass misses a written user-facing budget, profiling shows the pass
+    dominates its path (≥~25%), and a vertical prototype wins ≥~2× end-to-end or
+    ≥~30% peak memory on representative corpora (first candidates: n-grams,
+    MinHash/LSH, clustering — never KWIC or basic counts). A full Rust core requires a
+    product condition (standalone native CLI demand, persistent 50M-tier OOM after TS
+    data-layout work, or several passes already in WASM) plus a successful end-to-end
+    spike. Full analysis: `inputs/codex-wasm-consultation.md`.
 
 ## 9. Delivery phases (decided: killer-feature MVP)
 
