@@ -13,7 +13,8 @@
  * record (review findings 2 and 3).
  */
 
-import type { LocalTypeId } from '../contract/brands.ts';
+import type { IndexArtifactHash, LocalTypeId } from '../contract/brands.ts';
+import { indexArtifactHash } from '../contract/identity.ts';
 import { hashIndexRecipe, type IndexRecipeProvisional } from '../contract/recipes.ts';
 import { tokenKey, type DocumentIndexV1 } from '../index/build.ts';
 
@@ -46,6 +47,14 @@ export interface Resolver {
   readonly recipe: IndexRecipeProvisional;
   readonly map: ReadonlyMap<string, readonly LocalTypeId[]>;
   readonly shard: DocumentIndexV1;
+  /** Identity of the shard this resolver was built from — lets consumers
+   *  verify the resolver/shard pair against a snapshot ref. */
+  readonly index: IndexArtifactHash;
+}
+
+/** Stable cache/lookup key for a match mode. */
+export function modeKey(mode: MatchMode): string {
+  return `${mode.case}|${mode.diacritics}`;
 }
 
 /**
@@ -70,7 +79,8 @@ export async function buildResolver(
     if (list) list.push(id as LocalTypeId);
     else map.set(folded, [id as LocalTypeId]);
   }
-  return { resolver: FOLD_RESOLVER, mode, locale, recipe, map, shard };
+  const index = await indexArtifactHash(shard);
+  return { resolver: FOLD_RESOLVER, mode, locale, recipe, map, shard, index };
 }
 
 /** Normalize a raw query surface exactly as the index normalized its keys. */

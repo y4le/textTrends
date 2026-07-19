@@ -56,9 +56,17 @@ export {
 } from './snapshot/compose.ts';
 export { resolveSelection, type ResolvedSelection, type SelectionSpec } from './snapshot/selection.ts';
 export {
+  occurrences,
+  type GroupMember,
+  type NumericOccurrences,
+  type ResolverTable,
+  type TermGroupSpec,
+} from './ops/occurrences.ts';
+export {
   buildResolver,
   FOLD_RESOLVER,
   foldKey,
+  modeKey,
   resolveAffix,
   resolveToken,
   type MatchMode,
