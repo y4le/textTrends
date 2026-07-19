@@ -1,0 +1,65 @@
+/*
+ * Design tokens — the single source of visual truth.
+ *
+ * Tufte-derived system (see docs/research/synthesis.md §4): information
+ * density, hairline rules over boxes, one accent, type carries hierarchy,
+ * mono for data. No shadows, gradients, or decorative cards.
+ */
+
+:root {
+  color-scheme: dark light;
+
+  /* Type */
+  --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'JetBrains Mono', monospace;
+  --text-xs: 0.6875rem;
+  --text-sm: 0.8125rem;
+  --text-md: 0.9375rem;
+  --text-lg: 1.25rem;
+
+  /* Dark default: warm near-black with warm paper text */
+  --bg: #16140f;
+  --fg: #e8e2d5;
+  --fg-muted: #9a937f;
+  --rule: #33302a;
+  --rule-strong: #55503f;
+  --accent: #c8442c;
+
+  /* Data series: selection gets the accent; comparisons stay grayscale first */
+  --series-focus: var(--accent);
+  --series-1: #b0a890;
+  --series-2: #756e5c;
+  --series-3: #4e483a;
+
+  --space-1: 0.25rem;
+  --space-2: 0.5rem;
+  --space-3: 1rem;
+  --space-4: 2rem;
+}
+
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #f7f3e9;
+    --fg: #1c1913;
+    --fg-muted: #6e6754;
+    --rule: #ddd6c4;
+    --rule-strong: #b3ab94;
+    --accent: #b23a24;
+    --series-1: #55503f;
+    --series-2: #8a836e;
+    --series-3: #bfb8a2;
+  }
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-ui);
+  font-size: var(--text-md);
+  line-height: 1.45;
+}

@@ -1,0 +1,18 @@
+{
+  "name": "@texttrends/core",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Environment-agnostic text analysis engine: tokenizer, positional index, analysis passes. No DOM, no worker, no filesystem assumptions.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^4.1.0"
+  }
+}
