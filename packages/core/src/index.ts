@@ -14,3 +14,24 @@ export { g2Keyness, logRatio } from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
 export { mattr, mtld } from './stats/diversity.ts';
+export { V1_CAPS } from './contract/brands.ts';
+export type * from './contract/brands.ts';
+export { canonicalJson, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export {
+  DEFAULT_INDEX_RECIPE,
+  hashIndexRecipe,
+  TOKEN_CLASS,
+  type IndexRecipeProvisional,
+} from './contract/recipes.ts';
+export { segment, fingerprint, SEGMENTER_PROBE } from './segment/intl.ts';
+export type { SegmentationBatch, SegmenterFingerprint } from './segment/intl.ts';
+export {
+  buildDocumentIndex,
+  createDocumentIndex,
+  paragraphCharStarts,
+  postingsFor,
+  tokenKey,
+  validateBatch,
+  type DocumentIndexV1,
+  type ShardIdentity,
+} from './index/build.ts';

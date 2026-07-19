@@ -1,0 +1,45 @@
+/**
+ * Branded identifiers and v1 caps — analysis contract §1.
+ *
+ * Brands guard public APIs and constructors; typed-array element reads are
+ * plain numbers by nature, so hot loops work on raw integers and validation
+ * happens at artifact construction and adapter boundaries.
+ */
+
+declare const brand: unique symbol;
+export type Brand<T, B extends string> = T & { readonly [brand]: B };
+
+export type ProjectDocId = Brand<string, 'ProjectDocId'>;
+export type SectionId = Brand<string, 'SectionId'>;
+
+export type DocOrdinal = Brand<number, 'DocOrdinal'>;
+export type LocalTypeId = Brand<number, 'LocalTypeId'>;
+export type CorpusTypeId = Brand<number, 'CorpusTypeId'>;
+export type DocTokenPos = Brand<number, 'DocTokenPos'>;
+export type Utf16Offset = Brand<number, 'Utf16Offset'>;
+
+export type SourceHash = Brand<string, 'SourceHash'>;
+export type TextHash = Brand<string, 'TextHash'>;
+export type StructureHash = Brand<string, 'StructureHash'>;
+export type IndexArtifactHash = Brand<string, 'IndexArtifactHash'>;
+export type IndexRecipeHash = Brand<string, 'IndexRecipeHash'>;
+export type QueryHash = Brand<string, 'QueryHash'>;
+export type SelectionHash = Brand<string, 'SelectionHash'>;
+export type CorpusSnapshotId = Brand<string, 'CorpusSnapshotId'>;
+export type BuildGeneration = Brand<string, 'BuildGeneration'>;
+export type JobId = Brand<number, 'JobId'>;
+
+export interface HalfOpenRange<T> {
+  readonly start: T;
+  readonly end: T;
+}
+export type TokenRange = HalfOpenRange<DocTokenPos>;
+export type CharRange = HalfOpenRange<Utf16Offset>;
+
+/** Enforced v1 limits — every position and terminal sentinel fits in Uint32. */
+export const V1_CAPS = {
+  maxDocTokens: 2 ** 31 - 1,
+  maxCorpusTokens: 2 ** 32 - 2,
+  maxVocabSize: 2 ** 31 - 1,
+  maxDocTextUtf16: 2 ** 32 - 2,
+} as const;
