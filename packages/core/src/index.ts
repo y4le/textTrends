@@ -35,3 +35,32 @@ export {
   type DocumentIndexV1,
   type ShardIdentity,
 } from './index/build.ts';
+export {
+  hashSegmenterFingerprint,
+  indexArtifactHash,
+  rootOnlyStructure,
+  structureHash,
+  type DocumentIndexIdentityV1,
+  type SegmenterFingerprintHash,
+  type StructureArtifactV1,
+} from './contract/identity.ts';
+export {
+  composeSnapshot,
+  makeReadyDocument,
+  validateSnapshot,
+  type CorpusDocRef,
+  type CorpusSnapshotV1,
+  type ReadyDocument,
+  type SnapshotLimits,
+  type SnapshotVocabularyV1,
+} from './snapshot/compose.ts';
+export { resolveSelection, type ResolvedSelection, type SelectionSpec } from './snapshot/selection.ts';
+export {
+  buildResolver,
+  FOLD_RESOLVER,
+  foldKey,
+  resolveAffix,
+  resolveToken,
+  type MatchMode,
+  type Resolver,
+} from './resolve/fold.ts';
