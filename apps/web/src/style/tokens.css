@@ -24,6 +24,8 @@
   --rule: #33302a;
   --rule-strong: #55503f;
   --accent: #c8442c;
+  /* AA-contrast accent for small text on the dark background (>=4.5:1). */
+  --accent-text: #ff8a66;
 
   /* Data series: selection gets the accent; comparisons stay grayscale first */
   --series-focus: var(--accent);
@@ -45,6 +47,7 @@
     --rule: #ddd6c4;
     --rule-strong: #b3ab94;
     --accent: #b23a24;
+    --accent-text: #8f2c1a;
     --series-1: #55503f;
     --series-2: #8a836e;
     --series-3: #bfb8a2;

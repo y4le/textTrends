@@ -5,14 +5,16 @@
  * first; a version mismatch is answered with error{PROTOCOL_VERSION}.
  */
 
-import type {
-  KwicRequest,
-  KwicRow,
-  NumericTrend,
-  SelectionSpec,
-  TermGroupSpec,
-  TrendRequest,
-} from '@texttrends/core';
+import type { KwicRequest, KwicRow, NumericTrend, TermGroupSpec, TrendRequest } from '@texttrends/core';
+
+/** Wire-level selection: plain strings; the engine brands after validation. */
+export interface WireSelection {
+  readonly docs: readonly string[];
+  readonly ranges?: readonly {
+    readonly doc: string;
+    readonly tokens: { readonly start: number; readonly end: number };
+  }[];
+}
 
 export const PROTOCOL_VERSION = 1;
 
@@ -39,9 +41,9 @@ export interface GenerationDocSpec {
 }
 
 export type QueryOp =
-  | { readonly op: 'trend'; readonly selection: SelectionSpec; readonly group: TermGroupSpec;
+  | { readonly op: 'trend'; readonly selection: WireSelection; readonly group: TermGroupSpec;
       readonly request: TrendRequest }
-  | { readonly op: 'kwic'; readonly selection: SelectionSpec; readonly group: TermGroupSpec;
+  | { readonly op: 'kwic'; readonly selection: WireSelection; readonly group: TermGroupSpec;
       readonly request: KwicRequest };
 
 export type QueryResultData =
