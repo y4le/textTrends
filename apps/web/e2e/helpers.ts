@@ -11,7 +11,7 @@ import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 export { SHERLOCK };
 export const DOC_COUNT = SHERLOCK.length;
-export const DB_NAME = 'texttrends-artifacts-index0-provisional-db1';
+export const DB_NAME = 'texttrends-artifacts-provisional-db2';
 
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
 

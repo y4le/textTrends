@@ -29,9 +29,19 @@ import {
   type ArtifactStore,
   type CacheRead,
   type DocumentIndexCacheKey,
+  type ExtractionCacheKey,
+  type StructureCacheKey,
 } from './store.ts';
 
-export const ARTIFACT_DB_NAME = 'texttrends-artifacts-index0-provisional-db1';
+/**
+ * NEW database NAME (not just a version bump): db2 adds the `extractions`
+ * and `structures` stores, an ADDITIVE layout change — but the M5 rule
+ * (honored for additive stores too, per the ingest/structure consult) is
+ * that any layout change to the disposable artifact database opens a new
+ * name. The db1 database is simply abandoned (one cold rebuild, no user
+ * data); this also avoids a cross-tab upgrade being blocked by an open db1.
+ */
+export const ARTIFACT_DB_NAME = 'texttrends-artifacts-provisional-db2';
 export const ARTIFACT_DB_VERSION = 1;
 
 export type WarnStorage = (code: StorageWarningCode, message: string) => void;
@@ -51,6 +61,24 @@ interface StoredShardV1 {
   readonly shard: DocumentIndexV1;
 }
 
+interface StoredExtractionV1 {
+  readonly schema: 'texttrends/stored-extraction/1';
+  readonly artifactSchema: 'texttrends/extraction/1';
+  readonly sourceHash: string;
+  readonly recipeHash: string;
+  readonly artifact: unknown;
+}
+
+interface StoredStructureV2 {
+  readonly schema: 'texttrends/stored-structure/2';
+  readonly artifactSchema: 'texttrends/structure/2';
+  readonly textHash: string;
+  readonly candidateHash: string;
+  readonly recipeHash: string;
+  readonly overrideHash: string;
+  readonly artifact: unknown;
+}
+
 interface ArtifactDb extends DBSchema {
   texts: {
     key: ['texttrends/stored-text/1', string];
@@ -59,6 +87,14 @@ interface ArtifactDb extends DBSchema {
   shards: {
     key: ['texttrends/document-index/1', string, string, string];
     value: StoredShardV1;
+  };
+  extractions: {
+    key: ['texttrends/extraction/1', string, string];
+    value: StoredExtractionV1;
+  };
+  structures: {
+    key: ['texttrends/structure/2', string, string, string, string];
+    value: StoredStructureV2;
   };
 }
 
@@ -83,6 +119,29 @@ function checkShardEnvelope(record: unknown, key: DocumentIndexCacheKey): string
     return 'stored shard key disagreement';
   }
   if (!isRecord(record.shard)) return 'stored shard payload is not an object';
+  return null;
+}
+
+function checkExtractionEnvelope(record: unknown, key: ExtractionCacheKey): string | null {
+  if (!isRecord(record)) return 'stored extraction is not an object';
+  if (record.schema !== 'texttrends/stored-extraction/1') return `unknown stored-extraction schema '${String(record.schema)}'`;
+  if (record.artifactSchema !== key.schema) return 'stored extraction artifact-schema disagreement';
+  if (record.sourceHash !== key.source || record.recipeHash !== key.recipe) return 'stored extraction key disagreement';
+  if (!isRecord(record.artifact)) return 'stored extraction payload is not an object';
+  return null;
+}
+
+function checkStructureEnvelope(record: unknown, key: StructureCacheKey): string | null {
+  if (!isRecord(record)) return 'stored structure is not an object';
+  if (record.schema !== 'texttrends/stored-structure/2') return `unknown stored-structure schema '${String(record.schema)}'`;
+  if (record.artifactSchema !== key.schema) return 'stored structure artifact-schema disagreement';
+  if (
+    record.textHash !== key.text || record.candidateHash !== key.candidates ||
+    record.recipeHash !== key.recipe || record.overrideHash !== key.override
+  ) {
+    return 'stored structure key disagreement';
+  }
+  if (!isRecord(record.artifact)) return 'stored structure payload is not an object';
   return null;
 }
 
@@ -191,6 +250,58 @@ export class IdbArtifactStore implements ArtifactStore {
       .catch(() => undefined);
   }
 
+  getExtraction(key: ExtractionCacheKey): Promise<CacheRead<unknown>> {
+    return this.read(
+      (db) => db.get('extractions', [key.schema, key.source, key.recipe]),
+      (record) => {
+        const reason = checkExtractionEnvelope(record, key);
+        return reason === null ? { kind: 'hit', value: (record as StoredExtractionV1).artifact } : { kind: 'corrupt', reason };
+      },
+    );
+  }
+  putExtraction(key: ExtractionCacheKey, artifact: unknown): Promise<void> {
+    const record: StoredExtractionV1 = {
+      schema: 'texttrends/stored-extraction/1',
+      artifactSchema: key.schema,
+      sourceHash: key.source,
+      recipeHash: key.recipe,
+      artifact,
+    };
+    return this.write((db) => db.put('extractions', record));
+  }
+  deleteExtraction(key: ExtractionCacheKey): Promise<void> {
+    if (!this.db) return Promise.resolve();
+    return this.db.delete('extractions', [key.schema, key.source, key.recipe]).catch(() => undefined);
+  }
+
+  getStructure(key: StructureCacheKey): Promise<CacheRead<unknown>> {
+    return this.read(
+      (db) => db.get('structures', [key.schema, key.text, key.candidates, key.recipe, key.override]),
+      (record) => {
+        const reason = checkStructureEnvelope(record, key);
+        return reason === null ? { kind: 'hit', value: (record as StoredStructureV2).artifact } : { kind: 'corrupt', reason };
+      },
+    );
+  }
+  putStructure(key: StructureCacheKey, artifact: unknown): Promise<void> {
+    const record: StoredStructureV2 = {
+      schema: 'texttrends/stored-structure/2',
+      artifactSchema: key.schema,
+      textHash: key.text,
+      candidateHash: key.candidates,
+      recipeHash: key.recipe,
+      overrideHash: key.override,
+      artifact,
+    };
+    return this.write((db) => db.put('structures', record));
+  }
+  deleteStructure(key: StructureCacheKey): Promise<void> {
+    if (!this.db) return Promise.resolve();
+    return this.db
+      .delete('structures', [key.schema, key.text, key.candidates, key.recipe, key.override])
+      .catch(() => undefined);
+  }
+
   close(): void {
     this.db?.close();
     this.db = null;
@@ -276,6 +387,12 @@ function defaultOpen(): Promise<IDBPDatabase<ArtifactDb>> {
       db.createObjectStore('texts', { keyPath: ['schema', 'hash'] });
       db.createObjectStore('shards', {
         keyPath: ['artifactSchema', 'textHash', 'recipeHash', 'segmenterHash'],
+      });
+      db.createObjectStore('extractions', {
+        keyPath: ['artifactSchema', 'sourceHash', 'recipeHash'],
+      });
+      db.createObjectStore('structures', {
+        keyPath: ['artifactSchema', 'textHash', 'candidateHash', 'recipeHash', 'overrideHash'],
       });
     },
     blocked() {
