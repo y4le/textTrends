@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { WorkerEngine } from '../src/worker/engine.ts';
 import { InMemoryArtifactStore } from '../src/worker/store.ts';
 import { PROTOCOL_VERSION, type FromWorker, type ToWorker } from '../src/worker/protocol.ts';
+import { DEFAULT_INDEX_RECIPE, hashText } from '@texttrends/core';
 
 const FOLD = { case: 'folded', diacritics: 'sensitive' } as const;
 
@@ -65,6 +66,7 @@ async function ingested(h: Harness, docs: Record<string, string>, generation = '
       language: 'en',
       sourceByteLength: docs[doc]!.length,
     })),
+    recipe: DEFAULT_INDEX_RECIPE,
   });
   let job = 10;
   for (const [doc, text] of Object.entries(docs)) {
@@ -102,15 +104,15 @@ describe('generation and ingest lifecycle', () => {
 
   it('rejects invalid UTF-8 with DECODE_FAILED', async () => {
     const h = harness();
-    await h.send({ t: 'begin-generation', job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 2 }] });
+    await h.send({ t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 2 }] });
     await h.send({ t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: Uint8Array.from([0xff, 0xfe]).buffer as ArrayBuffer });
     expect(h.last('error').code).toBe('DECODE_FAILED');
   });
 
   it('suppresses jobs from a replaced generation by identity', async () => {
     const h = harness();
-    await h.send({ t: 'begin-generation', job: 1, generation: 'old', docs: [{ doc: 'a', language: 'en', sourceByteLength: 1 }] });
-    await h.send({ t: 'begin-generation', job: 2, generation: 'new', docs: [{ doc: 'a', language: 'en', sourceByteLength: 1 }] });
+    await h.send({ t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'old', docs: [{ doc: 'a', language: 'en', sourceByteLength: 1 }] });
+    await h.send({ t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 2, generation: 'new', docs: [{ doc: 'a', language: 'en', sourceByteLength: 1 }] });
     await h.send({ t: 'ingest', job: 3, generation: 'old', doc: 'a', bytes: bytes('x') });
     expect(h.last('error').code).toBe('GENERATION_STALE');
     expect(h.all('snapshot-published').length).toBe(0);
@@ -118,17 +120,23 @@ describe('generation and ingest lifecycle', () => {
 
   it('a cancel queued at a checkpoint stops the job before publication', async () => {
     // Manual yields: the ingest parks at its first checkpoint until released.
+    // (begin-generation has its own checkpoints now, so parking starts only
+    // after the generation is open.)
+    let park = false;
     let resolveYield: (() => void) | null = null;
     const engine2Messages: FromWorker[] = [];
     const engine2 = new WorkerEngine(
       new InMemoryArtifactStore(),
       (m) => engine2Messages.push(m),
       () =>
-        new Promise<void>((resolve) => {
-          resolveYield = resolve;
-        }),
+        park
+          ? new Promise<void>((resolve) => {
+              resolveYield = resolve;
+            })
+          : Promise.resolve(),
     );
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
+    park = true;
     const ingestPromise = engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('wolf!') });
     // The job is parked at the first checkpoint; deliver a cancel, then release.
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'cancel', job: 2 });
@@ -155,7 +163,7 @@ describe('generation and ingest lifecycle', () => {
       () => Promise.resolve(),
     );
     engineRef = engine;
-    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
     await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('wolf!') });
     expect(messages.some((m) => m.t === 'snapshot-published')).toBe(false);
     expect(messages.some((m) => m.t === 'cancelled' && m.job === 2)).toBe(true);
@@ -170,13 +178,13 @@ describe('generation and ingest lifecycle', () => {
       (m) => {
         messages.push(m);
         if (m.t === 'progress' && m.phase === 'compose') {
-          void engineRef!.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 9, generation: 'g2', docs: [] });
+          void engineRef!.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 9, generation: 'g2', docs: [] });
         }
       },
       () => Promise.resolve(),
     );
     engineRef = engine;
-    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g1', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g1', docs: [{ doc: 'a', language: 'en', sourceByteLength: 5 }] });
     await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g1', doc: 'a', bytes: bytes('wolf!') });
     expect(messages.some((m) => m.t === 'snapshot-published')).toBe(false);
     expect(messages.some((m) => m.t === 'error' && m.code === 'GENERATION_STALE')).toBe(true);
@@ -187,7 +195,7 @@ describe('generation and ingest lifecycle', () => {
     // (probe hashes can collide across locales; the FULL fingerprint keys).
     const h = harness();
     await h.send({
-      t: 'begin-generation', job: 1, generation: 'g',
+      t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g',
       docs: [
         { doc: 'en-doc', language: 'en', sourceByteLength: 12 },
         { doc: 'fr-doc', language: 'fr', sourceByteLength: 12 },
@@ -213,9 +221,9 @@ describe('generation and ingest lifecycle', () => {
     anyStore.shards.set(key!, wrong);
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
-    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(messages2.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true); // rebuilt
   });
 
@@ -241,9 +249,9 @@ describe('generation and ingest lifecycle', () => {
     });
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(wrapped, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
-    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(messages2.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
     expect(deleted.length).toBe(1); // exact-record repair, not just a warning
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true); // rebuilt
   });
@@ -256,16 +264,16 @@ describe('generation and ingest lifecycle', () => {
     anyStore.shards.get(key!)!.lengths8[0] = 0; // corrupt in place
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
-    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(messages2.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
     // Third engine, same store: the rebuild must have OVERWRITTEN the corrupt
     // record, so this reopen hits the warm path with no corruption report.
     const messages3: FromWorker[] = [];
     const engine3 = new WorkerEngine(h.store, (m) => messages3.push(m), () => Promise.resolve());
-    await engine3.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g3', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine3.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g3', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine3.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g3', doc: 'a', bytes: bytes('the wolf ran') });
-    expect(messages3.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(false);
+    expect(messages3.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(false);
     const phases = messages3.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
     expect(phases).toEqual(['decode', 'compose']); // warm — no segment/index
   });
@@ -276,11 +284,518 @@ describe('generation and ingest lifecycle', () => {
     // Second engine sharing the same store: same text, fresh generation.
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
     const phases = messages2.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
     expect(phases).toEqual(['decode', 'compose']); // no segment/index on the warm path
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true);
+  });
+});
+
+describe('warm reopen (begin-generation with expectedText)', () => {
+  /** Cold-ingest docs into a store, return it plus each doc's TextHash. */
+  async function warmed(docs: Record<string, string>) {
+    const h = harness();
+    await ingested(h, docs);
+    const hashes: Record<string, string> = {};
+    for (const [doc, text] of Object.entries(docs)) hashes[doc] = await hashText(text);
+    return { store: h.store, hashes };
+  }
+
+  function specsFor(docs: Record<string, string>, hashes: Record<string, string>) {
+    return Object.entries(docs).map(([doc, text]) => ({
+      doc,
+      language: 'en',
+      sourceByteLength: text.length,
+      expectedText: hashes[doc]!,
+    }));
+  }
+
+  it('an all-warm reopen publishes ONE snapshot, no segmentation, and answers queries', async () => {
+    const docs = { a: 'the wolf ran far. a wolf slept.', b: 'no wolves here' };
+    const { store, hashes } = await warmed(docs);
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(store, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    expect(ready).toBeDefined();
+    if (ready?.t === 'generation-ready') {
+      expect(ready.missing).toEqual([]);
+      expect(ready.readyDocs).toEqual(['a', 'b']);
+      expect(ready.snapshot).not.toBeNull();
+    }
+    // The all-warm reopen must not churn snapshots: exactly one publication.
+    const published = messages.filter((m) => m.t === 'snapshot-published');
+    expect(published.length).toBe(1);
+    expect(messages.filter((m) => m.t === 'progress').length).toBe(0); // no segment/index/decode
+    // The rebound generation answers queries — including KWIC, which proves
+    // stored TEXTS were rehydrated, not just shards.
+    const snap = published[0]!.snapshot;
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'query', job: 2, snapshot: snap,
+      query: {
+        op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } },
+      } as never,
+    });
+    const result = messages.find((m) => m.t === 'result');
+    expect(result).toBeDefined();
+    if (result?.t === 'result' && result.data.op === 'kwic') {
+      expect(result.data.total).toBe(2);
+      expect(result.data.rows[0]!.nodeText).toBe('wolf');
+    }
+  });
+
+  it('a verified text with a missing shard re-indexes locally — no byte fetch needed', async () => {
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    // Drop the shard record but keep the text (e.g. a recipe change or a
+    // partial write): the warm path must rebuild from the stored text.
+    const anyStore = store as unknown as { shards: Map<string, unknown> };
+    anyStore.shards.clear();
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(store, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    if (ready?.t === 'generation-ready') {
+      expect(ready.missing).toEqual([]);
+      expect(ready.readyDocs).toEqual(['a']);
+    }
+    const phases = messages.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
+    expect(phases).toEqual(['segment', 'index', 'compose']); // rebuilt — but never decoded bytes
+    // The rebuilt shard was persisted: a THIRD engine reopens fully warm.
+    const messages3: FromWorker[] = [];
+    const engine3 = new WorkerEngine(store, (m) => messages3.push(m), () => Promise.resolve());
+    await engine3.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g3', docs: specsFor(docs, hashes),
+    });
+    expect(messages3.filter((m) => m.t === 'progress').length).toBe(0);
+    const ready3 = messages3.find((m) => m.t === 'generation-ready');
+    if (ready3?.t === 'generation-ready') expect(ready3.missing).toEqual([]);
+  });
+
+  it('warm hits publish as a batch FIRST; text-only rebuilds stream after', async () => {
+    const docs = { a: 'the wolf ran', b: 'a wolf slept' };
+    const { store, hashes } = await warmed(docs);
+    // Remove only b's shard: a is an exact hit, b is a text-only rebuild.
+    const anyStore = store as unknown as { shards: Map<string, { text: string }> };
+    for (const [key, shard] of anyStore.shards) {
+      if (shard.text === hashes.b) anyStore.shards.delete(key);
+    }
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(store, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    const published = messages.filter((m) => m.t === 'snapshot-published');
+    expect(published.length).toBe(2); // batch of hits, then the rebuild
+    expect(published[0]!.readyDocs).toEqual(['a']);
+    expect(published[1]!.readyDocs).toEqual(['a', 'b']);
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    if (ready?.t === 'generation-ready') expect(ready.missing).toEqual([]);
+    // generation-ready is the BARRIER: it must arrive after both publications.
+    expect(messages.findIndex((m) => m.t === 'generation-ready'))
+      .toBeGreaterThan(messages.findIndex((m) => m === published[1]));
+  });
+
+  it('reports exactly which docs still need bytes, with reasons', async () => {
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    // Tamper with a stored text so it no longer hashes to its key.
+    const anyStore = store as unknown as { texts: Map<string, string> };
+    const otherHash = await hashText('never stored');
+    anyStore.texts.set(hashes.a!, 'tampered content');
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(store, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2',
+      docs: [
+        { doc: 'a', language: 'en', sourceByteLength: 12, expectedText: hashes.a! },
+        { doc: 'b', language: 'en', sourceByteLength: 5, expectedText: otherHash },
+        { doc: 'c', language: 'en', sourceByteLength: 5 },
+      ],
+    });
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    expect(ready).toBeDefined();
+    if (ready?.t === 'generation-ready') {
+      expect(ready.snapshot).toBeNull();
+      expect(ready.readyDocs).toEqual([]);
+      expect(ready.missing).toEqual([
+        { doc: 'a', reason: 'text-corrupt' },
+        { doc: 'b', reason: 'text-miss' },
+        { doc: 'c', reason: 'no-text-identity' },
+      ]);
+    }
+    // The tampered record was repaired by deletion, and warned as corruption.
+    expect(anyStore.texts.has(hashes.a!)).toBe(false);
+    expect(messages.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
+    // Cold ingest of the misses then completes the corpus normally.
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
+    const pub = messages.filter((m) => m.t === 'snapshot-published');
+    expect(pub.length).toBe(1);
+    expect(pub[0]!.readyDocs).toEqual(['a']);
+  });
+
+  it('delivered bytes that contradict the asserted identity are SOURCE_MISMATCH', async () => {
+    const h = harness();
+    const asserted = await hashText('what the manifest promised');
+    await h.send({
+      t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g',
+      docs: [{ doc: 'a', language: 'en', sourceByteLength: 10, expectedText: asserted }],
+    });
+    await h.send({ t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('different content') });
+    expect(h.last('error').code).toBe('SOURCE_MISMATCH');
+    expect(h.all('snapshot-published').length).toBe(0);
+  });
+
+  it('a fixed-locale recipe overrides document language for ingest AND warm reopen', async () => {
+    // Review P1: the effective locale must come from the recipe when fixed —
+    // the builder rejects provenance whose locale disagrees with it.
+    const fixedRecipe = { ...DEFAULT_INDEX_RECIPE, locale: { mode: 'fixed' as const, value: 'en' } };
+    const h = harness();
+    await h.send({
+      t: 'begin-generation', recipe: fixedRecipe, job: 1, generation: 'g',
+      docs: [{ doc: 'a', language: 'fr', sourceByteLength: 12 }],
+    });
+    await h.send({ t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(h.all('error')).toEqual([]);
+    expect(h.all('snapshot-published').length).toBe(1);
+    // Warm reopen under the same fixed recipe hits the same cache identity.
+    const messages2: FromWorker[] = [];
+    const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
+    await engine2.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: fixedRecipe, job: 1, generation: 'g2',
+      docs: [{ doc: 'a', language: 'fr', sourceByteLength: 12, expectedText: await hashText('the wolf ran') }],
+    });
+    const ready = messages2.find((m) => m.t === 'generation-ready');
+    expect(ready).toBeDefined();
+    if (ready?.t === 'generation-ready') {
+      expect(ready.missing).toEqual([]);
+      expect(ready.readyDocs).toEqual(['a']);
+    }
+    expect(messages2.filter((m) => m.t === 'progress').length).toBe(0); // exact warm hit
+  });
+
+  it('document-metadata mode falls back when a document declares no language', async () => {
+    const h = harness();
+    await h.send({
+      t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g',
+      docs: [{ doc: 'a', language: '', sourceByteLength: 12 }],
+    });
+    await h.send({ t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(h.all('error')).toEqual([]);
+    expect(h.all('snapshot-published').length).toBe(1);
+  });
+
+  it('a doc ingested while the warm scan is parked never contradicts the barrier', async () => {
+    // Review P1: the shell dispatches without awaiting — an ingest can commit
+    // a document while begin-generation is parked on a store read. The
+    // barrier must not name that doc in BOTH readyDocs and missing.
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    // Evict the text so the parked read will resolve to a MISS.
+    (store as unknown as { texts: Map<string, string> }).texts.clear();
+    let releaseRead: ((r: { kind: 'miss' }) => void) | null = null;
+    const parkedStore = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'getText') {
+          return () =>
+            new Promise((resolve) => {
+              releaseRead = resolve;
+            });
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(parkedStore, (m) => messages.push(m), () => Promise.resolve());
+    const beginPromise = engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    // Let the scan reach the parked getText, then cold-ingest the same doc.
+    while (releaseRead === null) await new Promise((r) => setTimeout(r, 0));
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes(docs.a) });
+    expect(messages.some((m) => m.t === 'snapshot-published')).toBe(true);
+    (releaseRead as unknown as (r: { kind: 'miss' }) => void)({ kind: 'miss' });
+    await beginPromise;
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    expect(ready).toBeDefined();
+    if (ready?.t === 'generation-ready') {
+      expect(ready.readyDocs).toEqual(['a']);
+      expect(ready.missing).toEqual([]); // NOT [{doc:'a', reason:'text-miss'}]
+    }
+  });
+
+  it('a stale CORRUPT text read after a concurrent ingest commit must not delete the new write', async () => {
+    // Re-review finding: the parked read observed the OLD record; by release
+    // time ingest replaced it. "Repairing" would delete the valid new text.
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    const deletions: string[] = [];
+    let releaseRead: ((r: { kind: 'corrupt'; reason: string }) => void) | null = null;
+    let parkArmed = true;
+    const parkedStore = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'getText' && parkArmed) {
+          return () => {
+            parkArmed = false;
+            return new Promise((resolve) => {
+              releaseRead = resolve;
+            });
+          };
+        }
+        if (prop === 'deleteText') {
+          return (hash: string) => {
+            deletions.push(hash);
+            return store.deleteText(hash);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(parkedStore, (m) => messages.push(m), () => Promise.resolve());
+    const beginPromise = engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    while (releaseRead === null) await new Promise((r) => setTimeout(r, 0));
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes(docs.a) });
+    (releaseRead as unknown as (r: { kind: 'corrupt'; reason: string }) => void)({ kind: 'corrupt', reason: 'stale envelope' });
+    await beginPromise;
+    expect(deletions).toEqual([]); // the valid replacement was NOT repaired away
+    expect(messages.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(false);
+    const ready = messages.find((m) => m.t === 'generation-ready');
+    if (ready?.t === 'generation-ready') {
+      expect(ready.readyDocs).toEqual(['a']);
+      expect(ready.missing).toEqual([]);
+    }
+    // The proof of non-destruction: a THIRD engine warm-opens clean.
+    const messages3: FromWorker[] = [];
+    const engine3 = new WorkerEngine(store, (m) => messages3.push(m), () => Promise.resolve());
+    await engine3.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g3', docs: specsFor(docs, hashes),
+    });
+    const ready3 = messages3.find((m) => m.t === 'generation-ready');
+    expect(ready3).toBeDefined();
+    if (ready3?.t === 'generation-ready') expect(ready3.missing).toEqual([]);
+  });
+
+  it('a stale CORRUPT shard read after a concurrent ingest commit must not delete the new write', async () => {
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    const deletions: unknown[] = [];
+    let releaseShard: ((r: { kind: 'corrupt'; reason: string }) => void) | null = null;
+    let parkArmed = true;
+    const parkedStore = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'getShard' && parkArmed) {
+          return () => {
+            parkArmed = false;
+            return new Promise((resolve) => {
+              releaseShard = resolve;
+            });
+          };
+        }
+        if (prop === 'deleteShard') {
+          return (key: never) => {
+            deletions.push(key);
+            return store.deleteShard(key);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(parkedStore, (m) => messages.push(m), () => Promise.resolve());
+    const beginPromise = engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    while (releaseShard === null) await new Promise((r) => setTimeout(r, 0));
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes(docs.a) });
+    (releaseShard as unknown as (r: { kind: 'corrupt'; reason: string }) => void)({ kind: 'corrupt', reason: 'stale envelope' });
+    await beginPromise;
+    expect(deletions).toEqual([]);
+    expect(messages.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(false);
+    // A THIRD engine still warm-opens with zero progress (shard intact).
+    const messages3: FromWorker[] = [];
+    const engine3 = new WorkerEngine(store, (m) => messages3.push(m), () => Promise.resolve());
+    await engine3.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g3', docs: specsFor(docs, hashes),
+    });
+    expect(messages3.filter((m) => m.t === 'progress').length).toBe(0);
+    const ready3 = messages3.find((m) => m.t === 'generation-ready');
+    if (ready3?.t === 'generation-ready') expect(ready3.missing).toEqual([]);
+  });
+
+  it('sequential re-ingest of a ready document still repairs REAL corruption (both kinds)', async () => {
+    // Round-3 review: readiness alone is not supersession — a normal
+    // re-ingest of an already published doc must report and delete a
+    // genuinely corrupt record, not silently skip repair.
+
+    // (a) failed deep verification: tamper the stored shard in place.
+    const h = harness();
+    await ingested(h, { a: 'the wolf ran' });
+    const anyStore = h.store as unknown as { shards: Map<string, { lengths8: Uint8Array }> };
+    const [key] = anyStore.shards.keys();
+    anyStore.shards.get(key!)!.lengths8[0] = 0;
+    const warningsBefore = h.all('warning').length;
+    await h.send({ t: 'ingest', job: 30, generation: 'gen-1', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(h.all('warning').slice(warningsBefore).some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    expect(h.all('snapshot-published').length).toBe(2); // rebuilt and republished
+
+    // (b) store-reported envelope corruption on the next read.
+    const docs = { b: 'a wolf slept' };
+    const h2 = harness();
+    await ingested(h2, docs, 'gen-2');
+    const deletions: unknown[] = [];
+    let corruptOnce = true;
+    const corruptingStore = new Proxy(h2.store, {
+      get(target, prop, receiver) {
+        if (prop === 'getShard' && corruptOnce) {
+          return () => {
+            corruptOnce = false;
+            return Promise.resolve({ kind: 'corrupt', reason: 'flipped bit' });
+          };
+        }
+        if (prop === 'deleteShard') {
+          return (k: never) => {
+            deletions.push(k);
+            return h2.store.deleteShard(k);
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(corruptingStore, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g3', docs: [{ doc: 'b', language: 'en', sourceByteLength: 12 }],
+    });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g3', doc: 'b', bytes: bytes(docs.b) });
+    // First ingest read the corrupt record: it must repair, then a SECOND
+    // sequential ingest of the now-ready doc must also repair if corrupt.
+    expect(messages.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
+    expect(deletions.length).toBe(1);
+    corruptOnce = true; // the doc is READY now; corruption must still repair
+    const warningsBefore2 = messages.filter((m) => m.t === 'warning').length;
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 3, generation: 'g3', doc: 'b', bytes: bytes(docs.b) });
+    expect(messages.filter((m) => m.t === 'warning').slice(warningsBefore2).some((w) => 'code' in w && w.code === 'CACHE_CORRUPT')).toBe(true);
+    expect(deletions.length).toBe(2);
+  });
+
+  it('a cancel during source hashing reports cancelled, never SOURCE_MISMATCH', async () => {
+    // Review P2: park Web Crypto's digest, cancel the job, then release —
+    // the ownership gate after hashing must win over the identity check.
+    const h = harness();
+    const asserted = await hashText('what the manifest promised');
+    await h.send({
+      t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g',
+      docs: [{ doc: 'a', language: 'en', sourceByteLength: 10, expectedText: asserted }],
+    });
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let releaseDigest: (() => void) | null = null;
+    let armed = true;
+    const digestSpy = (algorithm: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> => {
+      if (!armed) return realDigest(algorithm, data);
+      armed = false;
+      return new Promise((resolve) => {
+        releaseDigest = () => resolve(realDigest(algorithm, data));
+      });
+    };
+    Object.defineProperty(crypto.subtle, 'digest', { value: digestSpy, configurable: true });
+    try {
+      const ingestPromise = h.send({ t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('different content') });
+      while (releaseDigest === null) await new Promise((r) => setTimeout(r, 0));
+      await h.send({ t: 'cancel', job: 2 });
+      (releaseDigest as unknown as () => void)();
+      await ingestPromise;
+    } finally {
+      Object.defineProperty(crypto.subtle, 'digest', { value: realDigest, configurable: true });
+    }
+    expect(h.all('error').map((e) => e.code)).not.toContain('SOURCE_MISMATCH');
+    expect(h.messages.some((m) => m.t === 'cancelled' && m.job === 2)).toBe(true);
+  });
+
+  it('a cancel during cache admission reports cancelled before any progress', async () => {
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    let releaseShardRead: ((r: { kind: 'miss' }) => void) | null = null;
+    const parkedStore = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'getShard') {
+          return () =>
+            new Promise((resolve) => {
+              releaseShardRead = resolve;
+            });
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(parkedStore, (m) => messages.push(m), () => Promise.resolve());
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2',
+      docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }],
+    });
+    const ingestPromise = engine.handle({
+      v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes(docs.a),
+    });
+    while (releaseShardRead === null) await new Promise((r) => setTimeout(r, 0));
+    const before = messages.filter((m) => m.t === 'progress').length;
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'cancel', job: 2 });
+    (releaseShardRead as unknown as (r: { kind: 'miss' }) => void)({ kind: 'miss' });
+    await ingestPromise;
+    expect(messages.some((m) => m.t === 'cancelled' && m.job === 2)).toBe(true);
+    expect(messages.filter((m) => m.t === 'progress').length).toBe(before); // no segment/index after cancel
+    expect(messages.some((m) => m.t === 'snapshot-published')).toBe(false);
+    void hashes;
+  });
+
+  it('a cancelled warm rehydration stops without a generation-ready barrier', async () => {
+    const docs = { a: 'the wolf ran' };
+    const { store, hashes } = await warmed(docs);
+    let park = false;
+    let resolveYield: (() => void) | null = null;
+    const messages: FromWorker[] = [];
+    const engine = new WorkerEngine(
+      store,
+      (m) => messages.push(m),
+      () =>
+        park
+          ? new Promise<void>((resolve) => {
+              resolveYield = resolve;
+            })
+          : Promise.resolve(),
+    );
+    park = true;
+    const beginPromise = engine.handle({
+      v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE,
+      job: 1, generation: 'g2', docs: specsFor(docs, hashes),
+    });
+    await Promise.resolve(); // reach the parked first checkpoint
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'cancel', job: 1 });
+    while (resolveYield === null) await new Promise((r) => setTimeout(r, 0));
+    (resolveYield as unknown as () => void)();
+    await beginPromise;
+    expect(messages.some((m) => m.t === 'cancelled' && m.job === 1)).toBe(true);
+    expect(messages.some((m) => m.t === 'generation-ready')).toBe(false);
+    expect(messages.some((m) => m.t === 'snapshot-published')).toBe(false);
   });
 });
 
@@ -464,7 +979,7 @@ describe('queries and excerpts', () => {
             })
           : Promise.resolve(),
     );
-    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 4 }] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 4 }] });
     await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('wolf') });
     const pub = messages.find((m) => m.t === 'snapshot-published')!;
     manual = true;
@@ -476,7 +991,7 @@ describe('queries and excerpts', () => {
       } as never,
     });
     await Promise.resolve(); // let the query reach its parked checkpoint
-    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 4, generation: 'g2', docs: [] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 4, generation: 'g2', docs: [] });
     while (resolveYield === null) await new Promise((r) => setTimeout(r, 0));
     (resolveYield as unknown as () => void)();
     await queryPromise;
@@ -500,7 +1015,7 @@ describe('queries and excerpts', () => {
       }
     });
     engineRef = engine;
-    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 4 }] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 4 }] });
     await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('wolf') });
     const pub = messages.find((m) => m.t === 'snapshot-published')!;
     counting = true;
@@ -525,9 +1040,9 @@ describe('queries and excerpts', () => {
     record.lengths8[0] = 0; // same key, same descriptor — corrupt array bytes
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
-    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(messages2.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
     const phases = messages2.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
     expect(phases).toContain('segment'); // rebuilt, not silently served
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true);
@@ -541,9 +1056,9 @@ describe('queries and excerpts', () => {
     anyStore.shards.get(key!)!.startsUtf16[1] = 100; // valid ABI, beyond this text
     const messages2: FromWorker[] = [];
     const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
-    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 10 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 10 }] });
     await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('alpha wolf') });
-    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(messages2.some((m) => m.t === 'warning' && m.code === 'CACHE_CORRUPT')).toBe(true);
     const phases = messages2.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
     expect(phases).toContain('segment');
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true);
@@ -592,7 +1107,7 @@ describe('queries and excerpts', () => {
       query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: null } as never,
     });
     expect(h.last('error').code).toBe('REQUEST_INVALID');
-    await h.send({ t: 'begin-generation', job: 62, generation: 'gx', docs: null as never });
+    await h.send({ t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 62, generation: 'gx', docs: null as never });
     expect(h.last('error').code).toBe('PARSE_FAILED');
     // Member ELEMENTS narrow too — INTERNAL is reserved for genuine faults.
     await h.send({

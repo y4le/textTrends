@@ -401,13 +401,19 @@ describe('store intent discipline', () => {
     expect(store.getState().passage).toBeNull();
   });
 
-  it('manifest byte lengths and hash prefixes match the shipped assets', async () => {
+  it('manifest byte lengths and text hashes match the shipped assets', async () => {
     const { readFile } = await import('node:fs/promises');
     const { createHash } = await import('node:crypto');
-    for (const { doc, bytes, sha256Prefix } of SHERLOCK) {
+    const { hashText } = await import('@texttrends/core');
+    for (const { doc, bytes, textHash } of SHERLOCK) {
       const data = await readFile(new URL(`../public/corpora/sherlock/${doc}`, import.meta.url));
       expect(data.byteLength, doc).toBe(bytes);
-      expect(createHash('sha256').update(data).digest('hex').slice(0, 16), doc).toBe(sha256Prefix);
+      // Both readings must agree: the file-byte hash AND the TextHash of the
+      // decoded text (what the worker computes and rehydrates against) — this
+      // is what makes the manifest hash a valid expectedText identity.
+      expect(createHash('sha256').update(data).digest('hex'), doc).toBe(textHash);
+      const decoded = new TextDecoder('utf-8', { fatal: true }).decode(data);
+      expect(await hashText(decoded), doc).toBe(textHash);
     }
   });
 

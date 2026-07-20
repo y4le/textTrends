@@ -33,17 +33,23 @@ import {
 import type { SnapshotInfo } from './client.ts';
 import type { GenerationDocSpec, QueryResultData } from '../worker/protocol.ts';
 
-/** Manifest with the exact staged LF byte lengths and content-hash prefixes —
+/** Manifest with the exact staged LF byte lengths and FULL content hashes —
  *  a 200-with-HTML-shell response must never be indexed as a book, and a
  *  fixture compares every entry against the shipped assets (round 2: the
- *  first manifest carried pre-normalization CRLF sizes and rejected all six). */
-export const SHERLOCK: readonly { doc: string; bytes: number; sha256Prefix: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, sha256Prefix: 'dfee04ef99ffe3d0' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, sha256Prefix: '81c87d8455b08a0e' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, sha256Prefix: '3552d466d95a92fb' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, sha256Prefix: '9ee3b066f7d761ab' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, sha256Prefix: '6f2bd20772b2958e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, sha256Prefix: '190bdeb3e25d6553' },
+ *  first manifest carried pre-normalization CRLF sizes and rejected all six).
+ *
+ *  `textHash` is the authoritative expected TextHash (M5 consult): these
+ *  files are UTF-8 with no ill-formed sequences, so hashText(decoded text)
+ *  equals the SHA-256 of the file bytes — the fixture asserts BOTH readings
+ *  agree. It is the warm-reopen identity the worker rehydrates against;
+ *  a mutable doc-label → hash cache must never outrank this manifest. */
+export const SHERLOCK: readonly { doc: string; bytes: number; textHash: string }[] = [
+  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
+  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
+  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
+  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
+  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
+  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
 ];
 
 export interface KwicRowView {
@@ -59,7 +65,11 @@ export interface ClientLike {
   onSnapshot(listener: (info: SnapshotInfo) => void): void;
   onProgress(listener: (p: { doc: string; phase: string }) => void): void;
   onIngestError(listener: (generation: string, message: string) => void): void;
-  beginGeneration(generation: string, docs: readonly GenerationDocSpec[]): void;
+  beginGeneration(
+    generation: string,
+    docs: readonly GenerationDocSpec[],
+    recipe: typeof DEFAULT_INDEX_RECIPE,
+  ): void;
   ingest(generation: string, doc: string, bytes: ArrayBuffer): void;
   query(
     snapshot: string,
@@ -346,6 +356,7 @@ export function createAppStore(client: ClientLike) {
         client.beginGeneration(
           generation,
           SHERLOCK.map(({ doc, bytes }) => ({ doc, language: 'en', sourceByteLength: bytes })),
+          DEFAULT_INDEX_RECIPE,
         );
         for (const { doc, bytes } of SHERLOCK) {
           try {

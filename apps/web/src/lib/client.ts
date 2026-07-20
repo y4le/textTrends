@@ -5,6 +5,7 @@
  * Corpus bytes are TRANSFERRED, never cloned.
  */
 
+import type { IndexRecipeProvisional } from '@texttrends/core';
 import type {
   FromWorker,
   GenerationDocSpec,
@@ -109,6 +110,14 @@ export class WorkerClient {
       }
       case 'source-ready':
         return;
+      case 'warning':
+        // Storage health is non-fatal by contract; surfaced fully when the
+        // warm-open client flow lands (M5 client commit).
+        console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
+        return;
+      case 'generation-ready':
+        // Consumed by openGeneration in the M5 client commit.
+        return;
     }
   }
 
@@ -117,8 +126,8 @@ export class WorkerClient {
     else this.worker.postMessage(message);
   }
 
-  beginGeneration(generation: string, docs: readonly GenerationDocSpec[]): void {
-    this.post({ v: PROTOCOL_VERSION, t: 'begin-generation', job: this.nextJob++, generation, docs });
+  beginGeneration(generation: string, docs: readonly GenerationDocSpec[], recipe: IndexRecipeProvisional): void {
+    this.post({ v: PROTOCOL_VERSION, t: 'begin-generation', job: this.nextJob++, generation, docs, recipe });
   }
 
   ingest(generation: string, doc: string, bytes: ArrayBuffer): void {
