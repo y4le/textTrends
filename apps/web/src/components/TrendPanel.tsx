@@ -1,157 +1,468 @@
 /**
- * Trend small multiples — one row per document, shared rate scale, unsmoothed
- * equal-token bins with a bin-resolution barcode beneath each. Tufte:
- * hairline rules, direct labels, no legend, no chrome. (Exact per-occurrence
- * barcodes and axis-hover excerpts land when the occurrences op and a
- * token→char excerpt request are exposed through the client — the honest
- * version needs char offsets this panel does not yet have.)
+ * Trend comparison — two views over the same declared-sequence results:
+ *
+ * - 'series' (primary): one axis, books concatenated in declared reading
+ *   order with token-proportional widths (sequenceBases + docTokenCount).
+ *   One line per term. Paths BREAK at every book boundary — a slope from the
+ *   last bin of one book into the first bin of the next would fabricate a
+ *   trend across a structural discontinuity.
+ * - 'by-book': one row per book on a normalized 0–100% axis, all terms in
+ *   each row.
+ *
+ * Both views share one y-scale (rate/10k across every term and book) so
+ * magnitude comparison stays honest. Values are unsmoothed. Series identity
+ * is color + dash + chips/direct labels — never color alone. The plot holds
+ * until every non-failed series resolves so the shared scale never jumps.
+ * Exact values live in the per-book summary table (counts and rates are
+ * summed/recomputed, never averaged from bin rates).
  */
 
 import { scaleLinear } from 'd3-scale';
+import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { slotColor, slotDash } from '../lib/series-style.ts';
+import { binSpan, clampToSpan, spreadLabels } from '../lib/trend-geometry.ts';
+import type { SeriesIntent } from '../lib/store.ts';
 
 const WIDTH = 720;
+const SERIES_HEIGHT = 180;
+const TOP_PAD = 14; // room for the y-max direct label above the plot
 const ROW_HEIGHT = 44;
-const BARCODE_HEIGHT = 8;
-const GAP = 26;
-const LABEL_GAP = 4;
+const ROW_GAP = 22;
+const LABEL_SPACE = 130;
+const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
+const MIN_LABEL_GAP = 12;
+
+interface ReadySeries {
+  readonly intent: SeriesIntent;
+  readonly trend: NumericTrend;
+}
+
+function shortTitle(doc: string): { n: string | null; title: string } {
+  const m = /^(\d+) - (.*?)(?: - Arthur Conan Doyle)?$/.exec(doc);
+  if (m) return { n: m[1]!, title: m[2]! };
+  return { n: null, title: doc };
+}
 
 export function TrendPanel() {
-  const trend = useApp((s) => s.trend);
-  const kwic = useApp((s) => s.kwic);
-  const term = useApp((s) => s.term);
-  if (!trend) return null;
+  const series = useApp((s) => s.series);
+  const trends = useApp((s) => s.trends);
+  const trendView = useApp((s) => s.trendView);
+  const focusedSeries = useApp((s) => s.focusedSeries);
+  const setFocus = useApp((s) => s.setFocus);
+  if (series.length === 0) return null;
 
-  const docs = trend.order;
-  const bins = trend.binIndex.length / docs.length;
-  const maxRate = Math.max(1e-9, ...Array.from(trend.ratePer10k));
-  const x = scaleLinear([0, bins], [0, WIDTH]);
-  const y = scaleLinear([0, maxRate], [ROW_HEIGHT, 0]);
-  const height = docs.length * (ROW_HEIGHT + BARCODE_HEIGHT + GAP) + 10;
+  const states = series.map((intent) => ({ intent, state: trends.get(intent.id) }));
+  const pending = states.filter((s) => !s.state || s.state.status === 'pending');
+  const failed = states.filter((s) => s.state?.status === 'error');
+  const ready: ReadySeries[] = states.flatMap(({ intent, state }) =>
+    state?.status === 'ready' ? [{ intent, trend: state.trend }] : [],
+  );
+
+  // Hold the comparison until the current set settles: a shared y-scale that
+  // re-fits as each line lands reads as data changing when it isn't.
+  if (pending.length > 0) {
+    return (
+      <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
+    );
+  }
+  if (ready.length === 0) {
+    return failed.length > 0 ? (
+      <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+        {failed.map((f) => f.intent.label).join(', ')}: query failed
+      </p>
+    ) : null;
+  }
+
+  // Geometry is identical across series (same snapshot, selection, bins) —
+  // take it from the first ready result.
+  const geo = ready[0]!.trend;
+  const docs = geo.order;
+  const bins = docs.length === 0 ? 0 : geo.binIndex.length / docs.length;
+  const bases = geo.sequenceBases ?? docs.map((_, d) => d * (geo.docTokenCount[d] ?? 0));
+  const maxRate = Math.max(
+    1e-9,
+    ...ready.map((r) => Math.max(...Array.from(r.trend.ratePer10k))),
+  );
+  const strokeFor = (id: string) => (id === focusedSeries ? 2.5 : 1.5);
+
+  // Per-book / corpus exact totals (sums of counts and denominators — never
+  // averages of rates).
+  const bookCount = (t: NumericTrend, d: number) => {
+    let c = 0;
+    for (let b = 0; b < bins; b++) c += t.count[d * bins + b] as number;
+    return c;
+  };
+  const bookTokens = (d: number) => {
+    let n = 0;
+    for (let b = 0; b < bins; b++) n += geo.binTokens[d * bins + b] as number;
+    return n;
+  };
+  const totalTokens = docs.reduce((s, _, d) => s + bookTokens(d), 0);
+
+  const methodLine = `rate per 10k tokens · ${bins} equal-token bins per book · unsmoothed · books token-proportional in declared order`;
 
   return (
     <section>
       <h2
         style={{
-          fontSize: 'var(--text-sm)',
+          fontSize: 'var(--text-xs)',
           fontFamily: 'var(--font-mono)',
+          fontWeight: 400,
           color: 'var(--fg-muted)',
           margin: '0 0 var(--space-2)',
         }}
       >
-        {term} · rate per 10k tokens · {bins} equal-token bins per book
-        {kwic ? ` · ${kwic.total} occurrences` : ''}
+        {methodLine}
+        {failed.length > 0 && (
+          <span style={{ color: 'var(--accent-text)' }}>
+            {' '}· failed: {failed.map((f) => f.intent.label).join(', ')}
+          </span>
+        )}
       </h2>
-      <svg
-        width={WIDTH + 150}
-        height={height}
-        role="img"
-        aria-label={`Trend of ${term} across ${docs.length} documents`}
+      {trendView === 'series' ? (
+        <SeriesView
+          ready={ready}
+          docs={docs}
+          bins={bins}
+          bases={bases}
+          maxRate={maxRate}
+          strokeFor={strokeFor}
+          onFocus={setFocus}
+        />
+      ) : (
+        <ByBookView
+          ready={ready}
+          docs={docs}
+          bins={bins}
+          maxRate={maxRate}
+          strokeFor={strokeFor}
+          onFocus={setFocus}
+        />
+      )}
+      <table
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          borderCollapse: 'collapse',
+          marginTop: 'var(--space-3)',
+        }}
       >
-        {docs.map((doc, d) => {
-          const rowY = d * (ROW_HEIGHT + BARCODE_HEIGHT + GAP);
-          const rows = Array.from({ length: bins }, (_, b) => {
-            const i = d * bins + b;
-            return {
-              bin: b,
-              rate: trend.ratePer10k[i] as number,
-              count: trend.count[i] as number,
-            };
-          });
-          const path = rows
-            .map(
-              (r, i) =>
-                `${i === 0 ? 'M' : 'L'}${x(r.bin + 0.5).toFixed(1)},${(rowY + y(r.rate)).toFixed(1)}`,
-            )
-            .join(' ');
-          const total = rows.reduce((s, r) => s + r.count, 0);
-          return (
-            <g key={doc}>
-              <line
-                x1={0}
-                y1={rowY + ROW_HEIGHT}
-                x2={WIDTH}
-                y2={rowY + ROW_HEIGHT}
-                stroke="var(--rule)"
-                strokeWidth={1}
-              />
-              <path d={path} fill="none" stroke="var(--series-focus)" strokeWidth={1.25} />
-              {rows.map((r) => (
-                <rect
-                  key={r.bin}
-                  x={x(r.bin)}
-                  y={rowY}
-                  width={Math.max(1, x(1) - x(0))}
-                  height={ROW_HEIGHT + BARCODE_HEIGHT}
-                  fill="transparent"
-                >
-                  <title>{`bin ${r.bin + 1}: ${r.count}× (${r.rate.toFixed(1)}/10k)`}</title>
-                </rect>
-              ))}
-              {rows
-                .filter((r) => r.count > 0)
-                .map((r) => (
-                  <rect
-                    key={`bc-${r.bin}`}
-                    x={x(r.bin)}
-                    y={rowY + ROW_HEIGHT + 2}
-                    width={1.5}
-                    height={BARCODE_HEIGHT - 2}
-                    fill="var(--series-1)"
-                  />
-                ))}
-              <text
-                x={WIDTH + LABEL_GAP}
-                y={rowY + ROW_HEIGHT - 2}
-                fill="var(--fg)"
-                fontSize="var(--text-xs)"
-                fontFamily="var(--font-mono)"
-              >
-                {doc.replace(/ - Arthur Conan Doyle$/, '').replace(/^\d+ - /, '').slice(0, 20)} · {total}
-              </text>
-            </g>
-          );
-        })}
-      </svg>
-      <p style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', margin: 'var(--space-1) 0 0' }}>
-        Barcode marks bins containing at least one hit (bin presence, not exact
-        positions — exact occurrence ticks are coming). Chart values are in the
-        table below.
-      </p>
-      <details style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', marginTop: 'var(--space-1)' }}>
-        <summary>Data table (accessible alternative)</summary>
-        <table style={{ fontFamily: 'var(--font-mono)', borderCollapse: 'collapse' }}>
-          <caption style={{ textAlign: 'left' }}>
-            Per-bin values for “{term}” by book: count · rate per 10k tokens ·
-            tokens in bin (the chart plots the rate)
-          </caption>
-          <thead>
-            <tr>
-              <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>book</th>
-              {Array.from({ length: bins }, (_, b) => (
-                <th key={b} scope="col" style={{ fontWeight: 400, padding: '0 2px' }}>{b + 1}</th>
-              ))}
-            </tr>
-          </thead>
-          <tbody>
-            {docs.map((doc, d) => (
-              <tr key={doc}>
-                <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch' }}>
-                  {doc.replace(/ - Arthur Conan Doyle$/, '').slice(0, 20)}
+        <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
+          Exact totals by book (count · rate per 10k tokens)
+        </caption>
+        <thead>
+          <tr style={{ color: 'var(--fg-muted)' }}>
+            <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>book</th>
+            <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>tokens</th>
+            {ready.map((r) => (
+              <th key={r.intent.id} scope="col" colSpan={2} style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>
+                {r.intent.label}
+              </th>
+            ))}
+          </tr>
+          <tr style={{ color: 'var(--fg-muted)' }}>
+            <th aria-hidden="true" />
+            <th aria-hidden="true" />
+            {ready.map((r) => (
+              <SubHeads key={r.intent.id} />
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {docs.map((doc, d) => {
+            const { n, title } = shortTitle(doc);
+            const tokens = bookTokens(d);
+            return (
+              <tr key={doc} style={{ borderTop: '1px solid var(--rule)' }}>
+                <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch', whiteSpace: 'nowrap' }}>
+                  {n ? `${n} · ${title}` : title}
                 </th>
-                {Array.from({ length: bins }, (_, b) => {
-                  const i = d * bins + b;
+                <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
+                  {tokens.toLocaleString()}
+                </td>
+                {ready.map((r) => {
+                  const c = bookCount(r.trend, d);
                   return (
-                    <td key={b} style={{ textAlign: 'right', padding: '0 4px', whiteSpace: 'nowrap' }}>
-                      {trend.count[i]} · {(trend.ratePer10k[i] as number).toFixed(1)} · {trend.binTokens[i]}
-                    </td>
+                    <Cells key={r.intent.id} count={c} rate={tokens === 0 ? 0 : (c / tokens) * 10_000} />
                   );
                 })}
               </tr>
-            ))}
-          </tbody>
-        </table>
-      </details>
+            );
+          })}
+          <tr style={{ borderTop: '1px solid var(--rule-strong)' }}>
+            <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch' }}>corpus</th>
+            <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
+              {totalTokens.toLocaleString()}
+            </td>
+            {ready.map((r) => {
+              const c = docs.reduce((s, _, d) => s + bookCount(r.trend, d), 0);
+              return (
+                <Cells key={r.intent.id} count={c} rate={totalTokens === 0 ? 0 : (c / totalTokens) * 10_000} />
+              );
+            })}
+          </tr>
+        </tbody>
+      </table>
     </section>
+  );
+}
+
+function SubHeads() {
+  return (
+    <>
+      <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 0 0 1ch' }}>n</th>
+      <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch 0 0.5ch' }}>/10k</th>
+    </>
+  );
+}
+
+function Cells({ count, rate }: { count: number; rate: number }) {
+  return (
+    <>
+      <td style={{ textAlign: 'right', padding: '0 0 0 1ch' }}>{count}</td>
+      <td style={{ textAlign: 'right', padding: '0 1ch 0 0.5ch' }}>{rate.toFixed(1)}</td>
+    </>
+  );
+}
+
+function SeriesView({
+  ready,
+  docs,
+  bins,
+  bases,
+  maxRate,
+  strokeFor,
+  onFocus,
+}: {
+  ready: readonly ReadySeries[];
+  docs: readonly string[];
+  bins: number;
+  bases: readonly number[];
+  maxRate: number;
+  strokeFor: (id: string) => number;
+  onFocus: (id: string) => void;
+}) {
+  const geo = ready[0]!.trend;
+  const totalTokens =
+    docs.length === 0 ? 0 : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0);
+  const x = scaleLinear([0, Math.max(1, totalTokens)], [0, WIDTH]);
+  const y = scaleLinear([0, maxRate], [SERIES_HEIGHT, TOP_PAD]);
+  const axisY = SERIES_HEIGHT;
+  const height = SERIES_HEIGHT + 34;
+
+  // One path segment per (series, doc) — the break at every boundary is
+  // mandatory; connecting them would invent data.
+  const pointX = (d: number, b: number) => {
+    const tokens = geo.docTokenCount[d] ?? 0;
+    const { start, end } = binSpan(tokens, bins, b);
+    return x((bases[d] ?? 0) + (start + end) / 2);
+  };
+
+  const endPoints = ready.map((r) => {
+    const d = docs.length - 1;
+    const lastRate = d < 0 ? 0 : (r.trend.ratePer10k[d * bins + (bins - 1)] as number);
+    return y(lastRate);
+  });
+  const labelY = spreadLabels(endPoints, TOP_PAD + 4, SERIES_HEIGHT - 2, MIN_LABEL_GAP);
+
+  return (
+    <svg
+      width={WIDTH + LABEL_SPACE}
+      height={height}
+      role="img"
+      aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} across ${docs.length} books in reading order`}
+    >
+      <line x1={0} y1={axisY} x2={WIDTH} y2={axisY} stroke="var(--rule-strong)" strokeWidth={1} />
+      {docs.map((doc, d) => {
+        const x0 = x(bases[d] ?? 0);
+        const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+        const { n, title } = shortTitle(doc);
+        const label = (x1 - x0) > 7 * (title.length + (n ? 4 : 0)) ? (n ? `${n} · ${title}` : title) : n ?? '·';
+        return (
+          <g key={doc}>
+            {d > 0 && (
+              <line x1={x0} y1={0} x2={x0} y2={axisY} stroke="var(--rule)" strokeWidth={1} />
+            )}
+            <text
+              x={(x0 + x1) / 2}
+              y={axisY + 14}
+              textAnchor="middle"
+              fill="var(--fg-muted)"
+              fontSize="var(--text-xs)"
+              fontFamily="var(--font-mono)"
+            >
+              {label}
+              <title>{title}</title>
+            </text>
+          </g>
+        );
+      })}
+      {/* y extent, direct-labeled at the max gridline — no axis chrome */}
+      <line x1={0} y1={y(maxRate)} x2={WIDTH} y2={y(maxRate)} stroke="var(--rule)" strokeWidth={1} />
+      <text x={0} y={y(maxRate) - 3} fill="var(--fg-muted)" fontSize="var(--text-xs)" fontFamily="var(--font-mono)">
+        {maxRate.toFixed(1)}/10k
+      </text>
+      {ready.map((r) =>
+        docs.map((doc, d) => {
+          const x0 = x(bases[d] ?? 0);
+          const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+          const path = Array.from({ length: bins }, (_, b) => {
+            const rate = r.trend.ratePer10k[d * bins + b] as number;
+            // Keep the visual boundary silence (gap applies only when the
+            // span can contain it — narrow/empty books collapse safely).
+            const clamped = clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP);
+            return `${b === 0 ? 'M' : 'L'}${clamped.toFixed(1)},${y(rate).toFixed(1)}`;
+          }).join(' ');
+          return (
+            <path
+              key={`${r.intent.id}:${doc}`}
+              d={path}
+              fill="none"
+              stroke={slotColor(r.intent.styleSlot)}
+              strokeWidth={strokeFor(r.intent.id)}
+              strokeDasharray={slotDash(r.intent.styleSlot)}
+              strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+              style={{ cursor: 'pointer' }}
+              onClick={() => onFocus(r.intent.id)}
+            />
+          );
+        }),
+      )}
+      {/* Direct end labels, collision-spread, foreground text + colored leader */}
+      {ready.map((r, i) => (
+        <g key={`label-${r.intent.id}`}>
+          <line
+            x1={WIDTH + 2}
+            y1={endPoints[i]!}
+            x2={WIDTH + 14}
+            y2={labelY[i]!}
+            stroke={slotColor(r.intent.styleSlot)}
+            strokeWidth={1}
+            strokeDasharray={slotDash(r.intent.styleSlot)}
+          />
+          <text
+            x={WIDTH + 18}
+            y={labelY[i]! + 3}
+            fill="var(--fg)"
+            fontSize="var(--text-xs)"
+            fontFamily="var(--font-mono)"
+            style={{ cursor: 'pointer' }}
+            onClick={() => onFocus(r.intent.id)}
+          >
+            {r.intent.label}
+          </text>
+        </g>
+      ))}
+      {/* Hover layer: one column per (book, bin) reporting every series */}
+      {docs.map((doc, d) =>
+        Array.from({ length: bins }, (_, b) => {
+          const tokens = geo.docTokenCount[d] ?? 0;
+          const { start, end } = binSpan(tokens, bins, b);
+          const x0 = x((bases[d] ?? 0) + start);
+          const w = Math.max(1, x((bases[d] ?? 0) + end) - x0);
+          const { title } = shortTitle(doc);
+          const lines = ready
+            .map((r) => {
+              const iRow = d * bins + b;
+              return `${r.intent.label}: ${r.trend.count[iRow]}× (${(r.trend.ratePer10k[iRow] as number).toFixed(1)}/10k)`;
+            })
+            .join('\n');
+          return (
+            <rect key={`${doc}:${b}`} x={x0} y={0} width={w} height={axisY} fill="transparent">
+              <title>{`${title}, bin ${b + 1}/${bins}\n${lines}`}</title>
+            </rect>
+          );
+        }),
+      )}
+    </svg>
+  );
+}
+
+function ByBookView({
+  ready,
+  docs,
+  bins,
+  maxRate,
+  strokeFor,
+  onFocus,
+}: {
+  ready: readonly ReadySeries[];
+  docs: readonly string[];
+  bins: number;
+  maxRate: number;
+  strokeFor: (id: string) => number;
+  onFocus: (id: string) => void;
+}) {
+  const x = scaleLinear([0, bins], [0, WIDTH]);
+  const y = scaleLinear([0, maxRate], [ROW_HEIGHT, 0]);
+  const height = docs.length * (ROW_HEIGHT + ROW_GAP) + 4;
+
+  return (
+    <svg
+      width={WIDTH + LABEL_SPACE}
+      height={height}
+      role="img"
+      aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
+    >
+      {docs.map((doc, d) => {
+        const rowY = d * (ROW_HEIGHT + ROW_GAP);
+        const { n, title } = shortTitle(doc);
+        return (
+          <g key={doc}>
+            <line x1={0} y1={rowY + ROW_HEIGHT} x2={WIDTH} y2={rowY + ROW_HEIGHT} stroke="var(--rule)" strokeWidth={1} />
+            {ready.map((r) => {
+              const path = Array.from({ length: bins }, (_, b) => {
+                const rate = r.trend.ratePer10k[d * bins + b] as number;
+                return `${b === 0 ? 'M' : 'L'}${x(b + 0.5).toFixed(1)},${(rowY + y(rate)).toFixed(1)}`;
+              }).join(' ');
+              return (
+                <path
+                  key={r.intent.id}
+                  d={path}
+                  fill="none"
+                  stroke={slotColor(r.intent.styleSlot)}
+                  strokeWidth={strokeFor(r.intent.id)}
+                  strokeDasharray={slotDash(r.intent.styleSlot)}
+                  strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+                  style={{ cursor: 'pointer' }}
+                  onClick={() => onFocus(r.intent.id)}
+                />
+              );
+            })}
+            <text
+              x={WIDTH + 6}
+              y={rowY + ROW_HEIGHT - 2}
+              fill="var(--fg)"
+              fontSize="var(--text-xs)"
+              fontFamily="var(--font-mono)"
+            >
+              {n ? `${n} · ` : ''}{title.slice(0, 16)}
+              <title>{title}</title>
+            </text>
+            {Array.from({ length: bins }, (_, b) => {
+              const lines = ready
+                .map((r) => {
+                  const iRow = d * bins + b;
+                  return `${r.intent.label}: ${r.trend.count[iRow]}× (${(r.trend.ratePer10k[iRow] as number).toFixed(1)}/10k)`;
+                })
+                .join('\n');
+              return (
+                <rect
+                  key={b}
+                  x={x(b)}
+                  y={rowY}
+                  width={Math.max(1, x(1) - x(0))}
+                  height={ROW_HEIGHT}
+                  fill="transparent"
+                >
+                  <title>{`${title}, bin ${b + 1}/${bins}\n${lines}`}</title>
+                </rect>
+              );
+            })}
+          </g>
+        );
+      })}
+    </svg>
   );
 }

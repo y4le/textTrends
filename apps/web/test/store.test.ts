@@ -1,11 +1,18 @@
 import { describe, expect, it } from 'vitest';
-import { createAppStore, SHERLOCK, type ClientLike } from '../src/lib/store.ts';
+import {
+  createAppStore,
+  parseSeries,
+  MAX_SERIES,
+  SHERLOCK,
+  type ClientLike,
+} from '../src/lib/store.ts';
 import type { QueryResultData } from '../src/worker/protocol.ts';
 import type { NumericTrend } from '@texttrends/core';
 
 interface Issued {
   snapshot: string;
   term: string;
+  groupId: string;
   op: string;
   resolve: (r: QueryResultData) => void;
   reject: (e: Error) => void;
@@ -14,7 +21,7 @@ interface Issued {
 
 function fakeTrend(marker: number): NumericTrend {
   return {
-    coordinate: 'document-relative',
+    coordinate: 'declared-sequence',
     docOrdinal: Uint32Array.from([0]),
     binIndex: Uint32Array.from([0]),
     binStartToken: Uint32Array.from([0]),
@@ -22,7 +29,8 @@ function fakeTrend(marker: number): NumericTrend {
     count: Uint32Array.from([marker]),
     ratePer10k: Float64Array.from([marker]),
     order: ['a'],
-    sequenceBases: null,
+    sequenceBases: [0],
+    docTokenCount: [10],
   };
 }
 
@@ -38,10 +46,11 @@ function fakeClient() {
     beginGeneration: () => undefined,
     ingest: () => undefined,
     query: (snapshot, query) => {
-      const q = query as { op: string; group: { members: { surface: string }[] } };
+      const q = query as { op: string; group: { id: string; members: { surface: string }[] } };
       const entry: Issued = {
         snapshot,
         term: q.group.members[0]!.surface,
+        groupId: q.group.id,
         op: q.op,
         resolve: () => undefined,
         reject: () => undefined,
@@ -65,6 +74,8 @@ function fakeClient() {
   return {
     client,
     issued,
+    trends: () => issued.filter((q) => q.op === 'trend'),
+    kwics: () => issued.filter((q) => q.op === 'kwic'),
     publish: (snapshot: string) =>
       snapshotListener?.({ snapshot, readyDocs: ['a'], missingDocs: [] }),
   };
@@ -72,75 +83,214 @@ function fakeClient() {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('parseSeries', () => {
+  it('splits on commas, trims, drops blanks, preserves first spelling and order', () => {
+    const p = parseSeries(' Holmes , , moriarty ,');
+    expect(p.error).toBeNull();
+    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'moriarty']);
+    expect(p.series!.map((s) => s.styleSlot)).toEqual([0, 1]);
+  });
+
+  it('dedupes by SEMANTIC key (case and diacritic folds), not raw spelling', () => {
+    const p = parseSeries('Holmes, holmes, Hólmes, watson');
+    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'watson']);
+    expect(p.series![0]!.id).toBe(parseSeries('hólmes').series![0]!.id);
+  });
+
+  it('refuses more than MAX_SERIES distinct terms instead of truncating', () => {
+    const p = parseSeries('a, b, c, d, e, f');
+    expect(p.series).toBeNull();
+    expect(p.error).toContain(String(MAX_SERIES));
+  });
+});
+
 describe('store intent discipline', () => {
+  it('issues one trend per series plus one focused KWIC, with distinct group ids', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const live = f.trends().filter((q) => !q.cancelled);
+    expect(live.map((q) => q.term)).toEqual(['holmes', 'moriarty']);
+    expect(new Set(live.map((q) => q.groupId)).size).toBe(2);
+    const liveKwic = f.kwics().filter((q) => !q.cancelled);
+    expect(liveKwic.length).toBe(1);
+    expect(liveKwic[0]!.term).toBe('holmes'); // focus defaults to the first series
+  });
+
   it('cancels superseded queries and a stale term can never win', async () => {
     const f = fakeClient();
     const store = createAppStore(f.client);
     f.publish('s1');
-    store.getState().setTerm('bear');
-    store.getState().setTerm('hound');
-    // Three epochs issued (publication + two terms); all but the last cancelled.
-    const trendQueries = f.issued.filter((q) => q.op === 'trend');
-    expect(trendQueries.length).toBe(3);
-    expect(trendQueries[0]!.cancelled).toBe(true);
-    expect(trendQueries[1]!.cancelled).toBe(true);
-    expect(trendQueries[2]!.cancelled).toBe(false);
-    expect(trendQueries[2]!.term).toBe('hound');
+    store.getState().setInput('bear');
+    store.getState().setInput('hound');
+    const trendQueries = f.trends();
+    for (const q of trendQueries.slice(0, -1)) expect(q.cancelled).toBe(true);
+    const live = trendQueries.at(-1)!;
+    expect(live.cancelled).toBe(false);
+    expect(live.term).toBe('hound');
 
     // Even if the stale 'bear' promise resolves LAST, it cannot write.
-    trendQueries[2]!.resolve({ op: 'trend', trend: fakeTrend(7) });
+    live.resolve({ op: 'trend', trend: fakeTrend(7) });
     await flush();
-    trendQueries[1]!.resolve({ op: 'trend', trend: fakeTrend(99) }); // stale resolve after cancel
+    const stale = trendQueries.find((q) => q.term === 'bear')!;
+    stale.resolve({ op: 'trend', trend: fakeTrend(99) }); // stale resolve after cancel
     await flush();
-    expect(store.getState().trend?.count[0]).toBe(7);
-    expect(store.getState().term).toBe('hound');
+    const trends = store.getState().trends;
+    expect(trends.size).toBe(1);
+    const hound = trends.get(store.getState().series[0]!.id)!;
+    expect(hound.status).toBe('ready');
+    expect(hound.status === 'ready' && hound.trend.count[0]).toBe(7);
+  });
+
+  it('per-series results land independently; one failure does not erase peers', async () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const [q1, q2] = f.trends().filter((q) => !q.cancelled);
+    q1!.resolve({ op: 'trend', trend: fakeTrend(3) });
+    await flush();
+    const [holmes, moriarty] = store.getState().series;
+    expect(store.getState().trends.get(holmes!.id)!.status).toBe('ready');
+    expect(store.getState().trends.get(moriarty!.id)!.status).toBe('pending');
+    q2!.reject(new Error('CAP_EXCEEDED: too much'));
+    await flush();
+    const after = store.getState().trends;
+    expect(after.get(holmes!.id)!.status).toBe('ready'); // peer survives
+    const failed = after.get(moriarty!.id)!;
+    expect(failed.status).toBe('error');
+    expect(failed.status === 'error' && failed.message).toContain('CAP_EXCEEDED');
+  });
+
+  it('focus change cancels and reissues ONLY the KWIC query', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const trendsBefore = f.trends().length;
+    const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
+    const moriarty = store.getState().series[1]!;
+    store.getState().setFocus(moriarty.id);
+    expect(f.trends().length).toBe(trendsBefore); // no trend churn
+    expect(f.trends().filter((q) => !q.cancelled).length).toBe(2); // still live
+    expect(kwicBefore.cancelled).toBe(true);
+    expect(f.kwics().filter((q) => !q.cancelled).at(-1)!.term).toBe('moriarty');
+  });
+
+  it('the default focus is canonical: clicking the already-focused first chip is a no-op', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const holmes = store.getState().series[0]!;
+    expect(store.getState().focusedSeries).toBe(holmes.id); // actual, not implied
+    const kwicCount = f.kwics().length;
+    store.getState().setFocus(holmes.id);
+    expect(f.kwics().length).toBe(kwicCount); // no cancel/reissue of the same intent
+  });
+
+  it('reordering the input preserves a surviving focus instead of stealing it', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const moriarty = store.getState().series[1]!;
+    store.getState().setFocus(moriarty.id);
+    store.getState().setInput('moriarty, holmes'); // same series, new order
+    expect(store.getState().focusedSeries).toBe(moriarty.id);
+    expect(f.kwics().filter((q) => !q.cancelled).at(-1)!.term).toBe('moriarty');
+  });
+
+  it('a late KWIC result from the previously focused series cannot relabel the new focus', async () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes, moriarty');
+    const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
+    store.getState().setFocus(store.getState().series[1]!.id);
+    oldKwic.resolve({ op: 'kwic', total: 9, rows: [] }); // raced past cancel
+    await flush();
+    const kwic = store.getState().kwic!;
+    expect(kwic.seriesId).toBe(store.getState().series[1]!.id);
+    expect(kwic.state.status).toBe('pending'); // stale evidence did not land
+  });
+
+  it('view toggle is presentation-only: no query is issued', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    const count = f.issued.length;
+    store.getState().setTrendView('by-book');
+    store.getState().setTrendView('series');
+    expect(f.issued.length).toBe(count);
+    expect(store.getState().trendView).toBe('series');
   });
 
   it('clears results to pending on reissue — old arrays are never relabeled', async () => {
     const f = fakeClient();
     const store = createAppStore(f.client);
     f.publish('s1');
-    const first = f.issued.filter((q) => q.op === 'trend').at(-1)!;
+    store.getState().setInput('holmes');
+    const first = f.trends().filter((q) => !q.cancelled).at(-1)!;
     first.resolve({ op: 'trend', trend: fakeTrend(1) });
     await flush();
-    expect(store.getState().trend).not.toBeNull();
-    store.getState().setTerm('other');
-    expect(store.getState().trend).toBeNull(); // pending, not stale
+    expect(store.getState().trends.get(store.getState().series[0]!.id)!.status).toBe('ready');
+    store.getState().setInput('other');
+    const pending = store.getState().trends.get(store.getState().series[0]!.id)!;
+    expect(pending.status).toBe('pending'); // pending, not stale
   });
 
   it('a result from a superseded snapshot cannot write', async () => {
     const f = fakeClient();
     const store = createAppStore(f.client);
     f.publish('s1');
-    const old = f.issued.filter((q) => q.op === 'trend').at(-1)!;
+    const old = f.trends().filter((q) => !q.cancelled).at(-1)!;
     f.publish('s2'); // cancels s1 queries, reissues
     old.resolve({ op: 'trend', trend: fakeTrend(5) }); // resolve raced past cancel
     await flush();
-    expect(store.getState().trend).toBeNull(); // s2's query owns the panel
-    const fresh = f.issued.filter((q) => q.op === 'trend').at(-1)!;
+    for (const [, state] of store.getState().trends) {
+      expect(state.status).toBe('pending'); // s2's queries own the panels
+    }
+    const fresh = f.trends().at(-1)!;
     expect(fresh.snapshot).toBe('s2');
   });
 
-  it('a blank term cancels and clears — old evidence is never relabeled', async () => {
+  it('blank input cancels and clears — old evidence is never relabeled', async () => {
     const f = fakeClient();
     const store = createAppStore(f.client);
     f.publish('s1');
-    const q = f.issued.filter((x) => x.op === 'trend').at(-1)!;
+    store.getState().setInput('holmes');
+    const q = f.trends().filter((x) => !x.cancelled).at(-1)!;
     q.resolve({ op: 'trend', trend: fakeTrend(3) });
     await flush();
-    expect(store.getState().trend).not.toBeNull();
-    store.getState().setTerm('   ');
-    expect(store.getState().trend).toBeNull();
+    expect(store.getState().trends.size).toBe(1);
+    store.getState().setInput('  ,  ');
+    expect(store.getState().trends.size).toBe(0);
+    expect(store.getState().kwic).toBeNull();
     expect(q.cancelled).toBe(true);
     // A raced late duplicate of the old result must not resurface either.
     await flush();
-    expect(store.getState().trend).toBeNull();
+    expect(store.getState().trends.size).toBe(0);
+  });
+
+  it('an over-cap input is refused: error surfaced, work cancelled, nothing issued', () => {
+    const f = fakeClient();
+    const store = createAppStore(f.client);
+    f.publish('s1');
+    store.getState().setInput('holmes');
+    const live = f.trends().filter((q) => !q.cancelled);
+    expect(live.length).toBe(1);
+    store.getState().setInput('a, b, c, d, e, f');
+    expect(store.getState().inputError).toContain('up to');
+    expect(live[0]!.cancelled).toBe(true);
+    expect(store.getState().trends.size).toBe(0);
+    expect(f.trends().filter((q) => !q.cancelled).length).toBe(0);
   });
 
   it('manifest byte lengths and hash prefixes match the shipped assets', async () => {
     const { readFile } = await import('node:fs/promises');
     const { createHash } = await import('node:crypto');
-    const { SHERLOCK } = await import('../src/lib/store.ts');
     for (const { doc, bytes, sha256Prefix } of SHERLOCK) {
       const data = await readFile(new URL(`../public/corpora/sherlock/${doc}`, import.meta.url));
       expect(data.byteLength, doc).toBe(bytes);

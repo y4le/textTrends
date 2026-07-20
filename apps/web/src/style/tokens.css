@@ -27,11 +27,15 @@
   /* AA-contrast accent for small text on the dark background (>=4.5:1). */
   --accent-text: #ff8a66;
 
-  /* Data series: selection gets the accent; comparisons stay grayscale first */
-  --series-focus: var(--accent);
-  --series-1: #b0a890;
-  --series-2: #756e5c;
-  --series-3: #4e483a;
+  /* Data series: Okabe–Ito-derived categorical slots, snapped into the dark
+   * lightness band and ≥3:1 against --bg (validated; slots are assigned in
+   * fixed order and paired with dash patterns — color is never the only
+   * series encoding). */
+  --series-1: #3b98d4;
+  --series-2: #c28400;
+  --series-3: #009e73;
+  --series-4: #d55e00;
+  --series-5: #bc5f92;
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -48,9 +52,11 @@
     --rule-strong: #b3ab94;
     --accent: #b23a24;
     --accent-text: #8f2c1a;
-    --series-1: #55503f;
-    --series-2: #8a836e;
-    --series-3: #bfb8a2;
+    --series-1: #0072b2;
+    --series-2: #b36b00;
+    --series-3: #007f5f;
+    --series-4: #d55e00;
+    --series-5: #a23b72;
   }
 }
 

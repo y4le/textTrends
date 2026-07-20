@@ -1,15 +1,36 @@
 /**
- * KWIC concordance — the evidence layer. Fixed-width aligned contexts, the
- * node in an AA-contrast accent. The table IS the visualization; semantics
- * (caption, headers) are part of the evidence, not decoration.
+ * KWIC concordance — the evidence layer for ONE focused series at a time
+ * (the chart asks a comparative question; the concordance is close reading
+ * of one selected signal — an interleaved multi-term merge of independently
+ * paged queries would not be the true global ordering). Fixed-width aligned
+ * contexts, the node in an AA-contrast accent. The table IS the
+ * visualization; semantics (caption, headers) are part of the evidence.
  */
 
 import { useApp } from '../lib/store-instance.ts';
 
 export function KwicPanel() {
   const kwic = useApp((s) => s.kwic);
-  const term = useApp((s) => s.term);
-  if (!kwic || kwic.rows.length === 0) return null;
+  const series = useApp((s) => s.series);
+  if (!kwic) return null;
+  const label = series.find((s) => s.id === kwic.seriesId)?.label ?? kwic.seriesId;
+
+  if (kwic.state.status === 'pending') return null;
+  if (kwic.state.status === 'error') {
+    return (
+      <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+        concordance for “{label}” failed: {kwic.state.message}
+      </p>
+    );
+  }
+  const { total, rows } = kwic.state;
+  if (rows.length === 0) {
+    return (
+      <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)', marginTop: 'var(--space-3)' }}>
+        No occurrences of “{label}”.
+      </p>
+    );
+  }
 
   return (
     <section style={{ marginTop: 'var(--space-3)' }}>
@@ -28,7 +49,7 @@ export function KwicPanel() {
             paddingBottom: 'var(--space-1)',
           }}
         >
-          Concordance: first {kwic.rows.length} of {kwic.total} occurrences of “{term}”
+          Concordance: first {rows.length} of {total} occurrences of “{label}”
         </caption>
         <thead>
           <tr style={{ color: 'var(--fg-muted)' }}>
@@ -39,7 +60,7 @@ export function KwicPanel() {
           </tr>
         </thead>
         <tbody>
-          {kwic.rows.map((r) => (
+          {rows.map((r) => (
             <tr key={`${r.doc}:${r.pos}`} style={{ borderTop: '1px solid var(--rule)' }}>
               <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>
                 {r.doc.replace(/ -.*$/, '').slice(0, 12)}

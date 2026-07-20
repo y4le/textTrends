@@ -72,6 +72,9 @@ describe('trend/1', () => {
     expect(t.ratePer10k[0]).toBeCloseTo((1 / 3) * 10_000, 6);
     expect(t.order).toEqual(['a', 'b']);
     expect(t.sequenceBases).toBeNull(); // document-relative carries no bases
+    // Full extents parallel to order — the coordinate geometry, NOT the
+    // selected denominator (binTokens).
+    expect(t.docTokenCount).toEqual([5, 3]);
   });
 
   it('declared-sequence differs exactly by carrying bases', async () => {

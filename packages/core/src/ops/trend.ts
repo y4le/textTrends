@@ -39,6 +39,10 @@ export interface NumericTrend {
   /** Present ONLY for declared-sequence — the coordinate's semantic difference
    *  is exactly these x-offset bases; document-relative has none. */
   readonly sequenceBases: readonly number[] | null;
+  /** Parallel to `order`: each document's full token extent. binTokens is the
+   *  SELECTED denominator and cannot reconstruct coordinate geometry under
+   *  ranged selections; sequence layouts need the true extent. */
+  readonly docTokenCount: readonly number[];
 }
 
 export function trend(
@@ -86,6 +90,7 @@ export function trend(
   const count: number[] = [];
   const order: string[] = [];
   const sequenceBases: number[] = [];
+  const docTokenCount: number[] = [];
 
   // Row layout per selected document, then per bin — declared order.
   const rowBase = new Map<number, number>(); // snapshot doc ordinal -> first row
@@ -94,6 +99,7 @@ export function trend(
     if (!selection.spec.docs.includes(ref.doc)) continue;
     order.push(ref.doc);
     sequenceBases.push(ref.sequenceTokenBase);
+    docTokenCount.push(ref.tokenCount);
     rowBase.set(ord, docOrdinal.length);
     const tokens = ref.tokenCount;
     const width = tokens === 0 ? 0 : Math.ceil(tokens / bins);
@@ -137,5 +143,6 @@ export function trend(
     ratePer10k,
     order,
     sequenceBases: request.coordinate === 'declared-sequence' ? sequenceBases : null,
+    docTokenCount,
   };
 }

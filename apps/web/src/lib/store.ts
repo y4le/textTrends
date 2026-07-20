@@ -2,17 +2,32 @@
  * UI state — zustand, per synthesis §8. Only handles, metadata, and bounded
  * results live here; corpus arrays and texts stay worker-side.
  *
- * Intent discipline (UI review round 1): every reissue cancels the previous
- * query handles, clears results to a pending state, and stamps a
- * monotonically increasing epoch — a result is written only if BOTH its
- * epoch and its snapshot still match, so a slow stale query can never
- * relabel itself as the current term. Corpus loading is idempotent in this
- * long-lived layer (Strict Mode double-mount safe) and validates each
- * fetched source against the bundled manifest before ingesting.
+ * Multi-series intent (owner feedback round 5, Codex-consulted design):
+ * the input is a comma-separated comparison of up to MAX_SERIES terms. Each
+ * becomes a SeriesIntent with a SEMANTIC id (the folded query surface under
+ * the group's match mode) — never the raw display spelling — so 'Holmes' and
+ * 'hólmes' are one series. Trend results key off SeriesIntent.id in an
+ * immutably-replaced map; a missing entry is impossible to confuse with
+ * pending or failed because every issued series is seeded 'pending'.
+ *
+ * Intent discipline (UI review round 1, extended): trend intent and KWIC
+ * intent carry SEPARATE epochs. Changing the compared terms or the snapshot
+ * cancels and reissues both; changing only the focused series cancels and
+ * reissues ONLY the KWIC query — the trend lines are still correct and must
+ * not flicker. A result is written only if its epoch and snapshot both still
+ * match, so a slow stale query can never relabel itself. Corpus loading is
+ * idempotent in this long-lived layer (Strict Mode double-mount safe) and
+ * validates each fetched source against the bundled manifest.
  */
 
 import { create } from 'zustand';
-import type { NumericTrend } from '@texttrends/core';
+import {
+  DEFAULT_INDEX_RECIPE,
+  foldKey,
+  tokenKey,
+  type NumericTrend,
+  type TermGroupSpec,
+} from '@texttrends/core';
 import type { SnapshotInfo } from './client.ts';
 import type { GenerationDocSpec, QueryResultData } from '../worker/protocol.ts';
 
@@ -50,29 +65,88 @@ export interface ClientLike {
   ): { result: Promise<QueryResultData>; cancel: () => void };
 }
 
+export const MAX_SERIES = 5;
+export const BINS = 40;
+
+const MATCH = { case: 'folded' as const, diacritics: 'folded' as const };
+const LOCALE = 'en';
+
+export interface SeriesIntent {
+  /** Semantic identity: the folded query surface — not the display spelling. */
+  readonly id: string;
+  /** The first-seen user spelling, preserved for display. */
+  readonly label: string;
+  /** Fixed visual slot (color + dash) — stable for the life of the intent. */
+  readonly styleSlot: number;
+}
+
+export type SeriesTrendState =
+  | { readonly status: 'pending' }
+  | { readonly status: 'ready'; readonly trend: NumericTrend }
+  | { readonly status: 'error'; readonly message: string };
+
+export interface KwicState {
+  readonly seriesId: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export type TrendView = 'series' | 'by-book';
+
+/** Comma-separated comparison → ordered semantic series (first spelling wins).
+ *  More than MAX_SERIES distinct series is an explicit refusal, not a silent
+ *  truncation. Exported for fixtures. */
+export function parseSeries(input: string):
+  | { readonly series: readonly SeriesIntent[]; readonly error: null }
+  | { readonly series: null; readonly error: string } {
+  const series: SeriesIntent[] = [];
+  for (const raw of input.split(',')) {
+    const label = raw.trim();
+    if (label === '') continue;
+    // Same normalization chain the worker's resolver applies — the semantic
+    // id must equal what the query will actually match on.
+    const id = foldKey(tokenKey(label, DEFAULT_INDEX_RECIPE), MATCH, LOCALE);
+    if (series.some((s) => s.id === id)) continue;
+    series.push({ id, label, styleSlot: series.length });
+  }
+  if (series.length > MAX_SERIES) {
+    return { series: null, error: `Compare up to ${MAX_SERIES} terms` };
+  }
+  return { series, error: null };
+}
+
 export interface AppState {
   snapshot: SnapshotInfo | null;
   loadingPhase: string | null;
   loadError: string | null;
-  term: string;
-  /** null = pending/none — panels must not show stale arrays. */
-  trend: NumericTrend | null;
-  kwic: { total: number; rows: readonly KwicRowView[] } | null;
+  /** Raw committed input (the draft lives in the form component). */
+  input: string;
+  series: readonly SeriesIntent[];
+  inputError: string | null;
+  focusedSeries: string | null;
+  /** Seeded 'pending' per issued series — panels must not show stale arrays. */
+  trends: ReadonlyMap<string, SeriesTrendState>;
+  kwic: KwicState | null;
+  trendView: TrendView;
 
   loadSherlock(): Promise<void>;
-  setTerm(term: string): void;
+  setInput(input: string): void;
+  setFocus(seriesId: string): void;
+  setTrendView(view: TrendView): void;
   runQueries(): void;
 }
-
-const BINS = 40;
 
 export function createAppStore(client: ClientLike) {
   let loadStarted = false;
   let generationCounter = 0;
   let attemptToken = 0;          // ownership of the in-flight fetch loop
   let attemptGeneration = '';    // the generation the CURRENT attempt owns
-  let epoch = 0;
-  let activeCancels: (() => void)[] = [];
+  let trendEpoch = 0;
+  let kwicEpoch = 0;
+  let trendCancels: (() => void)[] = [];
+  let kwicCancel: (() => void) | null = null;
 
   const store = create<AppState>((set, get) => {
     client.onSnapshot((snapshot) => {
@@ -90,26 +164,73 @@ export function createAppStore(client: ClientLike) {
       set({ loadError: message });
     });
 
-    const group = (term: string) => ({
-      id: 'g1',
-      members: [
-        {
-          id: 'm1',
-          kind: 'token' as const,
-          surface: term,
-          match: { case: 'folded' as const, diacritics: 'folded' as const },
-        },
-      ],
+    /** Group/member ids derive from the series' semantic id — evidence
+     *  provenance must distinguish the compared groups. */
+    const groupFor = (s: SeriesIntent): TermGroupSpec => ({
+      id: `g:${s.id}`,
+      members: [{ id: `m:${s.id}`, kind: 'token', surface: s.label, match: MATCH }],
       countOverlaps: false,
     });
 
+    const runKwic = () => {
+      kwicCancel?.();
+      kwicCancel = null;
+      const myEpoch = ++kwicEpoch;
+      const { snapshot, series, focusedSeries } = get();
+      // focusedSeries is canonical: setInput/setFocus maintain the invariant
+      // that it names a live series whenever any series exist.
+      const focused = series.find((s) => s.id === focusedSeries);
+      if (!snapshot || !focused) {
+        set({ kwic: null });
+        return;
+      }
+      set({ kwic: { seriesId: focused.id, state: { status: 'pending' } } });
+      const handle = client.query(snapshot.snapshot, {
+        op: 'kwic',
+        selection: { docs: [...snapshot.readyDocs] },
+        group: groupFor(focused),
+        request: {
+          contextTokens: 6,
+          sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
+          page: { offset: 0, limit: 50 },
+        },
+      });
+      kwicCancel = handle.cancel;
+      const current = () =>
+        kwicEpoch === myEpoch && get().snapshot?.snapshot === snapshot.snapshot;
+      void handle.result
+        .then((data) => {
+          if (data.op === 'kwic' && current()) {
+            set({
+              kwic: {
+                seriesId: focused.id,
+                state: { status: 'ready', total: data.total, rows: data.rows },
+              },
+            });
+          }
+        })
+        .catch((e: unknown) => {
+          const message = e instanceof Error ? e.message : String(e);
+          if (message === 'cancelled' || !current()) return; // superseded — the newer epoch owns the panel
+          set({ kwic: { seriesId: focused.id, state: { status: 'error', message } } });
+        });
+    };
+
+    const initialSeries = parseSeries('Holmes, Moriarty').series ?? [];
     return {
       snapshot: null,
       loadingPhase: null,
       loadError: null,
-      term: 'Holmes',
-      trend: null,
+      input: 'Holmes, Moriarty',
+      series: initialSeries,
+      inputError: null,
+      // Canonical from the start: the store, not the panels, decides the
+      // default focus (review round 5 — a derived fallback left the pressed
+      // chip and the recorded focus disagreeing).
+      focusedSeries: initialSeries[0]?.id ?? null,
+      trends: new Map(),
       kwic: null,
+      trendView: 'series',
 
       async loadSherlock() {
         if (loadStarted) return; // idempotent — Strict Mode double-mount safe
@@ -147,55 +268,87 @@ export function createAppStore(client: ClientLike) {
         }
       },
 
-      setTerm(term) {
-        set({ term });
+      setInput(input) {
+        const parsed = parseSeries(input);
+        if (parsed.error !== null) {
+          // Refused intent still supersedes the old one: cancel and clear so
+          // stale lines are never displayed beside the error.
+          set({ input, inputError: parsed.error, series: [], focusedSeries: null });
+        } else {
+          const { focusedSeries } = get();
+          const stillFocused = parsed.series.some((s) => s.id === focusedSeries);
+          set({
+            input,
+            inputError: null,
+            series: parsed.series,
+            // Surviving focus is preserved even if its position changed;
+            // otherwise the first series becomes the actual (not implied) focus.
+            focusedSeries: stillFocused ? focusedSeries : parsed.series[0]?.id ?? null,
+          });
+        }
         get().runQueries();
       },
 
+      setFocus(seriesId) {
+        if (get().focusedSeries === seriesId) return;
+        if (!get().series.some((s) => s.id === seriesId)) return;
+        set({ focusedSeries: seriesId });
+        runKwic(); // KWIC intent only — trend lines are still correct
+      },
+
+      setTrendView(view) {
+        set({ trendView: view }); // presentation-only: no query is reissued
+      },
+
       runQueries() {
-        const { snapshot, term } = get();
-        // Intent changed: ALWAYS cancel superseded work, clear to pending, and
-        // invalidate the epoch — even when the new intent runs no query
-        // (round 2: a blank term must not relabel old evidence).
-        for (const cancel of activeCancels) cancel();
-        activeCancels = [];
-        const myEpoch = ++epoch;
-        set({ trend: null, kwic: null });
-        if (!snapshot || term.trim() === '') return;
+        const { snapshot, series } = get();
+        // Trend intent changed: ALWAYS cancel superseded work, clear to
+        // pending, and invalidate the epoch — even when the new intent runs
+        // no query (round 2: a blank input must not relabel old evidence).
+        for (const cancel of trendCancels) cancel();
+        trendCancels = [];
+        const myEpoch = ++trendEpoch;
+        if (!snapshot || series.length === 0) {
+          set({ trends: new Map() });
+          runKwic(); // clears or re-targets the evidence panel consistently
+          return;
+        }
 
-        const docs = [...snapshot.readyDocs];
-        const g = group(term.trim());
-        const current = () => epoch === myEpoch && get().snapshot?.snapshot === snapshot.snapshot;
-
-        const trendQuery = client.query(snapshot.snapshot, {
-          op: 'trend',
-          selection: { docs },
-          group: g,
-          request: { coordinate: 'document-relative', binsPerDoc: BINS },
+        const issuedSnapshot = snapshot.snapshot;
+        set({
+          trends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])),
         });
-        activeCancels.push(trendQuery.cancel);
-        void trendQuery.result
-          .then((data) => {
-            if (data.op === 'trend' && current()) set({ trend: data.trend });
-          })
-          .catch(() => undefined); // cancelled/superseded — the newer epoch owns the panels
+        const current = () =>
+          trendEpoch === myEpoch && get().snapshot?.snapshot === issuedSnapshot;
 
-        const kwicQuery = client.query(snapshot.snapshot, {
-          op: 'kwic',
-          selection: { docs },
-          group: g,
-          request: {
-            contextTokens: 6,
-            sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-            page: { offset: 0, limit: 50 },
-          },
-        });
-        activeCancels.push(kwicQuery.cancel);
-        void kwicQuery.result
-          .then((data) => {
-            if (data.op === 'kwic' && current()) set({ kwic: { total: data.total, rows: data.rows } });
-          })
-          .catch(() => undefined);
+        for (const s of series) {
+          const handle = client.query(issuedSnapshot, {
+            op: 'trend',
+            selection: { docs: [...snapshot.readyDocs] },
+            group: groupFor(s),
+            request: { coordinate: 'declared-sequence', binsPerDoc: BINS },
+          });
+          trendCancels.push(handle.cancel);
+          const write = (state: SeriesTrendState) =>
+            set((prev) => {
+              const next = new Map(prev.trends); // NEVER mutate the resident map
+              next.set(s.id, state);
+              return { trends: next };
+            });
+          void handle.result
+            .then((data) => {
+              if (data.op === 'trend' && current()) write({ status: 'ready', trend: data.trend });
+            })
+            .catch((e: unknown) => {
+              const message = e instanceof Error ? e.message : String(e);
+              if (message === 'cancelled' || !current()) return;
+              // A genuine failure must mark ITS series, not silently vanish
+              // — and must not erase successful peers.
+              write({ status: 'error', message });
+            });
+        }
+
+        runKwic();
       },
     };
   });
