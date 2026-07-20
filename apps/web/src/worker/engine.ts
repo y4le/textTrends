@@ -34,6 +34,7 @@ import {
   composeSnapshot,
   createDocumentIndex,
   DependencyError,
+  fingerprint,
   hashIndexRecipe,
   hashSegmenterFingerprint,
   hashText,
@@ -61,7 +62,7 @@ import {
   type Resolver,
 } from '@texttrends/core';
 import { PROTOCOL_VERSION, type FromWorker, type GenerationDocSpec, type QueryOp, type ToWorker } from './protocol.ts';
-import type { ArtifactStore } from './store.ts';
+import type { ArtifactStore, DocumentIndexCacheKey } from './store.ts';
 
 type Emit = (message: FromWorker) => void;
 type Yield = () => Promise<void>;
@@ -257,37 +258,24 @@ export class WorkerEngine {
     await this.checkpoint(job, gen);
     // Warm path: an index-cache hit for the FULL identity tuple skips
     // segmentation and indexing. Every hit is re-verified; a mismatching or
-    // structurally unsound record is corrupt and gets rebuilt.
+    // structurally unsound record is corrupt, gets its exact record DELETED
+    // (or the same warning would recur on every reopen), and is rebuilt.
     const recipeHash = await hashIndexRecipe(DEFAULT_INDEX_RECIPE);
-    const fingerprint = (await segment('', spec.language)).provenance;
-    const segmenterHash = await hashSegmenterFingerprint(fingerprint);
-    let shard = await this.store.getShard(textHash, recipeHash, segmenterHash);
-    if (shard) {
-      // One cache-hit validation boundary: store output is UNTRUSTED — verify
-      // the identity tuple AND the complete shard ABI; any failure is a
-      // corrupt record that gets rebuilt (review round 2).
-      try {
-        validateShardStructure(shard);
-        // Bind resident geometry to THIS text's actual extent — in-domain
-        // spans can still point past the end of this document (round 3).
-        const n = shard.tokenTypeIds.length;
-        if (n > 0 && tokenEndChar(shard, n - 1) > text.length) {
-          throw new RangeError('resident token spans exceed the verified text length');
-        }
-        const hitSegmenter = await hashSegmenterFingerprint(shard.segmenter);
-        if (shard.text !== textHash || shard.recipe !== recipeHash || hitSegmenter !== segmenterHash) {
-          throw new RangeError('cached shard does not match its key');
-        }
-      } catch (e) {
-        this.emit({
-          v: PROTOCOL_VERSION, t: 'error', job, generation,
-          code: 'ARTIFACT_CORRUPT',
-          message: `cached shard for '${doc}' failed verification (${e instanceof Error ? e.message : String(e)}); rebuilding`,
-          recoverable: true,
-        });
-        shard = undefined;
-      }
-    }
+    const segmenterHash = await hashSegmenterFingerprint(await fingerprint(spec.language));
+    const cacheKey: DocumentIndexCacheKey = {
+      schema: 'texttrends/document-index/1',
+      text: textHash,
+      recipe: recipeHash,
+      segmenter: segmenterHash,
+    };
+    let shard = await this.admitCachedShard(cacheKey, text, (reason) => {
+      this.emit({
+        v: PROTOCOL_VERSION, t: 'error', job, generation,
+        code: 'ARTIFACT_CORRUPT',
+        message: `cached shard for '${doc}' failed verification (${reason}); rebuilding`,
+        recoverable: true,
+      });
+    });
     if (!shard) {
       this.emit({ v: PROTOCOL_VERSION, t: 'progress', job, generation, phase: 'segment', doc });
       const batch = await segment(text, spec.language);
@@ -353,13 +341,52 @@ export class WorkerEngine {
     // Best-effort cache write AFTER publication — failure is a warning.
     void Promise.all([
       this.store.putText(textHash, text),
-      this.store.putShard(textHash, recipeHash, segmenterHash, readyShard),
+      this.store.putShard(cacheKey, readyShard),
     ]).catch(() => {
       this.emit({
         v: PROTOCOL_VERSION, t: 'error', generation,
         code: 'INTERNAL', message: 'cache write failed (results unaffected)', recoverable: true,
       });
     });
+  }
+
+  /**
+   * One cache-hit admission boundary: store output is UNTRUSTED — verify the
+   * complete shard ABI, the identity tuple, and that resident geometry fits
+   * THIS verified text (in-domain spans can still point past its end). Any
+   * failure reports, deletes the exact record, and returns undefined so the
+   * caller rebuilds. Storage-envelope corruption reported by the store itself
+   * takes the same repair path.
+   */
+  private async admitCachedShard(
+    key: DocumentIndexCacheKey,
+    text: string,
+    reportCorrupt: (reason: string) => void,
+  ): Promise<DocumentIndexV1 | undefined> {
+    const read = await this.store.getShard(key);
+    if (read.kind === 'miss') return undefined;
+    if (read.kind === 'corrupt') {
+      reportCorrupt(read.reason);
+      await this.store.deleteShard(key).catch(() => undefined);
+      return undefined;
+    }
+    try {
+      const candidate = read.value as DocumentIndexV1;
+      validateShardStructure(candidate);
+      const n = candidate.tokenTypeIds.length;
+      if (n > 0 && tokenEndChar(candidate, n - 1) > text.length) {
+        throw new RangeError('resident token spans exceed the verified text length');
+      }
+      const hitSegmenter = await hashSegmenterFingerprint(candidate.segmenter);
+      if (candidate.text !== key.text || candidate.recipe !== key.recipe || hitSegmenter !== key.segmenter) {
+        throw new RangeError('cached shard does not match its key');
+      }
+      return candidate;
+    } catch (e) {
+      reportCorrupt(e instanceof Error ? e.message : String(e));
+      await this.store.deleteShard(key).catch(() => undefined);
+      return undefined;
+    }
   }
 
   private async resolverFor(gen: GenerationState, doc: string, mode: MatchMode): Promise<Resolver> {

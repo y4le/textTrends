@@ -219,6 +219,57 @@ describe('generation and ingest lifecycle', () => {
     expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true); // rebuilt
   });
 
+  it('a store-reported corrupt read is ARTIFACT_CORRUPT, deleted, and rebuilt', async () => {
+    const h = harness();
+    await ingested(h, { a: 'the wolf ran' });
+    // Wrap the store: the next shard read reports envelope corruption.
+    const deleted: unknown[] = [];
+    const store = h.store;
+    const wrapped = new Proxy(store, {
+      get(target, prop, receiver) {
+        if (prop === 'getShard') {
+          return () => Promise.resolve({ kind: 'corrupt', reason: 'stored record failed envelope validation' });
+        }
+        if (prop === 'deleteShard') {
+          return (key: unknown) => {
+            deleted.push(key);
+            return Promise.resolve();
+          };
+        }
+        return Reflect.get(target, prop, receiver);
+      },
+    });
+    const messages2: FromWorker[] = [];
+    const engine2 = new WorkerEngine(wrapped, (m) => messages2.push(m), () => Promise.resolve());
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    expect(deleted.length).toBe(1); // exact-record repair, not just a warning
+    expect(messages2.some((m) => m.t === 'snapshot-published')).toBe(true); // rebuilt
+  });
+
+  it('a corrupt record is REPAIRED: the reopen after the rebuild is warm and clean', async () => {
+    const h = harness();
+    await ingested(h, { a: 'the wolf ran' });
+    const anyStore = h.store as unknown as { shards: Map<string, { lengths8: Uint8Array }> };
+    const [key] = anyStore.shards.keys();
+    anyStore.shards.get(key!)!.lengths8[0] = 0; // corrupt in place
+    const messages2: FromWorker[] = [];
+    const engine2 = new WorkerEngine(h.store, (m) => messages2.push(m), () => Promise.resolve());
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g2', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine2.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g2', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(messages2.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(true);
+    // Third engine, same store: the rebuild must have OVERWRITTEN the corrupt
+    // record, so this reopen hits the warm path with no corruption report.
+    const messages3: FromWorker[] = [];
+    const engine3 = new WorkerEngine(h.store, (m) => messages3.push(m), () => Promise.resolve());
+    await engine3.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', job: 1, generation: 'g3', docs: [{ doc: 'a', language: 'en', sourceByteLength: 12 }] });
+    await engine3.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g3', doc: 'a', bytes: bytes('the wolf ran') });
+    expect(messages3.some((m) => m.t === 'error' && m.code === 'ARTIFACT_CORRUPT')).toBe(false);
+    const phases = messages3.filter((m) => m.t === 'progress').map((m) => (m as { phase: string }).phase);
+    expect(phases).toEqual(['decode', 'compose']); // warm — no segment/index
+  });
+
   it('warm reopen skips segmentation via the artifact store', async () => {
     const h = harness();
     await ingested(h, { a: 'the wolf ran' });
