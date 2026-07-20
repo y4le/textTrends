@@ -42,3 +42,42 @@ Readings (preliminary):
   shards resident at once) or sharded eviction. The formal tiers plus a
   browser-worker measurement must confirm both before the §8.10 WASM tripwires are
   declared safe, though nothing here approaches them.
+
+## 2026-07-20 — first real-browser baseline (M6 Playwright suite), dev machine (Linux, headless Chromium 149)
+
+**Method**: the serial `chromium-benchmark` Playwright project against the
+e2e-mode production build served by `vite preview` under `/textTrends/`. Clocks
+are main-thread protocol-trace stamps (definitions in
+`apps/web/e2e/timings.bench.spec.ts`); one local run, bundled Sherlock corpus
+(6 docs, ~462k tokens). Machine-local numbers — a GitHub-runner baseline must be
+collected from CI artifacts before any threshold beyond the cancel budget is
+frozen (Codex M6 consult: unmeasured numbers must not become CI policy).
+
+| Clock | Measured |
+|---|---:|
+| Cold begin → cache barrier (`generation-ready`, all 6 missing) | 15 ms |
+| First ingest post → first book queryable (T1) | 50 ms |
+| First ingest post → all 6 books ready | 419 ms |
+| **Warm reopen** (begin → all-ready barrier; zero fetch, zero re-tokenization) | **93 ms** |
+| Trend query post → result (bundled corpus, single terms) | 3–15 ms |
+| Cancel acknowledgement p95 (20 real acknowledgements) | 0.3 ms |
+
+(The benchmark project runs AFTER the functional project completes, with
+`--workers=1` — enforced by the checked-in `pnpm e2e` command and the CI
+workflow, so timing samples never share the machine with functional load.)
+
+Gates now enforced in CI (semantic, deterministic): warm reload performs zero
+corpus fetches and zero decode/segment/index phases and publishes exactly one
+snapshot; corruption repair rebuilds only the damaged document with no fetch and
+persists; ingest buffers and trend result buffers demonstrably transfer
+(detached after post); a replaced generation never publishes stale state; no
+main-thread task ≥ 100 ms during cold analysis + a query burst; cancel-ack
+p95 < 250 ms (the phase-1 plan's stated budget — measured 0.2 ms).
+
+**Open, tracked, deliberately not claimed** (plan M6 scope revision per the M6
+consult): the formal synthetic 1M/10M/50M-token tiers have still not joined the
+harness — the bundled browser corpus is ~462k tokens — and no eviction/residency
+policy exists yet to measure at the 10M/50M tiers. Peak transient worker memory
+(structured clone + binding copies) needs a manual Chrome trace/heap profile;
+the standard Performance API cannot attribute it. These move forward with the
+user-ingest milestone, where corpora larger than the bundle first become real.

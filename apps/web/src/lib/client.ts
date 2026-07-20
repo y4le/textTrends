@@ -24,6 +24,7 @@ import type {
   ToWorker,
 } from '../worker/protocol.ts';
 import { PROTOCOL_VERSION } from '../worker/protocol.ts';
+import type { ProtocolTraceSink } from './trace.ts';
 
 export interface SnapshotInfo {
   readonly snapshot: string;
@@ -72,8 +73,12 @@ export class WorkerClient {
   private warningListener: ((code: StorageWarningCode, message: string) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
   private readonly ingestJobs = new Map<number, string>(); // job -> generation
+  /** Optional PASSIVE observability sink (e2e builds) — sanitized metadata
+   *  only; the client never behaves differently when it is present. */
+  private readonly trace: ProtocolTraceSink | null;
 
-  constructor() {
+  constructor(trace?: ProtocolTraceSink) {
+    this.trace = trace ?? null;
     this.worker = this.spawn();
   }
 
@@ -104,6 +109,11 @@ export class WorkerClient {
     this.pending.clear();
     this.ingestJobs.clear();
     this.worker.terminate();
+    this.trace?.record({
+      direction: 'client',
+      t: 'restart',
+      code: this.restartAttempts >= MAX_WORKER_RESTARTS ? 'fatal' : 'respawn',
+    });
     if (this.restartAttempts >= MAX_WORKER_RESTARTS) {
       this.workerEpoch++; // fence any straggling events; no replacement
       this.dead = true;
@@ -134,6 +144,20 @@ export class WorkerClient {
   }
 
   private receive(m: FromWorker): void {
+    this.trace?.record({
+      direction: 'from-worker',
+      t: m.t,
+      ...('job' in m && m.job !== undefined ? { job: m.job } : {}),
+      ...('generation' in m && m.generation !== undefined ? { generation: m.generation } : {}),
+      ...('snapshot' in m ? { snapshot: m.snapshot } : {}),
+      ...('doc' in m ? { doc: m.doc } : {}),
+      ...('phase' in m ? { phase: m.phase } : {}),
+      ...('code' in m ? { code: m.code } : {}),
+      ...('data' in m ? { op: m.data.op } : {}),
+      ...('readyDocs' in m ? { readyCount: m.readyDocs.length } : {}),
+      ...('missing' in m ? { missingCount: m.missing.length } : {}),
+      ...('missingDocs' in m ? { missingCount: m.missingDocs.length } : {}),
+    });
     switch (m.t) {
       case 'snapshot-published':
         this.snapshotListener?.({
@@ -213,8 +237,21 @@ export class WorkerClient {
   }
 
   private post(message: ToWorker, transfer?: Transferable[]): void {
+    // Detachment is synchronous: byteLength before vs after the post proves
+    // a real transfer (0 after) rather than a structured clone.
+    const bytes = message.t === 'ingest' ? message.bytes : null;
+    const before = bytes?.byteLength;
     if (transfer) this.worker.postMessage(message, transfer);
     else this.worker.postMessage(message);
+    this.trace?.record({
+      direction: 'to-worker',
+      t: message.t,
+      ...('job' in message ? { job: message.job } : {}),
+      ...('generation' in message && typeof message.generation === 'string' ? { generation: message.generation } : {}),
+      ...('doc' in message ? { doc: message.doc } : {}),
+      ...(message.t === 'query' ? { op: message.query.op } : {}),
+      ...(before === undefined ? {} : { transferBytesBefore: before, transferBytesAfter: bytes!.byteLength }),
+    });
   }
 
   openGeneration(

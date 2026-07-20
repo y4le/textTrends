@@ -1,0 +1,44 @@
+/**
+ * Warm reopen — the user-visible payoff of Milestone 5, proven against
+ * REAL IndexedDB structured clone and a real page reload: zero corpus
+ * fetches, zero decode/segment/index, one snapshot, an all-ready barrier,
+ * and a working UI. The durability barrier polls page-context IDB; the
+ * app itself never waits on persistence.
+ */
+
+import { expect, test } from '@playwright/test';
+import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, submitAndAwaitFreshResults, trace, trackCorpusRequests } from './helpers.ts';
+
+test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready barrier', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await awaitCacheSettled(page);
+
+  const corpusRequests = trackCorpusRequests(page);
+  await page.reload();
+  await awaitAllReady(page);
+
+  expect(corpusRequests).toEqual([]);
+
+  const t = await trace(page);
+  const phases = events(t, { direction: 'from-worker', t: 'progress' }).map((e) => e.phase);
+  expect(phases.filter((p) => p === 'decode' || p === 'segment' || p === 'index')).toEqual([]);
+  // compose on warm reopen is an implementation choice — not forbidden.
+
+  const published = events(t, { direction: 'from-worker', t: 'snapshot-published' });
+  expect(published.length).toBe(1);
+  expect(published[0]!.readyCount).toBe(DOC_COUNT);
+
+  const barriers = events(t, { direction: 'from-worker', t: 'generation-ready' });
+  expect(barriers.length).toBe(1);
+  expect(barriers[0]!.missingCount).toBe(0);
+  expect(barriers[0]!.readyCount).toBe(DOC_COUNT);
+
+  // The rehydrated corpus answers: trend surface, totals, and concordance.
+  await expect(page.locator('svg').first()).toBeVisible();
+  await expect(page.getByRole('table').first()).toBeVisible();
+
+  // A NEW query against the rehydrated index — awaited by its own fresh
+  // job's result, never satisfied by pre-reload evidence.
+  await submitAndAwaitFreshResults(page, 'watson');
+});

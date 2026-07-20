@@ -10,6 +10,7 @@
     "dev": "pnpm --filter @texttrends/web dev",
     "build": "pnpm -r build",
     "test": "pnpm -r test",
-    "typecheck": "pnpm -r typecheck"
+    "typecheck": "pnpm -r typecheck",
+    "e2e": "pnpm --filter @texttrends/web e2e"
   }
 }
