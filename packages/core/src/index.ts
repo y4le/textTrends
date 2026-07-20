@@ -108,3 +108,27 @@ export {
   type MatchMode,
   type Resolver,
 } from './resolve/fold.ts';
+export {
+  DecodeError,
+  decodeSource,
+  windows1252TableHash,
+  type DecodedSource,
+  type DetectedEncoding,
+} from './extract/decode.ts';
+export {
+  hashStructureCandidates,
+  scanMarkdownHeadings,
+  type StructureCandidateV1,
+} from './extract/markdown.ts';
+export {
+  defaultExtractionRecipes,
+  extractDocument,
+  hashExtractionRecipe,
+  validateExtractionRecipe,
+  hashSourceBytes,
+  type ExtractedDocument,
+  type ExtractionArtifactV1,
+  type ExtractionRecipeProvisional,
+  type SourceDescriptorV1,
+  type SourceFormat,
+} from './extract/extraction.ts';
