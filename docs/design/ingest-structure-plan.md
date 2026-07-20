@@ -1021,3 +1021,316 @@ Retain the current injected-yield race matrix rather than merely translating hap
 - Cache eviction, result caches, source transformations, and portable-project concerns already outside this phase.
 
 With those changes, the v4 engine remains the same architecture rather than a second lifecycle bolted beside v3: immutable generation intent, dependency-aware artifact preparation, one guarded publication path, snapshot-bound queries, and a separate durable user-data lane.
+
+---
+
+# Commit 6b/6c boundary ruling — engine-v4 sequencing
+
+*Codex consultation `req_consult_d6e2cf679dcd3e0d` (planner), 2026-07-20. Refines
+the commit-6 design of record into a three-commit sequence: a storage
+prerequisite, the cohesive unused engine (6b), and the atomic wire cutover
+(6c). Recorded verbatim below; governs the 6b implementation.*
+
+# Commit 6b boundary ruling
+
+## Executive decision
+
+Your split is the intended §F split.
+
+- **Prerequisite storage correction:** land the two durable-store fixes as a small standalone commit before 6b.
+- **6b:** add `WorkerEngineV4` as a new, directly unit-tested module, including its analysis lifecycle, warm/cold pipeline, structure query, and injected user-data handlers. It remains unused by `index.worker.ts`; the running app remains wholly v3.
+- **6c:** atomically cut the shell, client, Sherlock spec construction, browser harness, and UI store to v4, then remove v3. No committed state may pair the v4 engine with the v3 client.
+
+Keep the v4 engine cohesive in one file for this implementation. The state ownership and gates matter more than reaching a preferred line count.
+
+There are three small prerequisite gaps to close before or alongside 6b: the durable project record/CAS shape, semantic hash verification in `validateProjectManifest`, and the still-unexported shared ingest caps. None should be reimplemented privately inside the engine.
+
+## Q1 — Boundary
+
+**Approve the proposed 6b boundary.** A new `engine-v4.ts` imported only by a new `engine-v4.test.ts` is a green, useful commit. It is not the forbidden midpoint because the production shell still imports the old `engine.ts` and the old client continues speaking v3 to it.
+
+### 6b should contain
+
+- `WorkerEngineV4` and its v4-only internal types;
+- resolved generation plans and per-document work tokens;
+- cold extraction, warm probing, preparation, structure composition, and the single publication path;
+- trend/KWIC/passage/excerpt behavior migrated into the v4 engine;
+- the new snapshot-bound structure query;
+- user-data command handlers against an injected access seam;
+- engine-level transfer lists and v4 event/error mapping;
+- comprehensive lifecycle, yield-injection, cancellation, cache-corruption, supersession, structure-query, and user-data unit tests;
+- any v4-only protocol corrections required by those handlers, notably user-data `SOURCE_MISMATCH` and a durable-data corruption code.
+
+The new module must be included in normal typechecking even though Vite does not reach it from the worker entry.
+
+### 6b should not contain
+
+- an import change in `index.worker.ts`;
+- a `WorkerClient` migration;
+- Sherlock v4 spec construction in the application store;
+- changes to current browser assertions merely to anticipate v4;
+- deletion or weakening of the v3 engine/tests.
+
+Those are one coupled 6c cutover. Within 6c it is fine for the tree to be temporarily mismatched while editing; the commit itself must build and run end to end.
+
+Keep the new unit suite separate rather than rewriting the v3 suite in place. Reuse inert fixture builders if useful, but preserve the old tests until 6c so both executable contracts remain demonstrably green.
+
+### Small dependencies allowed in 6b
+
+If a helper is genuinely required to implement the v4 engine correctly, a narrow core addition is acceptable in 6b. Two examples are the shared ingest-cap constant and a decode/finalize-extraction helper described below. Do not duplicate either behavior locally merely to keep the diff nominally “engine only.” If review size is the concern, put these in the prerequisite commit instead.
+
+## Q2 — User-data handlers
+
+**Put the handlers and their unit tests in 6b.** Your reasoning is correct: they are engine behavior over an injected seam, not shell wiring.
+
+The constructor should not require a successfully opened durable store. Give the engine a discriminated access/provider seam so 6b can test all outcomes and 6c can start analysis independently of durable-store opening:
+
+```ts
+type UserDataAccess =
+  | { readonly kind: "ok"; readonly store: UserDataStore }
+  | { readonly kind: "blocked"; readonly message: string }
+  | { readonly kind: "unavailable"; readonly message: string };
+
+type UserDataProvider = () => Promise<UserDataAccess>;
+
+class WorkerEngineV4 {
+  constructor(
+    artifactStore: ArtifactStore,
+    userData: UserDataProvider,
+    emit: EmitV4,
+    yieldControl: Yield,
+  ) {}
+}
+```
+
+In 6b, inject resolved, deferred, failed, and blocked providers. In 6c, start the user-data open concurrently and pass its bounded promise/provider to the engine; analysis messages must not await it. Only a user-data command waits for user-data availability.
+
+The handlers remain outside `GenerationState`. They may share global job-number ownership and cancellation machinery, but they emit only the user-data acknowledgement/error union—never analysis progress, warnings, results, or generation errors.
+
+Add two v4 user-data error codes before the protocol becomes live:
+
+- `SOURCE_MISMATCH` for `source-persist` bytes that do not hash to the claimed source identity;
+- `DATA_CORRUPT` (or the narrower `PROJECT_CORRUPT`) for a durable project record that fails deep validation on load.
+
+Mapping a corrupt stored project to `REQUEST_INVALID` blames the current request; mapping it to `PERSISTENCE_UNAVAILABLE` loses important recovery information. Do not delete a corrupt durable project or source automatically.
+
+### User-data cancellation has a commit point
+
+Sharpen the earlier “user-data jobs are cancellable” rule. Reads and pre-write CPU work are cancellable. Durable writes are only cancellable **before** their transaction starts.
+
+For `source-persist`:
+
+1. cap-check and hash the bytes;
+2. verify the claimed hash;
+3. checkpoint/gate cancellation;
+4. call `putSource`;
+5. once the durable promise resolves, emit `source-persisted` even if a cancel arrived while the transaction was committing.
+
+The same rule applies to `project-save`. Suppressing the acknowledgement after a successful commit would leave the main thread at revision N while storage is at N+1, producing a misleading conflict on retry. Once the irreversible side effect succeeds, truthful acknowledgement wins over a late cancellation. A worker death between commit and acknowledgement remains recoverable: source puts are idempotent, and a project retry can load/reconcile the committed revision.
+
+## Q3 — Storage fixes and revision authority
+
+**Choose (a): a small standalone storage-contract commit before 6b.** Do not bury changes to durable-record identity, CAS semantics, IndexedDB migration, close behavior, and open timing inside a thousand-line state-machine diff. Do not wait for 6c, because the 6b handlers and their tests should target the final store contract.
+
+### Manifest is the sole revision authority
+
+Use `ProjectManifestV1.revision` as the only persisted revision. Store the canonical manifest directly as the project record; the object store can continue keying it by `id`. A wrapper containing another `id` and `revision` creates exactly the dual authority §E rejects.
+
+I recommend that the save message carry the *proposed committed manifest*:
+
+- `expectedRevision` is the CAS token for the currently observed record;
+- `manifest.revision` must equal `expectedRevision + 1`;
+- first creation is `expectedRevision = 0`, `manifest.revision = 1`;
+- the engine deeply validates the manifest and this relationship before calling the store;
+- the store transaction compares the current stored manifest revision with `expectedRevision` and writes the already validated next manifest unchanged.
+
+That is preferable to stamping a revision into an `unknown` value inside the transaction. It also avoids doing asynchronous recipe/hash validation while an IndexedDB transaction is live—a transaction can become inactive while Web Crypto promises settle.
+
+```ts
+interface UserDataStore {
+  /** A hit is still untrusted persisted input; the engine deep-validates it. */
+  getProject(id: string): Promise<CacheRead<unknown>>;
+
+  /** `next` is a validated canonical manifest at expectedRevision + 1. */
+  putProject(
+    next: ProjectManifestV1,
+    expectedRevision: number,
+  ): Promise<{ readonly committed: ProjectManifestV1 }>;
+
+  getSource(hash: string): Promise<CacheRead<StoredSourceV1>>;
+  putSource(source: StoredSourceV1): Promise<void>;
+  deleteSource(hash: string): Promise<void>;
+  close(): void;
+}
+```
+
+Inside `putProject`, synchronously reject an invalid key/id relationship, a non-safe revision, `next.revision !== expectedRevision + 1`, or revision overflow. The read and put remain in one readwrite transaction. The store may shallow-check the current record's `schema`, `id`, and safe revision for CAS; the engine performs full validation on project load and before save.
+
+The protocol should follow the single-authority choice. `project-loaded` does not need a second `revision` beside the manifest; remove it now or require exact equality. `project-saved.revision` is fine as an acknowledgement of the committed value, not another stored authority.
+
+### This is a durable layout migration
+
+Changing the project value from `{id, revision, manifest}` to `ProjectManifestV1` changes the stable user-data record ABI. Bump `USER_DATA_DB_VERSION` and provide a same-name migration. The feature has not yet been wired to production, but the database was deliberately given migration—not abandonment—semantics.
+
+Do not silently delete an old wrapper. A migration can unwrap only a record whose inner manifest and outer id/revision agree under the migration's synchronous checks; anything else should remain detectable as corrupt/quarantined rather than being invented into a valid project.
+
+### Closed/versionchange/open behavior
+
+The prerequisite commit should prove all of these:
+
+- `getProject` and `getSource` after close reject with `PERSISTENCE_UNAVAILABLE`, not `miss`;
+- `put*`/delete continue to reject rather than fake success;
+- the live connection closes and invalidates the adapter on `versionchange`/`blocking`;
+- a blocked open resolves promptly as `blocked` and any late connection is closed;
+- an opener that neither resolves nor fires `blocked` is bounded by an injected timeout, resolves `unavailable`, and closes any late connection;
+- two-connection CAS still permits exactly one winner;
+- class-1 operations never fall back to an in-memory store while claiming durability.
+
+The 6c shell should start artifact and user-data opening concurrently, but should instantiate analysis as soon as its disposable artifact-store policy permits. The user-data provider may still be pending; this must not add the durable-open timeout to cold T1.
+
+### One 6a validator follow-up belongs with this prerequisite
+
+`validateProjectManifest` now performs excellent structural and override-status validation, but the landed implementation does not yet recompute the claimed index, extraction, structure-recipe, or override hashes. Its current tests deliberately admit placeholders such as `ir`, `er`, `sr`, and `h`.
+
+Before the handlers rely on it as the canonical durable boundary, make it verify:
+
+```ts
+await hashIndexRecipe(manifest.indexRecipe) === manifest.indexRecipeHash;
+await hashExtractionRecipe(doc.extraction.recipe) === doc.extraction.recipeHash;
+await hashStructureRecipe(doc.structure.recipe) === doc.structure.recipeHash;
+await hashStructureOverride(savedOverride.value) === savedOverride.hash;
+doc.source.format === doc.extraction.recipe.format;
+```
+
+Verify override hashes for both `active` and `needs-review`; “not currently applied” does not mean “identity may be false.” Also close the manifest's detected-encoding union to the implemented encodings. This makes the validator satisfy its documented “hashes are assertions” role rather than forcing every user-data handler to duplicate semantic checks.
+
+## Q4 — Module decomposition
+
+**Keep 6b's implementation in one `engine-v4.ts`.** That is the better first-review shape here.
+
+Warm probing, document claims, cache-repair guards, preparation, composition serialization, and emission all depend on the same private ownership rules. Moving `probeWarmDocument` and `prepareFromText` into `warm-resolve.ts` would either expose stateful private methods or pass a large callback/context object whose omissions become new race hazards. Keeping them adjacent makes comparison with the v3 engine and audit of every await/gate much easier.
+
+Likewise, keep `handleUserData` in the engine for 6b so job ownership, cancellation, and the write commit point are visible in the same dispatch. It can be a clearly separated section without being a separate module.
+
+Use internal sections and small private methods rather than one enormous method:
+
+1. dispatch/job ownership;
+2. generation plan resolution and document claims;
+3. warm probe/admission;
+4. text preparation/build;
+5. serialized composition/publication;
+6. queries/resolver caches;
+7. user-data lane;
+8. error mapping/emission.
+
+Split test fixtures/builders into a helper file if that reduces noise. After 6c is stable, extract only helpers that are demonstrably stateless. A future `user-data-service.ts` is reasonable if it returns typed outcomes and never owns jobs, emits messages, or touches generation state; it is not needed to make 6b reviewable.
+
+## Q5 — Implementation sharpenings
+
+### 1. Make document claims the authority before any ready value exists
+
+Use generation-object identity plus a monotonic per-document epoch:
+
+```ts
+interface DocWorkToken {
+  readonly generation: GenerationStateV4; // object identity, not its string
+  readonly doc: string;
+  readonly epoch: number;
+}
+
+private owns(token: DocWorkToken): boolean {
+  return this.generation === token.generation &&
+    token.generation.work.get(token.doc)?.epoch === token.epoch;
+}
+```
+
+Warm resolution claims each doc. An ingest for that doc increments its epoch and supersedes the warm owner. Two ingests may be idempotent only after the first accepted source/text/candidate identity is frozen; different bytes under the same generation are rejected rather than changing document meaning in place.
+
+Use a combined gate after every await:
+
+```ts
+private docGate(job: number, token: DocWorkToken): void {
+  this.gate(job, token.generation);
+  if (!this.owns(token)) throw new SupersededError();
+}
+```
+
+Gate before warnings, disposable repair deletes, state writes, and emissions—not merely before `commitDocuments`.
+
+### 2. `commitDocuments` must recompose if ownership changes during composition
+
+The composition mutex serializes publications but does not prevent an ingest from incrementing a document epoch while `composeSnapshot` awaits hashing. Use this shape:
+
+1. enter the composition chain;
+2. filter candidates to currently owned tokens;
+3. stage from the current committed ready/text maps without mutating them;
+4. compose/bind locally;
+5. synchronously recheck job, generation, **every candidate token**, and the staged ready-base publication version;
+6. if a candidate was superseded, discard the staged snapshot and recompose with the still-owned candidates (or explicitly reschedule them); never commit a snapshot composed around the stale item;
+7. mutate ready/text/bindings/snapshot and emit in one synchronous section.
+
+A plain “abort the whole batch” is safe but can lose publication of the other exact hits unless they are requeued. A short recompose loop over the remaining owned candidates preserves safety and liveness.
+
+Track a generation-local `publicationEpoch` incremented only on successful commit. Capturing and rechecking it makes the staged-base assumption explicit even though the mutex should serialize writers.
+
+### 3. Keep accepted identity separate from work ownership
+
+`DocWorkSlot.acceptedIdentity` should survive an epoch increment. The epoch says which asynchronous task may act; accepted identity says what this generation's document means. Set/freeze it after a cold extraction's source/text/candidate assertions pass and before long index/structure work. A later same-generation attempt must match it.
+
+`generation-ready.missing` must exclude a document whose bytes have been accepted and are owned in flight, not only documents already in `ready`. If that build later fails, its correlated error drives retry; the begin job must not start a duplicate fetch meanwhile.
+
+### 4. Structure query binding
+
+The query is bound to the **current snapshot object**, not only to the generation:
+
+1. capture `gen` and `snapshot` and run the normal query checkpoint;
+2. require the requested doc to appear in the snapshot's refs;
+3. get the matching `ReadyDocument` and require `ready.index === ref.index` and `ready.structure === ref.structure`;
+4. require a V2 structure artifact;
+5. obtain raw token ranges from a cache keyed by `[ref.structure, ref.index]` using `projectSections`;
+6. build one lineage-key → `SectionId` map with `bindSectionId(doc, key)`, then translate parent keys through that map;
+7. after all asynchronous ID binding, run `queryGate(job, gen, snapshot.id)` immediately before emitting;
+8. echo exactly `ref.structure` and `ref.index` in the result.
+
+Cache only doc-independent token projections by the artifact pair. Section IDs are doc-bound; either bind them per request or key a second cache by `(doc, structure, index)`.
+
+### 5. Export and use the §12.9 caps
+
+`INGEST_CAPS_V0` still exists only in the design document. Export one shared core constant now. The v4 engine must enforce document count and declared aggregate source/text caps at begin-generation, the actual received source size before processing, and decoded UTF-16 limits after decode. 6c reuses the same constant for main-thread preflight. Violations are `CAP_EXCEEDED`, never generic parse/internal errors.
+
+### 6. Preserve honest decode/extract phases without duplicating artifact assembly
+
+6a exports `decodeSource` and `deriveCandidatesFromText`, but `extractDocument` still performs the complete operation. Do not hand-assemble `ExtractionArtifactV1` independently in the engine and create a second canonical builder.
+
+Add a small core phase seam—e.g. `decodeDocumentSource(bytes, recipe)` plus `finalizeExtraction(decoded, recipe)`—and have both `extractDocument` and the engine use it. Then the worker can emit `decode` immediately before byte decoding and `extract` immediately before candidate derivation/artifact finalization. Warm text rescans emit only `extract`.
+
+### 7. Cache and evidence rules remain asymmetric by design
+
+- A candidate bundle regenerated from verified text can rebuild structure but cannot recreate source decoding evidence.
+- Do not persist a fabricated extraction artifact or emit a fabricated `source-ready` from that bundle.
+- A valid artifact that conflicts with a project expectation is a terminal mismatch, not cache corruption; do not delete it or report the doc as an ordinary byte miss.
+- Disposable extraction/shard/structure writes occur only after the full prepared document commits; a durable source is never repair-deleted.
+
+### 8. Minimum 6b test gates
+
+In addition to the design-of-record matrix, make these explicit acceptance tests for the split commit:
+
+- `engine.ts` and its v3 tests remain unchanged and green;
+- `engine-v4.ts` is not imported by `index.worker.ts`;
+- a stale doc token cannot warn, repair-delete, publish, or alter `missing`;
+- supersession during awaited snapshot composition forces recompose/no stale publication;
+- an override-only generation publishes one complete snapshot with no index work;
+- structure results are suppressed after snapshot supersession and echo the bound artifact hashes;
+- project load validates the durable manifest deeply, including hashes;
+- project save enforces `manifest.revision === expectedRevision + 1` and maps CAS conflict precisely;
+- source persist verifies bytes and acknowledges only durable success;
+- cancellation before a user-data write prevents it, while cancellation during an already committed write does not suppress the acknowledgement;
+- unavailable/blocked user data does not affect analysis queries or progress.
+
+## Final sequencing
+
+1. **Storage prerequisite:** single-authority project record/CAS, schema migration, close/versionchange/timeout behavior, semantic manifest-hash verification, and focused tests. Add the v4 user-data error codes here or in 6b.
+2. **6b:** cohesive unused `WorkerEngineV4` plus its full unit/race suite and any narrow shared core phase/cap helpers.
+3. **6c:** one green production wire cutover—shell/provider opening, client, Sherlock v4 specs, UI-store compatibility, browser fixtures—then remove v3.
+
+That keeps each commit independently meaningful: the durable substrate is correct, the new state machine is reviewable in isolation, and the deployed protocol changes atomically.

@@ -39,6 +39,18 @@ export type DetectedEncoding =
   | 'utf-16be-bom'
   | 'windows-1252';
 
+/** The CLOSED set of encodings this decoder can report — the single authority
+ *  for membership-testing an untrusted `descriptor.encoding.detected` string
+ *  (the artifact and manifest validators use it to close the field). Typed as
+ *  a string set because callers test values of `unknown` provenance. */
+export const DETECTED_ENCODINGS: ReadonlySet<string> = new Set<DetectedEncoding>([
+  'utf-8',
+  'utf-8-bom',
+  'utf-16le-bom',
+  'utf-16be-bom',
+  'windows-1252',
+]);
+
 export interface DecodedSource {
   readonly text: string;
   readonly detected: DetectedEncoding;

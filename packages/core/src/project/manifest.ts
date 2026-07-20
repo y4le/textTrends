@@ -7,14 +7,30 @@
  * enter the CAS, and the manifest's own revision is the single revision
  * authority (no wrapper/manifest double-count).
  *
- * This validator checks structure, identity agreement (order ↔ docs), and
- * the recipe/override VALUES via the same total core validators the wire
- * boundary uses — it is the deep authority for durable project data.
+ * This validator checks structure, identity agreement (order ↔ docs), the
+ * recipe/override VALUES via the same total core validators the wire boundary
+ * uses, AND every claimed hash — it RECOMPUTES each recipe/override hash from
+ * its value (engine-v4 consult §Q3): a stored hash is an assertion, so the
+ * durable boundary that admits a manifest must verify index/extraction/
+ * structure-recipe hashes, both override hashes (active AND needs-review — an
+ * inactive correction may still be relied on later), and that each doc's
+ * source format agrees with its extraction recipe. It is the deep authority
+ * for durable project data; downstream handlers never re-verify these.
  */
 
-import { exactArray, exactRecord, isIndexRecipeProvisional } from '../contract/recipes.ts';
-import { isStructureOverrideV1, isStructureRecipeProvisional } from '../structure/build.ts';
-import { validateExtractionRecipe, type ExtractionRecipeProvisional } from '../extract/extraction.ts';
+import { exactArray, exactRecord, hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
+import {
+  hashStructureOverride,
+  hashStructureRecipe,
+  isStructureOverrideV1,
+  isStructureRecipeProvisional,
+} from '../structure/build.ts';
+import { DETECTED_ENCODINGS } from '../extract/decode.ts';
+import {
+  hashExtractionRecipe,
+  validateExtractionRecipe,
+  type ExtractionRecipeProvisional,
+} from '../extract/extraction.ts';
 import type { IndexRecipeProvisional } from '../contract/recipes.ts';
 import type { StructureOverrideV1, StructureRecipeProvisional } from '../structure/build.ts';
 
@@ -93,7 +109,7 @@ interface DocIdentities {
   readonly structureRecipeHash: string;
 }
 
-function validateOverride(o: unknown, id: DocIdentities): PersistedOverride {
+async function validateOverride(o: unknown, id: DocIdentities): Promise<PersistedOverride> {
   if (!isRec(o) || !isStr(o.status)) throw new ManifestInvalidError('override status missing');
   if (o.status === 'none') {
     if (!exactRecord(o, ['status'])) throw new ManifestInvalidError('none override has extra fields');
@@ -102,6 +118,13 @@ function validateOverride(o: unknown, id: DocIdentities): PersistedOverride {
   if (o.status === 'active' || o.status === 'needs-review') {
     if (!exactRecord(o, ['status', 'value', 'hash']) || !isStructureOverrideV1(o.value) || !isStr(o.hash)) {
       throw new ManifestInvalidError(`${o.status} override malformed`);
+    }
+    // The claimed override hash is an assertion — recompute it. This holds for
+    // BOTH statuses: a needs-review correction is not currently applied, but
+    // it will be relied on once the user rebases it, so its identity must be
+    // true now (engine-v4 consult §Q3).
+    if ((await hashStructureOverride(o.value)) !== o.hash) {
+      throw new ManifestInvalidError(`${o.status} override hash does not match its value`);
     }
     // §12.6 invariant: active IFF all three base identities match the doc's
     // current extraction/structure; needs-review IFF at least one differs.
@@ -144,6 +167,11 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   ) {
     throw new ManifestInvalidError('doc source descriptor invalid');
   }
+  // The detected encoding is a CLOSED union — a durable descriptor may only
+  // name an encoding the decoder can actually report.
+  if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
+    throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
+  }
   if (v.sourceAvailability !== 'bundled' && v.sourceAvailability !== 'persisted' && v.sourceAvailability !== 'external') {
     throw new ManifestInvalidError('doc sourceAvailability invalid');
   }
@@ -156,16 +184,29 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   }
   // validateExtractionRecipe throws RangeError; normalize to keep the
   // documented "every invalid manifest throws ManifestInvalidError" contract.
+  let extractionRecipe: ExtractionRecipeProvisional;
   try {
-    await validateExtractionRecipe(e.recipe); // deep authority (table hash etc.)
+    extractionRecipe = await validateExtractionRecipe(e.recipe); // deep authority (table hash etc.)
   } catch (err) {
     throw new ManifestInvalidError(`doc extraction recipe invalid: ${err instanceof Error ? err.message : String(err)}`);
+  }
+  // The extraction recipe determines the source format — a descriptor that
+  // claims a different format than the recipe implements is inconsistent.
+  if (s.format !== extractionRecipe.format) {
+    throw new ManifestInvalidError('doc source format disagrees with its extraction recipe');
+  }
+  // The claimed recipe hash is an assertion — recompute it from the value.
+  if ((await hashExtractionRecipe(extractionRecipe)) !== e.recipeHash) {
+    throw new ManifestInvalidError('doc extraction recipeHash does not match its recipe');
   }
   const st = v.structure;
   if (!exactRecord(st, ['recipe', 'recipeHash', 'override']) || !isStructureRecipeProvisional(st.recipe) || !isStr(st.recipeHash)) {
     throw new ManifestInvalidError('doc structure recipe invalid');
   }
-  validateOverride(st.override, { text: e.text, candidates: e.candidates, structureRecipeHash: st.recipeHash });
+  if ((await hashStructureRecipe(st.recipe)) !== st.recipeHash) {
+    throw new ManifestInvalidError('doc structure recipeHash does not match its recipe');
+  }
+  await validateOverride(st.override, { text: e.text, candidates: e.candidates, structureRecipeHash: st.recipeHash });
   return v as unknown as ProjectDocV1;
 }
 
@@ -192,6 +233,9 @@ export async function validateProjectManifest(value: unknown): Promise<ProjectMa
   }
   if (!isIndexRecipeProvisional(value.indexRecipe) || !isStr(value.indexRecipeHash)) {
     throw new ManifestInvalidError('manifest index recipe invalid');
+  }
+  if ((await hashIndexRecipe(value.indexRecipe)) !== value.indexRecipeHash) {
+    throw new ManifestInvalidError('manifest indexRecipeHash does not match its indexRecipe');
   }
   const docs = await Promise.all(value.docs.map(validateDoc));
   const ids = docs.map((d) => d.doc);

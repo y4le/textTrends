@@ -16,7 +16,11 @@ import {
   defaultExtractionRecipes,
   emptyOverride,
   extractDocument,
+  hashExtractionRecipe,
+  hashIndexRecipe,
   hashStructureCandidates,
+  hashStructureOverride,
+  hashStructureRecipe,
   hashText,
   makeReadyDocument,
   scanMarkdownHeadings,
@@ -175,10 +179,29 @@ describe('makeReadyDocument with a V2 structure', () => {
 });
 
 describe('validateProjectManifest', () => {
-  // The doc's extraction/structure identities the override status is judged
-  // against: text='th', candidates='ch', structureRecipeHash='sr'.
-  async function manifest() {
+  // Every claimed hash is now RECOMPUTED and verified (engine-v4 consult §Q3),
+  // so the fixture carries REAL recipe/override hashes, not placeholders. The
+  // doc's extraction identities the override status is judged against are the
+  // real text/candidate identities of a genuine extraction of BOOK_LIKE_MD.
+  async function realHashes() {
     const { md } = await defaultExtractionRecipes();
+    const extraction = await extractDocument(utf8(BOOK_LIKE_MD), md);
+    return {
+      md,
+      indexRecipeHash: await hashIndexRecipe(DEFAULT_INDEX_RECIPE),
+      extractionRecipeHash: await hashExtractionRecipe(md),
+      structureRecipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
+      text: extraction.artifact.text,
+      candidates: extraction.artifact.candidateHash,
+      textLengthUtf16: extraction.artifact.textLengthUtf16,
+    };
+  }
+  /** A persisted override with a REAL hash of its value. */
+  async function persistedOverride(status: 'active' | 'needs-review', value: ReturnType<typeof emptyOverride>) {
+    return { status, value, hash: await hashStructureOverride(value) };
+  }
+  async function manifest() {
+    const h = await realHashes();
     return {
       schema: 'texttrends/project/1', id: 'proj-1', revision: 1, order: ['d1'],
       docs: [{
@@ -186,10 +209,10 @@ describe('validateProjectManifest', () => {
         meta: { title: 'Book', language: 'en', tags: [] },
         source: { hash: 'sh', byteLength: 10, format: 'md', encoding: { detected: 'utf-8', hadReplacementChars: false } },
         sourceAvailability: 'persisted',
-        extraction: { recipe: md, recipeHash: 'er', text: 'th', textLengthUtf16: 10, candidates: 'ch' },
-        structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'sr', override: { status: 'none' } },
+        extraction: { recipe: h.md, recipeHash: h.extractionRecipeHash, text: h.text, textLengthUtf16: h.textLengthUtf16, candidates: h.candidates },
+        structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: h.structureRecipeHash, override: { status: 'none' } },
       }],
-      indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'ir',
+      indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: h.indexRecipeHash,
     };
   }
   const withOverride = (m: Record<string, unknown>, override: unknown): Record<string, unknown> => ({
@@ -199,6 +222,25 @@ describe('validateProjectManifest', () => {
 
   it('admits a well-formed manifest', async () => {
     expect((await validateProjectManifest(await manifest())).id).toBe('proj-1');
+  });
+
+  it('recomputes and enforces every claimed recipe/override hash', async () => {
+    const m = await manifest();
+    // A wrong index recipe hash is caught even though the recipe VALUE is valid.
+    await expect(validateProjectManifest({ ...m, indexRecipeHash: 'wrong' })).rejects.toThrow(/indexRecipeHash/);
+    const wrongExtraction = { ...m, docs: [{ ...m.docs[0], extraction: { ...(m.docs[0] as { extraction: object }).extraction, recipeHash: 'wrong' } }] };
+    await expect(validateProjectManifest(wrongExtraction)).rejects.toThrow(/extraction recipeHash/);
+    const wrongStructure = { ...m, docs: [{ ...m.docs[0], structure: { ...(m.docs[0] as { structure: object }).structure, recipeHash: 'wrong' } }] };
+    await expect(validateProjectManifest(wrongStructure)).rejects.toThrow(/structure recipeHash/);
+  });
+
+  it('closes the detected-encoding union and enforces source/recipe format agreement', async () => {
+    const m = await manifest();
+    const badEnc = { ...m, docs: [{ ...m.docs[0], source: { ...(m.docs[0] as { source: object }).source, encoding: { detected: 'latin-1', hadReplacementChars: false } } }] };
+    await expect(validateProjectManifest(badEnc)).rejects.toThrow(/encoding/);
+    // Source claims txt while the extraction recipe is md — inconsistent.
+    const badFormat = { ...m, docs: [{ ...m.docs[0], source: { ...(m.docs[0] as { source: object }).source, format: 'txt' } }] };
+    await expect(validateProjectManifest(badFormat)).rejects.toThrow(/format disagrees/);
   });
 
   it('enforces a positive safe-integer revision and order/docs agreement', async () => {
@@ -218,22 +260,29 @@ describe('validateProjectManifest', () => {
     await expect(validateProjectManifest(badText)).rejects.toThrow(ManifestInvalidError);
   });
 
-  it('enforces the §12.6 override-status invariant against the doc identities', async () => {
+  it('enforces the §12.6 override-status invariant AND the override hash', async () => {
     const m = await manifest();
-    // active with matching base identities is admitted.
-    const goodActive = withOverride(m, { status: 'active', value: emptyOverride('th', 'ch', 'sr'), hash: 'h' });
+    const h = await realHashes();
+    // active with matching base identities and a real hash is admitted.
+    const goodActive = withOverride(m, await persistedOverride('active', emptyOverride(h.text, h.candidates, h.structureRecipeHash)));
     expect((await validateProjectManifest(goodActive)).id).toBe('proj-1');
     // active whose base text differs is rejected (would apply a stale patch).
-    const staleActive = withOverride(m, { status: 'active', value: emptyOverride('OTHER', 'ch', 'sr'), hash: 'h' });
+    const staleActive = withOverride(m, await persistedOverride('active', emptyOverride('OTHER', h.candidates, h.structureRecipeHash)));
     await expect(validateProjectManifest(staleActive)).rejects.toThrow(/active override base identities/);
     // needs-review that STILL matches is rejected (should be active).
-    const wrongReview = withOverride(m, { status: 'needs-review', value: emptyOverride('th', 'ch', 'sr'), hash: 'h' });
+    const wrongReview = withOverride(m, await persistedOverride('needs-review', emptyOverride(h.text, h.candidates, h.structureRecipeHash)));
     await expect(validateProjectManifest(wrongReview)).rejects.toThrow(/needs-review/);
-    // needs-review that genuinely differs is admitted.
-    const goodReview = withOverride(m, { status: 'needs-review', value: emptyOverride('STALE', 'ch', 'sr'), hash: 'h' });
+    // needs-review that genuinely differs is admitted — but its hash is still
+    // verified (an inactive correction must not carry a false identity).
+    const goodReview = withOverride(m, await persistedOverride('needs-review', emptyOverride('STALE', h.candidates, h.structureRecipeHash)));
     expect((await validateProjectManifest(goodReview)).id).toBe('proj-1');
+    // A correct status/base but a WRONG hash is rejected for both statuses.
+    const badHashActive = withOverride(m, { status: 'active', value: emptyOverride(h.text, h.candidates, h.structureRecipeHash), hash: 'wrong' });
+    await expect(validateProjectManifest(badHashActive)).rejects.toThrow(/override hash/);
+    const badHashReview = withOverride(m, { status: 'needs-review', value: emptyOverride('STALE', h.candidates, h.structureRecipeHash), hash: 'wrong' });
+    await expect(validateProjectManifest(badHashReview)).rejects.toThrow(/override hash/);
     // active missing its hash is malformed.
-    await expect(validateProjectManifest(withOverride(m, { status: 'active', value: emptyOverride('th', 'ch', 'sr') }))).rejects.toThrow(ManifestInvalidError);
+    await expect(validateProjectManifest(withOverride(m, { status: 'active', value: emptyOverride(h.text, h.candidates, h.structureRecipeHash) }))).rejects.toThrow(ManifestInvalidError);
   });
 
   it('is an EXACT total schema — extra fields at any level are rejected', async () => {

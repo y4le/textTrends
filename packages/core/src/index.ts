@@ -114,6 +114,7 @@ export {
 } from './resolve/fold.ts';
 export {
   DecodeError,
+  DETECTED_ENCODINGS,
   decodeSource,
   windows1252TableHash,
   type DecodedSource,

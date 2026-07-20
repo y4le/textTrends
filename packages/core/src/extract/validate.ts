@@ -13,6 +13,7 @@
 
 import { hashText } from '../contract/hash.ts';
 import { exactArray, exactRecord } from '../contract/recipes.ts';
+import { DETECTED_ENCODINGS } from './decode.ts';
 import { validateSectionTable, type StructureSectionRecordV2 } from '../structure/sections.ts';
 import { deriveCandidatesFromText, hashExtractionRecipe, type ExtractionArtifactV1, type ExtractionRecipeProvisional } from './extraction.ts';
 import { hashStructureCandidates, type StructureCandidateV1 } from './markdown.ts';
@@ -43,9 +44,6 @@ export class ArtifactCorruptError extends Error {
 const isRec = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 const isStr = (v: unknown): v is string => typeof v === 'string';
-/** The closed DetectedEncoding union (decode.ts) — the descriptor field is
- *  not an open string. */
-const DETECTED_ENCODINGS: ReadonlySet<string> = new Set(['utf-8', 'utf-8-bom', 'utf-16le-bom', 'utf-16be-bom', 'windows-1252']);
 const isSafeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
 const isSafeNonNeg = (v: unknown): v is number => isSafeInt(v) && v >= 0;
 
