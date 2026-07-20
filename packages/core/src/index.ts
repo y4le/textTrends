@@ -126,17 +126,21 @@ export {
   type StructureCandidateV1,
 } from './extract/markdown.ts';
 export {
+  decodeDocumentSource,
   defaultExtractionRecipes,
   extractDocument,
+  finalizeExtraction,
   hashExtractionRecipe,
   validateExtractionRecipe,
   hashSourceBytes,
+  type DecodedDocument,
   type ExtractedDocument,
   type ExtractionArtifactV1,
   type ExtractionRecipeProvisional,
   type SourceDescriptorV1,
   type SourceFormat,
 } from './extract/extraction.ts';
+export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
 export {
   ROOT_KEY,
   StructureError,

@@ -7,9 +7,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   DecodeError,
+  INGEST_CAPS_V0,
+  decodeDocumentSource,
   decodeSource,
   defaultExtractionRecipes,
   extractDocument,
+  finalizeExtraction,
   hashStructureCandidates,
   hashText,
   scanMarkdownHeadings,
@@ -19,6 +22,40 @@ import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 import { TECHNICAL_MD } from './fixtures/md/technical.ts';
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
+
+describe('decode/finalize seam (honest progress split)', () => {
+  it('composes to exactly what the monolithic extractDocument produces', async () => {
+    const { md } = await defaultExtractionRecipes();
+    const bytes = utf8(BOOK_LIKE_MD);
+    const whole = await extractDocument(bytes, md);
+    // The engine emits `decode` before this, then `extract` before finalize.
+    const decoded = await decodeDocumentSource(bytes, md);
+    const split = await finalizeExtraction(decoded, md);
+    expect(split.text).toBe(whole.text);
+    expect(split.artifact).toEqual(whole.artifact);
+    // The decode phase already carries the source identity and byte length.
+    expect(decoded.source).toBe(whole.artifact.source);
+    expect(decoded.byteLength).toBe(bytes.length);
+    expect(decoded.decoded.text).toBe(whole.text);
+  });
+
+  it('the decode phase gates ill-formed input before any candidate work', async () => {
+    const { txt } = await defaultExtractionRecipes();
+    // A BOM-declared UTF-8 with an invalid continuation byte fails in decode.
+    await expect(decodeDocumentSource(Uint8Array.from([0xef, 0xbb, 0xbf, 0xc3, 0x28]), txt)).rejects.toThrow(DecodeError);
+  });
+});
+
+describe('INGEST_CAPS_V0 (§12.9)', () => {
+  it('is the shared provisional cap constant with sane monotonic bounds', () => {
+    expect(INGEST_CAPS_V0.schema).toBe('texttrends/ingest-caps/0-provisional');
+    // A single file cannot exceed the whole-project byte guard, and per-doc
+    // text cannot exceed the project text cap.
+    expect(INGEST_CAPS_V0.maxSourceBytesPerFile).toBeLessThanOrEqual(INGEST_CAPS_V0.maxProjectSourceBytes);
+    expect(INGEST_CAPS_V0.maxTextUtf16PerDoc).toBeLessThanOrEqual(INGEST_CAPS_V0.maxProjectTextUtf16);
+    expect(INGEST_CAPS_V0.maxDocsPerProject).toBeGreaterThan(0);
+  });
+});
 
 describe('decoder policy bom-utf8-windows1252-v1', () => {
   it('decodes plain UTF-8 strictly with no BOM', () => {

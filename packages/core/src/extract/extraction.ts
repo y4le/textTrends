@@ -16,6 +16,7 @@ import {
   assertWellFormed,
   decodeSource,
   windows1252TableHash,
+  type DecodedSource,
   type DetectedEncoding,
 } from './decode.ts';
 import {
@@ -243,21 +244,44 @@ export async function deriveCandidatesFromText(
 }
 
 /**
- * Extract a document: decode per policy, well-formedness gate, candidate
- * scan (md only). Throws DecodeError for malformed BOM-declared Unicode or
- * lone-surrogate UTF-16; the caller maps that to DECODE_FAILED.
+ * The DECODE phase alone (engine-v4 consult §6): pure byte→text under the
+ * recipe's decoder policy, well-formedness gated, carrying the SourceHash and
+ * byte length the finalize phase needs. Split out so a worker can emit a
+ * `decode` progress event immediately before this work and an `extract` event
+ * immediately before candidate derivation — a phase is honest only when it
+ * precedes exactly the work it names. Throws DecodeError for malformed
+ * BOM-declared Unicode or lone-surrogate UTF-16 (the caller maps DECODE_FAILED).
  */
-export async function extractDocument(
+export interface DecodedDocument {
+  readonly decoded: DecodedSource;
+  readonly source: string; // SourceHash of the exact bytes
+  readonly byteLength: number;
+}
+
+export async function decodeDocumentSource(
   bytes: Uint8Array,
   recipe: ExtractionRecipeProvisional,
-): Promise<ExtractedDocument> {
+): Promise<DecodedDocument> {
   await validateExtractionRecipe(recipe);
   const source = await hashSourceBytes(bytes);
-  // DECODE phase — pure byte→text, well-formedness gated.
   const decoded = decodeSource(bytes);
   assertWellFormed(decoded.text, `source ${source.slice(0, 12)}…`);
-  // EXTRACT phase — candidates from the decoded text (same function warm
-  // reopen uses), so honest decode/extract progress boundaries are possible.
+  return { decoded, source, byteLength: bytes.length };
+}
+
+/**
+ * The EXTRACT phase: candidates from the decoded text (the SAME
+ * deriveCandidatesFromText a warm reopen uses, so cold and warm cannot drift)
+ * plus the assembled ExtractionArtifactV1. This is the ONE canonical artifact
+ * builder — the engine composes decode+finalize rather than hand-assembling an
+ * artifact of its own (which would be a second, drift-prone builder). The
+ * recipe is assumed already validated by the decode phase.
+ */
+export async function finalizeExtraction(
+  input: DecodedDocument,
+  recipe: ExtractionRecipeProvisional,
+): Promise<ExtractedDocument> {
+  const { decoded, source, byteLength } = input;
   const { candidates, candidateHash } = await deriveCandidatesFromText(decoded.text, recipe);
   const artifact: ExtractionArtifactV1 = {
     schema: 'texttrends/extraction/1',
@@ -267,7 +291,7 @@ export async function extractDocument(
     textLengthUtf16: decoded.text.length,
     descriptor: {
       hash: source,
-      byteLength: bytes.length,
+      byteLength,
       format: recipe.format,
       encoding: {
         detected: decoded.detected,
@@ -282,6 +306,20 @@ export async function extractDocument(
     },
   };
   return { artifact, text: decoded.text };
+}
+
+/**
+ * Extract a document: decode per policy, well-formedness gate, candidate
+ * scan (md only). The convenience composition of decodeDocumentSource and
+ * finalizeExtraction — cold extraction and the split worker path share one
+ * artifact builder. Throws DecodeError for malformed BOM-declared Unicode or
+ * lone-surrogate UTF-16; the caller maps that to DECODE_FAILED.
+ */
+export async function extractDocument(
+  bytes: Uint8Array,
+  recipe: ExtractionRecipeProvisional,
+): Promise<ExtractedDocument> {
+  return finalizeExtraction(await decodeDocumentSource(bytes, recipe), recipe);
 }
 
 export { DecodeError };
