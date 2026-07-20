@@ -11,7 +11,7 @@
  * into the worker in place of the inline v3 narrowers.
  */
 
-import { isIndexRecipeProvisional, isStructureOverrideV1, isStructureRecipeProvisional } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isStructureOverrideV1, isStructureRecipeProvisional } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -60,11 +60,22 @@ function narrowDocSpec(d: unknown): boolean {
     return false;
   }
   const st = d.structure;
-  // DEEP core validators (closed enums / complete override values) — a wire
-  // caller must not slip an unsupported recipe or an incomplete override
-  // value through (commit 6 recomputes hashes from and applies these).
-  return isRecord(st) && isStructureRecipeProvisional(st.recipe) && isStr(st.recipeHash) &&
-    isStructureOverrideV1(st.override) && isStr(st.overrideHash);
+  if (!isRecord(st) || !isStructureRecipeProvisional(st.recipe) || !isStr(st.recipeHash)) return false;
+  return narrowOverrideInput(st.override);
+}
+
+/** The override may be absent (`none`) — a first cold ingest cannot bind one
+ *  — or an `active` user correction whose value passes the DEEP core
+ *  validator (closed enums / complete section values); commit 6 recomputes
+ *  its hash and verifies base identities before applying. */
+function narrowOverrideInput(o: unknown): boolean {
+  if (!isRecord(o) || !isStr(o.kind)) return false;
+  // exactRecord enforces the plain prototype, exact own-key set, no
+  // symbols/accessors/non-enumerables — a wrapper whose `value` is a getter
+  // or that inherits a field cannot narrow as a trusted OverrideInputV4.
+  if (o.kind === 'none') return exactRecord(o, ['kind']);
+  if (o.kind === 'active') return exactRecord(o, ['kind', 'value', 'hash']) && isStructureOverrideV1(o.value) && isStr(o.hash);
+  return false;
 }
 
 function narrowMember(m: unknown): boolean {

@@ -597,3 +597,427 @@ the recorded boundary of this decision: material link/code pollution is real
 for technical markdown, and the semantic-AST extraction spike (§8.8) is
 pulled forward the moment such corpora become a target. Both fixtures feed
 the extraction core's golden tests (commit 2 of the sequence).
+
+---
+
+# Commit 6 design of record — engine v4 worker lifecycle
+
+*Codex consultation `engine-v4-consult-1`, 2026-07-20. Governs the commit-6
+implementation and its required contract corrections. The "Must change before
+implementation" list is the commit-6 checklist. Recorded verbatim below.*
+
+# Commit 6 review: v4 worker lifecycle
+
+## Overall verdict
+
+The proposed direction is sound: keep generation replacement synchronous, keep `commitDocuments` as the only publication path, share the text-to-ready build path, and keep durable user-data commands outside analysis state. I would approve the restructuring after four changes are made part of commit 6 rather than left for later:
+
+1. Resolve and semantically validate each v4 document spec once at generation start, but install the new generation identity *before* doing any asynchronous resolution.
+2. Add an explicit “no active override” representation. The current v4 shape cannot honestly describe a first cold ingest, because a canonical `StructureOverrideV1` already requires the not-yet-known text and candidate identities.
+3. Add per-document work claims/epochs. A `ReadyDocument`-identity superseded guard is no longer sufficient while warm probing, extraction, indexing, and structure building can overlap before any ready document exists.
+4. Treat extraction and structure records as untrusted all the way through the engine. Commit 6 needs deep artifact validators and the remaining `StructureArtifactV2` snapshot seam; the IDB envelope checks alone are intentionally insufficient.
+
+Candidates may be deterministically regenerated from verified text for the two currently admitted extraction recipes. That is the right v1 optimization, provided it is expressed as a core capability and not silently generalized to future parsers.
+
+## Recommended state model
+
+Keep declared order separately from a keyed resolved plan:
+
+```ts
+type OverrideInputV4 =
+  | { readonly kind: "none" }
+  | {
+      readonly kind: "active";
+      readonly value: StructureOverrideV1;
+      readonly hash: string; // StructureOverrideHash
+    };
+
+interface ResolvedDocPlan {
+  readonly spec: GenerationDocSpecV4;
+  readonly doc: string;
+  readonly language: string;
+  readonly source: GenerationDocSpecV4["source"];
+
+  readonly extractionRecipe: ExtractionRecipeProvisional;
+  readonly extractionRecipeHash: string;
+  readonly structureRecipe: StructureRecipeProvisional;
+  readonly structureRecipeHash: string;
+  readonly override: OverrideInputV4;
+
+  readonly expectedText?: TextHash;
+  readonly expectedTextLengthUtf16?: number;
+  readonly expectedCandidates?: string;
+  readonly effectiveLocale: string;
+}
+
+interface DocWorkSlot {
+  /** Monotonic within this generation. */
+  epoch: number;
+  state: "unresolved" | "probing" | "building" | "ready" | "failed";
+  ready?: ReadyDocumentV2;
+  acceptedIdentity?: {
+    source: SourceHash;
+    text: TextHash;
+    candidates: string;
+  };
+}
+
+interface GenerationStateV4 {
+  readonly generation: string;
+  readonly docs: readonly string[];
+  readonly rawSpecs: readonly GenerationDocSpecV4[];
+  readonly plans: ReadonlyMap<string, ResolvedDocPlan>;
+  readonly indexRecipe: IndexRecipeV1;
+  readonly indexRecipeHash: string;
+
+  readonly work: Map<string, DocWorkSlot>;
+  readonly texts: Map<string, string>;
+  readonly ready: Map<string, ReadyDocumentV2>;
+  // snapshot, bindings, resolver caches, etc.
+}
+
+interface DocWorkToken {
+  readonly generation: GenerationStateV4;
+  readonly doc: string;
+  readonly epoch: number;
+}
+```
+
+The maps themselves remain engine-private mutable state. The recipes, hashes, and expected identities in each plan are immutable after resolution.
+
+The important start sequence is:
+
+1. Parse the envelope and synchronously replace the old generation with a new object in a `resolving` state. This immediately invalidates all old jobs and snapshots.
+2. Under that captured generation/job, validate limits, document uniqueness, recipes, override values, and hash assertions; yield/checkpoint as needed.
+3. Atomically install the resolved plan map only if the same generation still owns the job.
+4. Begin warm probes.
+
+Do not compute recipe or override hashes before replacing the generation if those computations await Web Crypto. An old generation must become stale at receipt of `begin-generation`, not after validation happens to finish.
+
+## A. Generation state and resolved plans
+
+**Verdict: precompute a resolved per-document plan.** Keeping the original specs is useful for diagnostics, but repeatedly searching them and rehashing recipes during every cache probe obscures both ownership and identity.
+
+At resolution, the worker should recompute and compare every supplied hash rather than treating it as trusted routing data:
+
+- index recipe hash once per generation;
+- extraction and structure recipe hashes per distinct recipe;
+- active override hash;
+- recipe/source-format agreement (`txt` versus `md`);
+- active override base identity agreement once text/candidates are known;
+- effective locale and segmenter fingerprint inputs;
+- unique document IDs, declared order, source byte lengths, and all ingest caps.
+
+The computed hash is the cache key. A caller-provided hash is an assertion. If the two differ, reject the request rather than probing a caller-selected key.
+
+Segmenter fingerprints can be memoized by effective locale because their computation is independent of the document. The plan can hold either the resolved fingerprint or a shared promise, but a failed or superseded resolution must not populate live generation state.
+
+### Required protocol correction: an override is not always knowable
+
+For a first user ingest, `TextHash` and `CandidateHash` do not exist until extraction completes. A canonical empty `StructureOverrideV1` cannot be constructed before then because its base identity includes those values. Requiring the current full override plus `overrideHash` invites placeholder identities or an override that the worker silently ignores.
+
+Change the doc spec now, while v4 has not become the live protocol:
+
+```ts
+structure: {
+  recipe: StructureRecipeProvisional;
+  recipeHash: string;
+  override:
+    | { kind: "none" }
+    | {
+        kind: "active";
+        value: StructureOverrideV1;
+        hash: string;
+      };
+}
+```
+
+For `none`, the worker derives the canonical empty override and its hash after it knows the text/candidate identities. For `active`, it verifies both the hash and the override's base identities. An override retained by the project but marked needs-review after a source change must not be sent as active; the client should send `none` until the user rebases or accepts it.
+
+This is a v4 correction, not a reason to introduce v5—the v4 engine has not shipped yet.
+
+## B. Warm resolution and candidate reconstruction
+
+### Candidates from verified text
+
+**Yes for the current recipes, with an explicit capability boundary.** Both current extraction recipes define candidate generation as a deterministic function of decoded text plus recipe: TXT yields no heading candidates and Markdown runs the specified heading scanner. A verified text plus a verified recipe is therefore sufficient to reconstruct the same candidate set.
+
+Move that fact into core rather than recreating extraction dispatch in the engine:
+
+```ts
+interface CandidateBundle {
+  readonly candidates: readonly StructureCandidateV1[];
+  readonly candidateHash: string;
+}
+
+function deriveCandidatesFromText(
+  text: string,
+  recipe: ExtractionRecipeProvisional,
+): Promise<CandidateBundle>;
+```
+
+`extractDocument(bytes, recipe)` should call the same function after decoding, so cold extraction and warm reconstruction cannot drift. If a future recipe's candidate extraction depends on source bytes, parser side channels, or a transformed text representation, that recipe must not advertise this reconstruction path; warm resolution must then require a valid extraction artifact or persisted source.
+
+When `expectedCandidates` exists, compare it with the reconstructed hash. A mismatch is a deterministic identity/manifest failure, not an ordinary cache miss. Fetching the same bytes again cannot repair it and may create an infinite “missing → ingest → mismatch” loop. Add a precise error such as `EXTRACTION_MISMATCH`, or deliberately map it to an existing request/source mismatch error with documented semantics.
+
+Do **not** synthesize an `ExtractionArtifactV1` from text alone. The source descriptor, detected encoding, fallback evidence, and the source-to-text relationship cannot be reconstructed from decoded text. A warm rescan may yield an internal `CandidateBundle`; it does not create evidence that the source was decoded again. Cache a complete extraction artifact only after a real source extraction.
+
+### Split probing from building
+
+I would not make one large `prepareDocument(spec, opts)` own every cache probe and source case. That tends to become a flag matrix and makes it hard to distinguish admission from construction. Use two layers:
+
+```ts
+type WarmProbe =
+  | { kind: "ready"; value: PreparedDocument }
+  | { kind: "from-text"; text: VerifiedText; parts: AdmittedParts }
+  | { kind: "from-source"; bytes: Uint8Array }
+  | { kind: "needs-bytes"; reason: MissingReason }
+  | { kind: "failed"; error: AnalysisError };
+
+async function probeWarmDocument(
+  plan: ResolvedDocPlan,
+  token: DocWorkToken,
+): Promise<WarmProbe>;
+
+async function prepareFromText(
+  plan: ResolvedDocPlan,
+  input: {
+    text: VerifiedText;
+    extraction?: ExtractionArtifactV1;
+    candidates?: CandidateBundle;
+    admittedShard?: DocumentIndexV1;
+    admittedStructure?: StructureArtifactV2;
+  },
+  token: DocWorkToken,
+): Promise<PreparedDocument>;
+```
+
+Cold ingest is `extract bytes → prepareFromText`. Warm reopen probes artifacts, then calls the same builder only for missing dependencies.
+
+### Recommended warm paths
+
+| Available and valid | Work required | Network/ingest missing? |
+|---|---|---|
+| text + shard + structure, with all tuple identities known | none; exact admission | no |
+| text + structure, shard missing | segment/index only | no |
+| text + shard, structure missing | obtain candidates from valid extraction artifact or deterministic rescan; compose structure | no |
+| text only | derive candidates as needed; build shard and structure | no |
+| persisted source only | extract, then shared text preparation | no |
+| neither text nor persisted source | none | yes, with the precise availability reason |
+
+An exact structure hit does not require loading the candidate list if `expectedCandidates` supplies the candidate identity used in its key. If that identity is absent, a valid extraction artifact or deterministic rescan can discover it.
+
+An extraction record is therefore useful for evidence, source identity, and avoiding rescans, but it is not a mandatory dependency of an exact warm reopen. This distinction is consistent with the artifact graph: the structure depends on candidate identity, not on the continued presence of the extraction record that once materialized the candidates.
+
+### Deep admission is mandatory
+
+The IDB adapter intentionally only checks record envelopes and key agreement. Before using a value returned as `unknown`, the engine/core must validate:
+
+- extraction schema and complete key tuple;
+- source descriptor/source hash/recipe agreement;
+- text identity and UTF-16 length assertions;
+- candidate ranges and ordering;
+- recomputed candidate hash and well-formed evidence counts;
+- structure schema and complete key tuple;
+- root/parent/level/range invariants via `validateSectionTable` against verified text length.
+
+Also finish the core v2 seam: `ReadyDocument`, structure hashing, `makeReadyDocument`, and snapshot composition currently accept the root-only `StructureArtifactV1`. Add explicit V2 functions/types; do not silently widen V1 schema handling.
+
+### Honest progress
+
+The current `extractDocument` performs decode and candidate scan as one call. That cannot truthfully support distinct `decode` and `extract` progress boundaries. Split core into a decode phase and an extraction-from-decoded-text phase, while retaining `extractDocument` as their convenience composition if desired. Emit a phase only immediately before the work it names.
+
+On a text-only warm rescan, `extract` progress is appropriate; `decode` is not. On an exact artifact hit, neither is appropriate.
+
+`source-ready` should be emitted when a complete, verified extraction result is available. If warm reopening only has verified text and a reconstructed candidate bundle, do not invent encoding/source evidence merely to emit the event. Either omit `source-ready` for that path or emit it only from a valid cached extraction artifact; document the event semantics for the client.
+
+## C. Race and cancellation discipline
+
+The existing synchronous generation/snapshot gates, query gates, composition mutex, and single publication path should all remain. The longer pipeline introduces one important hole: a `ReadyDocument`-identity guard cannot identify supersession before either competing path has committed a ready document.
+
+Example:
+
+1. warm resolution begins reading a cached structure for document D;
+2. a live ingest for D starts and builds a new valid extraction/structure, but has not yet published its `ReadyDocument`;
+3. the old warm read returns corrupt;
+4. a guard that only compares the current ready object sees no replacement and deletes or diagnoses against the wrong work.
+
+Use the `DocWorkToken`/epoch described above. Warm resolution claims D; a live ingest for D increments the slot epoch and becomes its owner. Before acting on any awaited result, emitting a warning, deleting an artifact, publishing, or updating missing state, check:
+
+```ts
+function ownsDoc(token: DocWorkToken): boolean {
+  const gen = this.generation;
+  return gen === token.generation
+    && gen.work.get(token.doc)?.epoch === token.epoch;
+}
+```
+
+`commitDocuments` should receive `{ prepared, token }` pairs. While holding the composition mutex it should discard any item that is no longer owned and stage bindings from the remaining candidates. If snapshot composition awaits, the final synchronous commit gate must recheck **all** candidate tokens as well as job/generation identity; if any changed, abort that staged commit and let the new owner publish from current state. A stale candidate cannot merely be filtered out after a snapshot was already composed around it. If no candidates remain, it emits nothing.
+
+Other requirements to preserve:
+
+- Checkpoint/gate after every awaited store read, hash, segmenter resolution, build, structure hash, and before every externally visible side effect.
+- Put checkpoints before and after long synchronous decode/scan/index/structure work. A checkpoint before a synchronous function does not make the function interruptible, but it prevents obsolete work from starting; the checkpoint after prevents obsolete results from committing.
+- Repair/delete only the exact disposable artifact key just admitted as corrupt, and only while the token still owns the document. Never delete a durable stored source automatically; it may be the user's only copy. Report corruption and request reattachment.
+- Delay all best-effort disposable cache writes until the full `ReadyDocument` has passed the commit gate. This prevents a cancelled half-pipeline from looking like a completed build. Content-addressed writes may finish after publication, but they must contain fully validated artifacts.
+- Freeze the first accepted source/text/candidate identity for a cold spec whose expected hashes were absent. A second ingest for the same document and generation with different bytes must be rejected or require a new generation; it must not mutate what that generation's document means.
+- Reconcile `generation-ready.missing` against ready **and owned in-flight/accepted-byte** states, not just the ready map. Otherwise a concurrent ingest can be accepted while the begin job still reports the document missing and triggers a duplicate fetch. If that ingest later fails, the correlated error can make it retryable.
+- Preserve snapshot identity in all query gates, including `structure`. A successful generation gate alone is insufficient because an incremental publication can supersede the snapshot within the same generation.
+
+Cache mismatch and cache corruption must stay distinct. An internally valid artifact whose identity conflicts with an asserted `expectedText`/`expectedCandidates` is not corrupt storage and should not be deleted. It is a stale project manifest, changed source, or nondeterminism error.
+
+## D. Override-only generations
+
+**Correct:** an override-only change requires no bytes, so `generation-ready.missing` is empty. It normally emits `structure` and `compose` progress for the affected document, reuses verified text and shard artifacts, creates a new immutable snapshot, and never emits `segment` or `index`.
+
+If the extraction artifact has been evicted and the worker must rescan verified Markdown text to recover the candidates needed for structure composition, an `extract` phase is also honest. The invariant should be “no source fetch and no index work,” not “only one exact phase name.”
+
+For this case, batch exact hits and cheap structure-only reconstructions, then publish one complete snapshot. Publishing five unchanged exact documents and then a sixth structure-updated document provides no useful progressive-loading benefit and makes an atomic user edit appear temporarily incomplete. Continue incremental publication for genuinely longer source extraction or index rebuild paths.
+
+The structure query must be cancelled/reissued on the new snapshot just like trend, KWIC, and passage. A structure result is bound to both `StructureHash` and `IndexArtifactHash`; it must echo both, and the client must gate on request epoch plus snapshot identity.
+
+Compute token views lazily in v1. Memoize the doc-independent range projection by `[StructureHash, IndexArtifactHash]`, then bind project/document-specific `SectionId` values when answering the query. Add a deterministic binding helper for `DocumentId + lineage key → SectionId`, with an explicit method/version tag. Do not derive the ID from `StructureHash`, or a harmless retitle/range correction will unnecessarily change every section ID.
+
+## E. User-data operations
+
+The separate handler group is the correct architecture. It should share only the worker's envelope/job/cancellation infrastructure, not generation progress, snapshots, or the generic analysis error channel.
+
+**Yes, `source-persist` must hash the exact received bytes and compare that result with the claimed `SourceHash` before writing.** Enforce source byte caps before copying or hashing. Transfer the buffer from the main thread and include this path in the transfer/detachment tests. Acknowledge `source-persisted` only after the durable transaction commits; only then may the main thread mark the source persisted and save a manifest that depends on it.
+
+The current user-data error union lacks an identity mismatch. Add `SOURCE_MISMATCH` there rather than leaking an analysis error for a user-data command. Cancellation after hashing but before the put/ack must prevent both operations.
+
+Keep a distinct catch/error mapping for user-data handlers:
+
+```ts
+async function handleUserData(
+  message: UserDataRequestV4,
+  job: JobContext,
+): Promise<void> {
+  try {
+    // total payload validation, checkpoints, durable operation, ack
+  } catch (error) {
+    this.emitUserDataError(mapUserDataError(error, message));
+  }
+}
+```
+
+The fact that these commands do not mutate `GenerationState` does not make them uncancellable. Give them job ownership, particularly around source hashing and project CAS.
+
+### Two landed storage issues should be fixed before wiring the handlers
+
+1. `StoredProjectV1` currently wraps an `unknown` manifest and has its own `id`/`revision`, while the contractual `ProjectManifestV1` also owns schema/id/revision. The CAS increments the wrapper revision without necessarily updating the manifest revision. Eliminate the duplicate authority: validate a canonical `ProjectManifestV1`, and write the new revision into that canonical value within the compare-and-swap transaction (or make the envelope the sole contractual revision, not both).
+2. A closed/unavailable durable user store must not report ordinary `miss`. `getProject`/`getSource` after failed open or `versionchange` should return `PERSISTENCE_UNAVAILABLE`. Install a `versionchange` close path and bound the initial open. A blocked or hung durable DB open must not prevent the artifact store and analysis engine from starting forever.
+
+Commit 6 therefore needs a total `ProjectManifestV1` runtime validator before it accepts or emits `project-save`/`project-loaded`. If manifest semantics are deliberately commit 7, land the wire types and client methods now but do not enable the corresponding engine handlers against `unknown` data.
+
+The shell can open artifact and user-data stores concurrently, with a bounded failure result for the latter. Analysis remains usable when durable project storage is unavailable; user-data commands receive a precise error rather than silently falling back to memory.
+
+## F. Commit boundary and migration mechanics
+
+An engine-only v4 commit that leaves the built app speaking v3 is not acceptable. Every repository commit should compile, test, and run. Your proposed boundary is right if commit 6 includes the minimal complete wire cutover:
+
+- core V2 ready-document/snapshot identity functions and deep artifact validators;
+- v4 engine and all engine lifecycle/race tests;
+- worker shell switched to `parseToWorkerV4`, with both injected stores;
+- `WorkerClient` message types, transfer lists, event dispatch, cancellation, and restart replay moved to v4;
+- the current Sherlock loader constructing valid v4 specs;
+- existing UI store calls adapted enough that the current application still boots and queries;
+- real-browser/debug-trace fixtures updated for v4 phase/event/store expectations.
+
+Commit 7 can still own the actual project feature surface:
+
+- project manifest state in the application store;
+- drag/drop and file picker;
+- metadata/order/structure-edit UX;
+- persist-source opt-in and dirty/saved UI semantics;
+- built-in versus user-project selection.
+
+It is fine for unused typed client methods for project load/save/source persist to land with the wire migration, but do not ship engine endpoints that store unvalidated `unknown` manifests merely to claim completeness.
+
+If the combined cutover is too large for review, split it into two individually green commits:
+
+1. Add V2 core admission/composition and a tested `engine-v4` implementation behind an unused entry while the app still runs v3.
+2. Cut shell/client/Sherlock/e2e to v4 and remove v3.
+
+Do not merge a midpoint at which the engine accepts only v4 while the client emits v3.
+
+The bundled Sherlock specs will need actual extraction/structure recipe hashes, candidate assertions, source descriptors, and the new `override: { kind: "none" }` form. The source-byte hash and decoded-text hash happen to coincide for some plain UTF-8 files, but keep them semantically and structurally distinct.
+
+## Suggested engine flow
+
+```text
+begin-generation received
+  └─ synchronously replace generation / invalidate old snapshot
+     └─ resolve + validate immutable doc plans
+        └─ claim each doc for warm probing
+           ├─ exact text + shard + structure ───────────┐
+           ├─ verified text ── prepareFromText ─────────┤
+           ├─ persisted source ─ extract ─ prepare... ──┤
+           └─ no recoverable source ─ record byte miss  │
+                                                        ▼
+                          batch exact + structure-only commit
+                                                        │
+                          stream expensive rebuild commits
+                                                        │
+                          generation-ready(missing bytes only)
+
+ingest bytes
+  └─ claim/supersede doc work
+     └─ cap + source-hash assertion
+        └─ decode → extract candidates
+           └─ freeze/check document identity
+              └─ prepareFromText (admit or build shard/structure)
+                 └─ single commitDocuments gate
+                    └─ best-effort disposable artifact writes
+```
+
+Every downward transition after an `await` must recheck job, generation, and document claim ownership. Only the final commit mutates ready/text/snapshot bindings.
+
+## Tests that should move with commit 6
+
+In addition to rewriting the v3 fixtures into v4 shapes, add focused tests for the new failure modes:
+
+1. A first cold ingest with `override: none` derives a canonical empty override after extraction.
+2. An active override with the wrong hash or wrong base text/candidate identity is rejected before structure composition.
+3. Exact warm reopen needs no decode/extract/segment/index/structure work.
+4. Text + shard + missing structure performs only candidate recovery/structure/compose and publishes once for an override-only generation.
+5. Text + missing shard + valid structure rebuilds the shard without source fetch.
+6. Text without extraction record deterministically reconstructs candidates; a wrong `expectedCandidates` produces a terminal correlated error, not a byte miss loop.
+7. Persisted source without text re-extracts; corrupt durable source is reported and retained.
+8. A live ingest supersedes a warm structure/extraction read before either has a `ReadyDocument`; the stale read cannot warn, delete, commit, or publish.
+9. Two same-generation ingests with different source/text identities cannot change the document identity in place.
+10. `generation-ready.missing` excludes accepted/in-flight bytes and contains only documents that actually require bytes.
+11. Cancellation at every new awaited boundary prevents cache repair, publication, and result emission.
+12. A structure query cancelled by an incremental snapshot never emits a stale result, and returned hashes match the bound snapshot.
+13. `source-persist` rejects a claimed-hash mismatch, transfers/detaches bytes, and acknowledges only after a completed durable write.
+14. User-data store unavailability/versionchange emits `user-data-error` while analysis queries continue.
+15. Browser warm/corruption tests account for `extractions` and `structures`; cold progress now includes honest `extract` and `structure` phases.
+
+Retain the current injected-yield race matrix rather than merely translating happy-path fixtures. The central claim of commit 6 is preservation of the M5 lifecycle guarantees across two more artifact stages.
+
+## Must change before implementation
+
+- Add `override: none | active` to the not-yet-live v4 doc contract.
+- Install a generation synchronously, then resolve immutable per-doc plans and verify all recipe/override hash assertions.
+- Introduce per-document work claims/epochs; do not rely only on committed `ReadyDocument` identity.
+- Export one core deterministic candidate-derivation function used by cold and warm paths.
+- Add deep extraction/structure artifact validation before admission.
+- Complete the `StructureArtifactV2` → `ReadyDocument` → snapshot hash/composition seam.
+- Split decode from candidate extraction so progress events are truthful.
+- Define terminal mismatch behavior for text/candidate assertions so the client cannot refetch forever.
+- Bind section IDs deterministically from document plus lineage key and keep structure queries snapshot-bound.
+- Verify bytes in `source-persist` and add a user-data mismatch error.
+- Resolve the project manifest/revision double authority and validate manifests before enabling project handlers.
+- Fix durable user-store unavailable/versionchange/open behavior so it neither masquerades as a miss nor blocks analysis startup.
+- Migrate the minimum client, shell, Sherlock flow, tests, and browser harness in the same green cutover as the engine.
+
+## Fine to defer
+
+- Persisted section token views; lazy memoization is sufficient.
+- Parallel document builds; sequential rebuild plus progressive publication remains simpler and safe.
+- General support for candidate reconstruction by future extraction recipes; encode only the current deterministic capability.
+- Project UI, drag/drop, structure editor, source-persistence choice, and multi-project lifecycle to commit 7.
+- Recovery UI for needs-review overrides, provided inactive overrides are represented honestly as `none` now.
+- Cache eviction, result caches, source transformations, and portable-project concerns already outside this phase.
+
+With those changes, the v4 engine remains the same architecture rather than a second lifecycle bolted beside v3: immutable generation intent, dependency-aware artifact preparation, one guarded publication path, snapshot-bound queries, and a separate durable user-data lane.

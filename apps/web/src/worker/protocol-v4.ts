@@ -78,10 +78,23 @@ export interface GenerationDocSpecV4 {
   readonly structure: {
     readonly recipe: StructureRecipeProvisional;
     readonly recipeHash: string;
-    readonly override: StructureOverrideV1;
-    readonly overrideHash: string;
+    /**
+     * An override is NOT always knowable (engine-v4 consult): a first cold
+     * ingest has no TextHash/CandidateHash yet, and a canonical
+     * StructureOverrideV1's base identity includes those — so a full override
+     * cannot be constructed before extraction. `none` means "derive the
+     * canonical empty override after the identities are known"; `active`
+     * carries a user correction whose hash and base identities the worker
+     * verifies. A project override marked needs-review after a source change
+     * is sent as `none` until the user rebases it — never as a stale `active`.
+     */
+    readonly override: OverrideInputV4;
   };
 }
+
+export type OverrideInputV4 =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'active'; readonly value: StructureOverrideV1; readonly hash: string };
 
 /** Why a document still needs its bytes and what dependency is missing. */
 export type WarmMissReasonV4 =

@@ -31,8 +31,7 @@ function docSpec(overrides: Record<string, unknown> = {}) {
     structure: {
       recipe: DEFAULT_STRUCTURE_RECIPE,
       recipeHash: 'srec',
-      override: emptyOverride('th', 'ch', 'srec'),
-      overrideHash: 'oh',
+      override: { kind: 'none' },
     },
     ...overrides,
   };
@@ -103,31 +102,57 @@ describe('parseToWorkerV4 envelope', () => {
     }
   });
 
-  it('rejects UNSUPPORTED recipe identities and INCOMPLETE override values (not just missing subshapes)', () => {
+  const struct = (override: unknown) => ({ recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override });
+
+  it('accepts both override forms: none and a well-formed active correction', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
-    // Unsupported index recipe.
-    expect(parseToWorkerV4({ ...base, indexRecipe: {}, docs: [docSpec()] })).toBeNull();
-    // Unsupported structure evidence order / empty chapter policy.
-    const badStructRecipe = { ...DEFAULT_STRUCTURE_RECIPE, evidenceOrder: ['unsupported-policy'] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: badStructRecipe, recipeHash: 'r', override: emptyOverride('t', 'c', 'r'), overrideHash: 'o' } })] })).toBeNull();
-    // An `add` override with an incomplete SectionValue (no chars) would
-    // crash applyOverride — must be rejected at the wire.
-    const badOverride = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'add', key: 'x', value: {} }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override: badOverride, overrideHash: 'o' } })] })).toBeNull();
-    // A duplicate-target override is non-canonical and rejected.
-    const dupOverride = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'remove', target: 'x' }, { op: 'remove', target: 'x' }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override: dupOverride, overrideHash: 'o' } })] })).toBeNull();
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'none' }) })] })).not.toBeNull();
+    const active = { kind: 'active', value: emptyOverride('t', 'c', 'r'), hash: 'oh' };
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct(active) })] })).not.toBeNull();
   });
 
-  it('rejects EXTRA fields on recipes and override changes (one operation, one identity)', () => {
+  it('rejects malformed override inputs (bad kind, extra fields, incomplete active value)', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
-    // An unknown field on the index recipe would hash to a distinct identity.
+    // Unknown kind, none-with-extra, active missing hash, active with a bad value.
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'bogus' }) })] })).toBeNull();
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'none', extra: 1 }) })] })).toBeNull();
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: emptyOverride('t', 'c', 'r') }) })] })).toBeNull();
+    const badValue = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'add', key: 'x', value: {} }] };
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: badValue, hash: 'h' }) })] })).toBeNull();
+    // A duplicate-target active value is non-canonical.
+    const dupValue = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'remove', target: 'x' }, { op: 'remove', target: 'x' }] };
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: dupValue, hash: 'h' }) })] })).toBeNull();
+  });
+
+  it('the override wrapper is held to exact/plain discipline (symbols, non-enumerable, prototype, accessors)', () => {
+    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
+    const reject = (override: unknown) =>
+      expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct(override) })] })).toBeNull();
+    reject({ kind: 'none', [Symbol('x')]: 1 });
+    const nonEnum = { kind: 'none' };
+    Object.defineProperty(nonEnum, 'extra', { value: 1, enumerable: false });
+    reject(nonEnum);
+    const inheritedNone = Object.create({ kind: 'none' });
+    (inheritedNone as { extra: number }).extra = 1;
+    reject(inheritedNone);
+    const active = emptyOverride('t', 'c', 'r');
+    const inheritedHash = Object.create({ hash: 'h' });
+    Object.assign(inheritedHash, { kind: 'active', value: active });
+    reject(inheritedHash);
+    const getterValue: Record<string, unknown> = { kind: 'active', hash: 'h' };
+    Object.defineProperty(getterValue, 'value', { get: () => active, enumerable: true });
+    reject(getterValue);
+  });
+
+  it('rejects UNSUPPORTED recipe identities and EXTRA fields (one operation, one identity)', () => {
+    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
+    expect(parseToWorkerV4({ ...base, indexRecipe: {}, docs: [docSpec()] })).toBeNull();
     expect(parseToWorkerV4({ ...base, indexRecipe: { ...DEFAULT_INDEX_RECIPE, futurePolicy: 'x' }, docs: [docSpec()] })).toBeNull();
-    // Extra field on a structure recipe.
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: { ...DEFAULT_STRUCTURE_RECIPE, extra: 1 }, recipeHash: 'r', override: emptyOverride('t', 'c', 'r'), overrideHash: 'o' } })] })).toBeNull();
-    // Extra field on an override CHANGE hashes differently yet applies the same.
+    const badStructRecipe = { ...DEFAULT_STRUCTURE_RECIPE, evidenceOrder: ['unsupported-policy'] };
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: badStructRecipe, recipeHash: 'r', override: { kind: 'none' } } })] })).toBeNull();
+    // Extra field on an active override change hashes differently yet applies the same.
     const extraChange = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'remove', target: 'x', ignored: true }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override: extraChange, overrideHash: 'o' } })] })).toBeNull();
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: extraChange, hash: 'h' }) })] })).toBeNull();
   });
 });
 
