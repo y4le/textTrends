@@ -1186,6 +1186,80 @@ describe('queries and excerpts', () => {
     expect(h.last('error').code).toBe('REQUEST_INVALID');
   });
 
+  it('trend results carry an explicit transfer list; shard buffers never do', async () => {
+    // M6 consult: result buffers transfer zero-copy, via an ENUMERATED list —
+    // and that list must be disjoint from canonical resident shard storage.
+    const messages: FromWorker[] = [];
+    const transferLists: (readonly Transferable[] | undefined)[] = [];
+    const store = new InMemoryArtifactStore();
+    const engine = new WorkerEngine(
+      store,
+      (m, transfers) => {
+        messages.push(m);
+        transferLists.push(transfers);
+      },
+      () => Promise.resolve(),
+    );
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'begin-generation', recipe: DEFAULT_INDEX_RECIPE, job: 1, generation: 'g', docs: [{ doc: 'a', language: 'en', sourceByteLength: 31 }] });
+    await engine.handle({ v: PROTOCOL_VERSION, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: bytes('the wolf ran far. a wolf slept.') });
+    const pub = messages.find((m) => m.t === 'snapshot-published')!;
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'query', job: 3, snapshot: pub.snapshot,
+      query: {
+        op: 'trend', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { coordinate: 'document-relative', binsPerDoc: 2 },
+      } as never,
+    });
+    const resultIndex = messages.findIndex((m) => m.t === 'result');
+    expect(resultIndex).toBeGreaterThanOrEqual(0);
+    const transfers = transferLists[resultIndex];
+    expect(transfers).toBeDefined();
+    expect(transfers!.length).toBeGreaterThan(0);
+    const result = messages[resultIndex]!;
+    if (result.t === 'result' && result.data.op === 'trend') {
+      const trend = result.data.trend;
+      const views = [trend.docOrdinal, trend.binIndex, trend.binStartToken, trend.binTokens, trend.count, trend.ratePer10k];
+      // Every result buffer is in the list exactly once (identity-deduped)…
+      const expected = new Set(views.map((v) => v.buffer));
+      expect(new Set(transfers as ArrayBuffer[])).toEqual(expected);
+      expect(transfers!.length).toBe(expected.size);
+      // …and NO canonical shard buffer is ever listed — collected
+      // RECURSIVELY, so nested containers (postings.offsets/positions, and
+      // any future ABI additions) are covered too (review finding).
+      const shardRecords = [...(store as unknown as { shards: Map<string, Record<string, unknown>> }).shards.values()];
+      const shardBuffers = new Set<ArrayBuffer>();
+      const collectViews = (value: unknown): void => {
+        if (ArrayBuffer.isView(value)) {
+          shardBuffers.add(value.buffer as ArrayBuffer);
+        } else if (value !== null && typeof value === 'object') {
+          for (const nested of Object.values(value)) collectViews(nested);
+        }
+      };
+      for (const shard of shardRecords) collectViews(shard);
+      // The collection must have reached the nested postings arrays.
+      expect(shardBuffers.size).toBeGreaterThanOrEqual(9);
+      for (const t of transfers as ArrayBuffer[]) expect(shardBuffers.has(t)).toBe(false);
+    }
+    // Non-trend emissions carry no transfer list.
+    for (const [i, m] of messages.entries()) {
+      if (i !== resultIndex) expect(transferLists[i], m.t).toBeUndefined();
+    }
+    // A second identical query still answers with identical counts — the
+    // canonical index was not detached by the first transfer.
+    await engine.handle({
+      v: PROTOCOL_VERSION, t: 'query', job: 4, snapshot: pub.snapshot,
+      query: {
+        op: 'trend', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { coordinate: 'document-relative', binsPerDoc: 2 },
+      } as never,
+    });
+    const results = messages.filter((m) => m.t === 'result');
+    expect(results.length).toBe(2);
+    if (results[0]!.t === 'result' && results[0]!.data.op === 'trend' && results[1]!.t === 'result' && results[1]!.data.op === 'trend') {
+      expect(Array.from(results[1]!.data.trend.count)).toEqual(Array.from(results[0]!.data.trend.count));
+    }
+  });
+
   it('serves and validates excerpts', async () => {
     const h = harness();
     const pub = await ingested(h, { a: 'the wolf ran' });

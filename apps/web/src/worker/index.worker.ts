@@ -25,7 +25,16 @@ function taskQueueYield(): Promise<void> {
   });
 }
 
-const emit = (message: FromWorker): void => self.postMessage(message);
+// TS types `self` as Window here; the worker-scope postMessage takes a
+// transfer array as its second argument.
+const workerScope = self as unknown as {
+  postMessage(message: unknown, transfer?: Transferable[]): void;
+};
+
+const emit = (message: FromWorker, transfers?: readonly Transferable[]): void => {
+  if (transfers && transfers.length > 0) workerScope.postMessage(message, [...transfers]);
+  else workerScope.postMessage(message);
+};
 
 let engine: WorkerEngine | null = null;
 const buffered: ToWorker[] = [];

@@ -72,8 +72,23 @@ import {
 } from './protocol.ts';
 import type { ArtifactStore, DocumentIndexCacheKey } from './store.ts';
 
-type Emit = (message: FromWorker) => void;
+type Emit = (message: FromWorker, transfers?: readonly Transferable[]) => void;
 type Yield = () => Promise<void>;
+
+/**
+ * EXPLICIT transfer list for a trend result — an enumerated switch, never a
+ * recursive buffer walk: the enumeration is the safety boundary that keeps a
+ * future result field from accidentally transferring a view backed by
+ * resident shard storage (M6 consult). Every listed array is allocated by
+ * the trend kernel per query; buffers are deduplicated by identity.
+ */
+function trendTransferList(t: import('@texttrends/core').NumericTrend): Transferable[] {
+  const buffers = new Set<ArrayBuffer>();
+  for (const view of [t.docOrdinal, t.binIndex, t.binStartToken, t.binTokens, t.count, t.ratePer10k]) {
+    if (view.buffer instanceof ArrayBuffer) buffers.add(view.buffer);
+  }
+  return [...buffers];
+}
 
 interface GenerationState {
   readonly generation: string;
@@ -745,10 +760,15 @@ export class WorkerEngine {
       // Yield AFTER the final compute phase so a cancel queued during the
       // synchronous kernel becomes observable, then gate+emit synchronously.
       await this.queryCheckpoint(job, gen, snapshotId);
-      this.emit({
-        v: PROTOCOL_VERSION, t: 'result', job, snapshot: snapshot.id,
-        data: { op: 'trend', trend: data },
-      });
+      this.emit(
+        {
+          v: PROTOCOL_VERSION, t: 'result', job, snapshot: snapshot.id,
+          data: { op: 'trend', trend: data },
+        },
+        // Kernel-allocated result buffers transfer zero-copy; canonical
+        // shard buffers are never in this list (see trendTransferList).
+        trendTransferList(data),
+      );
       return;
     }
     const page = kwicPage(snapshot, bound, selection, occ, q.request);
