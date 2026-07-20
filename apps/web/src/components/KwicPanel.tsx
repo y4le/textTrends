@@ -9,6 +9,11 @@
 
 import { useApp } from '../lib/store-instance.ts';
 
+/** One display line per occurrence: the source text's own line breaks (and
+ *  any whitespace runs) collapse to single spaces before the fixed-width
+ *  slice — presentation only, the underlying text is untouched. */
+const oneLine = (s: string) => s.replace(/\s+/g, ' ');
+
 export function KwicPanel() {
   const kwic = useApp((s) => s.kwic);
   const series = useApp((s) => s.series);
@@ -65,9 +70,9 @@ export function KwicPanel() {
               <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>
                 {r.doc.replace(/ -.*$/, '').slice(0, 12)}
               </td>
-              <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{r.left.slice(-38)}</td>
-              <td style={{ color: 'var(--accent-text)', padding: '0 1ch' }}>{r.nodeText}</td>
-              <td style={{ color: 'var(--fg-muted)' }}>{r.right.slice(0, 38)}</td>
+              <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>
+              <td style={{ color: 'var(--accent-text)', padding: '0 1ch' }}>{oneLine(r.nodeText)}</td>
+              <td style={{ color: 'var(--fg-muted)' }}>{oneLine(r.right).slice(0, 38)}</td>
             </tr>
           ))}
         </tbody>
