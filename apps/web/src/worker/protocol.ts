@@ -3,9 +3,22 @@
  * Phase 1 plan's warm-reopen inputs (per-document GenerationDocSpec).
  * Every message literally carries the protocol version; any message is legal
  * first; a version mismatch is answered with error{PROTOCOL_VERSION}.
+ *
+ * v2: adds the `passage` query op (token-addressed evidence read for text
+ * scrubbing). QueryOp/QueryResultData are EXHAUSTIVE unions, and the
+ * contract states union growth is not assumed non-breaking — so the version
+ * bumps even though both ends ship from one bundle.
  */
 
-import type { KwicRequest, KwicRow, NumericTrend, TermGroupSpec, TrendRequest } from '@texttrends/core';
+import type {
+  KwicRequest,
+  KwicRow,
+  NumericTrend,
+  PassageRequest,
+  PassageResult,
+  TermGroupSpec,
+  TrendRequest,
+} from '@texttrends/core';
 
 /** Wire-level selection: plain strings; the engine brands after validation. */
 export interface WireSelection {
@@ -16,7 +29,7 @@ export interface WireSelection {
   }[];
 }
 
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 export type BuildPhase = 'decode' | 'segment' | 'index' | 'compose';
 
@@ -44,11 +57,13 @@ export type QueryOp =
   | { readonly op: 'trend'; readonly selection: WireSelection; readonly group: TermGroupSpec;
       readonly request: TrendRequest }
   | { readonly op: 'kwic'; readonly selection: WireSelection; readonly group: TermGroupSpec;
-      readonly request: KwicRequest };
+      readonly request: KwicRequest }
+  | { readonly op: 'passage'; readonly request: PassageRequest };
 
 export type QueryResultData =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
-  | { readonly op: 'kwic'; readonly total: number; readonly rows: readonly KwicRow[] };
+  | { readonly op: 'kwic'; readonly total: number; readonly rows: readonly KwicRow[] }
+  | { readonly op: 'passage'; readonly passage: PassageResult };
 
 interface Versioned {
   readonly v: typeof PROTOCOL_VERSION;

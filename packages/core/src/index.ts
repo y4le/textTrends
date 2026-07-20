@@ -75,12 +75,29 @@ export {
   type NumericKwicPage,
 } from './ops/kwic.ts';
 export {
+  checkedResolverFor,
+  matchGroupInTokenRanges,
+  mergeGroupSpans,
   occurrences,
   type GroupMember,
+  type GroupSpan,
   type NumericOccurrences,
+  type RawMatch,
   type ResolverTable,
   type TermGroupSpec,
+  type TokenRangeSpan,
 } from './ops/occurrences.ts';
+export {
+  materializePassage,
+  PASSAGE_MAX_TOKENS,
+  PASSAGE_MAX_UTF16,
+  planPassage,
+  type NumericPassagePlan,
+  type PassageMark,
+  type PassageRequest,
+  type PassageResult,
+  type PassageTrackSpec,
+} from './ops/passage.ts';
 export {
   buildResolver,
   FOLD_RESOLVER,

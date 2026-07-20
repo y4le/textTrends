@@ -15,16 +15,34 @@
  * until every non-failed series resolves so the shared scale never jumps.
  * Exact values live in the per-book summary table (counts and rates are
  * summed/recomputed, never averaged from bin rates).
+ *
+ * The chart spans its container's full width (the app gives it the viewport)
+ * via a measured ResizeObserver width; the axis position under the pointer /
+ * keyboard scrubber drives the PassageLine beneath — the actual book text at
+ * that position, occurrence marks in series colors. Pointer motion is
+ * rAF-coalesced and deduplicated; the store fetches passage blocks and
+ * navigates locally inside them.
  */
 
 import { scaleLinear } from 'd3-scale';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
-import { binSpan, clampToSpan, spreadLabels } from '../lib/trend-geometry.ts';
-import type { SeriesIntent } from '../lib/store.ts';
+import {
+  binSpan,
+  bookXFromToken,
+  clampToSpan,
+  pointerTargetByBook,
+  pointerTargetSeries,
+  seriesXFromToken,
+  spreadLabels,
+  stepAlongSequence,
+  type SequenceLayout,
+} from '../lib/trend-geometry.ts';
+import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
+import { PassageLine } from './PassageLine.tsx';
 
-const WIDTH = 720;
 const SERIES_HEIGHT = 180;
 const TOP_PAD = 14; // room for the y-max direct label above the plot
 const ROW_HEIGHT = 44;
@@ -32,6 +50,7 @@ const ROW_GAP = 22;
 const LABEL_SPACE = 130;
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
+const MIN_PLOT_WIDTH = 320;
 
 interface ReadySeries {
   readonly intent: SeriesIntent;
@@ -50,6 +69,44 @@ export function TrendPanel() {
   const trendView = useApp((s) => s.trendView);
   const focusedSeries = useApp((s) => s.focusedSeries);
   const setFocus = useApp((s) => s.setFocus);
+  const scrub = useApp((s) => s.scrub);
+  const passage = useApp((s) => s.passage);
+  const setScrub = useApp((s) => s.setScrub);
+
+  // Callback ref, not a RefObject: the container mounts only after the trend
+  // results settle, so a mount-time effect would observe nothing.
+  const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
+  const [plotW, setPlotW] = useState(720);
+  useLayoutEffect(() => {
+    if (!containerEl) return;
+    const observer = new ResizeObserver((entries) => {
+      const width = entries[0]?.contentRect.width;
+      if (!width) return; // ignore zero/unavailable observations
+      const next = Math.max(MIN_PLOT_WIDTH, Math.round(width) - LABEL_SPACE);
+      setPlotW((prev) => (prev === next ? prev : next));
+    });
+    observer.observe(containerEl);
+    return () => observer.disconnect();
+  }, [containerEl]);
+
+  // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
+  const pointerSample = useRef<ScrubTarget | null>(null);
+  const frame = useRef<number | null>(null);
+  const scheduleScrub = useCallback(
+    (target: ScrubTarget | null) => {
+      if (!target) return;
+      pointerSample.current = target;
+      frame.current ??= requestAnimationFrame(() => {
+        frame.current = null;
+        if (pointerSample.current) setScrub(pointerSample.current);
+      });
+    },
+    [setScrub],
+  );
+  useEffect(() => () => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+  }, []);
+
   if (series.length === 0) return null;
 
   const states = series.map((intent) => ({ intent, state: trends.get(intent.id) }));
@@ -80,11 +137,65 @@ export function TrendPanel() {
   const docs = geo.order;
   const bins = docs.length === 0 ? 0 : geo.binIndex.length / docs.length;
   const bases = geo.sequenceBases ?? docs.map((_, d) => d * (geo.docTokenCount[d] ?? 0));
+  const layout: SequenceLayout = {
+    bases,
+    tokenCounts: geo.docTokenCount,
+    totalTokens:
+      docs.length === 0
+        ? 0
+        : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0),
+  };
   const maxRate = Math.max(
     1e-9,
     ...ready.map((r) => Math.max(...Array.from(r.trend.ratePer10k))),
   );
   const strokeFor = (id: string) => (id === focusedSeries ? 2.5 : 1.5);
+
+  const scrubDocOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
+  const scrubX =
+    scrub && scrubDocOrdinal >= 0
+      ? trendView === 'series'
+        ? seriesXFromToken(scrubDocOrdinal, scrub.token, plotW, layout)
+        : bookXFromToken(scrub.token, plotW, geo.docTokenCount[scrubDocOrdinal] ?? 0)
+      : null;
+
+  const targetFromPointer = (px: number, py: number): ScrubTarget | null => {
+    const hit =
+      trendView === 'series'
+        ? pointerTargetSeries(px, py, plotW, SERIES_HEIGHT, layout)
+        : pointerTargetByBook(px, py, plotW, ROW_HEIGHT, ROW_GAP, geo.docTokenCount);
+    return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const current: ScrubTarget =
+      scrub && scrubDocOrdinal >= 0
+        ? scrub
+        : { doc: docs.find((_, d) => (geo.docTokenCount[d] ?? 0) > 0) ?? '', token: 0 };
+    const d = docs.indexOf(current.doc);
+    if (d < 0) return;
+    const tc = geo.docTokenCount[d] ?? 0;
+    const binWidth = tc === 0 ? 1 : Math.ceil(tc / bins);
+    const step = (delta: number): ScrubTarget | null => {
+      if (trendView === 'series') {
+        const next = stepAlongSequence(d, current.token, delta, layout);
+        return next ? { doc: docs[next.d]!, token: next.token } : null;
+      }
+      return { doc: current.doc, token: Math.max(0, Math.min(tc - 1, current.token + delta)) };
+    };
+    let next: ScrubTarget | null = null;
+    switch (e.key) {
+      case 'ArrowLeft': next = step(e.shiftKey ? -5 : -1); break;
+      case 'ArrowRight': next = step(e.shiftKey ? 5 : 1); break;
+      case 'PageUp': next = step(-binWidth); break;
+      case 'PageDown': next = step(binWidth); break;
+      case 'Home': next = { doc: current.doc, token: 0 }; break;
+      case 'End': next = { doc: current.doc, token: Math.max(0, tc - 1) }; break;
+      default: return;
+    }
+    e.preventDefault();
+    if (next) setScrub(next);
+  };
 
   // Per-book / corpus exact totals (sums of counts and denominators — never
   // averages of rates).
@@ -101,6 +212,17 @@ export function TrendPanel() {
   const totalTokens = docs.reduce((s, _, d) => s + bookTokens(d), 0);
 
   const methodLine = `rate per 10k tokens · ${bins} equal-token bins per book · unsmoothed · books token-proportional in declared order`;
+
+  const passageServes =
+    scrub !== null &&
+    passage !== null &&
+    passage.doc === scrub.doc &&
+    scrub.token >= passage.tokens.start &&
+    scrub.token < passage.tokens.end;
+  const scrubTitle = scrub ? shortTitle(scrub.doc).title : '';
+  const scrubCaption = scrub && scrubDocOrdinal >= 0
+    ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(geo.docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
+    : '';
 
   return (
     <section>
@@ -120,26 +242,89 @@ export function TrendPanel() {
           </span>
         )}
       </h2>
-      {trendView === 'series' ? (
-        <SeriesView
-          ready={ready}
-          docs={docs}
-          bins={bins}
-          bases={bases}
-          maxRate={maxRate}
-          strokeFor={strokeFor}
-          onFocus={setFocus}
-        />
-      ) : (
-        <ByBookView
-          ready={ready}
-          docs={docs}
-          bins={bins}
-          maxRate={maxRate}
-          strokeFor={strokeFor}
-          onFocus={setFocus}
-        />
-      )}
+      <div
+        ref={setContainerEl}
+        role="slider"
+        tabIndex={0}
+        aria-label="Reading position scrubber"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, layout.totalTokens - 1)}
+        aria-valuenow={
+          scrub && scrubDocOrdinal >= 0 ? (bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
+        }
+        aria-valuetext={scrubCaption || 'no position'}
+        onKeyDown={onKeyDown}
+        style={{ width: '100%', outline: 'none' }}
+        onPointerMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
+        }}
+        onPointerDown={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
+        }}
+      >
+        {trendView === 'series' ? (
+          <SeriesView
+            ready={ready}
+            docs={docs}
+            bins={bins}
+            bases={bases}
+            maxRate={maxRate}
+            plotW={plotW}
+            scrubX={scrubX}
+            strokeFor={strokeFor}
+            onFocus={setFocus}
+          />
+        ) : (
+          <ByBookView
+            ready={ready}
+            docs={docs}
+            bins={bins}
+            maxRate={maxRate}
+            plotW={plotW}
+            scrubX={scrubX}
+            scrubDocOrdinal={scrubDocOrdinal}
+            strokeFor={strokeFor}
+            onFocus={setFocus}
+          />
+        )}
+        {scrub && passageServes && scrubX !== null ? (
+          <PassageLine
+            passage={passage}
+            token={scrub.token}
+            crosshairX={scrubX}
+            series={series}
+            focusedSeries={focusedSeries}
+            caption={scrubCaption}
+          />
+        ) : scrub ? (
+          <p
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--fg-muted)',
+              height: '2.5em',
+              margin: 'var(--space-2) 0 0',
+            }}
+          >
+            {scrubCaption} · loading text…
+          </p>
+        ) : (
+          <p
+            style={{
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-xs)',
+              color: 'var(--fg-muted)',
+              height: '2.5em',
+              margin: 'var(--space-2) 0 0',
+            }}
+          >
+            hover or focus the chart to read the text at any position — arrows step by
+            token, shift+arrows by 5, PageUp/Down by bin
+          </p>
+        )}
+      </div>
       <table
         style={{
           fontFamily: 'var(--font-mono)',
@@ -232,6 +417,8 @@ function SeriesView({
   bins,
   bases,
   maxRate,
+  plotW,
+  scrubX,
   strokeFor,
   onFocus,
 }: {
@@ -240,13 +427,15 @@ function SeriesView({
   bins: number;
   bases: readonly number[];
   maxRate: number;
+  plotW: number;
+  scrubX: number | null;
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
 }) {
   const geo = ready[0]!.trend;
   const totalTokens =
     docs.length === 0 ? 0 : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0);
-  const x = scaleLinear([0, Math.max(1, totalTokens)], [0, WIDTH]);
+  const x = scaleLinear([0, Math.max(1, totalTokens)], [0, plotW]);
   const y = scaleLinear([0, maxRate], [SERIES_HEIGHT, TOP_PAD]);
   const axisY = SERIES_HEIGHT;
   const height = SERIES_HEIGHT + 34;
@@ -268,12 +457,12 @@ function SeriesView({
 
   return (
     <svg
-      width={WIDTH + LABEL_SPACE}
+      width={plotW + LABEL_SPACE}
       height={height}
       role="img"
       aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} across ${docs.length} books in reading order`}
     >
-      <line x1={0} y1={axisY} x2={WIDTH} y2={axisY} stroke="var(--rule-strong)" strokeWidth={1} />
+      <line x1={0} y1={axisY} x2={plotW} y2={axisY} stroke="var(--rule-strong)" strokeWidth={1} />
       {docs.map((doc, d) => {
         const x0 = x(bases[d] ?? 0);
         const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
@@ -299,7 +488,7 @@ function SeriesView({
         );
       })}
       {/* y extent, direct-labeled at the max gridline — no axis chrome */}
-      <line x1={0} y1={y(maxRate)} x2={WIDTH} y2={y(maxRate)} stroke="var(--rule)" strokeWidth={1} />
+      <line x1={0} y1={y(maxRate)} x2={plotW} y2={y(maxRate)} stroke="var(--rule)" strokeWidth={1} />
       <text x={0} y={y(maxRate) - 3} fill="var(--fg-muted)" fontSize="var(--text-xs)" fontFamily="var(--font-mono)">
         {maxRate.toFixed(1)}/10k
       </text>
@@ -333,16 +522,16 @@ function SeriesView({
       {ready.map((r, i) => (
         <g key={`label-${r.intent.id}`}>
           <line
-            x1={WIDTH + 2}
+            x1={plotW + 2}
             y1={endPoints[i]!}
-            x2={WIDTH + 14}
+            x2={plotW + 14}
             y2={labelY[i]!}
             stroke={slotColor(r.intent.styleSlot)}
             strokeWidth={1}
             strokeDasharray={slotDash(r.intent.styleSlot)}
           />
           <text
-            x={WIDTH + 18}
+            x={plotW + 18}
             y={labelY[i]! + 3}
             fill="var(--fg)"
             fontSize="var(--text-xs)"
@@ -354,6 +543,17 @@ function SeriesView({
           </text>
         </g>
       ))}
+      {scrubX !== null && (
+        <line
+          x1={scrubX}
+          y1={TOP_PAD}
+          x2={scrubX}
+          y2={axisY}
+          stroke="var(--fg-muted)"
+          strokeWidth={1}
+          pointerEvents="none"
+        />
+      )}
       {/* Hover layer: one column per (book, bin) reporting every series */}
       {docs.map((doc, d) =>
         Array.from({ length: bins }, (_, b) => {
@@ -384,6 +584,9 @@ function ByBookView({
   docs,
   bins,
   maxRate,
+  plotW,
+  scrubX,
+  scrubDocOrdinal,
   strokeFor,
   onFocus,
 }: {
@@ -391,16 +594,19 @@ function ByBookView({
   docs: readonly string[];
   bins: number;
   maxRate: number;
+  plotW: number;
+  scrubX: number | null;
+  scrubDocOrdinal: number;
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
 }) {
-  const x = scaleLinear([0, bins], [0, WIDTH]);
+  const x = scaleLinear([0, bins], [0, plotW]);
   const y = scaleLinear([0, maxRate], [ROW_HEIGHT, 0]);
   const height = docs.length * (ROW_HEIGHT + ROW_GAP) + 4;
 
   return (
     <svg
-      width={WIDTH + LABEL_SPACE}
+      width={plotW + LABEL_SPACE}
       height={height}
       role="img"
       aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
@@ -410,7 +616,7 @@ function ByBookView({
         const { n, title } = shortTitle(doc);
         return (
           <g key={doc}>
-            <line x1={0} y1={rowY + ROW_HEIGHT} x2={WIDTH} y2={rowY + ROW_HEIGHT} stroke="var(--rule)" strokeWidth={1} />
+            <line x1={0} y1={rowY + ROW_HEIGHT} x2={plotW} y2={rowY + ROW_HEIGHT} stroke="var(--rule)" strokeWidth={1} />
             {ready.map((r) => {
               const path = Array.from({ length: bins }, (_, b) => {
                 const rate = r.trend.ratePer10k[d * bins + b] as number;
@@ -430,8 +636,19 @@ function ByBookView({
                 />
               );
             })}
+            {scrubX !== null && scrubDocOrdinal === d && (
+              <line
+                x1={scrubX}
+                y1={rowY}
+                x2={scrubX}
+                y2={rowY + ROW_HEIGHT}
+                stroke="var(--fg-muted)"
+                strokeWidth={1}
+                pointerEvents="none"
+              />
+            )}
             <text
-              x={WIDTH + 6}
+              x={plotW + 6}
               y={rowY + ROW_HEIGHT - 2}
               fill="var(--fg)"
               fontSize="var(--text-xs)"

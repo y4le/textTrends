@@ -37,11 +37,14 @@ import {
   hashIndexRecipe,
   hashSegmenterFingerprint,
   hashText,
+  checkedResolverFor,
   kwicPage,
   makeReadyDocument,
   materializeKwicPage,
+  materializePassage,
   modeKey,
   occurrences,
+  planPassage,
   resolveSelection,
   rootOnlyStructure,
   segment,
@@ -81,6 +84,10 @@ export class WorkerEngine {
   private readonly emit: Emit;
   private readonly yieldControl: Yield;
   private generation: GenerationState | null = null;
+  /** Jobs currently being processed — cancellation only applies to these;
+   *  both sets are cleaned when the job finishes, so late cancel messages
+   *  for completed jobs cannot grow state without bound (scrub traffic). */
+  private readonly activeJobs = new Set<number>();
   private readonly cancelledJobs = new Set<number>();
   /** Serializes staging+commit so an older composition cannot win a race. */
   private composing: Promise<void> = Promise.resolve();
@@ -118,6 +125,8 @@ export class WorkerEngine {
       });
       return;
     }
+    const job = 'job' in message && typeof message.job === 'number' ? message.job : undefined;
+    if (job !== undefined && message.t !== 'cancel') this.activeJobs.add(job);
     try {
       switch (message.t) {
         case 'begin-generation':
@@ -133,7 +142,9 @@ export class WorkerEngine {
           this.excerpt(message.job, message.snapshot, message.doc, message.charStart, message.charEnd);
           return;
         case 'cancel':
-          this.cancelledJobs.add(message.job);
+          // Only an ACTIVE job can become cancelled — a late cancel for a
+          // finished job must not accrete permanent state.
+          if (this.activeJobs.has(message.job)) this.cancelledJobs.add(message.job);
           return;
         default: {
           const unknown: never | { t?: string; job?: number } = message;
@@ -150,7 +161,6 @@ export class WorkerEngine {
       }
     } catch (e) {
       if (e === CANCELLED) return;
-      const job = 'job' in message ? message.job : undefined;
       this.emit({
         v: PROTOCOL_VERSION,
         t: 'error',
@@ -158,6 +168,11 @@ export class WorkerEngine {
         ...mapError(e),
         recoverable: true,
       });
+    } finally {
+      if (job !== undefined && message.t !== 'cancel') {
+        this.activeJobs.delete(job);
+        this.cancelledJobs.delete(job);
+      }
     }
   }
 
@@ -402,7 +417,7 @@ export class WorkerEngine {
       });
       return;
     }
-    if (q.op !== 'trend' && q.op !== 'kwic') {
+    if (q.op !== 'trend' && q.op !== 'kwic' && q.op !== 'passage') {
       this.emit({
         v: PROTOCOL_VERSION, t: 'error', job,
         code: 'UNKNOWN_OP', message: `unknown query op '${String((q as { op?: string }).op)}'`,
@@ -413,6 +428,35 @@ export class WorkerEngine {
     const snapshot = gen.snapshot;
     const bound = gen.bound;
     const boundTexts = gen.boundTexts;
+
+    if (q.op === 'passage') {
+      const { doc, centerToken, maxTokens, tracks } = q.request;
+      const ready = gen.ready.get(doc);
+      if (!ready) throw new DependencyError('shard', doc);
+      const ref = snapshot.docs.find((r) => r.doc === doc);
+      if (!ref) {
+        throw new RangeError(`'${doc}' is not a member of the snapshot`);
+      }
+      const byMode = new Map<string, Resolver>();
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          byMode.set(modeKey(member.match), await this.resolverFor(gen, doc, member.match));
+        }
+      }
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const resolverFor = checkedResolverFor(doc, ref.index, ready.shard, byMode);
+      const plan = planPassage(
+        snapshot, doc, ready.shard, resolverFor,
+        tracks.map((t) => t.group), centerToken, maxTokens,
+      );
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const passage = materializePassage(snapshot, plan, boundTexts, tracks);
+      this.emit({
+        v: PROTOCOL_VERSION, t: 'result', job, snapshot: snapshot.id,
+        data: { op: 'passage', passage },
+      });
+      return;
+    }
 
     let selection;
     try {
@@ -561,17 +605,48 @@ function narrowMember(m: unknown): boolean {
   }
 }
 
+function narrowGroup(g: unknown): boolean {
+  return (
+    isRecord(g) &&
+    typeof (g as { id?: unknown }).id === 'string' &&
+    typeof (g as { countOverlaps?: unknown }).countOverlaps === 'boolean' &&
+    Array.isArray((g as { members?: unknown }).members) &&
+    ((g as { members: unknown[] }).members as unknown[]).every(narrowMember)
+  );
+}
+
 /** The query payload containers, member elements, and semantic-bearing
- *  scalars the kernels consume; value-range checks stay in the kernels. */
+ *  scalars the kernels consume; value-range checks stay in the kernels —
+ *  except the passage TRACK cap and seriesId uniqueness, which are wire-
+ *  boundary invariants (the kernel never sees seriesIds). */
 function narrowQuery(q: unknown): q is QueryOp {
   if (!isRecord(q) || typeof q.op !== 'string') return false;
+  if (q.op === 'passage') {
+    if (!isRecord(q.request)) return false;
+    const r = q.request as Record<string, unknown>;
+    if (
+      typeof r.doc !== 'string' ||
+      typeof r.centerToken !== 'number' ||
+      typeof r.maxTokens !== 'number' ||
+      !Array.isArray(r.tracks) ||
+      (r.tracks as unknown[]).length > 5
+    ) {
+      return false;
+    }
+    const seen = new Set<string>();
+    for (const t of r.tracks as unknown[]) {
+      if (!isRecord(t) || typeof (t as { seriesId?: unknown }).seriesId !== 'string') return false;
+      if (!narrowGroup((t as { group?: unknown }).group)) return false;
+      const id = (t as { seriesId: string }).seriesId;
+      if (seen.has(id)) return false;
+      seen.add(id);
+    }
+    return true;
+  }
   if (q.op !== 'trend' && q.op !== 'kwic') return true; // let dispatch emit UNKNOWN_OP
   if (
     !isRecord(q.selection) || !Array.isArray((q.selection as { docs?: unknown }).docs) ||
-    !isRecord(q.group) || !Array.isArray((q.group as { members?: unknown }).members) ||
-    !((q.group as { members: unknown[] }).members as unknown[]).every(narrowMember) ||
-    typeof (q.group as { id?: unknown }).id !== 'string' ||
-    typeof (q.group as { countOverlaps?: unknown }).countOverlaps !== 'boolean' ||
+    !narrowGroup(q.group) ||
     !isRecord(q.request)
   ) {
     return false;

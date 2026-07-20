@@ -24,8 +24,10 @@ import { create } from 'zustand';
 import {
   DEFAULT_INDEX_RECIPE,
   foldKey,
+  PASSAGE_MAX_TOKENS,
   tokenKey,
   type NumericTrend,
+  type PassageResult,
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { SnapshotInfo } from './client.ts';
@@ -95,6 +97,16 @@ export interface KwicState {
 
 export type TrendView = 'series' | 'by-book';
 
+/** The scrubbed reading position — document-local, view-independent. */
+export interface ScrubTarget {
+  readonly doc: string;
+  readonly token: number;
+}
+
+/** Tokens of headroom the loaded block must keep around the target before a
+ *  refetch is scheduled — inside the band, scrubbing is purely local. */
+export const SCRUB_GUARD_TOKENS = 28;
+
 /** Comma-separated comparison → ordered semantic series (first spelling wins).
  *  More than MAX_SERIES distinct series is an explicit refusal, not a silent
  *  truncation. Exported for fixtures. */
@@ -130,11 +142,17 @@ export interface AppState {
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
   trendView: TrendView;
+  scrub: ScrubTarget | null;
+  /** The loaded passage block — may lag the scrub target while a fetch is in
+   *  flight; the panel renders the block that CONTAINS the target only. */
+  passage: PassageResult | null;
 
   loadSherlock(): Promise<void>;
   setInput(input: string): void;
   setFocus(seriesId: string): void;
   setTrendView(view: TrendView): void;
+  setScrub(target: ScrubTarget): void;
+  clearScrub(): void;
   runQueries(): void;
 }
 
@@ -147,6 +165,11 @@ export function createAppStore(client: ClientLike) {
   let kwicEpoch = 0;
   let trendCancels: (() => void)[] = [];
   let kwicCancel: (() => void) | null = null;
+  // Scrub scheduling: ONE active passage request plus ONE replaceable pending
+  // target — pointer motion never queues and never cancel-storms the worker.
+  let scrubEpoch = 0;
+  let passageActiveCancel: (() => void) | null = null;
+  let passagePending: ScrubTarget | null = null;
 
   const store = create<AppState>((set, get) => {
     client.onSnapshot((snapshot) => {
@@ -171,6 +194,84 @@ export function createAppStore(client: ClientLike) {
       members: [{ id: `m:${s.id}`, kind: 'token', surface: s.label, match: MATCH }],
       countOverlaps: false,
     });
+
+    /** The doc's token extent, if any ready trend result carries it. */
+    const docTokenCountOf = (doc: string): number | null => {
+      for (const [, state] of get().trends) {
+        if (state.status !== 'ready') continue;
+        const d = state.trend.order.indexOf(doc);
+        if (d >= 0) return state.trend.docTokenCount[d] ?? null;
+      }
+      return null;
+    };
+
+    /** Would a fetch centered at `token` produce the block we already hold? */
+    const blockServes = (passage: PassageResult, target: ScrubTarget): boolean => {
+      if (passage.doc !== target.doc) return false;
+      const { start, end } = passage.tokens;
+      if (target.token < start || target.token >= end) return false;
+      const tc = docTokenCountOf(target.doc);
+      if (tc !== null && !passage.truncatedByCharCap) {
+        // Exact: the block a refetch would serve (same construction as the
+        // kernel) — identical block means the fetch is pure waste.
+        const es = Math.max(0, Math.min(target.token - (PASSAGE_MAX_TOKENS >> 1), tc - PASSAGE_MAX_TOKENS));
+        const ee = Math.min(tc, es + PASSAGE_MAX_TOKENS);
+        if (es === start && ee === end) return true;
+      }
+      // Guard band: local navigation until the target nears a block edge.
+      const lo = start === 0 ? start : start + SCRUB_GUARD_TOKENS;
+      const hi = end - SCRUB_GUARD_TOKENS;
+      return target.token >= lo && target.token < hi;
+    };
+
+    const pumpPassage = () => {
+      if (passageActiveCancel !== null) return; // active request finishes first
+      const target = passagePending;
+      if (!target) return;
+      passagePending = null;
+      const { snapshot, series } = get();
+      if (!snapshot || series.length === 0) return;
+      const issuedEpoch = scrubEpoch;
+      const issuedSnapshot = snapshot.snapshot;
+      const handle = client.query(issuedSnapshot, {
+        op: 'passage',
+        request: {
+          doc: target.doc,
+          centerToken: target.token,
+          maxTokens: PASSAGE_MAX_TOKENS,
+          tracks: series.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
+        },
+      });
+      passageActiveCancel = handle.cancel;
+      const current = () =>
+        scrubEpoch === issuedEpoch && get().snapshot?.snapshot === issuedSnapshot;
+      /** Only the CURRENT owner of the active slot may clear it and pump —
+       *  a structurally superseded request's late settlement must not free
+       *  the slot out from under its replacement. */
+      const settleOwnership = () => {
+        if (passageActiveCancel !== handle.cancel) return false;
+        passageActiveCancel = null;
+        return true;
+      };
+      void handle.result
+        .then((data) => {
+          if (!settleOwnership()) return;
+          if (data.op === 'passage' && current()) set({ passage: data.passage });
+          pumpPassage(); // a newer target may be parked in the pending slot
+        })
+        .catch((e: unknown) => {
+          if (!settleOwnership()) return;
+          const message = e instanceof Error ? e.message : String(e);
+          if (message !== 'cancelled' && current()) {
+            // A rejected center (stale geometry) or failed read: drop the
+            // scrub rather than display a block that does not match it.
+            set({ passage: null, scrub: null });
+            passagePending = null;
+            return;
+          }
+          pumpPassage();
+        });
+    };
 
     const runKwic = () => {
       kwicCancel?.();
@@ -231,6 +332,8 @@ export function createAppStore(client: ClientLike) {
       trends: new Map(),
       kwic: null,
       trendView: 'series',
+      scrub: null,
+      passage: null,
 
       async loadSherlock() {
         if (loadStarted) return; // idempotent — Strict Mode double-mount safe
@@ -300,6 +403,23 @@ export function createAppStore(client: ClientLike) {
         set({ trendView: view }); // presentation-only: no query is reissued
       },
 
+      setScrub(target) {
+        const prev = get().scrub;
+        if (prev && prev.doc === target.doc && prev.token === target.token) return;
+        set({ scrub: target });
+        const { passage } = get();
+        if (passage && blockServes(passage, target)) return; // purely local move
+        passagePending = target; // replaceable slot — motion never queues
+        pumpPassage();
+      },
+
+      clearScrub() {
+        // Presentational hide only — the loaded block stays as a warm cache
+        // for the next scrub; pending work is dropped.
+        passagePending = null;
+        set({ scrub: null });
+      },
+
       runQueries() {
         const { snapshot, series } = get();
         // Trend intent changed: ALWAYS cancel superseded work, clear to
@@ -308,10 +428,23 @@ export function createAppStore(client: ClientLike) {
         for (const cancel of trendCancels) cancel();
         trendCancels = [];
         const myEpoch = ++trendEpoch;
+        // The loaded passage block and any in-flight/pending fetch belong to
+        // the OLD series set / snapshot — marks would be stale evidence. The
+        // scrub POSITION is kept; a fresh block is fetched below if possible.
+        scrubEpoch++;
+        passageActiveCancel?.();
+        passageActiveCancel = null;
+        passagePending = null;
+        set({ passage: null });
         if (!snapshot || series.length === 0) {
-          set({ trends: new Map() });
+          set({ trends: new Map(), scrub: null });
           runKwic(); // clears or re-targets the evidence panel consistently
           return;
+        }
+        const scrub = get().scrub;
+        if (scrub) {
+          passagePending = scrub;
+          pumpPassage();
         }
 
         const issuedSnapshot = snapshot.snapshot;

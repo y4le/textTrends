@@ -1,5 +1,24 @@
 import { describe, expect, it } from 'vitest';
-import { binSpan, clampToSpan, spreadLabels } from '../src/lib/trend-geometry.ts';
+import {
+  binSpan,
+  bookTokenFromX,
+  clampToSpan,
+  pointerTargetByBook,
+  pointerTargetSeries,
+  seriesDocFromGlobal,
+  seriesTokenFromX,
+  seriesXFromToken,
+  spreadLabels,
+  stepAlongSequence,
+  type SequenceLayout,
+} from '../src/lib/trend-geometry.ts';
+
+/** Three books: 100 tokens, an EMPTY one, then 50 — bases skip the empty. */
+const LAYOUT: SequenceLayout = {
+  bases: [0, 100, 100],
+  tokenCounts: [100, 0, 50],
+  totalTokens: 150,
+};
 
 describe('binSpan', () => {
   it('matches the kernel: ceil(tokens/bins) widths, last bin clamped', () => {
@@ -37,6 +56,69 @@ describe('clampToSpan', () => {
   it('a zero-width span (empty document) pins to its position', () => {
     expect(clampToSpan(7, 10, 10, 2, 2)).toBe(10);
     expect(clampToSpan(7, 10, 10, 0, 2)).toBe(10);
+  });
+});
+
+describe('sequence scrub mapping', () => {
+  it('resolves globals to (doc, token), skipping empty docs; boundary owned by the next non-empty', () => {
+    expect(seriesDocFromGlobal(0, LAYOUT)).toEqual({ d: 0, token: 0 });
+    expect(seriesDocFromGlobal(99, LAYOUT)).toEqual({ d: 0, token: 99 });
+    expect(seriesDocFromGlobal(100, LAYOUT)).toEqual({ d: 2, token: 0 }); // never d=1 (empty)
+    expect(seriesDocFromGlobal(149, LAYOUT)).toEqual({ d: 2, token: 49 });
+  });
+
+  it('clamps beyond the corpus ends instead of returning nothing', () => {
+    expect(seriesDocFromGlobal(-5, LAYOUT)).toEqual({ d: 0, token: 0 });
+    expect(seriesDocFromGlobal(9999, LAYOUT)).toEqual({ d: 2, token: 49 });
+  });
+
+  it('x mapping round-trips through token centers', () => {
+    const plotW = 600;
+    for (const g of [0, 42, 99, 100, 149]) {
+      const hit = seriesDocFromGlobal(g, LAYOUT)!;
+      const x = seriesXFromToken(hit.d, hit.token, plotW, LAYOUT);
+      expect(seriesTokenFromX(x, plotW, LAYOUT)).toEqual(hit);
+    }
+  });
+
+  it('bookTokenFromX clamps to the row and rejects empty docs', () => {
+    expect(bookTokenFromX(0, 600, 50)).toBe(0);
+    expect(bookTokenFromX(599.9, 600, 50)).toBe(49);
+    expect(bookTokenFromX(300, 600, 0)).toBeNull();
+  });
+
+  it('stepping crosses book boundaries and skips the empty book', () => {
+    expect(stepAlongSequence(0, 99, 1, LAYOUT)).toEqual({ d: 2, token: 0 });
+    expect(stepAlongSequence(2, 0, -1, LAYOUT)).toEqual({ d: 0, token: 99 });
+    expect(stepAlongSequence(0, 0, -1, LAYOUT)).toEqual({ d: 0, token: 0 }); // clamped
+    expect(stepAlongSequence(2, 49, 5, LAYOUT)).toEqual({ d: 2, token: 49 }); // clamped
+  });
+});
+
+describe('pointer plot containment', () => {
+  it('series: label rail, above-plot, and below-axis coordinates are rejected, never clamped', () => {
+    const plotW = 600;
+    const plotH = 180;
+    expect(pointerTargetSeries(300, 90, plotW, plotH, LAYOUT)).not.toBeNull();
+    expect(pointerTargetSeries(600, 90, plotW, plotH, LAYOUT)).toBeNull(); // label rail
+    expect(pointerTargetSeries(700, 90, plotW, plotH, LAYOUT)).toBeNull(); // end labels
+    expect(pointerTargetSeries(-1, 90, plotW, plotH, LAYOUT)).toBeNull();
+    expect(pointerTargetSeries(300, 181, plotW, plotH, LAYOUT)).toBeNull(); // passage line below
+    expect(pointerTargetSeries(300, -1, plotW, plotH, LAYOUT)).toBeNull();
+  });
+
+  it('by-book: row gaps and the area past the last row are rejected, not snapped', () => {
+    const tokenCounts = [100, 50];
+    const hit = pointerTargetByBook(300, 20, 600, 44, 22, tokenCounts);
+    expect(hit).toEqual({ d: 0, token: 50 });
+    expect(pointerTargetByBook(300, 50, 600, 44, 22, tokenCounts)).toBeNull(); // gap after row 0
+    expect(pointerTargetByBook(300, 80, 600, 44, 22, tokenCounts)?.d).toBe(1);
+    expect(pointerTargetByBook(300, 200, 600, 44, 22, tokenCounts)).toBeNull(); // below last row
+    expect(pointerTargetByBook(600, 20, 600, 44, 22, tokenCounts)).toBeNull(); // label rail
+  });
+
+  it('by-book: an empty document row rejects instead of producing a position', () => {
+    expect(pointerTargetByBook(300, 20, 600, 44, 22, [0, 50])).toBeNull();
   });
 });
 

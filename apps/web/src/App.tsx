@@ -86,7 +86,7 @@ export function App() {
   const focusedId = focusedSeries;
 
   return (
-    <main style={{ padding: 'var(--space-4)', maxWidth: '64rem' }}>
+    <main style={{ padding: 'var(--space-4)', width: '100%' }}>
       <header style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
         <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
         <form

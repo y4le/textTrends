@@ -268,6 +268,108 @@ describe('queries and excerpts', () => {
     }
   });
 
+  it('answers passage with marks, per-token extents, and center span', async () => {
+    const h = harness();
+    const pub = await ingested(h, { a: 'the wolf ran far. a wolf slept.' });
+    await h.send({
+      t: 'query', job: 25, snapshot: pub.snapshot,
+      query: {
+        op: 'passage',
+        request: {
+          doc: 'a', centerToken: 3, maxTokens: 200,
+          tracks: [{ seriesId: 's1', group: wolfGroup }],
+        },
+      } as never,
+    });
+    const result = h.last('result');
+    expect(result.data.op).toBe('passage');
+    if (result.data.op === 'passage') {
+      const p = result.data.passage;
+      expect(p.text).toBe('the wolf ran far. a wolf slept');
+      expect(p.text.slice(p.centerCharsUtf16.start, p.centerCharsUtf16.end)).toBe('far');
+      expect(p.marks.length).toBe(2);
+      expect(p.marks.every((m) => m.seriesId === 's1')).toBe(true);
+      expect(p.marks.map((m) => p.text.slice(m.charsUtf16.start, m.charsUtf16.end))).toEqual(['wolf', 'wolf']);
+    }
+  });
+
+  it('rejects a passage centered out of range and duplicate track seriesIds as REQUEST_INVALID', async () => {
+    const h = harness();
+    const pub = await ingested(h, { a: 'only four tokens here' });
+    await h.send({
+      t: 'query', job: 26, snapshot: pub.snapshot,
+      query: {
+        op: 'passage',
+        request: { doc: 'a', centerToken: 4, maxTokens: 10, tracks: [] },
+      } as never,
+    });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+    await h.send({
+      t: 'query', job: 27, snapshot: pub.snapshot,
+      query: {
+        op: 'passage',
+        request: {
+          doc: 'a', centerToken: 1, maxTokens: 10,
+          tracks: [
+            { seriesId: 'dup', group: wolfGroup },
+            { seriesId: 'dup', group: { ...wolfGroup, id: 'g9' } },
+          ],
+        },
+      } as never,
+    });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+
+  it('a passage track with an empty phrase is REQUEST_INVALID, matching the trend path', async () => {
+    const h = harness();
+    const pub = await ingested(h, { a: 'the wolf ran' });
+    await h.send({
+      t: 'query', job: 28, snapshot: pub.snapshot,
+      query: {
+        op: 'passage',
+        request: {
+          doc: 'a', centerToken: 1, maxTokens: 10,
+          tracks: [{
+            seriesId: 's-bad',
+            group: {
+              id: 'g-bad',
+              members: [{ id: 'p', kind: 'phrase', surfaces: [], match: { case: 'folded', diacritics: 'sensitive' }, crossSentence: false }],
+              countOverlaps: false,
+            },
+          }],
+        },
+      } as never,
+    });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+
+  it('cancel state does not accrete: a late cancel for a finished job is dropped', async () => {
+    const h = harness();
+    const pub = await ingested(h, { a: 'the wolf ran' });
+    await h.send({
+      t: 'query', job: 40, snapshot: pub.snapshot,
+      query: {
+        op: 'trend', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { coordinate: 'document-relative', binsPerDoc: 1 },
+      } as never,
+    });
+    expect(h.last('result').data.op).toBe('trend');
+    await h.send({ t: 'cancel', job: 40 }); // job already finished
+    const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
+    expect(internals.activeJobs.size).toBe(0);
+    expect(internals.cancelledJobs.size).toBe(0);
+    // The next job with the same id (client never reuses, but state must not
+    // depend on that) runs unimpeded.
+    await h.send({
+      t: 'query', job: 40, snapshot: pub.snapshot,
+      query: {
+        op: 'trend', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { coordinate: 'document-relative', binsPerDoc: 1 },
+      } as never,
+    });
+    expect(h.last('result').data.op).toBe('trend');
+  });
+
   it('rejects queries against superseded snapshots (SNAPSHOT_UNKNOWN)', async () => {
     const h = harness();
     await ingested(h, { a: 'wolf one', b: 'wolf two' });
