@@ -11,6 +11,7 @@
  */
 
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
+import { exactArray, exactRecord } from '../contract/recipes.ts';
 import type { StructureCandidateV1 } from '../extract/markdown.ts';
 import {
   ROOT_KEY,
@@ -46,6 +47,84 @@ export const DEFAULT_STRUCTURE_RECIPE: StructureRecipeProvisional = {
 
 export async function hashStructureRecipe(recipe: StructureRecipeProvisional): Promise<string> {
   return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
+}
+
+const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
+
+/** Total structural validation of a StructureRecipeProvisional — closed
+ *  enums and EXACT key sets at every level (an extra field would hash into a
+ *  novel identity the builder never implements — same discipline as the
+ *  extraction/index validators). */
+export function isStructureRecipeProvisional(v: unknown): v is StructureRecipeProvisional {
+  if (!exactRecord(v, ['schema', 'root', 'evidenceOrder', 'chapterHeading'])) return false;
+  if (v.schema !== 'texttrends/structure-recipe/0-provisional' || v.root !== 'whole-extracted-text-v1') return false;
+  // The identity-bearing tuples must be DENSE arrays with no smuggled named
+  // properties (structuredClone preserves them; canonical hashing rejects).
+  if (!exactArray(v.evidenceOrder, 2)) return false;
+  if (v.evidenceOrder[0] !== 'extraction-candidates' || v.evidenceOrder[1] !== 'english-chapter-heading-v1') return false;
+  const c = v.chapterHeading;
+  return (
+    exactRecord(c, ['id', 'linePolicy', 'numerals', 'labels']) &&
+    c.id === 'english-chapter-heading-v1' && c.linePolicy === 'unicode-lines-preserve-offsets-v1' &&
+    c.numerals === 'arabic-or-validated-roman-v1' &&
+    exactArray(c.labels, 3) && c.labels[0] === 'part' && c.labels[1] === 'book' && c.labels[2] === 'chapter'
+  );
+}
+
+/** A complete SectionValue held to the same plain/exact discipline as the
+ *  recipes: required level+chars, optional parent/title, and NOTHING else —
+ *  built from the present optional fields so exactRecord enforces the plain
+ *  prototype, enumerable data descriptors, and no symbols/accessors/inherited
+ *  keys (a value inheriting level/chars from a custom prototype would hash
+ *  outside the canonical domain). */
+function isSectionValue(v: unknown): v is SectionValue {
+  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
+  const keys: string[] = ['level', 'chars'];
+  if (Object.prototype.hasOwnProperty.call(v, 'parent')) keys.push('parent');
+  if (Object.prototype.hasOwnProperty.call(v, 'title')) keys.push('title');
+  if (!exactRecord(v, keys)) return false;
+  const r = v as Record<string, unknown>;
+  if (r.parent !== undefined && typeof r.parent !== 'string') return false;
+  if (r.title !== undefined && typeof r.title !== 'string') return false;
+  if (!isInt(r.level) || (r.level as number) < 0) return false;
+  return exactRecord(r.chars, ['start', 'end']) &&
+    isInt(r.chars.start) && isInt(r.chars.end) && (r.chars.start as number) >= 0 && (r.chars.start as number) < (r.chars.end as number);
+}
+
+/**
+ * Total validation of a StructureOverrideV1, with EXACT keys at the override
+ * and change levels, complete section values on add/replace, and rejection
+ * of duplicate targets — so a wire caller cannot hand applyOverride a value
+ * it will crash dereferencing, nor hash an extra field into a distinct
+ * identity for an identical operation. Does not check that targets exist
+ * against a table (applyOverride's job once the base is known).
+ */
+export function isStructureOverrideV1(v: unknown): v is StructureOverrideV1 {
+  if (!exactRecord(v, ['schema', 'text', 'candidates', 'baseRecipe', 'changes'])) return false;
+  if (v.schema !== 'texttrends/structure-override/1') return false;
+  if (typeof v.text !== 'string' || typeof v.candidates !== 'string' || typeof v.baseRecipe !== 'string') return false;
+  if (!Array.isArray(v.changes)) return false;
+  const seen = new Set<string>();
+  for (const c of v.changes) {
+    if (c === null || typeof c !== 'object' || Array.isArray(c)) return false;
+    const rec = c as Record<string, unknown>;
+    let key: string;
+    if (rec.op === 'remove') {
+      if (!exactRecord(rec, ['op', 'target']) || typeof rec.target !== 'string') return false;
+      key = rec.target;
+    } else if (rec.op === 'replace') {
+      if (!exactRecord(rec, ['op', 'target', 'value']) || typeof rec.target !== 'string' || !isSectionValue(rec.value)) return false;
+      key = rec.target;
+    } else if (rec.op === 'add') {
+      if (!exactRecord(rec, ['op', 'key', 'value']) || typeof rec.key !== 'string' || !isSectionValue(rec.value)) return false;
+      key = rec.key;
+    } else {
+      return false;
+    }
+    if (seen.has(key)) return false; // canonical: one change per target/key
+    seen.add(key);
+  }
+  return true;
 }
 
 /** An outline entry BEFORE range closing: a heading at a char anchor with a

@@ -19,7 +19,10 @@ export type * from './contract/brands.ts';
 export { canonicalJson, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
 export {
   DEFAULT_INDEX_RECIPE,
+  exactArray,
+  exactRecord,
   hashIndexRecipe,
+  isIndexRecipeProvisional,
   TOKEN_CLASS,
   type IndexRecipeProvisional,
 } from './contract/recipes.ts';
@@ -150,6 +153,8 @@ export {
   emptyOverride,
   hashStructureOverride,
   hashStructureRecipe,
+  isStructureOverrideV1,
+  isStructureRecipeProvisional,
   scanChapterHeadings,
   type SectionValue,
   type StructureArtifactV2,

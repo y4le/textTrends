@@ -15,6 +15,8 @@ import {
   DEFAULT_STRUCTURE_RECIPE,
   emptyOverride,
   hashStructureOverride,
+  isStructureOverrideV1,
+  isStructureRecipeProvisional,
   lowerBound,
   projectSections,
   scanChapterHeadings,
@@ -330,6 +332,61 @@ describe('char→token projection (§12.7 token-start ownership)', () => {
       { start: 0, end: 2 },
       { start: 2, end: 5 },
     ]);
+  });
+});
+
+describe('wire validators (isStructureRecipeProvisional / isStructureOverrideV1)', () => {
+  it('accepts the defaults and a well-formed override', () => {
+    expect(isStructureRecipeProvisional(DEFAULT_STRUCTURE_RECIPE)).toBe(true);
+    expect(isStructureOverrideV1(emptyOverride('t', 'c', 'r'))).toBe(true);
+    expect(isStructureOverrideV1({
+      schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r',
+      changes: [{ op: 'add', key: 'x', value: { level: 1, chars: { start: 0, end: 5 } } }, { op: 'remove', target: 'y' }],
+    })).toBe(true);
+  });
+
+  it('rejects unsupported recipe shapes', () => {
+    expect(isStructureRecipeProvisional({})).toBe(false);
+    expect(isStructureRecipeProvisional({ ...DEFAULT_STRUCTURE_RECIPE, evidenceOrder: ['x'] })).toBe(false);
+    expect(isStructureRecipeProvisional({ ...DEFAULT_STRUCTURE_RECIPE, chapterHeading: {} })).toBe(false);
+  });
+
+  it('rejects incomplete section values, bad ops, and duplicate targets', () => {
+    const base = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r' };
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: {} }] })).toBe(false); // no chars
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: { level: 1, chars: { start: 5, end: 5 } } }] })).toBe(false); // empty range
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'replace', target: 'x', value: { level: -1, chars: { start: 0, end: 1 } } }] })).toBe(false); // negative level
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'bogus', target: 'x' }] })).toBe(false);
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'remove', target: 'x' }, { op: 'remove', target: 'x' }] })).toBe(false); // duplicate
+  });
+
+  it('rejects EXTRA fields at every level — one operation, one identity', () => {
+    // An extra recipe field would hash to a distinct identity.
+    expect(isStructureRecipeProvisional({ ...DEFAULT_STRUCTURE_RECIPE, extra: 1 })).toBe(false);
+    expect(isStructureRecipeProvisional({ ...DEFAULT_STRUCTURE_RECIPE, chapterHeading: { ...DEFAULT_STRUCTURE_RECIPE.chapterHeading, extra: 1 } })).toBe(false);
+    const base = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r' };
+    // Extra field on the override, on a change, on a section value, on chars.
+    expect(isStructureOverrideV1({ ...base, changes: [], extra: 1 })).toBe(false);
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'remove', target: 'x', ignored: true }] })).toBe(false);
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: { level: 1, chars: { start: 0, end: 1 }, extra: 1 } }] })).toBe(false);
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: { level: 1, chars: { start: 0, end: 1, extra: 1 } } }] })).toBe(false);
+  });
+
+  it('rejects identity-bearing arrays with smuggled properties and non-plain section values', () => {
+    // A named property on the evidenceOrder tuple survives structuredClone
+    // and breaks canonical hashing — must be rejected here.
+    const withNamed = ['extraction-candidates', 'english-chapter-heading-v1'] as unknown as Record<string, unknown>;
+    withNamed.ignored = true;
+    expect(isStructureRecipeProvisional({ ...DEFAULT_STRUCTURE_RECIPE, evidenceOrder: withNamed })).toBe(false);
+    // A section value INHERITING its fields from a prototype is not plain.
+    const proto = { level: 1, chars: { start: 0, end: 1 } };
+    const inherited = Object.create(proto) as object;
+    const base = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r' };
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: inherited }] })).toBe(false);
+    // A getter for `level` could answer differently than the hash saw.
+    const withGetter = { chars: { start: 0, end: 1 } };
+    Object.defineProperty(withGetter, 'level', { get: () => 1, enumerable: true });
+    expect(isStructureOverrideV1({ ...base, changes: [{ op: 'add', key: 'x', value: withGetter }] })).toBe(false);
   });
 });
 
