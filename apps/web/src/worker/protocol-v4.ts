@@ -159,6 +159,12 @@ export type WorkerErrorCodeV4 =
   | 'CAP_EXCEEDED'
   | 'DECODE_FAILED'
   | 'SOURCE_MISMATCH'
+  // Deterministically reconstructed candidates contradict an asserted
+  // `expectedCandidates` (a stale manifest / changed source / nondeterminism):
+  // a TERMINAL identity failure, NOT a byte miss — refetching the same bytes
+  // cannot repair it, so the client must not loop "missing → ingest → mismatch"
+  // (engine-v4 consult §B).
+  | 'EXTRACTION_MISMATCH'
   | 'PARSE_FAILED'
   | 'DEPENDENCY_MISSING'
   | 'REQUEST_INVALID'
