@@ -1,4 +1,4 @@
-# Analysis contract — v2.1 (post-review)
+# Analysis contract — v2.2 (amended)
 
 *Status: AGREED DESIGN, 2026-07-19. The v1 draft was reviewed by Codex
 ([review 1](reviews/2026-07-19-analysis-contract-codex.md)); v2 incorporated its
@@ -428,6 +428,15 @@ non-breaking for exhaustive consumers.
 
 ## 8. Worker protocol (generation- and snapshot-aware)
 
+*SUPERSEDED IN PART by §12.8 (Amendment v2.2): the envelope discipline,
+lifecycle rules, and error taxonomy below remain normative, but the concrete
+`PROTOCOL_VERSION` and the begin-generation/ingest/source-ready/warm-miss/
+query-union SHAPES are historical — the implemented protocol has since moved
+through v2 (passage op), v3 (warm reopen: expectedText, generation-ready,
+warnings — see the M5 commits), and v4 as specified in §12.8. Where a shape
+here disagrees with §12.8 or with `apps/web/src/worker/protocol.ts`, this
+section does not govern.*
+
 ```ts
 // Every message literally carries the protocol version (fixing round-2's finding
 // that the version was claimed but absent). There is no separate handshake: each
@@ -544,3 +553,293 @@ LOESS/smoothing (presentation-layer overlay first) · EPUB/PDF source variants (
 with their adapters, Phases 2/4) · WASM kernels and WASM-owned memory · 64-bit
 positions beyond the enforced Uint32 caps · brush share-URL compression · persisted
 query-result caches.
+
+## 12. Amendment v2.2 — ingest & structure (2026-07-20)
+
+*Adopted from the reviewed ingest/structure plan
+([ingest-structure-plan.md](ingest-structure-plan.md), Codex consultation
+`ingest-structure-consult-1`). Where this section conflicts with §2, §3, §8,
+or §10, THIS section governs (§8's concrete shapes are additionally marked
+superseded in place). Rationale for each change lives in the plan.*
+
+### 12.1 Extraction artifact and candidate identity
+
+§3's claim that extraction invalidates "structure candidates" was incoherent
+with §10's structure key (text + structure recipe + override only): a parser
+change can leave the text unchanged while changing heading candidates. The
+candidate set becomes an explicit identity that participates in structure
+keying:
+
+```ts
+type ExtractionRecipeHash  = Brand<string, 'ExtractionRecipeHash'>;
+type StructureRecipeHash   = Brand<string, 'StructureRecipeHash'>;
+type StructureCandidateHash = Brand<string, 'StructureCandidateHash'>;
+type StructureOverrideHash = Brand<string, 'StructureOverrideHash'>;
+
+interface ExtractionArtifactV1 {
+  readonly schema: 'texttrends/extraction/1';
+  readonly source: SourceHash;
+  readonly recipe: ExtractionRecipeHash;
+  readonly text: TextHash;
+  readonly descriptor: SourceDescriptor;
+  readonly candidates: readonly StructureCandidateV1[];
+  readonly candidateHash: StructureCandidateHash;
+  readonly evidence: {
+    readonly decoderReplacementCount: number;
+    readonly suspiciousControlCount: number;
+  };
+}
+// Keyed ['extraction', schema, SourceHash, ExtractionRecipeHash].
+```
+
+### 12.2 Structure artifact v2 — no project identity in persisted records
+
+§2's `Section.doc: ProjectDocId` contradicted the text-keyed (reusable)
+structure artifact. Persisted records carry a lineage-stable key and no
+project identity; the project-bound `Section` view derives ids at bind time:
+
+```ts
+type StructureSectionKey = Brand<string, 'StructureSectionKey'>;
+
+interface StructureSectionRecordV2 {
+  readonly key: StructureSectionKey;   // stable within this text/override lineage
+  readonly origin: 'source' | 'heuristic' | 'user' | 'fixed';
+  readonly parent?: StructureSectionKey;
+  readonly level: number;
+  readonly title?: string;
+  readonly chars: CharRange;
+}
+
+interface StructureArtifactV2 {
+  readonly schema: 'texttrends/structure/2';
+  readonly text: TextHash;
+  readonly candidates: StructureCandidateHash;
+  readonly recipe: StructureRecipeHash;
+  readonly override: StructureOverrideHash;
+  readonly sections: readonly StructureSectionRecordV2[];
+}
+// Keyed ['structure', schema, TextHash, StructureCandidateHash,
+//        StructureRecipeHash, StructureOverrideHash].
+// The no-override case is the hash of a canonical EMPTY override — never a
+// missing tuple component. 'texttrends/structure/1' (root-only) is superseded;
+// adding identity fields is a breaking persisted-ABI change, hence /2.
+
+interface Section extends Omit<StructureSectionRecordV2, 'key' | 'parent'> {
+  readonly id: SectionId;              // derived from doc + stable key
+  readonly doc: ProjectDocId;
+  readonly parent?: SectionId;
+}
+```
+
+Invariants (validated before any record is admitted or persisted): exactly one
+root (key `root`, origin `fixed`, level 0, no parent, range `[0, text.length)`);
+offsets are finite non-negative UTF-16 integers within text length; keys unique;
+parents exist, acyclic; child ranges contained in parents; non-ancestor records
+disjoint (half-open sibling boundaries); deterministic order (root, then
+depth-first by char start, key as final tie-breaker); no empty non-root ranges
+in v1; titles bounded and well-formed UTF-16; hierarchy is defined by parent
+links — `level` is validated display metadata.
+
+### 12.3 Overrides are canonical declarative patch sets
+
+Ordered UI edit logs are rejected (command order becomes accidental
+semantics). Corrections are a conflict-free patch set in canonical sort order,
+carrying complete replacement values (including range moves and re-parenting):
+
+```ts
+interface StructureOverrideV1 {
+  readonly schema: 'texttrends/structure-override/1';
+  readonly text: TextHash;
+  readonly candidates: StructureCandidateHash;
+  readonly baseRecipe: StructureRecipeHash;
+  readonly changes: readonly (
+    | { readonly op: 'remove'; readonly target: StructureSectionKey }
+    | { readonly op: 'replace'; readonly target: StructureSectionKey;
+        readonly value: Omit<StructureSectionRecordV2, 'key' | 'origin'> }
+    | { readonly op: 'add'; readonly key: StructureSectionKey;
+        readonly value: Omit<StructureSectionRecordV2, 'key' | 'origin'> }
+  )[];
+}
+// Canonicalization sorts by (target-or-key, op) and rejects multiple changes
+// to one target. If text or candidate identity changes, the override is
+// MARKED NEEDS-REVIEW — never silently re-anchored. The worker recomputes
+// every claimed hash from carried VALUES; hashes are admission checks, not
+// authority.
+```
+
+### 12.4 Decoder policy (ExtractionRecipe, txt and literal-md)
+
+```ts
+interface DecoderPolicyV0 {
+  readonly id: 'bom-utf8-windows1252-v1';
+  readonly bom: 'utf8-utf16le-utf16be-v1';   // BOM authoritative; stripped; malformed
+                                              // BOM-declared data is DECODE_FAILED,
+                                              // never reinterpreted as 1252
+  readonly unicodeErrors: 'fatal';
+  readonly fallback: 'windows-1252-whatwg-v1'; // WHATWG total mapping (0x80=€,
+                                              // undefined bytes → C1 controls)
+  readonly windows1252TableHash: string;      // platform decoder conformance-
+                                              // tested against this table
+  readonly newlineNormalization: 'none';      // offsets address text as decoded
+}
+```
+
+Evidence: `decoderReplacementCount` means the decoder INSERTED replacements
+(normally 0 under this policy — an intentional U+FFFD in valid UTF-8 is not
+data loss); `suspiciousControlCount` counts C0/C1 controls as extraction
+evidence. Windows-1252 fallback always earns a persistent per-document badge
+(detection was inferential). Markdown v0 is
+`markdown-literal-with-heading-scan-v0` (`textPolicy:
+'preserve-source-markdown'`) — honestly labeled, never called semantic
+extraction; the spike record in the plan documents its boundary.
+
+### 12.5 Storage classes get separate databases
+
+The provisional ARTIFACT namespace (class 3, disposable) gains `extractions`
+and `structures` stores — which is a layout change, so it opens a NEW database
+name (`…-provisional-db2`) per the M5 rule; the M5 database is abandoned, one
+cold rebuild, no user data. Durable USER data (class 1) lives in a separate
+stable database (`texttrends-user-data`: `projects`, `sources`) whose contract
+is same-name versioned MIGRATION, acknowledged writes (`saving | persisted |
+external | failed` — never a boolean that precedes durability), monotonic
+project `revision` with compare-and-swap saves, and visible failure ("close
+the other tab and retry") instead of silent fallback. Clear-cache touches only
+the artifact database.
+
+### 12.6 Project manifest (main thread owns meaning; worker owns storage)
+
+```ts
+interface ProjectManifestV1 {
+  readonly schema: 'texttrends/project/1';
+  readonly id: ProjectId;
+  readonly revision: number;
+  readonly order: readonly ProjectDocId[];   // THE order authority
+  readonly docs: readonly ProjectDocV1[];
+  readonly indexRecipe: IndexRecipeProvisional;
+  readonly indexRecipeHash: IndexRecipeHash;
+}
+
+interface ProjectDocV1 {
+  readonly doc: ProjectDocId;                // stable, filename-independent
+  readonly sourceName: string;               // display hint, never identity
+  readonly meta: DocumentMeta;
+  readonly source: SourceDescriptor;
+  readonly sourceAvailability: 'persisted' | 'external' | 'bundled';
+  readonly extraction: {
+    readonly recipe: ExtractionRecipeProvisional;
+    readonly recipeHash: ExtractionRecipeHash;
+    readonly text: TextHash;
+    /** Recipe-bound asserted decoded length — the begin-generation cap
+     *  preflight sums THESE (§12.9); the worker re-verifies on decode. */
+    readonly textLengthUtf16: number;
+    readonly candidates: StructureCandidateHash;
+  };
+  readonly structure: {
+    readonly recipe: StructureRecipeProvisional;
+    readonly recipeHash: StructureRecipeHash;
+    /**
+     * Discriminated so §12.3's needs-review promise is REPRESENTABLE: an
+     * override is bound to the text/candidate/base-recipe identities it was
+     * authored against (carried inside its value). While those match the
+     * doc's current extraction, it is 'active' and participates in the
+     * structure key. When re-extraction changes either identity, the
+     * manifest RETAINS the correction verbatim as 'needs-review' — never
+     * silently re-anchored, never discarded — and the effective structure
+     * builds from the canonical EMPTY override until the user re-affirms
+     * (rebase UI later). Validation: 'active' requires ALL THREE base
+     * identities to match the doc's current state — value.text and
+     * value.candidates equal the current extraction identities AND
+     * value.baseRecipe equals structure.recipeHash (a structure-recipe
+     * change with unchanged extraction produces a different detected table,
+     * so an old override's targets may no longer exist); 'needs-review'
+     * requires that at least one of the three differs.
+     */
+    readonly override:
+      | { readonly status: 'active'; readonly value: StructureOverrideV1;
+          readonly hash: StructureOverrideHash }
+      | { readonly status: 'needs-review'; readonly value: StructureOverrideV1;
+          readonly hash: StructureOverrideHash };
+  };
+}
+```
+
+`expectedText` on warm open derives ONLY from an extraction record whose
+recipe hash still matches. Reattachment of an external source accepts bytes by
+SourceHash, never by filename. Source persistence ordering: worker stores the
+content-addressed source durably and acknowledges → main marks it persisted →
+project revision saves (a crash between leaves a harmless unreferenced
+source; the reverse would leave a manifest falsely claiming durability).
+
+### 12.7 Section token views are derived lazily in v1
+
+`[StructureHash, IndexArtifactHash] → SectionTokenView` is computed on first
+structure query and memoized worker-side; not persisted until a benchmark
+shows repeated derivation is material. Projection rule — TOKEN-START
+ownership: a token belongs to a section iff its start offset lies in the
+section's half-open char range (`lowerBound(startsUtf16, chars.start/end)`);
+adjacent siblings get disjoint token ranges even when a boundary lands inside
+a token. Any-overlap assignment is forbidden. The structure query result
+echoes both input identities (StructureHash + IndexArtifactHash) so ranges
+can never be paired with the wrong snapshot artifacts.
+
+### 12.8 Protocol v4 (shape; runtime schemas complete in core before code)
+
+`GenerationDocSpecV4` carries per-doc source/extraction/structure FULL VALUES
+plus hashes (cold restart must reconstruct everything; the worker recomputes
+all hashes); `source-ready` returns the full SourceDescriptor + extraction
+evidence; progress adds `extract` and `structure` phases; warm misses become
+`{doc, need: 'source-bytes', reason: source-not-persisted | source-miss |
+source-corrupt | extraction-miss | rehydrate-failed}` — the worker
+re-extracts from persisted sources, re-indexes from verified text, and
+recomputes structure from candidates before ever requesting bytes; the query
+union adds `structure`; user-data operations (project load/save, source
+persist) are a SEPARATE storage operation map with their own error semantics
+(`PERSISTENCE_UNAVAILABLE`, `REVISION_CONFLICT`, `QUOTA_EXCEEDED`), never
+disguised as analysis progress. Section edits replace the generation (recipe
+invalidation mechanism); snapshots are never mutated.
+
+### 12.9 Ingest caps (concrete provisional values)
+
+Shared contract constants (one exported object in core), checked BOTH
+main-side before transfer (`File.size`, document count — reject before
+reading) and worker-side (received byte length, decoded UTF-16 length,
+cumulative project totals over the generation's declared docs). Violations
+are `CAP_EXCEEDED`, never an OOM-shaped `INTERNAL`.
+
+```ts
+const INGEST_CAPS_V0 = {
+  schema: 'texttrends/ingest-caps/0-provisional',
+  maxSourceBytesPerFile: 32 * 1024 * 1024,        // 32 MiB
+  maxProjectSourceBytes: 128 * 1024 * 1024,       // 128 MiB — transfer guard
+  maxTextUtf16PerDoc: 32 * 1024 * 1024,           // 32M code units
+  maxDocsPerProject: 64,
+  maxProjectTextUtf16: 64 * 1024 * 1024,          // 64M code units
+} as const;
+```
+
+The project byte cap closes the transfer-guard gap: without it, 64
+individually-legal 32 MiB files could be read and transferred before any
+text total constrains them. Main-side preflight sums `File.size` over the
+included docs and rejects BEFORE reading any file when the sum exceeds
+`maxProjectSourceBytes` (the UTF-16 caps still bind tighter after decode:
+every supported encoding decodes to at most `byteLength` code units, so the
+byte sum is also a sound upper bound on undetermined text lengths).
+
+Grounding (benchmarks.md, 2026-07-19/20): warmed segment+build runs ~2M
+tokens/s single-threaded and retained shards cost ~15 bytes/token; English
+prose runs ~5.3 UTF-16 units/token, so the 64M-unit project cap ≈ 12M tokens
+≈ the 10M formal tier with headroom — ~6 s of worker compute on the dev
+machine and ~180 MB retained arrays, survivable WITHOUT the eviction policy
+that the 50M tier requires (explicitly deferred; see benchmarks.md). The
+per-doc caps admit any real novel (largest common case ~3.5 MB source) with
+~9× headroom while keeping a single document's synchronous phases within the
+cancellation-budget order of magnitude. Aggregation semantics: the
+begin-generation preflight computes the project UTF-16 total over the
+generation's DECLARED docs (included only) using each doc's ASSERTED
+`extraction.textLengthUtf16` where a matching-recipe extraction exists, and
+the sound `byteLength` upper bound for fresh imports with no extraction yet;
+the worker re-validates cumulatively as ACTUAL decoded lengths arrive — an
+individually-legal doc that crosses a project total mid-generation fails ITS
+ingest with `CAP_EXCEEDED` and becomes a normal missing doc; prior docs
+stand. These are provisional numbers (schema says so): they graduate or move
+only with a benchmark-backed amendment.
