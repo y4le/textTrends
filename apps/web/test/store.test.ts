@@ -51,16 +51,33 @@ function fakePassage(start: number, end: number, center: number, doc = 'a'): Pas
   };
 }
 
+/** All docs unrehydrated — the cold-corpus barrier every fetch test wants. */
+function allMissing(generation: string) {
+  return {
+    generation,
+    snapshot: null,
+    readyDocs: [] as readonly string[],
+    missing: SHERLOCK.map(({ doc }) => ({ doc, reason: 'text-miss' as const })),
+  };
+}
+
 function fakeClient() {
   const issued: Issued[] = [];
   let snapshotListener: ((info: { snapshot: string; readyDocs: readonly string[]; missingDocs: readonly string[] }) => void) | null = null;
+  let restartListener: ((fatal: boolean) => void) | null = null;
   const client: ClientLike = {
     onSnapshot: (l) => {
       snapshotListener = l;
     },
     onProgress: () => undefined,
     onIngestError: () => undefined,
-    beginGeneration: () => undefined,
+    onRestart: (l) => {
+      restartListener = l;
+    },
+    openGeneration: (generation) => ({
+      result: Promise.resolve(allMissing(generation)),
+      cancel: () => undefined,
+    }),
     ingest: () => undefined,
     query: (snapshot, query) => {
       const q = query as {
@@ -101,6 +118,7 @@ function fakeClient() {
     passages: () => issued.filter((q) => q.op === 'passage'),
     publish: (snapshot: string) =>
       snapshotListener?.({ snapshot, readyDocs: ['a'], missingDocs: [] }),
+    restart: (fatal: boolean) => restartListener?.(fatal),
   };
 }
 
@@ -427,8 +445,9 @@ describe('store intent discipline', () => {
     const f = fakeClient();
     const client: ClientLike = {
       ...f.client,
-      beginGeneration: (g) => {
+      openGeneration: (g) => {
         generationsBegun.push(g);
+        return { result: Promise.resolve(allMissing(g)), cancel: () => undefined };
       },
       ingest: (g) => {
         ingests.push(g);
@@ -492,8 +511,9 @@ describe('store intent discipline', () => {
     let generations = 0;
     const counting: ClientLike = {
       ...f.client,
-      beginGeneration: () => {
+      openGeneration: (g) => {
         generations++;
+        return { result: Promise.resolve(allMissing(g)), cancel: () => undefined };
       },
     };
     const store = createAppStore(counting);
@@ -501,5 +521,152 @@ describe('store intent discipline', () => {
     // but only ONE may begin a generation.
     await Promise.all([store.getState().loadSherlock(), store.getState().loadSherlock()]);
     expect(generations).toBe(1);
+  });
+
+  it('warm open: an empty missing list fetches and ingests NOTHING', async () => {
+    const f = fakeClient();
+    const ingests: string[] = [];
+    let fetches = 0;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async () => {
+      fetches++;
+      throw new Error('must not fetch');
+    }) as unknown as typeof fetch;
+    try {
+      const client: ClientLike = {
+        ...f.client,
+        openGeneration: (g) => ({
+          result: Promise.resolve({
+            generation: g,
+            snapshot: 'warm-snap',
+            readyDocs: SHERLOCK.map(({ doc }) => doc),
+            missing: [],
+          }),
+          cancel: () => undefined,
+        }),
+        ingest: (g) => {
+          ingests.push(g);
+        },
+      };
+      const store = createAppStore(client);
+      await store.getState().loadSherlock();
+      expect(fetches).toBe(0);
+      expect(ingests).toEqual([]);
+      expect(store.getState().loadError).toBeNull();
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('warm open: only the barrier-reported misses are fetched and ingested', async () => {
+    const f = fakeClient();
+    const ingested: string[] = [];
+    const fetched: string[] = [];
+    const missDoc = SHERLOCK[3]!.doc;
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) => {
+      const url = decodeURIComponent(String(input));
+      const entry = SHERLOCK.find(({ doc }) => url.endsWith(doc))!;
+      fetched.push(entry.doc);
+      return {
+        ok: true,
+        arrayBuffer: async () => new ArrayBuffer(entry.bytes),
+      };
+    }) as unknown as typeof fetch;
+    try {
+      const client: ClientLike = {
+        ...f.client,
+        openGeneration: (g) => ({
+          result: Promise.resolve({
+            generation: g,
+            snapshot: 'warm-snap',
+            readyDocs: SHERLOCK.filter(({ doc }) => doc !== missDoc).map(({ doc }) => doc),
+            missing: [{ doc: missDoc, reason: 'text-miss' as const }],
+          }),
+          cancel: () => undefined,
+        }),
+        ingest: (_g, doc) => {
+          ingested.push(doc);
+        },
+      };
+      const store = createAppStore(client);
+      await store.getState().loadSherlock();
+      expect(fetched).toEqual([missDoc]);
+      expect(ingested).toEqual([missDoc]);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('a failed generation open surfaces as loadError and permits retry', async () => {
+    const f = fakeClient();
+    let attempts = 0;
+    const client: ClientLike = {
+      ...f.client,
+      openGeneration: (g) => {
+        attempts++;
+        return {
+          result:
+            attempts === 1
+              ? Promise.reject(new Error('WORKER_RESTARTED'))
+              : Promise.resolve(allMissing(g)),
+          cancel: () => undefined,
+        };
+      },
+      ingest: () => undefined,
+    };
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: unknown) => {
+      const url = decodeURIComponent(String(input));
+      const entry = SHERLOCK.find(({ doc }) => url.endsWith(doc))!;
+      return { ok: true, arrayBuffer: async () => new ArrayBuffer(entry.bytes) };
+    }) as unknown as typeof fetch;
+    try {
+      const store = createAppStore(client);
+      await store.getState().loadSherlock();
+      expect(store.getState().loadError).toContain('WORKER_RESTARTED');
+      await store.getState().loadSherlock(); // retry allowed
+      expect(store.getState().loadError).toBeNull();
+      expect(attempts).toBe(2);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it('a non-fatal worker restart resets state and reloads; a fatal one surfaces', async () => {
+    const f = fakeClient();
+    const opens: string[] = [];
+    const client: ClientLike = {
+      ...f.client,
+      openGeneration: (g) => {
+        opens.push(g);
+        // All warm — restart recovery should not need fetch at all.
+        return {
+          result: Promise.resolve({
+            generation: g,
+            snapshot: 'warm-snap',
+            readyDocs: SHERLOCK.map(({ doc }) => doc),
+            missing: [],
+          }),
+          cancel: () => undefined,
+        };
+      },
+    };
+    const store = createAppStore(client);
+    await store.getState().loadSherlock();
+    expect(opens.length).toBe(1);
+    f.publish('s1');
+    expect(store.getState().snapshot).not.toBeNull();
+
+    f.restart(false); // replacement worker is live
+    await flush();
+    expect(opens.length).toBe(2); // re-opened a fresh generation
+    expect(store.getState().loadError).toBeNull();
+
+    f.restart(true); // restarts exhausted
+    await flush();
+    expect(store.getState().loadError).toContain('crashed repeatedly');
+    expect(store.getState().snapshot).toBeNull();
+    expect(opens.length).toBe(2); // no further reload attempts
   });
 });

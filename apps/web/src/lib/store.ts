@@ -30,7 +30,7 @@ import {
   type PassageResult,
   type TermGroupSpec,
 } from '@texttrends/core';
-import type { SnapshotInfo } from './client.ts';
+import type { GenerationReady, SnapshotInfo } from './client.ts';
 import type { GenerationDocSpec, QueryResultData } from '../worker/protocol.ts';
 
 /** Manifest with the exact staged LF byte lengths and FULL content hashes —
@@ -65,11 +65,12 @@ export interface ClientLike {
   onSnapshot(listener: (info: SnapshotInfo) => void): void;
   onProgress(listener: (p: { doc: string; phase: string }) => void): void;
   onIngestError(listener: (generation: string, message: string) => void): void;
-  beginGeneration(
+  onRestart(listener: (fatal: boolean) => void): void;
+  openGeneration(
     generation: string,
     docs: readonly GenerationDocSpec[],
     recipe: typeof DEFAULT_INDEX_RECIPE,
-  ): void;
+  ): { result: Promise<GenerationReady>; cancel: () => void };
   ingest(generation: string, doc: string, bytes: ArrayBuffer): void;
   query(
     snapshot: string,
@@ -195,6 +196,19 @@ export function createAppStore(client: ClientLike) {
       attemptToken++; // invalidate the failed attempt's fetch loop
       loadStarted = false;
       set({ loadError: message });
+    });
+    client.onRestart((fatal) => {
+      // The worker died: its snapshots and resident state are gone, and any
+      // in-flight fetch loop now feeds a dead generation. Reset and — if a
+      // replacement is live — reload; rehydration makes that a warm reopen.
+      attemptToken++;
+      loadStarted = false;
+      set({ snapshot: null, passage: null, scrub: null });
+      if (fatal) {
+        set({ loadError: 'the analysis worker crashed repeatedly; reload the page to retry' });
+        return;
+      }
+      void get().loadSherlock();
     });
 
     /** Group/member ids derive from the series' semantic id — evidence
@@ -353,12 +367,38 @@ export function createAppStore(client: ClientLike) {
         const generation = `gen-${++generationCounter}`;
         attemptGeneration = generation;
         const base = `${import.meta.env.BASE_URL ?? '/'}corpora/sherlock/`;
-        client.beginGeneration(
-          generation,
-          SHERLOCK.map(({ doc, bytes }) => ({ doc, language: 'en', sourceByteLength: bytes })),
-          DEFAULT_INDEX_RECIPE,
-        );
-        for (const { doc, bytes } of SHERLOCK) {
+        // Warm-open (M5): assert each doc's authoritative TextHash so the
+        // worker rehydrates whatever it has persisted, then AWAIT the
+        // generation-ready barrier — bytes are fetched ONLY for its misses.
+        let ready: GenerationReady;
+        try {
+          // Constructed INSIDE the boundary: a synchronous client fault must
+          // fail this attempt visibly, not escape loadSherlock unhandled.
+          const open = client.openGeneration(
+            generation,
+            SHERLOCK.map(({ doc, bytes, textHash }) => ({
+              doc,
+              language: 'en',
+              sourceByteLength: bytes,
+              expectedText: textHash,
+            })),
+            DEFAULT_INDEX_RECIPE,
+          );
+          ready = await open.result;
+        } catch (e) {
+          if (attemptToken !== token) return; // superseded while awaiting
+          loadStarted = false;
+          set({
+            loadError: `failed to open the corpus: ${e instanceof Error ? e.message : String(e)}`,
+          });
+          return;
+        }
+        if (attemptToken !== token) return;
+        const manifest = new Map(SHERLOCK.map((entry) => [entry.doc, entry]));
+        for (const miss of ready.missing) {
+          const entry = manifest.get(miss.doc);
+          if (!entry) continue; // not a doc this manifest declared
+          const { doc, bytes } = entry;
           try {
             const response = await fetch(base + encodeURIComponent(doc));
             if (attemptToken !== token) return; // superseded while awaiting
