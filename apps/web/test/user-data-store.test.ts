@@ -1,13 +1,16 @@
 /**
- * UserDataStore — the DURABLE class-1 store (contract §12.5/§12.6): CAS
- * revisions, typed write failures that never fake success, corruption
- * reads, and same-name migration. In-memory and IndexedDB implementations
- * are held to the SAME semantics.
+ * UserDataStore — the DURABLE class-1 store (contract §12.5/§12.6): SINGLE
+ * revision authority (the record IS the canonical manifest), CAS revisions,
+ * typed write failures that never fake success, corruption reads, a CLOSED
+ * connection that rejects rather than reporting a miss, same-name migration
+ * from the v1 wrapper, and a bounded open. In-memory and IndexedDB
+ * implementations are held to the SAME semantics.
  */
 import 'fake-indexeddb/auto';
-import { beforeEach, describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { IDBFactory } from 'fake-indexeddb';
 import { openDB } from 'idb';
+import type { ProjectManifestV1 } from '@texttrends/core';
 import {
   InMemoryUserDataStore,
   type StoredSourceV1,
@@ -31,39 +34,62 @@ const source = (hash: string, n: number): StoredSourceV1 => ({
   bytes: new ArrayBuffer(n),
 });
 
+/** A minimal store-shaped manifest — the durable store shallow-checks only
+ *  schema/id/revision, so store tests need not build a deeply valid manifest
+ *  (that is validateProjectManifest's job, exercised in core). */
+const pm = (id: string, revision: number, extra: Record<string, unknown> = {}): ProjectManifestV1 =>
+  ({ schema: 'texttrends/project/1', id, revision, order: [], docs: [], indexRecipe: {}, indexRecipeHash: '', ...extra }) as unknown as ProjectManifestV1;
+
 /** Both implementations must satisfy this contract. */
 function contractSuite(name: string, make: () => Promise<UserDataStore>) {
   describe(name, () => {
-    it('creates a project at revision 1 from expectedRevision 0', async () => {
+    it('creates a project at revision 1 from expectedRevision 0 (manifest is the record)', async () => {
       const store = await make();
       expect((await store.getProject('p')).kind).toBe('miss');
-      const { revision } = await store.putProject({ title: 'v1' }, 'p', 0);
-      expect(revision).toBe(1);
+      const { committed } = await store.putProject(pm('p', 1, { title: 'v1' }), 0);
+      expect(committed.revision).toBe(1);
       const read = await store.getProject('p');
       expect(read.kind).toBe('hit');
       if (read.kind === 'hit') {
-        expect(read.value.revision).toBe(1);
-        expect(read.value.manifest).toEqual({ title: 'v1' });
+        const m = read.value as ProjectManifestV1 & { title?: string };
+        expect(m.revision).toBe(1);
+        expect(m.title).toBe('v1'); // the manifest itself is stored, unwrapped
       }
       store.close();
     });
 
     it('CAS: a save with a stale expected revision is REVISION_CONFLICT and does NOT overwrite', async () => {
       const store = await make();
-      await store.putProject({ title: 'v1' }, 'p', 0); // → rev 1
-      await store.putProject({ title: 'v2' }, 'p', 1); // → rev 2
+      await store.putProject(pm('p', 1, { title: 'v1' }), 0); // → rev 1
+      await store.putProject(pm('p', 2, { title: 'v2' }), 1); // → rev 2
       // A second tab still thinks it holds rev 1.
-      await expect(store.putProject({ title: 'stale' }, 'p', 1)).rejects.toMatchObject({
+      await expect(store.putProject(pm('p', 2, { title: 'stale' }), 1)).rejects.toMatchObject({
         name: 'UserDataError',
         code: 'REVISION_CONFLICT',
         currentRevision: 2,
       });
       const read = await store.getProject('p');
       if (read.kind === 'hit') {
-        expect(read.value.revision).toBe(2);
-        expect(read.value.manifest).toEqual({ title: 'v2' }); // NOT clobbered
+        const m = read.value as ProjectManifestV1 & { title?: string };
+        expect(m.revision).toBe(2);
+        expect(m.title).toBe('v2'); // NOT clobbered
       }
       store.close();
+    });
+
+    it('rejects a next manifest whose revision is not expectedRevision + 1 (single authority)', async () => {
+      const store = await make();
+      await expect(store.putProject(pm('p', 5), 0)).rejects.toThrow(/expectedRevision \+ 1/);
+      await expect(store.putProject(pm('p', 1), 3)).rejects.toThrow(/expectedRevision \+ 1/);
+      store.close();
+    });
+
+    it('a CLOSED store rejects reads with PERSISTENCE_UNAVAILABLE, never a miss', async () => {
+      const store = await make();
+      store.close();
+      await expect(store.getProject('p')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
+      await expect(store.getSource('h')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
+      await expect(store.putProject(pm('p', 1), 0)).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
     });
 
     it('round-trips and deletes opted-in sources', async () => {
@@ -90,22 +116,103 @@ contractSuite('IdbUserDataStore', async () => {
 describe('IdbUserDataStore durability specifics', () => {
   it('persists a project across store instances (same database)', async () => {
     const first = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
-    await first.store.putProject({ title: 'kept' }, 'p', 0);
+    await first.store.putProject(pm('p', 1, { title: 'kept' }), 0);
     first.store.close();
     const second = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
     const read = await second.store.getProject('p');
     expect(read.kind).toBe('hit');
-    if (read.kind === 'hit') expect(read.value.manifest).toEqual({ title: 'kept' });
+    if (read.kind === 'hit') expect((read.value as { title?: string }).title).toBe('kept');
     second.store.close();
   });
 
   it('reports a corrupt project envelope rather than a hit', async () => {
     await openUserDataStore().then((o) => o.kind === 'ok' && o.store.close());
     const db = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
-    await db.put('projects', { schema: 'texttrends/project/1', id: 'p', revision: 'not-a-number', manifest: {} } as never);
+    await db.put('projects', { schema: 'texttrends/project/1', id: 'p', revision: 'not-a-number' } as never);
     db.close();
     const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
     expect((await opened.store.getProject('p')).kind).toBe('corrupt');
+    opened.store.close();
+  });
+
+  it('migrates a consistent v1 wrapper into its canonical manifest, leaving an inconsistent one corrupt', async () => {
+    // Seed a REAL version-1 database with the old wrapper shape.
+    const v1 = await openDB(USER_DATA_DB_NAME, 1, {
+      upgrade(database) {
+        database.createObjectStore('projects', { keyPath: 'id' });
+        database.createObjectStore('sources', { keyPath: 'hash' });
+      },
+    });
+    await v1.put('projects', {
+      schema: 'texttrends/project/1', id: 'good', revision: 3,
+      manifest: { schema: 'texttrends/project/1', id: 'good', revision: 3, title: 'unwrapped' },
+    } as never);
+    // An inconsistent wrapper: inner revision disagrees with the outer one.
+    await v1.put('projects', {
+      schema: 'texttrends/project/1', id: 'bad', revision: 2,
+      manifest: { schema: 'texttrends/project/1', id: 'bad', revision: 9 },
+    } as never);
+    v1.close();
+
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
+    const good = await opened.store.getProject('good');
+    expect(good.kind).toBe('hit');
+    if (good.kind === 'hit') {
+      const m = good.value as ProjectManifestV1 & { title?: string; manifest?: unknown };
+      expect(m.title).toBe('unwrapped');
+      expect(m.manifest).toBeUndefined(); // unwrapped, not the wrapper
+      expect(m.revision).toBe(3);
+    }
+    // The inconsistent record was NOT invented into a valid project; it stays a
+    // wrapper, which the envelope check tolerates (schema/id/revision valid)
+    // but the deep validator would later reject — critically, it is retained.
+    const bad = await opened.store.getProject('bad');
+    expect(bad.kind).toBe('hit');
+    if (bad.kind === 'hit') expect((bad.value as { manifest?: unknown }).manifest).toBeDefined();
+    opened.store.close();
+  });
+
+  it('a CAS over a CORRUPT existing record refuses (DATA_CORRUPT) and retains it', async () => {
+    // A corrupt durable record must not be treated as "no record" (revision 0)
+    // and overwritten — that would destroy the only recoverable copy.
+    await openUserDataStore().then((o) => o.kind === 'ok' && o.store.close());
+    const db = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    await db.put('projects', { schema: 'texttrends/project/1', id: 'p', revision: 'not-a-number', marker: 'retain-me' } as never);
+    db.close();
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: IdbUserDataStore };
+    // Observe that the bail-out ABORTS the readwrite transaction rather than
+    // letting it auto-commit an empty write — spy on the transaction abort at
+    // the IndexedDB level (idb delegates tx.abort() straight to it).
+    const abortSpy = vi.spyOn(IDBTransaction.prototype, 'abort');
+    await expect(opened.store.putProject(pm('p', 1, { title: 'overwrite' }), 0)).rejects.toMatchObject({ code: 'DATA_CORRUPT' });
+    expect(abortSpy).toHaveBeenCalledTimes(1); // a clean abort, not an empty commit
+    abortSpy.mockRestore();
+    // The corrupt record is still there (a successful overwrite would read hit).
+    expect((await opened.store.getProject('p')).kind).toBe('corrupt');
+    opened.store.close();
+    // And the raw marker survived — nothing was written over it.
+    const raw = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    const rec = (await raw.get('projects', 'p')) as { marker?: string };
+    expect(rec.marker).toBe('retain-me');
+    raw.close();
+  });
+
+  it('migration refuses to unwrap a wrapper with a FOREIGN outer schema (leaves it corrupt)', async () => {
+    const v1 = await openDB(USER_DATA_DB_NAME, 1, {
+      upgrade(database) {
+        database.createObjectStore('projects', { keyPath: 'id' });
+        database.createObjectStore('sources', { keyPath: 'hash' });
+      },
+    });
+    // A valid-looking inner manifest smuggled under a corrupt outer envelope.
+    await v1.put('projects', {
+      schema: 'foreign', id: 'x', revision: 1,
+      manifest: { schema: 'texttrends/project/1', id: 'x', revision: 1, title: 'do-not-fabricate' },
+    } as never);
+    v1.close();
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
+    // Not unwrapped into a valid project — the corrupt outer envelope stands.
+    expect((await opened.store.getProject('x')).kind).toBe('corrupt');
     opened.store.close();
   });
 
@@ -116,8 +223,8 @@ describe('IdbUserDataStore durability specifics', () => {
     const a = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
     const b = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
     const results = await Promise.allSettled([
-      a.store.putProject({ tab: 'a' }, 'p', 0),
-      b.store.putProject({ tab: 'b' }, 'p', 0),
+      a.store.putProject(pm('p', 1, { tab: 'a' }), 0),
+      b.store.putProject(pm('p', 1, { tab: 'b' }), 0),
     ]);
     const fulfilled = results.filter((r) => r.status === 'fulfilled');
     const rejected = results.filter((r) => r.status === 'rejected');
@@ -140,7 +247,7 @@ describe('IdbUserDataStore durability specifics', () => {
     internal.db.transaction = quota;
     internal.db.put = quota;
     internal.db.delete = quota;
-    await expect(opened.store.putProject({ title: 'x' }, 'p', 0)).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    await expect(opened.store.putProject(pm('p', 1, { title: 'x' }), 0)).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
     await expect(opened.store.putSource(source('h2', 4))).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
     await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' }); // NOT a silent success
     opened.store.close();
@@ -152,16 +259,20 @@ describe('IdbUserDataStore durability specifics', () => {
     await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
   });
 
-  it('rejects malformed durable envelopes: bad revision and mismatched byte length', async () => {
+  it('handleVersionChange closes the connection; later ops reject PERSISTENCE_UNAVAILABLE', async () => {
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: IdbUserDataStore };
+    await opened.store.putProject(pm('p', 1), 0);
+    opened.store.handleVersionChange(); // another context is upgrading
+    await expect(opened.store.getProject('p')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
+    await expect(opened.store.putSource(source('h', 4))).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
+  });
+
+  it('rejects a malformed durable source envelope (mismatched byte length)', async () => {
     await openUserDataStore().then((o) => o.kind === 'ok' && o.store.close());
     const db = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
-    await db.put('projects', { schema: 'texttrends/project/1', id: 'frac', revision: 1.5, manifest: {} } as never);
-    await db.put('projects', { schema: 'texttrends/project/1', id: 'zero', revision: 0, manifest: {} } as never);
     await db.put('sources', { schema: 'texttrends/source/1', hash: 'bad', byteLength: 99, bytes: new ArrayBuffer(8) } as never);
     db.close();
     const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
-    expect((await opened.store.getProject('frac')).kind).toBe('corrupt');
-    expect((await opened.store.getProject('zero')).kind).toBe('corrupt'); // rev must be >= 1
     expect((await opened.store.getSource('bad')).kind).toBe('corrupt');
     opened.store.close();
   });
@@ -182,6 +293,20 @@ describe('IdbUserDataStore durability specifics', () => {
     (releaseOpen as unknown as (db: never) => void)(lateDb);
     await new Promise((r) => setTimeout(r, 0));
     expect(closed).toBe(1);
+  });
+
+  it('a hung open (no resolve, no blocked) is bounded by the timeout and closes a late connection', async () => {
+    let releaseOpen: ((db: never) => void) | null = null;
+    let closed = 0;
+    const lateDb = { close: () => void closed++ } as never;
+    const opened = await openUserDataStore(
+      () => new Promise((resolve) => { releaseOpen = resolve; }),
+      10, // 10ms bound
+    );
+    expect(opened.kind).toBe('unavailable'); // did NOT hang forever
+    (releaseOpen as unknown as (db: never) => void)(lateDb);
+    await new Promise((r) => setTimeout(r, 0));
+    expect(closed).toBe(1); // the late connection was closed, never installed
   });
 
   it('openUserDataStore reports unavailable when IndexedDB is absent — NOT a silent success', async () => {

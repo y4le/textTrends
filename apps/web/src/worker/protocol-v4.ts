@@ -172,7 +172,20 @@ export type UserDataOpV4 =
       readonly manifest: unknown; readonly expectedRevision: number }
   | { readonly t: 'source-persist'; readonly job: number; readonly sourceHash: string; readonly bytes: ArrayBuffer };
 
-export type UserDataErrorCodeV4 = 'PERSISTENCE_UNAVAILABLE' | 'REVISION_CONFLICT' | 'QUOTA_EXCEEDED' | 'REQUEST_INVALID';
+export type UserDataErrorCodeV4 =
+  | 'PERSISTENCE_UNAVAILABLE'
+  | 'REVISION_CONFLICT'
+  | 'QUOTA_EXCEEDED'
+  | 'REQUEST_INVALID'
+  // A source-persist whose bytes do not hash to the claimed SourceHash — an
+  // identity fault on a user-data command, never routed through the analysis
+  // error channel (engine-v4 consult §Q2).
+  | 'SOURCE_MISMATCH'
+  // A durable project record that fails deep validation on load: distinct from
+  // PERSISTENCE_UNAVAILABLE (storage works; the datum is bad) and from
+  // REQUEST_INVALID (the request is fine; the stored value is not). The record
+  // is reported, never auto-deleted.
+  | 'DATA_CORRUPT';
 
 interface VersionedV4 {
   readonly v: typeof PROTOCOL_VERSION_V4;
@@ -208,9 +221,10 @@ export type FromWorkerV4 = VersionedV4 &
     | { readonly t: 'error'; readonly job?: number; readonly generation?: string;
         readonly code: WorkerErrorCodeV4; readonly message: string; readonly recoverable: boolean }
     | { readonly t: 'cancelled'; readonly job: number }
-    // User-data acknowledgements — distinct from analysis results.
+    // User-data acknowledgements — distinct from analysis results. The loaded
+    // manifest carries its own revision (single authority) — no second copy.
     | { readonly t: 'project-loaded'; readonly job: number; readonly project: string;
-        readonly manifest: unknown; readonly revision: number }
+        readonly manifest: unknown }
     | { readonly t: 'project-missing'; readonly job: number; readonly project: string }
     | { readonly t: 'project-saved'; readonly job: number; readonly project: string; readonly revision: number }
     | { readonly t: 'source-persisted'; readonly job: number; readonly sourceHash: string }
