@@ -218,6 +218,30 @@ export interface ExtractedDocument {
   readonly text: string;
 }
 
+export interface CandidateBundle {
+  readonly candidates: readonly StructureCandidateV1[];
+  readonly candidateHash: string;
+}
+
+/**
+ * Candidate derivation as a DETERMINISTIC function of verified text + recipe
+ * — the shared core capability (engine-v4 consult §B). Cold extraction calls
+ * it after decoding; warm reopen calls it to reconstruct candidates from
+ * verified text without a source fetch. Because it is pure, the two paths
+ * cannot drift. A FUTURE parser whose candidates depend on source bytes or a
+ * transformed representation must NOT be routed here — its warm path must
+ * require a valid extraction artifact instead.
+ */
+export async function deriveCandidatesFromText(
+  text: string,
+  recipe: ExtractionRecipeProvisional,
+): Promise<CandidateBundle> {
+  await validateExtractionRecipe(recipe);
+  const candidates =
+    recipe.parser.id === 'markdown-literal-with-heading-scan-v0' ? scanMarkdownHeadings(text) : [];
+  return { candidates, candidateHash: await hashStructureCandidates(candidates) };
+}
+
 /**
  * Extract a document: decode per policy, well-formedness gate, candidate
  * scan (md only). Throws DecodeError for malformed BOM-declared Unicode or
@@ -229,12 +253,12 @@ export async function extractDocument(
 ): Promise<ExtractedDocument> {
   await validateExtractionRecipe(recipe);
   const source = await hashSourceBytes(bytes);
+  // DECODE phase — pure byte→text, well-formedness gated.
   const decoded = decodeSource(bytes);
   assertWellFormed(decoded.text, `source ${source.slice(0, 12)}…`);
-  const candidates =
-    recipe.parser.id === 'markdown-literal-with-heading-scan-v0'
-      ? scanMarkdownHeadings(decoded.text)
-      : [];
+  // EXTRACT phase — candidates from the decoded text (same function warm
+  // reopen uses), so honest decode/extract progress boundaries are possible.
+  const { candidates, candidateHash } = await deriveCandidatesFromText(decoded.text, recipe);
   const artifact: ExtractionArtifactV1 = {
     schema: 'texttrends/extraction/1',
     source,
@@ -251,7 +275,7 @@ export async function extractDocument(
       },
     },
     candidates,
-    candidateHash: await hashStructureCandidates(candidates),
+    candidateHash,
     evidence: {
       decoderReplacementCount: decoded.decoderReplacementCount,
       suspiciousControlCount: decoded.suspiciousControlCount,

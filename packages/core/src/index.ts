@@ -42,6 +42,7 @@ export {
   type ShardIdentity,
 } from './index/build.ts';
 export {
+  bindSectionId,
   hashSegmenterFingerprint,
   indexArtifactHash,
   rootOnlyStructure,
@@ -168,3 +169,24 @@ export {
   projectSections,
   type TokenRange,
 } from './structure/project.ts';
+export {
+  ArtifactCorruptError,
+  validateExtractionArtifact,
+  validateStructureArtifactV2,
+} from './extract/validate.ts';
+export {
+  deriveCandidatesFromText,
+  type CandidateBundle,
+} from './extract/extraction.ts';
+export {
+  structureHashOf,
+  type ReadyStructure,
+} from './snapshot/compose.ts';
+export {
+  ManifestInvalidError,
+  validateProjectManifest,
+  type DocumentMetaV1,
+  type PersistedOverride,
+  type ProjectDocV1,
+  type ProjectManifestV1,
+} from './project/manifest.ts';

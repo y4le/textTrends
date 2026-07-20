@@ -29,7 +29,19 @@ import {
   structureHash,
   type StructureArtifactV1,
 } from '../contract/identity.ts';
+import type { StructureArtifactV2 } from '../structure/build.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
+
+/** Either sanctioned structure artifact shape a ReadyDocument may carry: the
+ *  root-only V1 (the v3 vertical slice) or the chapter-detected V2. */
+export type ReadyStructure = StructureArtifactV1 | StructureArtifactV2;
+
+/** Canonical structure hash dispatched by schema — explicit per-schema
+ *  hashing, never a silent widening of V1 handling (engine-v4 consult). */
+export async function structureHashOf(artifact: ReadyStructure): Promise<StructureHash> {
+  if (artifact.schema === 'texttrends/structure/1') return structureHash(artifact);
+  return (await sha256Hex(canonicalJson(artifact as unknown as Parameters<typeof canonicalJson>[0]))) as StructureHash;
+}
 
 declare const brand: unique symbol;
 export type SnapshotVocabularyHash = string & { readonly [brand]: 'SnapshotVocabularyHash' };
@@ -39,7 +51,7 @@ export interface ReadyDocument {
   readonly doc: ProjectDocId;
   readonly shard: DocumentIndexV1;
   /** The structure artifact itself — composition re-verifies its binding. */
-  readonly structureArtifact: StructureArtifactV1;
+  readonly structureArtifact: ReadyStructure;
   readonly index: IndexArtifactHash;
   readonly structure: StructureHash;
 }
@@ -47,11 +59,12 @@ export interface ReadyDocument {
 /**
  * The only sanctioned way to build a ReadyDocument: hashes are computed from
  * the artifacts, and the structure artifact must describe the shard's text.
+ * Accepts either structure schema (V1 root-only or V2 chapter-detected).
  */
 export async function makeReadyDocument(
   doc: ProjectDocId,
   shard: DocumentIndexV1,
-  structure: StructureArtifactV1,
+  structure: ReadyStructure,
 ): Promise<ReadyDocument> {
   if (structure.text !== shard.text) {
     throw new RangeError('structure artifact describes a different text than the shard');
@@ -61,7 +74,7 @@ export async function makeReadyDocument(
     shard,
     structureArtifact: structure,
     index: await indexArtifactHash(shard),
-    structure: await structureHash(structure),
+    structure: await structureHashOf(structure),
   };
 }
 
@@ -167,7 +180,7 @@ export async function composeSnapshot(
     if (item.structureArtifact.text !== item.shard.text) {
       throw new RangeError(`structure artifact for '${key}' describes a different text`);
     }
-    const recomputedStructure = await structureHash(item.structureArtifact);
+    const recomputedStructure = await structureHashOf(item.structureArtifact);
     if (recomputedStructure !== item.structure) {
       throw new RangeError(`ready record for '${key}' carries a stale structure identity`);
     }
