@@ -132,3 +132,34 @@ export {
   type SourceDescriptorV1,
   type SourceFormat,
 } from './extract/extraction.ts';
+export {
+  ROOT_KEY,
+  StructureError,
+  validateSectionTable,
+  type CharRange,
+  type SectionOrigin,
+  type StructureSectionRecordV2,
+} from './structure/sections.ts';
+export {
+  DEFAULT_STRUCTURE_RECIPE,
+  applyOverride,
+  boundTitle,
+  buildDetectedSections,
+  canonicalChanges,
+  composeStructure,
+  emptyOverride,
+  hashStructureOverride,
+  hashStructureRecipe,
+  scanChapterHeadings,
+  type SectionValue,
+  type StructureArtifactV2,
+  type StructureChange,
+  type StructureOverrideV1,
+  type StructureRecipeProvisional,
+} from './structure/build.ts';
+export {
+  charRangeToTokenRange,
+  lowerBound,
+  projectSections,
+  type TokenRange,
+} from './structure/project.ts';
