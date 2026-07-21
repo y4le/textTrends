@@ -1,0 +1,113 @@
+/**
+ * The project layer's pure foundation (commit 7b): the unified working-copy
+ * data model, the ONE generation-spec builder shared by every origin, and the
+ * statically-described built-in project. The stateful session controller (CAS
+ * save, import assembly, reattachment) is tested separately.
+ */
+import { describe, expect, it } from 'vitest';
+import {
+  BUILTIN_SHERLOCK_ID,
+  buildBuiltinProjectData,
+  builtinProject,
+  generationSpecsFromProject,
+  manifestForSave,
+  overrideInputFromPersisted,
+  ReadOnlyProjectError,
+  userProjectFromManifest,
+  type ProjectDataV1,
+} from '../src/lib/project.ts';
+import { SHERLOCK } from '../src/lib/store.ts';
+import { emptyOverride, hashStructureOverride, validateProjectManifest, type PersistedOverride, type ProjectManifestV1 } from '@texttrends/core';
+
+/** A durable manifest built directly for validation — bypasses the guarded
+ *  save path (which correctly rejects the built-in origin). */
+const asManifest = (data: ProjectDataV1, revision: number): ProjectManifestV1 => ({ schema: 'texttrends/project/1', revision, ...data });
+
+const builtin = () =>
+  buildBuiltinProjectData(
+    BUILTIN_SHERLOCK_ID,
+    SHERLOCK.map(({ doc, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title: doc, bytes, textLengthUtf16, sourceHash, textHash })),
+  );
+
+describe('overrideInputFromPersisted', () => {
+  it('passes none and active through; sends needs-review as none (never a stale active)', async () => {
+    expect(overrideInputFromPersisted({ status: 'none' })).toEqual({ kind: 'none' });
+    const value = emptyOverride('t', 'c', 'r');
+    const hash = await hashStructureOverride(value);
+    const active: PersistedOverride = { status: 'active', value, hash };
+    expect(overrideInputFromPersisted(active)).toEqual({ kind: 'active', value, hash });
+    const review: PersistedOverride = { status: 'needs-review', value, hash };
+    expect(overrideInputFromPersisted(review)).toEqual({ kind: 'none' }); // NOT applied until rebased
+  });
+});
+
+describe('the built-in Sherlock project', () => {
+  it('materializes to a manifest that passes the deep durable validator (hashes/identities correct)', async () => {
+    const data = await builtin();
+    expect(data.id).toBe(BUILTIN_SHERLOCK_ID);
+    expect(data.order).toEqual(SHERLOCK.map((s) => s.doc));
+    // A statically-described built-in must be a fully valid manifest — this
+    // proves the recipe/candidate hashes match the recipe VALUES (a recipe
+    // change would fail here, not drift silently).
+    await expect(validateProjectManifest(asManifest(data, 1))).resolves.toMatchObject({ id: BUILTIN_SHERLOCK_ID, revision: 1 });
+  });
+
+  it('the built-in origin can NEVER be materialized for a durable save', async () => {
+    const data = await builtin();
+    expect(() => manifestForSave(builtinProject(data))).toThrow(ReadOnlyProjectError);
+  });
+
+  it('every built-in doc is bundled, txt, no override', async () => {
+    const data = await builtin();
+    for (const doc of data.docs) {
+      expect(doc.sourceAvailability).toBe('bundled');
+      expect(doc.source.format).toBe('txt');
+      expect(doc.source.encoding.detected).toBe('utf-8');
+      expect(doc.structure.override).toEqual({ status: 'none' });
+    }
+  });
+});
+
+describe('generationSpecsFromProject', () => {
+  it('maps the working copy to v4 specs in DECLARED order with expected identities', async () => {
+    const data = await builtin();
+    const specs = generationSpecsFromProject(data);
+    expect(specs.map((s) => s.doc)).toEqual(SHERLOCK.map((s) => s.doc));
+    const [first] = specs;
+    const s0 = SHERLOCK[0]!;
+    expect(first!.source).toMatchObject({ expectedHash: s0.sourceHash, byteLength: s0.bytes, format: 'txt', availability: 'bundled' });
+    expect(first!.extraction).toMatchObject({ expectedText: s0.textHash, expectedTextLengthUtf16: s0.textLengthUtf16 });
+    expect(first!.structure.override).toEqual({ kind: 'none' });
+  });
+
+  it('respects a reordered `order` and an active override', async () => {
+    const base = await builtin();
+    const value = emptyOverride(base.docs[0]!.extraction.text, base.docs[0]!.extraction.candidates, base.docs[0]!.structure.recipeHash);
+    const hash = await hashStructureOverride(value);
+    const data: ProjectDataV1 = {
+      ...base,
+      order: [...base.order].reverse(),
+      docs: base.docs.map((d, i) => (i === 0 ? { ...d, structure: { ...d.structure, override: { status: 'active', value, hash } as PersistedOverride } } : d)),
+    };
+    const specs = generationSpecsFromProject(data);
+    expect(specs.map((s) => s.doc)).toEqual([...base.order].reverse());
+    const doc0Spec = specs.find((s) => s.doc === base.docs[0]!.doc)!;
+    expect(doc0Spec.structure.override).toEqual({ kind: 'active', value, hash });
+  });
+
+  it('throws if `order` names a document not in `docs`', async () => {
+    const base = await builtin();
+    expect(() => generationSpecsFromProject({ ...base, order: [...base.order, 'ghost'] })).toThrow(/not in docs/);
+  });
+});
+
+describe('manifest <-> user-project round trip', () => {
+  it('a loaded manifest becomes a user project whose save materializes the next revision', async () => {
+    const data = await builtin();
+    const loaded = asManifest(data, 5);
+    const project = userProjectFromManifest(loaded);
+    expect(project).toEqual({ kind: 'user', data, baseRevision: 5 });
+    // Save materializes baseRevision + 1 (the CAS target), same data.
+    expect(manifestForSave(project)).toEqual({ ...loaded, revision: 6 });
+  });
+});

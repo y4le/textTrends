@@ -23,12 +23,7 @@
 import { create } from 'zustand';
 import {
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
-  defaultExtractionRecipes,
   foldKey,
-  hashExtractionRecipe,
-  hashStructureCandidates,
-  hashStructureRecipe,
   PASSAGE_MAX_TOKENS,
   tokenKey,
   type NumericTrend,
@@ -37,6 +32,7 @@ import {
 } from '@texttrends/core';
 import type { GenerationReady, SnapshotInfo } from './client.ts';
 import type { GenerationDocSpecV4, QueryResultDataV4 } from '../worker/protocol-v4.ts';
+import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, generationSpecsFromProject, type ProjectDataV1 } from './project.ts';
 
 /** Manifest with the exact staged LF byte lengths and FULL content hashes —
  *  a 200-with-HTML-shell response must never be indexed as a book, and a
@@ -51,37 +47,32 @@ import type { GenerationDocSpecV4, QueryResultDataV4 } from '../worker/protocol-
  *  change, and a TextHash can never be routed into a source/extraction key. The
  *  hashes are the authoritative warm-reopen identities the worker rehydrates
  *  against; a mutable doc-label → hash cache must never outrank this manifest. */
-export const SHERLOCK: readonly { doc: string; bytes: number; sourceHash: string; textHash: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
+export const SHERLOCK: readonly { doc: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, textLengthUtf16: 239435, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
+  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, textLengthUtf16: 232130, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
+  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, textLengthUtf16: 562213, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
+  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, textLengthUtf16: 569564, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
+  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, textLengthUtf16: 354130, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
+  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, textLengthUtf16: 673685, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
 ];
 
-/** The bundled corpus's immutable v4 document specs, built ONCE (the recipe
- *  and empty-candidate hashes are corpus-wide constants). The result is reused
- *  across the initial open AND every warm restart reopen — hashes are never
- *  recomputed per document or per attempt. */
-let sherlockSpecs: Promise<readonly GenerationDocSpecV4[]> | null = null;
-export function sherlockGenerationSpecs(): Promise<readonly GenerationDocSpecV4[]> {
-  sherlockSpecs ??= (async () => {
-    const { txt } = await defaultExtractionRecipes();
-    const [extractionRecipeHash, structureRecipeHash, expectedCandidates] = await Promise.all([
-      hashExtractionRecipe(txt),
-      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
-      hashStructureCandidates([]), // txt yields no structure candidates
-    ]);
-    return SHERLOCK.map(({ doc, bytes, sourceHash, textHash }) => ({
-      doc,
-      language: 'en',
-      source: { expectedHash: sourceHash, byteLength: bytes, format: 'txt' as const, availability: 'bundled' as const },
-      extraction: { recipe: txt, recipeHash: extractionRecipeHash, expectedText: textHash, expectedCandidates },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: structureRecipeHash, override: { kind: 'none' as const } },
-    }));
-  })();
-  return sherlockSpecs;
+/** The bundled corpus as the built-in `ProjectDataV1`, built ONCE (the recipe
+ *  and empty-candidate hashes are corpus-wide constants). One project
+ *  abstraction drives every origin; Sherlock is simply the read-only built-in. */
+let sherlockData: Promise<ProjectDataV1> | null = null;
+export function sherlockProjectData(): Promise<ProjectDataV1> {
+  sherlockData ??= buildBuiltinProjectData(
+    BUILTIN_SHERLOCK_ID,
+    SHERLOCK.map(({ doc, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title: doc, bytes, textLengthUtf16, sourceHash, textHash })),
+  );
+  return sherlockData;
+}
+
+/** The bundled corpus's v4 document specs — derived from its `ProjectData`
+ *  through the SHARED generation-spec builder, reused across the initial open
+ *  and every warm restart reopen (hashes are never recomputed per attempt). */
+export async function sherlockGenerationSpecs(): Promise<readonly GenerationDocSpecV4[]> {
+  return generationSpecsFromProject(await sherlockProjectData());
 }
 
 export interface KwicRowView {
