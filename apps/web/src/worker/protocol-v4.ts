@@ -1,11 +1,11 @@
 /**
- * Worker wire protocol v4 — contract §12.8 (ingest & structure). Introduced
- * AHEAD of the engine migration (ingest/structure plan commit 5); the engine,
- * client, and worker shell switch from v3 to these shapes in commit 6, at
- * which point protocol.ts (v3) is removed. Until then these types and their
- * runtime validators are exercised only by their own unit tests.
+ * Worker wire protocol v4 — contract §12.8 (ingest & structure). This is the
+ * LIVE protocol: the engine, client, and worker shell all speak it (6c wire
+ * cutover), and the v3 protocol.ts has been removed. It was introduced ahead of
+ * the engine (commit 5) so its types and total runtime validators could be
+ * proven before anything consumed them.
  *
- * What v4 adds over v3 (all breaking, hence the version bump):
+ * What v4 added over the retired v3 (all breaking, hence the version bump):
  * - per-document source/extraction/structure inputs carrying FULL recipe and
  *   override VALUES plus their claimed hashes (a cold restart reconstructs
  *   everything; the worker recomputes every hash — hashes are admission

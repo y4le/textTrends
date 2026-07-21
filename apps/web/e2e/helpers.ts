@@ -88,12 +88,16 @@ export function trackCorpusRequests(page: Page): string[] {
  * with the authoritative manifest.
  */
 export async function awaitCacheSettled(page: Page): Promise<void> {
-  const manifest = SHERLOCK.map(({ textHash }) => textHash);
+  // Wait for ALL FOUR disposable artifact classes (§Q4): text, shard,
+  // extraction, and structure. Waiting only for text+shard lets a reload race
+  // the best-effort extraction/structure writes and produce a false "warm"
+  // result or a flaky structure reconstruction.
+  const manifest = SHERLOCK.map(({ sourceHash, textHash }) => ({ sourceHash, textHash }));
   await expect
     .poll(
       () =>
         page.evaluate(
-          async ({ dbName, hashes }) => {
+          async ({ dbName, docs }) => {
             const db = await new Promise<IDBDatabase>((resolve, reject) => {
               const req = indexedDB.open(dbName);
               req.onsuccess = () => resolve(req.result);
@@ -106,39 +110,50 @@ export async function awaitCacheSettled(page: Page): Promise<void> {
                   tx.onsuccess = () => resolve(tx.result);
                   tx.onerror = () => reject(tx.error);
                 });
-              const texts = await count('texts');
-              const shards = await count('shards');
-              if (texts < hashes.length || shards < hashes.length) return `texts=${texts} shards=${shards}`;
-              // All records present: validate the ones the manifest names.
-              for (const hash of hashes) {
+              const getAll = (store: string): Promise<unknown[]> =>
+                new Promise((resolve, reject) => {
+                  const tx = db.transaction(store, 'readonly').objectStore(store).getAll();
+                  tx.onsuccess = () => resolve(tx.result as unknown[]);
+                  tx.onerror = () => reject(tx.error);
+                });
+              const [texts, shards, extractions, structures] = await Promise.all([
+                count('texts'), count('shards'), count('extractions'), count('structures'),
+              ]);
+              if (texts < docs.length || shards < docs.length || extractions < docs.length || structures < docs.length) {
+                return `texts=${texts} shards=${shards} extractions=${extractions} structures=${structures}`;
+              }
+              const [allShards, allExtractions, allStructures] = await Promise.all([
+                getAll('shards'), getAll('extractions'), getAll('structures'),
+              ]);
+              for (const { sourceHash, textHash } of docs) {
                 const text = await new Promise<unknown>((resolve, reject) => {
-                  const req = db
-                    .transaction('texts', 'readonly')
-                    .objectStore('texts')
-                    .get(['texttrends/stored-text/1', hash]);
+                  const req = db.transaction('texts', 'readonly').objectStore('texts').get(['texttrends/stored-text/1', textHash]);
                   req.onsuccess = () => resolve(req.result);
                   req.onerror = () => reject(req.error);
                 });
                 const t = text as { schema?: string; hash?: string; text?: string } | undefined;
-                if (!t || t.schema !== 'texttrends/stored-text/1' || t.hash !== hash || typeof t.text !== 'string') {
-                  return `text record for ${hash.slice(0, 8)} malformed`;
+                if (!t || t.schema !== 'texttrends/stored-text/1' || t.hash !== textHash || typeof t.text !== 'string') {
+                  return `text record for ${textHash.slice(0, 8)} malformed`;
                 }
-                const shard = await new Promise<unknown>((resolve, reject) => {
-                  const tx = db.transaction('shards', 'readonly').objectStore('shards').getAll();
-                  tx.onsuccess = () => resolve((tx.result as { textHash: string }[]).find((r) => r.textHash === hash));
-                  tx.onerror = () => reject(tx.error);
-                });
-                const s = shard as { schema?: string; shard?: { tokenTypeIds?: unknown; postings?: { positions?: unknown } } } | undefined;
-                if (!s || s.schema !== 'texttrends/stored-shard/1') return `shard record for ${hash.slice(0, 8)} missing`;
+                const s = (allShards as { schema?: string; textHash: string; shard?: { tokenTypeIds?: unknown; postings?: { positions?: unknown } } }[]).find((r) => r.textHash === textHash);
+                if (!s || s.schema !== 'texttrends/stored-shard/1') return `shard record for ${textHash.slice(0, 8)} missing`;
                 if (!(s.shard?.tokenTypeIds instanceof Uint32Array)) return 'tokenTypeIds not a Uint32Array after structured clone';
                 if (!(s.shard?.postings?.positions instanceof Uint32Array)) return 'postings.positions not a Uint32Array';
+                // Extraction: keyed by SourceHash; carries the candidate identity.
+                const e = (allExtractions as { schema?: string; artifactSchema?: string; sourceHash: string; artifact?: { candidateHash?: unknown } }[]).find((r) => r.sourceHash === sourceHash);
+                if (!e || e.schema !== 'texttrends/stored-extraction/1' || e.artifactSchema !== 'texttrends/extraction/1') return `extraction record for ${sourceHash.slice(0, 8)} missing`;
+                if (typeof e.artifact?.candidateHash !== 'string') return 'extraction artifact missing candidate identity';
+                // Structure: keyed by TextHash; carries the section array.
+                const st = (allStructures as { schema?: string; artifactSchema?: string; textHash: string; artifact?: { sections?: unknown } }[]).find((r) => r.textHash === textHash);
+                if (!st || st.schema !== 'texttrends/stored-structure/2' || st.artifactSchema !== 'texttrends/structure/2') return `structure record for ${textHash.slice(0, 8)} missing`;
+                if (!Array.isArray(st.artifact?.sections)) return 'structure artifact missing sections array';
               }
               return 'settled';
             } finally {
               db.close();
             }
           },
-          { dbName: DB_NAME, hashes: manifest },
+          { dbName: DB_NAME, docs: manifest },
         ),
       { timeout: 30_000, message: 'cache never settled' },
     )

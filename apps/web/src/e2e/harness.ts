@@ -9,7 +9,17 @@
 
 import { WorkerClient, type SnapshotInfo } from '../lib/client.ts';
 import { RingTrace, type ProtocolTraceEvent } from '../lib/trace.ts';
-import { DEFAULT_INDEX_RECIPE } from '@texttrends/core';
+import type { GenerationDocSpecV4 } from '../worker/protocol-v4.ts';
+import {
+  DEFAULT_INDEX_RECIPE,
+  DEFAULT_STRUCTURE_RECIPE,
+  defaultExtractionRecipes,
+  hashExtractionRecipe,
+  hashSourceBytes,
+  hashStructureCandidates,
+  hashStructureRecipe,
+  hashText,
+} from '@texttrends/core';
 
 const encoder = new TextEncoder();
 
@@ -19,6 +29,28 @@ const DOC_TEXT = 'the wolf ran far over the hill. a wolf slept by the door. '.re
 
 function docBytes(): ArrayBuffer {
   return encoder.encode(DOC_TEXT).buffer as ArrayBuffer;
+}
+
+/** A real v4 spec for the synthetic ASCII document — `availability: 'external'`
+ *  (the harness holds and supplies the bytes; no bundled URL, no persisted
+ *  source), with independently computed source/text/candidate/recipe hashes. */
+async function probeSpec(doc: string): Promise<GenerationDocSpecV4> {
+  const { txt } = await defaultExtractionRecipes();
+  const bytes = encoder.encode(DOC_TEXT);
+  const [expectedHash, expectedText, recipeHash, expectedCandidates, structureRecipeHash] = await Promise.all([
+    hashSourceBytes(bytes),
+    hashText(DOC_TEXT),
+    hashExtractionRecipe(txt),
+    hashStructureCandidates([]),
+    hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
+  ]);
+  return {
+    doc,
+    language: 'en',
+    source: { expectedHash, byteLength: bytes.length, format: 'txt', availability: 'external' },
+    extraction: { recipe: txt, recipeHash, expectedText, expectedCandidates },
+    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: structureRecipeHash, override: { kind: 'none' } },
+  };
 }
 
 const wolfGroup = {
@@ -64,7 +96,7 @@ interface GenerationRaceResult {
 async function runGenerationRace(): Promise<GenerationRaceResult> {
   const trace = new RingTrace(20_000);
   const client = new WorkerClient(trace);
-  const spec = { doc: 'race-doc', language: 'en', sourceByteLength: DOC_TEXT.length };
+  const spec = await probeSpec('race-doc');
 
   const snapshots: SnapshotInfo[] = [];
   let snapshotWaiter: ((s: SnapshotInfo) => void) | null = null;
@@ -84,24 +116,34 @@ async function runGenerationRace(): Promise<GenerationRaceResult> {
   await openB.result;
   client.ingest('race-B', 'race-doc', docBytes());
 
+  // Bind explicitly to race-B's snapshot (generation, not just readyDocs
+  // membership) so a legally-completed race-A snapshot can never be selected.
   const bSnapshot = await waitFor<SnapshotInfo>(
     (resolve) => {
-      const existing = snapshots.find((s) => s.readyDocs.includes('race-doc'));
+      const existing = snapshots.find((s) => s.generation === 'race-B' && s.readyDocs.includes('race-doc'));
       if (existing) resolve(existing);
-      else snapshotWaiter = resolve;
+      else snapshotWaiter = (s) => { if (s.generation === 'race-B' && s.readyDocs.includes('race-doc')) resolve(s); };
     },
     30_000,
     'race-B snapshot',
   );
 
-  // Which events belong to A but arrived after B's replacement was posted?
+  // Which A events arrived after the worker PROCESSED B's replacement?
+  // Staleness is measured against B's first FROM-worker event (its barrier —
+  // the earliest observable proof the generation was replaced), NOT B's
+  // to-worker post: an A event produced while A was still current (e.g.
+  // source-ready, emitted after extract but before A's next task-queue yield
+  // lets B run) legitimately follows B's post in delivery order (6c consult
+  // §Q4). This is the tightest MAIN-THREAD-observable marker; the definitive
+  // proof that A cannot publish after B is installed is the engine unit suite
+  // (composition/query generation-replacement and cancellation gates).
   const all = trace.snapshot().events;
-  const bBeginSeq = all.find((e) => e.direction === 'to-worker' && e.t === 'begin-generation' && e.generation === 'race-B')?.seq ?? -1;
+  const bReplacedSeq = all.find((e) => e.direction === 'from-worker' && e.generation === 'race-B')?.seq ?? Number.MAX_SAFE_INTEGER;
   const staleAfterReplacement = all.filter(
     (e) =>
       e.direction === 'from-worker' &&
       e.generation === 'race-A' &&
-      e.seq > bBeginSeq &&
+      e.seq > bReplacedSeq &&
       (e.t === 'snapshot-published' || e.t === 'source-ready' || e.t === 'result'),
   );
 
@@ -142,7 +184,7 @@ interface CancelProbeResult {
 async function runCancelProbe(wantAcks: number): Promise<CancelProbeResult> {
   const trace = new RingTrace(50_000);
   const client = new WorkerClient(trace);
-  const spec = { doc: 'cancel-doc', language: 'en', sourceByteLength: DOC_TEXT.length };
+  const spec = await probeSpec('cancel-doc');
 
   const snapshotReady = waitFor<SnapshotInfo>(
     (resolve) => client.onSnapshot((s) => resolve(s)),

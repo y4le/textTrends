@@ -23,7 +23,7 @@
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { DocumentIndexV1 } from '@texttrends/core';
-import type { StorageWarningCode } from './protocol.ts';
+import type { StorageWarningCodeV4 as StorageWarningCode } from './protocol-v4.ts';
 import {
   InMemoryArtifactStore,
   type ArtifactStore,

@@ -23,7 +23,12 @@
 import { create } from 'zustand';
 import {
   DEFAULT_INDEX_RECIPE,
+  DEFAULT_STRUCTURE_RECIPE,
+  defaultExtractionRecipes,
   foldKey,
+  hashExtractionRecipe,
+  hashStructureCandidates,
+  hashStructureRecipe,
   PASSAGE_MAX_TOKENS,
   tokenKey,
   type NumericTrend,
@@ -31,26 +36,53 @@ import {
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { GenerationReady, SnapshotInfo } from './client.ts';
-import type { GenerationDocSpec, QueryResultData } from '../worker/protocol.ts';
+import type { GenerationDocSpecV4, QueryResultDataV4 } from '../worker/protocol-v4.ts';
 
 /** Manifest with the exact staged LF byte lengths and FULL content hashes —
  *  a 200-with-HTML-shell response must never be indexed as a book, and a
  *  fixture compares every entry against the shipped assets (round 2: the
  *  first manifest carried pre-normalization CRLF sizes and rejected all six).
  *
- *  `textHash` is the authoritative expected TextHash (M5 consult): these
- *  files are UTF-8 with no ill-formed sequences, so hashText(decoded text)
- *  equals the SHA-256 of the file bytes — the fixture asserts BOTH readings
- *  agree. It is the warm-reopen identity the worker rehydrates against;
- *  a mutable doc-label → hash cache must never outrank this manifest. */
-export const SHERLOCK: readonly { doc: string; bytes: number; textHash: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
+ *  `sourceHash` (SHA-256 of the exact bytes) and `textHash` (hashText of the
+ *  decoded text) are DISTINCT identities (§12.4): for these UTF-8 files with no
+ *  ill-formed sequences the two values coincide, and the fixture asserts each
+ *  independently plus the coincidence — but the two fields carry different
+ *  meanings so a future BOM/1252/transform file can diverge without a data-model
+ *  change, and a TextHash can never be routed into a source/extraction key. The
+ *  hashes are the authoritative warm-reopen identities the worker rehydrates
+ *  against; a mutable doc-label → hash cache must never outrank this manifest. */
+export const SHERLOCK: readonly { doc: string; bytes: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
+  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
+  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
+  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
+  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
+  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
 ];
+
+/** The bundled corpus's immutable v4 document specs, built ONCE (the recipe
+ *  and empty-candidate hashes are corpus-wide constants). The result is reused
+ *  across the initial open AND every warm restart reopen — hashes are never
+ *  recomputed per document or per attempt. */
+let sherlockSpecs: Promise<readonly GenerationDocSpecV4[]> | null = null;
+export function sherlockGenerationSpecs(): Promise<readonly GenerationDocSpecV4[]> {
+  sherlockSpecs ??= (async () => {
+    const { txt } = await defaultExtractionRecipes();
+    const [extractionRecipeHash, structureRecipeHash, expectedCandidates] = await Promise.all([
+      hashExtractionRecipe(txt),
+      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
+      hashStructureCandidates([]), // txt yields no structure candidates
+    ]);
+    return SHERLOCK.map(({ doc, bytes, sourceHash, textHash }) => ({
+      doc,
+      language: 'en',
+      source: { expectedHash: sourceHash, byteLength: bytes, format: 'txt' as const, availability: 'bundled' as const },
+      extraction: { recipe: txt, recipeHash: extractionRecipeHash, expectedText: textHash, expectedCandidates },
+      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: structureRecipeHash, override: { kind: 'none' as const } },
+    }));
+  })();
+  return sherlockSpecs;
+}
 
 export interface KwicRowView {
   readonly doc: string;
@@ -68,14 +100,14 @@ export interface ClientLike {
   onRestart(listener: (fatal: boolean) => void): void;
   openGeneration(
     generation: string,
-    docs: readonly GenerationDocSpec[],
-    recipe: typeof DEFAULT_INDEX_RECIPE,
+    docs: readonly GenerationDocSpecV4[],
+    indexRecipe: typeof DEFAULT_INDEX_RECIPE,
   ): { result: Promise<GenerationReady>; cancel: () => void };
   ingest(generation: string, doc: string, bytes: ArrayBuffer): void;
   query(
     snapshot: string,
     query: unknown,
-  ): { result: Promise<QueryResultData>; cancel: () => void };
+  ): { result: Promise<QueryResultDataV4>; cancel: () => void };
 }
 
 export const MAX_SERIES = 5;
@@ -367,23 +399,20 @@ export function createAppStore(client: ClientLike) {
         const generation = `gen-${++generationCounter}`;
         attemptGeneration = generation;
         const base = `${import.meta.env.BASE_URL ?? '/'}corpora/sherlock/`;
-        // Warm-open (M5): assert each doc's authoritative TextHash so the
-        // worker rehydrates whatever it has persisted, then AWAIT the
-        // generation-ready barrier — bytes are fetched ONLY for its misses.
+        // Warm-open (M5/v4): assert each doc's authoritative source/text
+        // identities so the worker rehydrates whatever it has persisted, then
+        // AWAIT the generation-ready barrier — bytes are fetched ONLY for its
+        // `source-bytes` misses.
         let ready: GenerationReady;
         try {
+          // Spec construction is async (recipe/candidate hashes) but memoized;
+          // recheck the attempt token immediately after awaiting it, before
+          // opening the generation.
+          const specs = await sherlockGenerationSpecs();
+          if (attemptToken !== token) return; // superseded while awaiting specs
           // Constructed INSIDE the boundary: a synchronous client fault must
           // fail this attempt visibly, not escape loadSherlock unhandled.
-          const open = client.openGeneration(
-            generation,
-            SHERLOCK.map(({ doc, bytes, textHash }) => ({
-              doc,
-              language: 'en',
-              sourceByteLength: bytes,
-              expectedText: textHash,
-            })),
-            DEFAULT_INDEX_RECIPE,
-          );
+          const open = client.openGeneration(generation, specs, DEFAULT_INDEX_RECIPE);
           ready = await open.result;
         } catch (e) {
           if (attemptToken !== token) return; // superseded while awaiting

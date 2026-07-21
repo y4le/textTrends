@@ -1,12 +1,12 @@
 /**
  * WorkerEngineV4 — the ingest/structure worker lifecycle (contract §12.8;
  * "Commit 6 design of record" and the "6b/6c boundary ruling" in
- * docs/design/ingest-structure-plan.md). This module is COMPLETE and directly
- * unit-tested, but is NOT yet imported by index.worker.ts — the production
- * shell still runs the v3 engine until the 6c wire cutover. Keeping it unused
- * lets the new state machine be reviewed in isolation while the app stays green.
+ * docs/design/ingest-structure-plan.md). This is the PRODUCTION analysis
+ * engine: index.worker.ts constructs it (6c wire cutover), and the v3 engine
+ * has been removed. It landed first (6b) as an unused, isolated module so the
+ * new state machine could be reviewed on its own before the atomic cutover.
  *
- * What v4 adds over the v3 engine (which it will replace):
+ * What v4 added over the retired v3 engine:
  * - a resolved, immutable per-document PLAN computed once at generation start,
  *   with every caller-supplied hash RECOMPUTED (a hash is an admission check
  *   and a lookup accelerator, never authority);

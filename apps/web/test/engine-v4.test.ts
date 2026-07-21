@@ -43,20 +43,27 @@ class FilterStore implements ArtifactStore {
   private textReads = 0;
   resetReads() { this.textReads = 0; }
   writes = { text: 0, shard: 0, structure: 0, extraction: 0 };
-  constructor(private readonly inner: InMemoryArtifactStore) {}
+  /** When set, the NEXT get{Shard,Text} reports envelope corruption, then reverts. */
+  corruptShardOnce = false;
+  corruptTextOnce = false;
+  shardDeletes = 0;
+  textDeletes = 0;
+  constructor(readonly inner: InMemoryArtifactStore) {}
   async getText(h: string): Promise<CacheRead<string>> {
     this.textReads++;
     if (this.onTextRead) await this.onTextRead(this.textReads);
+    if (this.corruptTextOnce) { this.corruptTextOnce = false; return { kind: 'corrupt', reason: 'stored text failed envelope validation' }; }
     return this.hide.text ? { kind: 'miss' } : this.inner.getText(h);
   }
   putText(h: string, t: string) { this.writes.text++; return this.inner.putText(h, t); }
-  deleteText(h: string) { return this.inner.deleteText(h); }
+  deleteText(h: string) { this.textDeletes++; return this.inner.deleteText(h); }
   async getShard(k: never): Promise<CacheRead<unknown>> {
     if (this.onShardRead) { const cb = this.onShardRead; this.onShardRead = null; await cb(); }
+    if (this.corruptShardOnce) { this.corruptShardOnce = false; return { kind: 'corrupt', reason: 'stored record failed envelope validation' }; }
     return this.hide.shard ? { kind: 'miss' } : this.inner.getShard(k);
   }
   putShard(k: never, s: never) { this.writes.shard++; return this.inner.putShard(k, s); }
-  deleteShard(k: never) { return this.inner.deleteShard(k); }
+  deleteShard(k: never) { this.shardDeletes++; return this.inner.deleteShard(k); }
   async getExtraction(k: never): Promise<CacheRead<unknown>> { return this.hide.extraction ? { kind: 'miss' } : this.inner.getExtraction(k); }
   putExtraction(k: never, a: unknown) { this.writes.extraction++; return this.inner.putExtraction(k, a); }
   deleteExtraction(k: never) { return this.inner.deleteExtraction(k); }
@@ -69,9 +76,14 @@ class FilterStore implements ArtifactStore {
 interface Harness {
   engine: WorkerEngineV4;
   messages: FromWorkerV4[];
+  transferLists: (readonly Transferable[] | undefined)[];
   store: FilterStore;
   userStore: InMemoryUserDataStore;
   setUserData(p: UserDataProvider): void;
+  /** Fires on every emitted message — deliver interleaved messages here. */
+  onEmit(cb: ((m: FromWorkerV4) => void) | null): void;
+  /** Fires on every yieldControl checkpoint (auto mode) — interleave here. */
+  onYield(cb: (() => void | Promise<void>) | null): void;
   manual(): void;
   releaseYield(): void;
   send(m: Record<string, unknown>): Promise<void>;
@@ -84,24 +96,33 @@ interface Harness {
 
 function harness(caps: IngestCapsV0 = INGEST_CAPS_V0, sharedStore?: FilterStore): Harness {
   const messages: FromWorkerV4[] = [];
+  const transferLists: (readonly Transferable[] | undefined)[] = [];
   const store = sharedStore ?? new FilterStore(new InMemoryArtifactStore());
   const userStore = new InMemoryUserDataStore();
   let provider: UserDataProvider = () => Promise.resolve({ kind: 'ok', store: userStore } as UserDataAccess);
   let auto = true;
+  let emitCb: ((m: FromWorkerV4) => void) | null = null;
+  let yieldCb: (() => void | Promise<void>) | null = null;
   const pending: (() => void)[] = [];
   const engine = new WorkerEngineV4(
     store,
     () => provider(),
-    (m) => messages.push(m),
-    () => (auto ? Promise.resolve() : new Promise<void>((resolve) => pending.push(resolve))),
+    (m, transfers) => { messages.push(m); transferLists.push(transfers); emitCb?.(m); },
+    async () => {
+      if (yieldCb) await yieldCb();
+      if (!auto) await new Promise<void>((resolve) => pending.push(resolve));
+    },
     caps,
   );
   return {
     engine,
     messages,
+    transferLists,
     store,
     userStore,
     setUserData: (p) => { provider = p; },
+    onEmit: (cb) => { emitCb = cb; },
+    onYield: (cb) => { yieldCb = cb; },
     manual: () => { auto = false; },
     releaseYield: () => pending.shift()?.(),
     send: (m) => engine.handle({ v: PROTOCOL_VERSION_V4, ...m }),
@@ -739,5 +760,483 @@ describe('user-data lane', () => {
     await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 4 } } });
     const result = h.last('result');
     expect(result.data.op).toBe('trend');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Legacy engine invariants translated from the retired v3 suite (6c). The 6b
+// tests own the new pipeline; these preserve query/protocol/locale/corruption/
+// transfer/late-cancel coverage the v3 engine.test.ts proved, in v4 shapes.
+// ---------------------------------------------------------------------------
+
+/** A spec with NO expected identities — a first cold ingest that asserts
+ *  nothing, for decode-path and freeze tests. */
+async function freshTxtSpec(doc: string, byteLength: number): Promise<GenerationDocSpecV4> {
+  const { txt } = await defaultExtractionRecipes();
+  return {
+    doc, language: 'en',
+    source: { byteLength, format: 'txt', availability: 'external' },
+    extraction: { recipe: txt, recipeHash: await hashExtractionRecipe(txt) },
+    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
+  };
+}
+
+const innerShards = (h: Harness) =>
+  (h.store.inner as unknown as { shards: Map<string, { lengths8: Uint8Array; startsUtf16: Uint32Array }> }).shards;
+
+describe('protocol narrowing and dispatch (v4)', () => {
+  it('rejects a protocol version mismatch with PROTOCOL_VERSION', async () => {
+    const h = harness();
+    await h.engine.handle({ v: 99, t: 'cancel', job: 1 });
+    expect(h.last('error').code).toBe('PROTOCOL_VERSION');
+  });
+
+  it('a malformed envelope and an unknown message type are PARSE_FAILED at the wire boundary', async () => {
+    const h = harness();
+    await h.engine.handle(null);
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+    await h.engine.handle({ v: PROTOCOL_VERSION_V4, t: 'nonsense', job: 1 });
+    expect(h.last('error').code).toBe('PARSE_FAILED'); // parseToWorkerV4 rejects the whole message
+    await h.engine.handle({ v: PROTOCOL_VERSION_V4, t: 'begin-generation', job: 1, generation: 'g', docs: null, indexRecipe: DEFAULT_INDEX_RECIPE });
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+  });
+
+  it('malformed query payloads are rejected at the wire (PARSE_FAILED); kernel-invalid ones map by type', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    // Wire-level malformation: the whole message fails narrowing → PARSE_FAILED.
+    for (const bad of [
+      { op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: null },
+      { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [null], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      { op: 'trend', selection: { docs: ['a'] }, group: { ...wolfGroup, countOverlaps: 'false' }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      { op: 'bogus' },
+      null,
+    ]) {
+      await h.send({ t: 'query', job: 20, snapshot: snap, query: bad });
+      expect(h.last('error').code, JSON.stringify(bad)).toBe('PARSE_FAILED');
+    }
+    // Narrowing-valid but KERNEL-invalid: mapped deterministically BY TYPE. An
+    // empty-phrase member whose id is 'cap' must be REQUEST_INVALID, never
+    // CAP_EXCEEDED (message-text independence).
+    await h.send({
+      t: 'query', job: 21, snapshot: snap,
+      query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 0 } },
+    });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+    await h.send({
+      t: 'query', job: 22, snapshot: snap,
+      query: { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [{ id: 'cap', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+    });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+});
+
+describe('locale identity (v4)', () => {
+  it('a fixed-locale recipe overrides document language, and the warm key does not alias across locales', async () => {
+    const fixed = { ...DEFAULT_INDEX_RECIPE, locale: { mode: 'fixed' as const, value: 'en' } };
+    const h = harness();
+    const a = await docSpec('a', 'the wolf ran');
+    // A fixed 'en' recipe on a fr-declared doc must build without error.
+    await h.send({ t: 'begin-generation', job: 1, generation: 'g', docs: [{ ...a, language: 'fr' }], indexRecipe: fixed });
+    await coldIngest(h, 'g', 'a', 'the wolf ran', 10);
+    expect(h.all('error')).toEqual([]);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
+    // Warm reopen under the SAME fixed recipe is an exact hit (no build work).
+    await h.flush();
+    h.clear();
+    await h.send({ t: 'begin-generation', job: 2, generation: 'g2', docs: [{ ...a, language: 'fr' }], indexRecipe: fixed });
+    expect(h.all('progress').length).toBe(0);
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+  });
+
+  it('the same text under two locales does NOT alias the shard cache (full segmenter fingerprint keys)', async () => {
+    const h = harness();
+    const en = await docSpec('en-doc', 'the wolf ran');
+    const fr = { ...(await docSpec('fr-doc', 'the wolf ran')), language: 'fr' };
+    await begin(h, [en, fr]);
+    await coldIngest(h, 'g', 'en-doc', 'the wolf ran', 10);
+    const before = h.all('progress').length;
+    await coldIngest(h, 'g', 'fr-doc', 'the wolf ran', 11);
+    const frPhases = h.all('progress').slice(before).map((p) => p.phase);
+    // No cross-locale hit: fr must segment/index itself.
+    expect(frPhases).toContain('segment');
+    expect(frPhases).toContain('index');
+  });
+
+  it('document-metadata mode falls back when a document declares no language', async () => {
+    const h = harness();
+    const a = { ...(await docSpec('a', 'the wolf ran')), language: '' };
+    await begin(h, [a]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran', 10);
+    expect(h.all('error')).toEqual([]);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
+  });
+});
+
+describe('cache corruption repair (v4)', () => {
+  async function coldThenCorrupt(mutate: (shard: { lengths8: Uint8Array; startsUtf16: Uint32Array }) => void, text = 'the wolf ran') {
+    const h = harness();
+    const spec = await docSpec('a', text);
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', text, 10);
+    await h.flush();
+    const [key] = innerShards(h).keys();
+    mutate(innerShards(h).get(key!)!);
+    h.clear();
+    return { h, spec };
+  }
+
+  it('same-key STRUCTURAL corruption warns CACHE_CORRUPT and rebuilds', async () => {
+    const { h, spec } = await coldThenCorrupt((s) => { s.lengths8[0] = 0; });
+    await begin(h, [spec], 'g2');
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    const phases = h.all('progress').map((p) => p.phase);
+    expect(phases).toContain('segment'); // rebuilt, not silently served
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+  });
+
+  it('same-key IN-DOMAIN geometry past the text end warns and rebuilds', async () => {
+    const { h, spec } = await coldThenCorrupt((s) => { s.startsUtf16[1] = 100; }, 'alpha wolf');
+    await begin(h, [spec], 'g2');
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    expect(h.all('progress').map((p) => p.phase)).toContain('segment');
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+  });
+
+  it('a store-reported corrupt envelope is deleted (exact-record repair) and rebuilt', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', 'the wolf ran', 10);
+    await h.flush();
+    h.clear();
+    h.store.corruptShardOnce = true;
+    const deletesBefore = h.store.shardDeletes;
+    await begin(h, [spec], 'g2');
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    expect(h.store.shardDeletes).toBeGreaterThan(deletesBefore); // exact-record repair
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+  });
+
+  it('after a rebuild the corrupt record is overwritten: the next reopen is warm and clean', async () => {
+    const { h, spec } = await coldThenCorrupt((s) => { s.lengths8[0] = 0; });
+    await begin(h, [spec], 'g2'); // repairs
+    await h.flush();
+    h.clear();
+    await begin(h, [spec], 'g3'); // reopen: must be clean
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
+    expect(h.all('progress').length).toBe(0); // exact warm hit
+  });
+});
+
+describe('queries and excerpts (v4)', () => {
+  async function ready(text = 'the wolf ran far. a wolf slept.') {
+    const h = harness();
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    return { h, snap: h.last('snapshot-published').snapshot };
+  }
+
+  it('answers trend and KWIC against the published snapshot', async () => {
+    const { h, snap } = await ready();
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    const trend = h.last('result');
+    expect(trend.data.op).toBe('trend');
+    if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 1]);
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
+    const kwic = h.last('result');
+    expect(kwic.data.op).toBe('kwic');
+    if (kwic.data.op === 'kwic') { expect(kwic.data.total).toBe(2); expect(kwic.data.rows[0]!.nodeText).toBe('wolf'); }
+  });
+
+  it('answers passage with marks, per-token extents, and a center span', async () => {
+    const { h, snap } = await ready();
+    await h.send({ t: 'query', job: 25, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] } } });
+    const r = h.last('result');
+    expect(r.data.op).toBe('passage');
+    if (r.data.op === 'passage') {
+      const p = r.data.passage;
+      expect(p.text).toBe('the wolf ran far. a wolf slept');
+      expect(p.marks.length).toBe(2);
+      expect(p.marks.every((m) => m.seriesId === 's1')).toBe(true);
+      expect(p.marks.map((m) => p.text.slice(m.charsUtf16.start, m.charsUtf16.end))).toEqual(['wolf', 'wolf']);
+    }
+  });
+
+  it('rejects an out-of-range passage center as REQUEST_INVALID, and duplicate track ids at the wire', async () => {
+    const { h, snap } = await ready('only four tokens here');
+    await h.send({ t: 'query', job: 26, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 40, maxTokens: 10, tracks: [] } } });
+    expect(h.last('error').code).toBe('REQUEST_INVALID'); // kernel range check
+    await h.send({ t: 'query', job: 27, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 'dup', group: wolfGroup }, { seriesId: 'dup', group: { ...wolfGroup, id: 'g9' } }] } } });
+    expect(h.last('error').code).toBe('PARSE_FAILED'); // duplicate seriesId rejected by the narrower
+  });
+
+  it('a passage track with an empty phrase is REQUEST_INVALID (kernel), matching the trend path', async () => {
+    const { h, snap } = await ready('the wolf ran');
+    await h.send({ t: 'query', job: 28, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false } }] } } });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+
+  it('rejects queries against a superseded snapshot (SNAPSHOT_UNKNOWN) and invalid selections (SELECTION_INVALID)', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'wolf one');
+    const b = await docSpec('b', 'wolf two');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'wolf one', 10);
+    const first = h.last('snapshot-published').snapshot;
+    await coldIngest(h, 'g', 'b', 'wolf two', 11); // supersedes the snapshot
+    await h.send({ t: 'query', job: 30, snapshot: first, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(h.last('error').code).toBe('SELECTION_INVALID');
+  });
+
+  it('serves and validates excerpts', async () => {
+    const { h, snap } = await ready('the wolf ran');
+    await h.send({ t: 'excerpt', job: 40, snapshot: snap, doc: 'a', charStart: 4, charEnd: 8 });
+    expect(h.last('excerpt-result').text).toBe('wolf');
+    await h.send({ t: 'excerpt', job: 41, snapshot: snap, doc: 'a', charStart: 8, charEnd: 4 });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+    await h.send({ t: 'excerpt', job: 42, snapshot: 'nope', doc: 'a', charStart: 0, charEnd: 2 });
+    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
+  });
+
+  it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {
+    const { h, snap } = await ready();
+    await h.send({ t: 'query', job: 50, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    const idx = h.messages.findIndex((m) => m.t === 'result');
+    const transfers = h.transferLists[idx];
+    expect(transfers).toBeDefined();
+    const result = h.messages[idx]!;
+    if (result.t === 'result' && result.data.op === 'trend') {
+      const t = result.data.trend;
+      const views = [t.docOrdinal, t.binIndex, t.binStartToken, t.binTokens, t.count, t.ratePer10k];
+      expect(new Set(transfers as ArrayBuffer[])).toEqual(new Set(views.map((v) => v.buffer)));
+      // No canonical shard buffer is ever transferred (collected recursively).
+      const shardBuffers = new Set<ArrayBuffer>();
+      const collect = (v: unknown): void => {
+        if (ArrayBuffer.isView(v)) shardBuffers.add(v.buffer as ArrayBuffer);
+        else if (v !== null && typeof v === 'object') for (const n of Object.values(v)) collect(n);
+      };
+      for (const shard of innerShards(h).values()) collect(shard);
+      expect(shardBuffers.size).toBeGreaterThanOrEqual(9);
+      for (const buf of transfers as ArrayBuffer[]) expect(shardBuffers.has(buf)).toBe(false);
+    }
+    // A second identical query still answers — the canonical index was not detached.
+    await h.send({ t: 'query', job: 51, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    const results = h.all('result');
+    expect(results.length).toBe(2);
+  });
+
+  it('re-ingesting a document replaces its resolver cache atomically', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'wolf');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'wolf', 10);
+    const snap1 = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 70, snapshot: snap1, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(h.last('result').data.op).toBe('trend');
+    // Replace the document under the SAME generation (a fresh spec with no
+    // asserted identity so different bytes are accepted).
+    const fresh = await freshTxtSpec('a', 4);
+    await h.send({ t: 'begin-generation', job: 71, generation: 'g2', docs: [fresh], indexRecipe: DEFAULT_INDEX_RECIPE });
+    await coldIngest(h, 'g2', 'a', 'bear', 72);
+    const snap2 = h.last('snapshot-published').snapshot;
+    expect(snap2).not.toBe(snap1);
+    const bearGroup = { id: 'g2', members: [{ id: 'm', kind: 'token' as const, surface: 'bear', match: FOLD }], countOverlaps: false };
+    await h.send({ t: 'query', job: 73, snapshot: snap2, query: { op: 'trend', selection: { docs: ['a'] }, group: bearGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    const r = h.last('result');
+    expect(r.data.op).toBe('trend');
+    if (r.data.op === 'trend') expect(Array.from(r.data.trend.count)).toEqual([1]);
+    expect(h.all('error').some((e) => /different shard/.test(e.message))).toBe(false);
+  });
+
+  it('a late cancel for a finished job is dropped; job bookkeeping does not accrete', async () => {
+    const { h, snap } = await ready('the wolf ran');
+    await h.send({ t: 'query', job: 40, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(h.last('result').data.op).toBe('trend');
+    await h.send({ t: 'cancel', job: 40 }); // job already finished
+    const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
+    expect(internals.activeJobs.size).toBe(0);
+    expect(internals.cancelledJobs.size).toBe(0);
+  });
+});
+
+describe('decode policy at the wire (v4)', () => {
+  it('authoritatively BOM-declared malformed Unicode is DECODE_FAILED', async () => {
+    const h = harness();
+    await begin(h, [await freshTxtSpec('a', 5)]);
+    // A UTF-8 BOM declares UTF-8; the invalid continuation makes the strict
+    // (fatal) decode fail — with the encoding authoritatively declared, there
+    // is no windows-1252 fallback.
+    const bad = Uint8Array.from([0xef, 0xbb, 0xbf, 0xc3, 0x28]);
+    await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: bad.buffer as ArrayBuffer });
+    expect(h.last('error').code).toBe('DECODE_FAILED');
+  });
+
+  it('invalid UTF-8 with NO BOM falls back to windows-1252 (honest evidence)', async () => {
+    const h = harness();
+    await begin(h, [await freshTxtSpec('a', 1)]);
+    // 0xff is not a valid UTF-8 start byte and there is no BOM → total
+    // windows-1252 fallback ('ÿ'), with zero decoder replacements.
+    await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: Uint8Array.from([0xff]).buffer as ArrayBuffer });
+    const sr = h.last('source-ready');
+    expect(sr.source.encoding.detected).toBe('windows-1252');
+    expect(sr.source.encoding.hadReplacementChars).toBe(false);
+    expect(sr.decoderReplacementCount).toBe(0);
+    expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
+  });
+});
+
+describe('composition and query races (v4)', () => {
+  it('a generation replaced DURING composition suppresses publication', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec], 'g1');
+    // Replace the generation from inside the compose progress emission.
+    h.onEmit((m) => {
+      if (m.t === 'progress' && m.phase === 'compose') {
+        h.onEmit(null);
+        void h.send({ t: 'begin-generation', job: 9, generation: 'g2', docs: [], indexRecipe: DEFAULT_INDEX_RECIPE });
+      }
+    });
+    await coldIngest(h, 'g1', 'a', 'the wolf ran', 2);
+    expect(h.all('snapshot-published').length).toBe(0);
+    expect(h.all('error').some((e) => e.code === 'GENERATION_STALE')).toBe(true);
+  });
+
+  it('a query whose generation is replaced mid-flight never emits a result (SNAPSHOT_UNKNOWN)', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', 'the wolf ran', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    // Park the query at its first checkpoint, replace the generation, release.
+    let replaced = false;
+    h.onYield(async () => {
+      if (!replaced) { replaced = true; await h.send({ t: 'begin-generation', job: 4, generation: 'g2', docs: [], indexRecipe: DEFAULT_INDEX_RECIPE }); }
+    });
+    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(h.all('result').length).toBe(0);
+    expect(h.all('error').some((e) => e.code === 'SNAPSHOT_UNKNOWN')).toBe(true);
+  });
+
+  it('a cancel queued during the FINAL kernel checkpoint is observed before emission', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', 'the wolf ran', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    let yields = 0;
+    h.onYield(async () => { yields++; if (yields === 4) await h.send({ t: 'cancel', job: 3 }); });
+    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    expect(yields).toBeGreaterThanOrEqual(4);
+    expect(h.all('result').length).toBe(0);
+    expect(h.all('cancelled').some((m) => m.job === 3)).toBe(true);
+  });
+});
+
+describe('legacy race parity (v4)', () => {
+  it('a cancel delivered DURING composition (after the initial gate) is caught by the FINAL commit gate', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran');
+    await begin(h, [spec], 'g1');
+    // The cancel must land AFTER commitDocuments' initial gate but BEFORE its
+    // post-compose/bind commit gate — otherwise a regression deleting the final
+    // gate would still pass. Activate only once `compose` progress fires, then
+    // deliver the cancel from inside composeSnapshot's own hashing.
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let active = false;
+    let fired = false;
+    h.onEmit((m) => { if (m.t === 'progress' && m.phase === 'compose') active = true; });
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
+      if (active && !fired) { fired = true; void h.send({ t: 'cancel', job: 2 }); }
+      return realDigest(...args);
+    }) as typeof crypto.subtle.digest);
+    await coldIngest(h, 'g1', 'a', 'the wolf ran', 2);
+    spy.mockRestore();
+    expect(fired).toBe(true); // the cancel landed inside composition (past the initial gate)
+    expect(h.all('snapshot-published').length).toBe(0);
+    expect(h.all('cancelled').some((m) => m.job === 2)).toBe(true);
+  });
+
+  it('a stale CORRUPT text read observed across a concurrent ingest commit cannot warn or delete', async () => {
+    const h = harness();
+    const text = 'the wolf ran';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', text, 10);
+    await h.flush();
+    h.clear();
+    // Warm reopen: the TEXT read reports corrupt, but a LIVE ingest supersedes
+    // the document during that read. The stale corrupt observation may have
+    // been replaced by the ingest's valid write — it must NOT warn or deleteText.
+    h.store.corruptTextOnce = true;
+    h.store.resetReads(); // count text reads within the WARM generation only
+    const deletesBefore = h.store.textDeletes;
+    h.store.onTextRead = async (n) => {
+      if (n === 1) await h.send({ t: 'ingest', job: 30, generation: 'g2', doc: 'a', bytes: buf(text) });
+    };
+    await begin(h, [spec], 'g2');
+    await h.flush();
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
+    expect(h.store.textDeletes).toBe(deletesBefore); // the valid replacement was not repaired away
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+    expect(h.all('error')).toEqual([]);
+  });
+
+  it('a stale CORRUPT shard read observed across a concurrent ingest commit cannot warn or delete', async () => {
+    const h = harness();
+    const text = 'the wolf ran';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', text, 10);
+    await h.flush();
+    h.clear();
+    // Warm reopen: the shard read reports corrupt, but a LIVE ingest supersedes
+    // the document during that read. The stale corrupt observation may have
+    // been replaced by the ingest's valid write — it must NOT warn or delete.
+    h.store.corruptShardOnce = true;
+    const deletesBefore = h.store.shardDeletes;
+    h.store.onShardRead = async () => {
+      await h.send({ t: 'ingest', job: 30, generation: 'g2', doc: 'a', bytes: buf(text) });
+    };
+    await begin(h, [spec], 'g2');
+    await h.flush();
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
+    expect(h.store.shardDeletes).toBe(deletesBefore); // the valid replacement was not repaired away
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+    expect(h.all('error')).toEqual([]);
+  });
+
+  it('a cancel during source hashing reports cancelled, never SOURCE_MISMATCH', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran'); // asserts expectedText/expectedHash
+    await begin(h, [spec], 'g1');
+    // Park the ingest's FIRST digest (source-byte hashing), cancel the job,
+    // then release: the ownership/cancel gate after hashing must win over the
+    // identity check (a cancel must not surface as SOURCE_MISMATCH).
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let release: (() => void) | null = null;
+    let armed = true;
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
+      if (!armed) return realDigest(...args);
+      armed = false;
+      return new Promise<ArrayBuffer>((resolve) => { release = () => resolve(realDigest(...args)); });
+    }) as typeof crypto.subtle.digest);
+    const ingestPromise = h.send({ t: 'ingest', job: 2, generation: 'g1', doc: 'a', bytes: buf('different content') });
+    while (release === null) await new Promise((r) => setTimeout(r));
+    await h.send({ t: 'cancel', job: 2 });
+    (release as unknown as () => void)();
+    await ingestPromise;
+    spy.mockRestore();
+    expect(h.all('error').map((e) => e.code)).not.toContain('SOURCE_MISMATCH');
+    expect(h.all('cancelled').some((m) => m.job === 2)).toBe(true);
   });
 });

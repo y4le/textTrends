@@ -4,9 +4,10 @@ import {
   parseSeries,
   MAX_SERIES,
   SHERLOCK,
+  sherlockGenerationSpecs,
   type ClientLike,
 } from '../src/lib/store.ts';
-import type { QueryResultData } from '../src/worker/protocol.ts';
+import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';
 import type { NumericTrend, PassageResult } from '@texttrends/core';
 
 interface Issued {
@@ -15,7 +16,7 @@ interface Issued {
   groupId: string;
   op: string;
   query: unknown;
-  resolve: (r: QueryResultData) => void;
+  resolve: (r: QueryResultDataV4) => void;
   reject: (e: Error) => void;
   cancelled: boolean;
 }
@@ -57,13 +58,13 @@ function allMissing(generation: string) {
     generation,
     snapshot: null,
     readyDocs: [] as readonly string[],
-    missing: SHERLOCK.map(({ doc }) => ({ doc, reason: 'text-miss' as const })),
+    missing: SHERLOCK.map(({ doc }) => ({ doc, need: 'source-bytes' as const, reason: 'extraction-miss' as const })),
   };
 }
 
 function fakeClient() {
   const issued: Issued[] = [];
-  let snapshotListener: ((info: { snapshot: string; readyDocs: readonly string[]; missingDocs: readonly string[] }) => void) | null = null;
+  let snapshotListener: ((info: { generation: string; snapshot: string; readyDocs: readonly string[]; missingDocs: readonly string[] }) => void) | null = null;
   let restartListener: ((fatal: boolean) => void) | null = null;
   const client: ClientLike = {
     onSnapshot: (l) => {
@@ -95,7 +96,7 @@ function fakeClient() {
         reject: () => undefined,
         cancelled: false,
       };
-      const result = new Promise<QueryResultData>((resolve, reject) => {
+      const result = new Promise<QueryResultDataV4>((resolve, reject) => {
         entry.resolve = resolve;
         entry.reject = reject;
       });
@@ -117,7 +118,7 @@ function fakeClient() {
     kwics: () => issued.filter((q) => q.op === 'kwic'),
     passages: () => issued.filter((q) => q.op === 'passage'),
     publish: (snapshot: string) =>
-      snapshotListener?.({ snapshot, readyDocs: ['a'], missingDocs: [] }),
+      snapshotListener?.({ generation: 'g', snapshot, readyDocs: ['a'], missingDocs: [] }),
     restart: (fatal: boolean) => restartListener?.(fatal),
   };
 }
@@ -419,19 +420,20 @@ describe('store intent discipline', () => {
     expect(store.getState().passage).toBeNull();
   });
 
-  it('manifest byte lengths and text hashes match the shipped assets', async () => {
+  it('manifest byte lengths, source hashes, and text hashes match the shipped assets', async () => {
     const { readFile } = await import('node:fs/promises');
-    const { createHash } = await import('node:crypto');
-    const { hashText } = await import('@texttrends/core');
-    for (const { doc, bytes, textHash } of SHERLOCK) {
+    const { hashSourceBytes, hashText } = await import('@texttrends/core');
+    for (const { doc, bytes, sourceHash, textHash } of SHERLOCK) {
       const data = await readFile(new URL(`../public/corpora/sherlock/${doc}`, import.meta.url));
       expect(data.byteLength, doc).toBe(bytes);
-      // Both readings must agree: the file-byte hash AND the TextHash of the
-      // decoded text (what the worker computes and rehydrates against) — this
-      // is what makes the manifest hash a valid expectedText identity.
-      expect(createHash('sha256').update(data).digest('hex'), doc).toBe(textHash);
+      // The two identities are asserted INDEPENDENTLY: SourceHash = SHA-256 of
+      // the exact bytes; TextHash = hashText of the decoded text.
+      expect(await hashSourceBytes(new Uint8Array(data)), doc).toBe(sourceHash);
       const decoded = new TextDecoder('utf-8', { fatal: true }).decode(data);
       expect(await hashText(decoded), doc).toBe(textHash);
+      // A fixture-specific fact about THIS corpus (UTF-8, no ill-formed
+      // sequences): the two values coincide — evidence, not a data-model alias.
+      expect(sourceHash, doc).toBe(textHash);
     }
   });
 
@@ -475,6 +477,10 @@ describe('store intent discipline', () => {
       };
     }) as unknown as typeof fetch;
 
+    // Warm the memoized v4 spec construction so loadSherlock's await settles
+    // within one flush (the spec hashes are async; this test inspects the
+    // intermediate state after a single flush).
+    await sherlockGenerationSpecs();
     const store = createAppStore(client);
     try {
     const attempt1 = store.getState().loadSherlock();
@@ -581,7 +587,7 @@ describe('store intent discipline', () => {
             generation: g,
             snapshot: 'warm-snap',
             readyDocs: SHERLOCK.filter(({ doc }) => doc !== missDoc).map(({ doc }) => doc),
-            missing: [{ doc: missDoc, reason: 'text-miss' as const }],
+            missing: [{ doc: missDoc, need: 'source-bytes' as const, reason: 'extraction-miss' as const }],
           }),
           cancel: () => undefined,
         }),

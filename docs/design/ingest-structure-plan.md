@@ -1334,3 +1334,237 @@ In addition to the design-of-record matrix, make these explicit acceptance tests
 3. **6c:** one green production wire cutover—shell/provider opening, client, Sherlock v4 specs, UI-store compatibility, browser fixtures—then remove v3.
 
 That keeps each commit independently meaningful: the durable substrate is correct, the new state machine is reviewable in isolation, and the deployed protocol changes atomically.
+
+---
+
+# Commit 6c wire-cutover ruling — atomic v3→v4 production migration
+
+*Codex planner consult `claude_6c_consult`, 2026-07-20. Governs the 6c
+atomic cutover and its acceptance checklist. Recorded verbatim below.*
+
+# Commit 6c wire-cutover ruling
+
+## Executive decision
+
+Proceed with 6c as one atomic production cutover.
+
+- Wire the memoized, concurrently opened `UserDataProvider` into the shell now, but defer public `WorkerClient` user-data methods to commit 7.
+- Give Sherlock separate `sourceHash` and `textHash` fields even though all six current values are equal. Use each in its proper v4 slot.
+- Treat the client migration as “same restart/epoch model, new wire semantics,” not as a blind rename: handle the enlarged event union, preserve missing reasons, and fix successful ingest-job cleanup at snapshot publication.
+- `trace.ts` needs no schema change. Browser assertions and the IDB durability barrier do need v4 semantic changes.
+- Delete v3 only after translating the still-uncovered behavioral assertions into v4. The 6b suite covers the new pipeline well, but it does not yet replace all legacy query, protocol, locale, corruption, and injected-yield coverage.
+
+## Q1 — User-data client methods and shell provider
+
+**Defer the public client methods to commit 7. Wire the provider in the shell in 6c.** That keeps 6c focused on the analysis path without leaving the production v4 engine constructed against a fake or unavailable-only user-data seam.
+
+The shell should start both opens concurrently but await only the disposable artifact store before constructing the engine:
+
+```ts
+const userDataOpen = openUserDataStore(); // starts now; bounded internally
+const userDataProvider: UserDataProvider = () => userDataOpen;
+
+void openArtifactStore(onArtifactWarning).then(
+  (artifacts) => start(new WorkerEngineV4(
+    artifacts,
+    userDataProvider,
+    emit,
+    taskQueueYield,
+  )),
+  () => start(new WorkerEngineV4(
+    new InMemoryArtifactStore(),
+    userDataProvider,
+    emit,
+    taskQueueYield,
+  )),
+);
+```
+
+Do not `await Promise.all([artifactOpen, userDataOpen])`: that would add the durable-open timeout to analysis startup. Do not substitute `InMemoryUserDataStore` for a blocked/unavailable durable store; class-1 storage must report its real state.
+
+Use `MessageEvent<unknown>` and an `unknown[]` pre-engine buffer. `WorkerEngineV4.handle` owns total v4 parsing; the shell should not cast unvalidated browser messages to `ToWorkerV4` merely to populate the queue.
+
+Opening the durable database at boot is acceptable and cheap relative to the worker lifecycle, especially because it runs concurrently. It validates migration/open/versionchange behavior early and gives commit 7 a ready seam. Describe the proof accurately, though: boot exercises the open and constructor wiring, not a user-data handler round trip. Full load/save/persist browser proof remains commit 7/phase step 9.
+
+If client methods are deferred, make `WorkerClient.receive` explicitly consume the currently unreachable user-data acknowledgements/errors so the expanded `FromWorkerV4` switch is intentional rather than accidentally incomplete:
+
+```ts
+case "project-loaded":
+case "project-missing":
+case "project-saved":
+case "source-persisted":
+case "user-data-error":
+  // No public producer until commit 7; trace already captured metadata.
+  return;
+```
+
+Do not add hidden or e2e-only user-data methods just to exercise the seam. Commit 7 should add the real typed pending variants, transfer behavior for `source-persist`, and UI-visible error semantics together.
+
+## Q2 — Sherlock v4 specs
+
+### Keep SourceHash and TextHash structurally separate
+
+The hashes genuinely coincide for these exact UTF-8 assets, so using the same hex value in both v4 fields is correct. **Do not use one property named `textHash` as both authorities.** The §F warning means the manifest should encode two meanings even when their present values compare equal:
+
+```ts
+interface BundledCorpusEntry {
+  readonly doc: string;
+  readonly bytes: number;
+  readonly sourceHash: string; // SHA-256 of exact bytes
+  readonly textHash: string;   // hashText(decoded text)
+}
+```
+
+For the six current rows, duplicate the literal value deliberately. The fixture should independently assert:
+
+```ts
+expect(await hashSourceBytes(bytes)).toBe(entry.sourceHash);
+expect(await hashText(decoded)).toBe(entry.textHash);
+expect(entry.sourceHash).toBe(entry.textHash); // fixture-specific fact
+```
+
+That last equality is evidence about this corpus, not a data-model alias. A future BOM, Windows-1252 file, or extraction transform can make the values diverge without changing the manifest shape or accidentally routing a TextHash into an extraction cache key.
+
+### Proposed v4 document shape
+
+The proposed shape is otherwise correct:
+
+```ts
+{
+  doc,
+  language: "en",
+  source: {
+    expectedHash: sourceHash,
+    byteLength: bytes,
+    format: "txt",
+    availability: "bundled",
+  },
+  extraction: {
+    recipe: txtRecipe,
+    recipeHash: txtRecipeHash,
+    expectedText: textHash,
+    expectedCandidates: emptyCandidateHash,
+  },
+  structure: {
+    recipe: DEFAULT_STRUCTURE_RECIPE,
+    recipeHash: structureRecipeHash,
+    override: { kind: "none" },
+  },
+}
+```
+
+`availability: "bundled"` is the correct provenance. It means the worker may use disposable warm artifacts but has no class-1 persisted source to recover from; if the needed text/source dependency is absent, the barrier requests source bytes and the Sherlock loader fetches the authoritative bundled URL.
+
+Omitting `expectedTextLengthUtf16` is valid. The landed engine uses `source.byteLength` as a sound preflight upper bound for every supported decoder and then enforces the actual decoded UTF-16 limit. Do not add a second static length field merely for 6c.
+
+Compute the TXT extraction recipe/hash, structure recipe hash, and empty-candidate hash once behind a module-level memoized promise. `loadSherlock` becomes async before `openGeneration`, so recheck its attempt token immediately after awaiting spec construction. Reuse the resolved immutable specs for restart reopen; do not recompute hashes per restart or per document.
+
+The store should only fetch entries named by the current authoritative manifest and whose miss has `need === "source-bytes"`. Preserve the `reason` in the typed result even if every current bundled reason leads to the same URL fetch; commit 7 needs those distinctions for external/persisted files.
+
+## Q3 — Client migration
+
+The worker-death budget, worker-instance epoch fence, transactional dead-client revival, pending rejection on death, and restart listener model do not change. The app still owns replay: after a nonfatal replacement, it opens a new generation with the same immutable v4 specs and follows the new barrier.
+
+It is not quite a pure type swap. Make these deliberate changes:
+
+1. Replace every v3 protocol import and constant with the v4 names. `openGeneration` posts `indexRecipe`, not `recipe`.
+2. Keep `GenerationReady.missing` as `readonly MissingWarmDocV4[]`; do not flatten it to document names in the client.
+3. Change pending query resolution to `QueryResultDataV4`. The unused structure member is harmless and prepares commit 8's consumer.
+4. Explicitly handle all new `FromWorkerV4` discriminants, even if the user-data cases are no-ops until commit 7.
+5. Keep `source-ready` ignored for Sherlock UI state. The bundled manifest is authoritative, and this commit has no user-project manifest to update. Do **not** treat `source-ready` as ingest completion: segment/index/structure can still fail afterward.
+6. Preserve `EXTRACTION_MISMATCH` as a correlated terminal open/ingest error. It must never be transformed into a missing-doc retry.
+
+### Clean up successful ingest jobs at publication
+
+The current `ingestJobs` map is only cleared on failure/restart. A successful ingest has no job-bearing completion event, and v4 `source-ready` is explicitly too early to serve as one. Change the map to retain the document:
+
+```ts
+private readonly ingestJobs = new Map<
+  number,
+  { readonly generation: string; readonly doc: string }
+>();
+```
+
+On `snapshot-published`, after the message passes the worker-epoch fence, clear ingest jobs whose generation matches and whose doc is present in `readyDocs`. Errors before publication still find their job; successful jobs no longer accumulate forever. Clearing all same-generation attempts for a now-ready doc is correct—the publication is the document-level success boundary, and older attempts are superseded.
+
+Keep the existing epoch/snapshot checks in the Zustand store exactly as they are. A v4 snapshot can still publish progressively, so the query-cancel/reissue discipline remains necessary.
+
+## Q4 — Trace and real-browser semantics
+
+### Trace
+
+Agree: `trace.ts` requires no type change. Its metadata fields are intentionally open strings, so `extract`, `structure`, richer source events, and future user-data discriminants remain sanitized and bounded. Updating the comment from v3-era wording is optional.
+
+The client receive switch must still trace a message before handling/ignoring it. Do not add manifest contents, source bytes, passage text, or user-source names to the trace when commit 7 adds traffic.
+
+### E2E harness synthetic specs
+
+Build a real v4 spec for the synthetic ASCII document with independently computed source/text/candidate/recipe hashes. Use `availability: "external"` for the harness document: the harness itself holds and supplies the bytes, and there is no bundled URL or opted-in persisted source.
+
+The generation-race terminal predicate remains meaningful. Keep checking stale `snapshot-published`, `source-ready`, and `result` from A after B is posted. Do not broaden it to all progress messages based solely on main-thread post order: an A progress event produced before the worker processes B may legally be delivered after the main thread posts B. The engine unit suite is the authority for “after generation replacement is processed, no stale side effect.”
+
+### Browser assertions that must change
+
+1. **Cold boot phase order:** for each Sherlock doc expect
+   `decode → extract → segment → index → structure → compose`. `source-ready` occurs after successful extraction and before publication; assert one per cold-ingested doc.
+2. **Warm reload and worker restart:** assert no `decode`, `extract`, `segment`, `index`, or `structure`. `compose` may remain treated as an implementation-detail allowance, although exact v4 hits currently emit no build progress.
+3. **Durability barrier:** wait for all four artifact classes—six texts, six shards, six extractions, and six structures. Validate the extraction/structure envelope keys and at least the v4 schema tags, candidate identity, typed shard arrays, and structure section-array presence. Waiting only for text+shard lets a reload race best-effort extraction/structure writes and produces false “warm” results or flaky structure reconstruction.
+4. **Shard corruption repair:** retain the current expected behavior. Five exact documents publish first, the victim alone segments/indexes, no corpus fetch occurs, the repaired shard is persisted, and the third reload has no build phases. Because candidates and structure remain valid, the victim should not re-extract or recompose structure.
+5. **Cold barrier semantics:** the single initial `generation-ready` still precedes fetch/ingest and lists six `{need:"source-bytes"}` misses. Update comments and store/unit fixtures from v3's `text-miss` reason to the v4 reason shape.
+6. **Bench timings:** keep the existing semantic gates and thresholds unless real runs disprove them, but update phase comments and ensure the cold measurement includes the new extraction/structure pipeline.
+
+Do not expand 6c into the full future extraction/structure corruption browser matrix. The phase plan already places those real-browser proofs later. The 6c durability barrier must at least prove those records exist and structured-clone correctly.
+
+## Q5 — Test migration and v3 removal
+
+Deleting `protocol.ts`, `engine.ts`, and `engine.test.ts` is correct **only after behavioral coverage parity**, not merely because `engine-v4.test.ts` has 37 tests. The 6b tests thoroughly cover the new dependency graph, caps, token ownership, structure binding, and user-data lane, but inspection shows important v3 assertions that do not yet have v4 equivalents.
+
+Translate the following invariant groups before deleting the old suite:
+
+### Must translate
+
+- protocol version mismatch, unknown op, and malformed/nested payload narrowing;
+- cancellation during snapshot composition and generation replacement during composition—the final commit gate, not only a pre-publication cold-ingest cancel;
+- fixed-locale versus document-metadata/fallback behavior and non-aliasing warm keys across locales;
+- store-reported corrupt envelopes, deep structural/geometry corruption, exact-key repair, and “next reopen is clean” behavior;
+- trend and KWIC integration against the published snapshot;
+- passage marks and validation, including duplicate tracks/empty phrases;
+- excerpt success and range validation;
+- `SNAPSHOT_UNKNOWN`, invalid-selection mapping, generation replacement during a query, and cancellation at the final kernel checkpoint;
+- explicit trend-result transfer lists proving resident shard buffers are never transferred;
+- resolver-cache replacement after re-ingest;
+- late-cancel state cleanup so cancellation bookkeeping does not accrete.
+
+The tests can be consolidated around v4 fixtures; they need not remain one-for-one files. Preserve the injected-yield points and assertions, not the v3 message spelling.
+
+One legacy assertion must change semantically: “invalid UTF-8 without a BOM is `DECODE_FAILED`” is no longer correct because v4 deliberately falls back to Windows-1252. Replace it with malformed or unsupported **authoritatively BOM-declared** Unicode producing `DECODE_FAILED`, plus the existing evidence test for successful fallback.
+
+### Already covered well by 6b
+
+Do not duplicate the v3 versions of exact warm reopen, text/shard/structure dependency paths, candidate reconstruction, override identity, persisted-source recovery, accepted-identity freezing, stale warm claims, missing-barrier reconciliation, structure-query snapshot binding, caps, and user-data semantics. The v4 tests are the new authority for those.
+
+### Client/store tests
+
+Preserve every existing client restart/epoch assertion and every Zustand intent/snapshot race assertion. Their invariants are protocol-independent and remain required after the type migration. Add targeted assertions for:
+
+- the exact v4 `begin-generation` shape and `indexRecipe` field;
+- structured `MissingWarmDocV4` propagation;
+- no fetch on an empty missing list and fetch only for named source-byte misses;
+- separate Sherlock `sourceHash`/`textHash` placement;
+- successful ingest-job cleanup on snapshot publication;
+- intentional no-op handling of unreachable user-data events in 6c.
+
+Also update cutover files omitted from the question's deletion list: `idb-store.ts` currently imports the v3 `StorageWarningCode`, and `idb-store.test.ts` imports that type too. Run a final repository-wide search for `protocol.ts`, `PROTOCOL_VERSION`, `GenerationDocSpec`, `MissingWarmDoc`, `QueryResultData`, and `WorkerEngine` before removing v3; zero v3 imports should remain.
+
+## Atomic 6c acceptance checklist
+
+- Production shell constructs only `WorkerEngineV4`, buffers `unknown`, and passes the memoized concurrent user-data provider.
+- Client and app store import only v4 wire types/constants.
+- Sherlock manifests distinguish SourceHash from TextHash and build immutable v4 specs once.
+- Cold, warm, restart, corruption, transfer, generation-race, cancel, and no-long-task browser suites pass under the deployed base path.
+- Cache settling proves all four v4 artifact stores, not only the old two.
+- Every surviving legacy engine invariant has a v4 test or an explicitly documented intentional semantic replacement.
+- `protocol.ts`, `engine.ts`, and the old test are deleted only after a repository-wide v3 reference search is empty.
+- Typecheck, all unit tests, production build, Chromium Playwright, and benchmark semantic gates are green in the same commit.
+
+With those conditions, 6c is the desired atomic moment: before it, production is consistently v3; after it, every production sender, receiver, restart path, fixture, and proof is consistently v4.

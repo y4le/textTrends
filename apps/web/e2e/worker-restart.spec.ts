@@ -29,8 +29,14 @@ test('an uncaught worker error respawns, warm-reopens, and queries keep working'
   const newWorker = await newWorkerPromise;
   expect(newWorker.url()).toBe(oldWorker.url());
 
-  // The app recovers to all-ready without any network or re-tokenization.
+  // The app recovers to all-ready without any network or re-tokenization. The
+  // warm reopen publishes its snapshot and THEN emits the barrier a beat later,
+  // so wait for the recovery barrier explicitly rather than racing a single
+  // trace snapshot against it.
   await awaitAllReady(page);
+  await expect
+    .poll(async () => (await trace(page)).events.filter((e) => e.seq > lastSeqBeforeCrash && e.direction === 'from-worker' && e.t === 'generation-ready').length, { timeout: 10_000 })
+    .toBe(1);
   const t = await trace(page);
   const after = t.events.filter((e) => e.seq > lastSeqBeforeCrash);
   expect(after.some((e) => e.direction === 'client' && e.t === 'restart' && e.code === 'respawn')).toBe(true);

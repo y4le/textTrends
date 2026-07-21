@@ -13,7 +13,7 @@ import {
   IdbArtifactStore,
   openArtifactStore,
 } from '../src/worker/idb-store.ts';
-import type { StorageWarningCode } from '../src/worker/protocol.ts';
+import type { StorageWarningCodeV4 as StorageWarningCode } from '../src/worker/protocol-v4.ts';
 import { InMemoryArtifactStore, type DocumentIndexCacheKey } from '../src/worker/store.ts';
 import type { DocumentIndexV1 } from '@texttrends/core';
 import { openDB } from 'idb';

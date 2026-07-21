@@ -15,18 +15,21 @@
 
 import type { IndexRecipeProvisional } from '@texttrends/core';
 import type {
-  FromWorker,
-  GenerationDocSpec,
-  MissingWarmDoc,
-  QueryOp,
-  QueryResultData,
-  StorageWarningCode,
-  ToWorker,
-} from '../worker/protocol.ts';
-import { PROTOCOL_VERSION } from '../worker/protocol.ts';
+  FromWorkerV4,
+  GenerationDocSpecV4,
+  MissingWarmDocV4,
+  QueryOpV4,
+  QueryResultDataV4,
+  StorageWarningCodeV4,
+  ToWorkerV4,
+} from '../worker/protocol-v4.ts';
+import { PROTOCOL_VERSION_V4 } from '../worker/protocol-v4.ts';
 import type { ProtocolTraceSink } from './trace.ts';
 
 export interface SnapshotInfo {
+  /** The generation this snapshot belongs to — lets a consumer distinguish a
+   *  live generation's publication from a superseded one's late arrival. */
+  readonly generation: string;
   readonly snapshot: string;
   readonly readyDocs: readonly string[];
   readonly missingDocs: readonly string[];
@@ -38,12 +41,13 @@ export interface IngestProgress {
 }
 
 /** Resolution of openGeneration: warm rehydration finished; exactly
- *  `missing` still need their bytes ingested. */
+ *  `missing` still need their bytes ingested (each with its typed reason —
+ *  preserved for the loader, which fetches only `source-bytes` misses). */
 export interface GenerationReady {
   readonly generation: string;
   readonly snapshot: string | null;
   readonly readyDocs: readonly string[];
-  readonly missing: readonly MissingWarmDoc[];
+  readonly missing: readonly MissingWarmDocV4[];
 }
 
 /** Bounded automatic restarts — a deterministic startup fault must not
@@ -51,7 +55,7 @@ export interface GenerationReady {
 const MAX_WORKER_RESTARTS = 3;
 
 type Pending =
-  | { kind: 'query'; resolve: (r: QueryResultData) => void; reject: (e: Error) => void }
+  | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
   | { kind: 'excerpt'; resolve: (text: string) => void; reject: (e: Error) => void }
   | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void };
 
@@ -70,9 +74,14 @@ export class WorkerClient {
   private snapshotListener: ((info: SnapshotInfo) => void) | null = null;
   private progressListener: ((p: IngestProgress) => void) | null = null;
   private ingestErrorListener: ((generation: string, message: string) => void) | null = null;
-  private warningListener: ((code: StorageWarningCode, message: string) => void) | null = null;
+  private warningListener: ((code: StorageWarningCodeV4, message: string) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
-  private readonly ingestJobs = new Map<number, string>(); // job -> generation
+  /** job -> the ingest's generation + document. A successful ingest has no
+   *  job-bearing completion event (source-ready is too early — segment/index/
+   *  structure can still fail after it), so entries are cleared at
+   *  snapshot-published for the now-ready document; errors before publication
+   *  still find their job. */
+  private readonly ingestJobs = new Map<number, { generation: string; doc: string }>();
   /** Optional PASSIVE observability sink (e2e builds) — sanitized metadata
    *  only; the client never behaves differently when it is present. */
   private readonly trace: ProtocolTraceSink | null;
@@ -87,7 +96,7 @@ export class WorkerClient {
     const worker = new Worker(new URL('../worker/index.worker.ts', import.meta.url), {
       type: 'module',
     });
-    worker.onmessage = (event: MessageEvent<FromWorker>) => {
+    worker.onmessage = (event: MessageEvent<FromWorkerV4>) => {
       if (epoch === this.workerEpoch) this.receive(event.data);
     };
     worker.onerror = () => {
@@ -134,7 +143,7 @@ export class WorkerClient {
   onIngestError(listener: (generation: string, message: string) => void): void {
     this.ingestErrorListener = listener;
   }
-  onWarning(listener: (code: StorageWarningCode, message: string) => void): void {
+  onWarning(listener: (code: StorageWarningCodeV4, message: string) => void): void {
     this.warningListener = listener;
   }
   /** fatal=false: a replacement worker is live — re-open the generation.
@@ -143,7 +152,8 @@ export class WorkerClient {
     this.restartListener = listener;
   }
 
-  private receive(m: FromWorker): void {
+  private receive(m: FromWorkerV4): void {
+    // Trace every message (sanitized metadata) BEFORE handling or ignoring it.
     this.trace?.record({
       direction: 'from-worker',
       t: m.t,
@@ -160,7 +170,16 @@ export class WorkerClient {
     });
     switch (m.t) {
       case 'snapshot-published':
+        // NOTE: a publication's readyDocs is the whole ready CORPUS, not the
+        // docs this publication committed, and it carries no ingest job — so it
+        // cannot correlate a successful ingest job. Ingest jobs are instead
+        // retired deliberately: a superseding same-document ingest drops the
+        // prior attempt (see ingest()), and a new generation clears them all
+        // (see openGeneration()). Clearing here by membership could delete a
+        // live re-ingest's job on an unrelated document's publication and then
+        // silently swallow that job's later terminal error.
         this.snapshotListener?.({
+          generation: m.generation,
           snapshot: m.snapshot,
           readyDocs: m.readyDocs,
           missingDocs: m.missingDocs,
@@ -217,11 +236,13 @@ export class WorkerClient {
           return;
         }
         // Uncorrelated errors from ingest jobs surface to the app instead of
-        // being dropped (UI review round 1, finding 3).
+        // being dropped (UI review round 1, finding 3). A terminal
+        // EXTRACTION_MISMATCH reaches here like any other ingest error — it is
+        // reported, never silently turned into a missing-doc retry.
         if (m.job !== undefined && this.ingestJobs.has(m.job)) {
-          const generation = m.generation ?? this.ingestJobs.get(m.job)!;
+          const info = this.ingestJobs.get(m.job)!;
           this.ingestJobs.delete(m.job);
-          this.ingestErrorListener?.(generation, `${m.code}: ${m.message}`);
+          this.ingestErrorListener?.(m.generation ?? info.generation, `${m.code}: ${m.message}`);
         }
         return;
       }
@@ -231,12 +252,23 @@ export class WorkerClient {
         if (this.warningListener) this.warningListener(m.code, m.message);
         else console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
         return;
+      // source-ready is intentionally ignored for Sherlock UI state: the
+      // bundled manifest is authoritative, and source-ready is NOT ingest
+      // completion (segment/index/structure can still fail after it).
       case 'source-ready':
+      // User-data acknowledgements/errors have no public producer until commit
+      // 7 — consumed explicitly so the expanded v4 union is intentional, not
+      // accidentally incomplete. The trace above already captured metadata.
+      case 'project-loaded':
+      case 'project-missing':
+      case 'project-saved':
+      case 'source-persisted':
+      case 'user-data-error':
         return;
     }
   }
 
-  private post(message: ToWorker, transfer?: Transferable[]): void {
+  private post(message: ToWorkerV4, transfer?: Transferable[]): void {
     // Detachment is synchronous: byteLength before vs after the post proves
     // a real transfer (0 after) rather than a structured clone.
     const bytes = message.t === 'ingest' ? message.bytes : null;
@@ -256,8 +288,8 @@ export class WorkerClient {
 
   openGeneration(
     generation: string,
-    docs: readonly GenerationDocSpec[],
-    recipe: IndexRecipeProvisional,
+    docs: readonly GenerationDocSpecV4[],
+    indexRecipe: IndexRecipeProvisional,
   ): { result: Promise<GenerationReady>; cancel: () => void } {
     // An explicit new generation is user intent to try again: revive a dead
     // client with a fresh restart budget instead of posting into the void.
@@ -281,14 +313,18 @@ export class WorkerClient {
       this.dead = false;
       this.restartAttempts = 0;
     }
+    // A new generation supersedes every prior in-flight ingest: their jobs and
+    // any late errors are moot (a superseded ingest answers GENERATION_STALE),
+    // so retire them rather than let them accrete or mis-route.
+    this.ingestJobs.clear();
     const job = this.nextJob++;
     const result = new Promise<GenerationReady>((resolve, reject) => {
       this.pending.set(job, { kind: 'open', resolve, reject });
     });
-    this.post({ v: PROTOCOL_VERSION, t: 'begin-generation', job, generation, docs, recipe });
+    this.post({ v: PROTOCOL_VERSION_V4, t: 'begin-generation', job, generation, docs, indexRecipe });
     return {
       result,
-      cancel: () => this.post({ v: PROTOCOL_VERSION, t: 'cancel', job }),
+      cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }),
     };
   }
 
@@ -297,15 +333,21 @@ export class WorkerClient {
       this.ingestErrorListener?.(generation, 'WORKER_TERMINATED: the analysis worker is not running');
       return;
     }
+    // Retire any prior in-flight ingest of the SAME (generation, doc) — this
+    // attempt supersedes it, so its late error is moot and must not later be
+    // mistaken for this attempt's (deliberate supersession, exact correlation).
+    for (const [prior, info] of this.ingestJobs) {
+      if (info.generation === generation && info.doc === doc) this.ingestJobs.delete(prior);
+    }
     const job = this.nextJob++;
-    this.ingestJobs.set(job, generation);
+    this.ingestJobs.set(job, { generation, doc });
     this.post(
-      { v: PROTOCOL_VERSION, t: 'ingest', job, generation, doc, bytes },
+      { v: PROTOCOL_VERSION_V4, t: 'ingest', job, generation, doc, bytes },
       [bytes], // transferred, zero-copy
     );
   }
 
-  query(snapshot: string, query: QueryOp): { result: Promise<QueryResultData>; cancel: () => void } {
+  query(snapshot: string, query: QueryOpV4): { result: Promise<QueryResultDataV4>; cancel: () => void } {
     if (this.dead) {
       return {
         result: Promise.reject(new Error('WORKER_TERMINATED: the analysis worker is not running')),
@@ -313,13 +355,13 @@ export class WorkerClient {
       };
     }
     const job = this.nextJob++;
-    const result = new Promise<QueryResultData>((resolve, reject) => {
+    const result = new Promise<QueryResultDataV4>((resolve, reject) => {
       this.pending.set(job, { kind: 'query', resolve, reject });
     });
-    this.post({ v: PROTOCOL_VERSION, t: 'query', job, snapshot, query });
+    this.post({ v: PROTOCOL_VERSION_V4, t: 'query', job, snapshot, query });
     return {
       result,
-      cancel: () => this.post({ v: PROTOCOL_VERSION, t: 'cancel', job }),
+      cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }),
     };
   }
 
@@ -331,7 +373,7 @@ export class WorkerClient {
     const result = new Promise<string>((resolve, reject) => {
       this.pending.set(job, { kind: 'excerpt', resolve, reject });
     });
-    this.post({ v: PROTOCOL_VERSION, t: 'excerpt', job, snapshot, doc, charStart, charEnd });
+    this.post({ v: PROTOCOL_VERSION_V4, t: 'excerpt', job, snapshot, doc, charStart, charEnd });
     return result;
   }
 }

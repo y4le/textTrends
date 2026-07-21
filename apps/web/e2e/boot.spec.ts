@@ -25,7 +25,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   const t = await trace(page);
   expect(t.dropped).toBe(0);
 
-  // Protocol v3 cold shape: ONE begin-generation, then ONE generation-ready
+  // Protocol v4 cold shape: ONE begin-generation, then ONE generation-ready
   // naming all six docs missing, BEFORE the first ingest post. No second
   // all-ready barrier follows cold ingest.
   const begins = events(t, { direction: 'to-worker', t: 'begin-generation' });
@@ -48,10 +48,12 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   }
 
   // Per-document phase order (no single global order — engines interleave):
-  // decode -> segment -> index -> compose, with source-ready after decode.
+  // the honest v4 pipeline is decode -> extract -> segment -> index ->
+  // structure -> compose, with exactly one source-ready per cold-ingested doc
+  // (emitted after a complete, verified extraction, before publication).
   for (const { doc } of SHERLOCK) {
     const phases = events(t, { direction: 'from-worker', t: 'progress', doc }).map((e) => e.phase);
-    expect(phases, doc).toEqual(['decode', 'segment', 'index', 'compose']);
+    expect(phases, doc).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
     const sourceReady = events(t, { direction: 'from-worker', t: 'source-ready', doc });
     expect(sourceReady.length, doc).toBe(1);
   }
