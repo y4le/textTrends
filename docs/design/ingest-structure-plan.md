@@ -1884,3 +1884,291 @@ Before calling commit 7 complete, tests should establish these invariants:
 10. The same project-data-to-generation-spec function drives bundled, newly imported, loaded, and reattached projects.
 
 With those constraints, commit 7 creates a clean ownership boundary: the main thread owns project intent and the working copy; the worker remains the sole durable-storage and analysis actor; acknowledgements, rather than optimistic booleans, establish durable truth.
+
+---
+
+# 7b session-controller ruling — project session controller (Codex planner consult `claude_7b_consult`, 2026-07-21)
+
+*Recorded verbatim. Governs the 7b session controller: lands `lib/project-session.ts` UNUSED in 7b (atomic listener cutover in 7c), the session owns the entire generation event lane, staged `PendingImport` table with two-fact finalization, uncertain-CAS reconciliation, file-retention boundary, and the refined invariant 10 + 15 race tests.*
+
+
+## Executive ruling
+
+- **D1:** Land `ProjectSession` unused and fully tested in 7b; perform the only production listener cutover in 7c. Do not instantiate it beside the current store even temporarily.
+- **D2:** Use a framework-free class with immutable observable snapshots. Zustand adapts it in 7c; it does not own policy.
+- **D3:** Keep byte-source discrimination inside the session and inject only a narrow bundled-source provider. Do not use a generic resolver that can blur `persisted` versus `external` recovery.
+- **D4:** Support both new-project import and append, but as explicit controller commands. Append is the correct user-project capability. Stage identity-incomplete imports outside `ProjectDataV1`; merge them only after both extraction identity and current-generation publication are established.
+- **D5/D6:** The proposed CAS and durability ordering are right, with two additions: a lost save acknowledgement on worker death creates an **uncertain commit** that must be reconciled by load, and the actual `File` should remain retained until both source durability and the manifest revision referring to it are acknowledged.
+- **D7:** The ten invariants remain the acceptance baseline, but add whole-project cap, uncertain-CAS, batch-ordering, and superseded-fetch tests.
+
+The design is ready to implement with the sharpenings below.
+
+## D1 — unused in 7b, atomic cutover in 7c
+
+The proposed boundary is correct and is the safest green history:
+
+1. 7b adds `lib/project-session.ts` plus its fake-client unit suite.
+2. Production does not import or instantiate it. The current `loadSherlock` path remains the sole listener owner.
+3. 7c atomically creates the one long-lived session, makes the UI store subscribe to it, removes the store's lifecycle listeners and `loadSherlock`, and adds the import UI.
+
+This is analogous to 6b/6c in the relevant way: it avoids any committed state in which two components contend for a last-wins client callback. Temporary duplication of the builtin-open algorithm in source is acceptable; temporary duplication of **runtime ownership** is not.
+
+Pull only these architectural seams into 7b:
+
+- a narrow injected `ProjectSessionClient` interface, rather than depending on the concrete `WorkerClient` class;
+- the builtin byte-provider interface;
+- deterministic id/hash dependencies needed by tests;
+- the full session subscription/state contract that 7c will adapt.
+
+Do not pull Zustand, React, query-result policy, or UI actions into 7b.
+
+### The session must own the entire generation event lane
+
+D1's list is missing two callbacks. The session must exclusively own:
+
+- `onSnapshot`;
+- `onProgress`;
+- `onIngestError`;
+- `onSourceReady`;
+- `onRestart`;
+- `openGeneration` and `ingest`.
+
+Worker restart is part of generation ownership, not merely display state. On a nonfatal restart the session creates a new generation attempt from current project data plus any still-valid staged imports, opens it, and satisfies genuine byte misses from bundled bytes or retained files. On a fatal restart it transitions analysis to a terminal error without discarding the working copy or files.
+
+The existing query calls can remain in the UI store in 7c because they are request/response operations, not competing event listeners. The store obtains the current snapshot and loading state from the session subscription and continues its existing snapshot/epoch query discipline.
+
+`WorkerClient` currently exposes setters rather than unsubscribe functions. That is acceptable only because 7c creates exactly one session for the lifetime of the client. Make that exclusive ownership explicit in the interface and tests. A `dispose()` method should fence all async completions and clear session subscribers; if clearing the underlying client callbacks is later required for hot replacement, change the setters to return an exact unsubscribe rather than installing no-op listeners opportunistically.
+
+## D2 — framework-free controller
+
+Agree. A plain class is the right policy boundary:
+
+```ts
+interface ProjectSession {
+  getState(): SessionState;
+  subscribe(listener: (state: SessionState) => void): () => void;
+  dispose(): void;
+  // explicit commands follow
+}
+```
+
+Requirements for the state surface:
+
+- Every published `SessionState` is an immutable snapshot. Replace arrays/maps/records rather than mutating an object already handed to subscribers.
+- State contains only serializable project and UI status. The actual `File` objects, abort controllers, request handles, and promises live in private sidecars.
+- Use separate monotonic fences for session/project ownership, generation attempts, imports, save operations, persistence operations, and reattachments. `editEpoch` records dirtiness; it must not double as an async ownership token.
+- Keep constructor side effects small. Either install the exclusive callbacks in the constructor and require one lifetime instance, or expose an idempotent `start()`. Do not let multiple `start()` calls register competing owners.
+- Publish after each synchronous state transition, not from half-updated asynchronous branches.
+
+This gives deterministic tests without creating a second Zustand store. In 7c, Zustand becomes a projection of `SessionState` plus the existing query/presentation state.
+
+## D3 — byte acquisition
+
+Keep the discriminated decision in the session and inject a **narrow bundled provider**:
+
+```ts
+interface BundledByteProvider {
+  get(doc: ProjectDocV1, signal: AbortSignal): Promise<ArrayBuffer>;
+}
+
+interface ProjectSessionDeps {
+  readonly client: ProjectSessionClient;
+  readonly bundledBytes: BundledByteProvider;
+  readonly newDocId: () => string;
+  readonly hashBytes: (bytes: Uint8Array<ArrayBuffer>) => Promise<string>;
+}
+```
+
+Passing the full project doc, rather than only its id, lets the provider select the URL while the session verifies returned length against the authoritative descriptor before transfer. The worker still verifies the `SourceHash`.
+
+The internal warm-miss resolver should remain visibly exhaustive:
+
+```ts
+switch (doc.sourceAvailability) {
+  case 'bundled':  // provider fetch, then ingest
+  case 'external': // attached File, else external-missing
+  case 'persisted': // durable recovery failed: repair/reattach required
+}
+```
+
+A generic `SourceByteResolver` is less desirable because it can silently make a persisted miss look like an external fetch, or teach the session how to open IDB. Durable storage remains worker-owned. A persisted miss with no attached matching file becomes an explicit repair/reattachment state.
+
+Track an `AbortController` per bundled fetch attempt and abort it when the generation is superseded. `openGeneration.cancel()` should likewise be called when still pending. Ingest has no replayable buffer and no cancel handle; a newer `begin-generation` is its authority fence.
+
+## D4 — import assembly and append semantics
+
+### Preflight must cover the resulting project
+
+The proposed caps check is necessary but incomplete for append. Before reading any new file, check:
+
+- every new file against `maxSourceBytesPerFile`;
+- **existing docs + new files** against `maxDocsPerProject`;
+- existing `source.byteLength` + all new `File.size` values against `maxProjectSourceBytes`;
+- existing known `textLengthUtf16` plus the safe new-file byte upper bound against `maxProjectTextUtf16` where applicable.
+
+The worker remains the second enforcement boundary. Rejection must perform zero file reads, worker opens, or ingests.
+
+Inject `newDocId` so tests are deterministic; production supplies `crypto.randomUUID`. The id is allocated before any asynchronous work and is unrelated to filename.
+
+### Identity-incomplete imports are staged, not fake project documents
+
+Agree with the cold spec: recipe values/hashes, `availability: 'external'`, and no expected source/text/candidate identities. But such a document cannot yet be represented honestly as `ProjectDocV1`, so it must live in a separate staged-import table:
+
+```ts
+interface PendingImport {
+  readonly importToken: number;
+  readonly doc: string;
+  readonly generation: string;
+  readonly sourceName: string;
+  readonly meta: DocumentMetaV1;
+  readonly recipes: PendingImportRecipes;
+  readonly ingestJob: number | null;
+  readonly sourceReady: SourceReadyInfo | null;
+  readonly published: boolean;
+  readonly status: 'planned' | 'extracting' | 'failed';
+}
+```
+
+The actual `File` remains in the private sidecar. Join the two independent facts—matching `source-ready` and membership in a current-generation `snapshot-published.readyDocs`—in either arrival order. Finalize a `ProjectDocV1` only when both are present and no current terminal error exists. A job/generation/doc/import-token mismatch is ignored.
+
+For a batch, keep working `ProjectDataV1` structurally valid throughout. Staged files may publish progressively for analysis, but save stays blocked while any included staged import is incomplete or failed. The user can retry or remove a failed staged item; removing it must open a fresh generation without that provisional doc.
+
+One correction to acceptance invariant 10: `generationSpecsFromProject` cannot drive a document **before** extraction because `ProjectDataV1` deliberately requires identities that do not yet exist. Use exactly one narrow helper such as `coldSpecFromPendingImport`, and compose an open plan as:
+
+```ts
+const specs = [
+  ...generationSpecsFromProject(current.data),
+  ...pendingImports.map(coldSpecFromPendingImport),
+];
+```
+
+Once finalized, that imported doc uses `generationSpecsFromProject` forever, including restart and reattachment. The invariant should read: “one canonical builder drives every identity-complete bundled/imported/loaded/reattached document; only pre-identity staged imports use the cold helper.”
+
+### Support append, but make commands explicit
+
+Append-to-user is the right v1 mechanism. Do not defer that policy to an ambiguous `importFiles()` call. Expose distinct commands:
+
+```ts
+createUserProject(files, initialMeta): void;
+appendFiles(files, initialMeta): void; // user project only
+```
+
+Rules:
+
+- Importing while viewing the builtin uses `createUserProject`; it never appends to or mutates Sherlock.
+- `appendFiles` preserves the loaded/new user's `baseRevision`, existing docs, and existing declared order, then appends new stable ids in selection order.
+- Reordering is a later explicit edit; asynchronous extraction completion order must never change declared order.
+- A “replace current user project” action is not equivalent to first-save revision `0` when `user/default` already exists. If replacement is offered, load the durable project and replace its data at the known base revision, then CAS-save the next revision. Never silently overwrite a known durable record or reset its CAS base.
+- If code creates a base-0 draft while an unknown `user/default` already exists, the first save must conflict safely. Prefer checking/loading the one durable slot before presenting a destructive replacement choice in 7c.
+
+Thus the shared staging pipeline supports both new and append, but origin and replacement semantics remain explicit and testable.
+
+## D5 — CAS save state machine
+
+The proposed model is correct. Add these exact rules.
+
+### Save flow
+
+1. Reject builtin, incomplete import, unresolved conflict, invalid data, and an included persistence intent still in flight.
+2. Capture an immutable `ProjectDataV1` payload, `payloadEpoch`, `expectedRevision = baseRevision`, `targetRevision = baseRevision + 1`, and a unique save token.
+3. Enter `saving` **before** awaiting deep validation, so concurrent commands see one active save.
+4. Build `manifestForSave` from the captured payload/base, run `validateProjectManifest`, then post only if the session/save token is still current.
+5. Accept the result only if the token is current and the returned revision exactly equals `targetRevision`. A different revision is a protocol/invariant failure, not a successful save.
+6. On success set `baseRevision = targetRevision` and `savedEpoch = payloadEpoch`. Preserve later edits, so `editEpoch !== savedEpoch` remains dirty.
+
+Only one save may be in flight. A request during `saving` should share the current result if nothing changed; if the edit epoch advanced, set one `saveAgain` flag and build a fresh payload at the newly acknowledged base after the first save completes. Never queue multiple revisions speculatively.
+
+On `REVISION_CONFLICT`, retain data/files, enter conflict, and block further save until the user reloads/rebases/discards. Do not adopt `currentRevision` as the new base without loading and validating that revision. On local validation failure or other durable error, retain the dirty working copy.
+
+### Worker death during save is an uncertain commit
+
+This needs an explicit state beyond ordinary error. The worker may durably commit the project and die before its acknowledgement reaches the client. Blindly retrying with the old expected revision can produce a conflict even though this session's payload is what committed.
+
+Represent this as `save.phase = 'reconcile-required'` (or an error code with that exact policy). On worker restart:
+
+- do not auto-replay the CAS save;
+- load `user/default`;
+- deep-validate it;
+- if its revision and content match the captured target manifest, adopt the revision and mark only that payload epoch saved;
+- otherwise surface conflict/rebase without overwriting.
+
+The same caution applies when cancellation or navigation makes a truthful save acknowledgement unobservable. Session/project tokens fence UI mutation, but they cannot prove the durable write did not happen.
+
+## D6 — source persistence and reattachment
+
+The strict ordering is correct:
+
+1. current `source-ready` establishes `SourceHash`;
+2. reread the retained `File`;
+3. `sourcePersist(hash, bytes)` transfers bytes;
+4. accept only the current operation's durable acknowledgement;
+5. immutably change the working doc from `external` to `persisted` and increment `editEpoch`;
+6. CAS-save a manifest that references the persisted source.
+
+Do not conflate canonical availability with observable runtime status. The UI needs a serializable status, while only the actual `File` stays private:
+
+```ts
+type SourceStatus =
+  | { readonly phase: 'bundled' }
+  | { readonly phase: 'external-attached'; readonly name: string; readonly size: number }
+  | { readonly phase: 'external-missing' }
+  | { readonly phase: 'persist-saving' }
+  | { readonly phase: 'persist-failed'; readonly message: string }
+  | { readonly phase: 'persisted' };
+
+private readonly attached = new Map<string, { file: FileLike; token: number }>();
+```
+
+Retain the `File` until the source write **and the project-save acknowledgement that records `sourceAvailability: 'persisted'`** have both arrived. Dropping it immediately after `source-persisted` creates an avoidable recovery gap if the following CAS save conflicts, fails, or loses its acknowledgement. An unreferenced content-addressed source is harmless, but the current draft still needs a recoverable byte source.
+
+If source persistence loses its acknowledgement during worker death, replay is content-addressed and idempotent, but token-gate it and retain the file. Do not flip availability until an acknowledgement is observed.
+
+For an external reattachment:
+
+- verify expected byte length early when available, cap-check, then read once;
+- hash asynchronously on the main thread;
+- fence completion by session, doc, reattach token, and expected source hash;
+- on equality transfer that same buffer to the current generation's `ingest`;
+- on mismatch publish `REATTACH_SOURCE_MISMATCH` and send nothing;
+- preserve the canonical `sourceName`; the newly selected filename is only an attachment hint;
+- do not increment `editEpoch` merely for attaching an identical external file, because the manifest did not change.
+
+The worker's `SOURCE_MISMATCH` remains defense in depth. A differently named identical file succeeds; a same-named different file fails.
+
+For a manifest already marked `persisted` whose durable source is missing/corrupt, a matching attachment is a repair source. Ingest may satisfy the active analysis generation, and `sourcePersist` should repair the content-addressed record. No manifest availability flip is needed, though the file remains until repair acknowledgement.
+
+## D7 — tests and acceptance invariants
+
+The ten listed invariants are correct after refining invariant 10 as above. Test them through public session commands and fake-client delivery, not by mutating private state.
+
+Add these cases:
+
+1. **Whole-project caps on append:** existing + selected docs/bytes exceed a cap; assert zero `arrayBuffer()`, `openGeneration`, and `ingest` calls.
+2. **Batch order:** deliver `source-ready` and snapshots in reverse/random order; finalized docs retain selection order, never completion order.
+3. **Two-fact join:** test source-ready-before-snapshot and snapshot-before-source-ready; neither alone finalizes or enables save.
+4. **Post-extraction failure:** source-ready followed by segment/index/structure failure remains unsaveable; a later stale snapshot cannot resurrect it.
+5. **Superseded generation:** late open resolution, fetch completion, snapshot, source-ready, and ingest error from generation A do not mutate generation B. Assert the A fetch was aborted and open cancelled where possible.
+6. **Same-doc retry:** old job's source-ready is ignored after a replacement ingest job is installed.
+7. **Save revision mismatch:** an acknowledgement with a revision other than the captured target is rejected as an invariant fault.
+8. **Uncertain CAS:** worker death after recorded save request but before ack triggers load/reconciliation, not automatic save replay; test both “target manifest committed” and “different revision committed.”
+9. **Persistence recovery:** worker death or cancellation during source persist keeps canonical availability external, retains the file, and permits an idempotent retry.
+10. **File retention boundary:** source-persist ack alone does not release the file; matching project-save ack does.
+11. **Reattachment identity:** differently named matching content ingests; same-named mismatching content emits the distinct error and never calls ingest. A stale digest completion is ignored.
+12. **Runtime versus durable edits:** attaching an external file does not dirty; a persist acknowledgement changes availability and does dirty; metadata changes do not reopen analysis; order/language changes do.
+13. **Append plan:** existing identity-complete specs come from `generationSpecsFromProject`, pending specs use only the cold helper, and declared order is preserved across restart.
+14. **Load validation fence:** a late or corrupt `projectLoad` result cannot replace a newer current project and is never auto-saved.
+15. **Builtin hard boundary:** cover every public mutation command, not just save—append, persist, reattach, conflict resolution, and metadata/order mutation must either be read-only or first create an explicit user project.
+
+Also test nonfatal versus fatal worker restart. Nonfatal restart reopens analysis from current intent and retained attachments. Fatal restart preserves the working copy and exposes a retryable/terminal analysis error; it does not convert a user project back to builtin or clear dirty state.
+
+## Recommended implementation order inside 7b
+
+1. Define `ProjectSessionClient`, dependency interfaces, immutable `SessionState`, and exclusive callback ownership.
+2. Implement generation planning/open/supersession/restart for builtin and complete user data.
+3. Add staged cold imports and the two-fact finalization join; then append/new commands and whole-project preflight.
+4. Add external/bundled/persisted miss resolution and reattachment.
+5. Add source persistence with file retention and token fences.
+6. Add load/validate and CAS save, ending with uncertain-commit reconciliation.
+7. Complete deterministic race tests before 7c consumes the controller.
+
+That boundary keeps 7b reviewable while ensuring 7c is a genuine wiring/UI change rather than the place where lifecycle policy is first exercised.

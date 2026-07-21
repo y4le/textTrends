@@ -79,6 +79,9 @@ export interface SnapshotInfo {
 export interface IngestProgress {
   readonly doc: string;
   readonly phase: string;
+  /** The generation this progress belongs to — lets a consumer ignore a
+   *  superseded generation's late progress. */
+  readonly generation: string;
 }
 
 /** Resolution of openGeneration: warm rehydration finished; exactly
@@ -236,7 +239,7 @@ export class WorkerClient {
         });
         return;
       case 'progress':
-        this.progressListener?.({ doc: m.doc, phase: m.phase });
+        this.progressListener?.({ doc: m.doc, phase: m.phase, generation: m.generation });
         return;
       case 'generation-ready': {
         const p = this.pending.get(m.job);
