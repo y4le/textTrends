@@ -1568,3 +1568,319 @@ Also update cutover files omitted from the question's deletion list: `idb-store.
 - Typecheck, all unit tests, production build, Chromium Playwright, and benchmark semantic gates are green in the same commit.
 
 With those conditions, 6c is the desired atomic moment: before it, production is consistently v3; after it, every production sender, receiver, restart path, fixture, and proof is consistently v4.
+
+---
+
+# Commit 7 ruling — main-thread project store (7a/7b/7c)
+
+*Codex planner consult `claude_7_consult`, 2026-07-21. Splits commit 7 into a
+typed client seam (7a), project-session/store logic (7b), and minimal UI (7c);
+unifies the built-in corpus and user projects behind one current-project
+abstraction with an explicit origin discriminant. Recorded verbatim; governs
+commit 7 and its 10 acceptance invariants.*
+
+# Commit 7 ruling: main-thread project store
+
+## Executive decision
+
+The direction is sound, with two contract corrections:
+
+1. An unsaved import is **not** a `ProjectManifestV1` at revision `0`. The validator deliberately requires a positive revision. Keep an app-level working copy with `baseRevision: 0`; materialize and validate revision `1` only for the first CAS save.
+2. Do not expose `source-ready` as an uncorrelated positional callback. It is an intermediate extraction event, not ingest completion, and it must retain `job`, `generation`, and `doc` so a retry or superseded import cannot assemble the wrong manifest.
+
+I recommend three green subcommits within commit 7: client seam, project-state logic, then UI. Unify Sherlock and user projects at the current-project/project-data layer, but retain an explicit read-only built-in discriminant so durable CAS semantics never apply to Sherlock.
+
+## Q1 — Decomposition
+
+Split this into **7a/7b/7c**, not one broad logic commit followed by UI:
+
+### 7a — typed client seam
+
+Add and test only:
+
+- `projectLoad`, `projectSave`, and `sourcePersist` request correlation;
+- a typed user-data error carrying `code` and optional `currentRevision`;
+- source byte transfer/detachment for `source-persist`;
+- a correlated `source-ready` surface;
+- rejection of all new pending variants on worker death/restart and cancellation where supported.
+
+This is small enough to review exhaustively against protocol v4. It also prevents client correlation defects from being buried beneath Zustand state transitions.
+
+Suggested public shapes:
+
+```ts
+type ProjectLoadResult =
+  | { readonly kind: 'loaded'; readonly manifest: unknown }
+  | { readonly kind: 'missing' };
+
+class UserDataClientError extends Error {
+  constructor(
+    readonly code: UserDataErrorCodeV4,
+    message: string,
+    readonly currentRevision?: number,
+  ) {
+    super(message);
+  }
+}
+
+interface SourceReadyInfo {
+  readonly job: number;
+  readonly generation: string;
+  readonly doc: string;
+  readonly source: SourceDescriptorV4;
+  readonly extractionRecipeHash: string; // wire field: extractionRecipe
+  readonly text: string;
+  readonly textLengthUtf16: number;
+  readonly candidates: string;
+  readonly decoderReplacementCount: number;
+  readonly suspiciousControlCount: number;
+}
+```
+
+The client may return `unknown` from `projectLoad`; the main-thread project layer should call the existing asynchronous `validateProjectManifest` before installing it. Conversely, `projectSave` should accept a `ProjectManifestV1` that the project layer has already validated.
+
+For extraction, prefer a per-ingest handle or promise over a global listener:
+
+```ts
+interface IngestHandle {
+  readonly job: number;
+  readonly sourceReady: Promise<SourceReadyInfo>;
+}
+```
+
+If changing `ingest()` this way is awkward, a typed `onSourceReady(info)` listener is acceptable only if the store gates on all of `job + generation + doc`. Do not expose only `(descriptor, text, ...)`: same-document retries can otherwise consume a stale event.
+
+`source-ready` must not clear the existing ingest-job bookkeeping. Segment, index, structure, or compose may still fail after extraction. Snapshot publication or a terminal ingest error remains the analysis completion signal.
+
+### 7b — project session/store logic
+
+Implement the app-level working-copy model, import assembly, CAS state machine, source-persistence ordering, generation-spec builder, and reattachment flow. Unit-test it with a fake client and deterministic out-of-order acknowledgements. This is where nearly all policy lives.
+
+### 7c — minimal UI and browser smoke
+
+Add native file input/drop, document metadata/order controls, persistence choice/status, save/conflict display, and reattachment. Add a small real-browser smoke test here for file selection/drop, transferred bytes, and one save/reload/reattach path. Keep the extended restart, corruption, and failure matrix in commit 9 as planned.
+
+If the history must contain only two commits, the proposed 7a/7b split is still viable, but the client seam should be the first internally complete slice of 7a. A separate client commit is the cleanest review boundary.
+
+## Q2 — one current-project abstraction, with an explicit origin
+
+Use one current-project abstraction and one generation-spec builder. Do **not** maintain Sherlock and user-project analysis state side by side. However, do not make `builtin/sherlock` look saveable merely because its content resembles a durable manifest.
+
+An app-level separation between project data and durable revision works well:
+
+```ts
+type ProjectDataV1 = Omit<ProjectManifestV1, 'schema' | 'revision'>;
+
+type CurrentProject =
+  | {
+      readonly kind: 'builtin';
+      readonly data: ProjectDataV1;
+      readonly save: { readonly phase: 'read-only' };
+    }
+  | {
+      readonly kind: 'user';
+      readonly data: ProjectDataV1;
+      readonly baseRevision: number; // 0 means never durably saved
+      readonly editEpoch: number;
+      readonly savedEpoch: number;
+      readonly save: UserSaveState;
+    };
+```
+
+Then `generationSpecsFromProject(project.data)` is shared by every origin and respects `data.order`. A loaded `ProjectManifestV1` is split into `data + baseRevision`; save reconstructs `{ schema, ...data, revision: baseRevision + 1 }`, validates it, and submits it with `expectedRevision: baseRevision`.
+
+It is also reasonable to keep a statically validated `ProjectManifestV1` constant for Sherlock with an inert synthetic revision such as `1`, but the session must still carry `kind: 'builtin'`, and every save entry point must reject that kind. The revision is fixture metadata, not CAS state.
+
+Traps to close explicitly:
+
+- Built-in docs are `bundled`: a byte miss is satisfied from their URL, never through reattachment.
+- Built-in projects are read-only and always clean. Metadata edits either stay disabled or become a future explicit “clone as user project” action.
+- A bundled source is not copied into class-1 source persistence merely because it was fetched.
+- The built-in project description must be complete without waiting for `source-ready`: warm exact reopen may emit no extraction event. Add static source descriptors, UTF-16 lengths, candidate identity, recipes, and recipe hashes to the fixture (or generate and verify them at build/test time).
+- Keep one small, explicit selection policy. With only one user project, a fixed durable id such as `user/default` plus `builtin/sherlock` is sufficient. If reopening the last selection is required, store one tiny app preference; do not recreate an implicit worker-owned doc-to-hash alias map.
+
+The outer byte-acquisition policy remains discriminated: `bundled` fetches, `external` uses an attached `File` or asks for reattachment, and `persisted` first relies on worker rehydration but can ask for a matching replacement if durable bytes are missing or corrupt.
+
+## Q3 — import to working copy to manifest
+
+The proposed cold-import pipeline is correct with the following sharpenings.
+
+### Before `begin-generation`
+
+- Check file count, each `File.size`, and aggregate bytes against `INGEST_CAPS_V0` before reading any file.
+- Accept only the phase's advertised `.txt`/`.md` formats; sniffing may refine format, but a filename alone must not bypass caps or format policy.
+- Allocate stable document ids with `crypto.randomUUID()` before opening the generation. A doc id is not a filename and must survive rename, reorder, save, reload, and reattachment.
+- Build an import plan keyed by doc containing the `File`, initial metadata, format, recipe values/hashes, persistence intent, and an import-session token.
+
+For first import, a `GenerationDocSpecV4` with recipe values/hashes and without `source.expectedHash`, `expectedText`, `expectedTextLengthUtf16`, or `expectedCandidates` is the right cold-ingest spec. Its initial availability is `external`, even when the user checked “persist source”: it is not `persisted` until the durability acknowledgement arrives. The warm barrier honestly reports all documents as needing `source-bytes`, and the store then ingests each file.
+
+### Assembly signal
+
+`source-ready` is the canonical signal for the byte/text/candidate identities used in `ProjectDocV1`. Combine it with the import plan's recipe values and structure recipe/hash:
+
+```ts
+const projectDoc: ProjectDocV1 = {
+  doc: info.doc,
+  sourceName: file.name,
+  meta,
+  source: info.source,
+  sourceAvailability: 'external',
+  extraction: {
+    recipe: extractionRecipe,
+    recipeHash: info.extractionRecipeHash,
+    text: info.text,
+    textLengthUtf16: info.textLengthUtf16,
+    candidates: info.candidates,
+  },
+  structure: {
+    recipe: structureRecipe,
+    recipeHash: structureRecipeHash,
+    override: { status: 'none' },
+  },
+};
+```
+
+Events may arrive out of order, so assemble by stable doc id, not array position. Accept an event only when its import-session token, generation, doc, and ingest job are current. A stale event must not update the draft even if its hash happens to match.
+
+`source-ready` is necessary but not sufficient to call the import complete. Require the document to be published in the current snapshot, with no terminal ingest error, before treating it as analysis-ready/saveable. If later phases fail, retain the `File` and error state for retry; do not silently persist a manifest that claims a usable document.
+
+### File lifetime
+
+Keep `File` objects in a private, ephemeral main-thread sidecar such as `Map<DocId, AttachedSource>`, owned by the project store/session controller but not serialized into Zustand devtools or the project manifest. Do not retain transferred `ArrayBuffer`s.
+
+The `File` remains useful beyond source persistence:
+
+- Ingest transfers an `ArrayBuffer`, so persistence requires rereading the `File`.
+- Until `source-persisted`, it is the only retry source.
+- For a deliberately external doc, retain it for the current tab so worker restart can re-ingest without asking again. It naturally disappears on reload, at which point reattachment applies only if the warm barrier actually needs bytes.
+
+Also distinguish edits that rebuild analysis from metadata-only edits. Reorder changes declared sequence and therefore opens a new generation. Language can change tokenization and also requires a new generation. Title, author, year, and tags dirty the project but should not rebuild the analysis snapshot.
+
+## Q4 — dirty, CAS, conflict, and source durability
+
+Model revision, edit dirtiness, and operation phase as orthogonal state. A single `dirty: boolean` loses important races.
+
+```ts
+type UserSaveState =
+  | { readonly phase: 'idle' }
+  | {
+      readonly phase: 'saving';
+      readonly token: number;
+      readonly payloadEpoch: number;
+      readonly targetRevision: number;
+    }
+  | { readonly phase: 'conflict'; readonly currentRevision: number }
+  | { readonly phase: 'error'; readonly code: string; readonly message: string };
+
+interface UserProjectSession {
+  readonly data: ProjectDataV1;
+  readonly baseRevision: number;
+  readonly editEpoch: number;
+  readonly savedEpoch: number;
+  readonly save: UserSaveState;
+}
+
+const dirty = session.editEpoch !== session.savedEpoch;
+```
+
+Rules:
+
+1. A newly imported working copy starts at `baseRevision = 0` and is dirty. It is not yet a `ProjectManifestV1`.
+2. A validated load starts with `baseRevision = manifest.revision` and equal edit/saved epochs.
+3. A save captures an immutable payload and its `payloadEpoch`, builds `targetRevision = baseRevision + 1`, validates the entire manifest locally, and sends `expectedRevision = baseRevision`.
+4. Accept `project-saved` only for the current save token and require its revision to equal the target. Set `baseRevision` to the acked revision and `savedEpoch` to the captured payload epoch. If edits occurred while the save was in flight, the current working copy correctly remains dirty.
+5. Permit only one CAS save in flight. A save request during it may be coalesced into one follow-up save after acknowledgement.
+6. On `REVISION_CONFLICT`, retain the draft and attached files, do not advance the base revision, and surface `currentRevision`. Commit 7 needs reload/discard versus retain-draft/retry guidance; automatic field merging can be deferred.
+7. On `DATA_CORRUPT`, never overwrite the record automatically. On persistence/quota failure, retain the dirty draft and retry affordance.
+
+One protocol correction: `project-loaded` contains `manifest: unknown`; it does **not** carry a second revision. After deep validation, `manifest.revision` is the sole authority. `project-saved.revision` is an acknowledgement of the just-committed manifest, not durable duplicate state.
+
+Keep source availability (canonical manifest truth) separate from a transient operation status:
+
+```ts
+type SourceRuntime =
+  | { readonly phase: 'bundled' }
+  | { readonly phase: 'external-attached'; readonly file: File }
+  | { readonly phase: 'external-missing' }
+  | { readonly phase: 'persist-saving'; readonly file: File; readonly token: number }
+  | { readonly phase: 'persist-failed'; readonly file: File; readonly message: string }
+  | { readonly phase: 'persisted' };
+```
+
+Do not put `File` itself in serializable UI state if the store architecture can keep it in a private sidecar; the sketch only shows lifetime.
+
+The durable ordering is strict:
+
+1. extraction establishes the `SourceHash`;
+2. reread the retained `File` and call `sourcePersist(hash, bytes)`;
+3. wait for `source-persisted`;
+4. change the working copy's `sourceAvailability` from `external` to `persisted`;
+5. save the project manifest by CAS.
+
+A source-persist acknowledgement arriving after the project or doc was removed may leave an unreferenced content-addressed source; that is harmless. Gate the UI/project mutation by project session, doc, source hash, and operation token.
+
+For the primary Save action, **block while an included document with persistence intent is `persist-saving`**. Technically the app could save an honest `external` manifest while persistence is in flight, but that violates the user's selected intent and creates a surprising intermediate durable state. On persist failure, offer “retry” or an explicit “keep external”; only the latter clears the block and permits an external manifest save. Also block save while import assembly is incomplete, the draft fails validation, or the current project is built-in.
+
+## Q5 — reattachment
+
+Hash on the main thread before posting. The core `hashSourceBytes` already uses asynchronous Web Crypto, which is the right implementation; no new worker operation is justified for one digest. The sequence is:
+
+1. cap-check `File.size` before reading;
+2. read one `ArrayBuffer`;
+3. hash it with `hashSourceBytes`/`crypto.subtle.digest`;
+4. compare with the manifest's `SourceHash`;
+5. only on equality transfer that same buffer to `ingest`.
+
+The worker's `SOURCE_MISMATCH` check remains mandatory defense in depth. A main-side mismatch should be a distinct user-facing `REATTACH_SOURCE_MISMATCH` condition and should never send the bad bytes. Explain expected versus selected content identity without presenting a same filename as evidence. A differently named identical file is valid; a same-named changed file is not.
+
+Additional rules:
+
+- Preserve `ProjectDocV1.sourceName` unless the user explicitly edits it; the chosen replacement filename is an ephemeral attachment hint.
+- Fence the asynchronous digest by project session/doc/reattach token. Ignore completion if the project changed meanwhile.
+- Ingest with the existing stable doc id and expected source/text/candidate identities. This lets both the main check and worker pipeline detect drift.
+- If the user wants persistence after reattachment, reread the retained `File` after the ingest transfer and follow the persist-ack-then-project-save ordering.
+- A missing/corrupt persisted source may use the same reattachment repair flow. An explicit source persist with the same content hash can repair it; do not auto-delete the project.
+- Do not prompt merely because an external project's `File` is absent after reload. Prompt only when generation rehydration reports that doc as `source-bytes`; cached text/shard/structure may still be sufficient.
+
+## Q6 — scope boundary
+
+Confirmed: all of the following stay in commit 8:
+
+- the chapter/structure correction panel;
+- the `structure` query consumer;
+- override authoring/review;
+- chapter boundary rules in trends/barcode or other charts.
+
+Commit 7's UI should contain only:
+
+- built-in versus user project selection appropriate to the one-project scope;
+- native file picker/drop with cap/format/encoding feedback;
+- document list, basic metadata, simple declared-order controls;
+- persistence intent and per-document durability/attachment status;
+- dirty/saving/saved/revision/conflict state;
+- reattachment;
+- the existing trend/KWIC/passage analysis unchanged.
+
+I would pull forward two honesty details because they belong to import, not chapter correction:
+
+- surface `hadReplacementChars`, replacement count, and suspicious-control evidence as per-document warning badges;
+- for Markdown, state that v1 analyzes the literal Markdown source, so heading markers and other markup remain in token counts.
+
+I would push back multi-project navigation, autosave, save-as/clone of the built-in corpus, portable projects, text editing, conflict merge UI, and polished drag-reorder. Explicit Save is preferable in commit 7 because it makes source durability and CAS ordering visible and testable.
+
+## Required invariants for acceptance
+
+Before calling commit 7 complete, tests should establish these invariants:
+
+1. No `ProjectManifestV1` with revision `0` is ever constructed or sent.
+2. A stale `source-ready`, source-persist ack, project-save ack, or file hash completion cannot mutate the current session.
+3. `source-ready` never means ingest completion.
+4. The manifest never says `persisted` before `source-persisted`.
+5. Edits made during an in-flight save remain dirty after that payload is acknowledged.
+6. A CAS conflict or corrupt load never overwrites durable data automatically.
+7. Built-in projects cannot enter any save, persist, conflict, or reattachment path.
+8. Reorder/language changes reopen analysis; descriptive metadata edits do not.
+9. Worker restart retains enough main-thread intent and attached `File` state to reopen and satisfy genuine misses.
+10. The same project-data-to-generation-spec function drives bundled, newly imported, loaded, and reattached projects.
+
+With those constraints, commit 7 creates a clean ownership boundary: the main thread owns project intent and the working copy; the worker remains the sole durable-storage and analysis actor; acknowledgements, rather than optimistic booleans, establish durable truth.

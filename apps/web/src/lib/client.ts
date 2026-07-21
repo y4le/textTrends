@@ -13,18 +13,59 @@
  * worker-instance epoch so a stale instance can never publish.
  */
 
-import type { IndexRecipeProvisional } from '@texttrends/core';
+import type { IndexRecipeProvisional, ProjectManifestV1 } from '@texttrends/core';
 import type {
   FromWorkerV4,
   GenerationDocSpecV4,
   MissingWarmDocV4,
   QueryOpV4,
   QueryResultDataV4,
+  SourceDescriptorV4,
   StorageWarningCodeV4,
   ToWorkerV4,
+  UserDataErrorCodeV4,
 } from '../worker/protocol-v4.ts';
 import { PROTOCOL_VERSION_V4 } from '../worker/protocol-v4.ts';
 import type { ProtocolTraceSink } from './trace.ts';
+
+/** A durable user-data failure surfaced as a typed rejection (never an
+ *  analysis error): the code plus, for a CAS conflict, the revision actually
+ *  stored so the caller can rebase. */
+export class UserDataClientError extends Error {
+  readonly code: UserDataErrorCodeV4;
+  readonly currentRevision?: number;
+  constructor(code: UserDataErrorCodeV4, message: string, currentRevision?: number) {
+    super(message);
+    this.name = 'UserDataClientError';
+    this.code = code;
+    if (currentRevision !== undefined) this.currentRevision = currentRevision;
+  }
+}
+
+/** Resolution of projectLoad: the raw persisted manifest (the caller
+ *  deep-validates it), or a miss. Corrupt/unavailable rejects with a
+ *  UserDataClientError. */
+export type ProjectLoadResult =
+  | { readonly kind: 'loaded'; readonly manifest: unknown }
+  | { readonly kind: 'missing' };
+
+/** The correlated extraction event: the source/text/candidate identities a
+ *  manifest needs, retaining job + generation + doc so a superseded or retried
+ *  import can never assemble the wrong document. NOTE: source-ready is an
+ *  intermediate signal, NOT ingest completion — segment/index/structure/compose
+ *  can still fail after it; snapshot publication is the analysis boundary. */
+export interface SourceReadyInfo {
+  readonly job: number;
+  readonly generation: string;
+  readonly doc: string;
+  readonly source: SourceDescriptorV4;
+  readonly extractionRecipeHash: string;
+  readonly text: string;
+  readonly textLengthUtf16: number;
+  readonly candidates: string;
+  readonly decoderReplacementCount: number;
+  readonly suspiciousControlCount: number;
+}
 
 export interface SnapshotInfo {
   /** The generation this snapshot belongs to — lets a consumer distinguish a
@@ -57,7 +98,10 @@ const MAX_WORKER_RESTARTS = 3;
 type Pending =
   | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
   | { kind: 'excerpt'; resolve: (text: string) => void; reject: (e: Error) => void }
-  | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void };
+  | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void }
+  | { kind: 'project-load'; resolve: (r: ProjectLoadResult) => void; reject: (e: Error) => void }
+  | { kind: 'project-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
+  | { kind: 'source-persist'; resolve: () => void; reject: (e: Error) => void };
 
 export class WorkerClient {
   private worker: Worker;
@@ -73,7 +117,8 @@ export class WorkerClient {
   private readonly pending = new Map<number, Pending>();
   private snapshotListener: ((info: SnapshotInfo) => void) | null = null;
   private progressListener: ((p: IngestProgress) => void) | null = null;
-  private ingestErrorListener: ((generation: string, message: string) => void) | null = null;
+  private ingestErrorListener: ((generation: string, message: string, doc?: string) => void) | null = null;
+  private sourceReadyListener: ((info: SourceReadyInfo) => void) | null = null;
   private warningListener: ((code: StorageWarningCodeV4, message: string) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
   /** job -> the ingest's generation + document. A successful ingest has no
@@ -140,8 +185,13 @@ export class WorkerClient {
   onProgress(listener: (p: IngestProgress) => void): void {
     this.progressListener = listener;
   }
-  onIngestError(listener: (generation: string, message: string) => void): void {
+  onIngestError(listener: (generation: string, message: string, doc?: string) => void): void {
     this.ingestErrorListener = listener;
+  }
+  /** The correlated extraction event — the import flow assembles a manifest
+   *  document from it, gating on the info's job/generation/doc. */
+  onSourceReady(listener: (info: SourceReadyInfo) => void): void {
+    this.sourceReadyListener = listener;
   }
   onWarning(listener: (code: StorageWarningCodeV4, message: string) => void): void {
     this.warningListener = listener;
@@ -242,7 +292,7 @@ export class WorkerClient {
         if (m.job !== undefined && this.ingestJobs.has(m.job)) {
           const info = this.ingestJobs.get(m.job)!;
           this.ingestJobs.delete(m.job);
-          this.ingestErrorListener?.(m.generation ?? info.generation, `${m.code}: ${m.message}`);
+          this.ingestErrorListener?.(m.generation ?? info.generation, `${m.code}: ${m.message}`, info.doc);
         }
         return;
       }
@@ -252,19 +302,51 @@ export class WorkerClient {
         if (this.warningListener) this.warningListener(m.code, m.message);
         else console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
         return;
-      // source-ready is intentionally ignored for Sherlock UI state: the
-      // bundled manifest is authoritative, and source-ready is NOT ingest
-      // completion (segment/index/structure can still fail after it).
       case 'source-ready':
-      // User-data acknowledgements/errors have no public producer until commit
-      // 7 — consumed explicitly so the expanded v4 union is intentional, not
-      // accidentally incomplete. The trace above already captured metadata.
-      case 'project-loaded':
-      case 'project-missing':
-      case 'project-saved':
-      case 'source-persisted':
-      case 'user-data-error':
+        // The correlated extraction event — surfaced for import assembly. It is
+        // NOT ingest completion, and it does not touch the ingest-job
+        // bookkeeping (later phases may still fail).
+        this.sourceReadyListener?.({
+          job: m.job,
+          generation: m.generation,
+          doc: m.doc,
+          source: m.source,
+          extractionRecipeHash: m.extractionRecipe,
+          text: m.text,
+          textLengthUtf16: m.textLengthUtf16,
+          candidates: m.candidates,
+          decoderReplacementCount: m.decoderReplacementCount,
+          suspiciousControlCount: m.suspiciousControlCount,
+        });
         return;
+      // User-data acknowledgements/errors — resolve/reject the correlated
+      // pending request; an uncorrelated ack (a superseded/replaced request) is
+      // dropped.
+      case 'project-loaded': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'project-load') { this.pending.delete(m.job); p.resolve({ kind: 'loaded', manifest: m.manifest }); }
+        return;
+      }
+      case 'project-missing': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'project-load') { this.pending.delete(m.job); p.resolve({ kind: 'missing' }); }
+        return;
+      }
+      case 'project-saved': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'project-save') { this.pending.delete(m.job); p.resolve({ revision: m.revision }); }
+        return;
+      }
+      case 'source-persisted': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'source-persist') { this.pending.delete(m.job); p.resolve(); }
+        return;
+      }
+      case 'user-data-error': {
+        const p = this.pending.get(m.job);
+        if (p) { this.pending.delete(m.job); p.reject(new UserDataClientError(m.code, m.message, m.currentRevision)); }
+        return;
+      }
     }
   }
 
@@ -328,23 +410,100 @@ export class WorkerClient {
     };
   }
 
-  ingest(generation: string, doc: string, bytes: ArrayBuffer): void {
+  /** Returns the correlation `job` so a caller can match this ingest's
+   *  source-ready (and any correlated error, which carries the doc). */
+  ingest(generation: string, doc: string, bytes: ArrayBuffer): { job: number } {
     if (this.dead) {
-      this.ingestErrorListener?.(generation, 'WORKER_TERMINATED: the analysis worker is not running');
-      return;
+      this.ingestErrorListener?.(generation, 'WORKER_TERMINATED: the analysis worker is not running', doc);
+      return { job: -1 };
     }
-    // Retire any prior in-flight ingest of the SAME (generation, doc) — this
-    // attempt supersedes it, so its late error is moot and must not later be
-    // mistaken for this attempt's (deliberate supersession, exact correlation).
+    // Collect any prior in-flight ingest of the SAME (generation, doc), but
+    // retire them only AFTER a successful post: this attempt supersedes them
+    // only if the worker actually receives it. If the post throws, the prior
+    // ingest is still live, so its correlation must be preserved.
+    const priors: number[] = [];
     for (const [prior, info] of this.ingestJobs) {
-      if (info.generation === generation && info.doc === doc) this.ingestJobs.delete(prior);
+      if (info.generation === generation && info.doc === doc) priors.push(prior);
     }
     const job = this.nextJob++;
     this.ingestJobs.set(job, { generation, doc });
-    this.post(
-      { v: PROTOCOL_VERSION_V4, t: 'ingest', job, generation, doc, bytes },
-      [bytes], // transferred, zero-copy
+    try {
+      this.post({ v: PROTOCOL_VERSION_V4, t: 'ingest', job, generation, doc, bytes }, [bytes]); // transferred
+    } catch (e) {
+      // A synchronous postMessage failure (e.g. an already-detached buffer)
+      // must surface as a correlated ingest error, not a thrown exception, and
+      // must not leave a dangling job — nor retire the still-live prior attempt.
+      this.ingestJobs.delete(job);
+      this.ingestErrorListener?.(generation, `WORKER_POST_FAILED: ${e instanceof Error ? e.message : String(e)}`, doc);
+      return { job: -1 };
+    }
+    // The worker received the replacement — the prior attempts are now moot.
+    for (const prior of priors) this.ingestJobs.delete(prior);
+    return { job };
+  }
+
+  /** Load a durable project by id. Resolves `loaded` with the RAW manifest (the
+   *  caller deep-validates it) or `missing`; rejects UserDataClientError on a
+   *  corrupt record or unavailable storage. Cancellable before the read/deep
+   *  validation completes. */
+  projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void } {
+    return this.userDataRequest<ProjectLoadResult>(
+      (job, resolve, reject) => {
+        this.pending.set(job, { kind: 'project-load', resolve, reject });
+        this.post({ v: PROTOCOL_VERSION_V4, t: 'project-load', job, project });
+      },
     );
+  }
+
+  /** Save an ALREADY-VALIDATED manifest by compare-and-swap. Resolves with the
+   *  committed revision; rejects UserDataClientError (REVISION_CONFLICT carries
+   *  the stored `currentRevision`). Cancellable before the durable write begins. */
+  projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
+    return this.userDataRequest<{ revision: number }>(
+      (job, resolve, reject) => {
+        this.pending.set(job, { kind: 'project-save', resolve, reject });
+        this.post({ v: PROTOCOL_VERSION_V4, t: 'project-save', job, project: manifest.id, manifest, expectedRevision });
+      },
+    );
+  }
+
+  /** Persist opted-in source bytes durably (content-addressed). The bytes are
+   *  TRANSFERRED; the worker re-hashes and verifies them against `sourceHash`.
+   *  Resolves only after the durable write commits; rejects UserDataClientError.
+   *  Cancellable before the durable write begins (a truthful ack wins after). */
+  sourcePersist(sourceHash: string, bytes: ArrayBuffer): { result: Promise<void>; cancel: () => void } {
+    return this.userDataRequest<void>(
+      (job, resolve, reject) => {
+        this.pending.set(job, { kind: 'source-persist', resolve, reject });
+        this.post({ v: PROTOCOL_VERSION_V4, t: 'source-persist', job, sourceHash, bytes }, [bytes]);
+      },
+    );
+  }
+
+  /**
+   * The shared correlation+cancel harness for a user-data request: assign a
+   * job, set up the pending resolver, POST inside a guard that deletes the exact
+   * entry and rejects if postMessage throws synchronously (never leaking a
+   * pending resolver or throwing from the public method), and expose a cancel
+   * that posts a cancel for this job (rejected as `cancelled` by the worker's
+   * pre-write cancellation, ignored once the durable write commits).
+   */
+  private userDataRequest<T>(
+    send: (job: number, resolve: (r: T) => void, reject: (e: Error) => void) => void,
+  ): { result: Promise<T>; cancel: () => void } {
+    if (this.dead) {
+      return { result: Promise.reject(new Error('WORKER_TERMINATED: the analysis worker is not running')), cancel: () => undefined };
+    }
+    const job = this.nextJob++;
+    const result = new Promise<T>((resolve, reject) => {
+      try {
+        send(job, resolve, reject);
+      } catch (e) {
+        this.pending.delete(job);
+        reject(new Error(`WORKER_POST_FAILED: ${e instanceof Error ? e.message : String(e)}`));
+      }
+    });
+    return { result, cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }) };
   }
 
   query(snapshot: string, query: QueryOpV4): { result: Promise<QueryResultDataV4>; cancel: () => void } {
