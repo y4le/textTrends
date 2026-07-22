@@ -2172,3 +2172,237 @@ Also test nonfatal versus fatal worker restart. Nonfatal restart reopens analysi
 7. Complete deterministic race tests before 7c consumes the controller.
 
 That boundary keeps 7b reviewable while ensuring 7c is a genuine wiring/UI change rather than the place where lifecycle policy is first exercised.
+
+# 7c integration ruling — atomic listener cutover + minimal import UI (Codex planner consult `claude_7c_consult`, 2026-07-22)
+
+*Recorded verbatim. Governs 7c: the composition-root one-shot session attachment, Zustand as the sole UI boundary holding the whole immutable SessionState + thin command wrappers, the QueryClient seam split, (generation, snapshot)-keyed query reissue, the FakeSessionPort test seam, and the deterministic reattach browser smoke.*
+
+# Commit 7c integration ruling
+
+## Bottom line
+
+- Use async bootstrap with a **one-shot composition-root attachment**, not a placeholder project.
+- The UI talks only to Zustand. Zustand stores the immutable `SessionState` wholesale and exposes thin session-command wrappers.
+- Narrow the store's worker dependency to `QueryClient`.
+- Reissue/cancel queries only when the snapshot identity changes, including transition to `null`.
+- Unit-test the store with a fake session-state emitter; retain one wiring test plus the real-browser smoke rather than re-running the complete `ProjectSession` suite through the store.
+
+This preserves the ownership boundary established in 7b and keeps 7c an integration/UI commit.
+
+## Q1 — synchronous store, asynchronous session bootstrap
+
+Choose **(a)**, refined so `attachSession` is not a public UI action. Keep `useApp` synchronously exportable, but have the composition root own the one-shot bridge:
+
+```ts
+const client = new WorkerClient(trace);
+const runtime = createAppRuntime(client); // synchronous Zustand + query layer
+
+export const useApp = runtime.useApp;
+
+void bootstrap();
+
+async function bootstrap() {
+  let session: ProjectSession;
+  try {
+    const data = await sherlockProjectData();
+    session = new ProjectSession(builtinProject(data), {
+      client,
+      bundledBytes,
+      newDocId: crypto.randomUUID.bind(crypto),
+      hashBytes: hashSourceBytes,
+    });
+  } catch (error) {
+    runtime.failBootstrap(error);
+    return;
+  }
+  runtime.attachSession(session); // seed + subscribe, exactly once
+  session.start();                // only after the store is observing
+}
+```
+
+`createAppRuntime` can return `{ useApp, attachSession, failBootstrap, dispose }`, or an equivalent private bridge. The important point is that `attachSession` is available to `store-instance.ts` and tests, not to React components.
+
+Attachment order is exact:
+
+1. construct the session, which installs the sole generation-lane listeners;
+2. subscribe the store;
+3. seed the store from `session.getState()` because `subscribe()` does not replay current state;
+4. call `session.start()` once.
+
+No App effect calls `start`; delete the `started` flag and `loadSherlock` effect. React Strict Mode must not be able to open a second generation.
+
+Before attachment, publish an explicit bootstrap state such as:
+
+```ts
+type BootstrapState =
+  | { phase: 'initializing' }
+  | { phase: 'attached' }
+  | { phase: 'error'; message: string };
+```
+
+During `initializing`:
+
+- `snapshot` is `null`;
+- the header says “Preparing the built-in project…”;
+- project/import/save controls are disabled or omitted;
+- query panels render no evidence;
+- the UI does not claim Sherlock is loaded, dirty, saveable, or in error.
+
+Once attached, `SessionState.analysis` becomes authoritative. A bootstrap hashing/construction failure is distinct from an analysis-generation failure. If retry is exposed, it retries bootstrap only when no session was attached; after attachment, analysis retry calls `session.start()` on the same lifetime session.
+
+Do not use option (b). A placeholder builtin creates a second project-install path, weakens the read-only/data invariants, and expands the already-reviewed session policy merely to accommodate module timing.
+
+Enforce one attachment: a second different session must throw in development/tests. Project switching and user-project loading happen **inside the same session**, never by constructing a replacement session.
+
+## Q2 — Zustand is the UI boundary
+
+Choose **(a)**. Components should not import or reach a `ProjectSession` singleton. The store is the UI's single state/command surface.
+
+Store the complete immutable `SessionState` as one field rather than flattening and copying a “minimal” subset:
+
+```ts
+interface AppState {
+  bootstrap: BootstrapState;
+  projectSession: SessionState | null;
+  snapshot: SnapshotInfo | null; // query-facing mirror, updated atomically
+  // existing query/presentation state...
+
+  importFiles(files: readonly File[], options?: { persist?: boolean }): void;
+  removeImport(doc: string): void;
+  editMeta(doc: string, patch: MetaPatch): void;
+  setLanguage(doc: string, language: string): void;
+  reorder(order: readonly string[]): void;
+  setPersistIntent(doc: string, intent: boolean): void;
+  saveProject(): void;
+  loadSavedProject(): void;
+  reattach(doc: string, file: File): void;
+  retryAnalysis(): void;
+}
+```
+
+`SessionState` was deliberately designed as a serializable, File-free UI view. Keeping it whole avoids a second projection contract drifting from the session and is still small. Components should select narrow nested values (`project.kind`, `project.saveable`, one source status) so unrelated session publications do not redraw the whole page.
+
+The runtime closure retains the actual session object. Thin store wrappers call it and translate a synchronous `SessionCommandError` into one bounded UI command error; asynchronous failures remain in `SessionState` as designed. Do not place the session object, `File`s, promises, or cancel handles into Zustand.
+
+For the single import affordance, the wrapper may dispatch explicitly:
+
+```ts
+if (session.getState().project.kind === 'builtin') {
+  session.createUserProject(files, options);
+} else {
+  session.appendFiles(files, options);
+}
+```
+
+The underlying session commands remain semantically distinct. Label the UI accordingly (“Create project from files” on builtin, “Add files” on user) rather than hiding a destructive replacement behind drop.
+
+The minimal UI can render directly from the whole session view:
+
+- builtin/user origin and builtin read-only status;
+- finalized documents plus staged imports;
+- title/basic metadata and simple order buttons;
+- per-document `SourceStatus` and reattachment status;
+- persist intent/action;
+- dirty/base revision/save phase/conflict;
+- load-saved and analysis retry.
+
+Do not add structure-query or chapter-correction state here; that remains phase 8.
+
+## Q3 — query client seam
+
+Confirm the split. Replace `ClientLike` with:
+
+```ts
+interface QueryClient {
+  query(
+    snapshot: string,
+    query: QueryOpV4,
+  ): { result: Promise<QueryResultDataV4>; cancel: () => void };
+}
+```
+
+The one concrete `WorkerClient` satisfies both `QueryClient` and `ProjectSessionClient`. This is more than cosmetic: it makes it impossible for the Zustand query store to reclaim a last-wins generation listener later. Avoid `as unknown as`; structural typing should prove both seams.
+
+Passage already uses `query`, so no broader client surface is needed. The passive trace remains attached when constructing the one real client in `store-instance.ts`.
+
+## Q4 — snapshot subscription and query reissue
+
+An external session subscription that fires on every publication is fine. Gate query invalidation on a snapshot key, preferably **generation plus snapshot id**, not only the snapshot string:
+
+```ts
+const keyOf = (s: SnapshotInfo | null) =>
+  s ? `${s.generation}\u0000${s.snapshot}` : null;
+
+function acceptSessionState(next: SessionState) {
+  const previousKey = keyOf(store.getState().snapshot);
+  const nextKey = keyOf(next.snapshot);
+
+  store.setState({
+    bootstrap: { phase: 'attached' },
+    projectSession: next,
+    snapshot: next.snapshot,
+    loadingPhase: describeAnalysis(next.analysis),
+    loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
+  });
+
+  if (previousKey !== nextKey) store.getState().runQueries();
+}
+```
+
+Calling Zustand `setState` from the session listener is not inherently re-entrant. Keep the listener one-way: it may update the store and invoke `runQueries`, but must not issue a session command in response to a publication. Session commands originate from bootstrap or UI actions.
+
+The `null` transition is important. `runQueries()` already cancels trend/KWIC/passage work, advances epochs, and clears stale evidence when no snapshot exists. Call it after the store has been set to `null`, so those paths observe the new authority. Likewise, a new non-null key triggers exactly one query refresh.
+
+Strengthen the existing query completion guards to compare the same `(generation, snapshot)` identity rather than snapshot string alone. Snapshot ids should be unique, but the extra generation fence is cheap and matches the session contract.
+
+Non-snapshot publications—progress, import assembly, persistence, metadata edits, save state—only update `projectSession`/loading display. They must neither cancel nor reissue queries.
+
+## Q5 — test migration
+
+Use a hand-rolled `FakeSessionPort`/state emitter for store unit tests. That is the correct seam:
+
+```ts
+class FakeSessionPort {
+  state: SessionState;
+  subscribe(listener: (s: SessionState) => void): () => void;
+  getState(): SessionState;
+  emit(next: SessionState): void;
+  // command spies for the wrappers
+}
+```
+
+The real session's lifecycle, restart, import, CAS, and reattachment races are already exhaustively covered in `project-session.test.ts`. Driving it through every store test would duplicate policy coverage and make query tests depend on unrelated generation setup.
+
+Delete the old store-owned `loadSherlock`/fetch/restart tests after mapping each removed guarantee to an existing session test. Preserve parse/series, trend/KWIC, scrub, cancellation, and stale-result tests using `FakeSessionPort + FakeQueryClient`.
+
+Add bridge-specific store tests:
+
+1. attachment seeds current state before the first session publication;
+2. second attachment is rejected;
+3. a non-snapshot session emit causes zero query calls/cancellations;
+4. non-null snapshot A issues once;
+5. repeated publications with A issue zero additional queries;
+6. A → `null` cancels/clears evidence once;
+7. `null` → B issues once, and late A results cannot write;
+8. builtin state remains non-saveable in the projection and save wrapper cannot bypass the session boundary;
+9. each thin command wrapper dispatches to the attached session and handles no-session/bootstrap state safely;
+10. dispose unsubscribes/fences the bridge.
+
+One small composition test may instantiate a real `ProjectSession` with its fake client and attach it to the store to prove the two structural interfaces compose, but do not repeat the session race matrix there. The Playwright smoke is the real integration proof.
+
+For the reattach browser path, make the scenario deterministic: import and save an **external** source, clear only the evictable analysis-artifact stores while preserving the user-data project record, reload/load-saved, observe `external-missing`, then reattach the identical file. A persisted-source project should warm-reopen and therefore would not naturally exercise reattachment. Assert the ingest transfer trace shows detachment.
+
+## Quiet invariants 7c must preserve
+
+1. Exactly one `WorkerClient` and one `ProjectSession` exist for the app lifetime.
+2. Only `ProjectSession` registers generation-lane listeners; the store's type cannot even express them.
+3. The store subscribes and seeds before `session.start()`.
+4. App mount/Strict Mode never starts a second generation.
+5. Builtin state is visibly read-only and cannot expose an enabled Save/Persist/Reattach mutation.
+6. A project switch uses the existing session; it never attaches another one.
+7. Snapshot → `null` invalidates all evidence immediately; unrelated session state does not churn queries.
+8. Files remain in the session sidecar; Zustand receives only serializable state.
+9. Bootstrap errors, analysis errors, save conflicts, and source errors remain distinct UI states.
+10. The old `loadSherlock` implementation and listener registrations are deleted in the same commit that constructs the live session—there is no dual-owner midpoint.
+
+With this shape, 7c is an atomic ownership cutover rather than a second lifecycle implementation: async fixture construction happens at the composition root, the session remains the project/generation authority, and Zustand remains the sole React-facing projection and query coordinator.

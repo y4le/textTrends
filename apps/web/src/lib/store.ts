@@ -2,6 +2,17 @@
  * UI state — zustand, per synthesis §8. Only handles, metadata, and bounded
  * results live here; corpus arrays and texts stay worker-side.
  *
+ * Commit 7c (the atomic listener cutover, per the recorded 7c integration
+ * ruling `claude_7c_consult`): this store is the SOLE React-facing projection.
+ * It NO LONGER owns the generation event lane — the one `ProjectSession` owns
+ * `onSnapshot`/`onProgress`/`onIngestError`/`onSourceReady`/`onRestart`/
+ * `openGeneration`/`ingest`, and its type here (`QueryClient`) cannot even
+ * express those listeners. The store SUBSCRIBES to the session's immutable
+ * `SessionState` (stored whole in `projectSession`), mirrors `snapshot` +
+ * analysis loading/error for the query flow, and exposes thin command wrappers
+ * so components talk only to the store. Query/KWIC/passage stay here: they are
+ * request/response operations, not competing listeners.
+ *
  * Multi-series intent (owner feedback round 5, Codex-consulted design):
  * the input is a comma-separated comparison of up to MAX_SERIES terms. Each
  * becomes a SeriesIntent with a SEMANTIC id (the folded query surface under
@@ -14,25 +25,31 @@
  * intent carry SEPARATE epochs. Changing the compared terms or the snapshot
  * cancels and reissues both; changing only the focused series cancels and
  * reissues ONLY the KWIC query — the trend lines are still correct and must
- * not flicker. A result is written only if its epoch and snapshot both still
- * match, so a slow stale query can never relabel itself. Corpus loading is
- * idempotent in this long-lived layer (Strict Mode double-mount safe) and
- * validates each fetched source against the bundled manifest.
+ * not flicker. A result is written only if its epoch AND its (generation,
+ * snapshot) identity both still match, so a slow stale query can never
+ * relabel itself.
  */
 
-import { create } from 'zustand';
+import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   DEFAULT_INDEX_RECIPE,
   foldKey,
   PASSAGE_MAX_TOKENS,
   tokenKey,
+  type DocumentMetaV1,
   type NumericTrend,
   type PassageResult,
   type TermGroupSpec,
 } from '@texttrends/core';
-import type { GenerationReady, SnapshotInfo } from './client.ts';
-import type { GenerationDocSpecV4, QueryResultDataV4 } from '../worker/protocol-v4.ts';
-import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, generationSpecsFromProject, type ProjectDataV1 } from './project.ts';
+import type { SnapshotInfo } from './client.ts';
+import type { QueryOpV4, QueryResultDataV4 } from '../worker/protocol-v4.ts';
+import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, type ProjectDataV1 } from './project.ts';
+import {
+  SessionCommandError,
+  type AnalysisPhase,
+  type FileLike,
+  type SessionState,
+} from './project-session.ts';
 
 /** Manifest with the exact staged LF byte lengths and FULL content hashes —
  *  a 200-with-HTML-shell response must never be indexed as a book, and a
@@ -58,7 +75,9 @@ export const SHERLOCK: readonly { doc: string; bytes: number; textLengthUtf16: n
 
 /** The bundled corpus as the built-in `ProjectDataV1`, built ONCE (the recipe
  *  and empty-candidate hashes are corpus-wide constants). One project
- *  abstraction drives every origin; Sherlock is simply the read-only built-in. */
+ *  abstraction drives every origin; Sherlock is simply the read-only built-in.
+ *  The composition root (`store-instance.ts`) awaits this to construct the
+ *  session's initial `CurrentProject`. */
 let sherlockData: Promise<ProjectDataV1> | null = null;
 export function sherlockProjectData(): Promise<ProjectDataV1> {
   sherlockData ??= buildBuiltinProjectData(
@@ -66,13 +85,6 @@ export function sherlockProjectData(): Promise<ProjectDataV1> {
     SHERLOCK.map(({ doc, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title: doc, bytes, textLengthUtf16, sourceHash, textHash })),
   );
   return sherlockData;
-}
-
-/** The bundled corpus's v4 document specs — derived from its `ProjectData`
- *  through the SHARED generation-spec builder, reused across the initial open
- *  and every warm restart reopen (hashes are never recomputed per attempt). */
-export async function sherlockGenerationSpecs(): Promise<readonly GenerationDocSpecV4[]> {
-  return generationSpecsFromProject(await sherlockProjectData());
 }
 
 export interface KwicRowView {
@@ -83,21 +95,14 @@ export interface KwicRowView {
   readonly right: string;
 }
 
-/** The client surface the store consumes — injectable for race fixtures. */
-export interface ClientLike {
-  onSnapshot(listener: (info: SnapshotInfo) => void): void;
-  onProgress(listener: (p: { doc: string; phase: string }) => void): void;
-  onIngestError(listener: (generation: string, message: string) => void): void;
-  onRestart(listener: (fatal: boolean) => void): void;
-  openGeneration(
-    generation: string,
-    docs: readonly GenerationDocSpecV4[],
-    indexRecipe: typeof DEFAULT_INDEX_RECIPE,
-  ): { result: Promise<GenerationReady>; cancel: () => void };
-  ingest(generation: string, doc: string, bytes: ArrayBuffer): void;
+/** The narrow request/response surface the store consumes — the store can hold
+ *  a `WorkerClient` only through this seam, so it can NEVER reclaim a last-wins
+ *  generation-lane listener the session exclusively owns. Injectable as a fake
+ *  for query-intent fixtures. */
+export interface QueryClient {
   query(
     snapshot: string,
-    query: unknown,
+    query: QueryOpV4,
   ): { result: Promise<QueryResultDataV4>; cancel: () => void };
 }
 
@@ -106,6 +111,12 @@ export const BINS = 40;
 
 const MATCH = { case: 'folded' as const, diacritics: 'folded' as const };
 const LOCALE = 'en';
+
+/** (generation, snapshot) identity — a query result is written only if the live
+ *  snapshot still matches this. Snapshot ids are unique per publication; the
+ *  extra generation fence is cheap and matches the session contract. */
+const snapKey = (s: SnapshotInfo | null): string | null =>
+  s ? JSON.stringify([s.generation, s.snapshot]) : null;
 
 export interface SeriesIntent {
   /** Semantic identity: the folded query surface — not the display spelling. */
@@ -141,6 +152,40 @@ export interface ScrubTarget {
  *  refetch is scheduled — inside the band, scrubbing is purely local. */
 export const SCRUB_GUARD_TOKENS = 28;
 
+/** Bootstrap lifecycle, distinct from analysis state: the store is exported
+ *  synchronously but the session needs the async-built built-in project, so
+ *  there is a window before the one-shot attachment where no session exists.
+ *  A construction/hashing failure here is NOT an analysis-generation failure. */
+export type BootstrapState =
+  | { readonly phase: 'initializing' }
+  | { readonly phase: 'attached' }
+  | { readonly phase: 'error'; readonly message: string };
+
+/** Descriptive metadata a component may patch (title/author/year/tags). */
+export type MetaPatch = Partial<Pick<DocumentMetaV1, 'title' | 'author' | 'year' | 'tags'>>;
+
+/** The exact public session surface the store drives — the seam the composition
+ *  root attaches and a fixture fakes. The concrete `ProjectSession` satisfies it
+ *  structurally; keeping it an interface lets the store tests drive a spyable
+ *  state emitter without the real generation lifecycle (whose races are covered
+ *  in the session's own suite). */
+export interface SessionPort {
+  getState(): SessionState;
+  subscribe(listener: (state: SessionState) => void): () => void;
+  dispose(): void;
+  start(): void;
+  createUserProject(files: readonly FileLike[], opts?: { persist?: boolean }): void;
+  appendFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
+  removeImport(doc: string): void;
+  editMeta(doc: string, patch: MetaPatch): void;
+  setLanguage(doc: string, language: string): void;
+  reorder(order: readonly string[]): void;
+  save(): void;
+  setPersistIntent(doc: string, intent: boolean): void;
+  reattach(doc: string, file: FileLike): void;
+  loadUserProject(): void;
+}
+
 /** Comma-separated comparison → ordered semantic series (first spelling wins).
  *  More than MAX_SERIES distinct series is an explicit refusal, not a silent
  *  truncation. Exported for fixtures. */
@@ -164,9 +209,18 @@ export function parseSeries(input: string):
 }
 
 export interface AppState {
+  /** Composition-root lifecycle before/after the one-shot session attach. */
+  bootstrap: BootstrapState;
+  /** The whole immutable session view (File-free, serializable). Components
+   *  select narrow nested values so unrelated publications don't redraw all. */
+  projectSession: SessionState | null;
   snapshot: SnapshotInfo | null;
   loadingPhase: string | null;
   loadError: string | null;
+  /** One bounded UI error from a synchronous `SessionCommandError` (an illegal
+   *  command the UI should have prevented). Async policy failures stay in
+   *  `projectSession` (save/sources/reattach). */
+  commandError: string | null;
   /** Raw committed input (the draft lives in the form component). */
   input: string;
   series: readonly SeriesIntent[];
@@ -181,20 +235,58 @@ export interface AppState {
    *  flight; the panel renders the block that CONTAINS the target only. */
   passage: PassageResult | null;
 
-  loadSherlock(): Promise<void>;
+  // ── Query/presentation intent (owned here). ──
   setInput(input: string): void;
   setFocus(seriesId: string): void;
   setTrendView(view: TrendView): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   runQueries(): void;
+
+  // ── Session command wrappers (forward to the one attached session). ──
+  /** Import files: create a user project from the built-in origin, or append
+   *  to the current user project. */
+  importFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
+  removeImport(doc: string): void;
+  editMeta(doc: string, patch: MetaPatch): void;
+  setLanguage(doc: string, language: string): void;
+  reorder(order: readonly string[]): void;
+  setPersistIntent(doc: string, intent: boolean): void;
+  saveProject(): void;
+  loadSavedProject(): void;
+  reattach(doc: string, file: FileLike): void;
+  /** Reopen analysis on the SAME lifetime session (post-error retry). */
+  retryAnalysis(): void;
+  clearCommandError(): void;
 }
 
-export function createAppStore(client: ClientLike) {
-  let loadStarted = false;
-  let generationCounter = 0;
-  let attemptToken = 0;          // ownership of the in-flight fetch loop
-  let attemptGeneration = '';    // the generation the CURRENT attempt owns
+/** The synchronously-constructed runtime: the React-facing store plus the
+ *  private one-shot session bridge the composition root drives. Components
+ *  receive only `useApp`; `attachSession`/`failBootstrap`/`dispose` are for
+ *  `store-instance.ts` and tests, never for React. */
+export interface AppRuntime {
+  useApp: UseBoundStore<StoreApi<AppState>>;
+  /** Subscribe the store to the session and seed current state, exactly once.
+   *  A second (different) attachment is a programming error and throws. Call
+   *  BEFORE `session.start()` so the first publication is observed. */
+  attachSession(session: SessionPort): void;
+  /** Report an async bootstrap (built-in construction/hashing) failure. */
+  failBootstrap(error: unknown): void;
+  /** Fence the bridge and dispose the session. */
+  dispose(): void;
+}
+
+/** Loading detail for the header while analysis runs; null otherwise (an error
+ *  surfaces through `loadError`, readiness through the snapshot). */
+function describeAnalysis(analysis: AnalysisPhase): string | null {
+  return analysis.phase === 'loading' ? analysis.detail : null;
+}
+
+function msg(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
+export function createAppRuntime(client: QueryClient): AppRuntime {
   let trendEpoch = 0;
   let kwicEpoch = 0;
   let trendCancels: (() => void)[] = [];
@@ -205,35 +297,14 @@ export function createAppStore(client: ClientLike) {
   let passageActiveCancel: (() => void) | null = null;
   let passagePending: ScrubTarget | null = null;
 
-  const store = create<AppState>((set, get) => {
-    client.onSnapshot((snapshot) => {
-      set({ snapshot });
-      get().runQueries();
-    });
-    client.onProgress((p) => set({ loadingPhase: `${p.phase}: ${p.doc.slice(0, 40)}` }));
-    client.onIngestError((generation, message) => {
-      // Only a failure from the CURRENT attempt's generation fails the
-      // attempt — late stale errors from a superseded generation must not
-      // corrupt a completed retry's state (round 4).
-      if (generation !== attemptGeneration) return;
-      attemptToken++; // invalidate the failed attempt's fetch loop
-      loadStarted = false;
-      set({ loadError: message });
-    });
-    client.onRestart((fatal) => {
-      // The worker died: its snapshots and resident state are gone, and any
-      // in-flight fetch loop now feeds a dead generation. Reset and — if a
-      // replacement is live — reload; rehydration makes that a warm reopen.
-      attemptToken++;
-      loadStarted = false;
-      set({ snapshot: null, passage: null, scrub: null });
-      if (fatal) {
-        set({ loadError: 'the analysis worker crashed repeatedly; reload the page to retry' });
-        return;
-      }
-      void get().loadSherlock();
-    });
+  // The one attached session (retained in the closure, never in Zustand state —
+  // it holds Files, promises, and cancel handles). Null until the composition
+  // root attaches it.
+  let session: SessionPort | null = null;
+  let unsubscribe: (() => void) | null = null;
+  let attached = false;
 
+  const store = create<AppState>((set, get) => {
     /** Group/member ids derive from the series' semantic id — evidence
      *  provenance must distinguish the compared groups. */
     const groupFor = (s: SeriesIntent): TermGroupSpec => ({
@@ -279,8 +350,8 @@ export function createAppStore(client: ClientLike) {
       const { snapshot, series } = get();
       if (!snapshot || series.length === 0) return;
       const issuedEpoch = scrubEpoch;
-      const issuedSnapshot = snapshot.snapshot;
-      const handle = client.query(issuedSnapshot, {
+      const issuedKey = snapKey(snapshot);
+      const handle = client.query(snapshot.snapshot, {
         op: 'passage',
         request: {
           doc: target.doc,
@@ -291,7 +362,7 @@ export function createAppStore(client: ClientLike) {
       });
       passageActiveCancel = handle.cancel;
       const current = () =>
-        scrubEpoch === issuedEpoch && get().snapshot?.snapshot === issuedSnapshot;
+        scrubEpoch === issuedEpoch && snapKey(get().snapshot) === issuedKey;
       /** Only the CURRENT owner of the active slot may clear it and pump —
        *  a structurally superseded request's late settlement must not free
        *  the slot out from under its replacement. */
@@ -332,6 +403,7 @@ export function createAppStore(client: ClientLike) {
         set({ kwic: null });
         return;
       }
+      const issuedKey = snapKey(snapshot);
       set({ kwic: { seriesId: focused.id, state: { status: 'pending' } } });
       const handle = client.query(snapshot.snapshot, {
         op: 'kwic',
@@ -345,7 +417,7 @@ export function createAppStore(client: ClientLike) {
       });
       kwicCancel = handle.cancel;
       const current = () =>
-        kwicEpoch === myEpoch && get().snapshot?.snapshot === snapshot.snapshot;
+        kwicEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
       void handle.result
         .then((data) => {
           if (data.op === 'kwic' && current()) {
@@ -364,11 +436,33 @@ export function createAppStore(client: ClientLike) {
         });
     };
 
+    /** Guard a synchronous session command: forward to the attached session,
+     *  translating an illegal-command `SessionCommandError` into one bounded UI
+     *  error. Async policy failures live in the session state, not here. */
+    const command = (run: (s: SessionPort) => void) => {
+      if (!session) {
+        set({ commandError: 'the project is still initializing' });
+        return;
+      }
+      try {
+        run(session);
+      } catch (e) {
+        if (e instanceof SessionCommandError) {
+          set({ commandError: e.message });
+          return;
+        }
+        throw e;
+      }
+    };
+
     const initialSeries = parseSeries('Holmes, Moriarty').series ?? [];
     return {
+      bootstrap: { phase: 'initializing' },
+      projectSession: null,
       snapshot: null,
       loadingPhase: null,
       loadError: null,
+      commandError: null,
       input: 'Holmes, Moriarty',
       series: initialSeries,
       inputError: null,
@@ -381,66 +475,6 @@ export function createAppStore(client: ClientLike) {
       trendView: 'series',
       scrub: null,
       passage: null,
-
-      async loadSherlock() {
-        if (loadStarted) return; // idempotent — Strict Mode double-mount safe
-        loadStarted = true;
-        set({ loadError: null }); // cleared once per deliberate attempt
-        const token = ++attemptToken; // this loop OWNS the attempt while current
-        const generation = `gen-${++generationCounter}`;
-        attemptGeneration = generation;
-        const base = `${import.meta.env.BASE_URL ?? '/'}corpora/sherlock/`;
-        // Warm-open (M5/v4): assert each doc's authoritative source/text
-        // identities so the worker rehydrates whatever it has persisted, then
-        // AWAIT the generation-ready barrier — bytes are fetched ONLY for its
-        // `source-bytes` misses.
-        let ready: GenerationReady;
-        try {
-          // Spec construction is async (recipe/candidate hashes) but memoized;
-          // recheck the attempt token immediately after awaiting it, before
-          // opening the generation.
-          const specs = await sherlockGenerationSpecs();
-          if (attemptToken !== token) return; // superseded while awaiting specs
-          // Constructed INSIDE the boundary: a synchronous client fault must
-          // fail this attempt visibly, not escape loadSherlock unhandled.
-          const open = client.openGeneration(generation, specs, DEFAULT_INDEX_RECIPE);
-          ready = await open.result;
-        } catch (e) {
-          if (attemptToken !== token) return; // superseded while awaiting
-          loadStarted = false;
-          set({
-            loadError: `failed to open the corpus: ${e instanceof Error ? e.message : String(e)}`,
-          });
-          return;
-        }
-        if (attemptToken !== token) return;
-        const manifest = new Map(SHERLOCK.map((entry) => [entry.doc, entry]));
-        for (const miss of ready.missing) {
-          const entry = manifest.get(miss.doc);
-          if (!entry) continue; // not a doc this manifest declared
-          const { doc, bytes } = entry;
-          try {
-            const response = await fetch(base + encodeURIComponent(doc));
-            if (attemptToken !== token) return; // superseded while awaiting
-            if (!response.ok) {
-              throw new Error(`HTTP ${response.status}`);
-            }
-            const buffer = await response.arrayBuffer();
-            if (attemptToken !== token) return; // superseded while awaiting
-            if (buffer.byteLength !== bytes) {
-              throw new Error(`expected ${bytes} bytes, received ${buffer.byteLength}`);
-            }
-            client.ingest(generation, doc, buffer);
-          } catch (e) {
-            if (attemptToken !== token) return; // a superseded attempt may not mutate state
-            loadStarted = false; // allow retry without a page reload
-            set({
-              loadError: `failed to load '${doc}': ${e instanceof Error ? e.message : String(e)}`,
-            });
-            return;
-          }
-        }
-      },
 
       setInput(input) {
         const parsed = parseSeries(input);
@@ -519,11 +553,12 @@ export function createAppStore(client: ClientLike) {
         }
 
         const issuedSnapshot = snapshot.snapshot;
+        const issuedKey = snapKey(snapshot);
         set({
           trends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])),
         });
         const current = () =>
-          trendEpoch === myEpoch && get().snapshot?.snapshot === issuedSnapshot;
+          trendEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
 
         for (const s of series) {
           const handle = client.query(issuedSnapshot, {
@@ -554,8 +589,87 @@ export function createAppStore(client: ClientLike) {
 
         runKwic();
       },
+
+      // ── Session command wrappers ──────────────────────────────────────────
+      importFiles(files, opts) {
+        command((s) => {
+          if (s.getState().project.kind === 'builtin') s.createUserProject(files, opts);
+          else s.appendFiles(files, opts);
+        });
+      },
+      removeImport(doc) {
+        command((s) => s.removeImport(doc));
+      },
+      editMeta(doc, patch) {
+        command((s) => s.editMeta(doc, patch));
+      },
+      setLanguage(doc, language) {
+        command((s) => s.setLanguage(doc, language));
+      },
+      reorder(order) {
+        command((s) => s.reorder(order));
+      },
+      setPersistIntent(doc, intent) {
+        command((s) => s.setPersistIntent(doc, intent));
+      },
+      saveProject() {
+        command((s) => s.save());
+      },
+      loadSavedProject() {
+        command((s) => s.loadUserProject());
+      },
+      reattach(doc, file) {
+        command((s) => s.reattach(doc, file));
+      },
+      retryAnalysis() {
+        command((s) => s.start());
+      },
+      clearCommandError() {
+        set({ commandError: null });
+      },
     };
   });
 
-  return store;
+  /** One-way bridge: mirror the session view for the query flow and reissue
+   *  queries ONLY when the (generation, snapshot) identity changes (including a
+   *  transition to null). It must never issue a session command in response to
+   *  a publication — commands originate from bootstrap or UI actions. */
+  const acceptSessionState = (next: SessionState) => {
+    const prevKey = snapKey(store.getState().snapshot);
+    const nextKey = snapKey(next.snapshot);
+    store.setState({
+      bootstrap: { phase: 'attached' },
+      projectSession: next,
+      snapshot: next.snapshot,
+      loadingPhase: describeAnalysis(next.analysis),
+      loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
+    });
+    if (prevKey !== nextKey) store.getState().runQueries();
+  };
+
+  return {
+    useApp: store,
+    attachSession(next: SessionPort) {
+      if (attached) {
+        if (next === session) return;
+        throw new Error('a session is already attached; one session lives per app lifetime');
+      }
+      attached = true;
+      session = next;
+      // Subscribe first, then seed from the current state (subscribe does not
+      // replay). Ordering matches the ruling: subscribe → seed → start (start
+      // is the caller's, after this returns).
+      unsubscribe = next.subscribe(acceptSessionState);
+      acceptSessionState(next.getState());
+    },
+    failBootstrap(error: unknown) {
+      store.setState({ bootstrap: { phase: 'error', message: msg(error) } });
+    },
+    dispose() {
+      unsubscribe?.();
+      unsubscribe = null;
+      session?.dispose();
+      session = null;
+    },
+  };
 }

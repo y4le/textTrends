@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { KwicPanel } from './components/KwicPanel.tsx';
+import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { TrendPanel } from './components/TrendPanel.tsx';
 import { useApp } from './lib/store-instance.ts';
 import { slotColor, slotDash } from './lib/series-style.ts';
@@ -71,17 +72,10 @@ export function App() {
   const setFocus = useApp((s) => s.setFocus);
   const trendView = useApp((s) => s.trendView);
   const setTrendView = useApp((s) => s.setTrendView);
-  const loadSherlock = useApp((s) => s.loadSherlock);
+  const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
+  const bootstrap = useApp((s) => s.bootstrap);
   const [draft, setDraft] = useState(input);
-  const [started, setStarted] = useState(false);
-
-  useEffect(() => {
-    if (!started) {
-      setStarted(true);
-      void loadSherlock();
-    }
-  }, [started, loadSherlock]);
 
   const focusedId = focusedSeries;
 
@@ -115,19 +109,26 @@ export function App() {
         <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
           {snapshot
             ? `${snapshot.readyDocs.length}/${snapshot.readyDocs.length + snapshot.missingDocs.length} books ready`
-            : loadingPhase ?? 'loading Sherlock Holmes…'}
+            : bootstrap.phase === 'initializing'
+              ? 'preparing the built-in project…'
+              : loadingPhase ?? 'loading…'}
         </span>
       </header>
       <div role="status" aria-live="polite">
         {inputError && (
           <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>
         )}
+        {bootstrap.phase === 'error' && (
+          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+            failed to prepare the app: {bootstrap.message} — reload the page to retry
+          </p>
+        )}
         {loadError && (
           <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
             {loadError}{' '}
             <button
               type="button"
-              onClick={() => void loadSherlock()}
+              onClick={() => retryAnalysis()}
               style={{
                 font: 'inherit',
                 color: 'inherit',
@@ -190,6 +191,7 @@ export function App() {
         <TrendPanel />
         <KwicPanel />
       </div>
+      <ProjectPanel />
     </main>
   );
 }

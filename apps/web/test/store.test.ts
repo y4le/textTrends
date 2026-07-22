@@ -1,15 +1,45 @@
-import { describe, expect, it } from 'vitest';
+/**
+ * Commit 7c — the UI store as the sole React-facing projection, driven through
+ * a fake `SessionPort` state emitter and a fake `QueryClient`. Two concerns:
+ *
+ * 1. The bridge: one-shot attachment seeds current state, mirrors snapshot +
+ *    analysis, and reissues queries ONLY on a (generation, snapshot) identity
+ *    change (including → null). Thin command wrappers forward to the attached
+ *    session and translate a synchronous SessionCommandError into one bounded
+ *    UI error. A second attachment is rejected; dispose fences the bridge.
+ * 2. The retained query/KWIC/scrub intent discipline (unchanged from the
+ *    listener-owning store): epochs, snapshot fences, and stale-result guards.
+ *
+ * The generation lifecycle (loadSherlock/fetch/restart/import/CAS/reattach)
+ * moved WHOLESALE to `ProjectSession` and is covered in project-session.test.ts;
+ * those store-owned tests are deleted here. One composition test proves the real
+ * `ProjectSession` satisfies `SessionPort` and drives the bridge end to end.
+ */
+import { beforeAll, describe, expect, it } from 'vitest';
 import {
-  createAppStore,
+  createAppRuntime,
   parseSeries,
   MAX_SERIES,
   SHERLOCK,
-  sherlockGenerationSpecs,
-  type ClientLike,
+  type MetaPatch,
+  type QueryClient,
+  type SessionPort,
 } from '../src/lib/store.ts';
 import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';
-import type { NumericTrend, PassageResult } from '@texttrends/core';
+import type {
+  AnalysisPhase,
+  ProjectView,
+  SessionState,
+} from '../src/lib/project-session.ts';
+import { SessionCommandError } from '../src/lib/project-session.ts';
+import type { SnapshotInfo } from '../src/lib/client.ts';
+import {
+  DEFAULT_INDEX_RECIPE,
+  type NumericTrend,
+  type PassageResult,
+} from '@texttrends/core';
 
+// ── A fake QueryClient that records issued trend/KWIC/passage queries. ──
 interface Issued {
   snapshot: string;
   term: string;
@@ -21,65 +51,9 @@ interface Issued {
   cancelled: boolean;
 }
 
-function fakeTrend(marker: number): NumericTrend {
-  return {
-    coordinate: 'declared-sequence',
-    docOrdinal: Uint32Array.from([0]),
-    binIndex: Uint32Array.from([0]),
-    binStartToken: Uint32Array.from([0]),
-    binTokens: Uint32Array.from([10]),
-    count: Uint32Array.from([marker]),
-    ratePer10k: Float64Array.from([marker]),
-    order: ['a'],
-    sequenceBases: [0],
-    docTokenCount: [10],
-  };
-}
-
-function fakePassage(start: number, end: number, center: number, doc = 'a'): PassageResult {
-  const count = end - start;
-  return {
-    doc,
-    centerToken: center,
-    tokens: { start, end },
-    docCharsUtf16: { start: 0, end: count },
-    text: ' '.repeat(count),
-    tokenStartsUtf16: Array.from({ length: count }, (_, i) => i),
-    tokenEndsUtf16: Array.from({ length: count }, (_, i) => i + 1),
-    centerCharsUtf16: { start: center - start, end: center - start + 1 },
-    marks: [],
-    truncatedByCharCap: false,
-  };
-}
-
-/** All docs unrehydrated — the cold-corpus barrier every fetch test wants. */
-function allMissing(generation: string) {
-  return {
-    generation,
-    snapshot: null,
-    readyDocs: [] as readonly string[],
-    missing: SHERLOCK.map(({ doc }) => ({ doc, need: 'source-bytes' as const, reason: 'extraction-miss' as const })),
-  };
-}
-
-function fakeClient() {
+function fakeQueryClient() {
   const issued: Issued[] = [];
-  let snapshotListener: ((info: { generation: string; snapshot: string; readyDocs: readonly string[]; missingDocs: readonly string[] }) => void) | null = null;
-  let restartListener: ((fatal: boolean) => void) | null = null;
-  const client: ClientLike = {
-    onSnapshot: (l) => {
-      snapshotListener = l;
-    },
-    onProgress: () => undefined,
-    onIngestError: () => undefined,
-    onRestart: (l) => {
-      restartListener = l;
-    },
-    openGeneration: (generation) => ({
-      result: Promise.resolve(allMissing(generation)),
-      cancel: () => undefined,
-    }),
-    ingest: () => undefined,
+  const client: QueryClient = {
     query: (snapshot, query) => {
       const q = query as {
         op: string;
@@ -117,10 +91,127 @@ function fakeClient() {
     trends: () => issued.filter((q) => q.op === 'trend'),
     kwics: () => issued.filter((q) => q.op === 'kwic'),
     passages: () => issued.filter((q) => q.op === 'passage'),
-    publish: (snapshot: string) =>
-      snapshotListener?.({ generation: 'g', snapshot, readyDocs: ['a'], missingDocs: [] }),
-    restart: (fatal: boolean) => restartListener?.(fatal),
   };
+}
+
+// ── A fake SessionPort: a spyable immutable-state emitter. ──
+const BUILTIN_PROJECT: ProjectView = {
+  kind: 'builtin',
+  id: 'builtin/sherlock',
+  data: { id: 'builtin/sherlock', order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' },
+  baseRevision: null,
+  dirty: false,
+  save: { phase: 'idle' },
+  saveable: false,
+};
+
+function snap(generation: string, snapshot: string, readyDocs: readonly string[] = ['a']): SnapshotInfo {
+  return { generation, snapshot, readyDocs, missingDocs: [] };
+}
+
+function sessionState(
+  snapshot: SnapshotInfo | null,
+  opts: { analysis?: AnalysisPhase; project?: Partial<ProjectView> } = {},
+): SessionState {
+  return {
+    project: { ...BUILTIN_PROJECT, ...opts.project },
+    analysis: opts.analysis ?? (snapshot ? { phase: 'ready' } : { phase: 'loading', detail: null }),
+    snapshot,
+    imports: [],
+    sources: {},
+    reattach: {},
+  };
+}
+
+interface Call {
+  method: string;
+  args: readonly unknown[];
+}
+
+class FakeSessionPort implements SessionPort {
+  private state: SessionState;
+  private readonly listeners = new Set<(s: SessionState) => void>();
+  readonly calls: Call[] = [];
+  /** Per-method thrower — set to make a command throw (SessionCommandError). */
+  errors: Record<string, SessionCommandError | undefined> = {};
+  disposed = false;
+
+  constructor(initial: SessionState = sessionState(null)) {
+    this.state = initial;
+  }
+
+  getState(): SessionState { return this.state; }
+  subscribe(listener: (s: SessionState) => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+  dispose(): void { this.disposed = true; }
+
+  /** Test driver: publish a new immutable state to subscribers. */
+  emit(next: SessionState): void {
+    this.state = next;
+    for (const l of this.listeners) l(next);
+  }
+  publishSnapshot(generation: string, snapshot: string, readyDocs?: readonly string[]): void {
+    this.emit(sessionState(snap(generation, snapshot, readyDocs)));
+  }
+
+  private record(method: string, args: readonly unknown[]): void {
+    this.calls.push({ method, args });
+    const e = this.errors[method];
+    if (e) throw e;
+  }
+  start(): void { this.record('start', []); }
+  createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
+  appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
+  removeImport(doc: string): void { this.record('removeImport', [doc]); }
+  editMeta(doc: string, patch: MetaPatch): void { this.record('editMeta', [doc, patch]); }
+  setLanguage(doc: string, language: string): void { this.record('setLanguage', [doc, language]); }
+  reorder(order: readonly string[]): void { this.record('reorder', [order]); }
+  save(): void { this.record('save', []); }
+  setPersistIntent(doc: string, intent: boolean): void { this.record('setPersistIntent', [doc, intent]); }
+  reattach(doc: string, file: unknown): void { this.record('reattach', [doc, file]); }
+  loadUserProject(): void { this.record('loadUserProject', []); }
+}
+
+function fakeTrend(marker: number): NumericTrend {
+  return {
+    coordinate: 'declared-sequence',
+    docOrdinal: Uint32Array.from([0]),
+    binIndex: Uint32Array.from([0]),
+    binStartToken: Uint32Array.from([0]),
+    binTokens: Uint32Array.from([10]),
+    count: Uint32Array.from([marker]),
+    ratePer10k: Float64Array.from([marker]),
+    order: ['a'],
+    sequenceBases: [0],
+    docTokenCount: [10],
+  };
+}
+
+function fakePassage(start: number, end: number, center: number, doc = 'a'): PassageResult {
+  const count = end - start;
+  return {
+    doc,
+    centerToken: center,
+    tokens: { start, end },
+    docCharsUtf16: { start: 0, end: count },
+    text: ' '.repeat(count),
+    tokenStartsUtf16: Array.from({ length: count }, (_, i) => i),
+    tokenEndsUtf16: Array.from({ length: count }, (_, i) => i + 1),
+    centerCharsUtf16: { start: center - start, end: center - start + 1 },
+    marks: [],
+    truncatedByCharCap: false,
+  };
+}
+
+/** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
+function harness(initial?: SessionState) {
+  const q = fakeQueryClient();
+  const runtime = createAppRuntime(q.client);
+  const port = new FakeSessionPort(initial);
+  runtime.attachSession(port);
+  return { ...q, runtime, store: runtime.useApp, port };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
@@ -146,12 +237,165 @@ describe('parseSeries', () => {
   });
 });
 
-describe('store intent discipline', () => {
+describe('the session bridge', () => {
+  it('seeds the current session state on attach, before any publication', () => {
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client);
+    const userState = sessionState(null, { project: { kind: 'user', id: 'user/default', baseRevision: 1, dirty: true, save: { phase: 'idle' }, saveable: true } });
+    runtime.attachSession(new FakeSessionPort(userState));
+    const s = runtime.useApp.getState();
+    expect(s.bootstrap.phase).toBe('attached');
+    expect(s.projectSession).toBe(userState);
+    expect(s.projectSession!.project.kind).toBe('user');
+    // A null-snapshot seed must not issue any query.
+    expect(q.issued.length).toBe(0);
+  });
+
+  it('rejects a second, different attachment (one session per lifetime)', () => {
+    const { runtime, port } = harness();
+    expect(() => runtime.attachSession(new FakeSessionPort())).toThrow(/already attached/);
+    // Re-attaching the SAME session is an idempotent no-op.
+    expect(() => runtime.attachSession(port)).not.toThrow();
+  });
+
+  it('a non-snapshot publication updates projection but issues/cancels no query', () => {
+    const { store, port, trends } = harness();
+    port.publishSnapshot('g1', 's1'); // default series → issues
+    const issuedAfterSnapshot = trends().length;
+    expect(issuedAfterSnapshot).toBeGreaterThan(0);
+    const before = trends().map((t) => t.cancelled);
+    // Same snapshot identity, different unrelated state (imports/save/sources).
+    port.emit(sessionState(snap('g1', 's1'), { project: { dirty: true } }));
+    expect(store.getState().projectSession!.project.dirty).toBe(true);
+    expect(trends().length).toBe(issuedAfterSnapshot); // no new query
+    expect(trends().map((t) => t.cancelled)).toEqual(before); // none cancelled
+  });
+
+  it('a new snapshot identity issues exactly one refresh; a repeat is a no-op', () => {
+    const { port, trends, kwics } = harness();
+    port.publishSnapshot('g1', 's1');
+    const t1 = trends().length;
+    const k1 = kwics().length;
+    expect(t1).toBe(2); // Holmes, Moriarty
+    expect(k1).toBe(1);
+    port.emit(sessionState(snap('g1', 's1'))); // identical key
+    expect(trends().length).toBe(t1);
+    expect(kwics().length).toBe(k1);
+  });
+
+  it('the same snapshot id under a NEW generation is a fresh identity (reissues)', () => {
+    const { port, trends } = harness();
+    port.publishSnapshot('g1', 's');
+    expect(trends().filter((t) => !t.cancelled).length).toBe(2);
+    port.publishSnapshot('g2', 's'); // same snapshot string, new generation
+    expect(trends().length).toBe(4);
+    // The g1 queries were superseded.
+    expect(trends().slice(0, 2).every((t) => t.cancelled)).toBe(true);
+  });
+
+  it('a snapshot → null transition cancels work and clears evidence once', async () => {
+    const { store, port, trends } = harness();
+    port.publishSnapshot('g1', 's1');
+    const live = trends().filter((t) => !t.cancelled);
+    live[0]!.resolve({ op: 'trend', trend: fakeTrend(4) });
+    await flush();
+    expect(store.getState().trends.size).toBe(2);
+    port.emit(sessionState(null)); // worker restarting: snapshot gone
+    expect(trends().every((t) => t.cancelled)).toBe(true);
+    expect(store.getState().trends.size).toBe(0);
+    expect(store.getState().snapshot).toBeNull();
+  });
+
+  it('after null→B, a late result from the superseded A snapshot cannot write', async () => {
+    const { store, port, trends } = harness();
+    port.publishSnapshot('g1', 'A');
+    const aQuery = trends().filter((t) => !t.cancelled).at(-1)!;
+    port.emit(sessionState(null));
+    port.publishSnapshot('g2', 'B');
+    aQuery.resolve({ op: 'trend', trend: fakeTrend(9) }); // raced past its supersession
+    await flush();
+    for (const [, state] of store.getState().trends) expect(state.status).toBe('pending');
+    expect(trends().at(-1)!.snapshot).toBe('B');
+  });
+
+  it('the built-in projection is not saveable and the save wrapper cannot bypass the session', () => {
+    const { store, port } = harness();
+    expect(store.getState().projectSession!.project.saveable).toBe(false);
+    store.getState().saveProject();
+    // The wrapper delegates to the session; it never fabricates a save.
+    expect(port.calls.filter((c) => c.method === 'save').length).toBe(1);
+  });
+
+  it('each command wrapper dispatches to the attached session', () => {
+    const { store, port } = harness();
+    const s = store.getState();
+    s.removeImport('d');
+    s.editMeta('d', { title: 't' });
+    s.setLanguage('d', 'fr');
+    s.reorder(['d']);
+    s.setPersistIntent('d', true);
+    s.saveProject();
+    s.loadSavedProject();
+    s.reattach('d', { name: 'f.txt', size: 1, arrayBuffer: async () => new ArrayBuffer(1) });
+    s.retryAnalysis();
+    expect(port.calls.map((c) => c.method)).toEqual([
+      'removeImport', 'editMeta', 'setLanguage', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
+    ]);
+  });
+
+  it('importFiles dispatches createUserProject on the built-in, appendFiles on a user project', () => {
+    const { store, port } = harness();
+    const files = [{ name: 'a.txt', size: 3, arrayBuffer: async () => new ArrayBuffer(3) }];
+    store.getState().importFiles(files);
+    expect(port.calls.at(-1)!.method).toBe('createUserProject');
+    port.emit(sessionState(snap('g1', 's1'), { project: { kind: 'user', id: 'user/default', baseRevision: 0, dirty: true, save: { phase: 'idle' }, saveable: false } }));
+    store.getState().importFiles(files);
+    expect(port.calls.at(-1)!.method).toBe('appendFiles');
+  });
+
+  it('a synchronous SessionCommandError becomes one bounded UI command error', () => {
+    const { store, port } = harness();
+    port.errors.save = new SessionCommandError('save called when not saveable');
+    store.getState().saveProject();
+    expect(store.getState().commandError).toContain('not saveable');
+    store.getState().clearCommandError();
+    expect(store.getState().commandError).toBeNull();
+  });
+
+  it('a command before any session is attached surfaces a bounded error, not a throw', () => {
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client); // no attachSession
+    expect(() => runtime.useApp.getState().saveProject()).not.toThrow();
+    expect(runtime.useApp.getState().commandError).toContain('initializing');
+  });
+
+  it('mirrors analysis loading detail and error into the header fields', () => {
+    const { store, port } = harness();
+    port.emit(sessionState(null, { analysis: { phase: 'loading', detail: 'index: a-doc' } }));
+    expect(store.getState().loadingPhase).toBe('index: a-doc');
+    expect(store.getState().loadError).toBeNull();
+    port.emit(sessionState(null, { analysis: { phase: 'error', message: 'boom', fatal: false } }));
+    expect(store.getState().loadError).toBe('boom');
+    expect(store.getState().loadingPhase).toBeNull();
+  });
+
+  it('dispose fences the bridge: a later publication does not update the store', () => {
+    const { store, port, runtime, trends } = harness();
+    port.publishSnapshot('g1', 's1');
+    const t1 = trends().length;
+    runtime.dispose();
+    expect(port.disposed).toBe(true);
+    port.publishSnapshot('g2', 's2');
+    expect(store.getState().snapshot!.snapshot).toBe('s1'); // unchanged
+    expect(trends().length).toBe(t1); // no reissue
+  });
+});
+
+describe('store query intent discipline', () => {
   it('issues one trend per series plus one focused KWIC, with distinct group ids', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
     const live = f.trends().filter((q) => !q.cancelled);
     expect(live.map((q) => q.term)).toEqual(['holmes', 'moriarty']);
     expect(new Set(live.map((q) => q.groupId)).size).toBe(2);
@@ -161,44 +405,41 @@ describe('store intent discipline', () => {
   });
 
   it('cancels superseded queries and a stale term can never win', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('bear');
-    store.getState().setInput('hound');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('bear');
+    f.store.getState().setInput('hound');
     const trendQueries = f.trends();
     for (const q of trendQueries.slice(0, -1)) expect(q.cancelled).toBe(true);
     const live = trendQueries.at(-1)!;
     expect(live.cancelled).toBe(false);
     expect(live.term).toBe('hound');
 
-    // Even if the stale 'bear' promise resolves LAST, it cannot write.
     live.resolve({ op: 'trend', trend: fakeTrend(7) });
     await flush();
     const stale = trendQueries.find((q) => q.term === 'bear')!;
     stale.resolve({ op: 'trend', trend: fakeTrend(99) }); // stale resolve after cancel
     await flush();
-    const trends = store.getState().trends;
+    const trends = f.store.getState().trends;
     expect(trends.size).toBe(1);
-    const hound = trends.get(store.getState().series[0]!.id)!;
+    const hound = trends.get(f.store.getState().series[0]!.id)!;
     expect(hound.status).toBe('ready');
     expect(hound.status === 'ready' && hound.trend.count[0]).toBe(7);
   });
 
   it('per-series results land independently; one failure does not erase peers', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
     const [q1, q2] = f.trends().filter((q) => !q.cancelled);
     q1!.resolve({ op: 'trend', trend: fakeTrend(3) });
     await flush();
-    const [holmes, moriarty] = store.getState().series;
-    expect(store.getState().trends.get(holmes!.id)!.status).toBe('ready');
-    expect(store.getState().trends.get(moriarty!.id)!.status).toBe('pending');
+    const [holmes, moriarty] = f.store.getState().series;
+    expect(f.store.getState().trends.get(holmes!.id)!.status).toBe('ready');
+    expect(f.store.getState().trends.get(moriarty!.id)!.status).toBe('pending');
     q2!.reject(new Error('CAP_EXCEEDED: too much'));
     await flush();
-    const after = store.getState().trends;
+    const after = f.store.getState().trends;
     expect(after.get(holmes!.id)!.status).toBe('ready'); // peer survives
     const failed = after.get(moriarty!.id)!;
     expect(failed.status).toBe('error');
@@ -206,14 +447,13 @@ describe('store intent discipline', () => {
   });
 
   it('focus change cancels and reissues ONLY the KWIC query', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
     const trendsBefore = f.trends().length;
     const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    const moriarty = store.getState().series[1]!;
-    store.getState().setFocus(moriarty.id);
+    const moriarty = f.store.getState().series[1]!;
+    f.store.getState().setFocus(moriarty.id);
     expect(f.trends().length).toBe(trendsBefore); // no trend churn
     expect(f.trends().filter((q) => !q.cancelled).length).toBe(2); // still live
     expect(kwicBefore.cancelled).toBe(true);
@@ -221,77 +461,71 @@ describe('store intent discipline', () => {
   });
 
   it('the default focus is canonical: clicking the already-focused first chip is a no-op', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
-    const holmes = store.getState().series[0]!;
-    expect(store.getState().focusedSeries).toBe(holmes.id); // actual, not implied
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const holmes = f.store.getState().series[0]!;
+    expect(f.store.getState().focusedSeries).toBe(holmes.id); // actual, not implied
     const kwicCount = f.kwics().length;
-    store.getState().setFocus(holmes.id);
+    f.store.getState().setFocus(holmes.id);
     expect(f.kwics().length).toBe(kwicCount); // no cancel/reissue of the same intent
   });
 
   it('reordering the input preserves a surviving focus instead of stealing it', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
-    const moriarty = store.getState().series[1]!;
-    store.getState().setFocus(moriarty.id);
-    store.getState().setInput('moriarty, holmes'); // same series, new order
-    expect(store.getState().focusedSeries).toBe(moriarty.id);
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const moriarty = f.store.getState().series[1]!;
+    f.store.getState().setFocus(moriarty.id);
+    f.store.getState().setInput('moriarty, holmes'); // same series, new order
+    expect(f.store.getState().focusedSeries).toBe(moriarty.id);
     expect(f.kwics().filter((q) => !q.cancelled).at(-1)!.term).toBe('moriarty');
   });
 
   it('a late KWIC result from the previously focused series cannot relabel the new focus', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
     const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    store.getState().setFocus(store.getState().series[1]!.id);
+    f.store.getState().setFocus(f.store.getState().series[1]!.id);
     oldKwic.resolve({ op: 'kwic', total: 9, rows: [] }); // raced past cancel
     await flush();
-    const kwic = store.getState().kwic!;
-    expect(kwic.seriesId).toBe(store.getState().series[1]!.id);
+    const kwic = f.store.getState().kwic!;
+    expect(kwic.seriesId).toBe(f.store.getState().series[1]!.id);
     expect(kwic.state.status).toBe('pending'); // stale evidence did not land
   });
 
   it('view toggle is presentation-only: no query is issued', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
     const count = f.issued.length;
-    store.getState().setTrendView('by-book');
-    store.getState().setTrendView('series');
+    f.store.getState().setTrendView('by-book');
+    f.store.getState().setTrendView('series');
     expect(f.issued.length).toBe(count);
-    expect(store.getState().trendView).toBe('series');
+    expect(f.store.getState().trendView).toBe('series');
   });
 
   it('clears results to pending on reissue — old arrays are never relabeled', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
     const first = f.trends().filter((q) => !q.cancelled).at(-1)!;
     first.resolve({ op: 'trend', trend: fakeTrend(1) });
     await flush();
-    expect(store.getState().trends.get(store.getState().series[0]!.id)!.status).toBe('ready');
-    store.getState().setInput('other');
-    const pending = store.getState().trends.get(store.getState().series[0]!.id)!;
+    expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready');
+    f.store.getState().setInput('other');
+    const pending = f.store.getState().trends.get(f.store.getState().series[0]!.id)!;
     expect(pending.status).toBe('pending'); // pending, not stale
   });
 
   it('a result from a superseded snapshot cannot write', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
     const old = f.trends().filter((q) => !q.cancelled).at(-1)!;
-    f.publish('s2'); // cancels s1 queries, reissues
+    f.port.publishSnapshot('g1', 's2'); // supersedes s1, reissues
     old.resolve({ op: 'trend', trend: fakeTrend(5) }); // resolve raced past cancel
     await flush();
-    for (const [, state] of store.getState().trends) {
+    for (const [, state] of f.store.getState().trends) {
       expect(state.status).toBe('pending'); // s2's queries own the panels
     }
     const fresh = f.trends().at(-1)!;
@@ -299,83 +533,74 @@ describe('store intent discipline', () => {
   });
 
   it('blank input cancels and clears — old evidence is never relabeled', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
     const q = f.trends().filter((x) => !x.cancelled).at(-1)!;
     q.resolve({ op: 'trend', trend: fakeTrend(3) });
     await flush();
-    expect(store.getState().trends.size).toBe(1);
-    store.getState().setInput('  ,  ');
-    expect(store.getState().trends.size).toBe(0);
-    expect(store.getState().kwic).toBeNull();
+    expect(f.store.getState().trends.size).toBe(1);
+    f.store.getState().setInput('  ,  ');
+    expect(f.store.getState().trends.size).toBe(0);
+    expect(f.store.getState().kwic).toBeNull();
     expect(q.cancelled).toBe(true);
-    // A raced late duplicate of the old result must not resurface either.
     await flush();
-    expect(store.getState().trends.size).toBe(0);
+    expect(f.store.getState().trends.size).toBe(0);
   });
 
   it('an over-cap input is refused: error surfaced, work cancelled, nothing issued', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
     const live = f.trends().filter((q) => !q.cancelled);
     expect(live.length).toBe(1);
-    store.getState().setInput('a, b, c, d, e, f');
-    expect(store.getState().inputError).toContain('up to');
+    f.store.getState().setInput('a, b, c, d, e, f');
+    expect(f.store.getState().inputError).toContain('up to');
     expect(live[0]!.cancelled).toBe(true);
-    expect(store.getState().trends.size).toBe(0);
+    expect(f.store.getState().trends.size).toBe(0);
     expect(f.trends().filter((q) => !q.cancelled).length).toBe(0);
   });
 
   it('scrub: first target fetches a passage block with one track per series', () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes, moriarty');
-    store.getState().setScrub({ doc: 'a', token: 500 });
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
     const issued = f.passages();
     expect(issued.length).toBe(1);
     const q = issued[0]!.query as { request: { doc: string; centerToken: number; tracks: { seriesId: string }[] } };
     expect(q.request.doc).toBe('a');
     expect(q.request.centerToken).toBe(500);
     expect(q.request.tracks.map((t) => t.seriesId)).toEqual(
-      store.getState().series.map((s) => s.id),
+      f.store.getState().series.map((s) => s.id),
     );
   });
 
   it('scrub: moves inside the guard band are purely local; edge moves refetch', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
-    store.getState().setScrub({ doc: 'a', token: 500 });
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
     f.passages()[0]!.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
     await flush();
-    expect(store.getState().passage).not.toBeNull();
-    store.getState().setScrub({ doc: 'a', token: 510 });
-    store.getState().setScrub({ doc: 'a', token: 450 });
+    expect(f.store.getState().passage).not.toBeNull();
+    f.store.getState().setScrub({ doc: 'a', token: 510 });
+    f.store.getState().setScrub({ doc: 'a', token: 450 });
     expect(f.passages().length).toBe(1); // both inside [428, 572) — no fetch
-    store.getState().setScrub({ doc: 'a', token: 590 }); // within block, past the guard
+    f.store.getState().setScrub({ doc: 'a', token: 590 }); // within block, past the guard
     expect(f.passages().length).toBe(2);
   });
 
   it('scrub: one active request plus one replaceable pending — motion never queues', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
-    store.getState().setScrub({ doc: 'a', token: 500 });
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
     expect(f.passages().length).toBe(1);
-    // Continuous motion while the first fetch is in flight: nothing new issues.
-    store.getState().setScrub({ doc: 'a', token: 900 });
-    store.getState().setScrub({ doc: 'a', token: 1200 });
-    store.getState().setScrub({ doc: 'a', token: 1500 });
+    f.store.getState().setScrub({ doc: 'a', token: 900 });
+    f.store.getState().setScrub({ doc: 'a', token: 1200 });
+    f.store.getState().setScrub({ doc: 'a', token: 1500 });
     expect(f.passages().length).toBe(1);
-    // The active request resolves (already stale); the LATEST parked target
-    // is issued next — intermediate ones were replaced, not queued.
     f.passages()[0]!.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
     await flush();
     expect(f.passages().length).toBe(2);
@@ -384,40 +609,36 @@ describe('store intent discipline', () => {
   });
 
   it('scrub: an input change invalidates the block, refetches for the kept position, and a stale in-flight block cannot land', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
-    store.getState().setScrub({ doc: 'a', token: 500 });
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
     const first = f.passages()[0]!; // left IN FLIGHT across the input change
-    store.getState().setInput('holmes, watson'); // marks are stale — new tracks needed
+    f.store.getState().setInput('holmes, watson'); // marks are stale — new tracks needed
     expect(first.cancelled).toBe(true);
-    expect(store.getState().passage).toBeNull();
-    expect(store.getState().scrub).toEqual({ doc: 'a', token: 500 }); // position kept
+    expect(f.store.getState().passage).toBeNull();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 500 }); // position kept
     const refetch = f.passages().at(-1)!;
     expect(refetch).not.toBe(first);
     const q = refetch.query as { request: { tracks: { seriesId: string }[] } };
     expect(q.request.tracks.length).toBe(2);
-    // The superseded request settles late (a real worker can race a cancel):
-    // it must neither land its block nor free the replacement's active slot.
     first.resolve({ op: 'passage', passage: fakePassage(0, 200, 100) });
     await flush();
-    expect(store.getState().passage).toBeNull();
+    expect(f.store.getState().passage).toBeNull();
     refetch.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
     await flush();
-    expect(store.getState().passage).not.toBeNull();
+    expect(f.store.getState().passage).not.toBeNull();
   });
 
   it('scrub: a rejected center clears the scrub instead of showing a mismatched block', async () => {
-    const f = fakeClient();
-    const store = createAppStore(f.client);
-    f.publish('s1');
-    store.getState().setInput('holmes');
-    store.getState().setScrub({ doc: 'a', token: 99999 });
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 99999 });
     f.passages()[0]!.reject(new Error('REQUEST_INVALID: centerToken 99999 outside [0, 5000)'));
     await flush();
-    expect(store.getState().scrub).toBeNull();
-    expect(store.getState().passage).toBeNull();
+    expect(f.store.getState().scrub).toBeNull();
+    expect(f.store.getState().passage).toBeNull();
   });
 
   it('manifest byte lengths, source hashes, and text hashes match the shipped assets', async () => {
@@ -426,253 +647,91 @@ describe('store intent discipline', () => {
     for (const { doc, bytes, sourceHash, textHash } of SHERLOCK) {
       const data = await readFile(new URL(`../public/corpora/sherlock/${doc}`, import.meta.url));
       expect(data.byteLength, doc).toBe(bytes);
-      // The two identities are asserted INDEPENDENTLY: SourceHash = SHA-256 of
-      // the exact bytes; TextHash = hashText of the decoded text.
       expect(await hashSourceBytes(new Uint8Array(data)), doc).toBe(sourceHash);
       const decoded = new TextDecoder('utf-8', { fatal: true }).decode(data);
       expect(await hashText(decoded), doc).toBe(textHash);
-      // A fixture-specific fact about THIS corpus (UTF-8, no ill-formed
-      // sequences): the two values coincide — evidence, not a data-model alias.
       expect(sourceHash, doc).toBe(textHash);
     }
   });
+});
 
-  it('a mid-flight ingest error fails only its own attempt; a parked stale fetch cannot corrupt the retry', async () => {
-    // Controlled fetch: attempt 1 parks on its SECOND fetch; the worker error
-    // arrives while it is parked; the retry (gen-2) must own the attempt, the
-    // released stale loop must be inert, and late stale errors ignored.
-    let errorListener: ((g: string, m: string) => void) | null = null;
-    const generationsBegun: string[] = [];
-    const ingests: string[] = [];
-    const f = fakeClient();
-    const client: ClientLike = {
-      ...f.client,
-      openGeneration: (g) => {
-        generationsBegun.push(g);
-        return { result: Promise.resolve(allMissing(g)), cancel: () => undefined };
-      },
-      ingest: (g) => {
-        ingests.push(g);
-      },
-      onIngestError: (l) => {
-        errorListener = l;
-      },
+// ── Composition: the real ProjectSession satisfies SessionPort and drives the
+// bridge. The generation-lifecycle races are covered in project-session.test.ts;
+// this only proves the two interfaces compose end to end. ──
+describe('real ProjectSession composes with the store bridge', () => {
+  beforeAll(async () => {
+    // Warm the memoized recipe hashing so the first startGeneration settles fast.
+    const { defaultExtractionRecipes } = await import('@texttrends/core');
+    await defaultExtractionRecipes();
+  });
+
+  it('attaching a real session mirrors its analysis + snapshot into the store', async () => {
+    const { ProjectSession } = await import('../src/lib/project-session.ts');
+    const { builtinProject } = await import('../src/lib/project.ts');
+    const {
+      DEFAULT_STRUCTURE_RECIPE,
+      defaultExtractionRecipes,
+      hashExtractionRecipe,
+      hashIndexRecipe,
+      hashStructureCandidates,
+      hashStructureRecipe,
+    } = await import('@texttrends/core');
+    const { txt } = await defaultExtractionRecipes();
+    const [erh, srh, cand, irh] = await Promise.all([
+      hashExtractionRecipe(txt),
+      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
+      hashStructureCandidates([]),
+      hashIndexRecipe(DEFAULT_INDEX_RECIPE),
+    ]);
+    const doc = {
+      doc: 'd1',
+      sourceName: 'd1',
+      meta: { title: 'D1', language: 'en', tags: [] as string[] },
+      source: { hash: 'srchash', byteLength: 10, format: 'txt' as const, encoding: { detected: 'utf-8' as const, hadReplacementChars: false } },
+      sourceAvailability: 'bundled' as const,
+      extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8, candidates: cand },
+      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: srh, override: { status: 'none' as const } },
     };
-    let parked: (() => void) | null = null;
-    let fetchCount = 0;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: unknown) => {
-      fetchCount++;
-      // Serve the CORRECT byte length for whichever doc was requested.
-      const url = decodeURIComponent(String(input));
-      const entry = SHERLOCK.find(({ doc }) => url.endsWith(doc))!;
-      if (generationsBegun.length === 1 && fetchCount === 2) {
-        await new Promise<void>((r) => {
-          parked = r;
-        });
-      }
-      return {
-        ok: true,
-        arrayBuffer: async () => new ArrayBuffer(entry.bytes),
-      };
-    }) as unknown as typeof fetch;
+    const data = { id: 'builtin/x', order: ['d1'], docs: [doc], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: irh };
 
-    // Warm the memoized v4 spec construction so loadSherlock's await settles
-    // within one flush (the spec hashes are async; this test inspects the
-    // intermediate state after a single flush).
-    await sherlockGenerationSpecs();
-    const store = createAppStore(client);
-    try {
-    const attempt1 = store.getState().loadSherlock();
-    await flush();
-    expect(generationsBegun).toEqual(['gen-1']);
-    expect(ingests.length).toBe(1); // doc 1 ingested, doc 2 parked
-
-    // The worker reports gen-1's ingest failed while the loop is parked.
-    errorListener!('gen-1', 'DECODE_FAILED: boom');
-    expect(store.getState().loadError).toContain('DECODE_FAILED');
-
-    // Retry: a fresh generation that must complete all six ingests.
-    await store.getState().loadSherlock();
-    expect(generationsBegun).toEqual(['gen-1', 'gen-2']);
-    expect(ingests.filter((g) => g === 'gen-2').length).toBe(6);
-
-    // Release the parked gen-1 loop: it may not ingest or mutate state.
-    parked!();
-    await attempt1;
-    await flush();
-    expect(ingests.filter((g) => g === 'gen-1').length).toBe(1); // still just doc 1
-
-    // A late stale error from gen-1 must not fail the completed gen-2 attempt.
-    errorListener!('gen-1', 'GENERATION_STALE: old');
-    await store.getState().loadSherlock(); // still idempotent: no gen-3
-    expect(generationsBegun).toEqual(['gen-1', 'gen-2']);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('loadSherlock is idempotent across Strict Mode double-invocation', async () => {
-    const f = fakeClient();
-    let generations = 0;
-    const counting: ClientLike = {
-      ...f.client,
-      openGeneration: (g) => {
-        generations++;
-        return { result: Promise.resolve(allMissing(g)), cancel: () => undefined };
-      },
+    // A minimal fake ProjectSessionClient: open resolves a warm snapshot, so the
+    // session publishes a ready snapshot without needing bytes.
+    const hold: { snapshotL: ((i: SnapshotInfo) => void) | null } = { snapshotL: null };
+    const client = {
+      onSnapshot: (l: (i: SnapshotInfo) => void) => { hold.snapshotL = l; },
+      onProgress: () => undefined,
+      onIngestError: () => undefined,
+      onSourceReady: () => undefined,
+      onRestart: () => undefined,
+      openGeneration: (generation: string) => ({
+        result: Promise.resolve({ generation, snapshot: `${generation}#snap`, readyDocs: ['d1'], missing: [] }),
+        cancel: () => undefined,
+      }),
+      ingest: () => ({ job: 1 }),
+      projectLoad: () => ({ result: Promise.resolve({ kind: 'missing' as const }), cancel: () => undefined }),
+      projectSave: () => ({ result: Promise.resolve({ revision: 1 }), cancel: () => undefined }),
+      sourcePersist: () => ({ result: Promise.resolve(), cancel: () => undefined }),
     };
-    const store = createAppStore(counting);
-    // fetch is unavailable in this test env — both calls fail identically,
-    // but only ONE may begin a generation.
-    await Promise.all([store.getState().loadSherlock(), store.getState().loadSherlock()]);
-    expect(generations).toBe(1);
-  });
+    const session = new ProjectSession(builtinProject(data), {
+      client,
+      bundledBytes: { get: async () => new ArrayBuffer(10) },
+      newDocId: () => 'id',
+      hashBytes: async () => 'srchash',
+    });
 
-  it('warm open: an empty missing list fetches and ingests NOTHING', async () => {
-    const f = fakeClient();
-    const ingests: string[] = [];
-    let fetches = 0;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async () => {
-      fetches++;
-      throw new Error('must not fetch');
-    }) as unknown as typeof fetch;
-    try {
-      const client: ClientLike = {
-        ...f.client,
-        openGeneration: (g) => ({
-          result: Promise.resolve({
-            generation: g,
-            snapshot: 'warm-snap',
-            readyDocs: SHERLOCK.map(({ doc }) => doc),
-            missing: [],
-          }),
-          cancel: () => undefined,
-        }),
-        ingest: (g) => {
-          ingests.push(g);
-        },
-      };
-      const store = createAppStore(client);
-      await store.getState().loadSherlock();
-      expect(fetches).toBe(0);
-      expect(ingests).toEqual([]);
-      expect(store.getState().loadError).toBeNull();
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client);
+    runtime.attachSession(session); // proves ProjectSession is assignable to SessionPort
+    expect(runtime.useApp.getState().projectSession!.project.kind).toBe('builtin');
 
-  it('warm open: only the barrier-reported misses are fetched and ingested', async () => {
-    const f = fakeClient();
-    const ingested: string[] = [];
-    const fetched: string[] = [];
-    const missDoc = SHERLOCK[3]!.doc;
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: unknown) => {
-      const url = decodeURIComponent(String(input));
-      const entry = SHERLOCK.find(({ doc }) => url.endsWith(doc))!;
-      fetched.push(entry.doc);
-      return {
-        ok: true,
-        arrayBuffer: async () => new ArrayBuffer(entry.bytes),
-      };
-    }) as unknown as typeof fetch;
-    try {
-      const client: ClientLike = {
-        ...f.client,
-        openGeneration: (g) => ({
-          result: Promise.resolve({
-            generation: g,
-            snapshot: 'warm-snap',
-            readyDocs: SHERLOCK.filter(({ doc }) => doc !== missDoc).map(({ doc }) => doc),
-            missing: [{ doc: missDoc, need: 'source-bytes' as const, reason: 'extraction-miss' as const }],
-          }),
-          cancel: () => undefined,
-        }),
-        ingest: (_g, doc) => {
-          ingested.push(doc);
-        },
-      };
-      const store = createAppStore(client);
-      await store.getState().loadSherlock();
-      expect(fetched).toEqual([missDoc]);
-      expect(ingested).toEqual([missDoc]);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('a failed generation open surfaces as loadError and permits retry', async () => {
-    const f = fakeClient();
-    let attempts = 0;
-    const client: ClientLike = {
-      ...f.client,
-      openGeneration: (g) => {
-        attempts++;
-        return {
-          result:
-            attempts === 1
-              ? Promise.reject(new Error('WORKER_RESTARTED'))
-              : Promise.resolve(allMissing(g)),
-          cancel: () => undefined,
-        };
-      },
-      ingest: () => undefined,
-    };
-    const originalFetch = globalThis.fetch;
-    globalThis.fetch = (async (input: unknown) => {
-      const url = decodeURIComponent(String(input));
-      const entry = SHERLOCK.find(({ doc }) => url.endsWith(doc))!;
-      return { ok: true, arrayBuffer: async () => new ArrayBuffer(entry.bytes) };
-    }) as unknown as typeof fetch;
-    try {
-      const store = createAppStore(client);
-      await store.getState().loadSherlock();
-      expect(store.getState().loadError).toContain('WORKER_RESTARTED');
-      await store.getState().loadSherlock(); // retry allowed
-      expect(store.getState().loadError).toBeNull();
-      expect(attempts).toBe(2);
-    } finally {
-      globalThis.fetch = originalFetch;
-    }
-  });
-
-  it('a non-fatal worker restart resets state and reloads; a fatal one surfaces', async () => {
-    const f = fakeClient();
-    const opens: string[] = [];
-    const client: ClientLike = {
-      ...f.client,
-      openGeneration: (g) => {
-        opens.push(g);
-        // All warm — restart recovery should not need fetch at all.
-        return {
-          result: Promise.resolve({
-            generation: g,
-            snapshot: 'warm-snap',
-            readyDocs: SHERLOCK.map(({ doc }) => doc),
-            missing: [],
-          }),
-          cancel: () => undefined,
-        };
-      },
-    };
-    const store = createAppStore(client);
-    await store.getState().loadSherlock();
-    expect(opens.length).toBe(1);
-    f.publish('s1');
-    expect(store.getState().snapshot).not.toBeNull();
-
-    f.restart(false); // replacement worker is live
+    session.start();
+    expect(runtime.useApp.getState().projectSession!.analysis.phase).toBe('loading');
+    // Let the open barrier resolve and the warm snapshot publish.
     await flush();
-    expect(opens.length).toBe(2); // re-opened a fresh generation
-    expect(store.getState().loadError).toBeNull();
-
-    f.restart(true); // restarts exhausted
-    await flush();
-    expect(store.getState().loadError).toContain('crashed repeatedly');
-    expect(store.getState().snapshot).toBeNull();
-    expect(opens.length).toBe(2); // no further reload attempts
+    hold.snapshotL?.({ generation: 'builtin/x#gen-1', snapshot: 'builtin/x#gen-1#snap', readyDocs: ['d1'], missingDocs: [] });
+    expect(runtime.useApp.getState().snapshot?.snapshot).toBe('builtin/x#gen-1#snap');
+    // The store issued its default-series trend queries against the new snapshot.
+    expect(q.trends().length).toBeGreaterThan(0);
+    runtime.dispose();
   });
 });

@@ -41,10 +41,17 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   expect(corpusRequests.length).toBe(DOC_COUNT);
 
   // Ingest bytes genuinely TRANSFER: detachment is synchronous, so the
-  // byteLength observed immediately after postMessage is zero.
-  for (const [i, ingest] of ingests.entries()) {
-    expect(ingest.transferBytesBefore, `ingest ${i}`).toBe(SHERLOCK[i]!.bytes);
-    expect(ingest.transferBytesAfter, `ingest ${i}`).toBe(0);
+  // byteLength observed immediately after postMessage is zero. The session
+  // resolves barrier misses CONCURRENTLY, so ingests arrive in fetch-completion
+  // order, not declared order — assert the SET by document (each manifest doc
+  // ingested exactly once with its exact bytes) rather than a positional order.
+  const ingestByDoc = new Map(ingests.map((e) => [e.doc, e]));
+  expect(ingestByDoc.size).toBe(DOC_COUNT);
+  for (const { doc, bytes } of SHERLOCK) {
+    const ingest = ingestByDoc.get(doc);
+    expect(ingest, doc).toBeDefined();
+    expect(ingest!.transferBytesBefore, doc).toBe(bytes);
+    expect(ingest!.transferBytesAfter, doc).toBe(0);
   }
 
   // Per-document phase order (no single global order — engines interleave):
