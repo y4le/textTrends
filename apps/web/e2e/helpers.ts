@@ -12,8 +12,62 @@ import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
 export { SHERLOCK };
 export const DOC_COUNT = SHERLOCK.length;
 export const DB_NAME = 'texttrends-artifacts-provisional-db2';
+export const USER_DATA_DB = 'texttrends-user-data';
 
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
+
+/** Wait for the header to report `n/n books ready` (a user project's count). */
+export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {
+  await expect(page.getByText(`${n}/${n} books ready`)).toBeVisible({ timeout });
+}
+
+/** Clear ONLY the disposable artifact stores (db2), preserving durable user
+ *  data. Awaits transaction completion before returning (never race a reload). */
+export async function clearArtifactStores(page: Page): Promise<void> {
+  await page.evaluate(async (dbName) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const stores = [...db.objectStoreNames];
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction(stores, 'readwrite');
+        for (const s of stores) tx.objectStore(s).clear();
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, DB_NAME);
+}
+
+/** Count durable user-data records (proves clear-cache isolation: clearing db2
+ *  must leave `projects`/`sources` intact). */
+export async function userDataCounts(page: Page): Promise<{ projects: number; sources: number }> {
+  return page.evaluate(async (dbName) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const count = (store: string): Promise<number> =>
+        new Promise((resolve, reject) => {
+          if (!db.objectStoreNames.contains(store)) return resolve(0);
+          const req = db.transaction(store, 'readonly').objectStore(store).count();
+          req.onsuccess = () => resolve(req.result);
+          req.onerror = () => reject(req.error);
+        });
+      const [projects, sources] = await Promise.all([count('projects'), count('sources')]);
+      return { projects, sources };
+    } finally {
+      db.close();
+    }
+  }, USER_DATA_DB);
+}
 
 export async function trace(page: Page): Promise<TraceSnapshot> {
   return page.evaluate(() => {

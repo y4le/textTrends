@@ -2494,3 +2494,93 @@ The “exact source line via the existing excerpt path” claim also needs corre
 3. **8c — mutation/UI:** fenced async session command, correction status, editor controls, explicit needs-review discard flow, and generation-race tests.
 
 Blocking corrections before implementation are therefore: define `focusedDoc`; use parent-root topology rather than level; choose the separate edit-context result; specify the validating core diff contract; fence asynchronous override hashing and stale base identities; make excerpts line-aware and bounded; avoid resettable user keys; and land structure-count/change/key limits before exposing Add. With those corrections, commit 8 is approved and section aggregation remains deferred.
+
+---
+
+# Commit 9 ruling (planner consult `req_consult_8ddecad49317b445`, 2026-07-22)
+
+Recorded verbatim. Approve the full §540 browser matrix, split 9a/9b/9c. No generic
+fault-injection surface — real UI + real IndexedDB + the sanitized trace + a test-side
+one-shot Web Crypto gate. Includes one required prod UX correction (Retry persist).
+
+# Planner ruling — commit 9 real-browser matrix
+
+Overall ruling: **approve the full commit-9 matrix, split 9a/9b/9c as proposed, with the exact test contracts below.** Commit 9 is the final proof phase, so unit coverage is not a reason to omit a browser proof that §540 expressly names. Do not add a generic fault-injection surface; the real UI, real IndexedDB, the existing sanitized trace, and a test-side one-shot Web Crypto gate are enough.
+
+## 1. Scope
+
+**Keep all eight NEW items in commit 9. Defer none of the eight.** Interpret the corruption item as one mandatory **structure-artifact** deep-corruption/repair proof; a second extraction-artifact browser case is not required (rationale under question 3). Do not repeat worker-restart, long-task, or cancellation specs that are already adequate.
+
+The durability item must contain three distinct browser outcomes:
+
+1. `source-persist` after user-data `versionchange` produces a fresh `user-data-error/PERSISTENCE_UNAVAILABLE` and visible `persist-failed` state;
+2. `project-save` after that same close produces its own fresh `user-data-error/PERSISTENCE_UNAVAILABLE` and visible `save failed (PERSISTENCE_UNAVAILABLE)` state;
+3. a separate test creates a real `REVISION_CONFLICT` by advancing the durable manifest revision directly in IndexedDB while the live session retains its older CAS base, then issuing a fresh save. Assert the draft/base remain local and the durable revision is not overwritten.
+
+Do not attempt quota filling and do not require a real-browser `QUOTA_EXCEEDED` case; it is nondeterministic and the typed mapping already has unit coverage.
+
+One small production UX correction is required rather than deferred: a document in `persist-failed` with `sourceAvailability:'external'` must expose **Retry persist**. Calling the existing `setPersistIntent(doc, true)` again is sufficient. In the versionchange test, make the retry issue a second `source-persist` job and fail again. A second post can occur only if the private attachment was retained and reread, so this is the browser-observable File-retention proof. Generalize the existing sanitized transfer instrumentation to include `source-persist` buffers as well as `ingest`, then assert the retry's expected byte length before post and `0` after post.
+
+## 2. Injection strategy
+
+**Endorse real UI actions plus direct page-context IndexedDB manipulation. Pick (b), versionchange-induced `PERSISTENCE_UNAVAILABLE`; do not add a durability fault probe.**
+
+Use these deterministic cases:
+
+- User-data unavailable: after a user file has finalized, open `texttrends-user-data` in page context, discover its current version, close that inspection connection, then open `currentVersion + 1`. Await the upgrade transaction/success and close the upgrader. The worker connection must receive `versionchange` and close. Only then click Persist/Retry persist/Save. Assert each action by its own post job and correlated `user-data-error`, not merely by text that might predate the action. Finish with `submitAndAwaitFreshResults` to prove resident analysis remains usable.
+- CAS conflict: first save revision 1 normally; mutate only the stored manifest's `revision` to 2 in a completed readwrite transaction; make a local edit (a structure correction is suitable); then save from base 1. Assert the fresh save job receives `REVISION_CONFLICT` with `currentRevision:2`, the UI shows conflict, the local correction remains visible/dirty, and IndexedDB still contains revision 2 with the pre-existing durable payload.
+- Artifact corruption/clearing: direct db2 readwrite transactions are correct. Always identify the exact record by its full identity fields/key, preserve its storage envelope for deep-corruption tests, and await `transaction.oncomplete` before reload.
+
+If a future matrix genuinely needs fault injection, the guardrail is a fixed semantic experiment on the already e2e-only harness page: compile-time e2e input only, frozen narrow method, fail exactly one named operation once, return sanitized JSON, expose neither raw client/store nor a caller-chosen error/op, and retain the production-build scan for `ttE2E|ttHarness` plus absence of `e2e-harness.html`. That is not needed for commit 9's durability cases.
+
+## 3. Corruption target and invariant
+
+**Corrupt the STRUCTURE record specifically. Do not add extraction corruption to the browser matrix.**
+
+Structure is the right phase-closing target: it exercises `validateStructureArtifactV2`, exact-key repair deletion, deterministic local recomposition, persistence of the repaired artifact, and the commit-8 structure consumer. An extraction artifact contains honest source/decoder evidence that cannot be synthesized from cached text. With a valid text/shard/structure hit, the current warm path may delete a corrupt extraction record without re-fetching bytes or re-persisting a fabricated extraction; requiring “rebuild and re-persist extraction” would assert the wrong contract.
+
+Use a structure record whose storage envelope and key remain valid, but corrupt an inner invariant (for example, make the root range disagree with the known text length). The exact acceptance sequence is:
+
+1. Cold/warm setup reaches `awaitCacheSettled`; capture the victim's original envelope/artifact, then commit the inner tamper.
+2. Reload produces exactly one victim-specific `CACHE_CORRUPT` warning. The victim alone reports `progress:structure`; it must not report `decode`, `extract`, `segment`, or `index`, and there must be no corpus fetch. Other documents may publish first; final readiness must include the victim.
+3. After the final snapshot, explicitly focus the victim. Mark the trace before the focus action, correlate the newly posted `structure` query job to a `result` whose `snapshot` is the final snapshot, and assert the detected chapter UI is populated. No pre-corruption or unrelated-doc query may satisfy this.
+4. Poll the exact IndexedDB key until the stored inner artifact is deep-equal to the captured deterministic original (not merely present or envelope-valid). That proves delete → rebuild → re-persist.
+5. Reload again. Assert no corruption warning, no `progress:structure`, and another freshly correlated structure query/result for the victim.
+
+That is the required reject → rebuild → re-persist → query-answers invariant.
+
+## 4. Override-race proof
+
+**Use the real app UI and a Playwright-installed, one-shot gate around the page realm's next `SubtleCrypto.digest`; do not add an app or worker fault seam.** The override hash is main-thread Web Crypto, so this deterministically holds the first Apply before its continuation can install while leaving later digests ungated.
+
+The commit-8 session already permits a newer `setStructureOverride`/discard to supersede an in-flight hash. The editor currently disables Apply while `correction.phase === 'hashing'`; remove that disable so a newly opened draft can intentionally supersede the pending attempt. This is a real safe UX capability backed by the existing token fence, not test-only behavior.
+
+Cover two cases:
+
+- **Apply A → Apply B:** gate A's digest; close/reopen the editor on the still-current snapshot; author B; mark immediately before B's Apply; apply B; await a new `begin-generation`, its final `snapshot-published`, and the automatically reissued `structure` query/result bound to that exact snapshot. Assert the DOM shows B's title with `your correction`, contains no A title, and the prior snapshot identity did not satisfy the wait.
+- **Apply A → discard:** first establish an active correction and await its snapshot. Gate a later Apply A. Reopen the editor while A is pending, restore the detected baseline, and Apply the resulting zero-change override (the session's synchronous `none` path). From a mark immediately before that action, await the new generation/final snapshot/fresh structure result. Assert the baseline title/provenance is visible and `your correction` has count zero.
+
+In both cases, release the held digest only **after** the final state is proven. Await the held digest's actual completion/drain, then run one more fresh query round as a task-queue barrier. Assert that release caused no later `begin-generation` or `snapshot-published`, that the final `(generation,snapshot)` identity is unchanged, and that the DOM remains B/no-correction respectively. This combines the tightest main-thread evidence: final intent in `ProjectSession`, a structure result correlated to the final snapshot, and absence of stale presentation after the deliberately late hash settles.
+
+The digest wrapper must be one-shot, restore the original method in `finally`, expose only a test-local release/completion promise, and fail the test if some unexpected digest consumes the gate. Do not use sleeps to create or “observe” this race.
+
+## 5. Granularity and e2e discipline
+
+**Endorse 9a/9b/9c.** Keep the proposed grouping:
+
+1. **9a — happy-path ingest/durability:** UTF BOM/Windows-1252 fixtures, multi-file transfer/detachment, opted-in persisted reload, and db2-clear/user-data isolation.
+2. **9b — storage negative paths:** persist/save unavailable + retry/File retention, real CAS conflict, user-data versionchange, and structure corruption repair.
+3. **9c — override supersession:** the two gated main-thread race cases and only the minimal editor change needed to permit a newer Apply.
+
+Add/refactor shared Playwright helpers rather than copying raw IDB code: open/close database, await transaction completion, clear only artifact stores, await `N/N` ready for user projects, capture a trace mark, and correlate a post job with its terminal result/error.
+
+Pre-empt these pitfalls:
+
+- Windows-1252 fallback is total. Its expected decoder replacement count is **0**, not positive. Use a byte fixture that is invalid UTF-8 to prove fallback; include a C1 byte if you want a nonzero `suspiciousControlCount`, and assert the exact `Windows-1252 (inferred — no BOM/UTF-8)` badge plus `0 replaced`.
+- Give multi-file fixtures unique byte lengths and assert the multiset of exactly N post-transfer lengths plus `transferBytesAfter === 0`; also assert every selected filename/title finalized in declared selection order. Do not infer correlation from async completion order.
+- The persisted reload proof must persist **and save**, await both acknowledgements, clear db2, verify the project and source records still exist in `texttrends-user-data`, reload, then Load saved. Assert `generation-ready.missingCount === 0`, no main-thread `ingest`, no reattach control/source-missing state, and a fresh structure/trend query. Clearing db2 without doing this can be falsely satisfied by still-resident memory or by an unsaved project.
+- Read the current user-data DB version and add one; do not hard-code version 3. Put versionchange in its own test/context because the old application cannot reopen the deliberately newer schema in that context.
+- Every direct IDB write/clear waits for transaction completion. Every post-action assertion is filtered by a captured trace sequence and, where applicable, job plus generation/snapshot. Check `trace.dropped === 0` before relying on absence.
+- Do not use `waitForTimeout`, test ordering, a “first record” lookup, stale DOM, or absolute event counts spanning progressive snapshots/reloads. A reload resets the page trace; establish fresh evidence again.
+
+With these contracts, commit 9 closes every remaining §540 browser-proof item without introducing a production control seam or weakening the existing fresh-evidence discipline.
