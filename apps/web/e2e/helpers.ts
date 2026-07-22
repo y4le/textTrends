@@ -213,6 +213,62 @@ export async function submitAndAwaitFreshResults(page: Page, terms: string): Pro
   return fresh;
 }
 
+/**
+ * Install a gate around the page realm's `SubtleCrypto.digest` (the main-thread
+ * override hash) that holds ONLY the digest whose input carries `marker` — i.e.
+ * the specific Apply's override JSON (its distinctive chapter title). Every other
+ * digest, stray or not, passes through ungated; the gate disarms once it holds
+ * the marked call. This makes A's install continuation deterministically blocked
+ * the instant its hash runs — there is no window in which a mis-identified digest
+ * could let A install. No sleeps, no app/worker seam.
+ */
+export async function installDigestGate(page: Page, marker: string): Promise<void> {
+  await page.evaluate((marker) => {
+    const orig = crypto.subtle.digest.bind(crypto.subtle);
+    let release!: () => void;
+    const held = new Promise<void>((r) => { release = r; });
+    let complete!: () => void;
+    const completed = new Promise<void>((r) => { complete = r; });
+    let consumed = false;
+    const dec = new TextDecoder();
+    const gated = (algo: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> => {
+      let text = '';
+      try { text = dec.decode(data as ArrayBuffer); } catch { text = ''; }
+      if (!consumed && text.includes(marker)) {
+        consumed = true;
+        crypto.subtle.digest = orig; // disarm only AFTER capturing the marked call
+        return held.then(() => orig(algo, data)).then((res) => { complete(); return res; });
+      }
+      return orig(algo, data); // any other digest runs ungated
+    };
+    crypto.subtle.digest = gated as typeof crypto.subtle.digest;
+    (window as unknown as { __ttDigestGate?: unknown }).__ttDigestGate = { release, completed, consumed: () => consumed };
+  }, marker);
+}
+
+/** True once the gated digest was actually intercepted (the Apply's hash ran). */
+export async function digestGateConsumed(page: Page): Promise<boolean> {
+  return page.evaluate(() => Boolean((window as unknown as { __ttDigestGate?: { consumed(): boolean } }).__ttDigestGate?.consumed()));
+}
+
+/** Release the held digest and DRAIN — wait until the held computation actually
+ *  completes, so a deliberately-late hash settlement is fully observed. */
+export async function releaseDigestGate(page: Page): Promise<void> {
+  await page.evaluate(async () => {
+    const g = (window as unknown as { __ttDigestGate?: { release(): void; completed: Promise<void>; consumed(): boolean } }).__ttDigestGate;
+    if (!g) throw new Error('no digest gate installed');
+    if (!g.consumed()) throw new Error('the digest gate was never consumed — no override hash was held');
+    g.release();
+    await g.completed;
+  });
+}
+
+/** The id of the most recent snapshot-published (the current outline identity). */
+export async function latestSnapshot(page: Page): Promise<string | null | undefined> {
+  const t = await trace(page);
+  return t.events.filter((e) => e.direction === 'from-worker' && e.t === 'snapshot-published').at(-1)?.snapshot;
+}
+
 /** Record all corpus asset requests from now on. */
 export function trackCorpusRequests(page: Page): string[] {
   const urls: string[] = [];

@@ -141,7 +141,10 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
         {correction?.phase === 'error' && <span role="alert" style={{ color: 'var(--accent-text)' }}>{correction.message}</span>}
         <span style={{ flex: 1 }} />
         <button type="button" onClick={addRow} disabled={!ctx || !canAddSection(rows.length)} style={btn}>add chapter</button>
-        <button type="button" onClick={apply} disabled={!ctx || correction?.phase === 'hashing'} style={btn}>apply</button>
+        {/* Apply stays enabled while a prior correction is still hashing: a newer
+            Apply (or discard) intentionally SUPERSEDES the pending one — the
+            session's per-doc token fence guarantees only the latest installs. */}
+        <button type="button" onClick={apply} disabled={!ctx} style={btn}>apply</button>
         <button type="button" onClick={onClose} style={btn}>cancel</button>
       </div>
 

@@ -68,7 +68,7 @@ async function readArtifactByKey(page: Page, key: StructKey): Promise<unknown> {
 
 /** Correlate a FRESH structure query for the victim (posted after `mark`) to a
  *  result on the given snapshot. Fails on a dropped trace. */
-async function awaitVictimStructureAnswer(page: Page, mark: number, snapshot: string | null): Promise<void> {
+async function awaitVictimStructureAnswer(page: Page, mark: number, snapshot: string | null | undefined): Promise<void> {
   await expect
     .poll(async () => {
       const t = await trace(page);
