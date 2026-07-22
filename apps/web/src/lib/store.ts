@@ -23,11 +23,12 @@
  *
  * Intent discipline (UI review round 1, extended): trend intent and KWIC
  * intent carry SEPARATE epochs. Changing the compared terms or the snapshot
- * cancels and reissues both; changing only the focused series cancels and
- * reissues ONLY the KWIC query — the trend lines are still correct and must
- * not flicker. A result is written only if its epoch AND its (generation,
- * snapshot) identity both still match, so a slow stale query can never
- * relabel itself.
+ * cancels and reissues both. The concordance is a MERGED multi-term view
+ * (kwic/2, concordance amendment): it is INDEPENDENT of `focusedSeries` (which
+ * only emphasizes trend lines), and is reissued by a per-term toggle, by a
+ * settled scrub re-centre (debounced), and by a term/snapshot change. A result
+ * is written only if its epoch AND its (generation, snapshot) identity both
+ * still match, so a slow stale query can never relabel itself.
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
@@ -96,6 +97,9 @@ export function sherlockProjectData(): Promise<ProjectDataV1> {
 }
 
 export interface KwicRowView {
+  /** The series (track) that produced this row — the merged concordance tags
+   *  each occurrence so the panel can colour and label it. */
+  readonly seriesId: string;
   readonly doc: string;
   readonly pos: number;
   readonly left: string;
@@ -142,13 +146,21 @@ export type SeriesTrendState =
   | { readonly status: 'ready'; readonly trend: NumericTrend }
   | { readonly status: 'error'; readonly message: string };
 
+/** The merged concordance for the ENABLED terms, ordered by proximity to the
+ *  served `center` (null = reading order). The center is carried so the panel's
+ *  caption describes the result that actually landed, not the live cursor. */
 export interface KwicState {
-  readonly seriesId: string;
+  readonly center: ScrubTarget | null;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
-    | { readonly status: 'error'; readonly message: string };
+    | { readonly status: 'error'; readonly message: string }
+    | { readonly status: 'no-terms' }; // no concordance terms enabled
 }
+
+/** How long the axis position must settle before the concordance re-centers,
+ *  so pointer motion never issues a query per frame (fake-clock tested). */
+export const KWIC_CENTER_DEBOUNCE_MS = 150;
 
 /** The focused document's chapter outline (commit 8a, read-only preview). A
  *  request/response query like KWIC — epoch- and (generation,snapshot,doc)-
@@ -277,6 +289,10 @@ export interface AppState {
   /** Seeded 'pending' per issued series — panels must not show stale arrays. */
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
+  /** Which series appear in the merged concordance — ALL on by default, toggled
+   *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
+   *  surviving semantic ids. */
+  kwicEnabledSeries: ReadonlySet<string>;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
@@ -299,6 +315,9 @@ export interface AppState {
   // ── Query/presentation intent (owned here). ──
   setInput(input: string): void;
   setFocus(seriesId: string): void;
+  /** Toggle a term in/out of the merged concordance; reissues ONLY the KWIC
+   *  query, immediately, against the latest axis position. */
+  toggleKwicSeries(seriesId: string): void;
   setTrendView(view: TrendView): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
@@ -376,6 +395,10 @@ function resolveFocusedDoc(prev: string | null, next: SessionState): string | nu
 export function createAppRuntime(client: QueryClient): AppRuntime {
   let trendEpoch = 0;
   let kwicEpoch = 0;
+  // The SETTLED axis position the concordance centres on (null = reading order),
+  // and the trailing-edge debounce timer from raw scrub motion to that center.
+  let kwicCenter: ScrubTarget | null = null;
+  let kwicCenterTimer: ReturnType<typeof setTimeout> | null = null;
   let trendCancels: (() => void)[] = [];
   let kwicCancel: (() => void) | null = null;
   // Scrub scheduling: ONE active passage request plus ONE replaceable pending
@@ -479,35 +502,49 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
           const message = e instanceof Error ? e.message : String(e);
           if (message !== 'cancelled' && current()) {
             // A rejected center (stale geometry) or failed read: drop the
-            // scrub rather than display a block that does not match it.
+            // scrub rather than display a block that does not match it. The
+            // concordance center goes with it so it cannot resurrect.
             set({ passage: null, scrub: null });
             passagePending = null;
+            resetKwicCenter();
+            runKwic();
             return;
           }
           pumpPassage();
         });
     };
 
+    /** Issue the merged concordance for the ENABLED terms, centred on the
+     *  SETTLED axis position (`kwicCenter`). Independent of `focusedSeries`. */
     const runKwic = () => {
       kwicCancel?.();
       kwicCancel = null;
       const myEpoch = ++kwicEpoch;
-      const { snapshot, series, focusedSeries } = get();
-      // focusedSeries is canonical: setInput/setFocus maintain the invariant
-      // that it names a live series whenever any series exist.
-      const focused = series.find((s) => s.id === focusedSeries);
-      if (!snapshot || !focused) {
+      const { snapshot, series, kwicEnabledSeries } = get();
+      // No snapshot, or no terms at all (blank input) → no panel (kwic null),
+      // distinct from "terms exist but all toggled off" (the no-terms state).
+      if (!snapshot || series.length === 0) {
         set({ kwic: null });
         return;
       }
+      // The center must name a ready doc at issue time; a stale center (its doc
+      // departed on a new snapshot) degrades to reading order, never a clamp.
+      const center = kwicCenter && snapshot.readyDocs.includes(kwicCenter.doc) ? kwicCenter : null;
+      const enabled = series.filter((s) => kwicEnabledSeries.has(s.id));
+      if (enabled.length === 0) {
+        // Zero enabled terms: clear rows, issue no query, keep the panel + chips.
+        set({ kwic: { center, state: { status: 'no-terms' } } });
+        return;
+      }
       const issuedKey = snapKey(snapshot);
-      set({ kwic: { seriesId: focused.id, state: { status: 'pending' } } });
+      set({ kwic: { center, state: { status: 'pending' } } });
       const handle = client.query(snapshot.snapshot, {
         op: 'kwic',
         selection: { docs: [...snapshot.readyDocs] },
-        tracks: [{ seriesId: focused.id, group: groupFor(focused) }],
+        tracks: enabled.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
         request: {
           contextTokens: 6,
+          ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
           sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
           page: { offset: 0, limit: 50 },
         },
@@ -518,19 +555,43 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       void handle.result
         .then((data) => {
           if (data.op === 'kwic' && current()) {
-            set({
-              kwic: {
-                seriesId: focused.id,
-                state: { status: 'ready', total: data.total, rows: data.rows },
-              },
-            });
+            set({ kwic: { center, state: { status: 'ready', total: data.total, rows: data.rows } } });
           }
         })
         .catch((e: unknown) => {
           const message = e instanceof Error ? e.message : String(e);
           if (message === 'cancelled' || !current()) return; // superseded — the newer epoch owns the panel
-          set({ kwic: { seriesId: focused.id, state: { status: 'error', message } } });
+          set({ kwic: { center, state: { status: 'error', message } } });
         });
+    };
+
+    /** Forget the settled axis position — used wherever the public scrub is
+     *  cleared, so an invisible center can never resurrect under a later query. */
+    const resetKwicCenter = () => {
+      if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
+      kwicCenter = null;
+    };
+
+    /** Trailing-edge debounce from raw scrub motion to the KWIC center. Each
+     *  scrub INVALIDATES the prior result immediately (a late result must never
+     *  land under a newer axis) but only replaces the one pending center. */
+    const scheduleKwicCenter = (target: ScrubTarget) => {
+      // With every term toggled off the panel MUST keep its explicit no-terms
+      // state — scrubbing must not flip it to "finding examples…". The next
+      // toggle adopts the live scrub, so nothing is lost.
+      const { series, kwicEnabledSeries } = get();
+      if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
+      kwicCancel?.();
+      kwicCancel = null;
+      kwicEpoch++; // any in-flight KWIC result was under the old center — drop it
+      const held = get().kwic;
+      if (held && held.state.status !== 'pending') set({ kwic: { center: held.center, state: { status: 'pending' } } });
+      if (kwicCenterTimer !== null) clearTimeout(kwicCenterTimer);
+      kwicCenterTimer = setTimeout(() => {
+        kwicCenterTimer = null;
+        kwicCenter = target;
+        runKwic();
+      }, KWIC_CENTER_DEBOUNCE_MS);
     };
 
     /** Guard a synchronous session command: forward to the attached session,
@@ -569,6 +630,8 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       focusedSeries: initialSeries[0]?.id ?? null,
       trends: new Map(),
       kwic: null,
+      // Every term appears in the concordance by default.
+      kwicEnabledSeries: new Set(initialSeries.map((s) => s.id)),
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -583,10 +646,14 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         if (parsed.error !== null) {
           // Refused intent still supersedes the old one: cancel and clear so
           // stale lines are never displayed beside the error.
-          set({ input, inputError: parsed.error, series: [], focusedSeries: null });
+          set({ input, inputError: parsed.error, series: [], focusedSeries: null, kwicEnabledSeries: new Set() });
         } else {
-          const { focusedSeries } = get();
+          const { focusedSeries, series: oldSeries, kwicEnabledSeries: oldEnabled } = get();
           const stillFocused = parsed.series.some((s) => s.id === focusedSeries);
+          // Preserve on/off for surviving ids; a newly introduced id is enabled.
+          const oldIds = new Set(oldSeries.map((s) => s.id));
+          const nextEnabled = new Set<string>();
+          for (const s of parsed.series) if (!oldIds.has(s.id) || oldEnabled.has(s.id)) nextEnabled.add(s.id);
           set({
             input,
             inputError: null,
@@ -594,6 +661,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
             // Surviving focus is preserved even if its position changed;
             // otherwise the first series becomes the actual (not implied) focus.
             focusedSeries: stillFocused ? focusedSeries : parsed.series[0]?.id ?? null,
+            kwicEnabledSeries: nextEnabled,
           });
         }
         get().runQueries();
@@ -602,8 +670,23 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       setFocus(seriesId) {
         if (get().focusedSeries === seriesId) return;
         if (!get().series.some((s) => s.id === seriesId)) return;
+        // Focus drives ONLY the trend-line emphasis; the concordance is a merged
+        // multi-term view independent of focus, so no KWIC reissue here.
         set({ focusedSeries: seriesId });
-        runKwic(); // KWIC intent only — trend lines are still correct
+      },
+
+      toggleKwicSeries(seriesId) {
+        if (!get().series.some((s) => s.id === seriesId)) return;
+        const next = new Set(get().kwicEnabledSeries);
+        if (next.has(seriesId)) next.delete(seriesId);
+        else next.add(seriesId);
+        set({ kwicEnabledSeries: next });
+        // Reissue ONLY the concordance, immediately, against the latest axis:
+        // adopt the current scrub (superseding any pending debounce) as the center.
+        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
+        const scrub = get().scrub;
+        if (scrub && get().snapshot?.readyDocs.includes(scrub.doc)) kwicCenter = scrub;
+        runKwic();
       },
 
       setTrendView(view) {
@@ -625,6 +708,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         const prev = get().scrub;
         if (prev && prev.doc === target.doc && prev.token === target.token) return;
         set({ scrub: target });
+        scheduleKwicCenter(target); // debounced concordance re-centre on the axis
         const { passage } = get();
         if (passage && blockServes(passage, target)) return; // purely local move
         passagePending = target; // replaceable slot — motion never queues
@@ -636,6 +720,9 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         // for the next scrub; pending work is dropped.
         passagePending = null;
         set({ scrub: null });
+        // The concordance falls back to reading order immediately.
+        resetKwicCenter();
+        runKwic();
       },
 
       runQueries() {
@@ -653,9 +740,14 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         passageActiveCancel?.();
         passageActiveCancel = null;
         passagePending = null;
+        // A pending scrub-settle belongs to the old series/snapshot; drop it so
+        // it cannot fire a stale center after this reissue. runKwic below uses
+        // the last settled center (degrading to reading order if its doc departed).
+        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         set({ passage: null });
         if (!snapshot || series.length === 0) {
           set({ trends: new Map(), scrub: null });
+          resetKwicCenter(); // the axis is gone — no stale center may resurrect
           runKwic(); // clears or re-targets the evidence panel consistently
           return;
         }

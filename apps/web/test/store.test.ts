@@ -15,9 +15,10 @@
  * those store-owned tests are deleted here. One composition test proves the real
  * `ProjectSession` satisfies `SessionPort` and drives the bridge end to end.
  */
-import { beforeAll, describe, expect, it } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
+  KWIC_CENTER_DEBOUNCE_MS,
   parseSeries,
   MAX_SERIES,
   SHERLOCK,
@@ -436,7 +437,7 @@ describe('the session bridge', () => {
 });
 
 describe('store query intent discipline', () => {
-  it('issues one trend per series plus one focused KWIC, with distinct group ids', () => {
+  it('issues one trend per series plus one MERGED KWIC over all enabled terms', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().setInput('holmes, moriarty');
@@ -444,8 +445,9 @@ describe('store query intent discipline', () => {
     expect(live.map((q) => q.term)).toEqual(['holmes', 'moriarty']);
     expect(new Set(live.map((q) => q.groupId)).size).toBe(2);
     const liveKwic = f.kwics().filter((q) => !q.cancelled);
-    expect(liveKwic.length).toBe(1);
-    expect(liveKwic[0]!.term).toBe('holmes'); // focus defaults to the first series
+    expect(liveKwic.length).toBe(1); // ONE merged concordance, not one per series
+    expect((liveKwic[0]!.query as { tracks: { seriesId: string }[] }).tracks.map((t) => t.seriesId))
+      .toEqual(f.store.getState().series.map((s) => s.id)); // all terms by default
   });
 
   it('cancels superseded queries and a stale term can never win', async () => {
@@ -490,53 +492,144 @@ describe('store query intent discipline', () => {
     expect(failed.status === 'error' && failed.message).toContain('CAP_EXCEEDED');
   });
 
-  it('focus change cancels and reissues ONLY the KWIC query', () => {
+  it('a focus change does NOT reissue or cancel the concordance (focus independence)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().setInput('holmes, moriarty');
-    const trendsBefore = f.trends().length;
     const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    const moriarty = f.store.getState().series[1]!;
-    f.store.getState().setFocus(moriarty.id);
-    expect(f.trends().length).toBe(trendsBefore); // no trend churn
-    expect(f.trends().filter((q) => !q.cancelled).length).toBe(2); // still live
-    expect(kwicBefore.cancelled).toBe(true);
-    expect(f.kwics().filter((q) => !q.cancelled).at(-1)!.term).toBe('moriarty');
-  });
-
-  it('the default focus is canonical: clicking the already-focused first chip is a no-op', () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
-    const holmes = f.store.getState().series[0]!;
-    expect(f.store.getState().focusedSeries).toBe(holmes.id); // actual, not implied
     const kwicCount = f.kwics().length;
-    f.store.getState().setFocus(holmes.id);
-    expect(f.kwics().length).toBe(kwicCount); // no cancel/reissue of the same intent
+    f.store.getState().setFocus(f.store.getState().series[1]!.id);
+    expect(f.store.getState().focusedSeries).toBe(f.store.getState().series[1]!.id);
+    expect(kwicBefore.cancelled).toBe(false); // the merged concordance is untouched by focus
+    expect(f.kwics().length).toBe(kwicCount); // no reissue
   });
 
-  it('reordering the input preserves a surviving focus instead of stealing it', () => {
+  it('toggling a term off reissues the concordance without that track; on re-adds it', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().setInput('holmes, moriarty');
-    const moriarty = f.store.getState().series[1]!;
-    f.store.getState().setFocus(moriarty.id);
-    f.store.getState().setInput('moriarty, holmes'); // same series, new order
-    expect(f.store.getState().focusedSeries).toBe(moriarty.id);
-    expect(f.kwics().filter((q) => !q.cancelled).at(-1)!.term).toBe('moriarty');
+    const [holmes, moriarty] = f.store.getState().series;
+    const tracksOf = () => (f.kwics().filter((q) => !q.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] }).tracks.map((t) => t.seriesId);
+    f.store.getState().toggleKwicSeries(moriarty!.id);
+    expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false);
+    expect(tracksOf()).toEqual([holmes!.id]);
+    f.store.getState().toggleKwicSeries(moriarty!.id);
+    expect(tracksOf()).toEqual([holmes!.id, moriarty!.id]);
   });
 
-  it('a late KWIC result from the previously focused series cannot relabel the new focus', async () => {
+  it('toggling ALL terms off shows the no-terms state and issues no query', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const before = f.kwics().length; // the initial merged query
+    for (const s of f.store.getState().series) f.store.getState().toggleKwicSeries(s.id);
+    expect(f.store.getState().kwicEnabledSeries.size).toBe(0);
+    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    expect(f.kwics().length).toBe(before + 1); // only the first toggle queried; the emptying toggle did not
+  });
+
+  it('preserves enabled on/off across an input edit; adds new terms enabled, drops departed', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // moriarty OFF
+    f.store.getState().setInput('holmes, watson, moriarty'); // add watson, keep the others
+    const series = f.store.getState().series;
+    const enabled = f.store.getState().kwicEnabledSeries;
+    const id = (label: string) => series.find((s) => s.label === label)!.id;
+    expect(enabled.has(id('holmes'))).toBe(true); // surviving, was on
+    expect(enabled.has(id('moriarty'))).toBe(false); // surviving, was off — preserved
+    expect(enabled.has(id('watson'))).toBe(true); // newly introduced → enabled
+  });
+
+  it('a settled scrub re-centres the concordance (debounced); a raw scrub invalidates the prior result at once', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setInput('holmes');
+      const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
+      const countBefore = f.kwics().length;
+      f.store.getState().setScrub({ doc: 'a', token: 100 });
+      // Immediate: the prior result is invalidated; no query yet (debouncing).
+      expect(kwicBefore.cancelled).toBe(true);
+      expect(f.store.getState().kwic!.state.status).toBe('pending');
+      expect(f.kwics().length).toBe(countBefore);
+      // A second raw scrub only replaces the pending center — still no query.
+      f.store.getState().setScrub({ doc: 'a', token: 250 });
+      expect(f.kwics().length).toBe(countBefore);
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      // Trailing edge: exactly one query, centred on the LATEST scrub.
+      expect(f.kwics().length).toBe(countBefore + 1);
+      const centered = f.kwics().at(-1)!;
+      expect((centered.query as { request: { center?: { doc: string; token: number } } }).request.center).toEqual({ doc: 'a', token: 250 });
+      expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 250 });
+      // clearScrub falls back to reading order immediately (no center).
+      f.store.getState().clearScrub();
+      const reading = f.kwics().at(-1)!;
+      expect((reading.query as { request: { center?: unknown } }).request.center).toBeUndefined();
+      expect(f.store.getState().kwic!.center).toBeNull();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('clearing the scrub (blank input, snapshot-null) resets the center — no invisible axis resurrects', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setInput('holmes');
+      f.store.getState().setScrub({ doc: 'a', token: 100 });
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 100 });
+      // Blank input clears the chart position; a later term must NOT re-center.
+      f.store.getState().setInput('  ,  ');
+      f.store.getState().setInput('holmes');
+      const afterBlank = f.kwics().filter((q) => !q.cancelled).at(-1)!;
+      expect((afterBlank.query as { request: { center?: unknown } }).request.center).toBeUndefined();
+      expect(f.store.getState().kwic!.center).toBeNull();
+      // Re-center, then a snapshot-null transition + a new snapshot with the SAME doc.
+      f.store.getState().setScrub({ doc: 'a', token: 100 });
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      expect(f.store.getState().kwic!.center).not.toBeNull();
+      f.port.emit(sessionState(null)); // mid-generation: no snapshot
+      f.port.publishSnapshot('g2', 's2', ['a']); // same doc ready again
+      const afterNull = f.kwics().filter((q) => !q.cancelled).at(-1)!;
+      expect((afterNull.query as { request: { center?: unknown } }).request.center).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('scrubbing with EVERY term disabled keeps the explicit no-terms state and issues no query', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setInput('holmes, moriarty');
+      for (const s of f.store.getState().series) f.store.getState().toggleKwicSeries(s.id);
+      expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+      const count = f.kwics().length;
+      f.store.getState().setScrub({ doc: 'a', token: 50 });
+      expect(f.store.getState().kwic!.state.status).toBe('no-terms'); // NOT flipped to pending
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      expect(f.kwics().length).toBe(count); // no query issued
+      expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a late KWIC result from a superseded intent cannot land', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().setInput('holmes, moriarty');
     const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    f.store.getState().setFocus(f.store.getState().series[1]!.id);
+    f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // reissues, supersedes oldKwic
     oldKwic.resolve({ op: 'kwic', total: 9, rows: [] }); // raced past cancel
     await flush();
-    const kwic = f.store.getState().kwic!;
-    expect(kwic.seriesId).toBe(f.store.getState().series[1]!.id);
-    expect(kwic.state.status).toBe('pending'); // stale evidence did not land
+    expect(f.store.getState().kwic!.state.status).toBe('pending'); // the stale result did not land
   });
 
   it('view toggle is presentation-only: no query is issued', () => {
