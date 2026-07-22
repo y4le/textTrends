@@ -25,9 +25,11 @@ export interface StructureSectionRecordV2 {
   readonly chars: CharRange;
 }
 
+import { STRUCTURE_LIMITS_V0 } from '../contract/structure-limits.ts';
+
 export const ROOT_KEY = 'root';
 /** Titles are bounded so a hostile/huge heading cannot bloat a record. */
-export const MAX_TITLE_LENGTH = 512;
+export const MAX_TITLE_LENGTH = STRUCTURE_LIMITS_V0.maxTitleUtf16;
 const SECTION_ORIGINS: ReadonlySet<string> = new Set(['source', 'heuristic', 'user', 'fixed']);
 
 /** Structural validation failure — maps to REQUEST_INVALID / ARTIFACT_CORRUPT
@@ -36,6 +38,16 @@ export class StructureError extends Error {
   constructor(message: string) {
     super(message);
     this.name = 'StructureError';
+  }
+}
+
+/** A section-table SIZE violation specifically — a subclass so the worker can
+ *  map it to CAP_EXCEEDED while ordinary StructureErrors map to REQUEST_INVALID
+ *  (planner ruling §5). */
+export class StructureCapError extends StructureError {
+  constructor(message: string) {
+    super(message);
+    this.name = 'StructureCapError';
   }
 }
 
@@ -55,10 +67,19 @@ export function validateSectionTable(
     throw new StructureError(`invalid text length ${textLength}`);
   }
   if (sections.length === 0) throw new StructureError('section table is empty');
+  // Bound the table before the O(n²) overlap check below can run away.
+  if (sections.length > STRUCTURE_LIMITS_V0.maxSectionsPerTable) {
+    throw new StructureCapError(
+      `section table has ${sections.length} sections, over the ${STRUCTURE_LIMITS_V0.maxSectionsPerTable} cap`,
+    );
+  }
 
   const byKey = new Map<string, StructureSectionRecordV2>();
   for (const s of sections) {
     if (typeof s.key !== 'string' || s.key === '') throw new StructureError('section key must be a non-empty string');
+    if (s.key.length > STRUCTURE_LIMITS_V0.maxLineageKeyUtf16) {
+      throw new StructureError(`section key '${s.key.slice(0, 16)}…' exceeds the ${STRUCTURE_LIMITS_V0.maxLineageKeyUtf16}-unit cap`);
+    }
     if (byKey.has(s.key)) throw new StructureError(`duplicate section key '${s.key}'`);
     byKey.set(s.key, s);
   }

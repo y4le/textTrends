@@ -165,6 +165,8 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: kwicReq })).toBe(true);
     expect(narrowQueryV4({ op: 'passage', request: passageReq })).toBe(true);
     expect(narrowQueryV4({ op: 'structure', request: { doc: 'a' } })).toBe(true);
+    expect(narrowQueryV4({ op: 'structure-edit-context', request: { doc: 'a' } })).toBe(true);
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 10, maxChars: 200 } })).toBe(true);
     // A valid selection with well-formed ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(true);
   });
@@ -181,6 +183,14 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: sixTracks } })).toBe(false);
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }] } })).toBe(false);
     expect(narrowQueryV4({ op: 'structure', request: {} })).toBe(false);
+    expect(narrowQueryV4({ op: 'structure-edit-context', request: {} })).toBe(false);
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 'x', maxChars: 1 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 1 } })).toBe(false);
+    // Non-finite budgets/anchors are rejected: a NaN budget would defeat the
+    // window's stopping comparisons and return an unbounded slice.
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 5, maxChars: NaN } })).toBe(false);
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: NaN, maxChars: 100 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 5, maxChars: Infinity } })).toBe(false);
     expect(narrowQueryV4({ op: 'bogus' })).toBe(false);
     // Exact match-mode enums (a bogus value must not silently mean sensitive).
     const badMatch = { ...wolfGroup, members: [{ id: 'm', kind: 'token', surface: 'w', match: { case: 'x', diacritics: 'folded' } }] };

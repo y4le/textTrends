@@ -141,8 +141,11 @@ export {
   type SourceFormat,
 } from './extract/extraction.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
+export { STRUCTURE_LIMITS_V0, type StructureLimitsV0 } from './contract/structure-limits.ts';
+export { lineWindowAround, type LineWindow } from './extract/lines.ts';
 export {
   ROOT_KEY,
+  StructureCapError,
   StructureError,
   validateSectionTable,
   type CharRange,
@@ -161,7 +164,9 @@ export {
   hashStructureRecipe,
   isStructureOverrideV1,
   isStructureRecipeProvisional,
+  overrideFromEditedOutline,
   scanChapterHeadings,
+  type EditableSectionValue,
   type SectionValue,
   type StructureArtifactV2,
   type StructureChange,

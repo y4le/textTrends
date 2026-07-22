@@ -35,6 +35,7 @@ import {
   bindSectionId,
   bindShards,
   bindTexts,
+  buildDetectedSections,
   buildResolver,
   checkedResolverFor,
   composeSnapshot,
@@ -44,6 +45,7 @@ import {
   deriveCandidatesFromText,
   emptyOverride,
   finalizeExtraction,
+  lineWindowAround,
   fingerprint,
   hashExtractionRecipe,
   hashIndexRecipe,
@@ -81,9 +83,12 @@ import {
   type MatchMode,
   type ReadyDocument,
   type Resolver,
+  StructureCapError,
+  StructureError,
   type StructureArtifactV2,
   type StructureOverrideV1,
   type StructureRecipeProvisional,
+  type StructureSectionRecordV2,
   type TokenRange,
 } from '@texttrends/core';
 import {
@@ -93,6 +98,7 @@ import {
   type GenerationDocSpecV4,
   type MissingWarmDocV4,
   type OverrideInputV4,
+  type EditSectionRow,
   type QueryOpV4,
   type SourceDescriptorV4,
   type StorageWarningCodeV4,
@@ -193,6 +199,9 @@ interface GenerationStateV4 {
   readonly resolvers: Map<string, Map<string, Resolver>>;
   /** Doc-independent section→token projections, keyed [StructureHash, IndexArtifactHash]. */
   readonly tokenViews: Map<string, readonly TokenRange[]>;
+  /** Bounded ephemeral DETECTED-table cache for the edit-context query, keyed
+   *  [TextHash, CandidateHash, StructureRecipeHash] — never persisted (ruling §2). */
+  readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
   /** Running ACTUAL totals (not just declared) enforced against the project
@@ -259,6 +268,10 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
+
+/** Hard ceiling on a line-excerpt window so a caller cannot request an
+ *  unbounded slice of a pathological physical line (§4). */
+const LINE_EXCERPT_MAX_CHARS = 4096;
 
 export class WorkerEngineV4 {
   private readonly store: ArtifactStore;
@@ -366,6 +379,7 @@ export class WorkerEngineV4 {
       boundTexts: null,
       resolvers: new Map(),
       tokenViews: new Map(),
+      detectedTables: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
     };
@@ -413,8 +427,14 @@ export class WorkerEngineV4 {
           this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
           continue;
         }
-        if (e instanceof CapError) {
+        if (e instanceof CapError || e instanceof StructureCapError) {
           this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
+          continue;
+        }
+        if (e instanceof StructureError) {
+          // A malformed override / invalid table is TERMINAL — bytes cannot
+          // repair it, so it is never downgraded to a rehydrate miss.
+          this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
           continue;
         }
         // A failed warm attempt falls back to the byte path; a real fault will
@@ -447,8 +467,12 @@ export class WorkerEngineV4 {
           this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
           continue;
         }
-        if (e instanceof CapError) {
+        if (e instanceof CapError || e instanceof StructureCapError) {
           this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
+          continue;
+        }
+        if (e instanceof StructureError) {
+          this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
           continue;
         }
         misses.push({ doc: work.plan.doc, need: 'source-bytes', reason: 'rehydrate-failed' });
@@ -1260,6 +1284,16 @@ export class WorkerEngineV4 {
       return;
     }
 
+    if (q.op === 'structure-edit-context') {
+      await this.queryStructureEditContext(job, gen, snapshot, q.request.doc);
+      return;
+    }
+
+    if (q.op === 'line-excerpt') {
+      this.queryLineExcerpt(job, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
+      return;
+    }
+
     if (q.op === 'passage') {
       const { doc, centerToken, maxTokens, tracks } = q.request;
       const ready = gen.ready.get(doc);
@@ -1374,6 +1408,153 @@ export class WorkerEngineV4 {
       job,
       snapshot: snapshot.id,
       data: { op: 'structure', structure: { doc, structure: ref.structure, index: ref.index, rows } },
+    });
+  }
+
+  /**
+   * The authoring-context query (§12.3, ruling §2). Unlike the cheap structure
+   * read, this re-derives the DETECTED baseline the correction UI diffs against
+   * — candidate values from resident text + the extraction recipe, verified
+   * against the admitted candidate identity, then `buildDetectedSections` — and
+   * memoizes it per [TextHash, CandidateHash, StructureRecipeHash] (bounded,
+   * never persisted). Echoes the base identities + effective override hash and
+   * both artifact identities, and carries the current composed rows (bound id +
+   * lineage key + token range) so the UI can render while it edits.
+   */
+  private async queryStructureEditContext(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
+    const ref = snapshot.docs.find((r) => r.doc === doc);
+    if (!ref) {
+      this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
+      return;
+    }
+    const ready = gen.ready.get(doc);
+    if (!ready) throw new DependencyError('shard', doc);
+    if (ready.index !== ref.index || ready.structure !== ref.structure) {
+      this.emitError('SNAPSHOT_UNKNOWN', { job, message: 'edit context is bound to a superseded document', recoverable: true });
+      return;
+    }
+    const artifact = ready.structureArtifact;
+    if (artifact.schema !== 'texttrends/structure/2') {
+      this.emitError('REQUEST_INVALID', { job, message: `document '${doc}' has no chapter structure`, recoverable: true });
+      return;
+    }
+    const plan = gen.plans.get(doc);
+    const text = gen.texts.get(doc);
+    if (!plan || text === undefined) throw new DependencyError('text', doc);
+
+    // Detected baseline: reconstruct candidates from resident text and verify
+    // they still hash to the admitted identity (a nondeterminism/corruption
+    // guard), then build the detected table. Memoized per identity triple.
+    const cacheKey = `${artifact.text} ${artifact.candidates} ${artifact.recipe}`;
+    let detected = gen.detectedTables.get(cacheKey);
+    if (!detected) {
+      const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
+      if (bundle.candidateHash !== artifact.candidates) {
+        this.emitError('EXTRACTION_MISMATCH', { job, message: `document '${doc}' reconstructed candidates do not match the artifact`, recoverable: false });
+        return;
+      }
+      detected = buildDetectedSections(text, bundle.candidates, plan.structureRecipe);
+      // Bound the ephemeral cache (at most one entry per project doc).
+      if (gen.detectedTables.size >= INGEST_CAPS_V0.maxDocsPerProject) {
+        const oldest = gen.detectedTables.keys().next().value;
+        if (oldest !== undefined) gen.detectedTables.delete(oldest);
+      }
+      gen.detectedTables.set(cacheKey, detected);
+    }
+    await this.queryCheckpoint(job, gen, snapshot.id);
+
+    // Token ranges for the CURRENT composed sections (same projection + cache
+    // as the plain structure query).
+    const viewKey = tokenViewKey(ref.structure, ref.index);
+    let ranges = gen.tokenViews.get(viewKey);
+    if (!ranges) {
+      ranges = projectSections(artifact.sections, ready.shard.startsUtf16);
+      gen.tokenViews.set(viewKey, ranges);
+    }
+    this.queryGate(job, gen, snapshot.id);
+
+    const idByKey = new Map<string, string>();
+    for (const s of artifact.sections) idByKey.set(s.key, await bindSectionId(doc, s.key));
+    this.queryGate(job, gen, snapshot.id);
+    const current = artifact.sections.map((s, i) => ({
+      key: s.key,
+      section: {
+        id: idByKey.get(s.key)!,
+        doc,
+        origin: s.origin,
+        ...(s.parent === undefined ? {} : { parent: idByKey.get(s.parent)! }),
+        level: s.level,
+        ...(s.title === undefined ? {} : { title: s.title }),
+        chars: { start: s.chars.start, end: s.chars.end },
+      },
+      tokens: ranges![i]!,
+    }));
+    const detectedRows: EditSectionRow[] = detected.map((s) => ({
+      key: s.key,
+      origin: s.origin,
+      ...(s.parent === undefined ? {} : { parent: s.parent }),
+      level: s.level,
+      ...(s.title === undefined ? {} : { title: s.title }),
+      chars: { start: s.chars.start, end: s.chars.end },
+    }));
+
+    this.queryGate(job, gen, snapshot.id);
+    this.emit({
+      v: PROTOCOL_VERSION_V4,
+      t: 'result',
+      job,
+      snapshot: snapshot.id,
+      data: {
+        op: 'structure-edit-context',
+        context: {
+          doc,
+          structure: ref.structure,
+          index: ref.index,
+          base: { text: artifact.text, candidates: artifact.candidates, baseRecipe: artifact.recipe },
+          override: artifact.override,
+          detected: detectedRows,
+          current,
+        },
+      },
+    });
+  }
+
+  /** The bounded source line around a char anchor (§4). Synchronous and cheap —
+   *  a `maxChars`-bounded window (hard-capped so a caller cannot request an
+   *  unbounded slice), never splitting a surrogate pair. */
+  private queryLineExcerpt(job: number, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
+    const gen = this.generation!;
+    const ref = snapshot.docs.find((r) => r.doc === doc);
+    if (!ref) {
+      this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
+      return;
+    }
+    const text = gen.texts.get(doc);
+    if (text === undefined) {
+      this.emitError('DEPENDENCY_MISSING', { job, message: `text for '${doc}' is not resident`, recoverable: true });
+      return;
+    }
+    if (!Number.isInteger(anchor) || anchor < 0 || anchor > text.length) {
+      this.emitError('REQUEST_INVALID', { job, message: `invalid line anchor ${anchor}`, recoverable: true });
+      return;
+    }
+    if (!Number.isFinite(maxChars)) {
+      // Defence in depth: the schema already rejects a non-finite budget, but a
+      // NaN budget here would defeat the window's stopping comparisons.
+      this.emitError('REQUEST_INVALID', { job, message: `invalid line-excerpt budget ${maxChars}`, recoverable: true });
+      return;
+    }
+    const bounded = Math.min(Math.max(1, Math.floor(maxChars)), LINE_EXCERPT_MAX_CHARS);
+    const w = lineWindowAround(text, anchor, bounded);
+    this.emit({
+      v: PROTOCOL_VERSION_V4,
+      t: 'result',
+      job,
+      snapshot: snapshot.id,
+      data: {
+        op: 'line-excerpt',
+        excerpt: { doc, chars: { start: w.start, end: w.end }, text: w.text, truncatedStart: w.truncatedStart, truncatedEnd: w.truncatedEnd },
+      },
     });
   }
 
@@ -1601,6 +1782,11 @@ function mapError(e: unknown): { code: WorkerErrorCodeV4; message: string } {
   if (e instanceof CapError) return { code: 'CAP_EXCEEDED', message };
   if (e instanceof SourceMismatchError || e instanceof IdentityConflictError) return { code: 'SOURCE_MISMATCH', message };
   if (e instanceof ExtractionMismatchError) return { code: 'EXTRACTION_MISMATCH', message };
+  // A section-count violation is a cap; any other structural violation (bad
+  // override, over-long key, collision, malformed table) is a request fault.
+  // Subclass BEFORE base so a StructureCapError never falls through to REQUEST_INVALID.
+  if (e instanceof StructureCapError) return { code: 'CAP_EXCEEDED', message };
+  if (e instanceof StructureError) return { code: 'REQUEST_INVALID', message };
   if (e instanceof RangeError) return { code: 'REQUEST_INVALID', message };
   return { code: 'INTERNAL', message };
 }

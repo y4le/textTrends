@@ -114,7 +114,13 @@ export type QueryOpV4 =
   | { readonly op: 'trend'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: TrendRequest }
   | { readonly op: 'kwic'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: KwicRequest }
   | { readonly op: 'passage'; readonly request: PassageRequest }
-  | { readonly op: 'structure'; readonly request: { readonly doc: string } };
+  | { readonly op: 'structure'; readonly request: { readonly doc: string } }
+  // Authoring context (§12.3, ruling §2): the DETECTED baseline + base identities
+  // a correction UI needs to author a complete override. Separate from the cheap
+  // `structure` read because it re-derives candidates from resident text.
+  | { readonly op: 'structure-edit-context'; readonly request: { readonly doc: string } }
+  // The bounded source line around a char anchor (§4) — evidence for a correction.
+  | { readonly op: 'line-excerpt'; readonly request: { readonly doc: string; readonly anchor: number; readonly maxChars: number } };
 
 export interface WireSelectionV4 {
   readonly docs: readonly string[];
@@ -142,11 +148,48 @@ export interface StructureQueryResultV1 {
   readonly rows: readonly { readonly section: WireSection; readonly tokens: TokenRange }[];
 }
 
+/** A DETECTED-baseline row (ruling §2): char-anchored, keyed by its lineage
+ *  key (the authoring handle), parent expressed as a parent KEY. Distinct from
+ *  the project-bound `WireSection` — raw keys never appear on that abstraction. */
+export interface EditSectionRow {
+  readonly key: string;
+  readonly origin: 'source' | 'heuristic' | 'user' | 'fixed';
+  readonly parent?: string;         // parent lineage key
+  readonly level: number;
+  readonly title?: string;
+  readonly chars: { readonly start: number; readonly end: number };
+}
+
+/** The authoring context (ruling §2). Echoes the two artifact identities plus
+ *  the base identities and effective override hash the override is authored
+ *  against; carries the DETECTED baseline (to diff against) and the CURRENT
+ *  composed rows (bound section + lineage key + token range, to render). */
+export interface StructureEditContextV1 {
+  readonly doc: string;
+  readonly structure: string;       // effective StructureHash
+  readonly index: string;           // IndexArtifactHash
+  readonly base: { readonly text: string; readonly candidates: string; readonly baseRecipe: string };
+  readonly override: string;        // effective StructureOverrideHash
+  readonly detected: readonly EditSectionRow[];
+  readonly current: readonly { readonly key: string; readonly section: WireSection; readonly tokens: TokenRange }[];
+}
+
+/** A bounded source-line window around a char anchor (§4). */
+export interface LineExcerptResultV1 {
+  readonly doc: string;
+  readonly chars: { readonly start: number; readonly end: number };
+  readonly text: string;
+  readonly truncatedStart: boolean;
+  readonly truncatedEnd: boolean;
+}
+
 export type QueryResultDataV4 =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
   | { readonly op: 'kwic'; readonly total: number; readonly rows: readonly KwicRow[] }
   | { readonly op: 'passage'; readonly passage: PassageResult }
-  | { readonly op: 'structure'; readonly structure: StructureQueryResultV1 };
+  | { readonly op: 'structure'; readonly structure: StructureQueryResultV1 }
+  | { readonly op: 'structure-edit-context'; readonly context: StructureEditContextV1 }
+  | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 };
 
 export type StorageWarningCodeV4 = 'CACHE_UNAVAILABLE' | 'CACHE_READ_FAILED' | 'CACHE_WRITE_FAILED' | 'CACHE_CORRUPT';
 

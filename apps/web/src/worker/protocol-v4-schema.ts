@@ -19,6 +19,7 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
 
 const isStr = (v: unknown): v is string => typeof v === 'string';
 const isNum = (v: unknown): v is number => typeof v === 'number';
+const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 const MATCH = new Set(['sensitive', 'folded']);
 const FORMATS = new Set(['txt', 'md']);
@@ -142,7 +143,15 @@ export function narrowQueryV4(q: unknown): boolean {
     case 'passage':
       return narrowPassageRequest(q.request);
     case 'structure':
+    case 'structure-edit-context':
       return isRecord(q.request) && isStr((q.request as Record<string, unknown>).doc);
+    case 'line-excerpt': {
+      const r = q.request as Record<string, unknown>;
+      // FINITE numbers only — NaN/±Infinity must never reach the window budget
+      // (a NaN budget defeats every stopping comparison and returns an unbounded
+      // slice of a pathological line).
+      return isRecord(q.request) && isStr(r.doc) && isFiniteNum(r.anchor) && isFiniteNum(r.maxChars);
+    }
     default:
       return false;
   }

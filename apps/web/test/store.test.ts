@@ -92,6 +92,8 @@ function fakeQueryClient() {
     kwics: () => issued.filter((q) => q.op === 'kwic'),
     passages: () => issued.filter((q) => q.op === 'passage'),
     structures: () => issued.filter((q) => q.op === 'structure'),
+    editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
+    lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
   };
 }
 
@@ -105,6 +107,28 @@ function fakeStructure(doc: string, tops: readonly number[]): QueryResultDataV4 
     })),
   ];
   return { op: 'structure', structure: { doc, structure: `str-${doc}`, index: `idx-${doc}`, rows } };
+}
+
+function fakeEditContext(doc: string): QueryResultDataV4 {
+  return {
+    op: 'structure-edit-context',
+    context: {
+      doc,
+      structure: `str-${doc}`,
+      index: `idx-${doc}`,
+      base: { text: `t-${doc}`, candidates: `c-${doc}`, baseRecipe: `r-${doc}` },
+      override: `o-${doc}`,
+      detected: [{ key: 'root', origin: 'fixed', level: 0, chars: { start: 0, end: 100 } }],
+      current: [{ key: 'root', section: { id: `${doc}:root`, doc, origin: 'fixed', level: 0, chars: { start: 0, end: 100 } }, tokens: { start: 0, end: 50 } }],
+    },
+  };
+}
+
+function fakeLineExcerpt(doc: string, anchor: number): QueryResultDataV4 {
+  return {
+    op: 'line-excerpt',
+    excerpt: { doc, chars: { start: anchor, end: anchor + 5 }, text: 'hello', truncatedStart: false, truncatedEnd: false },
+  };
 }
 
 // ── A fake SessionPort: a spyable immutable-state emitter. ──
@@ -754,6 +778,75 @@ describe('the outline (structure) intent', () => {
     port.emit(withOrder(null, ['a']));
     expect(store.getState().focusedDoc).toBeNull();
     expect(store.getState().structure).toBeNull();
+  });
+});
+
+// ── On-demand authoring intents (commit 8b): edit-context + line-excerpt, each
+// with its own epoch and (generation,snapshot,doc) guard, cleared on a snapshot
+// change. The correction editor (8c) drives these. ──
+describe('authoring intents (edit-context + line-excerpt)', () => {
+  it('requestEditContext issues for a ready doc and writes the ready result', async () => {
+    const { store, port, editContexts } = harness();
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().requestEditContext('a');
+    const q = editContexts();
+    expect(q.length).toBe(1);
+    expect((q[0]!.query as { request: { doc: string } }).request.doc).toBe('a');
+    expect(store.getState().editContext?.state.status).toBe('pending');
+    q[0]!.resolve(fakeEditContext('a'));
+    await flush();
+    const ec = store.getState().editContext;
+    expect(ec?.doc).toBe('a');
+    expect(ec?.state.status).toBe('ready');
+    if (ec?.state.status === 'ready') expect(ec.state.context.detected[0]!.key).toBe('root');
+  });
+
+  it('requestEditContext refuses a non-ready doc', () => {
+    const { store, port, editContexts } = harness();
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().requestEditContext('zzz');
+    expect(editContexts().length).toBe(0);
+    expect(store.getState().editContext).toBeNull();
+  });
+
+  it('a superseded edit-context result cannot write', async () => {
+    const { store, port, editContexts } = harness();
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().requestEditContext('a');
+    const stale = editContexts()[0]!;
+    port.publishSnapshot('g2', 's2', ['a']); // new snapshot supersedes
+    stale.resolve(fakeEditContext('a'));
+    await flush();
+    // Cleared by the snapshot change; the stale result did not resurrect it.
+    expect(store.getState().editContext).toBeNull();
+  });
+
+  it('requestLineExcerpt writes a result keyed by doc + anchor', async () => {
+    const { store, port, lineExcerpts } = harness();
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().requestLineExcerpt('a', 42, 200);
+    const q = lineExcerpts();
+    expect(q.length).toBe(1);
+    const req = (q[0]!.query as { request: { doc: string; anchor: number; maxChars: number } }).request;
+    expect(req).toEqual({ doc: 'a', anchor: 42, maxChars: 200 });
+    q[0]!.resolve(fakeLineExcerpt('a', 42));
+    await flush();
+    expect(store.getState().lineExcerpt?.anchor).toBe(42);
+    expect(store.getState().lineExcerpt?.state.status).toBe('ready');
+  });
+
+  it('a snapshot change clears and cancels both authoring intents', () => {
+    const { store, port, editContexts, lineExcerpts } = harness();
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().requestEditContext('a');
+    store.getState().requestLineExcerpt('a', 10, 100);
+    expect(store.getState().editContext).not.toBeNull();
+    expect(store.getState().lineExcerpt).not.toBeNull();
+    port.publishSnapshot('g2', 's2', ['a']);
+    expect(store.getState().editContext).toBeNull();
+    expect(store.getState().lineExcerpt).toBeNull();
+    expect(editContexts()[0]!.cancelled).toBe(true);
+    expect(lineExcerpts()[0]!.cancelled).toBe(true);
   });
 });
 

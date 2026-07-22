@@ -25,6 +25,7 @@ import {
   hashStructureOverride,
   hashStructureRecipe,
   type IngestCapsV0,
+  type StructureOverrideV1,
 } from '@texttrends/core';
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
@@ -638,6 +639,115 @@ describe('structure query snapshot binding', () => {
     // A structure query against the OLD snapshot must be refused.
     await h.send({ t: 'query', job: 20, snapshot: firstSnap, query: { op: 'structure', request: { doc: 'a' } } });
     expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
+  });
+});
+
+describe('authoring context + line excerpt queries (8b)', () => {
+  const MD = '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept';
+
+  it('edit-context echoes base identities + effective override and carries the detected baseline and current rows', async () => {
+    const h = harness();
+    const spec = await docSpec('a', MD, { format: 'md' });
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', MD, 10);
+    const published = h.last('snapshot-published');
+    await h.send({ t: 'query', job: 30, snapshot: published.snapshot, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
+    const result = h.last('result');
+    expect(result.data.op).toBe('structure-edit-context');
+    if (result.data.op === 'structure-edit-context') {
+      const ctx = result.data.context;
+      expect(ctx.doc).toBe('a');
+      expect(ctx.base.candidates).toBe(spec.extraction.expectedCandidates);
+      expect(ctx.base.baseRecipe).toBe(spec.structure.recipeHash);
+      expect(ctx.base.text).toBeTruthy();
+      expect(ctx.override).toBeTruthy();
+      // Detected baseline: root + two detected chapters, keyed by LINEAGE key.
+      expect(ctx.detected.length).toBe(3);
+      expect(ctx.detected[0]!.key).toBe('root');
+      expect(ctx.detected.some((d) => d.key.startsWith('sec-'))).toBe(true);
+      expect(ctx.detected.some((d) => d.title?.includes('Chapter'))).toBe(true);
+      // Current composed rows: lineage key + bound section id + token range.
+      expect(ctx.current.length).toBe(3);
+      expect(ctx.current[0]!.key).toBe('root');
+      expect(ctx.current[0]!.section.id).toBeTruthy();
+      expect(ctx.current[0]!.section.doc).toBe('a');
+      expect(ctx.current.every((r) => r.tokens.end >= r.tokens.start)).toBe(true);
+    }
+  });
+
+  it('edit-context bound to a superseded snapshot is refused', async () => {
+    const h = harness();
+    const a = await docSpec('a', MD, { format: 'md' });
+    const b = await docSpec('b', 'a wolf slept');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', MD, 10);
+    const firstSnap = h.last('snapshot-published').snapshot;
+    await coldIngest(h, 'g', 'b', 'a wolf slept', 11); // supersedes
+    await h.send({ t: 'query', job: 31, snapshot: firstSnap, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
+    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
+  });
+
+  it('line-excerpt returns the exact source line untruncated; an out-of-range anchor is REQUEST_INVALID', async () => {
+    const h = harness();
+    const text = 'the wolf ran far';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const published = h.last('snapshot-published');
+    await h.send({ t: 'query', job: 32, snapshot: published.snapshot, query: { op: 'line-excerpt', request: { doc: 'a', anchor: 4, maxChars: 100 } } });
+    const result = h.last('result');
+    expect(result.data.op).toBe('line-excerpt');
+    if (result.data.op === 'line-excerpt') {
+      expect(result.data.excerpt.doc).toBe('a');
+      expect(result.data.excerpt.text).toBe('the wolf ran far');
+      expect(result.data.excerpt.truncatedStart).toBe(false);
+      expect(result.data.excerpt.truncatedEnd).toBe(false);
+    }
+    await h.send({ t: 'query', job: 33, snapshot: published.snapshot, query: { op: 'line-excerpt', request: { doc: 'a', anchor: 9999, maxChars: 100 } } });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+
+  it('a structurally-invalid active override maps to REQUEST_INVALID (not INTERNAL)', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran far');
+    // Base identities MATCH (so resolveOverride admits it), but the replace
+    // targets a section that does not exist → StructureError in composeStructure.
+    const bad: StructureOverrideV1 = {
+      schema: 'texttrends/structure-override/1',
+      text: spec.extraction.expectedText!,
+      candidates: spec.extraction.expectedCandidates!,
+      baseRecipe: spec.structure.recipeHash,
+      changes: [{ op: 'replace', target: 'sec-404', value: { parent: 'root', level: 1, chars: { start: 1, end: 2 } } }],
+    };
+    const withOverride = { ...spec, structure: { ...spec.structure, override: { kind: 'active', value: bad, hash: await hashStructureOverride(bad) } as const } };
+    await begin(h, [withOverride]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+    expect(h.all('snapshot-published').length).toBe(0);
+  });
+
+  it('an over-cap composed section table maps to CAP_EXCEEDED (not INTERNAL)', async () => {
+    const h = harness();
+    const text = ' '.repeat(5000);
+    const spec = await docSpec('a', text);
+    // 2048 disjoint adds + the root = 2049 sections, one over the 2048 cap.
+    const changes = Array.from({ length: 2048 }, (_, i) => ({
+      op: 'add' as const,
+      key: `u${i}`,
+      value: { parent: 'root', level: 1, chars: { start: i * 2, end: i * 2 + 1 } },
+    }));
+    const over: StructureOverrideV1 = {
+      schema: 'texttrends/structure-override/1',
+      text: spec.extraction.expectedText!,
+      candidates: spec.extraction.expectedCandidates!,
+      baseRecipe: spec.structure.recipeHash,
+      changes,
+    };
+    const withOverride = { ...spec, structure: { ...spec.structure, override: { kind: 'active', value: over, hash: await hashStructureOverride(over) } as const } };
+    await begin(h, [withOverride]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    expect(h.last('error').code).toBe('CAP_EXCEEDED');
+    expect(h.all('snapshot-published').length).toBe(0);
   });
 });
 

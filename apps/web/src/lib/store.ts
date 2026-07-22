@@ -42,7 +42,13 @@ import {
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { SnapshotInfo } from './client.ts';
-import type { QueryOpV4, QueryResultDataV4, StructureQueryResultV1 } from '../worker/protocol-v4.ts';
+import type {
+  LineExcerptResultV1,
+  QueryOpV4,
+  QueryResultDataV4,
+  StructureEditContextV1,
+  StructureQueryResultV1,
+} from '../worker/protocol-v4.ts';
 import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, type ProjectDataV1 } from './project.ts';
 import {
   SessionCommandError,
@@ -154,6 +160,29 @@ export interface StructureState {
     | { readonly status: 'error'; readonly message: string };
 }
 
+/** On-demand authoring context for a doc (commit 8b): the DETECTED baseline +
+ *  base identities the correction editor (8c) diffs against. Fetched when the
+ *  editor opens, epoch- and (generation,snapshot,doc)-guarded, cleared on a
+ *  snapshot change. */
+export interface EditContextState {
+  readonly doc: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly context: StructureEditContextV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+/** On-demand bounded source line around a section anchor (commit 8b). Keyed by
+ *  doc + anchor so a stale result for a prior anchor cannot relabel. */
+export interface LineExcerptState {
+  readonly doc: string;
+  readonly anchor: number;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly excerpt: LineExcerptResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
 export type TrendView = 'series' | 'by-book';
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -251,6 +280,10 @@ export interface AppState {
   focusedDoc: string | null;
   /** The focused doc's outline query result (independent of the term series). */
   structure: StructureState | null;
+  /** On-demand authoring context (the correction editor's detected baseline). */
+  editContext: EditContextState | null;
+  /** On-demand bounded source line around the section anchor under inspection. */
+  lineExcerpt: LineExcerptState | null;
   /** Opt-in: draw the focused doc's top-level chapter boundaries on the chart. */
   sectionMarks: boolean;
   scrub: ScrubTarget | null;
@@ -270,6 +303,11 @@ export interface AppState {
   /** (Re)issue the focused doc's outline query. Called on snapshot change and
    *  when the focused doc changes; independent of the term-series flow. */
   runStructure(): void;
+  /** Fetch the authoring context (detected baseline) for a doc — on demand,
+   *  when the correction editor opens. */
+  requestEditContext(doc: string): void;
+  /** Fetch the bounded source line around a char anchor — on demand. */
+  requestLineExcerpt(doc: string, anchor: number, maxChars: number): void;
 
   // ── Session command wrappers (forward to the one attached session). ──
   /** Import files: create a user project from the built-in origin, or append
@@ -341,6 +379,12 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   // preview survives an empty term input and a focus change reissues only it.
   let structureEpoch = 0;
   let structureCancel: (() => void) | null = null;
+  // On-demand authoring intents (edit-context + line-excerpt), each with its
+  // own epoch/cancel; cleared on a snapshot change.
+  let editContextEpoch = 0;
+  let editContextCancel: (() => void) | null = null;
+  let lineExcerptEpoch = 0;
+  let lineExcerptCancel: (() => void) | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -520,6 +564,8 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       trendView: 'series',
       focusedDoc: null,
       structure: null,
+      editContext: null,
+      lineExcerpt: null,
       sectionMarks: false,
       scrub: null,
       passage: null,
@@ -682,6 +728,60 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
           });
       },
 
+      requestEditContext(doc) {
+        editContextCancel?.();
+        editContextCancel = null;
+        const myEpoch = ++editContextEpoch;
+        const { snapshot } = get();
+        if (!snapshot || !snapshot.readyDocs.includes(doc)) {
+          set({ editContext: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        set({ editContext: { doc, state: { status: 'pending' } } });
+        const handle = client.query(snapshot.snapshot, { op: 'structure-edit-context', request: { doc } });
+        editContextCancel = handle.cancel;
+        const current = () => editContextEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
+        void handle.result
+          .then((data) => {
+            if (data.op === 'structure-edit-context' && current()) {
+              set({ editContext: { doc, state: { status: 'ready', context: data.context } } });
+            }
+          })
+          .catch((e: unknown) => {
+            const message = e instanceof Error ? e.message : String(e);
+            if (message === 'cancelled' || !current()) return;
+            set({ editContext: { doc, state: { status: 'error', message } } });
+          });
+      },
+
+      requestLineExcerpt(doc, anchor, maxChars) {
+        lineExcerptCancel?.();
+        lineExcerptCancel = null;
+        const myEpoch = ++lineExcerptEpoch;
+        const { snapshot } = get();
+        if (!snapshot || !snapshot.readyDocs.includes(doc)) {
+          set({ lineExcerpt: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        set({ lineExcerpt: { doc, anchor, state: { status: 'pending' } } });
+        const handle = client.query(snapshot.snapshot, { op: 'line-excerpt', request: { doc, anchor, maxChars } });
+        lineExcerptCancel = handle.cancel;
+        const current = () => lineExcerptEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
+        void handle.result
+          .then((data) => {
+            if (data.op === 'line-excerpt' && current()) {
+              set({ lineExcerpt: { doc, anchor, state: { status: 'ready', excerpt: data.excerpt } } });
+            }
+          })
+          .catch((e: unknown) => {
+            const message = e instanceof Error ? e.message : String(e);
+            if (message === 'cancelled' || !current()) return;
+            set({ lineExcerpt: { doc, anchor, state: { status: 'error', message } } });
+          });
+      },
+
       // ── Session command wrappers ──────────────────────────────────────────
       importFiles(files, opts) {
         command((s) => {
@@ -744,6 +844,17 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       focusedDoc,
     });
     if (prevKey !== nextKey) {
+      // The on-demand authoring intents are bound to the old snapshot's
+      // artifacts — cancel and clear them before the outline reissues.
+      editContextCancel?.();
+      editContextCancel = null;
+      editContextEpoch++;
+      lineExcerptCancel?.();
+      lineExcerptCancel = null;
+      lineExcerptEpoch++;
+      if (store.getState().editContext !== null || store.getState().lineExcerpt !== null) {
+        store.setState({ editContext: null, lineExcerpt: null });
+      }
       store.getState().runQueries();
       store.getState().runStructure();
     }

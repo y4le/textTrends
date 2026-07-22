@@ -13,10 +13,12 @@
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
 import { exactArray, exactRecord } from '../contract/recipes.ts';
 import type { StructureCandidateV1 } from '../extract/markdown.ts';
+import { STRUCTURE_LIMITS_V0 } from '../contract/structure-limits.ts';
 import {
   ROOT_KEY,
   StructureError,
   validateSectionTable,
+  type CharRange,
   type SectionOrigin,
   type StructureSectionRecordV2,
 } from './sections.ts';
@@ -297,6 +299,11 @@ const changeKey = (c: StructureChange): string => (c.op === 'add' ? c.key : c.ta
  * BEHAVIOR, not just in the hash).
  */
 export function canonicalChanges(override: StructureOverrideV1): readonly StructureChange[] {
+  if (override.changes.length > STRUCTURE_LIMITS_V0.maxOverrideChanges) {
+    throw new StructureError(
+      `override has ${override.changes.length} changes, over the ${STRUCTURE_LIMITS_V0.maxOverrideChanges} cap`,
+    );
+  }
   const sorted = [...override.changes].sort((a, b) => {
     const ka = changeKey(a);
     const kb = changeKey(b);
@@ -386,6 +393,133 @@ export interface StructureArtifactV2 {
   readonly recipe: string;
   readonly override: string;
   readonly sections: readonly StructureSectionRecordV2[];
+}
+
+// ---------------------------------------------------------------------------
+// Authoring: derive a complete override from an edited outline (§12.3, ruling §1)
+// ---------------------------------------------------------------------------
+
+/** A user-editable outline row: a lineage key plus the SectionValue fields.
+ *  NO origin — the caller never authors provenance (composition stamps `user`
+ *  on every changed row). The root row (`ROOT_KEY`) must be present, unchanged. */
+export interface EditableSectionValue {
+  readonly key: string;
+  readonly parent?: string;
+  readonly level: number;
+  readonly title?: string;
+  readonly chars: CharRange;
+}
+
+/** True when two outline rows carry the same SectionValue (parent/level/title/
+ *  chars) — origin is deliberately ignored. */
+function sameOutlineValue(
+  a: { parent?: string; level: number; title?: string; chars: CharRange },
+  b: { parent?: string; level: number; title?: string; chars: CharRange },
+): boolean {
+  return (
+    a.parent === b.parent &&
+    a.level === b.level &&
+    a.title === b.title &&
+    a.chars.start === b.chars.start &&
+    a.chars.end === b.chars.end
+  );
+}
+
+function valueFromEditable(e: EditableSectionValue): SectionValue {
+  return {
+    ...(e.parent === undefined ? {} : { parent: e.parent }),
+    level: e.level,
+    ...(e.title === undefined ? {} : { title: e.title }),
+    chars: { start: e.chars.start, end: e.chars.end },
+  };
+}
+
+/**
+ * Derive the ONE complete, canonical override that turns `detected` into
+ * `edited` (ruling §1). This is the sole authoring authority: the UI presents
+ * the current composed outline, the user edits it, and the resulting DESIRED
+ * outline is diffed against the DETECTED baseline here — never expressed as an
+ * incremental delta over a previous override (which would recreate the edit-log
+ * coupling the declarative contract rejects).
+ *
+ * Diff by lineage key: a detected key absent from `edited` → `remove`; a
+ * detected key whose value changed → `replace`; an edited-only key → `add`.
+ * Root mutation is rejected. The generated override is then APPLIED back to the
+ * detected table and PROVED to reproduce `edited` exactly (mod origin); caps and
+ * section invariants run here, not only later in the worker. An empty change set
+ * returns the canonical empty override (the caller installs `none`).
+ */
+export function overrideFromEditedOutline(
+  base: { readonly text: string; readonly candidates: string; readonly baseRecipe: string },
+  detected: readonly StructureSectionRecordV2[],
+  edited: readonly EditableSectionValue[],
+): StructureOverrideV1 {
+  const detByKey = new Map(detected.map((s) => [s.key, s] as const));
+  const detRoot = detByKey.get(ROOT_KEY);
+  if (!detRoot) throw new StructureError('detected table has no root');
+  const textLength = detRoot.chars.end;
+
+  const editByKey = new Map<string, EditableSectionValue>();
+  for (const e of edited) {
+    if (editByKey.has(e.key)) throw new StructureError(`edited outline repeats key '${e.key}'`);
+    editByKey.set(e.key, e);
+  }
+  const edRoot = editByKey.get(ROOT_KEY);
+  if (!edRoot) throw new StructureError('edited outline must include the root section');
+  // The root is immutable: same level 0, no parent, full-text range.
+  if (edRoot.parent !== undefined || edRoot.level !== 0 || edRoot.chars.start !== 0 || edRoot.chars.end !== textLength) {
+    throw new StructureError('the root section cannot be moved, re-parented, or re-leveled');
+  }
+
+  const changes: StructureChange[] = [];
+  // Removes: a detected non-root key the user deleted.
+  for (const s of detected) {
+    if (s.key !== ROOT_KEY && !editByKey.has(s.key)) changes.push({ op: 'remove', target: s.key });
+  }
+  // Replaces + adds, ignoring order and provenance.
+  for (const e of edited) {
+    if (e.key === ROOT_KEY) continue;
+    const d = detByKey.get(e.key);
+    if (d) {
+      if (!sameOutlineValue(e, d)) changes.push({ op: 'replace', target: e.key, value: valueFromEditable(e) });
+    } else {
+      changes.push({ op: 'add', key: e.key, value: valueFromEditable(e) });
+    }
+  }
+
+  const built: StructureOverrideV1 = {
+    schema: 'texttrends/structure-override/1',
+    text: base.text,
+    candidates: base.candidates,
+    baseRecipe: base.baseRecipe,
+    changes,
+  };
+  // canonicalChanges enforces the change cap + rejects duplicate targets, and
+  // makes the RETURNED representation canonical so construction/row order is
+  // truly meaningless (not just erased by the hash); applyOverride enforces
+  // every section invariant and the section-count cap.
+  const override: StructureOverrideV1 = { ...built, changes: canonicalChanges(built) };
+  const applied = applyOverride(detected, override, textLength);
+  // Prove the diff reproduces the desired outline exactly (mod origin) — the
+  // edited outline is validated + canonicalized through the same gate.
+  const wantRecords: StructureSectionRecordV2[] = edited.map((e) => ({
+    key: e.key,
+    origin: e.key === ROOT_KEY ? 'fixed' : 'user',
+    ...(e.parent === undefined ? {} : { parent: e.parent }),
+    level: e.level,
+    ...(e.title === undefined ? {} : { title: e.title }),
+    chars: { start: e.chars.start, end: e.chars.end },
+  }));
+  const want = validateSectionTable(wantRecords, textLength);
+  if (applied.length !== want.length) throw new StructureError('derived override does not reproduce the edited outline');
+  for (let i = 0; i < applied.length; i++) {
+    const a = applied[i]!;
+    const b = want[i]!;
+    if (a.key !== b.key || !sameOutlineValue(a, b)) {
+      throw new StructureError('derived override does not reproduce the edited outline');
+    }
+  }
+  return override;
 }
 
 /** Compose the full artifact: detect → apply override → validate. The four
