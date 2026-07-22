@@ -355,8 +355,10 @@ export class WorkerClient {
 
   private post(message: ToWorkerV4, transfer?: Transferable[]): void {
     // Detachment is synchronous: byteLength before vs after the post proves
-    // a real transfer (0 after) rather than a structured clone.
-    const bytes = message.t === 'ingest' ? message.bytes : null;
+    // a real transfer (0 after) rather than a structured clone — for both
+    // ingest AND source-persist (a persist RETRY posting again is the
+    // browser-observable proof the private File was retained and re-read).
+    const bytes = message.t === 'ingest' || message.t === 'source-persist' ? message.bytes : null;
     const before = bytes?.byteLength;
     if (transfer) this.worker.postMessage(message, transfer);
     else this.worker.postMessage(message);

@@ -7,6 +7,7 @@
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { SHERLOCK } from '../src/lib/store.ts';
+import { USER_PROJECT_ID } from '../src/lib/project.ts';
 import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 export { SHERLOCK };
@@ -42,6 +43,92 @@ export async function clearArtifactStores(page: Page): Promise<void> {
       db.close();
     }
   }, DB_NAME);
+}
+
+/**
+ * Force the worker's `texttrends-user-data` connection to close by opening the
+ * database at `currentVersion + 1` from page context (its own connection). The
+ * worker registered a `versionchange` handler that closes and invalidates its
+ * store, so the upgrade proceeds; subsequent save/persist ops then report
+ * PERSISTENCE_UNAVAILABLE. Reads the current version rather than hard-coding it.
+ */
+export async function bumpUserDataVersion(page: Page): Promise<void> {
+  await page.evaluate(async (dbName) => {
+    const current = await new Promise<number>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => {
+        const v = req.result.version;
+        req.result.close();
+        resolve(v);
+      };
+      req.onerror = () => reject(req.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const up = indexedDB.open(dbName, current + 1);
+      up.onupgradeneeded = () => {
+        /* no schema change — the version bump alone forces the versionchange */
+      };
+      up.onsuccess = () => {
+        up.result.close();
+        resolve();
+      };
+      up.onerror = () => reject(up.error);
+      up.onblocked = () => reject(new Error('user-data upgrade blocked — the worker did not close its connection'));
+    });
+  }, USER_DATA_DB);
+}
+
+/** The durable user-project record (the canonical manifest) read by its
+ *  CANONICAL key `user/default` — never a first-record lookup. */
+export async function readUserProject(page: Page): Promise<{ id: string; revision: number; docs: unknown[] } | null> {
+  return page.evaluate(async ({ dbName, id }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      const rec = await new Promise<unknown>((resolve, reject) => {
+        const req = db.transaction('projects', 'readonly').objectStore('projects').get(id);
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+      return (rec as { id: string; revision: number; docs: unknown[] }) ?? null;
+    } finally {
+      db.close();
+    }
+  }, { dbName: USER_DATA_DB, id: USER_PROJECT_ID });
+}
+
+/** Advance ONLY the stored manifest's `revision` (simulating another tab's CAS
+ *  save) so a live session saving from its older base hits REVISION_CONFLICT.
+ *  Preserves the rest of the durable payload; awaits transaction completion. */
+export async function setUserProjectRevision(page: Page, id: string, revision: number): Promise<void> {
+  await page.evaluate(async ({ dbName, id, revision }) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('projects', 'readwrite');
+        const store = tx.objectStore('projects');
+        const get = store.get(id);
+        get.onsuccess = () => {
+          const rec = get.result as Record<string, unknown> | undefined;
+          if (!rec) return reject(new Error(`no project record for ${id}`));
+          rec.revision = revision; // ONLY the revision; the payload is preserved
+          store.put(rec);
+        };
+        get.onerror = () => reject(get.error);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, { dbName: USER_DATA_DB, id, revision });
 }
 
 /** Count durable user-data records (proves clear-cache isolation: clearing db2

@@ -141,6 +141,9 @@ export function ProjectPanel() {
           const r = reattach?.[doc.doc];
           const missing = status?.phase === 'external-missing';
           const canPersist = !isBuiltin && doc.sourceAvailability === 'external' && status?.phase === 'external-attached';
+          // A failed persist retains the private File, so the user can retry —
+          // re-issuing the same intent re-reads and re-posts the retained bytes.
+          const canRetryPersist = !isBuiltin && doc.sourceAvailability === 'external' && status?.phase === 'persist-failed';
           return (
             <li key={doc.doc} style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <span style={{ minWidth: '24ch' }}>{doc.meta.title}</span>
@@ -166,6 +169,11 @@ export function ProjectPanel() {
               {canPersist && (
                 <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={buttonStyle}>
                   persist
+                </button>
+              )}
+              {canRetryPersist && (
+                <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={buttonStyle}>
+                  Retry persist
                 </button>
               )}
             </li>
