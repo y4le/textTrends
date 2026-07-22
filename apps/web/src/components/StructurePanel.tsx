@@ -11,8 +11,10 @@
  * PARENT chain, never the `level` metadata field.
  */
 
+import { useEffect, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { provenanceLabel, type StructureRow } from '../lib/structure-view.ts';
+import { StructureEditor } from './StructureEditor.tsx';
 
 /** Ancestor depth of each row via the parent chain (root = 0). */
 function depthByRow(rows: readonly StructureRow[]): Map<string, number> {
@@ -40,6 +42,13 @@ export function StructurePanel() {
   const sourceEvidence = useApp((s) => s.projectSession?.sourceEvidence ?? null);
   const setFocusedDoc = useApp((s) => s.setFocusedDoc);
   const setSectionMarks = useApp((s) => s.setSectionMarks);
+  const setStructureOverride = useApp((s) => s.setStructureOverride);
+
+  const [editing, setEditing] = useState(false);
+  // A doc switch closes the editor — its draft belonged to the previous doc.
+  useEffect(() => {
+    setEditing(false);
+  }, [focusedDoc]);
 
   if (!project || !snapshot || !focusedDoc) return null;
 
@@ -52,6 +61,8 @@ export function StructurePanel() {
   const doc = project.data.docs.find((d) => d.doc === focusedDoc) ?? null;
   const encoding = doc?.source.encoding ?? null;
   const evidence = sourceEvidence?.[focusedDoc] ?? null;
+  const overrideStatus = doc?.structure.override.status ?? 'none';
+  const isUser = project.kind === 'user';
 
   // The result is only meaningful when it echoes the currently-focused doc.
   const st = structure && structure.doc === focusedDoc ? structure.state : null;
@@ -96,6 +107,11 @@ export function StructurePanel() {
           />{' '}
           mark chapters on chart
         </label>
+        {isUser && !editing && overrideStatus !== 'needs-review' && (
+          <button type="button" onClick={() => setEditing(true)} style={editBtn}>
+            edit chapters
+          </button>
+        )}
       </div>
 
       {encoding && (
@@ -113,18 +129,34 @@ export function StructurePanel() {
         </p>
       )}
 
+      {overrideStatus === 'active' && !editing && (
+        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>your chapter correction is applied.</p>
+      )}
+      {overrideStatus === 'needs-review' && (
+        <p role="alert" style={{ margin: 'var(--space-1) 0 0', color: 'var(--accent-text)' }}>
+          a saved chapter correction is INACTIVE — the source was re-extracted and the correction no longer matches.{' '}
+          {isUser && (
+            <button type="button" onClick={() => setStructureOverride(focusedDoc, null)} style={editBtn}>
+              discard stale correction and start from current detection
+            </button>
+          )}
+        </p>
+      )}
+
+      {editing && <StructureEditor doc={focusedDoc} onClose={() => setEditing(false)} />}
+
       {st?.status === 'pending' && (
         <p style={{ margin: 'var(--space-2) 0 0', color: 'var(--fg-muted)' }}>reading structure…</p>
       )}
       {st?.status === 'error' && (
         <p style={{ margin: 'var(--space-2) 0 0', color: 'var(--accent-text)' }}>structure unavailable: {st.message}</p>
       )}
-      {st?.status === 'ready' && chapters.length === 0 && (
+      {!editing && st?.status === 'ready' && chapters.length === 0 && (
         <p style={{ margin: 'var(--space-2) 0 0', color: 'var(--fg-muted)' }}>
           no chapters detected — the whole document is one section
         </p>
       )}
-      {st?.status === 'ready' && chapters.length > 0 && (
+      {!editing && st?.status === 'ready' && chapters.length > 0 && (
         <ol aria-label="Detected chapters" style={{ listStyle: 'none', margin: 'var(--space-2) 0 0', padding: 0, display: 'grid', gap: '2px' }}>
           {rows.map((r) => {
             if (r.section.origin === 'fixed') return null; // the whole-document root
@@ -148,3 +180,14 @@ export function StructurePanel() {
     </section>
   );
 }
+
+const editBtn: React.CSSProperties = {
+  font: 'inherit',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg)',
+  background: 'none',
+  border: '1px solid var(--rule-strong)',
+  cursor: 'pointer',
+  padding: '1px 0.75ch',
+};

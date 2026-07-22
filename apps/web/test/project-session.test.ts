@@ -22,6 +22,7 @@ import {
   INGEST_CAPS_V0,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type StructureOverrideV1,
 } from '@texttrends/core';
 import type {
   GenerationDocSpecV4,
@@ -606,6 +607,119 @@ describe('source evidence projection (§12.4)', () => {
     // After the reopen, before any new source-ready arrives, the counts are
     // unknown — never carried over from the prior generation.
     expect(session.getState().sourceEvidence[doc]).toBeUndefined();
+  });
+});
+
+describe('structure correction command — fenced async (8c, ruling §4/§5)', () => {
+  /** A structurally-valid override authored against a doc's CURRENT identities.
+   *  (The session never composes structure — the fake client does not run the
+   *  engine — so the change content is opaque to it; only base identities and
+   *  the async fence are exercised here.) */
+  function mkOverride(doc: ProjectDocV1, key = 'user-x'): StructureOverrideV1 {
+    return {
+      schema: 'texttrends/structure-override/1',
+      text: doc.extraction.text,
+      candidates: doc.extraction.candidates,
+      baseRecipe: doc.structure.recipeHash,
+      changes: [{ op: 'add', key, value: { parent: 'root', level: 1, chars: { start: 0, end: 1 } } }],
+    };
+  }
+  const docOf = (session: ProjectSession, doc: string): ProjectDocV1 =>
+    session.getState().project.data.docs.find((d) => d.doc === doc)!;
+
+  it('publishes hashing, then installs an active override and reopens (never sync)', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const doc = docs[0]!;
+    const opensBefore = client.opens.length;
+    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
+    // Synchronous: hashing status, and NO reopen until the hash resolves.
+    expect(session.getState().corrections[doc]?.phase).toBe('hashing');
+    expect(client.opens.length).toBe(opensBefore);
+    await settle();
+    expect(session.getState().corrections[doc]).toBeUndefined();
+    expect(docOf(session, doc).structure.override.status).toBe('active');
+    expect(client.opens.length).toBe(opensBefore + 1);
+    const spec = client.lastOpen().docs.find((s) => s.doc === doc)!;
+    expect(spec.structure.override.kind).toBe('active');
+  });
+
+  it('fast-rejects an override whose base identities do not match — no hash, no reopen', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const doc = docs[0]!;
+    const opensBefore = client.opens.length;
+    session.setStructureOverride(doc, { ...mkOverride(docOf(session, doc)), text: 'WRONG-TEXT-HASH' });
+    const c = session.getState().corrections[doc];
+    expect(c?.phase).toBe('error');
+    if (c?.phase === 'error') expect(c.reason).toBe('stale-base');
+    await settle();
+    expect(client.opens.length).toBe(opensBefore);
+    expect(docOf(session, doc).structure.override.status).toBe('none');
+  });
+
+  it('a later authoring attempt supersedes an earlier pending hash', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const doc = docs[0]!;
+    const d = docOf(session, doc);
+    session.setStructureOverride(doc, mkOverride(d, 'user-FIRST'));
+    session.setStructureOverride(doc, mkOverride(d, 'user-SECOND')); // supersedes before either hash resolves
+    await settle();
+    const ov = docOf(session, doc).structure.override;
+    expect(ov.status).toBe('active');
+    if (ov.status === 'active') expect(ov.value.changes[0]!).toMatchObject({ key: 'user-SECOND' });
+  });
+
+  it('a discard (null) installs none, reopens, and supersedes a pending hash', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const doc = docs[0]!;
+    // Establish an active correction first.
+    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
+    await settle();
+    expect(docOf(session, doc).structure.override.status).toBe('active');
+    // A fresh pending apply immediately superseded by a discard.
+    session.setStructureOverride(doc, mkOverride(docOf(session, doc), 'user-LATE'));
+    session.setStructureOverride(doc, null);
+    await settle();
+    expect(docOf(session, doc).structure.override.status).toBe('none');
+    expect(session.getState().corrections[doc]).toBeUndefined();
+  });
+
+  it('rejects the command on the read-only built-in project', () => {
+    const { session } = makeSession(builtin());
+    expect(() => session.setStructureOverride('x', null)).toThrow(SessionCommandError);
+  });
+
+  it('a project load during a pending hash fences the stale correction out of the replacement', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const doc = docs[0]!;
+    session.save();
+    await settle();
+    const saved = client.saves[0]!.manifest;
+    client.saves[0]!.resolve({ revision: 1 });
+    await settle();
+    // Start an override hash, THEN replace the project via a load of the SAME
+    // (content-identical) saved manifest before the hash resolves — the exact
+    // race where the stale override's base identities still match the reloaded
+    // doc, so only the session-epoch fence prevents it mutating the new project.
+    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
+    expect(session.getState().corrections[doc]?.phase).toBe('hashing');
+    session.loadUserProject();
+    client.loads.at(-1)!.resolve({ kind: 'loaded', manifest: saved });
+    await settle();
+    // Whatever the (hash, install) interleaving, the SAFETY invariant holds:
+    // the replacement project keeps override NONE — the stale correction, whose
+    // base identities still match the content-identical reloaded doc, is fenced
+    // out by the session epoch and never mutates the new project — and its
+    // status is cleared on replacement, not leaked. (A hash that lands before
+    // the install touches only the outgoing project the load then discards.)
+    expect(docOf(session, doc).structure.override.status).toBe('none');
+    expect(session.getState().corrections[doc]).toBeUndefined();
+    expect(session.getState().project.dirty).toBe(false);
+    expect(session.getState().project.baseRevision).toBe(1); // the loaded project, clean
   });
 });
 

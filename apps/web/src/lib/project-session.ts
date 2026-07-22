@@ -36,6 +36,7 @@ import {
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashIndexRecipe,
+  hashStructureOverride,
   hashStructureRecipe,
   INGEST_CAPS_V0,
   validateProjectManifest,
@@ -44,6 +45,7 @@ import {
   type IndexRecipeProvisional,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type StructureOverrideV1,
   type StructureRecipeProvisional,
 } from '@texttrends/core';
 import type {
@@ -197,6 +199,16 @@ export interface SourceEvidence {
   readonly suspiciousControlCount: number;
 }
 
+/** The async correction (override authoring) status for a doc (commit 8c). The
+ *  override hash is Web-Crypto async, so `setStructureOverride` cannot be a
+ *  synchronous mutate-then-reopen like `setLanguage`. Absence means idle; only
+ *  in-flight hashing and a rejected attempt are tracked. `stale-base` is a
+ *  correction whose base identities no longer match the doc's extraction (the
+ *  editor result was superseded by a re-extraction) — never sent to the worker. */
+export type CorrectionStatus =
+  | { readonly phase: 'hashing' }
+  | { readonly phase: 'error'; readonly reason: 'stale-base' | 'invalid'; readonly message: string };
+
 export interface SessionState {
   readonly project: ProjectView;
   readonly analysis: AnalysisPhase;
@@ -205,6 +217,7 @@ export interface SessionState {
   readonly sources: Readonly<Record<string, SourceStatus>>;
   readonly reattach: Readonly<Record<string, ReattachStatus>>;
   readonly sourceEvidence: Readonly<Record<string, SourceEvidence>>;
+  readonly corrections: Readonly<Record<string, CorrectionStatus>>;
 }
 
 /** Thrown by public commands used against an illegal origin/state — a
@@ -270,6 +283,17 @@ interface PendingSave {
 
 const CAPS = INGEST_CAPS_V0;
 
+/** A correction's base identities agree with a doc's CURRENT extraction — the
+ *  precondition for installing it as `active` (§12.6). Checked both synchronously
+ *  and again after the async hash, since a re-extraction can change them. */
+function overrideMatchesDoc(override: StructureOverrideV1, doc: ProjectDocV1): boolean {
+  return (
+    override.text === doc.extraction.text &&
+    override.candidates === doc.extraction.candidates &&
+    override.baseRecipe === doc.structure.recipeHash
+  );
+}
+
 /** Filename → advertised format. A filename alone never bypasses format policy;
  *  content sniffing that refines this is deferred (commit 8+). */
 function formatForName(name: string): SourceFormat | null {
@@ -329,6 +353,11 @@ export class ProjectSession {
   /** Per-generation extraction evidence by doc (§12.4), captured from
    *  `source-ready`; cleared when a new generation begins. */
   private readonly sourceEvidence = new Map<string, SourceEvidence>();
+  /** Per-doc monotonic authoring token — a later `setStructureOverride` (or a
+   *  discard) supersedes an earlier one's pending async hash. */
+  private readonly correctionTokens = new Map<string, number>();
+  /** Per-doc correction status (hashing / rejected). Absence = idle. */
+  private readonly corrections = new Map<string, CorrectionStatus>();
   private readonly persistIntent = new Set<string>();
 
   // ── Source runtime + reattach. ──
@@ -474,6 +503,80 @@ export class ProjectSession {
     this.finalized.set(doc, { ...existing, meta: { ...existing.meta, language } });
     this.touch();
     this.startGeneration(); // reopen: tokenization may change
+  }
+
+  /**
+   * Author (or clear) a document's chapter-structure correction (commit 8c,
+   * ruling §4/§5). The override hash is async Web Crypto, so this cannot be a
+   * synchronous mutate-then-reopen like `setLanguage`: a per-doc monotonic
+   * token supersedes an earlier attempt, `hashing`/`error` status is published,
+   * and ONLY the latest hash completion — after RE-checking the base identities
+   * against the THEN-current finalized doc — installs an `active` override and
+   * reopens analysis. A null or zero-change override installs `none`
+   * synchronously and supersedes any pending hash (the needs-review discard).
+   */
+  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void {
+    this.assertUserCommand('setStructureOverride');
+    const existing = this.finalized.get(doc);
+    if (!existing) throw new SessionCommandError(`setStructureOverride: '${doc}' is not a finalized document`);
+    // Bump the token: any in-flight hash for this doc is now superseded. The
+    // PROJECT epoch is captured too — a project replacement (create/load) during
+    // the async hash must invalidate this attempt even when the reloaded doc is
+    // content-identical, so a stale hash can never mutate the new project.
+    const token = (this.correctionTokens.get(doc) ?? 0) + 1;
+    this.correctionTokens.set(doc, token);
+    const epoch = this.sessionEpoch;
+
+    // Clear: install `none` (and reopen only if the effective override changes).
+    if (override === null || override.changes.length === 0) {
+      this.corrections.delete(doc);
+      if (existing.structure.override.status !== 'none') {
+        this.finalized.set(doc, { ...existing, structure: { ...existing.structure, override: { status: 'none' } } });
+        this.touch();
+        this.startGeneration();
+      } else {
+        this.publish(); // nothing to reopen — just drop any hashing/error status
+      }
+      return;
+    }
+
+    // Fast reject a correction not authored against the doc's CURRENT extraction
+    // (re-checked authoritatively after the async hash).
+    if (!overrideMatchesDoc(override, existing)) {
+      this.corrections.set(doc, { phase: 'error', reason: 'stale-base', message: 'this correction is stale — re-open the editor' });
+      this.publish();
+      return;
+    }
+
+    this.corrections.set(doc, { phase: 'hashing' });
+    this.publish();
+
+    void (async () => {
+      let hash: string;
+      try {
+        hash = await hashStructureOverride(override);
+      } catch (e) {
+        // A project replacement (epoch) OR a newer attempt (token) invalidates
+        // this: never publish an error into a project this attempt no longer owns.
+        if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return;
+        this.corrections.set(doc, { phase: 'error', reason: 'invalid', message: e instanceof Error ? e.message : String(e) });
+        this.publish();
+        return;
+      }
+      if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return; // superseded mid-hash
+      const current = this.finalized.get(doc);
+      // Re-check against the THEN-current doc: a re-extraction during the await
+      // may have changed identities — a stale result is rejected, not sent.
+      if (!current || !overrideMatchesDoc(override, current)) {
+        this.corrections.set(doc, { phase: 'error', reason: 'stale-base', message: 'the document changed while saving — re-open the editor' });
+        this.publish();
+        return;
+      }
+      this.corrections.delete(doc);
+      this.finalized.set(doc, { ...current, structure: { ...current.structure, override: { status: 'active', value: override, hash } } });
+      this.touch();
+      this.startGeneration();
+    })();
   }
 
   /** Reorder the declared sequence. Reopens analysis (declared-sequence
@@ -1271,6 +1374,11 @@ export class ProjectSession {
     this.reattachStatus.clear();
     this.persistTokens.clear();
     this.reattachTokens.clear();
+    // A pending correction belonged to the OUTGOING project; its status must
+    // not leak into the replacement (the sessionEpoch fence also drops any
+    // in-flight hash below).
+    this.correctionTokens.clear();
+    this.corrections.clear();
     this.id = project.data.id;
     this.kind = project.kind;
     this.indexRecipe = project.data.indexRecipe;
@@ -1298,6 +1406,8 @@ export class ProjectSession {
     this.reattachStatus.clear();
     this.persistTokens.clear();
     this.reattachTokens.clear();
+    this.correctionTokens.clear();
+    this.corrections.clear();
     this.finalized.clear();
     this.order = [];
     this.id = USER_PROJECT_ID;
@@ -1352,7 +1462,9 @@ export class ProjectSession {
     for (const [doc, s] of this.reattachStatus) reattach[doc] = s;
     const sourceEvidence: Record<string, SourceEvidence> = {};
     for (const [doc, e] of this.sourceEvidence) sourceEvidence[doc] = e;
-    return { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence };
+    const corrections: Record<string, CorrectionStatus> = {};
+    for (const [doc, c] of this.corrections) corrections[doc] = c;
+    return { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence, corrections };
   }
 
   private publish(): void {

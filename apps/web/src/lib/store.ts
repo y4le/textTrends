@@ -39,6 +39,7 @@ import {
   type DocumentMetaV1,
   type NumericTrend,
   type PassageResult,
+  type StructureOverrideV1,
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { SnapshotInfo } from './client.ts';
@@ -222,6 +223,7 @@ export interface SessionPort {
   removeImport(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
+  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void;
   reorder(order: readonly string[]): void;
   save(): void;
   setPersistIntent(doc: string, intent: boolean): void;
@@ -316,6 +318,9 @@ export interface AppState {
   removeImport(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
+  /** Author (`override`) or discard (`null`) a doc's chapter-structure
+   *  correction. The editor computes the declarative override from its draft. */
+  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void;
   reorder(order: readonly string[]): void;
   setPersistIntent(doc: string, intent: boolean): void;
   saveProject(): void;
@@ -797,6 +802,9 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       },
       setLanguage(doc, language) {
         command((s) => s.setLanguage(doc, language));
+      },
+      setStructureOverride(doc, override) {
+        command((s) => s.setStructureOverride(doc, override));
       },
       reorder(order) {
         command((s) => s.reorder(order));
