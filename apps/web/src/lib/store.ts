@@ -42,7 +42,7 @@ import {
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { SnapshotInfo } from './client.ts';
-import type { QueryOpV4, QueryResultDataV4 } from '../worker/protocol-v4.ts';
+import type { QueryOpV4, QueryResultDataV4, StructureQueryResultV1 } from '../worker/protocol-v4.ts';
 import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, type ProjectDataV1 } from './project.ts';
 import {
   SessionCommandError,
@@ -140,6 +140,20 @@ export interface KwicState {
     | { readonly status: 'error'; readonly message: string };
 }
 
+/** The focused document's chapter outline (commit 8a, read-only preview). A
+ *  request/response query like KWIC — epoch- and (generation,snapshot,doc)-
+ *  guarded — but issued INDEPENDENTLY of the term series so the outline works
+ *  with an empty term input. `doc` names the request so a component never
+ *  pairs rows with a different focus. A doc with no chapters resolves 'ready'
+ *  with only the root row; a real query failure is 'error'. */
+export interface StructureState {
+  readonly doc: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: StructureQueryResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
 export type TrendView = 'series' | 'by-book';
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -230,6 +244,15 @@ export interface AppState {
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
   trendView: TrendView;
+  /** The document whose chapter outline is previewed and whose top-level
+   *  boundaries the chart may mark. A real presentation intent (NOT the scrub
+   *  doc or focused series): defaults to the first ready doc in declared
+   *  project order and is preserved while it stays ready. */
+  focusedDoc: string | null;
+  /** The focused doc's outline query result (independent of the term series). */
+  structure: StructureState | null;
+  /** Opt-in: draw the focused doc's top-level chapter boundaries on the chart. */
+  sectionMarks: boolean;
   scrub: ScrubTarget | null;
   /** The loaded passage block — may lag the scrub target while a fetch is in
    *  flight; the panel renders the block that CONTAINS the target only. */
@@ -239,9 +262,14 @@ export interface AppState {
   setInput(input: string): void;
   setFocus(seriesId: string): void;
   setTrendView(view: TrendView): void;
+  setFocusedDoc(doc: string): void;
+  setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   runQueries(): void;
+  /** (Re)issue the focused doc's outline query. Called on snapshot change and
+   *  when the focused doc changes; independent of the term-series flow. */
+  runStructure(): void;
 
   // ── Session command wrappers (forward to the one attached session). ──
   /** Import files: create a user project from the built-in origin, or append
@@ -286,6 +314,19 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
+/** The focused doc for the incoming session state: preserve the current focus
+ *  while it remains a ready member of the snapshot, otherwise pick the first
+ *  ready doc in DECLARED project order (never analysis-completion order). Null
+ *  when there is no snapshot. */
+function resolveFocusedDoc(prev: string | null, next: SessionState): string | null {
+  const snapshot = next.snapshot;
+  if (!snapshot) return null;
+  const ready = new Set(snapshot.readyDocs);
+  if (prev !== null && ready.has(prev)) return prev;
+  for (const doc of next.project.data.order) if (ready.has(doc)) return doc;
+  return snapshot.readyDocs[0] ?? null;
+}
+
 export function createAppRuntime(client: QueryClient): AppRuntime {
   let trendEpoch = 0;
   let kwicEpoch = 0;
@@ -296,6 +337,10 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   let scrubEpoch = 0;
   let passageActiveCancel: (() => void) | null = null;
   let passagePending: ScrubTarget | null = null;
+  // Outline query intent — a separate epoch/cancel from the term series so the
+  // preview survives an empty term input and a focus change reissues only it.
+  let structureEpoch = 0;
+  let structureCancel: (() => void) | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -473,6 +518,9 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       trends: new Map(),
       kwic: null,
       trendView: 'series',
+      focusedDoc: null,
+      structure: null,
+      sectionMarks: false,
       scrub: null,
       passage: null,
 
@@ -506,6 +554,17 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
 
       setTrendView(view) {
         set({ trendView: view }); // presentation-only: no query is reissued
+      },
+
+      setFocusedDoc(doc) {
+        if (get().focusedDoc === doc) return;
+        if (!get().snapshot?.readyDocs.includes(doc)) return; // only a ready doc
+        set({ focusedDoc: doc });
+        get().runStructure(); // outline intent only — trend lines are unaffected
+      },
+
+      setSectionMarks(on) {
+        set({ sectionMarks: on }); // presentation-only
       },
 
       setScrub(target) {
@@ -590,6 +649,39 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         runKwic();
       },
 
+      runStructure() {
+        structureCancel?.();
+        structureCancel = null;
+        const myEpoch = ++structureEpoch;
+        const { snapshot, focusedDoc } = get();
+        if (!snapshot || !focusedDoc || !snapshot.readyDocs.includes(focusedDoc)) {
+          set({ structure: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedDoc = focusedDoc;
+        set({ structure: { doc: focusedDoc, state: { status: 'pending' } } });
+        const handle = client.query(snapshot.snapshot, { op: 'structure', request: { doc: focusedDoc } });
+        structureCancel = handle.cancel;
+        // (generation, snapshot, doc): a slow result for a superseded focus or
+        // snapshot must never relabel the current outline.
+        const current = () =>
+          structureEpoch === myEpoch &&
+          snapKey(get().snapshot) === issuedKey &&
+          get().focusedDoc === issuedDoc;
+        void handle.result
+          .then((data) => {
+            if (data.op === 'structure' && current()) {
+              set({ structure: { doc: issuedDoc, state: { status: 'ready', result: data.structure } } });
+            }
+          })
+          .catch((e: unknown) => {
+            const message = e instanceof Error ? e.message : String(e);
+            if (message === 'cancelled' || !current()) return;
+            set({ structure: { doc: issuedDoc, state: { status: 'error', message } } });
+          });
+      },
+
       // ── Session command wrappers ──────────────────────────────────────────
       importFiles(files, opts) {
         command((s) => {
@@ -637,14 +729,24 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   const acceptSessionState = (next: SessionState) => {
     const prevKey = snapKey(store.getState().snapshot);
     const nextKey = snapKey(next.snapshot);
+    // Resolve the focused doc against the incoming snapshot: keep the current
+    // one while it stays ready, else the first ready doc in declared order.
+    // Snapshot ids are unique per publication, so an unchanged key means the
+    // ready set (and thus the focus) is stable — the outline never churns on an
+    // unrelated (sources/save) publication.
+    const focusedDoc = resolveFocusedDoc(store.getState().focusedDoc, next);
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
       snapshot: next.snapshot,
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
+      focusedDoc,
     });
-    if (prevKey !== nextKey) store.getState().runQueries();
+    if (prevKey !== nextKey) {
+      store.getState().runQueries();
+      store.getState().runStructure();
+    }
   };
 
   return {

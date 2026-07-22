@@ -2,12 +2,14 @@ import { describe, expect, it } from 'vitest';
 import {
   binSpan,
   bookTokenFromX,
+  bookXFromTokenEdge,
   clampToSpan,
   pointerTargetByBook,
   pointerTargetSeries,
   seriesDocFromGlobal,
   seriesTokenFromX,
   seriesXFromToken,
+  seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
   type SequenceLayout,
@@ -92,6 +94,25 @@ describe('sequence scrub mapping', () => {
     expect(stepAlongSequence(2, 0, -1, LAYOUT)).toEqual({ d: 0, token: 99 });
     expect(stepAlongSequence(0, 0, -1, LAYOUT)).toEqual({ d: 0, token: 0 }); // clamped
     expect(stepAlongSequence(2, 49, 5, LAYOUT)).toEqual({ d: 2, token: 49 }); // clamped
+  });
+});
+
+describe('token-edge geometry (chapter boundary rules)', () => {
+  it('series edge lands on the token START, not its center', () => {
+    // Second book starts at base 100; a boundary at local token 10 is global
+    // 110 → 110/150 of the width. The scrubber (center) would add +0.5.
+    expect(seriesXFromTokenEdge(2, 10, 300, LAYOUT)).toBeCloseTo((110 / 150) * 300);
+    expect(seriesXFromToken(2, 10, 300, LAYOUT)).toBeCloseTo((110.5 / 150) * 300);
+  });
+  it('series edge is 0 for an empty corpus', () => {
+    expect(seriesXFromTokenEdge(0, 5, 300, { bases: [0], tokenCounts: [0], totalTokens: 0 })).toBe(0);
+  });
+  it('by-book edge is the token fraction of the row width', () => {
+    expect(bookXFromTokenEdge(25, 400, 100)).toBeCloseTo(100);
+    expect(bookXFromTokenEdge(0, 400, 100)).toBe(0);
+  });
+  it('by-book edge is 0 for an empty row', () => {
+    expect(bookXFromTokenEdge(5, 400, 0)).toBe(0);
   });
 });
 

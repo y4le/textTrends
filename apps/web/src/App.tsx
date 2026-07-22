@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { KwicPanel } from './components/KwicPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
+import { StructurePanel } from './components/StructurePanel.tsx';
 import { TrendPanel } from './components/TrendPanel.tsx';
 import { useApp } from './lib/store-instance.ts';
 import { slotColor, slotDash } from './lib/series-style.ts';
@@ -191,6 +192,7 @@ export function App() {
         <TrendPanel />
         <KwicPanel />
       </div>
+      <StructurePanel />
       <ProjectPanel />
     </main>
   );

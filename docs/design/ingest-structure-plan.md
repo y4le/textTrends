@@ -2406,3 +2406,91 @@ For the reattach browser path, make the scenario deterministic: import and save 
 10. The old `loadSherlock` implementation and listener registrations are deleted in the same commit that constructs the live session—there is no dual-owner midpoint.
 
 With this shape, 7c is an atomic ownership cutover rather than a second lifecycle implementation: async fixture construction happens at the composition root, the session remains the project/generation authority, and Zustand remains the sole React-facing projection and query coordinator.
+
+---
+
+# Commit 8 ruling (planner consult `req_consult_0f1586be49a88bb1`, 2026-07-22)
+
+Recorded verbatim. Governs the commit 8 split into 8a/8b/8c. Approve-with-corrections;
+editable model C2 + pure-core diff helper, a SEPARATE `structure-edit-context` op,
+parent-root top-level topology, token-edge chart geometry, a new `focusedDoc` intent,
+fenced async override mutation, session-owned `sourceEvidence`, and structure caps
+before Add.
+
+# Planner ruling — commit 8 preview/correction and chart rules
+
+Overall ruling: **approve commit 8 only with the corrections below; do not implement the proposal verbatim.** The current tree confirms the central gap: the existing `structure` result is a cheap, project-bound view of the composed artifact, while authoring requires the detected-table lineage keys and baseline values that the main thread does not have. The current tree also makes four proposed details unsafe as written: there is no focused-document intent, hierarchy is defined by parent links rather than `level`, override hashing is asynchronous, and the existing range-based excerpt method cannot itself find an exact source line.
+
+## 1. Editable model
+
+**Pick C2. Reject C1 and C3. Approve a pure-core diff helper, with a stricter contract than the sketch.**
+
+C1 is not viable without sending candidate values or full text to the main thread. C3 makes incremental UI deltas and the previous override part of the authoring semantics, which is precisely the edit-log/rebase coupling the declarative override contract was designed to avoid. The correct authoring model is: snapshot-bound detected baseline + current composed outline + a freshly derived complete patch against the detected baseline.
+
+The helper should be the single core authority, along these lines:
+
+```ts
+overrideFromEditedOutline(
+  base: { text: string; candidates: string; baseRecipe: string },
+  detected: readonly StructureSectionRecordV2[],
+  edited: readonly EditableSectionValue[], // key + parent/level/title/chars; no caller-authored origin
+): StructureOverrideV1
+```
+
+It must diff by lineage key: missing detected keys become `remove`, changed detected keys become complete `replace`, and edited-only keys become `add`. It must reject any root mutation; ignore row order and caller-supplied provenance; canonicalize changes; apply the generated override back to the detected table; and prove that the resulting canonical key/parent/level/title/range outline equals the edited outline. Validation/caps must run here, not only later in the worker. An empty change set must become `{status:'none'}` at the session boundary.
+
+This design also correctly preserves already-added user keys on later edits: the current composed outline supplies them, and the fresh diff emits them again as `add` relative to the detected baseline.
+
+## 2. Protocol vehicle
+
+**Pick a separate snapshot-bound `structure-edit-context` query op. Keep `StructureQueryResultV1` and `WireSection` as the minimal bound read/chart view.**
+
+This is still the C2 data model; it is a rejection only of multiplexing edit internals into every ordinary structure read. In the current engine, the composed artifact is resident and the existing `structure` query can project it cheaply. Producing the detected baseline after an override requires re-deriving candidate values from resident text + the extraction recipe (and verifying the candidate hash) because neither `ReadyDocument` nor `StructureArtifactV2` retains the detected table. That full-text work should happen only for an editor request. Raw lineage keys also deliberately do not belong on the public project-bound `WireSection` abstraction.
+
+The edit-context result should echo:
+
+- `doc`, `structure`, and `index` identities;
+- the exact base identities `text`, `candidates`, `baseRecipe`, plus the effective override hash;
+- the detected keyed baseline (`key`, origin, parent key, level, title, chars);
+- the current composed rows with both lineage key and bound `WireSection`/token range.
+
+Use a distinct edit-row type rather than adding `key` to `WireSection`. The engine must re-derive candidates, verify their hash against the admitted document, build the detected table in core, and retain the same generation-object + snapshot checkpoints as `queryStructure`. A bounded ephemeral cache keyed by `[TextHash, CandidateHash, StructureRecipeHash]` is acceptable; persistence is not.
+
+The store must give ordinary structure and edit-context requests independent epochs/cancel handles. Do not put the structure request inside the existing term-series `runQueries` early-exit: the outline must still work when the term input is empty.
+
+## 3. Chart scope
+
+**Pick top-level boundary marks for one focused document, behind the proposed opt-in toggle. Defer all section aggregation and segmented trends.**
+
+One blocking semantic correction: **top-level means `parent === root.id`, not `level === 1`.** `validateSectionTable` explicitly treats parent links as hierarchy authority and only validates `level` as metadata; a legal user replacement can therefore make `level === 1` disagree with the parent graph.
+
+Commit 8 must add a real `focusedDoc` presentation intent because the current store has only `focusedSeries` and scrub position. Default it to the first ready document in declared project order, preserve it while it remains present, and expose an explicit document selector/outline focus. Do not overload the current scrub document or focused series as chapter focus.
+
+Render one rule per distinct top-level section **start** token, excluding the root and deduplicating equal token boundaries. Omit a rule that exactly duplicates an existing document edge. Use token-edge geometry (`base + tokens.start` in the sequence view and `tokens.start / docTokenCount` in the by-book row), not `seriesXFromToken`/`bookXFromToken`, which intentionally place a scrubber at a token center. In the sequence chart draw rules only within the focused document span; in by-book draw them only in that document's row. Deeper rows remain panel-only. No barcode and no per-section recomputation in this phase.
+
+## 4. State seams
+
+**Confirm query/read state in the store, persisted correction mutation in `ProjectSession`, and encoding evidence under session ownership, with these required refinements.**
+
+- Store: own `focusedDoc`, ordinary structure query state, edit-context state, and source-line excerpt state. Each gets an epoch plus `(generation,snapshot,doc)` guard. Extend the request/response client seam for excerpts; excerpts do not belong in `ProjectSession`.
+- Session: own the only mutation of `ProjectDocV1.structure.override`, followed by `touch()` and generation replacement. However, `setStructureOverride` cannot literally be synchronous like `setLanguage`: `hashStructureOverride` uses async Web Crypto. Keep the public command-style API if desired, but implement a per-document monotonic authoring token plus session/project epoch, publish `hashing|error|idle` correction status, and let only the latest hash completion mutate the finalized document. Recheck all three base identities against the then-current finalized doc before installing `active`; a stale editor result must be rejected, not sent to the worker. Do not reopen a generation until the hash and identity checks succeed. A null or zero-change override installs `none` and supersedes any pending hash.
+- UI: keep draft outline edits local and issue one explicit Apply command. Do not replace the generation on every title keystroke or drag event.
+- Encoding: the durable descriptor already lives at `SessionState.project.data.docs[].source`; do not duplicate it into every transient `SourceStatus` variant, where status transitions would easily drop it. Add a separate session-owned `sourceEvidence[doc]` projection for the two counts when a real `source-ready` event provides them. A Windows fallback badge is determined by `encoding.detected === 'windows-1252'`, not by replacement count (the landed Windows-1252 decoder is total and normally inserts zero replacements). On a warm reopen where counts are unavailable, show the durable encoding/had-replacement facts and treat the counts as unknown, never as zero. If exact counts are made a cross-reload acceptance requirement, that requires an explicit manifest ABI/schema migration; do not silently widen the exact `ProjectManifestV1` shape in this UI commit.
+
+The “exact source line via the existing excerpt path” claim also needs correction. `WorkerClient.excerpt` currently accepts a caller-chosen `[charStart,charEnd)` and returns only that slice; it cannot discover line boundaries. Add a bounded snapshot-bound line-excerpt request/mode accepting `{doc, anchor, maxChars}` and returning the actual range, source-faithful text, and leading/trailing truncation flags. Keep it in the store request/response seam and make it cancellable. A huge physical line must be explicitly truncated rather than shipped unboundedly.
+
+## 5. Remaining policy and commit split
+
+**Needs-review:** show a prominent “saved correction is inactive and needs review” state while rendering the current detected/effective outline. Because rebase is deferred, disable Apply until the user explicitly chooses **Discard stale correction and start from current detection**. That action sets `none`. Never silently overwrite or reactivate a `needs-review` value, and never label the inactive stale outline as applied.
+
+**Ingest/authoring caps:** source/text caps do not change when an override is applied, and the generation should reuse text and shards. But the current shared caps do not bound detected/final section count, override changes, or key length, while `validateSectionTable` contains an O(n²) overlap check. Before enabling Add, introduce and enforce provisional structure limits in core and at the worker boundary: **2,048 sections per detected or final table (including root), 4,096 override changes, and 128 UTF-16 units per lineage key**; retain the landed 512-unit title cap. Detection or final composition over the table cap is `CAP_EXCEEDED`; malformed/colliding edits are `REQUEST_INVALID`/`StructureError`. The UI should prevent exceeding the same limits, but it is not the authority.
+
+**Key minting:** reject a counter that resets per authoring session. It collides with persisted `user-0`, `user-1`, etc. Pick **`user-${crypto.randomUUID()}`**, generated once when the row is added, retained through local edits, and persisted in the override. Inject the allocator in tests. Core canonicalizes and collision-checks supplied keys; it must not perform random minting.
+
+**Commit granularity:** use three reviewable commits rather than the proposed two:
+
+1. **8a — read-only preview:** focused-doc intent, independent structure-query consumer, encoding/provenance display, and correctly parent-derived/token-edge chart rules.
+2. **8b — authoring contracts:** structure caps, pure core diff helper, `structure-edit-context`, bounded line excerpt, engine/client/store protocol fixtures.
+3. **8c — mutation/UI:** fenced async session command, correction status, editor controls, explicit needs-review discard flow, and generation-race tests.
+
+Blocking corrections before implementation are therefore: define `focusedDoc`; use parent-root topology rather than level; choose the separate edit-context result; specify the validating core diff contract; fence asynchronous override hashing and stale base identities; make excerpts line-aware and bounded; avoid resettable user keys; and land structure-count/change/key limits before exposing Add. With those corrections, commit 8 is approved and section aggregation remains deferred.

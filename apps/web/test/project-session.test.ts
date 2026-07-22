@@ -205,7 +205,12 @@ function makeSession(initial: CurrentProject, over: Partial<ProjectSessionDeps> 
   return { session, client, bundled, states, deps };
 }
 
-function readyInfo(generation: string, doc: string, job: number, opts: { size?: number; format?: 'txt' | 'md' } = {}): SourceReadyInfo {
+function readyInfo(
+  generation: string,
+  doc: string,
+  job: number,
+  opts: { size?: number; format?: 'txt' | 'md'; replacements?: number; controls?: number } = {},
+): SourceReadyInfo {
   const size = opts.size ?? 10;
   return {
     job,
@@ -216,8 +221,8 @@ function readyInfo(generation: string, doc: string, job: number, opts: { size?: 
     text: `text-${doc}`,
     textLengthUtf16: 5,
     candidates: `cand-${doc}`,
-    decoderReplacementCount: 0,
-    suspiciousControlCount: 0,
+    decoderReplacementCount: opts.replacements ?? 0,
+    suspiciousControlCount: opts.controls ?? 0,
   };
 }
 
@@ -566,6 +571,41 @@ describe('metadata vs generation-reopening edits (invariant 8)', () => {
     session.reorder([docs[1]!, docs[0]!]);
     expect(client.opens.length).toBe(opensAfterImport + 2); // reopen
     expect(session.getState().project.data.order).toEqual([docs[1]!, docs[0]!]);
+  });
+});
+
+describe('source evidence projection (§12.4)', () => {
+  /** Import one file and finalize it, delivering source-ready with the given
+   *  extraction-evidence counts. */
+  async function importWithEvidence(replacements: number, controls: number) {
+    const { session, client } = makeSession(builtin());
+    session.createUserProject([fakeFile('a.txt', 10)]);
+    await settle();
+    const open = client.lastOpen();
+    const gen = open.generation;
+    const doc = open.docs[0]!.doc;
+    open.resolve({ generation: gen, snapshot: null, readyDocs: [], missing: [{ doc, need: 'source-bytes', reason: 'source-not-persisted' }] });
+    await settle();
+    client.emitSourceReady(readyInfo(gen, doc, client.ingestFor(gen, doc), { replacements, controls }));
+    client.emitSnapshot({ generation: gen, snapshot: 'snap-1', readyDocs: [doc], missingDocs: [] });
+    await settle();
+    return { session, client, doc };
+  }
+
+  it('captures the decoder/control counts from a real source-ready event', async () => {
+    const { session, doc } = await importWithEvidence(3, 7);
+    expect(session.getState().sourceEvidence[doc]).toEqual({
+      decoderReplacementCount: 3,
+      suspiciousControlCount: 7,
+    });
+  });
+
+  it('resets the evidence at each new generation (a reopen clears prior counts)', async () => {
+    const { session, doc } = await importWithEvidence(3, 7);
+    session.setLanguage(doc, 'fr'); // reopens the generation
+    // After the reopen, before any new source-ready arrives, the counts are
+    // unknown — never carried over from the prior generation.
+    expect(session.getState().sourceEvidence[doc]).toBeUndefined();
   });
 });
 

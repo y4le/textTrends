@@ -185,6 +185,18 @@ export interface ProjectView {
   readonly saveable: boolean;
 }
 
+/** Extraction evidence surfaced from a real `source-ready` event this
+ *  generation (§12.4): the decoder-inserted replacement count and the
+ *  C0/C1 control count. The DURABLE encoding facts (detected encoding,
+ *  hadReplacementChars) live on `project.data.docs[].source` and are always
+ *  present; these two counts are only known when the document was actually
+ *  (re)extracted this session — a warm text/shard reopen leaves them absent
+ *  (unknown, never zero). Reset at each generation start. */
+export interface SourceEvidence {
+  readonly decoderReplacementCount: number;
+  readonly suspiciousControlCount: number;
+}
+
 export interface SessionState {
   readonly project: ProjectView;
   readonly analysis: AnalysisPhase;
@@ -192,6 +204,7 @@ export interface SessionState {
   readonly imports: readonly ImportView[];
   readonly sources: Readonly<Record<string, SourceStatus>>;
   readonly reattach: Readonly<Record<string, ReattachStatus>>;
+  readonly sourceEvidence: Readonly<Record<string, SourceEvidence>>;
 }
 
 /** Thrown by public commands used against an illegal origin/state — a
@@ -313,6 +326,9 @@ export class ProjectSession {
   // ── Import staging. ──
   private importCounter = 0;
   private readonly pending = new Map<string, PendingImport>();
+  /** Per-generation extraction evidence by doc (§12.4), captured from
+   *  `source-ready`; cleared when a new generation begins. */
+  private readonly sourceEvidence = new Map<string, SourceEvidence>();
   private readonly persistIntent = new Set<string>();
 
   // ── Source runtime + reattach. ──
@@ -813,6 +829,9 @@ export class ProjectSession {
     }
     this.snapshot = null;
     this.analysis = { phase: 'loading', detail: null };
+    // Evidence is per-generation: a doc not re-extracted this generation (warm
+    // text/shard reopen) has unknown counts, never carried-over stale ones.
+    this.sourceEvidence.clear();
     this.publish();
 
     // Compose specs in DECLARED (`this.order`) sequence — the canonical builder
@@ -952,8 +971,17 @@ export class ProjectSession {
 
   private handleSourceReady(info: SourceReadyInfo): void {
     if (this.disposed || info.generation !== this.generation) return;
+    // Capture extraction evidence for ANY doc extracted this generation —
+    // finalized docs included, whose re-extraction is not an import to assemble.
+    this.sourceEvidence.set(info.doc, {
+      decoderReplacementCount: info.decoderReplacementCount,
+      suspiciousControlCount: info.suspiciousControlCount,
+    });
     const p = this.pending.get(info.doc);
-    if (!p) return; // a finalized doc's re-extraction — not an import to assemble
+    if (!p) {
+      this.publish(); // a finalized doc's re-extraction — surface its evidence
+      return;
+    }
     if (p.generation !== info.generation || p.ingestJob !== info.job) return; // stale (same-doc retry / prior generation)
     this.pending.set(info.doc, { ...p, sourceReady: info });
     this.tryFinalize(info.doc);
@@ -1322,7 +1350,9 @@ export class ProjectSession {
     for (const [doc, s] of this.sourceStatus) sources[doc] = s;
     const reattach: Record<string, ReattachStatus> = {};
     for (const [doc, s] of this.reattachStatus) reattach[doc] = s;
-    return { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach };
+    const sourceEvidence: Record<string, SourceEvidence> = {};
+    for (const [doc, e] of this.sourceEvidence) sourceEvidence[doc] = e;
+    return { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence };
   }
 
   private publish(): void {

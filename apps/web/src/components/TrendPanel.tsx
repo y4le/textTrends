@@ -32,15 +32,18 @@ import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
   binSpan,
   bookXFromToken,
+  bookXFromTokenEdge,
   clampToSpan,
   pointerTargetByBook,
   pointerTargetSeries,
   seriesXFromToken,
+  seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
   type SequenceLayout,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
+import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { PassageLine } from './PassageLine.tsx';
 
 const SERIES_HEIGHT = 180;
@@ -72,6 +75,9 @@ export function TrendPanel() {
   const scrub = useApp((s) => s.scrub);
   const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
+  const focusedDoc = useApp((s) => s.focusedDoc);
+  const structure = useApp((s) => s.structure);
+  const sectionMarks = useApp((s) => s.sectionMarks);
 
   // Callback ref, not a RefObject: the container mounts only after the trend
   // results settle, so a mount-time effect would observe nothing.
@@ -150,6 +156,25 @@ export function TrendPanel() {
     ...ready.map((r) => Math.max(...Array.from(r.trend.ratePer10k))),
   );
   const strokeFor = (id: string) => (id === focusedSeries ? 2.5 : 1.5);
+
+  // Chapter boundary rules (opt-in): the top-level chapter starts of the ONE
+  // focused document, marked within its span only — parent-root topology, no
+  // barcode of deeper headings, no per-section recomputation. Only used when
+  // the outline result echoes the currently-focused doc and it is on the axis.
+  const focusedDocOrdinal = focusedDoc ? docs.indexOf(focusedDoc) : -1;
+  const boundaryTokens =
+    sectionMarks &&
+    focusedDocOrdinal >= 0 &&
+    structure?.doc === focusedDoc &&
+    structure.state.status === 'ready'
+      ? topLevelBoundaryTokens(structure.state.result.rows)
+      : [];
+  const seriesMarks = boundaryTokens.map((t) =>
+    seriesXFromTokenEdge(focusedDocOrdinal, t, plotW, layout),
+  );
+  const byBookMarks = boundaryTokens.map((t) =>
+    bookXFromTokenEdge(t, plotW, geo.docTokenCount[focusedDocOrdinal] ?? 0),
+  );
 
   const scrubDocOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
   const scrubX =
@@ -273,6 +298,7 @@ export function TrendPanel() {
             maxRate={maxRate}
             plotW={plotW}
             scrubX={scrubX}
+            sectionMarks={seriesMarks}
             strokeFor={strokeFor}
             onFocus={setFocus}
           />
@@ -285,6 +311,8 @@ export function TrendPanel() {
             plotW={plotW}
             scrubX={scrubX}
             scrubDocOrdinal={scrubDocOrdinal}
+            sectionMarks={byBookMarks}
+            sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
             onFocus={setFocus}
           />
@@ -419,6 +447,7 @@ function SeriesView({
   maxRate,
   plotW,
   scrubX,
+  sectionMarks,
   strokeFor,
   onFocus,
 }: {
@@ -429,6 +458,7 @@ function SeriesView({
   maxRate: number;
   plotW: number;
   scrubX: number | null;
+  sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
 }) {
@@ -543,6 +573,22 @@ function SeriesView({
           </text>
         </g>
       ))}
+      {/* Chapter boundary rules for the focused document (opt-in, top-level
+          only) — dashed and behind the scrubber so the reading cursor stays
+          legible. */}
+      {sectionMarks.map((mx, i) => (
+        <line
+          key={`chapter-${i}`}
+          x1={mx}
+          y1={TOP_PAD}
+          x2={mx}
+          y2={axisY}
+          stroke="var(--rule-strong)"
+          strokeWidth={1}
+          strokeDasharray="2 3"
+          pointerEvents="none"
+        />
+      ))}
       {scrubX !== null && (
         <line
           x1={scrubX}
@@ -587,6 +633,8 @@ function ByBookView({
   plotW,
   scrubX,
   scrubDocOrdinal,
+  sectionMarks,
+  sectionMarkDoc,
   strokeFor,
   onFocus,
 }: {
@@ -597,6 +645,8 @@ function ByBookView({
   plotW: number;
   scrubX: number | null;
   scrubDocOrdinal: number;
+  sectionMarks: readonly number[];
+  sectionMarkDoc: number;
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
 }) {
@@ -636,6 +686,20 @@ function ByBookView({
                 />
               );
             })}
+            {sectionMarkDoc === d &&
+              sectionMarks.map((mx, i) => (
+                <line
+                  key={`chapter-${i}`}
+                  x1={mx}
+                  y1={rowY}
+                  x2={mx}
+                  y2={rowY + ROW_HEIGHT}
+                  stroke="var(--rule-strong)"
+                  strokeWidth={1}
+                  strokeDasharray="2 3"
+                  pointerEvents="none"
+                />
+              ))}
             {scrubX !== null && scrubDocOrdinal === d && (
               <line
                 x1={scrubX}

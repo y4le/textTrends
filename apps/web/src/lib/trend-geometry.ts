@@ -81,6 +81,19 @@ export function seriesXFromToken(
   return (((layout.bases[d] ?? 0) + token + 0.5) / layout.totalTokens) * plotWidth;
 }
 
+/** Token-START edge x pixel on the concatenated axis — a boundary line, NOT a
+ *  scrubber (which centers on the token via `seriesXFromToken`). Used for
+ *  chapter boundary rules so a mark sits exactly where the section begins. */
+export function seriesXFromTokenEdge(
+  d: number,
+  token: number,
+  plotWidth: number,
+  layout: SequenceLayout,
+): number {
+  if (layout.totalTokens <= 0) return 0;
+  return (((layout.bases[d] ?? 0) + token) / layout.totalTokens) * plotWidth;
+}
+
 /** Map x to a document-local token on a single 0..tokenCount row. */
 export function bookTokenFromX(px: number, plotWidth: number, tokenCount: number): number | null {
   if (plotWidth <= 0 || tokenCount <= 0) return null;
@@ -91,6 +104,13 @@ export function bookTokenFromX(px: number, plotWidth: number, tokenCount: number
 export function bookXFromToken(token: number, plotWidth: number, tokenCount: number): number {
   if (tokenCount <= 0) return 0;
   return ((token + 0.5) / tokenCount) * plotWidth;
+}
+
+/** Token-START edge x pixel on a single 0..tokenCount row — a boundary line,
+ *  NOT a scrubber center. Used for chapter boundary rules in the by-book view. */
+export function bookXFromTokenEdge(token: number, plotWidth: number, tokenCount: number): number {
+  if (tokenCount <= 0) return 0;
+  return (token / tokenCount) * plotWidth;
 }
 
 /** Pointer → scrub target for the series view. Coordinates OUTSIDE the plot

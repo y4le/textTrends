@@ -91,7 +91,20 @@ function fakeQueryClient() {
     trends: () => issued.filter((q) => q.op === 'trend'),
     kwics: () => issued.filter((q) => q.op === 'kwic'),
     passages: () => issued.filter((q) => q.op === 'passage'),
+    structures: () => issued.filter((q) => q.op === 'structure'),
   };
+}
+
+/** A structure query result echoing the two artifact identities (§12.7). */
+function fakeStructure(doc: string, tops: readonly number[]): QueryResultDataV4 {
+  const rows = [
+    { section: { id: `${doc}:root`, doc, origin: 'fixed' as const, level: 0, chars: { start: 0, end: 1000 } }, tokens: { start: 0, end: 100 } },
+    ...tops.map((t, i) => ({
+      section: { id: `${doc}:c${i}`, doc, origin: 'heuristic' as const, parent: `${doc}:root`, level: 1, title: `Chapter ${i + 1}`, chars: { start: t, end: t + 1 } },
+      tokens: { start: t, end: t + 10 },
+    })),
+  ];
+  return { op: 'structure', structure: { doc, structure: `str-${doc}`, index: `idx-${doc}`, rows } };
 }
 
 // ── A fake SessionPort: a spyable immutable-state emitter. ──
@@ -120,6 +133,7 @@ function sessionState(
     imports: [],
     sources: {},
     reattach: {},
+    sourceEvidence: {},
   };
 }
 
@@ -652,6 +666,94 @@ describe('store query intent discipline', () => {
       expect(await hashText(decoded), doc).toBe(textHash);
       expect(sourceHash, doc).toBe(textHash);
     }
+  });
+});
+
+// ── The chapter-outline (structure) query intent (commit 8a). Independent of
+// the term series, epoch- and (generation,snapshot,doc)-guarded. ──
+describe('the outline (structure) intent', () => {
+  /** A session state whose project declares `order` (docs left empty — the
+   *  store's focus resolution reads only the order). */
+  function withOrder(snapshot: SnapshotInfo | null, order: readonly string[]): SessionState {
+    return sessionState(snapshot, {
+      project: { data: { id: 'builtin/sherlock', order: [...order], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' } },
+    });
+  }
+
+  it('defaults the focus to the first READY doc in declared order and queries it', () => {
+    const { store, port, structures, trends } = harness();
+    // Declared order [a,b,c]; only b and c ready, published completion-first.
+    port.emit(withOrder(snap('g1', 's1', ['c', 'b']), ['a', 'b', 'c']));
+    expect(store.getState().focusedDoc).toBe('b'); // declared order, not 'c'
+    const s = structures();
+    expect(s.length).toBe(1);
+    expect((s[0]!.query as { request: { doc: string } }).request.doc).toBe('b');
+    // The term series still queried independently.
+    expect(trends().length).toBeGreaterThan(0);
+  });
+
+  it('issues the outline even with an EMPTY term input', () => {
+    const { store, port, structures } = harness();
+    store.getState().setInput(''); // no series
+    port.emit(withOrder(snap('g1', 's1', ['a']), ['a']));
+    expect(store.getState().series.length).toBe(0);
+    expect(structures().length).toBe(1); // outline is not gated on the series
+  });
+
+  it('writes a ready result and ignores one for a superseded focus', async () => {
+    const { store, port, structures } = harness();
+    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
+    const first = structures()[0]!;
+    // Focus moves to b before a's result arrives.
+    store.getState().setFocusedDoc('b');
+    first.resolve(fakeStructure('a', [400])); // stale focus
+    await flush();
+    expect(store.getState().structure?.doc).toBe('b');
+    expect(store.getState().structure?.state.status).toBe('pending');
+    // b resolves and is written.
+    structures().find((q) => (q.query as { request: { doc: string } }).request.doc === 'b')!.resolve(fakeStructure('b', [500]));
+    await flush();
+    const st = store.getState().structure;
+    expect(st?.doc).toBe('b');
+    expect(st?.state.status).toBe('ready');
+  });
+
+  it('setFocusedDoc reissues ONLY the outline, and rejects a non-ready doc', () => {
+    const { store, port, structures, trends } = harness();
+    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
+    const trendsBefore = trends().filter((q) => !q.cancelled).length;
+    const structuresBefore = structures().length;
+    store.getState().setFocusedDoc('b');
+    expect(store.getState().focusedDoc).toBe('b');
+    expect(structures().length).toBe(structuresBefore + 1); // one more outline query
+    expect(trends().filter((q) => !q.cancelled).length).toBe(trendsBefore); // trends untouched
+    // A doc that is not ready is refused.
+    store.getState().setFocusedDoc('zzz');
+    expect(store.getState().focusedDoc).toBe('b');
+    expect(structures().length).toBe(structuresBefore + 1);
+  });
+
+  it('preserves the focus across an unrelated publication; resets when it leaves the ready set', () => {
+    const { store, port, structures } = harness();
+    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
+    store.getState().setFocusedDoc('b');
+    const countAfterFocus = structures().length;
+    // Same snapshot identity, unrelated state → focus and outline unchanged.
+    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
+    expect(store.getState().focusedDoc).toBe('b');
+    expect(structures().length).toBe(countAfterFocus);
+    // A NEW snapshot where b is gone → focus falls back to the first ready doc.
+    port.emit(withOrder(snap('g2', 's2', ['a']), ['a', 'b']));
+    expect(store.getState().focusedDoc).toBe('a');
+  });
+
+  it('clears the outline when a null snapshot supersedes it', () => {
+    const { store, port } = harness();
+    port.emit(withOrder(snap('g1', 's1', ['a']), ['a']));
+    expect(store.getState().focusedDoc).toBe('a');
+    port.emit(withOrder(null, ['a']));
+    expect(store.getState().focusedDoc).toBeNull();
+    expect(store.getState().structure).toBeNull();
   });
 });
 
