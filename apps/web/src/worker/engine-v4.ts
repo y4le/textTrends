@@ -60,6 +60,7 @@ import {
   materializePassage,
   modeKey,
   occurrences,
+  type NumericOccurrences,
   planPassage,
   projectSections,
   resolveSelection,
@@ -1323,28 +1324,54 @@ export class WorkerEngineV4 {
     await this.queryCheckpoint(job, gen, snapshotId);
 
     const shards = new Map<string, DocumentIndexV1>();
-    const resolvers = new Map<string, Map<string, Resolver>>();
     for (const id of selection.spec.docs) {
       const ready = gen.ready.get(id);
       if (!ready) throw new DependencyError('shard', id);
       shards.set(id, ready.shard);
-      const byMode = new Map<string, Resolver>();
-      for (const member of q.group.members) byMode.set(modeKey(member.match), await this.resolverFor(gen, id, member.match));
-      resolvers.set(id, byMode);
     }
-    await this.queryCheckpoint(job, gen, snapshotId);
-
-    const occ = occurrences(snapshot, shards, resolvers, selection, q.group);
-    await this.queryCheckpoint(job, gen, snapshotId);
 
     if (q.op === 'trend') {
+      const resolvers = new Map<string, Map<string, Resolver>>();
+      for (const id of selection.spec.docs) {
+        const byMode = new Map<string, Resolver>();
+        for (const member of q.group.members) byMode.set(modeKey(member.match), await this.resolverFor(gen, id, member.match));
+        resolvers.set(id, byMode);
+      }
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const occ = occurrences(snapshot, shards, resolvers, selection, q.group);
+      await this.queryCheckpoint(job, gen, snapshotId);
       const data = trend(snapshot, selection, occ, q.request);
       await this.queryCheckpoint(job, gen, snapshotId);
       this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'trend', trend: data } }, trendTransferList(data));
       return;
     }
-    const page = kwicPage(snapshot, bound, selection, occ, q.request);
-    const rows = materializeKwicPage(snapshot, page, boundTexts);
+
+    // kwic/2: UNION every track's required match modes per doc (never rebuild a
+    // duplicate resolver), then compute occurrences PER track and merge in the
+    // numeric kernel. Checkpoint after resolver prep, after each track, after
+    // numeric planning, and after materialization.
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const track of q.tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(gen, id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await this.queryCheckpoint(job, gen, snapshotId);
+
+    const trackOccs: NumericOccurrences[] = [];
+    for (const track of q.tracks) {
+      trackOccs.push(occurrences(snapshot, shards, resolvers, selection, track.group));
+      await this.queryCheckpoint(job, gen, snapshotId);
+    }
+    const page = kwicPage(snapshot, bound, selection, trackOccs, q.request);
+    await this.queryCheckpoint(job, gen, snapshotId);
+    const trackTable = q.tracks.map((t) => ({ seriesId: t.seriesId, groupId: t.group.id }));
+    const rows = materializeKwicPage(snapshot, page, boundTexts, trackTable);
     await this.queryCheckpoint(job, gen, snapshotId);
     this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'kwic', total: page.total, rows } });
   }

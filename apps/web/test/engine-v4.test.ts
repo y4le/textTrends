@@ -1058,10 +1058,94 @@ describe('queries and excerpts (v4)', () => {
     const trend = h.last('result');
     expect(trend.data.op).toBe('trend');
     if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 1]);
-    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
     const kwic = h.last('result');
     expect(kwic.data.op).toBe('kwic');
-    if (kwic.data.op === 'kwic') { expect(kwic.data.total).toBe(2); expect(kwic.data.rows[0]!.nodeText).toBe('wolf'); }
+    if (kwic.data.op === 'kwic') {
+      expect(kwic.data.total).toBe(2);
+      expect(kwic.data.rows[0]!.nodeText).toBe('wolf');
+      expect(kwic.data.rows[0]!.seriesId).toBe('s'); // rows are track-tagged
+    }
+  });
+
+  it('kwic/2 merges two tracks and orders by proximity to an axis center', async () => {
+    const { h, snap } = await ready();
+    // The default corpus doc 'a' is 'the wolf runs and the wolf sleeps' (wolf@1, wolf@5).
+    // Two tracks over the same term produce two independently-tagged rows per hit;
+    // a center near the end orders the later hit first.
+    await h.send({ t: 'query', job: 22, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }], request: { contextTokens: 1, center: { doc: 'a', token: 5 }, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
+    const kwic = h.last('result');
+    expect(kwic.data.op).toBe('kwic');
+    if (kwic.data.op === 'kwic') {
+      expect(kwic.data.total).toBe(4); // 2 hits × 2 tracks
+      // Nearest to token 5 first (pos 5 before pos 1); both tracks tagged.
+      expect(kwic.data.rows.map((r) => [r.pos, r.seriesId])).toEqual([[5, 'A'], [5, 'B'], [1, 'A'], [1, 'B']]);
+    }
+  });
+
+  // The kwic/2 dispatch adds checkpoints the trend cancellation tests never
+  // reach. These tests tie the cancel to the actual PHASE (not a fragile yield
+  // ordinal) so deleting the per-track gate or moving the final gate before
+  // materialization makes them fail.
+  const twoTrackKwic = {
+    op: 'kwic' as const,
+    selection: { docs: ['a'] },
+    tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }],
+    request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
+  };
+
+  it('the per-track gate stops BEFORE the next track computes (a cancel raised DURING track A)', async () => {
+    const { h, snap } = await ready();
+    h.clear();
+    // Track A resolves a UNIQUE surface absent from the corpus; track B passes
+    // the wire schema (narrowMember accepts an empty-surfaces phrase) but THROWS
+    // inside `occurrences`. The cancel is raised from inside track A's own
+    // `resolveToken` fold (String.toLocaleLowerCase on that unique surface — a
+    // call the resolver-prep vocab folding never makes). So the gate that must
+    // catch it is the one AFTER track A: move it before the loop (or delete it)
+    // and track B computes and throws instead of cancelling cleanly.
+    const MARKER = 'zzsentinelalpha';
+    const trackA = { seriesId: 'A', group: { id: 'gA', countOverlaps: false, members: [{ id: 'a', kind: 'token', surface: MARKER, match: { case: 'folded', diacritics: 'sensitive' } }] } };
+    const throwingB = { seriesId: 'B', group: { id: 'gThrow', countOverlaps: false, members: [{ id: 'p', kind: 'phrase', surfaces: [], crossSentence: false, match: { case: 'folded', diacritics: 'sensitive' } }] } };
+    const query = { op: 'kwic', selection: { docs: ['a'] }, tracks: [trackA, throwingB], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } };
+    const origLower = String.prototype.toLocaleLowerCase;
+    let firedDuringA = false;
+    String.prototype.toLocaleLowerCase = function (this: string, ...args: [(string | string[])?]) {
+      if (!firedDuringA && String(this) === MARKER) { firedDuringA = true; void h.send({ t: 'cancel', job: 52 }); }
+      return origLower.apply(this, args) as string;
+    } as typeof String.prototype.toLocaleLowerCase;
+    try {
+      await h.send({ t: 'query', job: 52, snapshot: snap, query });
+    } finally {
+      String.prototype.toLocaleLowerCase = origLower;
+    }
+    expect(firedDuringA).toBe(true); // track A's surface was resolved (A computed) before the cancel
+    expect(h.all('cancelled').some((m) => m.job === 52)).toBe(true);
+    expect(h.all('result').some((m) => m.job === 52)).toBe(false);
+    expect(h.all('error').some((m) => m.job === 52)).toBe(false); // track B never computed → never threw
+  });
+
+  it('the FINAL gate catches a cancel raised DURING materialization', async () => {
+    const { h, snap } = await ready(); // doc 'a' text contains 'the wolf ran far'
+    h.clear();
+    // Fire the cancel the first time the doc text is sliced — i.e. INSIDE
+    // materializeKwicPage, after numeric planning + its checkpoint. Only a gate
+    // AFTER materialization can catch it; a gate moved before it would already
+    // have passed and the result would emit.
+    const origSlice = String.prototype.slice;
+    let sliced = false;
+    String.prototype.slice = function (this: string, ...args: [number?, number?]) {
+      if (!sliced && this.includes('the wolf ran far')) { sliced = true; void h.send({ t: 'cancel', job: 51 }); }
+      return origSlice.apply(this, args) as string;
+    } as typeof String.prototype.slice;
+    try {
+      await h.send({ t: 'query', job: 51, snapshot: snap, query: twoTrackKwic });
+    } finally {
+      String.prototype.slice = origSlice;
+    }
+    expect(sliced).toBe(true); // materialization was actually reached (not vacuous)
+    expect(h.all('cancelled').some((m) => m.job === 51)).toBe(true);
+    expect(h.all('result').some((m) => m.job === 51)).toBe(false);
   });
 
   it('answers passage with marks, per-token extents, and a center span', async () => {

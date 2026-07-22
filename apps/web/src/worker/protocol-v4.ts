@@ -110,9 +110,17 @@ export interface MissingWarmDocV4 {
   readonly reason: WarmMissReasonV4;
 }
 
+/** One concordance track: a series identity + the term group that matched. */
+export interface KwicTrack {
+  readonly seriesId: string;
+  readonly group: TermGroupSpec;
+}
+
 export type QueryOpV4 =
   | { readonly op: 'trend'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: TrendRequest }
-  | { readonly op: 'kwic'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: KwicRequest }
+  // kwic/2: a merged multi-term concordance (1..MAX_KWIC_TRACKS tracks) that can
+  // order by proximity to an axis position (`request.center`).
+  | { readonly op: 'kwic'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: KwicRequest }
   | { readonly op: 'passage'; readonly request: PassageRequest }
   | { readonly op: 'structure'; readonly request: { readonly doc: string } }
   // Authoring context (§12.3, ruling §2): the DETECTED baseline + base identities

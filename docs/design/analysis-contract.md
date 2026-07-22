@@ -334,19 +334,34 @@ interface TrendResult {                       // parallel arrays, one entry per 
   readonly sequenceBases: readonly number[];
 }
 
+// kwic/2 (concordance amendment, 2026-07-22 — planner consult
+// req_consult_1458236f5790b275, recorded in docs/design/concordance-plan.md).
+// SUPERSEDES kwic/1: `group` is REPLACED by 1..MAX_KWIC_TRACKS `tracks` (a merged
+// multi-term concordance), an optional `center` orders by proximity to an axis
+// position, and rows carry their `seriesId`/`groupId`. Breaking; the discriminator
+// stays `kwic`. Ordering: with a `center`, primary key = ascending distance from
+// the center's GLOBAL declared-sequence position (sequenceTokenBase + occurrence
+// start), then `sort`, then deterministic finals (doc ordinal, start, span, track
+// ordinal, member ordinals); WITHOUT a center, `sort` is primary (reading order is
+// the caller's `[doc,pos]`). Paging is EXACT bounded top-K over all tracks; `total`
+// is the sum of every track's occurrence count (one row per (occurrence, track);
+// no cross-track dedup).
+interface KwicTrack { readonly seriesId: string; readonly group: TermGroup; }
 interface KwicRequest {
   readonly selection: ResolvedSelection;
-  readonly group: TermGroup;
+  readonly tracks: readonly KwicTrack[];       // 1..MAX_KWIC_TRACKS, unique seriesIds
   readonly contextTokens: number;
+  readonly center?: { readonly doc: ProjectDocId; readonly token: number }; // axis proximity
   readonly sort: readonly { readonly at: 'L3'|'L2'|'L1'|'R1'|'R2'|'R3'|'doc'|'pos';
                             readonly dir: 1 | -1 }[];
   readonly page: { readonly offset: number; readonly limit: number };
-  readonly method: { readonly id: 'kwic'; readonly version: 1 };
+  readonly method: { readonly id: 'kwic'; readonly version: 2 };
 }
 interface KwicResult {
   readonly total: number;
   readonly rows: readonly {                   // strings materialized JS-side, per page only
-    readonly doc: ProjectDocId; readonly pos: number; readonly member: string;
+    readonly seriesId: string; readonly groupId: string; // the track that produced the row
+    readonly doc: ProjectDocId; readonly pos: number; readonly members: readonly number[];
     readonly node: CharRange;                 // char span for stable highlighting
     readonly left: string; readonly nodeText: string; readonly right: string;
   }[];

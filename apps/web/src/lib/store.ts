@@ -34,6 +34,7 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   DEFAULT_INDEX_RECIPE,
   foldKey,
+  MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
   tokenKey,
   type DocumentMetaV1,
@@ -113,7 +114,9 @@ export interface QueryClient {
   ): { result: Promise<QueryResultDataV4>; cancel: () => void };
 }
 
-export const MAX_SERIES = 5;
+/** The max compared/concordance terms — one authority, shared with the kwic
+ *  track cap so a series set can always be sent as concordance tracks. */
+export const MAX_SERIES = MAX_KWIC_TRACKS;
 export const BINS = 40;
 
 const MATCH = { case: 'folded' as const, diacritics: 'folded' as const };
@@ -502,7 +505,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       const handle = client.query(snapshot.snapshot, {
         op: 'kwic',
         selection: { docs: [...snapshot.readyDocs] },
-        group: groupFor(focused),
+        tracks: [{ seriesId: focused.id, group: groupFor(focused) }],
         request: {
           contextTokens: 6,
           sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],

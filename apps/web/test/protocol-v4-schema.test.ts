@@ -158,15 +158,18 @@ describe('parseToWorkerV4 envelope', () => {
 
 describe('narrowQueryV4', () => {
   const kwicReq = { contextTokens: 6, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } };
+  const kwicTracks = [{ seriesId: 's1', group: wolfGroup }];
   const passageReq = { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] };
 
   it('accepts trend/kwic/passage/structure with COMPLETE request fields', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } })).toBe(true);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: kwicReq })).toBe(true);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
     expect(narrowQueryV4({ op: 'passage', request: passageReq })).toBe(true);
     expect(narrowQueryV4({ op: 'structure', request: { doc: 'a' } })).toBe(true);
     expect(narrowQueryV4({ op: 'structure-edit-context', request: { doc: 'a' } })).toBe(true);
     expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 10, maxChars: 200 } })).toBe(true);
+    // kwic accepts an optional axis center and multiple tracks.
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }, { seriesId: 's2', group: wolfGroup }], request: { ...kwicReq, center: { doc: 'a', token: 3 } } })).toBe(true);
     // A valid selection with well-formed ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(true);
   });
@@ -174,7 +177,7 @@ describe('narrowQueryV4', () => {
   it('rejects skeletal/malformed requests, ranges, and passage caps', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'x', binsPerDoc: 1 } })).toBe(false);
     // A skeletal kwic/passage request is NOT valid (required fields missing).
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: {} })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: {} })).toBe(false);
     expect(narrowQueryV4({ op: 'passage', request: { doc: 'a' } })).toBe(false);
     // Malformed selection ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: 7 }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(false);
@@ -182,6 +185,13 @@ describe('narrowQueryV4', () => {
     const sixTracks = Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup }));
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: sixTracks } })).toBe(false);
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }] } })).toBe(false);
+    // kwic: 0 tracks, over the shared cap, duplicate seriesId, and a malformed center.
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [], request: kwicReq })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: sixTracks, request: kwicReq })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }], request: kwicReq })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: 'x' } } })).toBe(false);
+    // The forbidden dual shape: a valid `tracks` alongside a contradictory legacy `group`.
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, group: wolfGroup, request: kwicReq })).toBe(false);
     expect(narrowQueryV4({ op: 'structure', request: {} })).toBe(false);
     expect(narrowQueryV4({ op: 'structure-edit-context', request: {} })).toBe(false);
     expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 'x', maxChars: 1 } })).toBe(false);
@@ -199,7 +209,7 @@ describe('narrowQueryV4', () => {
 
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, group: wolfGroup, request: { ...kwicReq, sort: [{ at: 'pos', dir: 0 }] } })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'pos', dir: 0 }] } })).toBe(false);
   });
 });

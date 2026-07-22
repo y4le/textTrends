@@ -58,12 +58,15 @@ function fakeQueryClient() {
       const q = query as {
         op: string;
         group?: { id: string; members: { surface: string }[] };
+        tracks?: { seriesId: string; group: { id: string; members: { surface: string }[] } }[];
         request?: { doc: string; centerToken: number; tracks: { seriesId: string }[] };
       };
+      // trend carries `group`; kwic/2 carries `tracks` (first track's group here).
+      const primaryGroup = q.group ?? q.tracks?.[0]?.group;
       const entry: Issued = {
         snapshot,
-        term: q.group?.members[0]?.surface ?? q.request?.doc ?? '',
-        groupId: q.group?.id ?? '',
+        term: primaryGroup?.members[0]?.surface ?? q.request?.doc ?? '',
+        groupId: primaryGroup?.id ?? '',
         op: q.op,
         query,
         resolve: () => undefined,

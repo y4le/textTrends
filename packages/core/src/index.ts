@@ -73,9 +73,11 @@ export {
 export {
   kwicPage,
   KWIC_MAX_PAGE,
+  MAX_KWIC_TRACKS,
   materializeKwicPage,
   type KwicRequest,
   type KwicRow,
+  type KwicTrackIdentity,
   type NumericKwicPage,
 } from './ops/kwic.ts';
 export {

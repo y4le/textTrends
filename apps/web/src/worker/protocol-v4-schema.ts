@@ -11,7 +11,7 @@
  * into the worker in place of the inline v3 narrowers.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isStructureOverrideV1, isStructureRecipeProvisional } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -110,16 +110,33 @@ function narrowSelection(s: unknown): boolean {
   return true;
 }
 
+/** 1..MAX_KWIC_TRACKS tracks with unique, nonempty seriesIds and valid groups —
+ *  the shared concordance/passage track cap (one authority in core). */
+function narrowTracks(tracks: unknown, min: number): boolean {
+  if (!Array.isArray(tracks) || tracks.length < min || tracks.length > MAX_KWIC_TRACKS) return false;
+  const seen = new Set<string>();
+  for (const t of tracks as unknown[]) {
+    if (!isRecord(t) || !isStr(t.seriesId) || t.seriesId === '' || !narrowGroup(t.group)) return false;
+    if (seen.has(t.seriesId)) return false; // seriesIds must be unique
+    seen.add(t.seriesId);
+  }
+  return true;
+}
+
 function narrowKwicRequest(r: unknown): boolean {
   if (!isRecord(r) || !isNum(r.contextTokens) || !Array.isArray(r.sort) || !isRecord(r.page)) return false;
   // sort.at is a CLOSED key set; dir is exactly 1 or -1.
   if (!(r.sort as unknown[]).every((x) => isRecord(x) && SORT_KEYS.has(x.at as string) && (x.dir === 1 || x.dir === -1))) return false;
+  // Optional axis center — a well-formed {doc, token} or absent.
+  if (r.center !== undefined) {
+    if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isNum((r.center as Record<string, unknown>).token)) return false;
+  }
   return isNum(r.page.offset) && isNum(r.page.limit);
 }
 
 function narrowPassageRequest(r: unknown): boolean {
   if (!isRecord(r) || !isStr(r.doc) || !isNum(r.centerToken) || !isNum(r.maxTokens) || !Array.isArray(r.tracks)) return false;
-  if ((r.tracks as unknown[]).length > 5) return false; // the passage track cap
+  if ((r.tracks as unknown[]).length > MAX_KWIC_TRACKS) return false; // the shared track cap
   const seen = new Set<string>();
   for (const t of r.tracks as unknown[]) {
     if (!isRecord(t) || !isStr(t.seriesId) || !narrowGroup(t.group)) return false;
@@ -139,7 +156,10 @@ export function narrowQueryV4(q: unknown): boolean {
         COORDINATES.has((q.request as Record<string, unknown>).coordinate as string) &&
         isNum((q.request as Record<string, unknown>).binsPerDoc);
     case 'kwic':
-      return narrowSelection(q.selection) && narrowGroup(q.group) && narrowKwicRequest(q.request);
+      // kwic/2 is a BREAKING replacement: `group` was removed. Reject a payload
+      // that carries the legacy field so a partially-migrated caller cannot hide
+      // contradictory semantics under an ignored `group` (ruling §1).
+      return q.group === undefined && narrowSelection(q.selection) && narrowTracks(q.tracks, 1) && narrowKwicRequest(q.request);
     case 'passage':
       return narrowPassageRequest(q.request);
     case 'structure':

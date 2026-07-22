@@ -6,6 +6,18 @@ import { buildDocumentIndex, createDocumentIndex, type DocumentIndexV1 } from '.
 import { bindShards, bindTexts, DependencyError, type BoundShards, type BoundTexts } from '../src/ops/binding.ts';
 import { validateShardStructure } from '../src/index/build.ts';
 import { kwicPage, KWIC_MAX_PAGE, materializeKwicPage } from '../src/ops/kwic.ts';
+
+// kwic/2 is multi-track; these single-track wrappers keep the kwic/1 legacy
+// tests terse. New multi-track/proximity behavior is covered separately below.
+function kwic1(
+  snapshot: Parameters<typeof kwicPage>[0], bound: Parameters<typeof kwicPage>[1],
+  sel: Parameters<typeof kwicPage>[2], occ: Parameters<typeof kwicPage>[3][number],
+  req: Parameters<typeof kwicPage>[4],
+) { return kwicPage(snapshot, bound, sel, [occ], req); }
+function matk1(
+  snapshot: Parameters<typeof materializeKwicPage>[0], page: Parameters<typeof materializeKwicPage>[1],
+  texts: Parameters<typeof materializeKwicPage>[2],
+) { return materializeKwicPage(snapshot, page, texts, [{ seriesId: 's', groupId: 'g' }]); }
 import { occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { trend } from '../src/ops/trend.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
@@ -152,12 +164,14 @@ describe('kwic/1 planning and materialization', () => {
   it('produces exact spans, preserves member evidence and the stable node range', async () => {
     const w = await world({ a: 'the dire wolf howled' });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, direWolfGroup(false));
-    const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const page = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 1, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
     expect(page.snapshot).toBe(w.snapshot.id);
-    const rows = materializeKwicPage(w.snapshot, page, w.texts);
+    const rows = matk1(w.snapshot, page, w.texts);
     expect(rows[0]).toEqual({
+      seriesId: 's',
+      groupId: 'g',
       doc: 'a',
       pos: 1,
       members: [0, 1],                     // occurrence CSR evidence survives paging
@@ -175,20 +189,20 @@ describe('kwic/1 planning and materialization', () => {
       countOverlaps: false,
     };
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, g);
-    const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const page = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    const rows = materializeKwicPage(w.snapshot, page, w.texts);
+    const rows = matk1(w.snapshot, page, w.texts);
     expect(rows[0]!.nodeText).toBe('isn’t'); // raw source, curly apostrophe intact
   });
 
   it('handles astral characters in context and node spans', async () => {
     const w = await world({ a: 'I 😀 saw the wolf 😀 again' });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
-    const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const page = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 2, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    const rows = materializeKwicPage(w.snapshot, page, w.texts);
+    const rows = matk1(w.snapshot, page, w.texts);
     expect(rows[0]!.nodeText).toBe('wolf');
     expect(rows[0]!.left).toContain('saw');
     expect(rows[0]!.right).toContain('again'); // emoji are not word-like tokens; spans stay valid
@@ -203,7 +217,7 @@ describe('kwic/1 planning and materialization', () => {
     });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
     const orderFor = async (at: 'L1'|'L2'|'L3'|'R1'|'R2'|'R3', dir: 1 | -1) => {
-      const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+      const page = kwic1(w.snapshot, w.bound, w.all, occ, {
         contextTokens: 3, sort: [{ at, dir }], page: { offset: 0, limit: 10 },
       });
       return page.rows.map((r) => r.pos);
@@ -227,9 +241,9 @@ describe('kwic/1 planning and materialization', () => {
     const req = (offset: number) => ({
       contextTokens: 1, sort: [{ at: 'L1', dir: 1 }] as const, page: { offset, limit: 3 },
     });
-    const p0 = kwicPage(w.snapshot, w.bound, w.all, occ, req(0));
-    const p1 = kwicPage(w.snapshot, w.bound, w.all, occ, req(3));
-    const p2 = kwicPage(w.snapshot, w.bound, w.all, occ, req(6));
+    const p0 = kwic1(w.snapshot, w.bound, w.all, occ, req(0));
+    const p1 = kwic1(w.snapshot, w.bound, w.all, occ, req(3));
+    const p2 = kwic1(w.snapshot, w.bound, w.all, occ, req(6));
     const all = [...p0.rows, ...p1.rows, ...p2.rows].map((r) => r.pos);
     expect(all).toEqual([...all].sort((x, y) => x - y)); // ordered continuation
     expect(new Set(all).size).toBe(7);                    // disjoint and complete
@@ -240,10 +254,10 @@ describe('kwic/1 planning and materialization', () => {
     const long = 'a'.repeat(300);
     const w = await world({ a: `wolf ${long} wolf` });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
-    const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const page = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 2, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    const rows = materializeKwicPage(w.snapshot, page, w.texts);
+    const rows = matk1(w.snapshot, page, w.texts);
     expect(rows[0]!.left).toBe('');           // clamped at document start
     expect(rows[0]!.right).toContain(long);   // overflow token fully spanned
     expect(rows[1]!.left).toContain(long);
@@ -276,8 +290,8 @@ describe('kwic/1 planning and materialization', () => {
     const req = (offset: number) => ({
       contextTokens: 0, sort: [] as const, page: { offset, limit: 3 },
     });
-    const p0 = kwicPage(w.snapshot, w.bound, w.all, occ, req(0));
-    const p1 = kwicPage(w.snapshot, w.bound, w.all, occ, req(3));
+    const p0 = kwic1(w.snapshot, w.bound, w.all, occ, req(0));
+    const p1 = kwic1(w.snapshot, w.bound, w.all, occ, req(3));
     const key = (r: { pos: number; members: readonly number[] }) => `${r.pos}:${r.members[0]}`;
     const all = [...p0.rows, ...p1.rows].map(key);
     expect(all).toEqual(['0:0', '0:1', '2:0', '2:1']); // pos asc, then member asc, across the page break
@@ -287,7 +301,7 @@ describe('kwic/1 planning and materialization', () => {
     const w = await world({ a: 'wolf' });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
     const mk = (limit: number) =>
-      kwicPage(w.snapshot, w.bound, w.all, occ, { contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit } });
+      kwic1(w.snapshot, w.bound, w.all, occ, { contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit } });
     expect(() => mk(KWIC_MAX_PAGE)).not.toThrow();
     expect(() => mk(KWIC_MAX_PAGE + 1)).toThrow(/page must satisfy/);
   });
@@ -296,12 +310,108 @@ describe('kwic/1 planning and materialization', () => {
     const w = await world({ a: 'wolf' });
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
     expect(() =>
-      kwicPage(w.snapshot, w.bound, w.all, occ, {
+      kwic1(w.snapshot, w.bound, w.all, occ, {
         contextTokens: 0,
         sort: [{ at: 'bogus' as never, dir: 0 as never }],
         page: { offset: 0, limit: 10 },
       }),
     ).toThrow(/invalid sort entry/);
+  });
+});
+
+describe('kwic/2 merged multi-track + proximity', () => {
+  const foxGroup: TermGroupSpec = {
+    id: 'gfox', members: [{ id: 'mf', kind: 'token', surface: 'fox', match: FOLD }], countOverlaps: false,
+  };
+  const TRACKS = [{ seriesId: 'wolf', groupId: wolfGroup.id }, { seriesId: 'fox', groupId: foxGroup.id }];
+  const req = (extra: Partial<Parameters<typeof kwicPage>[4]> = {}) => ({
+    contextTokens: 1,
+    sort: [{ at: 'doc' as const, dir: 1 as const }, { at: 'pos' as const, dir: 1 as const }],
+    page: { offset: 0, limit: 10 },
+    ...extra,
+  });
+  // a: wolf@0 a b fox@3 c wolf@5 (base 0) | b: x fox@1 wolf@2 y (base 6)
+  // globals: wolf 0/5/8, fox 3/7.
+  const twoDoc = () => world({ a: 'wolf a b fox c wolf', b: 'x fox wolf y' });
+  const tracksOf = (w: Awaited<ReturnType<typeof world>>) => [
+    occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup),
+    occurrences(w.snapshot, w.shards, w.resolvers, w.all, foxGroup),
+  ];
+
+  it('orders by distance from the center GLOBAL position, tagging each row and crossing docs', async () => {
+    const w = await twoDoc();
+    const page = kwicPage(w.snapshot, w.bound, w.all, tracksOf(w), req({ center: { doc: 'b', token: 0 } }));
+    expect(page.total).toBe(5); // 3 wolf + 2 fox
+    const rows = materializeKwicPage(w.snapshot, page, w.texts, TRACKS);
+    // center global = base(b)+0 = 6. distances: a.wolf@5→1, b.fox@1→1 (tie: left
+    // doc wins), b.wolf@2→2, a.fox@3→3, a.wolf@0→6.
+    expect(rows.map((r) => [r.doc, r.pos, r.seriesId])).toEqual([
+      ['a', 5, 'wolf'],
+      ['b', 1, 'fox'],
+      ['b', 2, 'wolf'],
+      ['a', 3, 'fox'],
+      ['a', 0, 'wolf'],
+    ]);
+  });
+
+  it('without a center, the caller sort is primary — merged reading order, NOT proximity', async () => {
+    const w = await twoDoc();
+    const page = kwicPage(w.snapshot, w.bound, w.all, tracksOf(w), req()); // no center
+    const rows = materializeKwicPage(w.snapshot, page, w.texts, TRACKS);
+    expect(rows.map((r) => [r.doc, r.pos, r.seriesId])).toEqual([
+      ['a', 0, 'wolf'],
+      ['a', 3, 'fox'],
+      ['a', 5, 'wolf'],
+      ['b', 1, 'fox'],
+      ['b', 2, 'wolf'],
+    ]);
+  });
+
+  it('a token matched by two tracks yields two independently-tagged rows (no cross-track dedup)', async () => {
+    const w = await world({ a: 'the wolf ran' });
+    const wolfA: TermGroupSpec = { id: 'ga', members: [{ id: 'x', kind: 'token', surface: 'wolf', match: FOLD }], countOverlaps: false };
+    const wolfB: TermGroupSpec = { id: 'gb', members: [{ id: 'y', kind: 'token', surface: 'wolf', match: FOLD }], countOverlaps: false };
+    const occs = [
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfA),
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfB),
+    ];
+    const page = kwicPage(w.snapshot, w.bound, w.all, occs, req());
+    expect(page.total).toBe(2); // each track contributes one row for the same span
+    const rows = materializeKwicPage(w.snapshot, page, w.texts, [{ seriesId: 'A', groupId: 'ga' }, { seriesId: 'B', groupId: 'gb' }]);
+    expect(rows.map((r) => [r.pos, r.seriesId])).toEqual([[1, 'A'], [1, 'B']]);
+  });
+
+  it('exact top-K paging partitions the true merged order continuously', async () => {
+    const w = await twoDoc();
+    const occs = tracksOf(w);
+    const full = kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'b', token: 0 }, page: { offset: 0, limit: 10 } }));
+    const p0 = kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'b', token: 0 }, page: { offset: 0, limit: 2 } }));
+    const p1 = kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'b', token: 0 }, page: { offset: 2, limit: 2 } }));
+    const key = (r: { trackOrdinal: number; docOrdinal: number; pos: number }) => `${r.trackOrdinal}:${r.docOrdinal}:${r.pos}`;
+    expect(full.total).toBe(5);
+    expect([...p0.rows, ...p1.rows].map(key)).toEqual(full.rows.slice(0, 4).map(key)); // continuous, no gaps/dups
+  });
+
+  it('rejects a stale/invalid center rather than clamping it', async () => {
+    const w = await twoDoc();
+    const occs = tracksOf(w);
+    expect(() => kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'zzz', token: 0 } }))).toThrow(/not in the snapshot/);
+    expect(() => kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'b', token: 999 } }))).toThrow(/out of range/);
+    expect(() => kwicPage(w.snapshot, w.bound, w.all, occs, req({ center: { doc: 'b', token: -1 } }))).toThrow(/out of range/);
+  });
+
+  it('requires 1..MAX tracks and rejects a track from a different snapshot', async () => {
+    const w = await twoDoc();
+    expect(() => kwicPage(w.snapshot, w.bound, w.all, [], req())).toThrow(/1\.\.5 tracks/);
+    const w2 = await world({ a: 'wolf' });
+    const foreign = occurrences(w2.snapshot, w2.shards, w2.resolvers, w2.all, wolfGroup);
+    expect(() => kwicPage(w.snapshot, w.bound, w.all, [foreign], req())).toThrow(/different snapshot/);
+  });
+
+  it('materialize rejects a row whose track ordinal is not in the table', async () => {
+    const w = await twoDoc();
+    const page = kwicPage(w.snapshot, w.bound, w.all, tracksOf(w), req());
+    expect(() => materializeKwicPage(w.snapshot, page, w.texts, [{ seriesId: 'only', groupId: 'gfox' }])).toThrow(/unknown track ordinal/);
   });
 });
 
@@ -326,13 +436,13 @@ describe('kwic binding discipline', () => {
     const w1 = await world({ a: 'a wolf' });
     const w2 = await world({ b: 'BBBB wolf' });
     const occ = occurrences(w1.snapshot, w1.shards, w1.resolvers, w1.all, wolfGroup);
-    const page = kwicPage(w1.snapshot, w1.bound, w1.all, occ, {
+    const page = kwic1(w1.snapshot, w1.bound, w1.all, occ, {
       contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    expect(() => materializeKwicPage(w2.snapshot, page, w2.texts)).toThrow(
+    expect(() => matk1(w2.snapshot, page, w2.texts)).toThrow(
       /planned against a different snapshot/,
     );
-    expect(() => kwicPage(w2.snapshot, w1.bound, w2.all, occ, {
+    expect(() => kwic1(w2.snapshot, w1.bound, w2.all, occ, {
       contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
     })).toThrow(/different snapshot/);
   });
@@ -366,10 +476,10 @@ describe('kwic binding discipline', () => {
     expect((boundTexts as unknown as { get?: unknown }).get).toBeUndefined();
     expect(Object.isFrozen(bound)).toBe(true);
 
-    const page = kwicPage(snapshot, bound, sel, occ, {
+    const page = kwic1(snapshot, bound, sel, occ, {
       contextTokens: 1, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    const rows = materializeKwicPage(snapshot, page, boundTexts);
+    const rows = matk1(snapshot, page, boundTexts);
     expect(rows[0]!.nodeText).toBe('wolf'); // still the VERIFIED text and shard
     expect(rows[0]!.left).toBe('a ');
   });
@@ -384,11 +494,11 @@ describe('kwic binding discipline', () => {
       get: () => foreign,
     } as unknown as BoundShards;
     expect(() =>
-      kwicPage(w.snapshot, forgedShards, w.all, occ, {
+      kwic1(w.snapshot, forgedShards, w.all, occ, {
         contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
       }),
     ).toThrow(/unauthenticated/);
-    const realPage = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const realPage = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
     const forgedTexts = {
@@ -396,7 +506,7 @@ describe('kwic binding discipline', () => {
       docs: () => ['a'] as readonly string[],
       get: () => 'zzzzzzzzzzzz',
     } as unknown as BoundTexts;
-    expect(() => materializeKwicPage(w.snapshot, realPage, forgedTexts)).toThrow(/unauthenticated/);
+    expect(() => matk1(w.snapshot, realPage, forgedTexts)).toThrow(/unauthenticated/);
     await expect(bindTexts(w.snapshot, forgedShards, new Map())).rejects.toThrow(/unauthenticated/);
     // Zero-row paths authenticate EAGERLY too (round 5): an empty occurrence
     // set and an empty page must still reject forged contexts.
@@ -406,14 +516,14 @@ describe('kwic binding discipline', () => {
     });
     expect(emptyOcc.pos.length).toBe(0);
     expect(() =>
-      kwicPage(w.snapshot, forgedShards, w.all, emptyOcc, {
+      kwic1(w.snapshot, forgedShards, w.all, emptyOcc, {
         contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
       }),
     ).toThrow(/unauthenticated/);
-    const emptyPage = kwicPage(w.snapshot, w.bound, w.all, emptyOcc, {
+    const emptyPage = kwic1(w.snapshot, w.bound, w.all, emptyOcc, {
       contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
-    expect(() => materializeKwicPage(w.snapshot, emptyPage, forgedTexts)).toThrow(/unauthenticated/);
+    expect(() => matk1(w.snapshot, emptyPage, forgedTexts)).toThrow(/unauthenticated/);
   });
 
   it('rejects pre-bind array corruption via structural validation', async () => {
@@ -487,7 +597,7 @@ describe('kwic binding discipline', () => {
     const occ1 = occurrences(w1.snapshot, w1.shards, w1.resolvers, w1.all, wolfGroup);
     // Foreign snapshot into kwic and trend:
     expect(() =>
-      kwicPage(w2.snapshot, w2.bound, w2.all, occ1, {
+      kwic1(w2.snapshot, w2.bound, w2.all, occ1, {
         contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
       }),
     ).toThrow(/different snapshot/);
@@ -505,7 +615,7 @@ describe('kwic binding discipline', () => {
       trend(w3.snapshot, narrow, full, { coordinate: 'document-relative', binsPerDoc: 1 }),
     ).toThrow(/different selection/);
     expect(() =>
-      kwicPage(w3.snapshot, w3.bound, narrow, full, {
+      kwic1(w3.snapshot, w3.bound, narrow, full, {
         contextTokens: 0, sort: SORT_POS, page: { offset: 0, limit: 10 },
       }),
     ).toThrow(/different selection/);
@@ -515,11 +625,11 @@ describe('kwic binding discipline', () => {
     const w = await world({ a: 'the wolf' });
     const emptyTexts = await bindTexts(w.snapshot, w.bound, new Map());
     const occ = occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup);
-    const page = kwicPage(w.snapshot, w.bound, w.all, occ, {
+    const page = kwic1(w.snapshot, w.bound, w.all, occ, {
       contextTokens: 1, sort: SORT_POS, page: { offset: 0, limit: 10 },
     });
     try {
-      materializeKwicPage(w.snapshot, page, emptyTexts);
+      matk1(w.snapshot, page, emptyTexts);
       expect.unreachable();
     } catch (e) {
       expect(e).toBeInstanceOf(DependencyError);
