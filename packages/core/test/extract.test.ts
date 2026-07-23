@@ -17,6 +17,7 @@ import {
   finalizeExtraction,
   hashExtractionRecipe,
   hashSourceBytes,
+  htmlExtractionRecipe,
   hashStructureCandidates,
   hashText,
   scanMarkdownHeadings,
@@ -295,7 +296,38 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
   });
 
   it('decodeDocumentSource refuses an epub recipe (no byte-decode path)', async () => {
-    await expect(decodeDocumentSource(utf8('x'), epubExtractionRecipe())).rejects.toThrow(/container format/);
+    await expect(decodeDocumentSource(utf8('x'), epubExtractionRecipe())).rejects.toThrow(/transformed format/);
+  });
+});
+
+describe('html extraction recipe + markup transformed finalize', () => {
+  it('htmlExtractionRecipe validates and is source-reconstructed', async () => {
+    const recipe = await htmlExtractionRecipe();
+    expect(recipe.format).toBe('html');
+    expect(recipe.candidateReconstruction).toBe('source');
+    expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe(await htmlExtractionRecipe()));
+  });
+
+  it('a markup transformed input builds a self-consistent artifact', async () => {
+    const recipe = await htmlExtractionRecipe();
+    const text = 'Heading\n\nParagraph text about owls.';
+    const bytes = utf8('<html><body><h1>Heading</h1><p>Paragraph text about owls.</p></body></html>');
+    const hash = await hashSourceBytes(bytes);
+    const prepared = {
+      kind: 'transformed',
+      source: { kind: 'markup', hash, byteLength: bytes.length, format: 'html', encoding: { detected: 'utf-8', hadReplacementChars: false } },
+      text,
+      candidates: [{ kind: 'html-heading', level: 1, title: 'Heading', chars: { start: 0, end: 7 } }],
+      evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
+    } as unknown as PreparedExtraction;
+    const { artifact } = await finalizeExtraction(prepared, recipe);
+    expect(artifact.descriptor.kind).toBe('markup');
+    expect(artifact.candidates[0]!.kind).toBe('html-heading');
+    expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
+  });
+
+  it('deriveCandidatesFromText refuses an html recipe', async () => {
+    await expect(deriveCandidatesFromText('<h1>x</h1>', await htmlExtractionRecipe())).rejects.toThrow(RangeError);
   });
 });
 

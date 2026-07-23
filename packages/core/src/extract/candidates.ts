@@ -13,14 +13,20 @@
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
 
 /** The candidate kinds. Markdown headings come from a text scan; an
- *  `epub-section` is a spine/nav document boundary the container yields (not
- *  recoverable from the joined text, hence a source-reconstructed recipe). */
-export type StructureCandidateKind = 'md-heading-atx' | 'md-heading-setext' | 'epub-section';
+ *  `epub-section` is a spine document boundary and an `html-heading` an
+ *  h1–h6 in the DOM — both source-reconstructed (the container/markup tree,
+ *  not the joined text, holds the structure). */
+export type StructureCandidateKind =
+  | 'md-heading-atx'
+  | 'md-heading-setext'
+  | 'epub-section'
+  | 'html-heading';
 
 export const STRUCTURE_CANDIDATE_KINDS: ReadonlySet<string> = new Set<StructureCandidateKind>([
   'md-heading-atx',
   'md-heading-setext',
   'epub-section',
+  'html-heading',
 ]);
 
 export interface StructureCandidateV1 {

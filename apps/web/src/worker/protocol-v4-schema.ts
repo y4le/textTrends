@@ -22,7 +22,7 @@ const isNum = (v: unknown): v is number => typeof v === 'number';
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 const MATCH = new Set(['sensitive', 'folded']);
-const FORMATS = new Set(['txt', 'md', 'epub']);
+const FORMATS = new Set(['txt', 'md', 'epub', 'html']);
 const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);
 // Closed literal unions the kernels accept — a wire caller must not smuggle
 // an unsupported coordinate/sort key through as a "trusted" request.
@@ -39,7 +39,7 @@ function narrowExtractionRecipe(r: unknown): boolean {
   // carries an extractor policy instead. The deep authority
   // (validateExtractionRecipe) checks every field before any admission work.
   if (r.format === 'txt' || r.format === 'md') return isRecord(r.decoder) && isRecord(r.parser);
-  if (r.format === 'epub') return isRecord(r.extractor);
+  if (r.format === 'epub' || r.format === 'html') return isRecord(r.extractor);
   return false;
 }
 

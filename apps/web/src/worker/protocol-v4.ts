@@ -66,6 +66,13 @@ export type SourceDescriptorV4 =
       readonly byteLength: number;
       readonly format: 'epub';
       readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
+    }
+  | {
+      readonly kind: 'markup';
+      readonly hash: string; // SourceHash
+      readonly byteLength: number;
+      readonly format: 'html';
+      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
     };
 
 /**

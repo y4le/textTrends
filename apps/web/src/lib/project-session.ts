@@ -35,6 +35,7 @@ import {
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
   epubExtractionRecipe,
+  htmlExtractionRecipe,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashStructureOverride,
@@ -303,13 +304,14 @@ function formatForName(name: string): SourceFormat | null {
   if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
   if (lower.endsWith('.txt')) return 'txt';
   if (lower.endsWith('.epub')) return 'epub';
+  if (lower.endsWith('.html') || lower.endsWith('.htm') || lower.endsWith('.xhtml')) return 'html';
   return null;
 }
 
 /** Default document metadata from a filename: the title is the name minus its
  *  extension; language/tags take neutral defaults the user edits in 7c. */
 function initialMetaFor(name: string): DocumentMetaV1 {
-  const title = name.replace(/\.(txt|md|markdown|epub)$/i, '') || name;
+  const title = name.replace(/\.(txt|md|markdown|epub|html|htm|xhtml)$/i, '') || name;
   return { title, language: 'en', tags: [] };
 }
 
@@ -1267,7 +1269,7 @@ export class ProjectSession {
     let newBytes = 0;
     for (const f of files) {
       const format = formatForName(f.name);
-      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (.txt, .md, or .epub)`);
+      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (.txt, .md, .epub, or .html)`);
       if (f.size > CAPS.maxSourceBytesPerFile) throw new SessionCommandError(`'${f.name}' exceeds the ${CAPS.maxSourceBytesPerFile}-byte per-file cap`);
       newBytes += f.size;
     }
@@ -1328,10 +1330,12 @@ export class ProjectSession {
     const epoch = this.sessionEpoch;
     const { txt, md } = await defaultExtractionRecipes();
     const epub = epubExtractionRecipe(['bodymatter']);
-    const [txtHash, mdHash, epubHash, structureHash, indexHash] = await Promise.all([
+    const html = await htmlExtractionRecipe();
+    const [txtHash, mdHash, epubHash, htmlHash, structureHash, indexHash] = await Promise.all([
       hashExtractionRecipe(txt),
       hashExtractionRecipe(md),
       hashExtractionRecipe(epub),
+      hashExtractionRecipe(html),
       hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
       hashIndexRecipe(this.indexRecipe),
     ]);
@@ -1339,6 +1343,7 @@ export class ProjectSession {
     const recipeFor = (format: SourceFormat): { recipe: ExtractionRecipeProvisional; hash: string } =>
       format === 'md' ? { recipe: md, hash: mdHash }
         : format === 'epub' ? { recipe: epub, hash: epubHash }
+        : format === 'html' ? { recipe: html, hash: htmlHash }
         : { recipe: txt, hash: txtHash };
     let matched = 0;
     for (const { doc, importToken } of staged) {

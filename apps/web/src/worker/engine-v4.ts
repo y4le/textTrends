@@ -111,6 +111,7 @@ import {
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
 import { EpubExtractionError, extractEpubDocument } from './epub-extract.ts';
+import { HtmlExtractionError, extractHtmlDocument } from './html-extract.ts';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 
@@ -740,17 +741,21 @@ export class WorkerEngineV4 {
       return { kind: 'needs-bytes', reason: 'source-corrupt' };
     }
     // Re-extract the durable bytes as if freshly ingested. A source-dependent
-    // (epub) recipe re-runs the CONTAINER extractor — the joined text alone
-    // cannot rebuild its spine candidates — while a literal recipe decodes.
-    // Determinism means the re-extraction reproduces the manifest's TextHash +
-    // candidate hash; a mismatch surfaces downstream as EXTRACTION_MISMATCH.
+    // (epub/html) recipe re-runs the CONTAINER/markup extractor — the joined
+    // text alone cannot rebuild its spine/heading candidates — while a literal
+    // recipe decodes. Determinism means the re-extraction reproduces the
+    // manifest's TextHash + candidate hash; a mismatch surfaces downstream as
+    // EXTRACTION_MISMATCH.
+    const rrc = plan.extractionRecipe;
     let extracted;
-    if (plan.extractionRecipe.format === 'epub') {
+    if (rrc.format === 'epub' || rrc.format === 'html') {
       this.progress(job, gen.generation, 'extract', plan.doc);
       try {
-        extracted = await extractEpubDocument(new Uint8Array(read.value.bytes), plan.extractionRecipe, this.caps.maxTextUtf16PerDoc * 4);
+        extracted = rrc.format === 'html'
+          ? await extractHtmlDocument(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc)
+          : await extractEpubDocument(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc * 4);
       } catch (e) {
-        if (e instanceof EpubExtractionError && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
+        if ((e instanceof EpubExtractionError || e instanceof HtmlExtractionError) && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
         throw e;
       }
       this.gate(job, gen);
@@ -1075,19 +1080,21 @@ export class WorkerEngineV4 {
     // pair of under-declared ingests cannot both slip the project caps.
     const token = this.claim(gen, doc);
 
+    const rc = plan.extractionRecipe;
     let extracted;
-    if (plan.extractionRecipe.format === 'epub') {
-      // Container format: unzip + extract → transformed finalize (NO byte-decode
-      // phase). A malformed archive/markup is PARSE_FAILED, a size overrun
-      // CAP_EXCEEDED — never DECODE_FAILED (the container path never decodes
-      // whole-file bytes to text).
+    if (rc.format === 'epub' || rc.format === 'html') {
+      // Transformed format: extract from the archive/markup tree → transformed
+      // finalize (NO whole-file byte-decode phase). A malformed archive/markup
+      // is PARSE_FAILED, a size overrun CAP_EXCEEDED — never DECODE_FAILED.
       this.progress(job, generation, 'extract', doc);
       try {
-        extracted = await extractEpubDocument(new Uint8Array(bytes), plan.extractionRecipe, this.caps.maxTextUtf16PerDoc * 4);
+        extracted = rc.format === 'html'
+          ? await extractHtmlDocument(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc)
+          : await extractEpubDocument(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc * 4);
       } catch (e) {
         this.gate(job, gen);
         if (!this.owns(token)) throw SUPERSEDED;
-        const cap = e instanceof EpubExtractionError && e.cap;
+        const cap = (e instanceof EpubExtractionError || e instanceof HtmlExtractionError) && e.cap;
         this.emitError(cap ? 'CAP_EXCEEDED' : 'PARSE_FAILED', {
           job, generation,
           message: e instanceof Error ? e.message : `document '${doc}' failed to extract`,
@@ -1148,21 +1155,14 @@ export class WorkerEngineV4 {
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
     const d = a.descriptor;
-    const source: SourceDescriptorV4 = d.kind === 'text'
-      ? {
-          kind: 'text',
-          hash: d.hash,
-          byteLength: d.byteLength,
-          format: d.format,
-          encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars },
-        }
-      : {
-          kind: 'container',
-          hash: d.hash,
-          byteLength: d.byteLength,
-          format: d.format,
-          container: { internalDecoding: d.container.internalDecoding, documentCount: d.container.documentCount },
-        };
+    let source: SourceDescriptorV4;
+    if (d.kind === 'text') {
+      source = { kind: 'text', hash: d.hash, byteLength: d.byteLength, format: d.format, encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars } };
+    } else if (d.kind === 'container') {
+      source = { kind: 'container', hash: d.hash, byteLength: d.byteLength, format: d.format, container: { internalDecoding: d.container.internalDecoding, documentCount: d.container.documentCount } };
+    } else {
+      source = { kind: 'markup', hash: d.hash, byteLength: d.byteLength, format: d.format, encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars } };
+    }
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'source-ready',

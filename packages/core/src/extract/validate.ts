@@ -108,6 +108,15 @@ export async function validateExtractionArtifact(
     ) {
       throw new ArtifactCorruptError('extraction container descriptor invalid');
     }
+  } else if (d.kind === 'markup') {
+    if (
+      !exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) || d.format !== 'html' ||
+      !exactRecord(d.encoding, ['detected', 'hadReplacementChars']) ||
+      typeof d.encoding.hadReplacementChars !== 'boolean' || !DETECTED_ENCODINGS.has(d.encoding.detected as string) ||
+      d.encoding.hadReplacementChars !== false
+    ) {
+      throw new ArtifactCorruptError('extraction markup descriptor invalid');
+    }
   } else {
     throw new ArtifactCorruptError('extraction descriptor has an unknown kind');
   }

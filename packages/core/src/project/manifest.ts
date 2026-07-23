@@ -54,6 +54,13 @@ export type SourceDescriptorV1 =
       readonly byteLength: number;
       readonly format: 'epub';
       readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
+    }
+  | {
+      readonly kind: 'markup';
+      readonly hash: string;
+      readonly byteLength: number;
+      readonly format: 'html';
+      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
     };
 
 export interface DocumentMetaV1 {
@@ -196,6 +203,16 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
       s.container.internalDecoding !== 'utf-8-strict' || !isSafeNonNeg(s.container.documentCount)
     ) {
       throw new ManifestInvalidError('doc container source descriptor invalid');
+    }
+  } else if (s.kind === 'markup') {
+    if (
+      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) || s.format !== 'html' ||
+      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
+    ) {
+      throw new ManifestInvalidError('doc markup source descriptor invalid');
+    }
+    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
+      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
     }
   } else {
     throw new ManifestInvalidError('doc source descriptor has an unknown kind');

@@ -102,7 +102,7 @@ export function ProjectPanel() {
             ref={importRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.epub"
+            accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
             aria-label={importLabel}
             onChange={(e) => onImport(e.target.files)}
             style={{ display: 'none' }}
@@ -155,7 +155,7 @@ export function ProjectPanel() {
                   reattach…
                   <input
                     type="file"
-                    accept=".txt,.md,.markdown,.epub"
+                    accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
                     aria-label={`Reattach source for ${doc.meta.title}`}
                     onChange={(e) => {
                       const f = e.target.files?.[0];

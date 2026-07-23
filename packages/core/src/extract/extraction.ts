@@ -27,8 +27,8 @@ import {
 import { scanMarkdownHeadings } from './markdown.ts';
 
 /** Literal, byte-decoded formats (the indexed text IS the decoded source) plus
- *  container formats (the text is EXTRACTED from an archive/markup tree). */
-export type SourceFormat = 'txt' | 'md' | 'epub';
+ *  transformed formats (the text is EXTRACTED from an archive or markup tree). */
+export type SourceFormat = 'txt' | 'md' | 'epub' | 'html';
 
 /**
  * How a warm reopen may rebuild this format's structure candidates:
@@ -70,6 +70,22 @@ export interface EpubExtractorPolicyV0 {
 }
 
 /**
+ * The HTML extractor policy. `decoder` pins how the source bytes become an HTML
+ * string (BOM → strict UTF-8 → total windows-1252 — the shared literal decoder,
+ * NOT a `<meta charset>` sniff, which is a documented future refinement);
+ * `parser` pins the HTML5 tree builder; `serializer` the DOM→text walk;
+ * `sectioning` the heading→candidate mapping. All in the recipe identity so an
+ * output-changing upgrade forces a new hash.
+ */
+export interface HtmlExtractorPolicyV0 {
+  readonly id: 'html5-inert-v1';
+  readonly decoder: DecoderPolicyV0;
+  readonly parser: 'parse5-v7';
+  readonly serializer: 'html-block-collapse-v1';
+  readonly sectioning: 'heading-order-v1';
+}
+
+/**
  * FORMAT-DISCRIMINATED (review finding): a well-typed recipe cannot pair a
  * format with a foreign parser — the recipe must describe exactly the operation
  * the extractor performs. Literal formats carry a byte `decoder`; a container
@@ -101,6 +117,12 @@ export type ExtractionRecipeProvisional =
       readonly schema: 'texttrends/extraction-recipe/0-provisional';
       readonly format: 'epub';
       readonly extractor: EpubExtractorPolicyV0;
+      readonly candidateReconstruction: 'source';
+    }
+  | {
+      readonly schema: 'texttrends/extraction-recipe/0-provisional';
+      readonly format: 'html';
+      readonly extractor: HtmlExtractorPolicyV0;
       readonly candidateReconstruction: 'source';
     };
 
@@ -214,6 +236,21 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     ) {
       throw new RangeError('epub extractor partitions invalid');
     }
+  } else if (recipe.format === 'html') {
+    requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
+    if (recipe.candidateReconstruction !== 'source') {
+      throw new RangeError("format 'html' must declare candidateReconstruction 'source'");
+    }
+    const e = recipe.extractor;
+    if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
+    requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer', 'sectioning'], 'html extractor');
+    if (
+      e.id !== 'html5-inert-v1' || e.parser !== 'parse5-v7' ||
+      e.serializer !== 'html-block-collapse-v1' || e.sectioning !== 'heading-order-v1'
+    ) {
+      throw new RangeError('unsupported html extractor policy');
+    }
+    await validateDecoderPolicy(e.decoder);
   } else {
     throw new RangeError(`unknown source format '${String(recipe.format)}'`);
   }
@@ -289,6 +326,31 @@ export function epubExtractionRecipe(
   };
 }
 
+/** The HTML extraction recipe. Async because the shared byte-decoder policy
+ *  embeds the windows-1252 table hash in the identity (as txt/md do). */
+export async function htmlExtractionRecipe(): Promise<ExtractionRecipeProvisional> {
+  const tableHash = await windows1252TableHash();
+  return {
+    schema: 'texttrends/extraction-recipe/0-provisional',
+    format: 'html',
+    extractor: {
+      id: 'html5-inert-v1',
+      decoder: {
+        id: 'bom-utf8-windows1252-v1',
+        bom: 'utf8-utf16le-utf16be-v1',
+        unicodeErrors: 'fatal',
+        fallback: 'windows-1252-whatwg-v1',
+        windows1252TableHash: tableHash,
+        newlineNormalization: 'none',
+      },
+      parser: 'parse5-v7',
+      serializer: 'html-block-collapse-v1',
+      sectioning: 'heading-order-v1',
+    },
+    candidateReconstruction: 'source',
+  };
+}
+
 export async function hashExtractionRecipe(recipe: ExtractionRecipeProvisional): Promise<string> {
   return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
 }
@@ -332,7 +394,24 @@ export interface ContainerSourceDescriptorV1 {
   };
 }
 
-export type SourceDescriptorV1 = TextSourceDescriptorV1 | ContainerSourceDescriptorV1;
+/** A single markup document (html) — one decoded source encoding (like a text
+ *  source), but the indexed text is EXTRACTED from the parsed tree, so its
+ *  candidates are source-reconstructed. */
+export interface MarkupSourceDescriptorV1 {
+  readonly kind: 'markup';
+  readonly hash: string; // SourceHash of the exact bytes
+  readonly byteLength: number;
+  readonly format: 'html';
+  readonly encoding: {
+    readonly detected: DetectedEncoding;
+    readonly hadReplacementChars: boolean;
+  };
+}
+
+export type SourceDescriptorV1 =
+  | TextSourceDescriptorV1
+  | ContainerSourceDescriptorV1
+  | MarkupSourceDescriptorV1;
 
 /** The decoder/parser evidence recorded on every artifact. */
 export interface ExtractionEvidence {
@@ -412,8 +491,8 @@ export async function decodeDocumentSource(
   recipe: ExtractionRecipeProvisional,
 ): Promise<DecodedDocument> {
   await validateExtractionRecipe(recipe);
-  if (recipe.format === 'epub') {
-    throw new RangeError('epub is a container format and has no byte-decode path; extract it and finalize a transformed document');
+  if (recipe.format === 'epub' || recipe.format === 'html') {
+    throw new RangeError(`${recipe.format} is a transformed format and has no whole-file byte-decode path; extract it and finalize a transformed document`);
   }
   const source = await hashSourceBytes(bytes);
   const decoded = decodeSource(bytes);
@@ -473,12 +552,15 @@ function assertDescriptorConsistent(
   if (d.kind === 'text') {
     if (recipe.format !== 'txt' && recipe.format !== 'md') throw new RangeError('a text descriptor requires a literal (txt/md) format');
     if (d.encoding.hadReplacementChars) throw new RangeError('text descriptor hadReplacementChars must be false under policy');
-  } else {
+  } else if (d.kind === 'container') {
     if (recipe.format !== 'epub') throw new RangeError('a container descriptor requires the epub format');
     if (d.container.internalDecoding !== 'utf-8-strict') throw new RangeError('unsupported container internal decoding policy');
     if (!Number.isSafeInteger(d.container.documentCount) || d.container.documentCount < 0) {
       throw new RangeError('container documentCount must be a non-negative safe integer');
     }
+  } else {
+    if (recipe.format !== 'html') throw new RangeError('a markup descriptor requires the html format');
+    if (d.encoding.hadReplacementChars) throw new RangeError('markup descriptor hadReplacementChars must be false under policy');
   }
 }
 
@@ -521,8 +603,8 @@ export async function finalizeExtraction(
   recipe: ExtractionRecipeProvisional,
 ): Promise<ExtractedDocument> {
   if (prepared.kind === 'literal') {
-    if (recipe.format === 'epub') {
-      throw new RangeError('epub cannot use the literal extract path');
+    if (recipe.format === 'epub' || recipe.format === 'html') {
+      throw new RangeError(`${recipe.format} cannot use the literal extract path`);
     }
     const { decoded, source, byteLength } = prepared.decoded;
     const { candidates, candidateHash } = await deriveCandidatesFromText(decoded.text, recipe);

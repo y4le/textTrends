@@ -21,7 +21,8 @@
     "idb": "^8.0.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zustand": "^5.0.14"
+    "zustand": "^5.0.14",
+    "parse5": "7.3.0"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
