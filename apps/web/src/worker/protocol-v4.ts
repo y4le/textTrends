@@ -48,13 +48,25 @@ export type BuildPhaseV4 = 'decode' | 'extract' | 'segment' | 'index' | 'structu
 
 export type SourceAvailability = 'bundled' | 'persisted' | 'external';
 
-/** Detected encoding + honest decoder evidence (§12.4). */
-export interface SourceDescriptorV4 {
-  readonly hash: string; // SourceHash
-  readonly byteLength: number;
-  readonly format: SourceFormat;
-  readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-}
+/** Source provenance surfaced by `source-ready` (§12.4), discriminated by how
+ *  the bytes became text — mirrors core's `SourceDescriptorV1`. A `text` source
+ *  reports its one decoded encoding; a `container` (epub) reports its internal
+ *  decoding policy and spine document count instead of a single encoding. */
+export type SourceDescriptorV4 =
+  | {
+      readonly kind: 'text';
+      readonly hash: string; // SourceHash
+      readonly byteLength: number;
+      readonly format: 'txt' | 'md';
+      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
+    }
+  | {
+      readonly kind: 'container';
+      readonly hash: string; // SourceHash
+      readonly byteLength: number;
+      readonly format: 'epub';
+      readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
+    };
 
 /**
  * Per-document generation input (§12.8 GenerationDocSpecV4). Recipe/override

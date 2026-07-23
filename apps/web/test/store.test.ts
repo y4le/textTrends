@@ -981,7 +981,7 @@ describe('real ProjectSession composes with the store bridge', () => {
       doc: 'd1',
       sourceName: 'd1',
       meta: { title: 'D1', language: 'en', tags: [] as string[] },
-      source: { hash: 'srchash', byteLength: 10, format: 'txt' as const, encoding: { detected: 'utf-8' as const, hadReplacementChars: false } },
+      source: { kind: 'text' as const, hash: 'srchash', byteLength: 10, format: 'txt' as const, encoding: { detected: 'utf-8' as const, hadReplacementChars: false } },
       sourceAvailability: 'bundled' as const,
       extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8, candidates: cand },
       structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: srh, override: { status: 'none' as const } },

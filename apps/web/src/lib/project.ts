@@ -169,7 +169,7 @@ export async function buildBuiltinProjectData(id: string, docs: readonly Builtin
     doc: d.doc,
     sourceName: d.doc,
     meta: { title: d.title, language: 'en', tags: [] },
-    source: { hash: d.sourceHash, byteLength: d.bytes, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
+    source: { kind: 'text', hash: d.sourceHash, byteLength: d.bytes, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
     sourceAvailability: 'bundled',
     extraction: { recipe: txt as ExtractionRecipeProvisional, recipeHash: extractionRecipeHash, text: d.textHash, textLengthUtf16: d.textLengthUtf16, candidates },
     structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: structureRecipeHash, override: { status: 'none' } },

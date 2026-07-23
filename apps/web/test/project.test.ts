@@ -62,6 +62,8 @@ describe('the built-in Sherlock project', () => {
     for (const doc of data.docs) {
       expect(doc.sourceAvailability).toBe('bundled');
       expect(doc.source.format).toBe('txt');
+      expect(doc.source.kind).toBe('text');
+      if (doc.source.kind !== 'text') throw new Error('built-in docs are text sources');
       expect(doc.source.encoding.detected).toBe('utf-8');
       expect(doc.structure.override).toEqual({ status: 'none' });
     }

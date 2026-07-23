@@ -11,12 +11,17 @@ import {
   decodeDocumentSource,
   decodeSource,
   defaultExtractionRecipes,
+  deriveCandidatesFromText,
+  epubExtractionRecipe,
   extractDocument,
   finalizeExtraction,
+  hashExtractionRecipe,
+  hashSourceBytes,
   hashStructureCandidates,
   hashText,
   scanMarkdownHeadings,
   windows1252TableHash,
+  type PreparedExtraction,
 } from '../src/index.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 import { TECHNICAL_MD } from './fixtures/md/technical.ts';
@@ -30,7 +35,7 @@ describe('decode/finalize seam (honest progress split)', () => {
     const whole = await extractDocument(bytes, md);
     // The engine emits `decode` before this, then `extract` before finalize.
     const decoded = await decodeDocumentSource(bytes, md);
-    const split = await finalizeExtraction(decoded, md);
+    const split = await finalizeExtraction({ kind: 'literal', decoded }, md);
     expect(split.text).toBe(whole.text);
     expect(split.artifact).toEqual(whole.artifact);
     // The decode phase already carries the source identity and byte length.
@@ -219,6 +224,81 @@ describe('markdown-heading-scan-v1', () => {
   });
 });
 
+describe('PreparedExtraction transformed path (container extraction)', () => {
+  // A minimal, valid transformed EPUB input the adapter would produce.
+  async function transformedEpub(overrides: {
+    text?: string;
+    candidates?: readonly { kind: string; level: number; title: string; chars: { start: number; end: number } }[];
+    format?: string;
+    documentCount?: number;
+  } = {}): Promise<{ prepared: PreparedExtraction; recipe: ReturnType<typeof epubExtractionRecipe> }> {
+    const text = overrides.text ?? 'Chapter One\n\nThe body of the chapter.';
+    const bytes = utf8('PK pretend epub bytes');
+    const hash = await hashSourceBytes(bytes);
+    const prepared = {
+      kind: 'transformed',
+      source: {
+        kind: 'container',
+        hash,
+        byteLength: bytes.length,
+        format: overrides.format ?? 'epub',
+        container: { internalDecoding: 'utf-8-strict', documentCount: overrides.documentCount ?? 1 },
+      },
+      text,
+      candidates: overrides.candidates ?? [
+        { kind: 'epub-section', level: 1, title: 'Chapter One', chars: { start: 0, end: 11 } },
+      ],
+      evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
+    } as unknown as PreparedExtraction;
+    return { prepared, recipe: epubExtractionRecipe(['bodymatter']) };
+  }
+
+  it('builds a canonical artifact from adapter-supplied text + container candidates', async () => {
+    const { prepared, recipe } = await transformedEpub();
+    const { artifact, text } = await finalizeExtraction(prepared, recipe);
+    expect(text).toBe('Chapter One\n\nThe body of the chapter.');
+    expect(artifact.descriptor.kind).toBe('container');
+    expect(artifact.text).toBe(await hashText(text));
+    expect(artifact.recipe).toBe(await hashExtractionRecipe(recipe));
+    expect(artifact.candidates[0]!.kind).toBe('epub-section');
+    expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
+  });
+
+  it('rejects a transformed input paired with a text-reconstructed (md) recipe', async () => {
+    const { md } = await defaultExtractionRecipes();
+    const { prepared } = await transformedEpub();
+    await expect(finalizeExtraction(prepared, md)).rejects.toThrow(/source-reconstructed recipe|disagrees/);
+  });
+
+  it('rejects an out-of-range candidate, a format disagreement, and ill-formed text', async () => {
+    const recipe = epubExtractionRecipe(['bodymatter']);
+    const past = await transformedEpub({ candidates: [{ kind: 'epub-section', level: 1, title: 'x', chars: { start: 0, end: 9999 } }] });
+    await expect(finalizeExtraction(past.prepared, recipe)).rejects.toThrow(RangeError);
+    const wrongFormat = await transformedEpub({ format: 'txt' });
+    await expect(finalizeExtraction(wrongFormat.prepared, recipe)).rejects.toThrow(/disagrees|container descriptor requires/);
+    const illFormed = await transformedEpub({ text: '\uD800', candidates: [] });
+    await expect(finalizeExtraction(illFormed.prepared, recipe)).rejects.toThrow(DecodeError);
+  });
+});
+
+describe('epub extraction recipe + source-reconstruction guard', () => {
+  it('epubExtractionRecipe validates and round-trips through validateExtractionRecipe', async () => {
+    const recipe = epubExtractionRecipe(['bodymatter']);
+    expect(recipe.format).toBe('epub');
+    expect(recipe.candidateReconstruction).toBe('source');
+    // A recipe hash is stable and order-independent (canonical).
+    expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe(epubExtractionRecipe(['bodymatter'])));
+  });
+
+  it('deriveCandidatesFromText refuses a source-dependent (epub) recipe', async () => {
+    await expect(deriveCandidatesFromText('# heading', epubExtractionRecipe())).rejects.toThrow(RangeError);
+  });
+
+  it('decodeDocumentSource refuses an epub recipe (no byte-decode path)', async () => {
+    await expect(decodeDocumentSource(utf8('x'), epubExtractionRecipe())).rejects.toThrow(/container format/);
+  });
+});
+
 describe('extractDocument', () => {
   it('produces a complete artifact with recipe-bound identities (md)', async () => {
     const { md } = await defaultExtractionRecipes();
@@ -231,6 +311,8 @@ describe('extractDocument', () => {
     expect(artifact.candidates.length).toBe(4);
     expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
     expect(artifact.descriptor.byteLength).toBe(bytes.length);
+    expect(artifact.descriptor.kind).toBe('text');
+    if (artifact.descriptor.kind !== 'text') throw new Error('expected a text descriptor');
     expect(artifact.descriptor.encoding.detected).toBe('utf-8');
     expect(artifact.descriptor.encoding.hadReplacementChars).toBe(false);
   });

@@ -123,24 +123,38 @@ export {
   type DetectedEncoding,
 } from './extract/decode.ts';
 export {
+  assertValidCandidates,
   hashStructureCandidates,
+  isValidCandidate,
+  STRUCTURE_CANDIDATE_KINDS,
+  type StructureCandidateKind,
   type StructureCandidateV1,
 } from './extract/candidates.ts';
 export { scanMarkdownHeadings } from './extract/markdown.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,
+  epubExtractionRecipe,
   extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
   validateExtractionRecipe,
   hashSourceBytes,
+  type CandidateReconstruction,
+  type ContainerSourceDescriptorV1,
   type DecodedDocument,
+  type EbookPartition,
+  type EpubExtractorPolicyV0,
   type ExtractedDocument,
   type ExtractionArtifactV1,
+  type ExtractionEvidence,
   type ExtractionRecipeProvisional,
+  type MdExtractionRecipe,
+  type PreparedExtraction,
   type SourceDescriptorV1,
   type SourceFormat,
+  type TextSourceDescriptorV1,
+  type TxtExtractionRecipe,
 } from './extract/extraction.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
 export { STRUCTURE_LIMITS_V0, type StructureLimitsV0 } from './contract/structure-limits.ts';
@@ -196,6 +210,7 @@ export {
 } from './snapshot/compose.ts';
 export {
   ManifestInvalidError,
+  upgradeStoredManifest,
   validateProjectManifest,
   type DocumentMetaV1,
   type PersistedOverride,

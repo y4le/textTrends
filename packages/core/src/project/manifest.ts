@@ -36,12 +36,25 @@ import type { StructureOverrideV1, StructureRecipeProvisional } from '../structu
 
 export type SourceAvailability = 'bundled' | 'persisted' | 'external';
 
-export interface SourceDescriptorV1 {
-  readonly hash: string;
-  readonly byteLength: number;
-  readonly format: 'txt' | 'md';
-  readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-}
+/** Discriminated by how the durable source bytes became text: a `text` source
+ *  carries one decoded encoding; a `container` (epub) records its internal
+ *  decoding policy and spine document count instead. Mirrors core's
+ *  extraction `SourceDescriptorV1` — the same shape is admitted here. */
+export type SourceDescriptorV1 =
+  | {
+      readonly kind: 'text';
+      readonly hash: string;
+      readonly byteLength: number;
+      readonly format: 'txt' | 'md';
+      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
+    }
+  | {
+      readonly kind: 'container';
+      readonly hash: string;
+      readonly byteLength: number;
+      readonly format: 'epub';
+      readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
+    };
 
 export interface DocumentMetaV1 {
   readonly title: string;
@@ -160,17 +173,32 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   if (!isStr(v.doc) || !isStr(v.sourceName)) throw new ManifestInvalidError('doc identity invalid');
   validateMeta(v.meta);
   const s = v.source;
-  if (
-    !exactRecord(s, ['hash', 'byteLength', 'format', 'encoding']) || !isStr(s.hash) || !isSafeNonNeg(s.byteLength) ||
-    (s.format !== 'txt' && s.format !== 'md') ||
-    !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
-  ) {
+  if (!isRec(s) || !isStr(s.hash) || !isSafeNonNeg(s.byteLength)) {
     throw new ManifestInvalidError('doc source descriptor invalid');
   }
-  // The detected encoding is a CLOSED union — a durable descriptor may only
-  // name an encoding the decoder can actually report.
-  if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
-    throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
+  if (s.kind === 'text') {
+    if (
+      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) ||
+      (s.format !== 'txt' && s.format !== 'md') ||
+      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
+    ) {
+      throw new ManifestInvalidError('doc text source descriptor invalid');
+    }
+    // The detected encoding is a CLOSED union — a durable descriptor may only
+    // name an encoding the decoder can actually report.
+    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
+      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
+    }
+  } else if (s.kind === 'container') {
+    if (
+      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'container']) || s.format !== 'epub' ||
+      !exactRecord(s.container, ['internalDecoding', 'documentCount']) ||
+      s.container.internalDecoding !== 'utf-8-strict' || !isSafeNonNeg(s.container.documentCount)
+    ) {
+      throw new ManifestInvalidError('doc container source descriptor invalid');
+    }
+  } else {
+    throw new ManifestInvalidError('doc source descriptor has an unknown kind');
   }
   if (v.sourceAvailability !== 'bundled' && v.sourceAvailability !== 'persisted' && v.sourceAvailability !== 'external') {
     throw new ManifestInvalidError('doc sourceAvailability invalid');
@@ -248,4 +276,41 @@ export async function validateProjectManifest(value: unknown): Promise<ProjectMa
   }
   if (new Set(order).size !== order.length) throw new ManifestInvalidError('order has duplicates');
   return value as unknown as ProjectManifestV1;
+}
+
+/**
+ * Lazily upgrade a stored manifest from the pre-container shape (before source
+ * descriptors were discriminated by `kind` and extraction recipes carried
+ * `candidateReconstruction`) to the current shape. Applied on READ before
+ * `validateProjectManifest`, so a project saved by an older build reopens
+ * instead of reporting DATA_CORRUPT.
+ *
+ * For every doc still on the old shape (its source has no `kind` — only txt/md
+ * projects predate the discriminant), it inserts `source.kind: 'text'`, inserts
+ * `extraction.recipe.candidateReconstruction: 'text'`, and RECOMPUTES the
+ * extraction recipe hash over the upgraded recipe. Revision and every content
+ * hash (text/candidates/structure) are preserved, so the project's identity and
+ * its structure overrides survive. Idempotent: a current-shape manifest is
+ * returned unchanged. Returns raw `unknown`; the caller still deep-validates it,
+ * so a structurally broken record is reported by validation, not silently
+ * "repaired" here.
+ */
+export async function upgradeStoredManifest(raw: unknown): Promise<unknown> {
+  if (!isRec(raw) || !Array.isArray(raw.docs)) return raw;
+  const docs = await Promise.all(
+    raw.docs.map(async (doc): Promise<unknown> => {
+      if (!isRec(doc) || !isRec(doc.source) || doc.source.kind !== undefined) return doc;
+      // Only a pre-discriminant txt/md doc reaches here (containers never lacked
+      // a kind). Add the text discriminant.
+      const source = { kind: 'text', ...doc.source };
+      let extraction = doc.extraction;
+      if (isRec(extraction) && isRec(extraction.recipe) && extraction.recipe.candidateReconstruction === undefined) {
+        const recipe = { ...extraction.recipe, candidateReconstruction: 'text' } as unknown as ExtractionRecipeProvisional;
+        const recipeHash = await hashExtractionRecipe(recipe);
+        extraction = { ...extraction, recipe, recipeHash };
+      }
+      return { ...doc, source, extraction };
+    }),
+  );
+  return { ...raw, docs };
 }

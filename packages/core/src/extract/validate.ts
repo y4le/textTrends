@@ -16,7 +16,7 @@ import { exactArray, exactRecord } from '../contract/recipes.ts';
 import { DETECTED_ENCODINGS } from './decode.ts';
 import { validateSectionTable, type StructureSectionRecordV2 } from '../structure/sections.ts';
 import { deriveCandidatesFromText, hashExtractionRecipe, type ExtractionArtifactV1, type ExtractionRecipeProvisional } from './extraction.ts';
-import { hashStructureCandidates, type StructureCandidateV1 } from './candidates.ts';
+import { hashStructureCandidates, isValidCandidate, type StructureCandidateV1 } from './candidates.ts';
 import type { StructureArtifactV2 } from '../structure/build.ts';
 
 /** The identity a cached extraction artifact is keyed by (matches the engine's
@@ -47,14 +47,10 @@ const isStr = (v: unknown): v is string => typeof v === 'string';
 const isSafeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
 const isSafeNonNeg = (v: unknown): v is number => isSafeInt(v) && v >= 0;
 
-function isCandidate(v: unknown, textLength: number): v is StructureCandidateV1 {
-  return (
-    isRec(v) && (v.kind === 'md-heading-atx' || v.kind === 'md-heading-setext') &&
-    isSafeInt(v.level) && (v.level as number) >= 1 && (v.level as number) <= 6 && isStr(v.title) &&
-    isRec(v.chars) && isSafeNonNeg(v.chars.start) && isSafeNonNeg(v.chars.end) &&
-    (v.chars.start as number) < (v.chars.end as number) && (v.chars.end as number) <= textLength
-  );
-}
+// Candidate ABI is defined ONCE in candidates.ts so cold extraction, the
+// transformed builder, and this admission path can never diverge on what a
+// valid candidate is (a builder must not mint what admission rejects).
+const isCandidate = isValidCandidate;
 
 /**
  * Admit a cached extraction artifact against the recipe that keyed it and,
@@ -90,15 +86,31 @@ export async function validateExtractionArtifact(
   }
   const textLength = value.textLengthUtf16 as number;
   const d = value.descriptor;
-  if (
-    !exactRecord(d, ['hash', 'byteLength', 'format', 'encoding']) || d.hash !== value.source || !isSafeNonNeg(d.byteLength) ||
-    (d.format !== 'txt' && d.format !== 'md') ||
-    !exactRecord(d.encoding, ['detected', 'hadReplacementChars']) ||
-    typeof d.encoding.hadReplacementChars !== 'boolean' || !DETECTED_ENCODINGS.has(d.encoding.detected as string)
-  ) {
+  if (!isRec(d) || d.hash !== value.source || !isSafeNonNeg(d.byteLength) || d.format !== recipe.format) {
     throw new ArtifactCorruptError('extraction descriptor invalid');
   }
-  if (d.format !== recipe.format) throw new ArtifactCorruptError('extraction format disagrees with recipe');
+  // Descriptor shape is discriminated by how the bytes became text.
+  if (d.kind === 'text') {
+    if (
+      !exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) ||
+      (d.format !== 'txt' && d.format !== 'md') ||
+      !exactRecord(d.encoding, ['detected', 'hadReplacementChars']) ||
+      typeof d.encoding.hadReplacementChars !== 'boolean' || !DETECTED_ENCODINGS.has(d.encoding.detected as string) ||
+      d.encoding.hadReplacementChars !== false
+    ) {
+      throw new ArtifactCorruptError('extraction text descriptor invalid');
+    }
+  } else if (d.kind === 'container') {
+    if (
+      !exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) || d.format !== 'epub' ||
+      !exactRecord(d.container, ['internalDecoding', 'documentCount']) ||
+      d.container.internalDecoding !== 'utf-8-strict' || !isSafeNonNeg(d.container.documentCount)
+    ) {
+      throw new ArtifactCorruptError('extraction container descriptor invalid');
+    }
+  } else {
+    throw new ArtifactCorruptError('extraction descriptor has an unknown kind');
+  }
   if (!Array.isArray(value.candidates) || !value.candidates.every((c) => isCandidate(c, textLength))) {
     throw new ArtifactCorruptError('extraction candidates invalid');
   }
@@ -115,21 +127,22 @@ export async function validateExtractionArtifact(
   if (!exactRecord(ev, ['decoderReplacementCount', 'suspiciousControlCount']) || !isSafeNonNeg(ev.decoderReplacementCount) || !isSafeNonNeg(ev.suspiciousControlCount)) {
     throw new ArtifactCorruptError('extraction evidence counts invalid');
   }
-  // Descriptor/evidence CONSISTENCY: hadReplacementChars is derived as
-  // (decoderReplacementCount > 0), and the implemented strict-Unicode/total-
-  // 1252 policy makes the count structurally zero — a nonzero count or a
-  // disagreeing flag is an impossible-under-ABI record.
+  // The implemented strict-Unicode/total-1252 (literal) and strict-UTF-8
+  // (container-internal) policies make the replacement count structurally zero.
   if (ev.decoderReplacementCount !== 0) throw new ArtifactCorruptError('extraction decoderReplacementCount must be 0 under the current policy');
-  if (d.encoding.hadReplacementChars !== (ev.decoderReplacementCount > 0)) {
-    throw new ArtifactCorruptError('descriptor hadReplacementChars disagrees with evidence');
-  }
   if (text !== undefined) {
     if ((await hashText(text)) !== value.text || text.length !== textLength) {
       throw new ArtifactCorruptError('extraction artifact does not describe the supplied text');
     }
-    const reconstructed = await deriveCandidatesFromText(text, recipe);
-    if (reconstructed.candidateHash !== value.candidateHash) {
-      throw new ArtifactCorruptError('stored candidates do not match a fresh scan of the text');
+    // Only a TEXT-reconstructible recipe may be re-scanned from the text. A
+    // source-dependent recipe's candidates are not a function of the text (an
+    // EPUB spine), so its identity was already admitted by the candidateHash
+    // check above (planner ruling §1) — a text rescan would falsely reject it.
+    if (recipe.candidateReconstruction === 'text') {
+      const reconstructed = await deriveCandidatesFromText(text, recipe);
+      if (reconstructed.candidateHash !== value.candidateHash) {
+        throw new ArtifactCorruptError('stored candidates do not match a fresh scan of the text');
+      }
     }
   }
   return value as unknown as ExtractionArtifactV1;

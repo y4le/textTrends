@@ -360,6 +360,7 @@ describe('cold ingest', () => {
     expect(sr.text).toBe(spec.extraction.expectedText);
     expect(sr.candidates).toBe(spec.extraction.expectedCandidates);
     expect(sr.decoderReplacementCount).toBe(0);
+    if (sr.source.kind !== 'text') throw new Error('expected a text source descriptor');
     expect(sr.source.encoding.hadReplacementChars).toBe(false);
   });
 
@@ -1281,6 +1282,7 @@ describe('decode policy at the wire (v4)', () => {
     // windows-1252 fallback ('ÿ'), with zero decoder replacements.
     await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: Uint8Array.from([0xff]).buffer as ArrayBuffer });
     const sr = h.last('source-ready');
+    if (sr.source.kind !== 'text') throw new Error('expected a text source descriptor');
     expect(sr.source.encoding.detected).toBe('windows-1252');
     expect(sr.source.encoding.hadReplacementChars).toBe(false);
     expect(sr.decoderReplacementCount).toBe(0);

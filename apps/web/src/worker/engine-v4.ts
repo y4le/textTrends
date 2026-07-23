@@ -110,6 +110,7 @@ import {
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
+import { EpubExtractionError, extractEpubDocument } from './epub-extract.ts';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 
@@ -738,19 +739,39 @@ export class WorkerEngineV4 {
       this.warnStorage('CACHE_CORRUPT', `persisted source for '${plan.doc}' is corrupt (${read.reason}); retained`, gen.generation);
       return { kind: 'needs-bytes', reason: 'source-corrupt' };
     }
-    // Re-extract the durable bytes as if freshly ingested (honest decode/extract).
-    this.progress(job, gen.generation, 'decode', plan.doc);
-    const decoded = await decodeDocumentSource(new Uint8Array(read.value.bytes), plan.extractionRecipe);
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
-    // The same per-document decoded-text cap the cold path enforces (an
-    // understated declaration must not bypass it on warm reopen). CapError is
-    // caught by the warm loop and reported as CAP_EXCEEDED.
-    if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-      throw new CapError(`persisted source for '${plan.doc}' decodes past the per-document UTF-16 cap`);
+    // Re-extract the durable bytes as if freshly ingested. A source-dependent
+    // (epub) recipe re-runs the CONTAINER extractor — the joined text alone
+    // cannot rebuild its spine candidates — while a literal recipe decodes.
+    // Determinism means the re-extraction reproduces the manifest's TextHash +
+    // candidate hash; a mismatch surfaces downstream as EXTRACTION_MISMATCH.
+    let extracted;
+    if (plan.extractionRecipe.format === 'epub') {
+      this.progress(job, gen.generation, 'extract', plan.doc);
+      try {
+        extracted = await extractEpubDocument(new Uint8Array(read.value.bytes), plan.extractionRecipe, this.caps.maxTextUtf16PerDoc * 4);
+      } catch (e) {
+        if (e instanceof EpubExtractionError && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
+        throw e;
+      }
+      this.gate(job, gen);
+      if (!this.owns(token)) throw SUPERSEDED;
+      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
+        throw new CapError(`persisted source for '${plan.doc}' extracts past the per-document UTF-16 cap`);
+      }
+    } else {
+      this.progress(job, gen.generation, 'decode', plan.doc);
+      const decoded = await decodeDocumentSource(new Uint8Array(read.value.bytes), plan.extractionRecipe);
+      this.gate(job, gen);
+      if (!this.owns(token)) throw SUPERSEDED;
+      // The same per-document decoded-text cap the cold path enforces (an
+      // understated declaration must not bypass it on warm reopen). CapError is
+      // caught by the warm loop and reported as CAP_EXCEEDED.
+      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
+        throw new CapError(`persisted source for '${plan.doc}' decodes past the per-document UTF-16 cap`);
+      }
+      this.progress(job, gen.generation, 'extract', plan.doc);
+      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
     }
-    this.progress(job, gen.generation, 'extract', plan.doc);
-    const extracted = await finalizeExtraction(decoded, plan.extractionRecipe);
     this.gate(job, gen);
     if (!this.owns(token)) throw SUPERSEDED;
     const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
@@ -1054,23 +1075,50 @@ export class WorkerEngineV4 {
     // pair of under-declared ingests cannot both slip the project caps.
     const token = this.claim(gen, doc);
 
-    this.progress(job, generation, 'decode', doc);
-    let decoded;
-    try {
-      decoded = await decodeDocumentSource(new Uint8Array(bytes), plan.extractionRecipe);
-    } catch (e) {
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
-      this.emitError('DECODE_FAILED', { job, generation, message: e instanceof Error ? e.message : `document '${doc}' failed to decode`, recoverable: true });
-      return;
+    let extracted;
+    if (plan.extractionRecipe.format === 'epub') {
+      // Container format: unzip + extract → transformed finalize (NO byte-decode
+      // phase). A malformed archive/markup is PARSE_FAILED, a size overrun
+      // CAP_EXCEEDED — never DECODE_FAILED (the container path never decodes
+      // whole-file bytes to text).
+      this.progress(job, generation, 'extract', doc);
+      try {
+        extracted = await extractEpubDocument(new Uint8Array(bytes), plan.extractionRecipe, this.caps.maxTextUtf16PerDoc * 4);
+      } catch (e) {
+        this.gate(job, gen);
+        if (!this.owns(token)) throw SUPERSEDED;
+        const cap = e instanceof EpubExtractionError && e.cap;
+        this.emitError(cap ? 'CAP_EXCEEDED' : 'PARSE_FAILED', {
+          job, generation,
+          message: e instanceof Error ? e.message : `document '${doc}' failed to extract`,
+          recoverable: true,
+        });
+        return;
+      }
+      this.docGate(job, token);
+      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
+        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' extracted text exceeds the per-document UTF-16 cap`, recoverable: true });
+        return;
+      }
+    } else {
+      this.progress(job, generation, 'decode', doc);
+      let decoded;
+      try {
+        decoded = await decodeDocumentSource(new Uint8Array(bytes), plan.extractionRecipe);
+      } catch (e) {
+        this.gate(job, gen);
+        if (!this.owns(token)) throw SUPERSEDED;
+        this.emitError('DECODE_FAILED', { job, generation, message: e instanceof Error ? e.message : `document '${doc}' failed to decode`, recoverable: true });
+        return;
+      }
+      this.docGate(job, token);
+      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
+        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' decoded text exceeds the per-document UTF-16 cap`, recoverable: true });
+        return;
+      }
+      this.progress(job, generation, 'extract', doc);
+      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
     }
-    this.docGate(job, token);
-    if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-      this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' decoded text exceeds the per-document UTF-16 cap`, recoverable: true });
-      return;
-    }
-    this.progress(job, generation, 'extract', doc);
-    const extracted = await finalizeExtraction(decoded, plan.extractionRecipe);
     this.docGate(job, token);
 
     const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
@@ -1099,12 +1147,22 @@ export class WorkerEngineV4 {
 
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
-    const source: SourceDescriptorV4 = {
-      hash: a.descriptor.hash,
-      byteLength: a.descriptor.byteLength,
-      format: a.descriptor.format,
-      encoding: { detected: a.descriptor.encoding.detected, hadReplacementChars: a.descriptor.encoding.hadReplacementChars },
-    };
+    const d = a.descriptor;
+    const source: SourceDescriptorV4 = d.kind === 'text'
+      ? {
+          kind: 'text',
+          hash: d.hash,
+          byteLength: d.byteLength,
+          format: d.format,
+          encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars },
+        }
+      : {
+          kind: 'container',
+          hash: d.hash,
+          byteLength: d.byteLength,
+          format: d.format,
+          container: { internalDecoding: d.container.internalDecoding, documentCount: d.container.documentCount },
+        };
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'source-ready',

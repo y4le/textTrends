@@ -59,7 +59,9 @@ export function StructurePanel() {
     project.data.docs.find((d) => d.doc === doc)?.meta.title ?? doc;
 
   const doc = project.data.docs.find((d) => d.doc === focusedDoc) ?? null;
-  const encoding = doc?.source.encoding ?? null;
+  // Only a text source carries a single decoded encoding; a container (epub)
+  // reports no encoding badge (its documents are decoded internally).
+  const encoding = doc?.source.kind === 'text' ? doc.source.encoding : null;
   const evidence = sourceEvidence?.[focusedDoc] ?? null;
   const overrideStatus = doc?.structure.override.status ?? 'none';
   const isUser = project.kind === 'user';

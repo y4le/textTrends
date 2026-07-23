@@ -34,11 +34,13 @@ import {
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
+  epubExtractionRecipe,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashStructureOverride,
   hashStructureRecipe,
   INGEST_CAPS_V0,
+  upgradeStoredManifest,
   validateProjectManifest,
   type DocumentMetaV1,
   type ExtractionRecipeProvisional,
@@ -300,13 +302,14 @@ function formatForName(name: string): SourceFormat | null {
   const lower = name.toLowerCase();
   if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
   if (lower.endsWith('.txt')) return 'txt';
+  if (lower.endsWith('.epub')) return 'epub';
   return null;
 }
 
 /** Default document metadata from a filename: the title is the name minus its
  *  extension; language/tags take neutral defaults the user edits in 7c. */
 function initialMetaFor(name: string): DocumentMetaV1 {
-  const title = name.replace(/\.(txt|md|markdown)$/i, '') || name;
+  const title = name.replace(/\.(txt|md|markdown|epub)$/i, '') || name;
   return { title, language: 'en', tags: [] };
 }
 
@@ -885,7 +888,10 @@ export class ProjectSession {
     }
     let manifest: ProjectManifestV1;
     try {
-      manifest = await validateProjectManifest(loaded.manifest);
+      // Lazily migrate a manifest saved by an older build (pre-container source
+      // discriminant / candidateReconstruction) before deep validation, so a
+      // prior project reopens instead of reporting DATA_CORRUPT.
+      manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
     } catch (e) {
       if (this.loadStale(token, epoch)) return;
       this.analysis = { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false };
@@ -1200,7 +1206,7 @@ export class ProjectSession {
     if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
     if (loaded.kind === 'loaded') {
       try {
-        const manifest = await validateProjectManifest(loaded.manifest);
+        const manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
         if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
         if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
           // Our write DID commit before the crash: adopt it through the ONE
@@ -1261,7 +1267,7 @@ export class ProjectSession {
     let newBytes = 0;
     for (const f of files) {
       const format = formatForName(f.name);
-      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (only .txt and .md)`);
+      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (.txt, .md, or .epub)`);
       if (f.size > CAPS.maxSourceBytesPerFile) throw new SessionCommandError(`'${f.name}' exceeds the ${CAPS.maxSourceBytesPerFile}-byte per-file cap`);
       newBytes += f.size;
     }
@@ -1321,21 +1327,27 @@ export class ProjectSession {
   private async finishStaging(staged: readonly { doc: string; importToken: number }[]): Promise<void> {
     const epoch = this.sessionEpoch;
     const { txt, md } = await defaultExtractionRecipes();
-    const [txtHash, mdHash, structureHash, indexHash] = await Promise.all([
+    const epub = epubExtractionRecipe(['bodymatter']);
+    const [txtHash, mdHash, epubHash, structureHash, indexHash] = await Promise.all([
       hashExtractionRecipe(txt),
       hashExtractionRecipe(md),
+      hashExtractionRecipe(epub),
       hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
       hashIndexRecipe(this.indexRecipe),
     ]);
     if (this.disposed || epoch !== this.sessionEpoch) return;
+    const recipeFor = (format: SourceFormat): { recipe: ExtractionRecipeProvisional; hash: string } =>
+      format === 'md' ? { recipe: md, hash: mdHash }
+        : format === 'epub' ? { recipe: epub, hash: epubHash }
+        : { recipe: txt, hash: txtHash };
     let matched = 0;
     for (const { doc, importToken } of staged) {
       const p = this.pending.get(doc);
       if (!p || p.importToken !== importToken) continue; // a newer entry / removed
-      const txtRecipe = p.format === 'md' ? md : txt;
+      const chosen = recipeFor(p.format);
       const recipes: ImportRecipes = {
-        extraction: txtRecipe,
-        extractionRecipeHash: p.format === 'md' ? mdHash : txtHash,
+        extraction: chosen.recipe,
+        extractionRecipeHash: chosen.hash,
         structure: DEFAULT_STRUCTURE_RECIPE,
         structureRecipeHash: structureHash,
       };

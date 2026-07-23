@@ -15,9 +15,12 @@ import {
   deriveCandidatesFromText,
   defaultExtractionRecipes,
   emptyOverride,
+  epubExtractionRecipe,
   extractDocument,
+  finalizeExtraction,
   hashExtractionRecipe,
   hashIndexRecipe,
+  hashSourceBytes,
   hashStructureCandidates,
   hashStructureOverride,
   hashStructureRecipe,
@@ -25,9 +28,11 @@ import {
   makeReadyDocument,
   scanMarkdownHeadings,
   structureHashOf,
+  upgradeStoredManifest,
   validateExtractionArtifact,
   validateProjectManifest,
   validateStructureArtifactV2,
+  type PreparedExtraction,
 } from '../src/index.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 
@@ -104,12 +109,41 @@ describe('validateExtractionArtifact', () => {
     const { md, artifact, key } = await keyed();
     const badEnc = { ...artifact, descriptor: { ...artifact.descriptor, encoding: { detected: 'bogus', hadReplacementChars: false } } };
     await expect(validateExtractionArtifact(badEnc, key, md)).rejects.toThrow(ArtifactCorruptError);
+    // A text descriptor with hadReplacementChars:true is impossible under the
+    // total-decode policy (the count is structurally zero → the flag is false).
     const disagree = { ...artifact, descriptor: { ...artifact.descriptor, encoding: { detected: 'utf-8', hadReplacementChars: true } } };
-    await expect(validateExtractionArtifact(disagree, key, md)).rejects.toThrow(/disagrees|must be 0/);
+    await expect(validateExtractionArtifact(disagree, key, md)).rejects.toThrow(/text descriptor invalid/);
     const nonzero = { ...artifact, evidence: { ...artifact.evidence, decoderReplacementCount: 1 } };
     await expect(validateExtractionArtifact(nonzero, key, md)).rejects.toThrow(/must be 0/);
     // Extra descriptor field.
     await expect(validateExtractionArtifact({ ...artifact, descriptor: { ...artifact.descriptor, extra: 1 } }, key, md)).rejects.toThrow(ArtifactCorruptError);
+  });
+
+  it('every finalizeExtraction result self-admits (literal AND transformed)', async () => {
+    // Literal: a cold txt/md extraction admits against its own key + text.
+    const { md } = await defaultExtractionRecipes();
+    const lit = await extractDocument(utf8(BOOK_LIKE_MD), md);
+    const litKey = { source: lit.artifact.source, recipe: lit.artifact.recipe };
+    expect((await validateExtractionArtifact(lit.artifact, litKey, md, lit.text)).schema).toBe('texttrends/extraction/1');
+
+    // Transformed: a container extraction the adapter would produce admits too —
+    // the builder enforces the same ABI admission checks (Codex review §HIGH-2).
+    const recipe = epubExtractionRecipe(['bodymatter']);
+    const text = 'Chapter One\n\nThe body.';
+    const bytes = utf8('PK epub');
+    const hash = await hashSourceBytes(bytes);
+    const prepared = {
+      kind: 'transformed',
+      source: { kind: 'container', hash, byteLength: bytes.length, format: 'epub', container: { internalDecoding: 'utf-8-strict', documentCount: 1 } },
+      text,
+      candidates: [{ kind: 'epub-section', level: 1, title: 'Chapter One', chars: { start: 0, end: 11 } }],
+      evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
+    } as unknown as PreparedExtraction;
+    const tr = await finalizeExtraction(prepared, recipe);
+    const trKey = { source: tr.artifact.source, recipe: tr.artifact.recipe };
+    // A source-recipe artifact admits WITHOUT a text rescan (its candidates are
+    // container-derived, not a function of the text).
+    expect((await validateExtractionArtifact(tr.artifact, trKey, recipe, text)).descriptor.kind).toBe('container');
   });
 });
 
@@ -207,7 +241,7 @@ describe('validateProjectManifest', () => {
       docs: [{
         doc: 'd1', sourceName: 'book.md',
         meta: { title: 'Book', language: 'en', tags: [] },
-        source: { hash: 'sh', byteLength: 10, format: 'md', encoding: { detected: 'utf-8', hadReplacementChars: false } },
+        source: { kind: 'text', hash: 'sh', byteLength: 10, format: 'md', encoding: { detected: 'utf-8', hadReplacementChars: false } },
         sourceAvailability: 'persisted',
         extraction: { recipe: h.md, recipeHash: h.extractionRecipeHash, text: h.text, textLengthUtf16: h.textLengthUtf16, candidates: h.candidates },
         structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: h.structureRecipeHash, override: { status: 'none' } },
@@ -222,6 +256,36 @@ describe('validateProjectManifest', () => {
 
   it('admits a well-formed manifest', async () => {
     expect((await validateProjectManifest(await manifest())).id).toBe('proj-1');
+  });
+
+  it('upgradeStoredManifest migrates a pre-container manifest, preserving revision + content', async () => {
+    // Downgrade a current manifest to the shape a prior build persisted: no
+    // source.kind, no recipe.candidateReconstruction, recipeHash over the old
+    // recipe value.
+    const m = (await manifest()) as Record<string, unknown>;
+    const doc0 = (m.docs as Record<string, unknown>[])[0]!;
+    const oldRecipe = { ...(doc0.extraction as { recipe: Record<string, unknown> }).recipe };
+    delete oldRecipe.candidateReconstruction;
+    const oldSource = { ...(doc0.source as Record<string, unknown>) };
+    delete oldSource.kind;
+    const old = {
+      ...m,
+      docs: [{
+        ...doc0,
+        source: oldSource,
+        extraction: { ...(doc0.extraction as object), recipe: oldRecipe, recipeHash: await hashExtractionRecipe(oldRecipe as never) },
+      }],
+    };
+    // The old shape FAILS current validation (proving the migration is needed)…
+    await expect(validateProjectManifest(old)).rejects.toThrow(ManifestInvalidError);
+    // …and the upgrade makes it admit, unchanged in revision + identity.
+    const upgraded = await validateProjectManifest(await upgradeStoredManifest(old));
+    expect(upgraded.revision).toBe(m.revision);
+    const src = upgraded.docs[0]!.source;
+    expect(src.kind).toBe('text');
+    expect(upgraded.docs[0]!.extraction.recipe.candidateReconstruction).toBe('text');
+    // Idempotent: a current-shape manifest is returned unchanged.
+    expect(await validateProjectManifest(await upgradeStoredManifest(m))).toBeTruthy();
   });
 
   it('recomputes and enforces every claimed recipe/override hash', async () => {
