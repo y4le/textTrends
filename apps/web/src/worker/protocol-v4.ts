@@ -30,6 +30,7 @@ import type {
   NumericTrend,
   PassageRequest,
   PassageResult,
+  SourceDescriptorV1,
   SourceFormat,
   StructureOverrideV1,
   StructureRecipeProvisional,
@@ -48,32 +49,11 @@ export type BuildPhaseV4 = 'decode' | 'extract' | 'segment' | 'index' | 'structu
 
 export type SourceAvailability = 'bundled' | 'persisted' | 'external';
 
-/** Source provenance surfaced by `source-ready` (§12.4), discriminated by how
- *  the bytes became text — mirrors core's `SourceDescriptorV1`. A `text` source
- *  reports its one decoded encoding; a `container` (epub) reports its internal
- *  decoding policy and spine document count instead of a single encoding. */
-export type SourceDescriptorV4 =
-  | {
-      readonly kind: 'text';
-      readonly hash: string; // SourceHash
-      readonly byteLength: number;
-      readonly format: 'txt' | 'md';
-      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-    }
-  | {
-      readonly kind: 'container';
-      readonly hash: string; // SourceHash
-      readonly byteLength: number;
-      readonly format: 'epub';
-      readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
-    }
-  | {
-      readonly kind: 'markup';
-      readonly hash: string; // SourceHash
-      readonly byteLength: number;
-      readonly format: 'html';
-      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-    };
+/** Source provenance surfaced by `source-ready` (§12.4) IS core's extraction
+ *  `SourceDescriptorV1` (text | container | markup) — the worker emits the exact
+ *  descriptor it built, and the main thread files it straight into the manifest,
+ *  so there is nothing to re-shape at the wire. */
+export type SourceDescriptorV4 = SourceDescriptorV1;
 
 /**
  * Per-document generation input (§12.8 GenerationDocSpecV4). Recipe/override

@@ -6,6 +6,12 @@ export default defineConfig(({ mode }) => ({
   // GitHub Pages serves the app from /textTrends/.
   base: '/textTrends/',
   plugins: [react()],
+  // The worker is instantiated as a module worker (`{ type: 'module' }`), so
+  // build it as ES too — an IIFE worker inlines every dynamic import, forcing
+  // the epub (fflate + xmldom) and html (parse5) extractors into the base
+  // worker chunk. ES format lets those `import()`s become lazy chunks fetched
+  // only when an epub/html is actually ingested (txt/md users never pay).
+  worker: { format: 'es' },
   // Compile-time e2e seam (M6 consult): the normal production build must
   // dead-code-eliminate every debug facade; only `vite build --mode e2e`
   // compiles the trace hook and the protocol harness page. CI scans the

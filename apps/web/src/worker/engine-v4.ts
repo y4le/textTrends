@@ -110,8 +110,9 @@ import {
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
-import { EpubExtractionError, extractEpubDocument } from './epub-extract.ts';
-import { HtmlExtractionError, extractHtmlDocument } from './html-extract.ts';
+import { extractEpubDocument } from './epub-extract.ts';
+import { extractHtmlDocument } from './html-extract.ts';
+import { TransformedExtractionError } from './transformed-extract.ts';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 
@@ -277,6 +278,20 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
+
+/** Extract a transformed (container/markup) format from bytes → an
+ *  ExtractedDocument, dispatching by format. The epub archive limit is a
+ *  multiple of the per-document text cap (compressed OPF/XHTML inflates); html's
+ *  output is bounded by the text cap directly. */
+function extractTransformed(
+  bytes: Uint8Array,
+  recipe: Extract<ExtractionRecipeProvisional, { format: 'epub' | 'html' }>,
+  maxTextUtf16PerDoc: number,
+) {
+  return recipe.format === 'html'
+    ? extractHtmlDocument(bytes, recipe, maxTextUtf16PerDoc)
+    : extractEpubDocument(bytes, recipe, maxTextUtf16PerDoc * 4);
+}
 
 /** Hard ceiling on a line-excerpt window so a caller cannot request an
  *  unbounded slice of a pathological physical line (§4). */
@@ -751,11 +766,9 @@ export class WorkerEngineV4 {
     if (rrc.format === 'epub' || rrc.format === 'html') {
       this.progress(job, gen.generation, 'extract', plan.doc);
       try {
-        extracted = rrc.format === 'html'
-          ? await extractHtmlDocument(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc)
-          : await extractEpubDocument(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc * 4);
+        extracted = await extractTransformed(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc);
       } catch (e) {
-        if ((e instanceof EpubExtractionError || e instanceof HtmlExtractionError) && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
+        if (e instanceof TransformedExtractionError && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
         throw e;
       }
       this.gate(job, gen);
@@ -1088,13 +1101,11 @@ export class WorkerEngineV4 {
       // is PARSE_FAILED, a size overrun CAP_EXCEEDED — never DECODE_FAILED.
       this.progress(job, generation, 'extract', doc);
       try {
-        extracted = rc.format === 'html'
-          ? await extractHtmlDocument(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc)
-          : await extractEpubDocument(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc * 4);
+        extracted = await extractTransformed(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc);
       } catch (e) {
         this.gate(job, gen);
         if (!this.owns(token)) throw SUPERSEDED;
-        const cap = (e instanceof EpubExtractionError || e instanceof HtmlExtractionError) && e.cap;
+        const cap = e instanceof TransformedExtractionError && e.cap;
         this.emitError(cap ? 'CAP_EXCEEDED' : 'PARSE_FAILED', {
           job, generation,
           message: e instanceof Error ? e.message : `document '${doc}' failed to extract`,
@@ -1154,15 +1165,9 @@ export class WorkerEngineV4 {
 
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
-    const d = a.descriptor;
-    let source: SourceDescriptorV4;
-    if (d.kind === 'text') {
-      source = { kind: 'text', hash: d.hash, byteLength: d.byteLength, format: d.format, encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars } };
-    } else if (d.kind === 'container') {
-      source = { kind: 'container', hash: d.hash, byteLength: d.byteLength, format: d.format, container: { internalDecoding: d.container.internalDecoding, documentCount: d.container.documentCount } };
-    } else {
-      source = { kind: 'markup', hash: d.hash, byteLength: d.byteLength, format: d.format, encoding: { detected: d.encoding.detected, hadReplacementChars: d.encoding.hadReplacementChars } };
-    }
+    // The artifact descriptor IS the wire descriptor (SourceDescriptorV4 =
+    // core's SourceDescriptorV1) — emit it as-is, no re-shaping.
+    const source: SourceDescriptorV4 = a.descriptor;
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'source-ready',

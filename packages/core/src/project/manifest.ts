@@ -30,38 +30,16 @@ import {
   hashExtractionRecipe,
   validateExtractionRecipe,
   type ExtractionRecipeProvisional,
+  type SourceDescriptorV1,
 } from '../extract/extraction.ts';
 import type { IndexRecipeProvisional } from '../contract/recipes.ts';
 import type { StructureOverrideV1, StructureRecipeProvisional } from '../structure/build.ts';
 
 export type SourceAvailability = 'bundled' | 'persisted' | 'external';
 
-/** Discriminated by how the durable source bytes became text: a `text` source
- *  carries one decoded encoding; a `container` (epub) records its internal
- *  decoding policy and spine document count instead. Mirrors core's
- *  extraction `SourceDescriptorV1` — the same shape is admitted here. */
-export type SourceDescriptorV1 =
-  | {
-      readonly kind: 'text';
-      readonly hash: string;
-      readonly byteLength: number;
-      readonly format: 'txt' | 'md';
-      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-    }
-  | {
-      readonly kind: 'container';
-      readonly hash: string;
-      readonly byteLength: number;
-      readonly format: 'epub';
-      readonly container: { readonly internalDecoding: 'utf-8-strict'; readonly documentCount: number };
-    }
-  | {
-      readonly kind: 'markup';
-      readonly hash: string;
-      readonly byteLength: number;
-      readonly format: 'html';
-      readonly encoding: { readonly detected: string; readonly hadReplacementChars: boolean };
-    };
+// The durable source descriptor IS core's extraction `SourceDescriptorV1`
+// (text | container | markup) — the manifest admits exactly the shape the
+// extractor produces, validated field-by-field in `validateDoc` below.
 
 export interface DocumentMetaV1 {
   readonly title: string;

@@ -17,22 +17,15 @@
 import {
   decodeSource,
   finalizeExtraction,
+  hashSourceBytes,
   type ExtractedDocument,
   type ExtractionRecipeProvisional,
   type PreparedExtraction,
   type StructureCandidateV1,
 } from '@texttrends/core';
+import { TransformedExtractionError } from './transformed-extract.ts';
 
 type HtmlRecipe = Extract<ExtractionRecipeProvisional, { format: 'html' }>;
-
-/** A malformed decode or oversize output, classified so the engine maps it to
- *  PARSE_FAILED vs CAP_EXCEEDED — never DECODE_FAILED. */
-export class HtmlExtractionError extends Error {
-  constructor(message: string, readonly cap: boolean) {
-    super(message);
-    this.name = 'HtmlExtractionError';
-  }
-}
 
 const SKIPPED = new Set(['script', 'style', 'nav', 'head', 'template', 'noscript']);
 const BLOCK = new Set([
@@ -122,12 +115,11 @@ export async function extractHtmlDocument(
   recipe: HtmlRecipe,
   maxTextUtf16: number,
 ): Promise<ExtractedDocument> {
-  const { hashSourceBytes } = await import('@texttrends/core');
   let decoded;
   try {
     decoded = decodeSource(bytes); // BOM/UTF-8/1252 — throws DecodeError on ill-formed BOM Unicode
   } catch (e) {
-    throw new HtmlExtractionError(e instanceof Error ? e.message : String(e), false);
+    throw new TransformedExtractionError(e instanceof Error ? e.message : String(e), false);
   }
   const { parse } = await import('parse5');
   const doc = parse(decoded.text) as unknown as P5Node;
@@ -157,7 +149,7 @@ export async function extractHtmlDocument(
   }
   const text = chunks.join('');
   if (text.length > maxTextUtf16) {
-    throw new HtmlExtractionError(`html extracted text of ${text.length} exceeds the per-document cap`, true);
+    throw new TransformedExtractionError(`html extracted text of ${text.length} exceeds the per-document cap`, true);
   }
 
   const hash = await hashSourceBytes(bytes);

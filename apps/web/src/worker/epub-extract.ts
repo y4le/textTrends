@@ -18,18 +18,9 @@ import {
   type PreparedExtraction,
   type StructureCandidateV1,
 } from '@texttrends/core';
+import { TransformedExtractionError } from './transformed-extract.ts';
 
 type EpubRecipe = Extract<ExtractionRecipeProvisional, { format: 'epub' }>;
-
-/** A malformed archive/markup or a size overrun, classified so the engine maps
- *  it to the right wire error (PARSE_FAILED vs CAP_EXCEEDED) — never
- *  DECODE_FAILED, which is byte→text decoding the container path never runs. */
-export class EpubExtractionError extends Error {
-  constructor(message: string, readonly cap: boolean) {
-    super(message);
-    this.name = 'EpubExtractionError';
-  }
-}
 
 /**
  * Extract an `.epub` document into a canonical ExtractionArtifactV1. Bounds the
@@ -51,7 +42,7 @@ export async function extractEpubDocument(
     });
   } catch (e) {
     const cap = e instanceof StandardEbooksError && e.code === 'CAP_EXCEEDED';
-    throw new EpubExtractionError(e instanceof Error ? e.message : String(e), cap);
+    throw new TransformedExtractionError(e instanceof Error ? e.message : String(e), cap);
   }
 
   const hash = await hashSourceBytes(bytes);
