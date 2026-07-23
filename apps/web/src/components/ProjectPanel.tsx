@@ -13,6 +13,7 @@
 
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import { CatalogPanel } from './CatalogPanel.tsx';
 import type { SourceStatus, UserSaveState } from '../lib/project-session.ts';
 
 function sourceLabel(status: SourceStatus | undefined): string {
@@ -186,6 +187,7 @@ export function ProjectPanel() {
           </li>
         ))}
       </ul>
+      <CatalogPanel />
     </section>
   );
 }
