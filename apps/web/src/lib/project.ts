@@ -27,12 +27,18 @@ import {
   hashIndexRecipe,
   hashStructureCandidates,
   hashStructureRecipe,
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
   type ExtractionRecipeProvisional,
   type PersistedOverride,
   type ProjectDocV1,
   type ProjectManifestV1,
 } from '@texttrends/core';
 import type { GenerationDocSpecV4, OverrideInputV4 } from '../worker/protocol-v4.ts';
+
+/** The file-input `accept` attribute — every supported source extension, derived
+ *  from the core format catalog so it can never drift from what import accepts. */
+export const SOURCE_FILE_ACCEPT: string = SOURCE_FORMAT_IDS.flatMap((f) => SOURCE_FORMATS[f].extensions).join(',');
 
 /** The main-thread WORKING COPY: a project manifest minus the two fields the
  *  durable layer owns (`schema` is fixed; `revision` is CAS state carried

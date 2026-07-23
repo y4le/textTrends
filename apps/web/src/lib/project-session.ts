@@ -34,13 +34,15 @@ import {
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
-  epubExtractionRecipe,
-  htmlExtractionRecipe,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashStructureOverride,
   hashStructureRecipe,
   INGEST_CAPS_V0,
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
+  sourceFormatForFilename,
+  stripSourceExtension,
   upgradeStoredManifest,
   validateProjectManifest,
   type DocumentMetaV1,
@@ -297,22 +299,11 @@ function overrideMatchesDoc(override: StructureOverrideV1, doc: ProjectDocV1): b
   );
 }
 
-/** Filename → advertised format. A filename alone never bypasses format policy;
- *  content sniffing that refines this is deferred (commit 8+). */
-function formatForName(name: string): SourceFormat | null {
-  const lower = name.toLowerCase();
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
-  if (lower.endsWith('.txt')) return 'txt';
-  if (lower.endsWith('.epub')) return 'epub';
-  if (lower.endsWith('.html') || lower.endsWith('.htm') || lower.endsWith('.xhtml')) return 'html';
-  return null;
-}
-
 /** Default document metadata from a filename: the title is the name minus its
- *  extension; language/tags take neutral defaults the user edits in 7c. */
+ *  known source extension (via the core format catalog); language/tags take
+ *  neutral defaults the user edits in 7c. */
 function initialMetaFor(name: string): DocumentMetaV1 {
-  const title = name.replace(/\.(txt|md|markdown|epub|html|htm|xhtml)$/i, '') || name;
-  return { title, language: 'en', tags: [] };
+  return { title: stripSourceExtension(name), language: 'en', tags: [] };
 }
 
 /**
@@ -1274,8 +1265,11 @@ export class ProjectSession {
     }
     let newBytes = 0;
     for (const f of files) {
-      const format = formatForName(f.name);
-      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (.txt, .md, .epub, or .html)`);
+      const format = sourceFormatForFilename(f.name);
+      if (format === null) {
+        const supported = SOURCE_FORMAT_IDS.flatMap((id) => SOURCE_FORMATS[id].extensions).join(', ');
+        throw new SessionCommandError(`unsupported file type: '${f.name}' (${supported})`);
+      }
       if (f.size > CAPS.maxSourceBytesPerFile) throw new SessionCommandError(`'${f.name}' exceeds the ${CAPS.maxSourceBytesPerFile}-byte per-file cap`);
       newBytes += f.size;
     }
@@ -1294,7 +1288,7 @@ export class ProjectSession {
     const plans = files.map((file) => ({
       doc: this.deps.newDocId(),
       file,
-      format: formatForName(file.name)!,
+      format: sourceFormatForFilename(file.name)!,
       importToken: ++this.importCounter,
     }));
     const ids = new Set(plans.map((p) => p.doc));
@@ -1334,28 +1328,25 @@ export class ProjectSession {
    *  (a re-staged id) so stale staging work never mutates a newer pending entry. */
   private async finishStaging(staged: readonly { doc: string; importToken: number }[]): Promise<void> {
     const epoch = this.sessionEpoch;
-    const { txt, md } = await defaultExtractionRecipes();
-    const epub = epubExtractionRecipe(['bodymatter']);
-    const html = await htmlExtractionRecipe();
-    const [txtHash, mdHash, epubHash, htmlHash, structureHash, indexHash] = await Promise.all([
-      hashExtractionRecipe(txt),
-      hashExtractionRecipe(md),
-      hashExtractionRecipe(epub),
-      hashExtractionRecipe(html),
+    // One default recipe per catalog format — select `byFormat[format]`, no
+    // per-format switch. Hash every catalog format (derived from
+    // SOURCE_FORMAT_IDS so a new format needs no edit here) plus structure/index
+    // in parallel.
+    const byFormat = await defaultExtractionRecipes();
+    const [structureHash, indexHash, formatHashes] = await Promise.all([
       hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
       hashIndexRecipe(this.indexRecipe),
+      Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
     ]);
     if (this.disposed || epoch !== this.sessionEpoch) return;
-    const recipeFor = (format: SourceFormat): { recipe: ExtractionRecipeProvisional; hash: string } =>
-      format === 'md' ? { recipe: md, hash: mdHash }
-        : format === 'epub' ? { recipe: epub, hash: epubHash }
-        : format === 'html' ? { recipe: html, hash: htmlHash }
-        : { recipe: txt, hash: txtHash };
+    const hashByFormat = Object.fromEntries(
+      SOURCE_FORMAT_IDS.map((f, i) => [f, formatHashes[i]!]),
+    ) as { readonly [F in SourceFormat]: string };
     let matched = 0;
     for (const { doc, importToken } of staged) {
       const p = this.pending.get(doc);
       if (!p || p.importToken !== importToken) continue; // a newer entry / removed
-      const chosen = recipeFor(p.format);
+      const chosen = { recipe: byFormat[p.format], hash: hashByFormat[p.format] };
       const recipes: ImportRecipes = {
         extraction: chosen.recipe,
         extractionRecipeHash: chosen.hash,

@@ -160,6 +160,14 @@ export {
   type TextSourceDescriptorV1,
   type TxtExtractionRecipe,
 } from './extract/extraction.ts';
+export {
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
+  isSourceFormat,
+  sourceFormatForFilename,
+  stripSourceExtension,
+  type SourceFormatMetadata,
+} from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
 export { STRUCTURE_LIMITS_V0, type StructureLimitsV0 } from './contract/structure-limits.ts';
 export { lineWindowAround, type LineWindow } from './extract/lines.ts';

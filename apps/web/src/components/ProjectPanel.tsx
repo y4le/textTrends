@@ -13,6 +13,7 @@
 
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import { SOURCE_FILE_ACCEPT } from '../lib/project.ts';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import type { SourceStatus, UserSaveState } from '../lib/project-session.ts';
 
@@ -103,7 +104,7 @@ export function ProjectPanel() {
             ref={importRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
+            accept={SOURCE_FILE_ACCEPT}
             aria-label={importLabel}
             onChange={(e) => onImport(e.target.files)}
             style={{ display: 'none' }}
@@ -156,7 +157,7 @@ export function ProjectPanel() {
                   reattach…
                   <input
                     type="file"
-                    accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
+                    accept={SOURCE_FILE_ACCEPT}
                     aria-label={`Reattach source for ${doc.meta.title}`}
                     onChange={(e) => {
                       const f = e.target.files?.[0];

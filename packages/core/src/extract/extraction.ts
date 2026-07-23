@@ -27,22 +27,12 @@ import {
   type StructureCandidateV1,
 } from './candidates.ts';
 import { scanMarkdownHeadings } from './markdown.ts';
-
-/** Literal, byte-decoded formats (the indexed text IS the decoded source) plus
- *  transformed formats (the text is EXTRACTED from an archive or markup tree). */
-export type SourceFormat = 'txt' | 'md' | 'epub' | 'html';
-
-/**
- * How a warm reopen may rebuild this format's structure candidates:
- * - `'text'`  — candidates are a pure function of the extracted text (the
- *   Markdown heading scan), so a reopen reconstructs them without the source
- *   bytes. `deriveCandidatesFromText` serves them.
- * - `'source'` — candidates depend on the container/source itself (an EPUB
- *   spine/nav), which the joined text does not carry; a reopen MUST re-extract
- *   the persisted source. `deriveCandidatesFromText` refuses.
- * Explicit on the recipe (never inferred from a parser id downstream).
- */
-export type CandidateReconstruction = 'text' | 'source';
+// The format catalog (formats.ts) is the single authority for SourceFormat, the
+// kind↔format pairing, and candidate-reconstruction semantics; SourceFormat and
+// CandidateReconstruction are re-exported here so existing importers of the
+// extraction module keep working.
+import { isSourceFormat, SOURCE_FORMATS, type CandidateReconstruction, type SourceFormat } from './formats.ts';
+export type { CandidateReconstruction, SourceFormat };
 
 /** Which reading-order partitions an EPUB extraction includes in its text. */
 export type EbookPartition = 'frontmatter' | 'bodymatter' | 'backmatter' | 'unknown';
@@ -267,19 +257,23 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
   return recipe as unknown as ExtractionRecipeProvisional;
 }
 
-/** The specific recipe arms, so a caller holding the default txt/md recipe sees
- *  its `decoder`/`parser` (not the whole union, which includes the epub arm). */
-export type TxtExtractionRecipe = Extract<ExtractionRecipeProvisional, { format: 'txt' }>;
-export type MdExtractionRecipe = Extract<ExtractionRecipeProvisional, { format: 'md' }>;
+/** The recipe arm for one format, so a caller holding the default recipe for a
+ *  format sees its exact shape (not the whole union). */
+export type ExtractionRecipeFor<F extends SourceFormat> = Extract<ExtractionRecipeProvisional, { format: F }>;
+export type TxtExtractionRecipe = ExtractionRecipeFor<'txt'>;
+export type MdExtractionRecipe = ExtractionRecipeFor<'md'>;
+
+/** The default extraction recipe for every catalog format, so a caller selects
+ *  `recipes[format]` with no per-format switch. The EPUB default reads the
+ *  bodymatter partition; non-default partition selections use
+ *  `epubExtractionRecipe`. */
+export type DefaultExtractionRecipes = { readonly [F in SourceFormat]: ExtractionRecipeFor<F> };
 
 /** The default recipes are async because the decoder table hash is part of
  *  the identity — computed once and cached. */
-let defaultRecipes: Promise<{ txt: TxtExtractionRecipe; md: MdExtractionRecipe }> | null = null;
+let defaultRecipes: Promise<DefaultExtractionRecipes> | null = null;
 
-export function defaultExtractionRecipes(): Promise<{
-  txt: TxtExtractionRecipe;
-  md: MdExtractionRecipe;
-}> {
+export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
   defaultRecipes ??= (async () => {
     const tableHash = await windows1252TableHash();
     const decoder = {
@@ -308,6 +302,29 @@ export function defaultExtractionRecipes(): Promise<{
           headingScanner: 'markdown-heading-scan-v1',
         },
         candidateReconstruction: 'text',
+      },
+      epub: {
+        schema: 'texttrends/extraction-recipe/0-provisional',
+        format: 'epub',
+        extractor: {
+          id: 'standard-ebooks-epub-v1',
+          partitions: ['bodymatter'],
+          serializer: 'xhtml-block-collapse-v1',
+          sectioning: 'spine-order-v1',
+        },
+        candidateReconstruction: 'source',
+      },
+      html: {
+        schema: 'texttrends/extraction-recipe/0-provisional',
+        format: 'html',
+        extractor: {
+          id: 'html5-inert-v1',
+          decoder,
+          parser: 'parse5-v7',
+          serializer: 'html-block-collapse-v1',
+          sectioning: 'heading-order-v1',
+        },
+        candidateReconstruction: 'source',
       },
     };
   })();
@@ -543,21 +560,25 @@ const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number
  */
 export function isValidSourceDescriptor(d: unknown, sourceHash: string, format: SourceFormat): d is SourceDescriptorV1 {
   if (!isRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
+  // The catalog is the ONE authority for the kind↔format pairing: the descriptor
+  // `kind` MUST be the one this format is declared to produce. A catalog edit
+  // propagates here instead of drifting from a second, restated format list.
+  if (!isSourceFormat(format) || d.kind !== SOURCE_FORMATS[format].sourceKind) return false;
   const encodingOk = (): boolean =>
     exactRecord(d.encoding, ['detected', 'hadReplacementChars']) &&
     (d.encoding as { hadReplacementChars: unknown }).hadReplacementChars === false &&
     DETECTED_ENCODINGS.has((d.encoding as { detected: unknown }).detected as string);
   if (d.kind === 'text') {
-    return (format === 'txt' || format === 'md') && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
   }
   if (d.kind === 'container') {
-    return format === 'epub' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) &&
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) &&
       exactRecord(d.container, ['internalDecoding', 'documentCount']) &&
       (d.container as { internalDecoding: unknown }).internalDecoding === 'utf-8-strict' &&
       isNonNegInt((d.container as { documentCount: unknown }).documentCount);
   }
   if (d.kind === 'markup') {
-    return format === 'html' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
   }
   return false;
 }

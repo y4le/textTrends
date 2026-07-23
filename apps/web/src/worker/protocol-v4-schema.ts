@@ -11,7 +11,7 @@
  * into the worker in place of the inline v3 narrowers.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isSourceFormat, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -26,7 +26,6 @@ const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number
 const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 const MATCH = new Set(['sensitive', 'folded']);
-const FORMATS = new Set(['txt', 'md', 'epub', 'html']);
 const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);
 // Closed literal unions the kernels accept — a wire caller must not smuggle
 // an unsupported coordinate/sort key through as a "trusted" request.
@@ -38,13 +37,14 @@ const SORT_KEYS = new Set(['L3', 'L2', 'L1', 'R1', 'R2', 'R3', 'doc', 'pos']);
  *  checks the table hash) is the DEEP authority and commit 6 invokes it
  *  before any hash/admission work. */
 function narrowExtractionRecipe(r: unknown): boolean {
-  if (!isRecord(r) || r.schema !== 'texttrends/extraction-recipe/0-provisional') return false;
-  // Literal formats carry a byte decoder + parser; the epub container format
-  // carries an extractor policy instead. The deep authority
-  // (validateExtractionRecipe) checks every field before any admission work.
-  if (r.format === 'txt' || r.format === 'md') return isRecord(r.decoder) && isRecord(r.parser);
-  if (r.format === 'epub' || r.format === 'html') return isRecord(r.extractor);
-  return false;
+  if (!isRecord(r) || r.schema !== 'texttrends/extraction-recipe/0-provisional' || !isSourceFormat(r.format)) return false;
+  // Cheap STRUCTURAL guard only, keyed off the catalog's extraction kind:
+  // literal formats carry a byte decoder + parser; transformed formats carry an
+  // extractor policy. The deep authority (validateExtractionRecipe) checks every
+  // field before any admission work.
+  return SOURCE_FORMATS[r.format].extractionKind === 'literal'
+    ? isRecord(r.decoder) && isRecord(r.parser)
+    : isRecord(r.extractor);
 }
 
 function narrowDocSpec(d: unknown): boolean {
@@ -52,7 +52,7 @@ function narrowDocSpec(d: unknown): boolean {
   const s = d.source;
   if (
     !isRecord(s) || (s.expectedHash !== undefined && !isStr(s.expectedHash)) ||
-    !isCount(s.byteLength) || !FORMATS.has(s.format as string) ||
+    !isCount(s.byteLength) || !isSourceFormat(s.format) ||
     !AVAILABILITY.has(s.availability as string)
   ) {
     return false;

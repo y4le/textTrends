@@ -12,6 +12,8 @@ import {
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
   emptyOverride,
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -61,6 +63,23 @@ describe('parseToWorkerV4 envelope', () => {
   it('accepts a well-formed begin-generation carrying full recipe/override values', () => {
     const msg = { v, t: 'begin-generation', job: 1, generation: 'g', docs: [docSpec()], indexRecipe: DEFAULT_INDEX_RECIPE };
     expect(parseToWorkerV4(msg)).not.toBeNull();
+  });
+
+  it('derives wire format membership from the core catalog — every SOURCE_FORMAT_IDS narrows, unknown rejected', () => {
+    // Iterating the catalog (not a second hardcoded list) proves the wire check
+    // cannot drift from core's authority.
+    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
+    for (const format of SOURCE_FORMAT_IDS) {
+      const spec = docSpec({
+        source: { byteLength: 10, format, availability: 'bundled' },
+        extraction: { recipe: extractionRecipes[format], recipeHash: 'e' },
+      });
+      expect(parseToWorkerV4({ ...base, docs: [spec] }), format).not.toBeNull();
+      expect(SOURCE_FORMATS[format].extractionKind === 'literal' || SOURCE_FORMATS[format].extractionKind === 'transformed').toBe(true);
+    }
+    // An unknown format is rejected at the membership check.
+    const unknown = docSpec({ source: { byteLength: 10, format: 'pdf', availability: 'bundled' } });
+    expect(parseToWorkerV4({ ...base, docs: [unknown] })).toBeNull();
   });
 
   it('rejects a doc spec missing source/extraction/structure sub-shapes', () => {
