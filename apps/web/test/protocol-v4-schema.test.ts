@@ -43,6 +43,12 @@ const wolfGroup = {
   members: [{ id: 'm', kind: 'token', surface: 'wolf', match: { case: 'folded', diacritics: 'folded' } }],
 };
 
+// Every count/position/length quantity is a NON-NEGATIVE SAFE INTEGER at the
+// wire: `typeof number` alone admitted these, which poison cap totals and
+// defeat kernel stopping comparisons. Shared by the envelope and query tables so
+// the safe-integer boundary is pinned on both paths (incl. MAX_SAFE + 1).
+const BAD_QUANTITIES = [NaN, Infinity, -Infinity, -1, 1.5, Number.MAX_SAFE_INTEGER + 1];
+
 describe('parseToWorkerV4 envelope', () => {
   it('rejects wrong version, non-objects, and missing t', () => {
     expect(parseToWorkerV4({ v: 3, t: 'cancel', job: 1 })).toBeNull();
@@ -83,6 +89,20 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ v, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: [1, 2] })).toBeNull();
     expect(parseToWorkerV4({ v, t: 'cancel', job: 3 })).not.toBeNull();
     expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: 2 })).not.toBeNull();
+  });
+
+  it('rejects non-finite/negative/fractional/UNSAFE envelope quantities (byteLength, textLength, job, excerpt offsets)', () => {
+    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
+    for (const n of BAD_QUANTITIES) {
+      const why = String(n);
+      // A poisoned declared byteLength/textLength would corrupt the cap-preflight total.
+      expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: n, format: 'txt', availability: 'bundled' } })] }), why).toBeNull();
+      expect(parseToWorkerV4({ ...base, docs: [docSpec({ extraction: { recipe: extractionRecipes.txt, recipeHash: 'e', expectedTextLengthUtf16: n } })] }), why).toBeNull();
+      // Both excerpt offsets are pinned (each is a separate isCount call site).
+      expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: n, charEnd: 2 }), why).toBeNull();
+      expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: n }), why).toBeNull();
+      expect(parseToWorkerV4({ v, t: 'cancel', job: n }), why).toBeNull();
+    }
   });
 
   it('narrows the user-data operation map distinctly from analysis ops', () => {
@@ -211,5 +231,18 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'pos', dir: 0 }] } })).toBe(false);
+  });
+
+  it('rejects non-finite/negative/fractional/unsafe numeric quantities across every query op', () => {
+    for (const n of BAD_QUANTITIES) {
+      const why = String(n);
+      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: n } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: n, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, contextTokens: n } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, page: { offset: n, limit: 10 } } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: n } } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, centerToken: n } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, maxTokens: n } }), why).toBe(false);
+    }
   });
 });

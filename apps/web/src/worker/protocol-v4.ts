@@ -67,7 +67,6 @@ export interface GenerationDocSpecV4 {
     readonly expectedHash?: string;
     readonly byteLength: number;
     readonly format: SourceFormat;
-    readonly declaredEncoding?: string;
     readonly availability: SourceAvailability;
   };
   readonly extraction: {

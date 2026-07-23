@@ -18,8 +18,12 @@ const isRecord = (v: unknown): v is Record<string, unknown> =>
   v !== null && typeof v === 'object' && !Array.isArray(v);
 
 const isStr = (v: unknown): v is string => typeof v === 'string';
-const isNum = (v: unknown): v is number => typeof v === 'number';
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
+/** A non-negative safe integer — the total wire guard for every COUNT/POSITION/
+ *  LENGTH quantity. `typeof number` alone let NaN/±Infinity/negative/fractional
+ *  values through the boundary, where they poison cap-preflight totals and
+ *  defeat kernel stopping comparisons (Codex architecture review §7). */
+const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 const MATCH = new Set(['sensitive', 'folded']);
 const FORMATS = new Set(['txt', 'md', 'epub', 'html']);
@@ -48,8 +52,7 @@ function narrowDocSpec(d: unknown): boolean {
   const s = d.source;
   if (
     !isRecord(s) || (s.expectedHash !== undefined && !isStr(s.expectedHash)) ||
-    !isNum(s.byteLength) || !FORMATS.has(s.format as string) ||
-    (s.declaredEncoding !== undefined && !isStr(s.declaredEncoding)) ||
+    !isCount(s.byteLength) || !FORMATS.has(s.format as string) ||
     !AVAILABILITY.has(s.availability as string)
   ) {
     return false;
@@ -58,7 +61,7 @@ function narrowDocSpec(d: unknown): boolean {
   if (
     !isRecord(e) || !narrowExtractionRecipe(e.recipe) || !isStr(e.recipeHash) ||
     (e.expectedText !== undefined && !isStr(e.expectedText)) ||
-    (e.expectedTextLengthUtf16 !== undefined && !isNum(e.expectedTextLengthUtf16)) ||
+    (e.expectedTextLengthUtf16 !== undefined && !isCount(e.expectedTextLengthUtf16)) ||
     (e.expectedCandidates !== undefined && !isStr(e.expectedCandidates))
   ) {
     return false;
@@ -107,7 +110,7 @@ function narrowSelection(s: unknown): boolean {
   if (s.ranges !== undefined) {
     if (!Array.isArray(s.ranges)) return false;
     for (const r of s.ranges as unknown[]) {
-      if (!isRecord(r) || !isStr(r.doc) || !isRecord(r.tokens) || !isNum(r.tokens.start) || !isNum(r.tokens.end)) return false;
+      if (!isRecord(r) || !isStr(r.doc) || !isRecord(r.tokens) || !isCount(r.tokens.start) || !isCount(r.tokens.end)) return false;
     }
   }
   return true;
@@ -127,18 +130,18 @@ function narrowTracks(tracks: unknown, min: number): boolean {
 }
 
 function narrowKwicRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isNum(r.contextTokens) || !Array.isArray(r.sort) || !isRecord(r.page)) return false;
+  if (!isRecord(r) || !isCount(r.contextTokens) || !Array.isArray(r.sort) || !isRecord(r.page)) return false;
   // sort.at is a CLOSED key set; dir is exactly 1 or -1.
   if (!(r.sort as unknown[]).every((x) => isRecord(x) && SORT_KEYS.has(x.at as string) && (x.dir === 1 || x.dir === -1))) return false;
   // Optional axis center — a well-formed {doc, token} or absent.
   if (r.center !== undefined) {
-    if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isNum((r.center as Record<string, unknown>).token)) return false;
+    if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isCount((r.center as Record<string, unknown>).token)) return false;
   }
-  return isNum(r.page.offset) && isNum(r.page.limit);
+  return isCount(r.page.offset) && isCount(r.page.limit);
 }
 
 function narrowPassageRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isStr(r.doc) || !isNum(r.centerToken) || !isNum(r.maxTokens) || !Array.isArray(r.tracks)) return false;
+  if (!isRecord(r) || !isStr(r.doc) || !isCount(r.centerToken) || !isCount(r.maxTokens) || !Array.isArray(r.tracks)) return false;
   if ((r.tracks as unknown[]).length > MAX_KWIC_TRACKS) return false; // the shared track cap
   const seen = new Set<string>();
   for (const t of r.tracks as unknown[]) {
@@ -157,7 +160,7 @@ export function narrowQueryV4(q: unknown): boolean {
     case 'trend':
       return narrowSelection(q.selection) && narrowGroup(q.group) && isRecord(q.request) &&
         COORDINATES.has((q.request as Record<string, unknown>).coordinate as string) &&
-        isNum((q.request as Record<string, unknown>).binsPerDoc);
+        isCount((q.request as Record<string, unknown>).binsPerDoc);
     case 'kwic':
       // kwic/2 is a BREAKING replacement: `group` was removed. Reject a payload
       // that carries the legacy field so a partially-migrated caller cannot hide
@@ -189,30 +192,30 @@ export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
   if (!isRecord(m) || m.v !== PROTOCOL_VERSION_V4 || !isStr(m.t)) return null;
   switch (m.t) {
     case 'begin-generation':
-      return isNum(m.job) && isStr(m.generation) && Array.isArray(m.docs) &&
+      return isCount(m.job) && isStr(m.generation) && Array.isArray(m.docs) &&
         (m.docs as unknown[]).every(narrowDocSpec) && isIndexRecipeProvisional(m.indexRecipe)
         ? (m as unknown as ToWorkerV4) : null;
     case 'ingest':
-      return isNum(m.job) && isStr(m.generation) && isStr(m.doc) && m.bytes instanceof ArrayBuffer
+      return isCount(m.job) && isStr(m.generation) && isStr(m.doc) && m.bytes instanceof ArrayBuffer
         ? (m as unknown as ToWorkerV4) : null;
     case 'query':
-      return isNum(m.job) && isStr(m.snapshot) && narrowQueryV4(m.query) ? (m as unknown as ToWorkerV4) : null;
+      return isCount(m.job) && isStr(m.snapshot) && narrowQueryV4(m.query) ? (m as unknown as ToWorkerV4) : null;
     case 'excerpt':
-      return isNum(m.job) && isStr(m.snapshot) && isStr(m.doc) && isNum(m.charStart) && isNum(m.charEnd)
+      return isCount(m.job) && isStr(m.snapshot) && isStr(m.doc) && isCount(m.charStart) && isCount(m.charEnd)
         ? (m as unknown as ToWorkerV4) : null;
     case 'cancel':
-      return isNum(m.job) ? (m as unknown as ToWorkerV4) : null;
+      return isCount(m.job) ? (m as unknown as ToWorkerV4) : null;
     case 'project-load':
-      return isNum(m.job) && isStr(m.project) ? (m as unknown as ToWorkerV4) : null;
+      return isCount(m.job) && isStr(m.project) ? (m as unknown as ToWorkerV4) : null;
     case 'project-save':
       // expectedRevision is a CAS token: a positive safe integer, or 0 (the
       // sole create sentinel) — a fractional/negative/NaN value is
       // REQUEST_INVALID, not a misleading revision conflict.
-      return isNum(m.job) && isStr(m.project) &&
+      return isCount(m.job) && isStr(m.project) &&
         Number.isSafeInteger(m.expectedRevision) && (m.expectedRevision as number) >= 0 && 'manifest' in m
         ? (m as unknown as ToWorkerV4) : null;
     case 'source-persist':
-      return isNum(m.job) && isStr(m.sourceHash) && m.bytes instanceof ArrayBuffer
+      return isCount(m.job) && isStr(m.sourceHash) && m.bytes instanceof ArrayBuffer
         ? (m as unknown as ToWorkerV4) : null;
     default:
       return null;
