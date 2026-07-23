@@ -15,11 +15,16 @@
  *
  * Multi-series intent (owner feedback round 5, Codex-consulted design):
  * the input is a comma-separated comparison of up to MAX_SERIES terms. Each
- * becomes a SeriesIntent with a SEMANTIC id (the folded query surface under
- * the group's match mode) — never the raw display spelling — so 'Holmes' and
- * 'hólmes' are one series. Trend results key off SeriesIntent.id in an
- * immutably-replaced map; a missing entry is impossible to confuse with
- * pending or failed because every issued series is seeded 'pending'.
+ * becomes a SeriesIntent with a stable PRESENTATION id — the NFC-normalized
+ * display label, deduped only against exact repeats. It is deliberately
+ * locale-INDEPENDENT: whether two surfaces match identically is a per-document
+ * property (folding is resolved under each shard's locale in the worker), so
+ * the store must not guess a corpus locale to collapse them — a fixed `en`
+ * fold wrongly unified `I`/`İ`, which resolve differently in Turkish. Matching
+ * stays document-local; series identity is purely for labelling/colour/dedup.
+ * Trend results key off SeriesIntent.id in an immutably-replaced map; a missing
+ * entry is impossible to confuse with pending or failed because every issued
+ * series is seeded 'pending'.
  *
  * Intent discipline (UI review round 1, extended): trend intent and KWIC
  * intent carry SEPARATE epochs. Changing the compared terms or the snapshot
@@ -33,11 +38,8 @@
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
-  DEFAULT_INDEX_RECIPE,
-  foldKey,
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
-  tokenKey,
   type DocumentMetaV1,
   type NumericTrend,
   type PassageResult,
@@ -124,7 +126,6 @@ export const MAX_SERIES = MAX_KWIC_TRACKS;
 export const BINS = 40;
 
 const MATCH = { case: 'folded' as const, diacritics: 'folded' as const };
-const LOCALE = 'en';
 
 /** (generation, snapshot) identity — a query result is written only if the live
  *  snapshot still matches this. Snapshot ids are unique per publication; the
@@ -133,7 +134,8 @@ const snapKey = (s: SnapshotInfo | null): string | null =>
   s ? JSON.stringify([s.generation, s.snapshot]) : null;
 
 export interface SeriesIntent {
-  /** Semantic identity: the folded query surface — not the display spelling. */
+  /** Stable PRESENTATION identity: the NFC-normalized label (no locale/case/
+   *  diacritic fold) — a display/colour/dedup key, NOT a semantic match key. */
   readonly id: string;
   /** The first-seen user spelling, preserved for display. */
   readonly label: string;
@@ -246,9 +248,12 @@ export interface SessionPort {
   loadUserProject(): void;
 }
 
-/** Comma-separated comparison → ordered semantic series (first spelling wins).
- *  More than MAX_SERIES distinct series is an explicit refusal, not a silent
- *  truncation. Exported for fixtures. */
+/** Comma-separated comparison → ordered PRESENTATION series (first spelling of
+ *  an NFC-equivalent repeat wins). Identity is the NFC-normalized label — a
+ *  stable, locale-independent presentation id, NOT a semantic match key — so
+ *  distinct spellings stay distinct tracks (matching equivalence is resolved
+ *  per-document in the worker). More than MAX_SERIES distinct series is an
+ *  explicit refusal, not a silent truncation. Exported for fixtures. */
 export function parseSeries(input: string):
   | { readonly series: readonly SeriesIntent[]; readonly error: null }
   | { readonly series: null; readonly error: string } {
@@ -256,9 +261,12 @@ export function parseSeries(input: string):
   for (const raw of input.split(',')) {
     const label = raw.trim();
     if (label === '') continue;
-    // Same normalization chain the worker's resolver applies — the semantic
-    // id must equal what the query will actually match on.
-    const id = foldKey(tokenKey(label, DEFAULT_INDEX_RECIPE), MATCH, LOCALE);
+    // Stable, locale-independent PRESENTATION id: the NFC-normalized label,
+    // deduped only against exact-after-NFC repeats (canonically equivalent raw
+    // spellings share an id). Whether two DISTINCT spellings match identically
+    // is per-document (folded under each shard's locale in the worker), so the
+    // store never guesses a locale to collapse them.
+    const id = label.normalize('NFC');
     if (series.some((s) => s.id === id)) continue;
     series.push({ id, label, styleSlot: series.length });
   }
@@ -291,7 +299,7 @@ export interface AppState {
   kwic: KwicState | null;
   /** Which series appear in the merged concordance — ALL on by default, toggled
    *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
-   *  surviving semantic ids. */
+   *  surviving series (by presentation id). */
   kwicEnabledSeries: ReadonlySet<string>;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
@@ -425,8 +433,10 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   let attached = false;
 
   const store = create<AppState>((set, get) => {
-    /** Group/member ids derive from the series' semantic id — evidence
-     *  provenance must distinguish the compared groups. */
+    /** Group/member ids derive from the series' presentation id — pure evidence
+     *  provenance (the worker keys occurrences on `termGroupIdentity`, not this).
+     *  The actual matched surface is `s.label` under the folded `MATCH` mode,
+     *  resolved per document-locale in the worker. */
     const groupFor = (s: SeriesIntent): TermGroupSpec => ({
       id: `g:${s.id}`,
       members: [{ id: `m:${s.id}`, kind: 'token', surface: s.label, match: MATCH }],

@@ -85,6 +85,7 @@ export {
   matchGroupInTokenRanges,
   mergeGroupSpans,
   occurrences,
+  termGroupIdentity,
   type GroupMember,
   type GroupSpan,
   type NumericOccurrences,

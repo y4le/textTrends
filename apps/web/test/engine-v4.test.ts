@@ -24,6 +24,7 @@ import {
   hashSourceBytes,
   hashStructureOverride,
   hashStructureRecipe,
+  MAX_KWIC_TRACKS,
   type IngestCapsV0,
   type StructureOverrideV1,
 } from '@texttrends/core';
@@ -1147,6 +1148,55 @@ describe('queries and excerpts (v4)', () => {
     expect(sliced).toBe(true); // materialization was actually reached (not vacuous)
     expect(h.all('cancelled').some((m) => m.job === 51)).toBe(true);
     expect(h.all('result').some((m) => m.job === 51)).toBe(false);
+  });
+
+  it('re-querying with a REUSED group.id but different members returns FRESH rows (cache keys on matching identity)', async () => {
+    // group.id is caller-owned provenance. A memo keyed on it would serve the
+    // first query's occurrences for the second — the exact stale-row bug.
+    const { h, snap } = await ready(); // 'the wolf ran far. a wolf slept.'
+    const kwic = (surface: string, job: number) => h.send({
+      t: 'query', job, snapshot: snap, query: {
+        op: 'kwic', selection: { docs: ['a'] },
+        // SAME group.id 'REUSED' both times; only the member surface changes.
+        tracks: [{ seriesId: 's', group: { id: 'REUSED', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface, match: FOLD }] } }],
+        request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } },
+      },
+    });
+    await kwic('wolf', 60);
+    const first = h.last('result');
+    expect(first.data.op === 'kwic' && first.data.rows.map((r) => r.nodeText)).toEqual(['wolf', 'wolf']);
+    await kwic('ran', 61);
+    const second = h.last('result');
+    expect(second.data.op === 'kwic' && second.data.rows.map((r) => r.nodeText)).toEqual(['ran']);
+  });
+
+  it('bounds the occurrence cache at MAX_KWIC_TRACKS even under overlapping, interleaving KWIC jobs', async () => {
+    const { h, snap } = await ready('the wolf ran far. a wolf slept. i saw the fox and the owl.');
+    const cache = () => (h.engine as unknown as { generation: { kwicOccCache: Map<string, unknown> } | null }).generation!.kwicOccCache;
+    const kwicQuery = (surfaces: string[]) => ({
+      op: 'kwic' as const, selection: { docs: ['a'] },
+      tracks: surfaces.map((surface, i) => ({ seriesId: `s${i}`, group: { id: `g${i}`, countOverlaps: false, members: [{ id: 'm', kind: 'token' as const, surface, match: FOLD }] } })),
+      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
+    });
+    // Two DISTINCT 4-track jobs (8 unique groups > MAX_KWIC_TRACKS=5). In manual
+    // yield mode each per-track checkpoint parks; releasing them round-robin
+    // interleaves A and B so a prune-before-the-loop would let the map grow past
+    // the cap. Drive them to completion and assert the hard bound held throughout.
+    h.manual();
+    const pA = h.send({ t: 'query', job: 80, snapshot: snap, query: kwicQuery(['the', 'wolf', 'ran', 'far']) });
+    const pB = h.send({ t: 'query', job: 81, snapshot: snap, query: kwicQuery(['a', 'i', 'saw', 'fox']) });
+    let guard = 0;
+    while (guard++ < 200) {
+      expect(cache().size).toBeLessThanOrEqual(MAX_KWIC_TRACKS);
+      h.releaseYield();
+      // eslint-disable-next-line no-await-in-loop
+      await h.flush();
+      const done = h.all('result').filter((m) => m.job === 80 || m.job === 81).length;
+      if (done >= 2) break;
+    }
+    await Promise.all([pA, pB]);
+    expect(cache().size).toBeLessThanOrEqual(MAX_KWIC_TRACKS);
+    expect(h.all('result').filter((m) => m.data.op === 'kwic' && (m.job === 80 || m.job === 81))).toHaveLength(2);
   });
 
   it('answers passage with marks, per-token extents, and a center span', async () => {

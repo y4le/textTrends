@@ -268,10 +268,35 @@ describe('parseSeries', () => {
     expect(p.series!.map((s) => s.styleSlot)).toEqual([0, 1]);
   });
 
-  it('dedupes by SEMANTIC key (case and diacritic folds), not raw spelling', () => {
+  it('gives distinct spellings distinct PRESENTATION ids (dedup is exact-after-NFC, locale-independent)', () => {
+    // Whether two spellings match identically is per-document (folded under
+    // each shard's locale in the worker), so the store must NOT guess a corpus
+    // locale to collapse them. Distinct labels are distinct series; only
+    // canonically-equivalent (post-NFC) repeats dedup.
     const p = parseSeries('Holmes, holmes, Hólmes, watson');
-    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'watson']);
-    expect(p.series![0]!.id).toBe(parseSeries('hólmes').series![0]!.id);
+    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'holmes', 'Hólmes', 'watson']);
+    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
+    const dup = parseSeries('cat, cat, Cat');
+    expect(dup.series!.map((s) => s.label)).toEqual(['cat', 'Cat']);
+  });
+
+  it('dedups only canonically-equivalent spellings — NFC(composed) === NFC(decomposed)', () => {
+    // Composed 'é' (U+00E9) and decomposed 'e' + U+0301 are the SAME text after
+    // NFC, so they collapse to one series despite differing byte for byte before
+    // normalization.
+    const composed = 'caf\u00e9';
+    const decomposed = 'cafe\u0301';
+    expect(composed).not.toBe(decomposed); // genuinely distinct inputs
+    const p = parseSeries(`${composed}, ${decomposed}`);
+    expect(p.series!).toHaveLength(1);
+    expect(p.series![0]!.id).toBe(composed.normalize('NFC'));
+  })
+
+  it('keeps I and İ distinct — a fixed `en` fold wrongly unified them (they resolve differently in Turkish)', () => {
+    const p = parseSeries('I, İ');
+    expect(p.series).not.toBeNull();
+    expect(p.series!).toHaveLength(2);
+    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
   });
 
   it('refuses more than MAX_SERIES distinct terms instead of truncating', () => {

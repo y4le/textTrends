@@ -58,8 +58,10 @@ import {
   makeReadyDocument,
   materializeKwicPage,
   materializePassage,
+  MAX_KWIC_TRACKS,
   modeKey,
   occurrences,
+  termGroupIdentity,
   type NumericOccurrences,
   planPassage,
   projectSections,
@@ -209,9 +211,13 @@ interface GenerationStateV4 {
   readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
   /** Ephemeral per-track occurrence cache for KWIC re-centering. A re-center
    *  changes only the sort/page (`center`), never the occurrence sets, so the
-   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash, GroupId]
-   *  — the coordinates that FULLY determine a `NumericOccurrences`. Dropped with
-   *  the generation; superseded snapshots key distinctly and never collide. */
+   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash,
+   *  termGroupIdentity] — the group's canonical MATCHING identity, NOT its
+   *  caller-owned `group.id` (which can collide across groups that resolve
+   *  differently). Insertion order is the LRU recency order; the KWIC handler
+   *  caps it at MAX_KWIC_TRACKS on every write so concurrent/interleaving jobs
+   *  cannot grow it. Dropped with the generation; superseded snapshots key
+   *  distinctly and never collide. */
   readonly kwicOccCache: Map<string, NumericOccurrences>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
@@ -1456,17 +1462,38 @@ export class WorkerEngineV4 {
     }
     await this.queryCheckpoint(job, gen, snapshotId);
 
+    // Re-centering the concordance re-issues this query with the same
+    // snapshot/selection/tracks and only a new `center`; the occurrence sets
+    // are identical, so memoize them and let the re-center pay only for the
+    // top-K ordering + text slicing below. The key uses the group's canonical
+    // MATCHING identity (`termGroupIdentity`), NEVER `group.id` — that is
+    // caller-owned presentation provenance and can collide across groups that
+    // resolve to different occurrences (e.g. `I` vs `İ` under a guessed
+    // locale), which would serve stale rows.
+    const cache = gen.kwicOccCache;
     const trackOccs: NumericOccurrences[] = [];
     for (const track of q.tracks) {
-      // Re-centering the concordance re-issues this query with the same
-      // snapshot/selection/tracks and only a new `center`; the occurrence sets
-      // are identical, so memoize them and let the re-center pay only for the
-      // top-K ordering + text slicing below.
-      const key = `${snapshot.id}\u0000${selection.hash}\u0000${track.group.id}`;
-      let occ = gen.kwicOccCache.get(key);
-      if (!occ) {
+      const key = `${snapshot.id}\u0000${selection.hash}\u0000${termGroupIdentity(track.group)}`;
+      let occ = cache.get(key);
+      if (occ) {
+        // Touch → most-recently-used (Map preserves insertion order as recency).
+        cache.delete(key);
+        cache.set(key, occ);
+      } else {
         occ = occurrences(snapshot, shards, resolvers, selection, track.group);
-        gen.kwicOccCache.set(key, occ);
+        cache.set(key, occ);
+        // Hard LRU bound enforced on EVERY write: the worker runs handlers
+        // concurrently (`void engine.handle(...)`), so two non-cancelled KWIC
+        // jobs interleave across the checkpoint below — a single prune before
+        // the loop would not survive those yields and the map could grow with
+        // the active-job count. Capping here bounds it unconditionally; an
+        // evicted entry is simply recomputed on its next query (this request
+        // already holds its own `occ` via `trackOccs`).
+        while (cache.size > MAX_KWIC_TRACKS) {
+          const oldest = cache.keys().next().value as string | undefined;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
         await this.queryCheckpoint(job, gen, snapshotId);
       }
       trackOccs.push(occ);
