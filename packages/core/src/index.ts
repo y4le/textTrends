@@ -124,9 +124,9 @@ export {
 } from './extract/decode.ts';
 export {
   hashStructureCandidates,
-  scanMarkdownHeadings,
   type StructureCandidateV1,
-} from './extract/markdown.ts';
+} from './extract/candidates.ts';
+export { scanMarkdownHeadings } from './extract/markdown.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,

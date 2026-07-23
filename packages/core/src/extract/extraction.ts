@@ -19,11 +19,8 @@ import {
   type DecodedSource,
   type DetectedEncoding,
 } from './decode.ts';
-import {
-  hashStructureCandidates,
-  scanMarkdownHeadings,
-  type StructureCandidateV1,
-} from './markdown.ts';
+import { hashStructureCandidates, type StructureCandidateV1 } from './candidates.ts';
+import { scanMarkdownHeadings } from './markdown.ts';
 
 export type SourceFormat = 'txt' | 'md';
 

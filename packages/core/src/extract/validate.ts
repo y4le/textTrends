@@ -16,7 +16,7 @@ import { exactArray, exactRecord } from '../contract/recipes.ts';
 import { DETECTED_ENCODINGS } from './decode.ts';
 import { validateSectionTable, type StructureSectionRecordV2 } from '../structure/sections.ts';
 import { deriveCandidatesFromText, hashExtractionRecipe, type ExtractionArtifactV1, type ExtractionRecipeProvisional } from './extraction.ts';
-import { hashStructureCandidates, type StructureCandidateV1 } from './markdown.ts';
+import { hashStructureCandidates, type StructureCandidateV1 } from './candidates.ts';
 import type { StructureArtifactV2 } from '../structure/build.ts';
 
 /** The identity a cached extraction artifact is keyed by (matches the engine's

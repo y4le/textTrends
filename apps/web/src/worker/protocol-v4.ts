@@ -30,6 +30,7 @@ import type {
   NumericTrend,
   PassageRequest,
   PassageResult,
+  SourceFormat,
   StructureOverrideV1,
   StructureRecipeProvisional,
   TermGroupSpec,
@@ -39,7 +40,9 @@ import type {
 
 export const PROTOCOL_VERSION_V4 = 4;
 
-export type SourceFormat = 'txt' | 'md';
+/** The source format vocabulary is core's — the wire re-exports it rather than
+ *  redeclaring a set that could silently drift from the extractor's authority. */
+export type { SourceFormat };
 
 export type BuildPhaseV4 = 'decode' | 'extract' | 'segment' | 'index' | 'structure' | 'compose';
 

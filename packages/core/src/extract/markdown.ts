@@ -13,14 +13,7 @@
  * removed. Offsets are UTF-16 and address the text exactly as decoded.
  */
 
-import { canonicalJson, sha256Hex } from '../contract/hash.ts';
-
-export interface StructureCandidateV1 {
-  readonly kind: 'md-heading-atx' | 'md-heading-setext';
-  readonly level: number; // 1–6 as authored
-  readonly title: string;
-  readonly chars: { readonly start: number; readonly end: number };
-}
+import type { StructureCandidateV1 } from './candidates.ts';
 
 const ATX_RE = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+[ \t]*)?$/;
 const ATX_EMPTY_RE = /^ {0,3}(#{1,6})[ \t]*$/;
@@ -117,22 +110,4 @@ export function scanMarkdownHeadings(text: string): StructureCandidateV1[] {
     previous = line.text.trim() === '' ? null : line;
   }
   return candidates;
-}
-
-/** Canonical identity of a candidate set (order is text order, so the array
- *  itself is canonical). */
-export async function hashStructureCandidates(
-  candidates: readonly StructureCandidateV1[],
-): Promise<string> {
-  return sha256Hex(
-    canonicalJson(
-      candidates.map((c) => ({
-        kind: c.kind,
-        level: c.level,
-        title: c.title,
-        start: c.chars.start,
-        end: c.chars.end,
-      })),
-    ),
-  );
 }
