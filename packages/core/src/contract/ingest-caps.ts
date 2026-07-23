@@ -33,6 +33,11 @@ export const INGEST_CAPS_V0 = {
   maxTextUtf16PerDoc: 32 * 1024 * 1024, // 32M code units
   maxDocsPerProject: 64,
   maxProjectTextUtf16: 64 * 1024 * 1024, // 64M code units
+  /** The total DECOMPRESSED archive bytes a container extractor (epub) may read
+   *  — a zip-bomb guard on INPUT, distinct from the output text cap. A compressed
+   *  container inflates well past its source byteLength, so this is its own named
+   *  unit (was a hidden `maxTextUtf16PerDoc * 4`). HTML/txt/md do not consume it. */
+  maxArchiveInflatedBytesPerDoc: 128 * 1024 * 1024, // 128 MiB
 } as const;
 
 export type IngestCapsV0 = typeof INGEST_CAPS_V0;

@@ -15,6 +15,7 @@
  */
 
 import {
+  DecodeError,
   decodeSource,
   finalizeExtraction,
   hashSourceBytes,
@@ -23,7 +24,7 @@ import {
   type PreparedExtraction,
   type StructureCandidateV1,
 } from '@texttrends/core';
-import { TransformedExtractionError } from './transformed-extract.ts';
+import { ExtractionFailure } from './failure.ts';
 
 type HtmlRecipe = Extract<ExtractionRecipeProvisional, { format: 'html' }>;
 
@@ -119,7 +120,10 @@ export async function extractHtmlDocument(
   try {
     decoded = decodeSource(bytes); // BOM/UTF-8/1252 — throws DecodeError on ill-formed BOM Unicode
   } catch (e) {
-    throw new TransformedExtractionError(e instanceof Error ? e.message : String(e), false);
+    // Only a genuine decode failure is a domain error; anything else propagates
+    // UNCHANGED for the caller's own taxonomy (not mislabelled as a domain code).
+    if (!(e instanceof DecodeError)) throw e;
+    throw new ExtractionFailure('DECODE_FAILED', e.message, { cause: e });
   }
   const { parse } = await import('parse5');
   const doc = parse(decoded.text) as unknown as P5Node;
@@ -149,7 +153,7 @@ export async function extractHtmlDocument(
   }
   const text = chunks.join('');
   if (text.length > maxTextUtf16) {
-    throw new TransformedExtractionError(`html extracted text of ${text.length} exceeds the per-document cap`, true);
+    throw new ExtractionFailure('CAP_EXCEEDED', `html extracted text of ${text.length} exceeds the per-document cap`);
   }
 
   const hash = await hashSourceBytes(bytes);

@@ -18,7 +18,7 @@ import {
   type PreparedExtraction,
   type StructureCandidateV1,
 } from '@texttrends/core';
-import { TransformedExtractionError } from './transformed-extract.ts';
+import { ExtractionFailure } from './failure.ts';
 
 type EpubRecipe = Extract<ExtractionRecipeProvisional, { format: 'epub' }>;
 
@@ -41,8 +41,12 @@ export async function extractEpubDocument(
       maxExtractedBytes,
     });
   } catch (e) {
-    const cap = e instanceof StandardEbooksError && e.code === 'CAP_EXCEEDED';
-    throw new TransformedExtractionError(e instanceof Error ? e.message : String(e), cap);
+    // Map ONLY the library's recognized domain errors; anything else (a
+    // RangeError, a programming/systemic fault) propagates UNCHANGED so the
+    // caller classifies it by its own taxonomy (e.g. a RangeError →
+    // REQUEST_INVALID, otherwise INTERNAL) rather than a recoverable file error.
+    if (!(e instanceof StandardEbooksError)) throw e;
+    throw new ExtractionFailure(e.code === 'CAP_EXCEEDED' ? 'CAP_EXCEEDED' : 'PARSE_FAILED', e.message, { cause: e });
   }
 
   const hash = await hashSourceBytes(bytes);

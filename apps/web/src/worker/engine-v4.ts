@@ -41,10 +41,8 @@ import {
   composeSnapshot,
   composeStructure,
   createDocumentIndex,
-  decodeDocumentSource,
   deriveCandidatesFromText,
   emptyOverride,
-  finalizeExtraction,
   lineWindowAround,
   fingerprint,
   hashExtractionRecipe,
@@ -113,7 +111,7 @@ import {
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
-import { extractEpubDocument, extractHtmlDocument, TransformedExtractionError } from '@texttrends/extractors';
+import { extractSource, ExtractionFailure, type ExtractionLimits } from '@texttrends/extractors';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 
@@ -284,20 +282,6 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
 
-/** Extract a transformed (container/markup) format from bytes → an
- *  ExtractedDocument, dispatching by format. The epub archive limit is a
- *  multiple of the per-document text cap (compressed OPF/XHTML inflates); html's
- *  output is bounded by the text cap directly. */
-function extractTransformed(
-  bytes: Uint8Array,
-  recipe: Extract<ExtractionRecipeProvisional, { format: 'epub' | 'html' }>,
-  maxTextUtf16PerDoc: number,
-) {
-  return recipe.format === 'html'
-    ? extractHtmlDocument(bytes, recipe, maxTextUtf16PerDoc)
-    : extractEpubDocument(bytes, recipe, maxTextUtf16PerDoc * 4);
-}
-
 /** Hard ceiling on a line-excerpt window so a caller cannot request an
  *  unbounded slice of a pathological physical line (§4). */
 const LINE_EXCERPT_MAX_CHARS = 4096;
@@ -322,6 +306,15 @@ export class WorkerEngineV4 {
     this.emit = emit;
     this.yieldControl = yieldControl;
     this.caps = caps;
+  }
+
+  /** The per-document extraction limits `extractSource` enforces — the output
+   *  text cap (all formats) and the decompressed-archive input cap (epub). */
+  private extractionLimits(): ExtractionLimits {
+    return {
+      maxTextUtf16PerDoc: this.caps.maxTextUtf16PerDoc,
+      maxArchiveInflatedBytesPerDoc: this.caps.maxArchiveInflatedBytesPerDoc,
+    };
   }
 
   async handle(raw: unknown): Promise<void> {
@@ -782,34 +775,26 @@ export class WorkerEngineV4 {
     // recipe decodes. Determinism means the re-extraction reproduces the
     // manifest's TextHash + candidate hash; a mismatch surfaces downstream as
     // EXTRACTION_MISMATCH.
-    const rrc = plan.extractionRecipe;
+    // Same ONE extraction runtime the cold path uses; only the FAILURE POLICY
+    // differs here (warm re-extraction of an already-hash-verified source): a cap
+    // becomes a CapError the warm loop maps to CAP_EXCEEDED, while a decode/parse
+    // failure downgrades to a byte miss (the warm loop's rehydrate-failed
+    // fallback) rather than a terminal error. The afterPhase hook runs this doc's
+    // generation/ownership gate at the phase boundary.
     let extracted;
-    if (rrc.format === 'epub' || rrc.format === 'html') {
-      this.progress(job, gen.generation, 'extract', plan.doc);
-      try {
-        extracted = await extractTransformed(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc);
-      } catch (e) {
-        if (e instanceof TransformedExtractionError && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
-        throw e;
+    try {
+      extracted = await extractSource(new Uint8Array(read.value.bytes), plan.extractionRecipe, this.extractionLimits(), {
+        onPhaseStart: (phase) => this.progress(job, gen.generation, phase, plan.doc),
+        afterPhase: () => { this.gate(job, gen); if (!this.owns(token)) throw SUPERSEDED; },
+      });
+    } catch (e) {
+      if (e instanceof ExtractionFailure) {
+        if (e.code === 'CAP_EXCEEDED') throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
+        // Decode/parse failure on a persisted source is NOT terminal — a plain
+        // error routes the warm loop to its rehydrate-failed byte-miss fallback.
+        throw new Error(`persisted source for '${plan.doc}' failed to re-extract: ${e.message}`);
       }
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
-      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
-        throw new CapError(`persisted source for '${plan.doc}' extracts past the per-document UTF-16 cap`);
-      }
-    } else {
-      this.progress(job, gen.generation, 'decode', plan.doc);
-      const decoded = await decodeDocumentSource(new Uint8Array(read.value.bytes), plan.extractionRecipe);
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
-      // The same per-document decoded-text cap the cold path enforces (an
-      // understated declaration must not bypass it on warm reopen). CapError is
-      // caught by the warm loop and reported as CAP_EXCEEDED.
-      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-        throw new CapError(`persisted source for '${plan.doc}' decodes past the per-document UTF-16 cap`);
-      }
-      this.progress(job, gen.generation, 'extract', plan.doc);
-      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
+      throw e; // SUPERSEDED / CANCELLED from the gate
     }
     this.gate(job, gen);
     if (!this.owns(token)) throw SUPERSEDED;
@@ -1122,49 +1107,26 @@ export class WorkerEngineV4 {
     // pair of under-declared ingests cannot both slip the project caps.
     const token = this.claim(gen, doc);
 
-    const rc = plan.extractionRecipe;
+    // ONE extraction runtime (literal decode→finalize or transformed adapter),
+    // with progress phases and the per-document cap folded in; the afterPhase
+    // hook runs this doc's ownership gate at the phase boundary so a cancel or
+    // supersession during extraction aborts cleanly (throws, caught below).
     let extracted;
-    if (rc.format === 'epub' || rc.format === 'html') {
-      // Transformed format: extract from the archive/markup tree → transformed
-      // finalize (NO whole-file byte-decode phase). A malformed archive/markup
-      // is PARSE_FAILED, a size overrun CAP_EXCEEDED — never DECODE_FAILED.
-      this.progress(job, generation, 'extract', doc);
-      try {
-        extracted = await extractTransformed(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc);
-      } catch (e) {
+    try {
+      extracted = await extractSource(new Uint8Array(bytes), plan.extractionRecipe, this.extractionLimits(), {
+        onPhaseStart: (phase) => this.progress(job, generation, phase, doc),
+        afterPhase: () => this.docGate(job, token),
+      });
+    } catch (e) {
+      if (e instanceof ExtractionFailure) {
+        // Re-check ownership after the async failure: a cancel/supersession must
+        // surface as cancelled/superseded, never as a domain error.
         this.gate(job, gen);
         if (!this.owns(token)) throw SUPERSEDED;
-        const cap = e instanceof TransformedExtractionError && e.cap;
-        this.emitError(cap ? 'CAP_EXCEEDED' : 'PARSE_FAILED', {
-          job, generation,
-          message: e instanceof Error ? e.message : `document '${doc}' failed to extract`,
-          recoverable: true,
-        });
+        this.emitError(e.code, { job, generation, message: e.message, recoverable: true });
         return;
       }
-      this.docGate(job, token);
-      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
-        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' extracted text exceeds the per-document UTF-16 cap`, recoverable: true });
-        return;
-      }
-    } else {
-      this.progress(job, generation, 'decode', doc);
-      let decoded;
-      try {
-        decoded = await decodeDocumentSource(new Uint8Array(bytes), plan.extractionRecipe);
-      } catch (e) {
-        this.gate(job, gen);
-        if (!this.owns(token)) throw SUPERSEDED;
-        this.emitError('DECODE_FAILED', { job, generation, message: e instanceof Error ? e.message : `document '${doc}' failed to decode`, recoverable: true });
-        return;
-      }
-      this.docGate(job, token);
-      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' decoded text exceeds the per-document UTF-16 cap`, recoverable: true });
-        return;
-      }
-      this.progress(job, generation, 'extract', doc);
-      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
+      throw e; // SUPERSEDED / CANCELLED from the gate, or an internal fault
     }
     this.docGate(job, token);
 
