@@ -112,9 +112,9 @@ describe('validateExtractionArtifact', () => {
     // A text descriptor with hadReplacementChars:true is impossible under the
     // total-decode policy (the count is structurally zero → the flag is false).
     const disagree = { ...artifact, descriptor: { ...artifact.descriptor, encoding: { detected: 'utf-8', hadReplacementChars: true } } };
-    await expect(validateExtractionArtifact(disagree, key, md)).rejects.toThrow(/text descriptor invalid/);
+    await expect(validateExtractionArtifact(disagree, key, md)).rejects.toThrow(/descriptor invalid/);
     const nonzero = { ...artifact, evidence: { ...artifact.evidence, decoderReplacementCount: 1 } };
-    await expect(validateExtractionArtifact(nonzero, key, md)).rejects.toThrow(/must be 0/);
+    await expect(validateExtractionArtifact(nonzero, key, md)).rejects.toThrow(/evidence invalid/);
     // Extra descriptor field.
     await expect(validateExtractionArtifact({ ...artifact, descriptor: { ...artifact.descriptor, extra: 1 } }, key, md)).rejects.toThrow(ArtifactCorruptError);
   });
@@ -286,6 +286,16 @@ describe('validateProjectManifest', () => {
     expect(upgraded.docs[0]!.extraction.recipe.candidateReconstruction).toBe('text');
     // Idempotent: a current-shape manifest is returned unchanged.
     expect(await validateProjectManifest(await upgradeStoredManifest(m))).toBeTruthy();
+
+    // The upgrader must NEVER repair genuine corruption: a legacy record whose
+    // recipeHash does not match its legacy recipe is left unchanged, so deep
+    // validation still rejects it (Codex review).
+    const oldDoc = (old.docs as Record<string, unknown>[])[0]!;
+    const tampered = {
+      ...old,
+      docs: [{ ...oldDoc, extraction: { ...(oldDoc.extraction as object), recipeHash: 'tampered-legacy-claim' } }],
+    };
+    await expect(validateProjectManifest(await upgradeStoredManifest(tampered))).rejects.toThrow(ManifestInvalidError);
   });
 
   it('recomputes and enforces every claimed recipe/override hash', async () => {

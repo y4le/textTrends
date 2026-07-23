@@ -9,7 +9,7 @@
 
 import { expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME } from './helpers.ts';
 
 /** A two-chapter EPUB 3: body matter carries the distinctive word "zephyrwood";
  *  the title page (front matter) is excluded from body-only extraction. */
@@ -80,6 +80,11 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
   // that merely contain the words.
   await expect(page.getByText('Chapter One', { exact: true })).toBeVisible();
   await expect(page.getByText('Chapter Two', { exact: true })).toBeVisible();
+
+  // Chapter editing is NOT offered for a container source (its structure comes
+  // from the spine, not the joined text); the read-only outline still shows.
+  await expect(page.getByText('chapters from the source (not editable)')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'edit chapters' })).toHaveCount(0);
 });
 
 test('a persisted EPUB warm-reopens after the artifact cache is cleared', async ({ page }) => {
@@ -111,6 +116,53 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   // Re-extracted from persisted source: the body term still analyzes, and the
   // container-derived chapter outline is back (proving source re-extraction,
   // not a text-only candidate rescan).
+  const input = page.getByLabel(/terms to compare/i);
+  await input.fill('zephyrwood');
+  await input.press('Enter');
+  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Chapter Two', { exact: true })).toBeVisible();
+});
+
+test('a persisted EPUB re-extracts from source when only its text artifact survives (partial cache)', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await page.getByLabel('Create project from files').setInputFiles({
+    name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
+  });
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await awaitReadyCount(page, 1);
+
+  await page.getByRole('button', { name: 'persist' }).click();
+  await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const save = page.getByRole('button', { name: 'Save project' });
+  await expect(save).toBeEnabled({ timeout: 30_000 });
+  await save.click();
+  await expect(page.getByText('rev 1 · saved')).toBeVisible({ timeout: 30_000 });
+
+  // Clear ONLY the extraction/structure/shard artifacts, KEEPING the stored text.
+  // A source recipe cannot rebuild its spine candidates from the joined text, so
+  // this partial cache must route to persisted-source re-extraction, not the
+  // text-only reconstructor (which would reject and mark the source missing).
+  await page.evaluate(async (dbName) => {
+    const db = await new Promise<IDBDatabase>((res, rej) => {
+      const r = indexedDB.open(dbName); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error);
+    });
+    try {
+      const stores = ['extractions', 'structures', 'shards'].filter((s) => db.objectStoreNames.contains(s));
+      await new Promise<void>((res, rej) => {
+        const tx = db.transaction(stores, 'readwrite');
+        for (const s of stores) tx.objectStore(s).clear();
+        tx.oncomplete = () => res(); tx.onerror = () => rej(tx.error);
+      });
+    } finally { db.close(); }
+  }, DB_NAME);
+
+  await page.reload();
+  await awaitAllReady(page);
+  await page.getByRole('button', { name: 'Load saved project' }).click();
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await awaitReadyCount(page, 1);
+
   const input = page.getByLabel(/terms to compare/i);
   await input.fill('zephyrwood');
   await input.press('Enter');

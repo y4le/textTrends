@@ -280,31 +280,43 @@ export async function validateProjectManifest(value: unknown): Promise<ProjectMa
  * `validateProjectManifest`, so a project saved by an older build reopens
  * instead of reporting DATA_CORRUPT.
  *
- * For every doc still on the old shape (its source has no `kind` — only txt/md
- * projects predate the discriminant), it inserts `source.kind: 'text'`, inserts
- * `extraction.recipe.candidateReconstruction: 'text'`, and RECOMPUTES the
- * extraction recipe hash over the upgraded recipe. Revision and every content
- * hash (text/candidates/structure) are preserved, so the project's identity and
- * its structure overrides survive. Idempotent: a current-shape manifest is
- * returned unchanged. Returns raw `unknown`; the caller still deep-validates it,
- * so a structurally broken record is reported by validation, not silently
- * "repaired" here.
+ * A doc is upgraded ONLY when it is recognizably a genuine pre-discriminant
+ * txt/md record — an exact legacy source shape (no `kind`), a legacy recipe with
+ * no `candidateReconstruction`, AND a legacy `recipeHash` that VERIFIABLY matches
+ * that legacy recipe. It then inserts `source.kind: 'text'` + the recipe's
+ * `candidateReconstruction: 'text'` and recomputes the recipe hash, preserving
+ * revision and every content hash. Anything else (a wrong/missing legacy hash, a
+ * foreign source shape) is genuine corruption and is left UNCHANGED so deep
+ * validation reports it — the upgrader never repairs corrupt durable data.
+ * Idempotent: a current-shape manifest is returned unchanged.
  */
 export async function upgradeStoredManifest(raw: unknown): Promise<unknown> {
   if (!isRec(raw) || !Array.isArray(raw.docs)) return raw;
   const docs = await Promise.all(
     raw.docs.map(async (doc): Promise<unknown> => {
+      // Only a pre-discriminant record (object source with NO kind) is a candidate.
       if (!isRec(doc) || !isRec(doc.source) || doc.source.kind !== undefined) return doc;
-      // Only a pre-discriminant txt/md doc reaches here (containers never lacked
-      // a kind). Add the text discriminant.
-      const source = { kind: 'text', ...doc.source };
-      let extraction = doc.extraction;
-      if (isRec(extraction) && isRec(extraction.recipe) && extraction.recipe.candidateReconstruction === undefined) {
-        const recipe = { ...extraction.recipe, candidateReconstruction: 'text' } as unknown as ExtractionRecipeProvisional;
-        const recipeHash = await hashExtractionRecipe(recipe);
-        extraction = { ...extraction, recipe, recipeHash };
+      const s = doc.source;
+      const e = doc.extraction;
+      // Recognize the EXACT legacy txt/md source + recipe shapes. Anything that
+      // is not a known-old record is left for validation to reject.
+      const legacySource =
+        exactRecord(s, ['hash', 'byteLength', 'format', 'encoding']) &&
+        (s.format === 'txt' || s.format === 'md') &&
+        isRec(s.encoding) && exactRecord(s.encoding, ['detected', 'hadReplacementChars']);
+      if (!legacySource || !isRec(e) || !isRec(e.recipe) || e.recipe.candidateReconstruction !== undefined) return doc;
+      // VERIFY the legacy recipe hash matched the legacy recipe before touching
+      // it — a wrong or missing claim is corruption, not an old record, and must
+      // NOT be silently overwritten into validity.
+      if (typeof e.recipeHash !== 'string' || (await hashExtractionRecipe(e.recipe as ExtractionRecipeProvisional)) !== e.recipeHash) {
+        return doc;
       }
-      return { ...doc, source, extraction };
+      const recipe = { ...e.recipe, candidateReconstruction: 'text' } as unknown as ExtractionRecipeProvisional;
+      return {
+        ...doc,
+        source: { kind: 'text', ...s },
+        extraction: { ...e, recipe, recipeHash: await hashExtractionRecipe(recipe) },
+      };
     }),
   );
   return { ...raw, docs };

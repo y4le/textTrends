@@ -54,10 +54,11 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   await expect(page.getByText('Owl Field Notes', { exact: true })).toBeVisible();
   await expect(page.getByText('Migration', { exact: true })).toBeVisible();
 
-  // The <script> content never became analyzable text (inert extraction).
+  // The <script> content never became analyzable text (inert extraction). Wait
+  // for the FINAL settled state (no occurrences), not the transient "finding
+  // examples…" — a term absent from the extracted text yields zero rows.
   const script = page.getByLabel(/terms to compare/i);
   await script.fill('SCRIPTLEAKMARKER');
   await script.press('Enter');
-  // A term absent from the extracted text yields a concordance with no rows.
-  await expect(page.getByText(/No occurrences of the enabled terms\.|finding examples/)).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('No occurrences of the enabled terms.')).toBeVisible({ timeout: 30_000 });
 });

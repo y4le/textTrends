@@ -21,6 +21,7 @@ import {
   hashStructureCandidates,
   hashText,
   scanMarkdownHeadings,
+  validateExtractionRecipe,
   windows1252TableHash,
   type PreparedExtraction,
 } from '../src/index.ts';
@@ -276,9 +277,31 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
     const past = await transformedEpub({ candidates: [{ kind: 'epub-section', level: 1, title: 'x', chars: { start: 0, end: 9999 } }] });
     await expect(finalizeExtraction(past.prepared, recipe)).rejects.toThrow(RangeError);
     const wrongFormat = await transformedEpub({ format: 'txt' });
-    await expect(finalizeExtraction(wrongFormat.prepared, recipe)).rejects.toThrow(/disagrees|container descriptor requires/);
+    await expect(finalizeExtraction(wrongFormat.prepared, recipe)).rejects.toThrow(/descriptor is not a valid/);
     const illFormed = await transformedEpub({ text: '\uD800', candidates: [] });
     await expect(finalizeExtraction(illFormed.prepared, recipe)).rejects.toThrow(DecodeError);
+  });
+
+  it('rejects adversarial-but-otherwise-valid inputs the builder must NOT admit (exact-shape self-admission)', async () => {
+    // Codex review: a builder must reject exactly what admission rejects, so an
+    // extra descriptor/evidence field or a bogus encoding can never produce an
+    // artifact that finalize accepts but validateExtractionArtifact rejects.
+    const recipe = epubExtractionRecipe(['bodymatter']);
+    const base = await transformedEpub();
+    const withExtraDescriptorField = { ...base.prepared, source: { ...base.prepared.source, extra: 1 } };
+    await expect(finalizeExtraction(withExtraDescriptorField as never, recipe)).rejects.toThrow(RangeError);
+    const withExtraEvidenceField = { ...base.prepared, evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0, extra: 1 } };
+    await expect(finalizeExtraction(withExtraEvidenceField as never, recipe)).rejects.toThrow(RangeError);
+    // A markup (html) descriptor with a bogus detected encoding is inadmissible.
+    const htmlRecipe = await htmlExtractionRecipe();
+    const bogusEncoding = {
+      kind: 'transformed',
+      source: { kind: 'markup', hash: 'e'.repeat(64), byteLength: 3, format: 'html', encoding: { detected: 'klingon', hadReplacementChars: false } },
+      text: 'abc',
+      candidates: [],
+      evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
+    };
+    await expect(finalizeExtraction(bogusEncoding as never, htmlRecipe)).rejects.toThrow(RangeError);
   });
 });
 
@@ -293,6 +316,21 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
 
   it('deriveCandidatesFromText refuses a source-dependent (epub) recipe', async () => {
     await expect(deriveCandidatesFromText('# heading', epubExtractionRecipe())).rejects.toThrow(RangeError);
+  });
+
+  it('canonicalizes partitions so equivalent selections share one identity, and rejects non-canonical', async () => {
+    // Order + duplicates do not change the operation → one recipe identity.
+    const a = epubExtractionRecipe(['bodymatter', 'frontmatter']);
+    const b = epubExtractionRecipe(['frontmatter', 'bodymatter', 'bodymatter']);
+    expect(await hashExtractionRecipe(a)).toBe(await hashExtractionRecipe(b));
+    // A hand-built non-canonical recipe (duplicate / wrong order) is rejected.
+    const nonCanonical = {
+      schema: 'texttrends/extraction-recipe/0-provisional',
+      format: 'epub',
+      extractor: { id: 'standard-ebooks-epub-v1', partitions: ['bodymatter', 'bodymatter'], serializer: 'xhtml-block-collapse-v1', sectioning: 'spine-order-v1' },
+      candidateReconstruction: 'source',
+    };
+    await expect(validateExtractionRecipe(nonCanonical)).rejects.toThrow(/canonical/);
   });
 
   it('decodeDocumentSource refuses an epub recipe (no byte-decode path)', async () => {

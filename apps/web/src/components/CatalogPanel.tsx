@@ -60,8 +60,10 @@ export function CatalogPanel() {
     setError(null);
     try {
       const { bytes } = await downloadEbookArchive(book.name, token.trim() || null);
-      const copy = bytes.slice();
-      importFiles([{ name: `${book.name}.epub`, size: copy.byteLength, arrayBuffer: async () => copy.buffer }]);
+      // A re-readable FileLike: ingest transfers/detaches the buffer it is
+      // handed, and persist / retry / warm re-extraction read the source again,
+      // so hand out a FRESH copy on every call rather than one shared buffer.
+      importFiles([{ name: `${book.name}.epub`, size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer }]);
     } catch (e) {
       setError(`Could not add “${book.title}”: ${e instanceof Error ? e.message : String(e)}`);
     } finally {

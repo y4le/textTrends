@@ -67,6 +67,7 @@ import {
   segment,
   tokenEndChar,
   trend,
+  upgradeStoredManifest,
   validateExtractionArtifact,
   validateExtractionRecipe,
   validateProjectManifest,
@@ -714,6 +715,19 @@ export class WorkerEngineV4 {
     const shard = await this.admitCachedShard(job, plan, token, shardKey, text);
     if (shard) parts.shard = shard;
 
+    // A source-reconstructed recipe (epub/html) CANNOT rebuild its candidates
+    // from the joined text. If the candidate list is unavailable (the extraction
+    // artifact was not admitted) AND structure still needs composing, re-extract
+    // the persisted source rather than fall into prepareFromText's text-only
+    // reconstructor, which rejects source recipes (Codex review). With structure
+    // admitted the list is not needed, so a text-only prepare is still correct.
+    if (
+      plan.extractionRecipe.candidateReconstruction === 'source' &&
+      parts.candidates === undefined && parts.structure === undefined
+    ) {
+      return this.probeFromSource(job, plan, token, 'extraction-miss');
+    }
+
     // A text-only path with no candidate list defers the identity check to
     // prepareFromText, which reconstructs candidates and throws a terminal
     // ExtractionMismatchError if they contradict `expectedCandidates`.
@@ -793,7 +807,9 @@ export class WorkerEngineV4 {
     this.gate(job, gen);
     if (!this.owns(token)) throw SUPERSEDED;
     const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
-    this.assertAssertedIdentity(plan, identity);
+    // Warm re-extraction: the persisted source already matched its hash, so a
+    // text/candidate drift is a terminal EXTRACTION_MISMATCH, not a byte miss.
+    this.assertAssertedIdentity(plan, identity, true);
     // A re-extracted persisted source performed NO main-thread transfer.
     this.freezeAccepted(token, identity, 0);
     this.emitSourceReady(job, gen.generation, plan, extracted);
@@ -1056,12 +1072,18 @@ export class WorkerEngineV4 {
   }
 
   /** A delivered/extracted identity must agree with any asserted expectation. */
-  private assertAssertedIdentity(plan: ResolvedDocPlan, identity: AcceptedIdentity): void {
+  /** `sourceVerified` is true on a WARM re-extraction from persisted bytes,
+   *  where the source hash has ALREADY matched its key. There, a text/candidate
+   *  drift is extraction nondeterminism / recipe drift — a terminal
+   *  EXTRACTION_MISMATCH — NOT a different source (Codex review). On a COLD
+   *  ingest of fresh user bytes, a text drift means wrong bytes → SOURCE_MISMATCH. */
+  private assertAssertedIdentity(plan: ResolvedDocPlan, identity: AcceptedIdentity, sourceVerified: boolean): void {
     if (plan.expectedSourceHash !== undefined && identity.source !== undefined && identity.source !== plan.expectedSourceHash) {
       throw new SourceMismatchError(`document '${plan.doc}' source hashed to ${identity.source.slice(0, 16)}… but the generation asserted ${plan.expectedSourceHash.slice(0, 16)}…`);
     }
     if (plan.expectedText !== undefined && identity.text !== plan.expectedText) {
-      throw new SourceMismatchError(`document '${plan.doc}' text hashed to ${identity.text.slice(0, 16)}… but the generation asserted ${plan.expectedText.slice(0, 16)}…`);
+      const message = `document '${plan.doc}' text hashed to ${identity.text.slice(0, 16)}… but the generation asserted ${plan.expectedText.slice(0, 16)}…`;
+      throw sourceVerified ? new ExtractionMismatchError(message) : new SourceMismatchError(message);
     }
     if (plan.expectedCandidates !== undefined && identity.candidates !== plan.expectedCandidates) {
       throw new ExtractionMismatchError(`document '${plan.doc}' candidates hashed to ${identity.candidates.slice(0, 16)}… but the generation asserted ${plan.expectedCandidates.slice(0, 16)}…`);
@@ -1143,7 +1165,8 @@ export class WorkerEngineV4 {
     // Assert against declared identities BEFORE freezing/emitting, then freeze —
     // a second same-generation ingest with different bytes is rejected, and the
     // transferred bytes are charged atomically against the project transfer cap.
-    this.assertAssertedIdentity(plan, identity);
+    // Cold ingest of fresh bytes: a text mismatch means wrong bytes (SOURCE_MISMATCH).
+    this.assertAssertedIdentity(plan, identity, false);
     this.freezeAccepted(token, identity, bytes.byteLength);
     this.emitSourceReady(job, generation, plan, extracted);
 
@@ -1720,7 +1743,13 @@ export class WorkerEngineV4 {
         }
         let manifest;
         try {
-          manifest = await validateProjectManifest(read.value);
+          // Lazily migrate a manifest saved by an older build (pre-container
+          // source discriminant / candidateReconstruction) BEFORE durable
+          // admission — this is the worker's own validation gate, so the upgrade
+          // must happen here (not only main-thread) or an old project is rejected
+          // as DATA_CORRUPT before it can reopen. A genuinely-corrupt record is
+          // left unchanged by the upgrader and still fails validation below.
+          manifest = await validateProjectManifest(await upgradeStoredManifest(read.value));
         } catch (e) {
           if (this.checkCancelled(job)) return; // cancelled during recipe/hash recomputation
           this.emitUserDataError(job, 'DATA_CORRUPT', `stored project failed validation: ${e instanceof Error ? e.message : String(e)}`);

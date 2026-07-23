@@ -66,6 +66,11 @@ export function StructurePanel() {
   const evidence = sourceEvidence?.[focusedDoc] ?? null;
   const overrideStatus = doc?.structure.override.status ?? 'none';
   const isUser = project.kind === 'user';
+  // Chapter editing re-derives the DETECTED baseline from the resident text,
+  // which is only correct for text-reconstructed formats (txt/md). A container
+  // /markup source's chapters come from its spine/DOM, not the joined text, so
+  // editing them is not yet supported — the read-only outline still shows.
+  const editableChapters = doc?.extraction.recipe.candidateReconstruction === 'text';
 
   // The result is only meaningful when it echoes the currently-focused doc.
   const st = structure && structure.doc === focusedDoc ? structure.state : null;
@@ -110,10 +115,15 @@ export function StructurePanel() {
           />{' '}
           mark chapters on chart
         </label>
-        {isUser && !editing && overrideStatus !== 'needs-review' && (
+        {isUser && editableChapters && !editing && overrideStatus !== 'needs-review' && (
           <button type="button" onClick={() => setEditing(true)} style={editBtn}>
             edit chapters
           </button>
+        )}
+        {isUser && !editableChapters && (
+          <span style={{ fontSize: 'var(--text-xs)', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>
+            chapters from the source (not editable)
+          </span>
         )}
       </div>
 

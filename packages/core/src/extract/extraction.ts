@@ -11,7 +11,9 @@
  */
 
 import { canonicalJson, sha256Hex, hashText } from '../contract/hash.ts';
+import { exactRecord } from '../contract/recipes.ts';
 import {
+  DETECTED_ENCODINGS,
   DecodeError,
   assertWellFormed,
   decodeSource,
@@ -163,12 +165,23 @@ function requireExactKeys(record: Record<string, unknown>, keys: readonly string
  * for behavior that never ran. Every malformed input throws RangeError
  * (REQUEST_INVALID at the wire), never TypeError.
  */
-const EBOOK_PARTITIONS: ReadonlySet<string> = new Set<EbookPartition>([
-  'frontmatter',
-  'bodymatter',
-  'backmatter',
-  'unknown',
-]);
+/** Reading order — the ONE canonical order + de-dup for a partition SELECTION,
+ *  so `['bodymatter','frontmatter']`, its reverse, and duplicates all describe
+ *  the same operation under a single recipe identity (the extractor treats
+ *  partitions as a set; spine order alone determines output). */
+const PARTITION_ORDER: readonly EbookPartition[] = ['frontmatter', 'bodymatter', 'backmatter', 'unknown'];
+const EBOOK_PARTITIONS: ReadonlySet<string> = new Set<EbookPartition>(PARTITION_ORDER);
+
+const canonicalPartitions = (ps: readonly EbookPartition[]): EbookPartition[] =>
+  PARTITION_ORDER.filter((p) => ps.includes(p));
+
+/** A partitions array is canonical iff it equals its de-duped reading-order
+ *  projection (unique, in canonical order, non-empty). */
+function isCanonicalPartitions(ps: readonly unknown[]): boolean {
+  if (ps.length === 0 || !ps.every((x) => EBOOK_PARTITIONS.has(x as string))) return false;
+  const canon = canonicalPartitions(ps as EbookPartition[]);
+  return ps.length === canon.length && ps.every((p, i) => p === canon[i]);
+}
 
 /** Validate the shared byte-decoder policy of the literal (txt/md) formats. */
 async function validateDecoderPolicy(d: unknown): Promise<void> {
@@ -230,11 +243,8 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1' || e.sectioning !== 'spine-order-v1') {
       throw new RangeError('unsupported epub extractor policy');
     }
-    if (
-      !Array.isArray(e.partitions) || e.partitions.length === 0 ||
-      !e.partitions.every((x) => EBOOK_PARTITIONS.has(x as string))
-    ) {
-      throw new RangeError('epub extractor partitions invalid');
+    if (!Array.isArray(e.partitions) || !isCanonicalPartitions(e.partitions)) {
+      throw new RangeError('epub extractor partitions must be unique and in canonical reading order');
     }
   } else if (recipe.format === 'html') {
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
@@ -318,7 +328,9 @@ export function epubExtractionRecipe(
     format: 'epub',
     extractor: {
       id: 'standard-ebooks-epub-v1',
-      partitions: [...partitions],
+      // Canonical (unique, reading order) so equivalent selections share one
+      // recipe identity.
+      partitions: canonicalPartitions(partitions),
       serializer: 'xhtml-block-collapse-v1',
       sectioning: 'spine-order-v1',
     },
@@ -519,49 +531,47 @@ export type PreparedExtraction =
       readonly evidence: ExtractionEvidence;
     };
 
-function assertValidEvidence(ev: ExtractionEvidence): void {
-  if (
-    !Number.isSafeInteger(ev.decoderReplacementCount) || ev.decoderReplacementCount < 0 ||
-    !Number.isSafeInteger(ev.suspiciousControlCount) || ev.suspiciousControlCount < 0
-  ) {
-    throw new RangeError('extraction evidence counts must be non-negative safe integers');
+const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
+
+/**
+ * The EXACT source-descriptor ABI — the SINGLE authority the transformed
+ * builder AND artifact admission (`validate.ts`) both apply, so a builder can
+ * never mint a descriptor admission rejects (Codex review). Requires exact/plain
+ * records at every level, the kind↔format pairing, the closed detected-encoding
+ * set, and the zero-replacement policy; also that the descriptor's SourceHash
+ * and format equal the ones it is being admitted against.
+ */
+export function isValidSourceDescriptor(d: unknown, sourceHash: string, format: SourceFormat): d is SourceDescriptorV1 {
+  if (!isRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
+  const encodingOk = (): boolean =>
+    exactRecord(d.encoding, ['detected', 'hadReplacementChars']) &&
+    (d.encoding as { hadReplacementChars: unknown }).hadReplacementChars === false &&
+    DETECTED_ENCODINGS.has((d.encoding as { detected: unknown }).detected as string);
+  if (d.kind === 'text') {
+    return (format === 'txt' || format === 'md') && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
   }
-  // Strict-Unicode / total-1252 (literal) and strict-UTF-8 (container-internal)
-  // make the replacement count structurally zero — a nonzero count is an
-  // impossible-under-ABI record that admission also rejects.
-  if (ev.decoderReplacementCount !== 0) {
-    throw new RangeError('decoderReplacementCount must be 0 under the current decoding policy');
+  if (d.kind === 'container') {
+    return format === 'epub' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) &&
+      exactRecord(d.container, ['internalDecoding', 'documentCount']) &&
+      (d.container as { internalDecoding: unknown }).internalDecoding === 'utf-8-strict' &&
+      isNonNegInt((d.container as { documentCount: unknown }).documentCount);
   }
+  if (d.kind === 'markup') {
+    return format === 'html' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
+  }
+  return false;
 }
 
-/** The transformed-path descriptor must be internally consistent AND agree with
- *  the recipe and the SourceHash — exactly what admission (`validate.ts`) later
- *  re-checks, so a builder cannot mint an artifact its own validator rejects. */
-function assertDescriptorConsistent(
-  d: SourceDescriptorV1,
-  recipe: ExtractionRecipeProvisional,
-  sourceHash: string,
-): void {
-  if (d.hash !== sourceHash) throw new RangeError('source descriptor hash does not match the SourceHash');
-  if (d.format !== recipe.format) {
-    throw new RangeError(`source descriptor format '${d.format}' disagrees with recipe format '${recipe.format}'`);
-  }
-  if (!Number.isSafeInteger(d.byteLength) || d.byteLength < 0) {
-    throw new RangeError('source descriptor byteLength must be a non-negative safe integer');
-  }
-  if (d.kind === 'text') {
-    if (recipe.format !== 'txt' && recipe.format !== 'md') throw new RangeError('a text descriptor requires a literal (txt/md) format');
-    if (d.encoding.hadReplacementChars) throw new RangeError('text descriptor hadReplacementChars must be false under policy');
-  } else if (d.kind === 'container') {
-    if (recipe.format !== 'epub') throw new RangeError('a container descriptor requires the epub format');
-    if (d.container.internalDecoding !== 'utf-8-strict') throw new RangeError('unsupported container internal decoding policy');
-    if (!Number.isSafeInteger(d.container.documentCount) || d.container.documentCount < 0) {
-      throw new RangeError('container documentCount must be a non-negative safe integer');
-    }
-  } else {
-    if (recipe.format !== 'html') throw new RangeError('a markup descriptor requires the html format');
-    if (d.encoding.hadReplacementChars) throw new RangeError('markup descriptor hadReplacementChars must be false under policy');
-  }
+/** The EXACT evidence ABI, shared with admission: an exact record of two
+ *  non-negative counts, with the replacement count structurally zero under the
+ *  implemented total-decode / strict-UTF-8 policies. */
+export function isValidExtractionEvidence(ev: unknown): ev is ExtractionEvidence {
+  return (
+    exactRecord(ev, ['decoderReplacementCount', 'suspiciousControlCount']) &&
+    isNonNegInt((ev as { decoderReplacementCount: unknown }).decoderReplacementCount) &&
+    isNonNegInt((ev as { suspiciousControlCount: unknown }).suspiciousControlCount) &&
+    (ev as { decoderReplacementCount: number }).decoderReplacementCount === 0
+  );
 }
 
 /** The single artifact assembler both prepared kinds route through — the one
@@ -628,8 +638,12 @@ export async function finalizeExtraction(
   if (recipe.candidateReconstruction !== 'source') {
     throw new RangeError('a transformed extraction requires a source-reconstructed recipe (its candidates are container-derived, not a function of the text)');
   }
-  assertDescriptorConsistent(descriptor, recipe, descriptor.hash);
-  assertValidEvidence(evidence);
+  if (!isValidSourceDescriptor(descriptor, descriptor.hash, recipe.format)) {
+    throw new RangeError('transformed source descriptor is not a valid, admissible descriptor');
+  }
+  if (!isValidExtractionEvidence(evidence)) {
+    throw new RangeError('transformed extraction evidence is not a valid, admissible record');
+  }
   assertWellFormed(text, `transformed source ${descriptor.hash.slice(0, 12)}…`);
   assertValidCandidates(candidates, text.length);
   const candidateHash = await hashStructureCandidates(candidates);
