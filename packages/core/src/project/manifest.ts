@@ -25,12 +25,13 @@ import {
   isStructureOverrideV1,
   isStructureRecipeProvisional,
 } from '../structure/build.ts';
-import { DETECTED_ENCODINGS } from '../extract/decode.ts';
 import {
   hashExtractionRecipe,
+  isValidSourceDescriptor,
   validateExtractionRecipe,
   type ExtractionRecipeProvisional,
   type SourceDescriptorV1,
+  type SourceFormat,
 } from '../extract/extraction.ts';
 import type { IndexRecipeProvisional } from '../contract/recipes.ts';
 import type { StructureOverrideV1, StructureRecipeProvisional } from '../structure/build.ts';
@@ -157,43 +158,19 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   }
   if (!isStr(v.doc) || !isStr(v.sourceName)) throw new ManifestInvalidError('doc identity invalid');
   validateMeta(v.meta);
+  // ONE authority for source-descriptor admission: the SAME total guard the
+  // extraction-artifact boundary applies (`isValidSourceDescriptor`). A durable
+  // manifest must not accept a descriptor the artifact boundary would reject —
+  // the hand-rolled arms here previously admitted `hadReplacementChars: true`,
+  // which is structurally impossible under the implemented decoders and which
+  // artifact admission refuses. The descriptor self-describes its hash/format;
+  // `format` is cross-checked against the extraction recipe below, while `hash`
+  // is the durable ASSERTED source identity — it carries no independent check
+  // here and is verified against byte/artifact identities when the worker
+  // consumes the source.
   const s = v.source;
-  if (!isRec(s) || !isStr(s.hash) || !isSafeNonNeg(s.byteLength)) {
+  if (!isRec(s) || !isStr(s.hash) || !isValidSourceDescriptor(s, s.hash, s.format as SourceFormat)) {
     throw new ManifestInvalidError('doc source descriptor invalid');
-  }
-  if (s.kind === 'text') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) ||
-      (s.format !== 'txt' && s.format !== 'md') ||
-      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
-    ) {
-      throw new ManifestInvalidError('doc text source descriptor invalid');
-    }
-    // The detected encoding is a CLOSED union — a durable descriptor may only
-    // name an encoding the decoder can actually report.
-    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
-      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
-    }
-  } else if (s.kind === 'container') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'container']) || s.format !== 'epub' ||
-      !exactRecord(s.container, ['internalDecoding', 'documentCount']) ||
-      s.container.internalDecoding !== 'utf-8-strict' || !isSafeNonNeg(s.container.documentCount)
-    ) {
-      throw new ManifestInvalidError('doc container source descriptor invalid');
-    }
-  } else if (s.kind === 'markup') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) || s.format !== 'html' ||
-      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
-    ) {
-      throw new ManifestInvalidError('doc markup source descriptor invalid');
-    }
-    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
-      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
-    }
-  } else {
-    throw new ManifestInvalidError('doc source descriptor has an unknown kind');
   }
   if (v.sourceAvailability !== 'bundled' && v.sourceAvailability !== 'persisted' && v.sourceAvailability !== 'external') {
     throw new ManifestInvalidError('doc sourceAvailability invalid');

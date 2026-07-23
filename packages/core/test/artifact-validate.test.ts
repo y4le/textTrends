@@ -311,10 +311,24 @@ describe('validateProjectManifest', () => {
   it('closes the detected-encoding union and enforces source/recipe format agreement', async () => {
     const m = await manifest();
     const badEnc = { ...m, docs: [{ ...m.docs[0], source: { ...(m.docs[0] as { source: object }).source, encoding: { detected: 'latin-1', hadReplacementChars: false } } }] };
-    await expect(validateProjectManifest(badEnc)).rejects.toThrow(/encoding/);
+    // Closed-encoding enforcement now flows through the shared descriptor guard
+    // (one admission authority with the artifact boundary), so the message is
+    // the uniform invalid-descriptor error rather than an encoding-specific one.
+    await expect(validateProjectManifest(badEnc)).rejects.toThrow(ManifestInvalidError);
     // Source claims txt while the extraction recipe is md — inconsistent.
     const badFormat = { ...m, docs: [{ ...m.docs[0], source: { ...(m.docs[0] as { source: object }).source, format: 'txt' } }] };
     await expect(validateProjectManifest(badFormat)).rejects.toThrow(/format disagrees/);
+  });
+
+  it('rejects a durable descriptor asserting hadReplacementChars:true — impossible at the artifact boundary (descriptor-admission parity)', async () => {
+    // The manifest and the extraction-artifact boundary must admit exactly the
+    // same descriptors; the implemented decoders never insert replacements, so
+    // `hadReplacementChars` is structurally false. A hand-rolled manifest arm
+    // used to accept `true`, letting a durable record assert a descriptor the
+    // artifact boundary rejects.
+    const m = await manifest();
+    const replaced = { ...m, docs: [{ ...m.docs[0], source: { ...(m.docs[0] as { source: object }).source, encoding: { detected: 'utf-8', hadReplacementChars: true } } }] };
+    await expect(validateProjectManifest(replaced)).rejects.toThrow(ManifestInvalidError);
   });
 
   it('enforces a positive safe-integer revision and order/docs agreement', async () => {
