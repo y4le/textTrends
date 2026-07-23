@@ -113,9 +113,7 @@ import {
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
-import { extractEpubDocument } from './epub-extract.ts';
-import { extractHtmlDocument } from './html-extract.ts';
-import { TransformedExtractionError } from './transformed-extract.ts';
+import { extractEpubDocument, extractHtmlDocument, TransformedExtractionError } from '@texttrends/extractors';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 

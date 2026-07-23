@@ -16,13 +16,13 @@
   },
   "dependencies": {
     "@texttrends/core": "workspace:*",
+    "@texttrends/extractors": "workspace:*",
     "@texttrends/standard-ebooks": "file:../../../standard_ebooks",
     "d3-scale": "^4.0.2",
     "idb": "^8.0.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
-    "zustand": "^5.0.14",
-    "parse5": "7.3.0"
+    "zustand": "^5.0.14"
   },
   "devDependencies": {
     "@playwright/test": "^1.61.1",
