@@ -1245,8 +1245,12 @@ export class ProjectSession {
    * mutation): a violation throws so the caller aborts before any side effect.
    * The RESULTING project is what is bounded: existing finalized docs AND
    * already-pending imports count toward every cap (a second append before the
-   * first finalizes must not slip past). Every supported encoding decodes to at
-   * most `byteLength` UTF-16 units, so a byte sum bounds undetermined text.
+   * first finalizes must not slip past). This is a BEST-EFFORT early guard, not
+   * the final authority: a pending import has no decoded length yet, so its
+   * `byteLength` stands in for its text. That is exact for txt/md/html but an
+   * UNDERESTIMATE for a compressed epub (decompression can exceed the archive),
+   * so the worker re-enforces the real text caps on ACTUAL decoded lengths at
+   * ingest (an over-large doc becomes a normal CAP_EXCEEDED missing doc).
    */
   private preflightImport(files: readonly FileLike[], fromEmpty: boolean): void {
     if (files.length === 0) return;
@@ -1263,7 +1267,9 @@ export class ProjectSession {
       }
       for (const p of this.pending.values()) {
         existingBytes += p.byteLength;
-        existingText += p.byteLength; // pending text length is unknown; the byte length bounds it
+        // No decoded length yet — byteLength is a proxy (exact for txt/md/html,
+        // an underestimate for a compressed epub; the worker is authoritative).
+        existingText += p.byteLength;
       }
     }
     let newBytes = 0;

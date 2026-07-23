@@ -575,10 +575,13 @@ export class WorkerEngineV4 {
         throw new CapError(`document '${spec.doc}' source of ${spec.source.byteLength} bytes exceeds the per-file cap`);
       }
       sourceBytesTotal += spec.source.byteLength;
-      // A fresh import has no `expectedTextLengthUtf16` yet, but every supported
-      // encoding decodes to at most `byteLength` UTF-16 units, so the byte count
-      // is a sound upper bound on its text — contributing it keeps the project
-      // text cap enforced for fresh imports (contract §12.9).
+      // A fresh import has no `expectedTextLengthUtf16` yet, so `byteLength`
+      // stands in — a sound bound for byte-decoded/markup formats (txt/md/html)
+      // but an UNDERESTIMATE for a compressed epub. This preflight is a
+      // best-effort declared-total guard; the AUTHORITATIVE text-cap check runs
+      // on the ACTUAL decoded length at ingest (below / at publish), where an
+      // over-large doc fails CAP_EXCEEDED and degrades to a missing doc
+      // (contract §12.9).
       const declaredTextUtf16 = spec.extraction.expectedTextLengthUtf16 ?? spec.source.byteLength;
       if (declaredTextUtf16 > this.caps.maxTextUtf16PerDoc) {
         throw new CapError(`document '${spec.doc}' declared text exceeds the per-document UTF-16 cap`);
