@@ -332,7 +332,7 @@ export function TrendPanel() {
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-xs)',
               color: 'var(--fg-muted)',
-              height: '2.5em',
+              minHeight: '3.2em',
               margin: 'var(--space-2) 0 0',
             }}
           >
@@ -344,7 +344,7 @@ export function TrendPanel() {
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-xs)',
               color: 'var(--fg-muted)',
-              height: '2.5em',
+              minHeight: '3.2em',
               margin: 'var(--space-2) 0 0',
             }}
           >
