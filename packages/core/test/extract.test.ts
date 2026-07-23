@@ -233,7 +233,10 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
     candidates?: readonly { kind: string; level: number; title: string; chars: { start: number; end: number } }[];
     format?: string;
     documentCount?: number;
-  } = {}): Promise<{ prepared: PreparedExtraction; recipe: ReturnType<typeof epubExtractionRecipe> }> {
+  } = {}): Promise<{
+    prepared: Extract<PreparedExtraction, { kind: 'transformed' }>;
+    recipe: ReturnType<typeof epubExtractionRecipe>;
+  }> {
     const text = overrides.text ?? 'Chapter One\n\nThe body of the chapter.';
     const bytes = utf8('PK pretend epub bytes');
     const hash = await hashSourceBytes(bytes);
@@ -251,7 +254,7 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
         { kind: 'epub-section', level: 1, title: 'Chapter One', chars: { start: 0, end: 11 } },
       ],
       evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
-    } as unknown as PreparedExtraction;
+    } as unknown as Extract<PreparedExtraction, { kind: 'transformed' }>;
     return { prepared, recipe: epubExtractionRecipe(['bodymatter']) };
   }
 
