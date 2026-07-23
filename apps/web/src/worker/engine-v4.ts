@@ -203,6 +203,12 @@ interface GenerationStateV4 {
   /** Bounded ephemeral DETECTED-table cache for the edit-context query, keyed
    *  [TextHash, CandidateHash, StructureRecipeHash] — never persisted (ruling §2). */
   readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
+  /** Ephemeral per-track occurrence cache for KWIC re-centering. A re-center
+   *  changes only the sort/page (`center`), never the occurrence sets, so the
+   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash, GroupId]
+   *  — the coordinates that FULLY determine a `NumericOccurrences`. Dropped with
+   *  the generation; superseded snapshots key distinctly and never collide. */
+  readonly kwicOccCache: Map<string, NumericOccurrences>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
   /** Running ACTUAL totals (not just declared) enforced against the project
@@ -381,6 +387,7 @@ export class WorkerEngineV4 {
       resolvers: new Map(),
       tokenViews: new Map(),
       detectedTables: new Map(),
+      kwicOccCache: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
     };
@@ -1365,8 +1372,18 @@ export class WorkerEngineV4 {
 
     const trackOccs: NumericOccurrences[] = [];
     for (const track of q.tracks) {
-      trackOccs.push(occurrences(snapshot, shards, resolvers, selection, track.group));
-      await this.queryCheckpoint(job, gen, snapshotId);
+      // Re-centering the concordance re-issues this query with the same
+      // snapshot/selection/tracks and only a new `center`; the occurrence sets
+      // are identical, so memoize them and let the re-center pay only for the
+      // top-K ordering + text slicing below.
+      const key = `${snapshot.id}\u0000${selection.hash}\u0000${track.group.id}`;
+      let occ = gen.kwicOccCache.get(key);
+      if (!occ) {
+        occ = occurrences(snapshot, shards, resolvers, selection, track.group);
+        gen.kwicOccCache.set(key, occ);
+        await this.queryCheckpoint(job, gen, snapshotId);
+      }
+      trackOccs.push(occ);
     }
     const page = kwicPage(snapshot, bound, selection, trackOccs, q.request);
     await this.queryCheckpoint(job, gen, snapshotId);
