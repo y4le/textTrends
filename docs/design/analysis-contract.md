@@ -443,14 +443,21 @@ non-breaking for exhaustive consumers.
 
 ## 8. Worker protocol (generation- and snapshot-aware)
 
-*SUPERSEDED IN PART by §12.8 (Amendment v2.2): the envelope discipline,
-lifecycle rules, and error taxonomy below remain normative, but the concrete
-`PROTOCOL_VERSION` and the begin-generation/ingest/source-ready/warm-miss/
-query-union SHAPES are historical — the implemented protocol has since moved
-through v2 (passage op), v3 (warm reopen: expectedText, generation-ready,
-warnings — see the M5 commits), and v4 as specified in §12.8. Where a shape
-here disagrees with §12.8 or with `apps/web/src/worker/protocol.ts`, this
-section does not govern.*
+*SUPERSEDED IN PART by §12.8 (Amendment v2.2; extended 2026-07-24 after the
+simplification execution): the envelope discipline and lifecycle rules below
+remain normative, but the concrete `PROTOCOL_VERSION`, the
+begin-generation/ingest/source-ready/warm-miss/query-union SHAPES, **and the
+error taxonomy** are historical. The implemented v4 taxonomy has no
+`UNKNOWN_OP` (an unknown tag is a schema-level `PARSE_FAILED` — the deleted
+dispatch arm was unreachable), no `ARTIFACT_CORRUPT` (storage corruption is a
+cache warning or a durable repair reason, never an analysis error code), and
+no `CANCELLED_RACE`; it adds `SOURCE_MISMATCH`, `EXTRACTION_MISMATCH`, and
+`REQUEST_INVALID`. The direct `excerpt`/`excerpt-result` messages sketched
+below were deleted end-to-end (the bounded `line-excerpt` QUERY op replaced
+them), and the implemented query union also carries `structure`,
+`structure-edit-context`, and multi-track `kwic/2`. Where a shape here
+disagrees with §12.8 or with `apps/web/src/worker/protocol-v4.ts` (the live
+module — `protocol.ts` no longer exists), this section does not govern.*
 
 ```ts
 // Every message literally carries the protocol version (fixing round-2's finding
@@ -807,7 +814,9 @@ evidence; progress adds `extract` and `structure` phases; warm misses become
 source-corrupt | extraction-miss | rehydrate-failed}` — the worker
 re-extracts from persisted sources, re-indexes from verified text, and
 recomputes structure from candidates before ever requesting bytes; the query
-union adds `structure`; user-data operations (project load/save, source
+union adds `structure` (and, as implemented, `structure-edit-context`,
+`line-excerpt`, and multi-track `kwic/2` — the direct excerpt messages are
+deleted); user-data operations (project load/save, source
 persist) are a SEPARATE storage operation map with their own error semantics
 (`PERSISTENCE_UNAVAILABLE`, `REVISION_CONFLICT`, `QUOTA_EXCEEDED`), never
 disguised as analysis progress. Section edits replace the generation (recipe

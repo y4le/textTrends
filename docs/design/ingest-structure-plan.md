@@ -1,5 +1,12 @@
 # Reviewed plan: user ingest and chapter structure
 
+*STATUS (2026-07-24): dated consult record. Since execution of the
+simplification plan: `UserDataStore.deleteSource` was deleted (no
+unpersist/delete command exists; retention is type-enforced), and the
+root-only `StructureArtifactV1` lineage was deleted (V2 is the only
+structure schema; a golden StructureHash pin protects the serialization).
+Where this document's interface sketches disagree with the code, the code
+and `docs/design/simplification-plan.md` govern.*
 *Codex (gpt-5.6-sol) consultation `ingest-structure-consult-1`, 2026-07-20, via
 parley — the planning review for the phase following Milestones 5–6. Recorded
 verbatim as the plan of record (precedent: phase1-plan.md). The "must change

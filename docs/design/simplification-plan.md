@@ -239,14 +239,15 @@ Grouped, commit-sized; none urgent, all cheap. From the four pass-2 analyses:
   `QueryOp` through `QueryExecutor` → one store lane → one UI → unit +
   browser evidence for supersession and snapshot identity.
 
-### Contested — needs a ruling before acting
+### Contested — RESOLVED (2026-07-24)
 
-- **Snapshot vocabulary-merge sharing.** One pass-2 analysis argues
-  `composeSnapshot`/`validateSnapshot` should share a `mergeVocabulary`
-  helper (the validator would still recompute from resident shards); the
-  pass-1 record holds the opposite as a leave-alone (the validator must not
-  share the builder's code path, or a bug validates itself). Do not touch
-  without an explicit Codex ruling; identity-adjacent.
+- **Snapshot vocabulary-merge sharing: ruled KEEP INDEPENDENT.** The Codex
+  ruling: the validator's second implementation IS the verification
+  authority; sharing would let an implementation error change production and
+  admission together. Drift is mitigated by the GOLDEN merge test now in
+  `snapshot.test.ts` (declared order + overlap + a missing doc pinning the
+  exact key/translation assignment). The ~15 duplicated lines are the price
+  of independent verification — do not "simplify" them away.
 
 ### Standing non-goals (re-affirmed by pass 2)
 
@@ -263,12 +264,37 @@ coordinate and do it exactly once at the freeze. `structure/build.ts` and
 seam appears; the optional `extract/recipe.ts` cut is endorsed but only
 worth taking after R2 removes the shared locals.
 
+### Progress (2026-07-24 step-through)
+
+Executed and reviewed in the step-through session: the contested ruling +
+golden; ALL of Track S (S1 skeleton-only KWIC; S2 full durable-repair
+vertical — including the review-caught requirement that durable bytes are
+hash-AUTHENTICATED before extraction so undecodable mutations still reach
+persisted-corrupt — with unit + real-browser corruption/repair proofs; S3
+batch); R1 residue sweep; R4 boundary-test extensions + `noUnusedLocals`
+adoption; R6 docs refresh (analysis-contract taxonomy banner + three plan-doc
+status banners); the P1 corpus inventory deliverable
+(`docs/design/corpus-inventory.md`) awaiting the owner's rights/history
+decisions; and R2's format-authority half (`isLiteralFormat` barrel-exported
+and adopted by the extractors runtime; strict-guard rename; cast/dead-code
+cleanup).
+
+Still open on this roadmap: R2 remainder (throwing `assertExactRecord` tier
++ extraction locals deletion; `lowerBound` → index/build; brand-helper
+normalization; epub default via `epubExtractionRecipe`; `rangesByDoc`;
+structure `isInt` share; the `msg()` twin home), R3 helpers
+(`beginAtSnapshot`, session `clearPerProjectRuntime`/`resetCasState`,
+engine `structureKeyFor`, in-file query-method extraction), R5 components
+(shared button style, `titlesByDoc`, TrendPanel trio, CatalogPanel abort
+cleanup), P2/P3, and Track F.
+
 ### Suggested sequence
 
-1. This doc closeout (done — you are reading it).
-2. P1 provenance decision now; execution at branch freeze.
+1. ~~This doc closeout~~ done.
+2. P1: inventory prepared (`corpus-inventory.md`) — owner decides rights +
+   history strategy now; execution at branch freeze.
 3. P2 hermetic dependency; prove the sibling-free clean checkout.
-4. S1 + S3 small correctness commits; then S2's repair contract.
+4. ~~S1 + S3 + S2~~ done (see Progress).
 5. P3 publication hardening.
-6. R1–R6 opportunistically, commit-sized, between the above.
+6. Remaining R items opportunistically, commit-sized.
 7. F1 then F2 when feature work resumes.
