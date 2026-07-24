@@ -27,13 +27,15 @@
  * series is seeded 'pending'.
  *
  * Intent discipline (UI review round 1, extended): trend intent and KWIC
- * intent carry SEPARATE epochs. Changing the compared terms or the snapshot
- * cancels and reissues both. The concordance is a MERGED multi-term view
- * (kwic/2, concordance amendment): it is INDEPENDENT of `focusedSeries` (which
- * only emphasizes trend lines), and is reissued by a per-term toggle, by a
- * settled scrub re-centre (debounced), and by a term/snapshot change. A result
- * is written only if its epoch AND its (generation, snapshot) identity both
- * still match, so a slow stale query can never relabel itself.
+ * intent are SEPARATE latest-wins lanes (operation leases over one runtime
+ * scope). Changing the compared terms or the snapshot cancels and reissues
+ * both. The concordance is a MERGED multi-term view (kwic/2, concordance
+ * amendment): it is INDEPENDENT of `focusedSeries` (which only emphasizes
+ * trend lines), and is reissued by a per-term toggle, by a settled scrub
+ * re-centre (debounced), and by a term/snapshot change. A result is written
+ * only while its lease holds — latest in its lane, scope alive, AND the
+ * captured (generation, snapshot) identity guard — so a slow stale query can
+ * never relabel itself, even after disposal.
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
@@ -46,7 +48,9 @@ import {
   type StructureOverrideV1,
   type TermGroupSpec,
 } from '@texttrends/core';
+import { isCancelled } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
+import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
   LineExcerptResultV1,
   QueryOpV4,
@@ -165,8 +169,8 @@ export interface KwicState {
 export const KWIC_CENTER_DEBOUNCE_MS = 150;
 
 /** The focused document's chapter outline (commit 8a, read-only preview). A
- *  request/response query like KWIC — epoch- and (generation,snapshot,doc)-
- *  guarded — but issued INDEPENDENTLY of the term series so the outline works
+ *  request/response query like KWIC — lease-guarded on (generation,snapshot,
+ *  doc) — but issued INDEPENDENTLY of the term series so the outline works
  *  with an empty term input. `doc` names the request so a component never
  *  pairs rows with a different focus. A doc with no chapters resolves 'ready'
  *  with only the root row; a real query failure is 'error'. */
@@ -180,7 +184,7 @@ export interface StructureState {
 
 /** On-demand authoring context for a doc (commit 8b): the DETECTED baseline +
  *  base identities the correction editor (8c) diffs against. Fetched when the
- *  editor opens, epoch- and (generation,snapshot,doc)-guarded, cleared on a
+ *  editor opens, lease-guarded on (generation,snapshot,doc), cleared on a
  *  snapshot change. */
 export interface EditContextState {
   readonly doc: string;
@@ -400,30 +404,60 @@ function resolveFocusedDoc(prev: string | null, next: SessionState): string | nu
   return snapshot.readyDocs[0] ?? null;
 }
 
+/** One query-intent lane: latest-wins ownership plus the in-flight transport
+ *  cancels it may best-effort clean up. Superseding is ONE operation, so no
+ *  call site can cancel without invalidating or invalidate without cancelling. */
+class QueryLane {
+  private cancels: (() => void)[] = [];
+  readonly ops: LatestOperation;
+  constructor(scope: OperationScope) {
+    this.ops = new LatestOperation(scope);
+  }
+  /** Cancel + drop every tracked request and supersede outstanding leases.
+   *  Cancellation is best-effort by contract — one throwing cancel must not
+   *  abort the supersession (or teardown) of its peers. */
+  supersede(): void {
+    for (const c of this.cancels) {
+      try {
+        c();
+      } catch {
+        // The request either settles normally or its lease is already dead.
+      }
+    }
+    this.cancels = [];
+    this.ops.invalidate();
+  }
+  track(cancel: () => void): void {
+    this.cancels.push(cancel);
+  }
+}
+
 export function createAppRuntime(client: QueryClient): AppRuntime {
-  let trendEpoch = 0;
-  let kwicEpoch = 0;
+  // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
+  // lane per query intent. A lease carries the fences the old hand-rolled
+  // epochs + captured keys expressed.
+  const scope = new OperationScope();
+  const trendLane = new QueryLane(scope);
+  const kwicLane = new QueryLane(scope);
+  // Outline query intent — a separate lane from the term series so the preview
+  // survives an empty term input and a focus change reissues only it.
+  const structureLane = new QueryLane(scope);
+  // On-demand authoring intents (edit-context + line-excerpt), each its own
+  // lane; superseded on a snapshot change.
+  const editContextLane = new QueryLane(scope);
+  const lineExcerptLane = new QueryLane(scope);
+  // The scrub lane fences the passage pump's RESULTS; the pump's one-active +
+  // one-pending slot machinery below stays bespoke (it is a scheduler, not a
+  // latest-wins request), so it is a bare lane without tracked cancels.
+  const scrubOps = new LatestOperation(scope);
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
   let kwicCenter: ScrubTarget | null = null;
   let kwicCenterTimer: ReturnType<typeof setTimeout> | null = null;
-  let trendCancels: (() => void)[] = [];
-  let kwicCancel: (() => void) | null = null;
   // Scrub scheduling: ONE active passage request plus ONE replaceable pending
   // target — pointer motion never queues and never cancel-storms the worker.
-  let scrubEpoch = 0;
   let passageActiveCancel: (() => void) | null = null;
   let passagePending: ScrubTarget | null = null;
-  // Outline query intent — a separate epoch/cancel from the term series so the
-  // preview survives an empty term input and a focus change reissues only it.
-  let structureEpoch = 0;
-  let structureCancel: (() => void) | null = null;
-  // On-demand authoring intents (edit-context + line-excerpt), each with its
-  // own epoch/cancel; cleared on a snapshot change.
-  let editContextEpoch = 0;
-  let editContextCancel: (() => void) | null = null;
-  let lineExcerptEpoch = 0;
-  let lineExcerptCancel: (() => void) | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -431,8 +465,32 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   let session: SessionPort | null = null;
   let unsubscribe: (() => void) | null = null;
   let attached = false;
+  let disposed = false;
 
   const store = create<AppState>((set, get) => {
+    /** Issue ONE guarded query on a lane: track its cancel, deliver only while
+     *  the lease holds, swallow typed cancellation, surface real failures. The
+     *  caller's onReady narrows the op discriminant and writes its own state. */
+    const issueOn = (
+      lane: QueryLane,
+      snapshotId: string,
+      op: QueryOpV4,
+      lease: OperationLease,
+      onReady: (data: QueryResultDataV4) => void,
+      onError: (message: string) => void,
+    ): void => {
+      const handle = client.query(snapshotId, op);
+      lane.track(handle.cancel);
+      void handle.result
+        .then((data) => {
+          if (lease.isCurrent()) onReady(data);
+        })
+        .catch((e: unknown) => {
+          if (isCancelled(e) || !lease.isCurrent()) return;
+          onError(e instanceof Error ? e.message : String(e));
+        });
+    };
+
     /** Group/member ids derive from the series' presentation id — pure evidence
      *  provenance (the worker keys occurrences on `termGroupIdentity`, not this).
      *  The actual matched surface is `s.label` under the folded `MATCH` mode,
@@ -479,8 +537,8 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       passagePending = null;
       const { snapshot, series } = get();
       if (!snapshot || series.length === 0) return;
-      const issuedEpoch = scrubEpoch;
       const issuedKey = snapKey(snapshot);
+      const lease = scrubOps.begin(() => snapKey(get().snapshot) === issuedKey);
       const handle = client.query(snapshot.snapshot, {
         op: 'passage',
         request: {
@@ -491,8 +549,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         },
       });
       passageActiveCancel = handle.cancel;
-      const current = () =>
-        scrubEpoch === issuedEpoch && snapKey(get().snapshot) === issuedKey;
+      const current = () => lease.isCurrent();
       /** Only the CURRENT owner of the active slot may clear it and pump —
        *  a structurally superseded request's late settlement must not free
        *  the slot out from under its replacement. */
@@ -509,8 +566,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         })
         .catch((e: unknown) => {
           if (!settleOwnership()) return;
-          const message = e instanceof Error ? e.message : String(e);
-          if (message !== 'cancelled' && current()) {
+          if (!isCancelled(e) && current()) {
             // A rejected center (stale geometry) or failed read: drop the
             // scrub rather than display a block that does not match it. The
             // concordance center goes with it so it cannot resurrect.
@@ -527,9 +583,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
     /** Issue the merged concordance for the ENABLED terms, centred on the
      *  SETTLED axis position (`kwicCenter`). Independent of `focusedSeries`. */
     const runKwic = () => {
-      kwicCancel?.();
-      kwicCancel = null;
-      const myEpoch = ++kwicEpoch;
+      kwicLane.supersede(); // even a no-query outcome supersedes in-flight work
       const { snapshot, series, kwicEnabledSeries } = get();
       // No snapshot, or no terms at all (blank input) → no panel (kwic null),
       // distinct from "terms exist but all toggled off" (the no-terms state).
@@ -547,32 +601,28 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         return;
       }
       const issuedKey = snapKey(snapshot);
+      const lease = kwicLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
       set({ kwic: { center, state: { status: 'pending' } } });
-      const handle = client.query(snapshot.snapshot, {
-        op: 'kwic',
-        selection: { docs: [...snapshot.readyDocs] },
-        tracks: enabled.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
-        request: {
-          contextTokens: 6,
-          ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
-          sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-          page: { offset: 0, limit: 50 },
+      issueOn(
+        kwicLane,
+        snapshot.snapshot,
+        {
+          op: 'kwic',
+          selection: { docs: [...snapshot.readyDocs] },
+          tracks: enabled.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
+          request: {
+            contextTokens: 6,
+            ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
+            sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
+            page: { offset: 0, limit: 50 },
+          },
         },
-      });
-      kwicCancel = handle.cancel;
-      const current = () =>
-        kwicEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
-      void handle.result
-        .then((data) => {
-          if (data.op === 'kwic' && current()) {
-            set({ kwic: { center, state: { status: 'ready', total: data.total, rows: data.rows } } });
-          }
-        })
-        .catch((e: unknown) => {
-          const message = e instanceof Error ? e.message : String(e);
-          if (message === 'cancelled' || !current()) return; // superseded — the newer epoch owns the panel
-          set({ kwic: { center, state: { status: 'error', message } } });
-        });
+        lease,
+        (data) => {
+          if (data.op === 'kwic') set({ kwic: { center, state: { status: 'ready', total: data.total, rows: data.rows } } });
+        },
+        (message) => set({ kwic: { center, state: { status: 'error', message } } }),
+      );
     };
 
     /** Forget the settled axis position — used wherever the public scrub is
@@ -591,9 +641,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       // toggle adopts the live scrub, so nothing is lost.
       const { series, kwicEnabledSeries } = get();
       if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
-      kwicCancel?.();
-      kwicCancel = null;
-      kwicEpoch++; // any in-flight KWIC result was under the old center — drop it
+      kwicLane.supersede(); // any in-flight KWIC result was under the old center — drop it
       const held = get().kwic;
       if (held && held.state.status !== 'pending') set({ kwic: { center: held.center, state: { status: 'pending' } } });
       if (kwicCenterTimer !== null) clearTimeout(kwicCenterTimer);
@@ -740,13 +788,11 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         // Trend intent changed: ALWAYS cancel superseded work, clear to
         // pending, and invalidate the epoch — even when the new intent runs
         // no query (round 2: a blank input must not relabel old evidence).
-        for (const cancel of trendCancels) cancel();
-        trendCancels = [];
-        const myEpoch = ++trendEpoch;
+        trendLane.supersede(); // even a no-query outcome supersedes in-flight work
         // The loaded passage block and any in-flight/pending fetch belong to
         // the OLD series set / snapshot — marks would be stale evidence. The
         // scrub POSITION is kept; a fresh block is fetched below if possible.
-        scrubEpoch++;
+        scrubOps.invalidate();
         passageActiveCancel?.();
         passageActiveCancel = null;
         passagePending = null;
@@ -772,43 +818,40 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         set({
           trends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])),
         });
-        const current = () =>
-          trendEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
+        // ONE lease for the whole series burst — the burst is a single intent.
+        const lease = trendLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
 
         for (const s of series) {
-          const handle = client.query(issuedSnapshot, {
-            op: 'trend',
-            selection: { docs: [...snapshot.readyDocs] },
-            group: groupFor(s),
-            request: { coordinate: 'declared-sequence', binsPerDoc: BINS },
-          });
-          trendCancels.push(handle.cancel);
           const write = (state: SeriesTrendState) =>
             set((prev) => {
               const next = new Map(prev.trends); // NEVER mutate the resident map
               next.set(s.id, state);
               return { trends: next };
             });
-          void handle.result
-            .then((data) => {
-              if (data.op === 'trend' && current()) write({ status: 'ready', trend: data.trend });
-            })
-            .catch((e: unknown) => {
-              const message = e instanceof Error ? e.message : String(e);
-              if (message === 'cancelled' || !current()) return;
-              // A genuine failure must mark ITS series, not silently vanish
-              // — and must not erase successful peers.
-              write({ status: 'error', message });
-            });
+          issueOn(
+            trendLane,
+            issuedSnapshot,
+            {
+              op: 'trend',
+              selection: { docs: [...snapshot.readyDocs] },
+              group: groupFor(s),
+              request: { coordinate: 'declared-sequence', binsPerDoc: BINS },
+            },
+            lease,
+            (data) => {
+              if (data.op === 'trend') write({ status: 'ready', trend: data.trend });
+            },
+            // A genuine failure must mark ITS series, not silently vanish —
+            // and must not erase successful peers.
+            (message) => write({ status: 'error', message }),
+          );
         }
 
         runKwic();
       },
 
       runStructure() {
-        structureCancel?.();
-        structureCancel = null;
-        const myEpoch = ++structureEpoch;
+        structureLane.supersede();
         const { snapshot, focusedDoc } = get();
         if (!snapshot || !focusedDoc || !snapshot.readyDocs.includes(focusedDoc)) {
           set({ structure: null });
@@ -816,80 +859,67 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         }
         const issuedKey = snapKey(snapshot);
         const issuedDoc = focusedDoc;
-        set({ structure: { doc: focusedDoc, state: { status: 'pending' } } });
-        const handle = client.query(snapshot.snapshot, { op: 'structure', request: { doc: focusedDoc } });
-        structureCancel = handle.cancel;
         // (generation, snapshot, doc): a slow result for a superseded focus or
         // snapshot must never relabel the current outline.
-        const current = () =>
-          structureEpoch === myEpoch &&
-          snapKey(get().snapshot) === issuedKey &&
-          get().focusedDoc === issuedDoc;
-        void handle.result
-          .then((data) => {
-            if (data.op === 'structure' && current()) {
-              set({ structure: { doc: issuedDoc, state: { status: 'ready', result: data.structure } } });
-            }
-          })
-          .catch((e: unknown) => {
-            const message = e instanceof Error ? e.message : String(e);
-            if (message === 'cancelled' || !current()) return;
-            set({ structure: { doc: issuedDoc, state: { status: 'error', message } } });
-          });
+        const lease = structureLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().focusedDoc === issuedDoc,
+        );
+        set({ structure: { doc: focusedDoc, state: { status: 'pending' } } });
+        issueOn(
+          structureLane,
+          snapshot.snapshot,
+          { op: 'structure', request: { doc: focusedDoc } },
+          lease,
+          (data) => {
+            if (data.op === 'structure') set({ structure: { doc: issuedDoc, state: { status: 'ready', result: data.structure } } });
+          },
+          (message) => set({ structure: { doc: issuedDoc, state: { status: 'error', message } } }),
+        );
       },
 
       requestEditContext(doc) {
-        editContextCancel?.();
-        editContextCancel = null;
-        const myEpoch = ++editContextEpoch;
+        editContextLane.supersede();
         const { snapshot } = get();
         if (!snapshot || !snapshot.readyDocs.includes(doc)) {
           set({ editContext: null });
           return;
         }
         const issuedKey = snapKey(snapshot);
+        const lease = editContextLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
         set({ editContext: { doc, state: { status: 'pending' } } });
-        const handle = client.query(snapshot.snapshot, { op: 'structure-edit-context', request: { doc } });
-        editContextCancel = handle.cancel;
-        const current = () => editContextEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
-        void handle.result
-          .then((data) => {
-            if (data.op === 'structure-edit-context' && current()) {
-              set({ editContext: { doc, state: { status: 'ready', context: data.context } } });
-            }
-          })
-          .catch((e: unknown) => {
-            const message = e instanceof Error ? e.message : String(e);
-            if (message === 'cancelled' || !current()) return;
-            set({ editContext: { doc, state: { status: 'error', message } } });
-          });
+        issueOn(
+          editContextLane,
+          snapshot.snapshot,
+          { op: 'structure-edit-context', request: { doc } },
+          lease,
+          (data) => {
+            if (data.op === 'structure-edit-context') set({ editContext: { doc, state: { status: 'ready', context: data.context } } });
+          },
+          (message) => set({ editContext: { doc, state: { status: 'error', message } } }),
+        );
       },
 
       requestLineExcerpt(doc, anchor, maxChars) {
-        lineExcerptCancel?.();
-        lineExcerptCancel = null;
-        const myEpoch = ++lineExcerptEpoch;
+        lineExcerptLane.supersede();
         const { snapshot } = get();
         if (!snapshot || !snapshot.readyDocs.includes(doc)) {
           set({ lineExcerpt: null });
           return;
         }
         const issuedKey = snapKey(snapshot);
+        const lease = lineExcerptLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
         set({ lineExcerpt: { doc, anchor, state: { status: 'pending' } } });
-        const handle = client.query(snapshot.snapshot, { op: 'line-excerpt', request: { doc, anchor, maxChars } });
-        lineExcerptCancel = handle.cancel;
-        const current = () => lineExcerptEpoch === myEpoch && snapKey(get().snapshot) === issuedKey;
-        void handle.result
-          .then((data) => {
-            if (data.op === 'line-excerpt' && current()) {
-              set({ lineExcerpt: { doc, anchor, state: { status: 'ready', excerpt: data.excerpt } } });
-            }
-          })
-          .catch((e: unknown) => {
-            const message = e instanceof Error ? e.message : String(e);
-            if (message === 'cancelled' || !current()) return;
-            set({ lineExcerpt: { doc, anchor, state: { status: 'error', message } } });
-          });
+        issueOn(
+          lineExcerptLane,
+          snapshot.snapshot,
+          { op: 'line-excerpt', request: { doc, anchor, maxChars } },
+          lease,
+          (data) => {
+            if (data.op === 'line-excerpt') set({ lineExcerpt: { doc, anchor, state: { status: 'ready', excerpt: data.excerpt } } });
+          },
+          (message) => set({ lineExcerpt: { doc, anchor, state: { status: 'error', message } } }),
+        );
       },
 
       // ── Session command wrappers ──────────────────────────────────────────
@@ -959,12 +989,8 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
     if (prevKey !== nextKey) {
       // The on-demand authoring intents are bound to the old snapshot's
       // artifacts — cancel and clear them before the outline reissues.
-      editContextCancel?.();
-      editContextCancel = null;
-      editContextEpoch++;
-      lineExcerptCancel?.();
-      lineExcerptCancel = null;
-      lineExcerptEpoch++;
+      editContextLane.supersede();
+      lineExcerptLane.supersede();
       if (store.getState().editContext !== null || store.getState().lineExcerpt !== null) {
         store.setState({ editContext: null, lineExcerpt: null });
       }
@@ -976,6 +1002,12 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
   return {
     useApp: store,
     attachSession(next: SessionPort) {
+      if (disposed) {
+        // A late attachment (async bootstrap racing teardown) must not bridge
+        // into a disposed runtime — the runtime owns its session, so dispose it.
+        next.dispose();
+        return;
+      }
       if (attached) {
         if (next === session) return;
         throw new Error('a session is already attached; one session lives per app lifetime');
@@ -989,9 +1021,29 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       acceptSessionState(next.getState());
     },
     failBootstrap(error: unknown) {
+      if (disposed) return; // a torn-down runtime reports nothing
       store.setState({ bootstrap: { phase: 'error', message: msg(error) } });
     },
     dispose() {
+      disposed = true;
+      // Close the ownership scope FIRST: every outstanding lease goes dead, so
+      // a late settlement (even one whose cancel is never acknowledged) can no
+      // longer write to the store. Then best-effort transport cleanup: cancel
+      // every in-flight query, drop the pending passage slot, and stop the
+      // debounce timer so it cannot mint a query after disposal.
+      scope.close();
+      trendLane.supersede();
+      kwicLane.supersede();
+      structureLane.supersede();
+      editContextLane.supersede();
+      lineExcerptLane.supersede();
+      passageActiveCancel?.();
+      passageActiveCancel = null;
+      passagePending = null;
+      if (kwicCenterTimer !== null) {
+        clearTimeout(kwicCenterTimer);
+        kwicCenterTimer = null;
+      }
       unsubscribe?.();
       unsubscribe = null;
       session?.dispose();
