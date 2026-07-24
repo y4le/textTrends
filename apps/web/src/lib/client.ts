@@ -21,9 +21,9 @@ import type {
   QueryOpV4,
   QueryResultDataV4,
   SourceDescriptorV4,
-  StorageWarningCodeV4,
   ToWorkerV4,
   UserDataErrorCodeV4,
+  WorkerErrorCodeV4,
 } from '../worker/protocol-v4.ts';
 import { PROTOCOL_VERSION_V4 } from '../worker/protocol-v4.ts';
 import type { ProtocolTraceSink } from './trace.ts';
@@ -41,6 +41,36 @@ export class UserDataClientError extends Error {
     if (currentRevision !== undefined) this.currentRevision = currentRevision;
   }
 }
+
+/** Transport-lifecycle failure codes for analysis-lane rejections. */
+export type WorkerClientFailureCode =
+  | 'CANCELLED'
+  | 'WORKER_RESTARTED'
+  | 'WORKER_TERMINATED'
+  | 'WORKER_POST_FAILED'
+  | 'WORKER_ERROR';
+
+/** A typed transport/lifecycle rejection from the analysis lane. `code` is the
+ *  control-flow discriminant — message text is presentation only and must never
+ *  be compared. A worker analysis error additionally carries its wire code in
+ *  `analysisCode`. Durable user-data failures stay `UserDataClientError`: their
+ *  codes (and `currentRevision`) are domain data, not transport lifecycle. */
+export class WorkerClientError extends Error {
+  readonly code: WorkerClientFailureCode;
+  readonly analysisCode?: WorkerErrorCodeV4;
+  constructor(code: WorkerClientFailureCode, message: string, analysisCode?: WorkerErrorCodeV4) {
+    super(message);
+    this.name = 'WorkerClientError';
+    this.code = code;
+    if (analysisCode !== undefined) this.analysisCode = analysisCode;
+  }
+}
+
+/** THE cancellation predicate — a deliberate cancel is invisible noise to every
+ *  consumer, and only the typed code says so (an error whose message happens to
+ *  read 'cancelled' is a real error). */
+export const isCancelled = (e: unknown): boolean =>
+  e instanceof WorkerClientError && e.code === 'CANCELLED';
 
 /** Resolution of projectLoad: the raw persisted manifest (the caller
  *  deep-validates it), or a miss. Corrupt/unavailable rejects with a
@@ -100,7 +130,6 @@ const MAX_WORKER_RESTARTS = 3;
 
 type Pending =
   | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
-  | { kind: 'excerpt'; resolve: (text: string) => void; reject: (e: Error) => void }
   | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void }
   | { kind: 'project-load'; resolve: (r: ProjectLoadResult) => void; reject: (e: Error) => void }
   | { kind: 'project-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
@@ -116,13 +145,15 @@ export class WorkerClient {
    *  worker would hang forever — and only an explicit openGeneration (a
    *  user-initiated retry) revives the client with a fresh budget. */
   private dead = false;
+  /** Set by close(): terminal, NOT revivable (unlike restart exhaustion) —
+   *  disposal/HMR teardown must never resurrect a Worker. */
+  private closed = false;
   private nextJob = 1;
   private readonly pending = new Map<number, Pending>();
   private snapshotListener: ((info: SnapshotInfo) => void) | null = null;
   private progressListener: ((p: IngestProgress) => void) | null = null;
   private ingestErrorListener: ((generation: string, message: string, doc?: string) => void) | null = null;
   private sourceReadyListener: ((info: SourceReadyInfo) => void) | null = null;
-  private warningListener: ((code: StorageWarningCodeV4, message: string) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
   /** job -> the ingest's generation + document. A successful ingest has no
    *  job-bearing completion event (source-ready is too early — segment/index/
@@ -161,7 +192,7 @@ export class WorkerClient {
    *  what the barrier reports missing. */
   private restart(): void {
     for (const [, p] of this.pending) {
-      p.reject(new Error('WORKER_RESTARTED'));
+      p.reject(new WorkerClientError('WORKER_RESTARTED', 'WORKER_RESTARTED'));
     }
     this.pending.clear();
     this.ingestJobs.clear();
@@ -195,9 +226,6 @@ export class WorkerClient {
    *  document from it, gating on the info's job/generation/doc. */
   onSourceReady(listener: (info: SourceReadyInfo) => void): void {
     this.sourceReadyListener = listener;
-  }
-  onWarning(listener: (code: StorageWarningCodeV4, message: string) => void): void {
-    this.warningListener = listener;
   }
   /** fatal=false: a replacement worker is live — re-open the generation.
    *  fatal=true: restarts are exhausted; surface the failure. */
@@ -265,19 +293,11 @@ export class WorkerClient {
         }
         return;
       }
-      case 'excerpt-result': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'excerpt') {
-          this.pending.delete(m.job);
-          p.resolve(m.text);
-        }
-        return;
-      }
       case 'cancelled': {
         const p = this.pending.get(m.job);
         if (p) {
           this.pending.delete(m.job);
-          p.reject(new Error('cancelled'));
+          p.reject(new WorkerClientError('CANCELLED', 'cancelled'));
         }
         return;
       }
@@ -285,7 +305,7 @@ export class WorkerClient {
         const p = m.job !== undefined ? this.pending.get(m.job) : undefined;
         if (p) {
           this.pending.delete(m.job!);
-          p.reject(new Error(`${m.code}: ${m.message}`));
+          p.reject(new WorkerClientError('WORKER_ERROR', `${m.code}: ${m.message}`, m.code));
           return;
         }
         // Uncorrelated errors from ingest jobs surface to the app instead of
@@ -301,9 +321,11 @@ export class WorkerClient {
       }
       case 'warning':
         // Storage health is non-fatal by contract — never routed into
-        // ingest-failure or query rejection paths.
-        if (this.warningListener) this.warningListener(m.code, m.message);
-        else console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
+        // ingest-failure or query rejection paths. The codes are all
+        // artifact-CACHE degradation (cold recomputes, never data loss), so a
+        // console warning is the whole surface; durable user-data failures
+        // arrive as typed UserDataClientError rejections instead.
+        console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
         return;
       case 'source-ready':
         // The correlated extraction event — surfaced for import assembly. It is
@@ -378,6 +400,13 @@ export class WorkerClient {
     docs: readonly GenerationDocSpecV4[],
     indexRecipe: IndexRecipeProvisional,
   ): { result: Promise<GenerationReady>; cancel: () => void } {
+    // A closed client is terminal — teardown must never resurrect a Worker.
+    if (this.closed) {
+      return {
+        result: Promise.reject(new WorkerClientError('WORKER_TERMINATED', 'WORKER_TERMINATED: the client was closed')),
+        cancel: () => undefined,
+      };
+    }
     // An explicit new generation is user intent to try again: revive a dead
     // client with a fresh restart budget instead of posting into the void.
     // Revival is TRANSACTIONAL — new Worker() can throw synchronously, and a
@@ -391,7 +420,7 @@ export class WorkerClient {
       } catch (e) {
         return {
           result: Promise.reject(
-            new Error(`WORKER_TERMINATED: replacement worker construction failed (${e instanceof Error ? e.message : String(e)})`),
+            new WorkerClientError('WORKER_TERMINATED', `WORKER_TERMINATED: replacement worker construction failed (${e instanceof Error ? e.message : String(e)})`),
           ),
           cancel: () => undefined,
         };
@@ -404,15 +433,10 @@ export class WorkerClient {
     // any late errors are moot (a superseded ingest answers GENERATION_STALE),
     // so retire them rather than let them accrete or mis-route.
     this.ingestJobs.clear();
-    const job = this.nextJob++;
-    const result = new Promise<GenerationReady>((resolve, reject) => {
+    return this.request<GenerationReady>((job, resolve, reject) => {
       this.pending.set(job, { kind: 'open', resolve, reject });
+      this.post({ v: PROTOCOL_VERSION_V4, t: 'begin-generation', job, generation, docs, indexRecipe });
     });
-    this.post({ v: PROTOCOL_VERSION_V4, t: 'begin-generation', job, generation, docs, indexRecipe });
-    return {
-      result,
-      cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }),
-    };
   }
 
   /** Returns the correlation `job` so a caller can match this ingest's
@@ -452,7 +476,7 @@ export class WorkerClient {
    *  corrupt record or unavailable storage. Cancellable before the read/deep
    *  validation completes. */
   projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void } {
-    return this.userDataRequest<ProjectLoadResult>(
+    return this.request<ProjectLoadResult>(
       (job, resolve, reject) => {
         this.pending.set(job, { kind: 'project-load', resolve, reject });
         this.post({ v: PROTOCOL_VERSION_V4, t: 'project-load', job, project });
@@ -464,7 +488,7 @@ export class WorkerClient {
    *  committed revision; rejects UserDataClientError (REVISION_CONFLICT carries
    *  the stored `currentRevision`). Cancellable before the durable write begins. */
   projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
-    return this.userDataRequest<{ revision: number }>(
+    return this.request<{ revision: number }>(
       (job, resolve, reject) => {
         this.pending.set(job, { kind: 'project-save', resolve, reject });
         this.post({ v: PROTOCOL_VERSION_V4, t: 'project-save', job, project: manifest.id, manifest, expectedRevision });
@@ -477,7 +501,7 @@ export class WorkerClient {
    *  Resolves only after the durable write commits; rejects UserDataClientError.
    *  Cancellable before the durable write begins (a truthful ack wins after). */
   sourcePersist(sourceHash: string, bytes: ArrayBuffer): { result: Promise<void>; cancel: () => void } {
-    return this.userDataRequest<void>(
+    return this.request<void>(
       (job, resolve, reject) => {
         this.pending.set(job, { kind: 'source-persist', resolve, reject });
         this.post({ v: PROTOCOL_VERSION_V4, t: 'source-persist', job, sourceHash, bytes }, [bytes]);
@@ -486,18 +510,19 @@ export class WorkerClient {
   }
 
   /**
-   * The shared correlation+cancel harness for a user-data request: assign a
-   * job, set up the pending resolver, POST inside a guard that deletes the exact
-   * entry and rejects if postMessage throws synchronously (never leaking a
-   * pending resolver or throwing from the public method), and expose a cancel
-   * that posts a cancel for this job (rejected as `cancelled` by the worker's
-   * pre-write cancellation, ignored once the durable write commits).
+   * The ONE correlation+cancel harness for every request/response operation
+   * (analysis queries, generation opens, user-data ops): assign a job, set up
+   * the pending resolver, POST inside a guard that deletes the exact entry and
+   * rejects typed WORKER_POST_FAILED if postMessage throws synchronously
+   * (never leaking a pending resolver or throwing from the public method), and
+   * expose a NO-THROW best-effort cancel for this job (rejected as CANCELLED
+   * by the worker's cancellation, ignored once the operation commits).
    */
-  private userDataRequest<T>(
+  private request<T>(
     send: (job: number, resolve: (r: T) => void, reject: (e: Error) => void) => void,
   ): { result: Promise<T>; cancel: () => void } {
     if (this.dead) {
-      return { result: Promise.reject(new Error('WORKER_TERMINATED: the analysis worker is not running')), cancel: () => undefined };
+      return { result: Promise.reject(new WorkerClientError('WORKER_TERMINATED', 'WORKER_TERMINATED: the analysis worker is not running')), cancel: () => undefined };
     }
     const job = this.nextJob++;
     const result = new Promise<T>((resolve, reject) => {
@@ -505,39 +530,49 @@ export class WorkerClient {
         send(job, resolve, reject);
       } catch (e) {
         this.pending.delete(job);
-        reject(new Error(`WORKER_POST_FAILED: ${e instanceof Error ? e.message : String(e)}`));
+        reject(new WorkerClientError('WORKER_POST_FAILED', `WORKER_POST_FAILED: ${e instanceof Error ? e.message : String(e)}`));
       }
     });
-    return { result, cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }) };
+    return { result, cancel: () => this.cancelJob(job) };
+  }
+
+  /** Best-effort cancellation must never throw: a cancel closure runs inside
+   *  supersession and teardown paths that must complete regardless. */
+  private cancelJob(job: number): void {
+    try {
+      this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job });
+    } catch {
+      // The request either settles normally or was already fenced.
+    }
+  }
+
+  /** Permanently tear the client down (app disposal / Vite HMR replacement):
+   *  fence the worker epoch so straggling events are ignored, reject every
+   *  pending request with a typed WORKER_TERMINATED, clear job bookkeeping and
+   *  listeners, and terminate the Worker. Terminal — close() is not revivable,
+   *  and a cancel() closure posting into the terminated Worker is a no-op. */
+  close(): void {
+    if (this.closed) return;
+    this.closed = true;
+    this.dead = true;
+    this.workerEpoch++; // fence any straggling events from the live instance
+    for (const [, p] of this.pending) {
+      p.reject(new WorkerClientError('WORKER_TERMINATED', 'WORKER_TERMINATED: the client was closed'));
+    }
+    this.pending.clear();
+    this.ingestJobs.clear();
+    this.snapshotListener = null;
+    this.progressListener = null;
+    this.ingestErrorListener = null;
+    this.sourceReadyListener = null;
+    this.restartListener = null;
+    this.worker.terminate();
   }
 
   query(snapshot: string, query: QueryOpV4): { result: Promise<QueryResultDataV4>; cancel: () => void } {
-    if (this.dead) {
-      return {
-        result: Promise.reject(new Error('WORKER_TERMINATED: the analysis worker is not running')),
-        cancel: () => undefined,
-      };
-    }
-    const job = this.nextJob++;
-    const result = new Promise<QueryResultDataV4>((resolve, reject) => {
+    return this.request<QueryResultDataV4>((job, resolve, reject) => {
       this.pending.set(job, { kind: 'query', resolve, reject });
+      this.post({ v: PROTOCOL_VERSION_V4, t: 'query', job, snapshot, query });
     });
-    this.post({ v: PROTOCOL_VERSION_V4, t: 'query', job, snapshot, query });
-    return {
-      result,
-      cancel: () => this.post({ v: PROTOCOL_VERSION_V4, t: 'cancel', job }),
-    };
-  }
-
-  excerpt(snapshot: string, doc: string, charStart: number, charEnd: number): Promise<string> {
-    if (this.dead) {
-      return Promise.reject(new Error('WORKER_TERMINATED: the analysis worker is not running'));
-    }
-    const job = this.nextJob++;
-    const result = new Promise<string>((resolve, reject) => {
-      this.pending.set(job, { kind: 'excerpt', resolve, reject });
-    });
-    this.post({ v: PROTOCOL_VERSION_V4, t: 'excerpt', job, snapshot, doc, charStart, charEnd });
-    return result;
   }
 }
