@@ -12,7 +12,7 @@ import {
   DecodeError,
   decodeDocumentSource,
   finalizeExtraction,
-  SOURCE_FORMATS,
+  isLiteralFormat,
   type ExtractedDocument,
   type ExtractionRecipeProvisional,
 } from '@texttrends/core';
@@ -75,7 +75,7 @@ export async function extractSource(
   hooks?: ExtractionHooks,
 ): Promise<ExtractedDocument> {
   let result: ExtractedDocument;
-  if (SOURCE_FORMATS[recipe.format].extractionKind === 'literal') {
+  if (isLiteralFormat(recipe.format)) {
     hooks?.onPhaseStart?.('decode');
     let decoded;
     try {

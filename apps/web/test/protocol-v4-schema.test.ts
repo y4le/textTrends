@@ -223,6 +223,10 @@ describe('narrowQueryV4', () => {
     const sixTracks = Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup }));
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: sixTracks } })).toBe(false);
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }] } })).toBe(false);
+    // Passage tracks share the ONE narrowing authority with kwic: an EMPTY
+    // seriesId is rejected (the old inline copy admitted it) — zero tracks stay valid.
+    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: '', group: wolfGroup }] } })).toBe(false);
+    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [] } })).toBe(true);
     // kwic: 0 tracks, over the shared cap, duplicate seriesId, and a malformed center.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [], request: kwicReq })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: sixTracks, request: kwicReq })).toBe(false);

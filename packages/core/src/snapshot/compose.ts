@@ -35,7 +35,7 @@ export type ReadyStructure = StructureArtifactV2;
 
 /** Canonical structure hash. */
 export async function structureHashOf(artifact: ReadyStructure): Promise<StructureHash> {
-  return (await sha256Hex(canonicalJson(artifact as unknown as Parameters<typeof canonicalJson>[0]))) as StructureHash;
+  return (await sha256Hex(canonicalJson(artifact))) as StructureHash;
 }
 
 declare const brand: unique symbol;

@@ -47,7 +47,6 @@ export class ArtifactCorruptError extends Error {
   }
 }
 
-const isSafeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
 
 // Candidate ABI is defined ONCE in candidates.ts so cold extraction, the
 // transformed builder, and this admission path can never diverge on what a

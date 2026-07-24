@@ -26,7 +26,8 @@
 import { isNonNegSafeInt, isRecord } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ProjectManifestV1 } from '@texttrends/core';
-import type { CacheRead, StorageOpen } from '../shared/storage-contract.ts';
+import type { CacheRead } from '../shared/storage-contract.ts';
+import type { UserDataAccess } from './user-data-handler.ts';
 import {
   UserDataError,
   assertRevisionContract,
@@ -167,7 +168,7 @@ export class IdbUserDataStore implements UserDataStore {
   }
 }
 
-export type UserDataOpen = StorageOpen<UserDataStore>;
+export type UserDataOpen = UserDataAccess;
 
 /**
  * Open the durable store. UNLIKE the artifact cache, a blocked upgrade is

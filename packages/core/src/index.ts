@@ -154,11 +154,13 @@ export {
   type TextSourceDescriptorV1,
 } from './extract/extraction.ts';
 export {
+  isLiteralFormat,
+  isSourceFormat,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
-  isSourceFormat,
   sourceFormatForFilename,
   stripSourceExtension,
+  type LiteralSourceFormat,
   type SourceFormatMetadata,
 } from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';

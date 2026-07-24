@@ -141,7 +141,12 @@ export function TrendPanel() {
   const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
   const titles = docs.map((doc) => titleByDoc.get(doc) ?? doc);
   const bins = docs.length === 0 ? 0 : geo.binIndex.length / docs.length;
-  const bases = geo.sequenceBases ?? docs.map((_, d) => d * (geo.docTokenCount[d] ?? 0));
+  // The store always requests declared-sequence coordinates, so the kernel
+  // always returns sequenceBases — a null here is an invariant violation, and
+  // the old ad-hoc fallback (d * count[d]) was NOT a prefix sum and would have
+  // silently mislaid every x-position had it ever run.
+  if (!geo.sequenceBases) throw new Error('trend result missing sequenceBases (declared-sequence is the only requested coordinate)');
+  const bases = geo.sequenceBases;
   const layout: SequenceLayout = {
     bases,
     tokenCounts: geo.docTokenCount,

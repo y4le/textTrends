@@ -33,6 +33,7 @@ import {
   DependencyError,
   INGEST_CAPS_V0,
   bindSectionId,
+  hashSourceBytes,
   bindShards,
   bindTexts,
   buildDetectedSections,
@@ -101,7 +102,6 @@ import {
   type EditSectionRow,
   type QueryOpV4,
   type StorageWarningCodeV4,
-  type ToWorkerV4,
   type WarmMissReasonV4,
   type WireSection,
   type WorkerErrorCodeV4,
@@ -109,7 +109,6 @@ import {
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
 import { extractSource, ExtractionFailure, type ExtractionLimits } from '@texttrends/extractors';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
-import type { UserDataStore } from './user-data-store.ts';
 
 type EmitV4 = (message: FromWorkerV4, transfers?: readonly Transferable[]) => void;
 type Yield = () => Promise<void>;
@@ -362,7 +361,8 @@ export class WorkerEngineV4 {
       }
     } catch (e) {
       if (e === CANCELLED || e === SUPERSEDED) return;
-      this.emit({ v: PROTOCOL_VERSION_V4, t: 'error', ...(job === undefined ? {} : { job }), ...mapError(e), recoverable: true });
+      const m = mapError(e);
+      this.emitError(m.code, { ...(job === undefined ? {} : { job }), message: m.message, recoverable: true });
     } finally {
       if (job !== undefined && message.t !== 'cancel') {
         this.activeJobs.delete(job);
@@ -731,7 +731,22 @@ export class WorkerEngineV4 {
     this.docGate(job, token);
     if (read.kind === 'miss') return { kind: 'needs-bytes', reason: 'source-miss' };
     if (read.kind === 'corrupt') {
-      this.warnStorage('CACHE_CORRUPT', `persisted source for '${plan.doc}' is corrupt (${read.reason}); retained`, gen.generation);
+      // Durable damage is CLASS-1 user data needing repair — it is reported
+      // through the warm-miss reason (→ the session's SourceRepairReason),
+      // NEVER through the artifact-CACHE warning vocabulary, whose contract
+      // says "disposable; recompute" (pass-2 Track S2). The record is retained.
+      return { kind: 'needs-bytes', reason: 'source-corrupt' };
+    }
+    // AUTHENTICATE BEFORE EXTRACTING (track-S review): the envelope check
+    // proves schema/length only. Hash the stored bytes now, so EVERY content
+    // mismatch — including one that would make decoding/parsing fail or blow
+    // an extraction cap — reaches the repairable persisted-corrupt path
+    // instead of degrading to rehydrate-failed or a terminal error.
+    // `rehydrate-failed` is reserved for an AUTHENTIC source the current
+    // extractor can no longer reproduce.
+    const storedHash = await hashSourceBytes(new Uint8Array(read.value.bytes));
+    this.docGate(job, token);
+    if (storedHash !== plan.expectedSourceHash) {
       return { kind: 'needs-bytes', reason: 'source-corrupt' };
     }
     // Re-extract the durable bytes as if freshly ingested. A source-dependent
@@ -763,8 +778,9 @@ export class WorkerEngineV4 {
     }
     this.docGate(job, token);
     const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
-    // Warm re-extraction: the persisted source already matched its hash, so a
-    // text/candidate drift is a terminal EXTRACTION_MISMATCH, not a byte miss.
+    // The source bytes were hash-authenticated BEFORE extraction, so a
+    // text/candidate drift here is a terminal EXTRACTION_MISMATCH
+    // (deterministic re-extraction contradiction), never a byte miss.
     this.assertAssertedIdentity(plan, identity, true);
     // A re-extracted persisted source performed NO main-thread transfer.
     this.freezeAccepted(token, identity, 0);
@@ -988,11 +1004,10 @@ export class WorkerEngineV4 {
     return { schema: 'texttrends/document-index/1', text: textHash, recipe: gen.indexRecipeHash, segmenter };
   }
 
-  /** Freeze the first accepted source/text/candidate identity for a document.
-   *  A later same-generation attempt with a DIFFERENT identity is rejected —
-   *  it must not change what this generation's document means in place. */
   /**
-   * Freeze the first accepted identity for a document AND, atomically, charge
+   * Freeze the first accepted source/text/candidate identity for a document
+   * (a later same-generation attempt with a DIFFERENT identity is rejected —
+   * it must not change what the document means in place) AND, atomically, charge
    * its transferred source bytes against the project transfer cap. This runs
    * SYNCHRONOUSLY (no await since the document was claimed), so two interleaved
    * ingests cannot both observe a pre-charge total and both slip the cap — the
@@ -1021,8 +1036,8 @@ export class WorkerEngineV4 {
     return true;
   }
 
-  /** A delivered/extracted identity must agree with any asserted expectation. */
-  /** `sourceVerified` is true on a WARM re-extraction from persisted bytes,
+  /** A delivered/extracted identity must agree with any asserted expectation.
+   *  `sourceVerified` is true on a WARM re-extraction from persisted bytes,
    *  where the source hash has ALREADY matched its key. There, a text/candidate
    *  drift is extraction nondeterminism / recipe drift — a terminal
    *  EXTRACTION_MISMATCH — NOT a different source (Codex review). On a COLD
@@ -1115,7 +1130,7 @@ export class WorkerEngineV4 {
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
     // The artifact descriptor IS the wire descriptor (the wire emits core's
-    // core's SourceDescriptorV1) — emit it as-is, no re-shaping.
+    // SourceDescriptorV1) — emit it as-is, no re-shaping.
     const source: SourceDescriptorV1 = a.descriptor;
     this.emit({
       v: PROTOCOL_VERSION_V4,
@@ -1310,7 +1325,7 @@ export class WorkerEngineV4 {
     }
 
     if (q.op === 'line-excerpt') {
-      this.queryLineExcerpt(job, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
+      this.queryLineExcerpt(job, gen, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
       return;
     }
 
@@ -1427,15 +1442,6 @@ export class WorkerEngineV4 {
   }
 
   /**
-   * The snapshot-bound structure query (§12.7, engine-v4 consult §Q5.4). Bound
-   * to the current snapshot OBJECT — a successful generation gate alone is
-   * insufficient because an incremental publication can supersede the snapshot
-   * within the same generation. Requires the ready document's identities to
-   * still equal the snapshot ref's, projects sections to token ranges (cached
-   * doc-independently by [StructureHash, IndexArtifactHash]), binds section ids
-   * deterministically from doc + lineage key, and echoes both bound identities.
-   */
-  /**
    * Resolve a structure-bearing document for a snapshot-bound query: the
    * snapshot ref, the resident ready document (whose identities must still be
    * the ones the ref names), and its V2 artifact. Emits the appropriate typed
@@ -1514,6 +1520,15 @@ export class WorkerEngineV4 {
     }));
   }
 
+  /**
+   * The snapshot-bound structure query (§12.7, engine-v4 consult §Q5.4). Bound
+   * to the current snapshot OBJECT — a successful generation gate alone is
+   * insufficient because an incremental publication can supersede the snapshot
+   * within the same generation. Requires the ready document's identities to
+   * still equal the snapshot ref's, projects sections to token ranges (cached
+   * doc-independently by [StructureHash, IndexArtifactHash]), binds section ids
+   * deterministically from doc + lineage key, and echoes both bound identities.
+   */
   private async queryStructure(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
     const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, 'structure query');
     if (!resolved) return;
@@ -1565,7 +1580,7 @@ export class WorkerEngineV4 {
       }
       detected = buildDetectedSections(text, bundle.candidates, plan.structureRecipe);
       // Bound the ephemeral cache (at most one entry per project doc).
-      if (gen.detectedTables.size >= INGEST_CAPS_V0.maxDocsPerProject) {
+      if (gen.detectedTables.size >= this.caps.maxDocsPerProject) {
         const oldest = gen.detectedTables.keys().next().value;
         if (oldest !== undefined) gen.detectedTables.delete(oldest);
       }
@@ -1612,8 +1627,7 @@ export class WorkerEngineV4 {
   /** The bounded source line around a char anchor (§4). Synchronous and cheap —
    *  a `maxChars`-bounded window (hard-capped so a caller cannot request an
    *  unbounded slice), never splitting a surrogate pair. */
-  private queryLineExcerpt(job: number, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
-    const gen = this.generation!;
+  private queryLineExcerpt(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
     const ref = snapshot.docs.find((r) => r.doc === doc);
     if (!ref) {
       this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
@@ -1649,11 +1663,7 @@ export class WorkerEngineV4 {
   }
 
   // -------------------------------------------------------------------------
-  // 7. User-data lane
-  // -------------------------------------------------------------------------
-
-  // -------------------------------------------------------------------------
-  // 8. Gates, checkpoints, and emission
+  // 7. Gates, checkpoints, and emission
   // -------------------------------------------------------------------------
 
   /** Yielding checkpoint: parks on the task queue so queued cancels run, then

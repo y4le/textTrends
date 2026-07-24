@@ -7,8 +7,7 @@
  * scalars, and the recipe/override VALUES the worker will recompute hashes
  * from.
  *
- * These mirror the v3 engine's narrowing discipline; commit 6 wires them
- * into the worker in place of the inline v3 narrowers.
+ * The engine narrows every inbound envelope with these before dispatch.
  */
 
 import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS } from '@texttrends/core';
@@ -132,15 +131,11 @@ function narrowKwicRequest(r: unknown): boolean {
 }
 
 function narrowPassageRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isStr(r.doc) || !isCount(r.centerToken) || !isCount(r.maxTokens) || !Array.isArray(r.tracks)) return false;
-  if ((r.tracks as unknown[]).length > MAX_KWIC_TRACKS) return false; // the shared track cap
-  const seen = new Set<string>();
-  for (const t of r.tracks as unknown[]) {
-    if (!isRecord(t) || !isStr(t.seriesId) || !narrowGroup(t.group)) return false;
-    if (seen.has(t.seriesId)) return false; // seriesIds must be unique
-    seen.add(t.seriesId);
-  }
-  return true;
+  if (!isRecord(r) || !isStr(r.doc) || !isCount(r.centerToken) || !isCount(r.maxTokens)) return false;
+  // ONE track authority: same shape/uniqueness/cap as the concordance, with
+  // zero tracks allowed (a passage may be fetched with no marks) — and the
+  // same NONEMPTY seriesId rule, which the old inline copy had lost.
+  return narrowTracks(r.tracks, 0);
 }
 
 /** The query op union (§12.8 QueryOpV4) — including the new `structure` op.

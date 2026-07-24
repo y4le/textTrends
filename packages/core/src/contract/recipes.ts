@@ -10,7 +10,7 @@
  * 'texttrends/index-recipe/1' only when those fields land.
  */
 
-import { exactArray, exactRecord } from './guards.ts';
+import { exactRecord } from './guards.ts';
 import { canonicalJson, sha256Hex } from './hash.ts';
 import type { IndexRecipeHash } from './brands.ts';
 

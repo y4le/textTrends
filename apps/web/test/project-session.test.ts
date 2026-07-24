@@ -555,7 +555,28 @@ describe('source persistence ordering (invariant 4, planner case 10)', () => {
     open3.resolve({ generation: open3.generation, snapshot: null, readyDocs: [], missing: [{ doc, need: 'source-bytes', reason: 'source-corrupt' }] });
     await settle();
     expect(client.ingests.some((i) => i.generation === open3.generation && i.doc === doc)).toBe(false);
-    expect(session.getState().sources[doc]!.phase).toBe('external-missing');
+    // The doc is PERSISTED and the copy is damaged: the repair vocabulary must
+    // say so — never a generic "missing" (pass-2 Track S2).
+    expect(session.getState().sources[doc]).toEqual({ phase: 'external-missing', repair: 'persisted-corrupt' });
+  });
+
+  it('repair reasons: a loaded EXTERNAL doc (no File in this tab) reads external-not-attached', async () => {
+    const { session, client } = makeSession(builtin());
+    // Build + save a project with an external doc, then load it into a fresh
+    // session — the new tab holds no File, the exact reattach-the-file case.
+    await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    session.save();
+    await settle();
+    const saved = client.saves[0]!.manifest;
+    client.saves[0]!.resolve({ revision: 1 });
+    await settle();
+    const fresh = makeSession(builtin());
+    fresh.session.loadUserProject();
+    await settle();
+    fresh.client.loads[0]!.resolve({ kind: 'loaded', manifest: saved });
+    await settle();
+    const doc = saved.docs[0]!.doc;
+    expect(fresh.session.getState().sources[doc]).toEqual({ phase: 'external-missing', repair: 'external-not-attached' });
   });
 });
 

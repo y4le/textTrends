@@ -21,7 +21,15 @@ function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
     case 'bundled': return 'bundled';
     case 'external-attached': return `attached · ${status.name}`;
-    case 'external-missing': return 'source missing';
+    case 'external-missing':
+      // Reattach-vs-repair must read differently: an external file simply
+      // needs re-picking; a damaged/absent DURABLE copy is data needing repair.
+      switch (status.repair) {
+        case 'external-not-attached': return 'source missing — reattach the file';
+        case 'persisted-missing': return 'persisted copy missing — reattach to repair';
+        case 'persisted-corrupt': return 'persisted copy damaged — reattach to repair';
+        case 'rehydrate-failed': return 'persisted copy unreadable — reattach to repair';
+      }
     case 'persist-saving': return 'persisting…';
     case 'persist-failed': return `persist failed: ${status.message}`;
     case 'persisted': return 'persisted';

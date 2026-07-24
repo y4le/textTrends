@@ -24,7 +24,7 @@
  */
 
 import type { ProjectManifestV1 } from '@texttrends/core';
-import type { CacheRead } from './store.ts';
+import type { CacheRead } from '../shared/storage-contract.ts';
 
 export type UserDataErrorCode =
   | 'PERSISTENCE_UNAVAILABLE'

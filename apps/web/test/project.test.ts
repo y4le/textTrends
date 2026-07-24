@@ -7,7 +7,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   BUILTIN_SHERLOCK_ID,
-  buildBuiltinProjectData,
   builtinProject,
   generationSpecsFromProject,
   manifestForSave,

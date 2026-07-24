@@ -22,7 +22,7 @@
  *   progress.
  */
 
-import type { IndexRecipeProvisional, ProjectManifestV1, SourceDescriptorV1, SourceFormat } from '@texttrends/core';
+import type { IndexRecipeProvisional, ProjectManifestV1, SourceDescriptorV1 } from '@texttrends/core';
 import type {
   BuildPhaseV4,
   GenerationDocSpecV4,

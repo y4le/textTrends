@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  BuildGeneration,
-  IndexArtifactHash,
-  ProjectDocId,
-  StructureHash,
-} from '../src/contract/brands.ts';
-import { indexArtifactHash } from '../src/contract/identity.ts';
+import type { BuildGeneration, ProjectDocId, StructureHash } from '../src/contract/brands.ts';
 import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex } from '../src/index/build.ts';
@@ -62,6 +56,30 @@ describe('composeSnapshot determinism', () => {
     const bRef = s.docs[1]!;
     // 'beta' is local id 1 in doc a and local id 0 in doc b — same corpus id.
     expect(aRef.localToCorpusType[1]).toBe(bRef.localToCorpusType[0]);
+  });
+
+  it('GOLDEN merge: declared order + overlap + a missing doc pin the exact key/translation assignment', async () => {
+    // Pass-2 contested-item ruling: composeSnapshot and validateSnapshot keep
+    // INDEPENDENT merge implementations (the validator is the verification
+    // authority); drift between them is mitigated by pinning the exact merge
+    // output here, not by sharing production code. If this fails, one of the
+    // two implementations changed the canonical merge — reconcile them, never
+    // weaken this expectation.
+    const a = await readyDoc('a', 'alpha beta');
+    const c = await readyDoc('c', 'beta gamma alpha');
+    // 'b' is declared but not ready — the merge must skip it and record it.
+    const s = await composeSnapshot(GEN, ['a', 'b', 'c'] as ProjectDocId[], new Map([[a.doc, a], [c.doc, c]]));
+    expect(s.vocabulary.keys).toEqual(['alpha', 'beta', 'gamma']); // declared-order interning
+    expect(s.missingDocs).toEqual(['b']);
+    expect(s.docs.map((d) => d.doc)).toEqual(['a', 'c']);
+    // Exact per-doc translations: a's locals [alpha, beta] → [0, 1];
+    // c's locals [beta, gamma, alpha] → [1, 2, 0].
+    expect(Array.from(s.docs[0]!.localToCorpusType)).toEqual([0, 1]);
+    expect(Array.from(s.docs[1]!.localToCorpusType)).toEqual([1, 2, 0]);
+    // And the independent validator accepts exactly this assignment.
+    await expect(
+      validateSnapshot(s, new Map([[a.doc, a.shard], [c.doc, c.shard]])),
+    ).resolves.toBeUndefined();
   });
 
   it('reordering changes only order, bases, and id — not translations', async () => {

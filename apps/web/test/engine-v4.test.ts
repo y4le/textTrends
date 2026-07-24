@@ -531,6 +531,44 @@ describe('persisted source re-extraction', () => {
     expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
   });
 
+  it('a SAME-LENGTH byte mutation of the persisted copy is classified source-corrupt, not rehydrate-failed', async () => {
+    const h = harness();
+    const text = 'the wolf ran far over the hill';
+    const bytes = utf8(text);
+    const sourceHash = await hashSourceBytes(bytes);
+    // Store bytes of the RIGHT length under the RIGHT key that do not hash to
+    // it — the envelope check (schema/length) passes; the warm path's
+    // PRE-EXTRACTION content-hash authentication catches it. That is a
+    // DAMAGED DURABLE COPY needing repair.
+    const mutated = utf8('the wolf ran far over the hilL');
+    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
+    const spec = await docSpec('a', text, { availability: 'persisted' });
+    await begin(h, [spec], 'warm');
+    const ready = h.last('generation-ready');
+    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
+    // Not an EXTRACTION_MISMATCH terminal error, and no cache-vocabulary warning.
+    expect(h.all('error').some((e) => e.code === 'EXTRACTION_MISMATCH')).toBe(false);
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
+  });
+
+  it('a same-length mutation that is UNDECODABLE is still source-corrupt — authentication precedes extraction', async () => {
+    const h = harness();
+    const text = 'the wolf ran far over the hill';
+    const bytes = utf8(text);
+    const sourceHash = await hashSourceBytes(bytes);
+    // Same length, right key, but the bytes begin with a UTF-8 BOM followed by
+    // a malformed sequence — decoding would FAIL, so a post-extraction hash
+    // check could never run (track-S review mutation). The pre-extraction
+    // authentication must classify it as a damaged durable copy regardless.
+    const mutated = new Uint8Array(bytes.length);
+    mutated.set([0xef, 0xbb, 0xbf, 0xff, 0xfe, 0x80], 0);
+    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
+    const spec = await docSpec('a', text, { availability: 'persisted' });
+    await begin(h, [spec], 'warm');
+    const ready = h.last('generation-ready');
+    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
+  });
+
   it('a corrupt persisted source is reported and RETAINED (never auto-deleted)', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far', { availability: 'persisted' });
@@ -547,7 +585,9 @@ describe('persisted source re-extraction', () => {
     // Retention (never auto-delete the user's only durable copy) is enforced by
     // the type system now: UserDataStore has no delete operation at all.
     expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    // Durable damage travels ONLY on the warm-miss reason (class-1 repair),
+    // never through the artifact-CACHE warning vocabulary (pass-2 Track S2).
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
   });
 });
 

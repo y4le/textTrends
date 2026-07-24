@@ -157,9 +157,10 @@ export class WorkerClient {
   private restartListener: ((fatal: boolean) => void) | null = null;
   /** job -> the ingest's generation + document. A successful ingest has no
    *  job-bearing completion event (source-ready is too early — segment/index/
-   *  structure can still fail after it), so entries are cleared at
-   *  snapshot-published for the now-ready document; errors before publication
-   *  still find their job. */
+   *  structure can still fail after it), so entries are retired DELIBERATELY:
+   *  a superseding same-document ingest drops the prior attempt, and a new
+   *  generation clears them all — never by snapshot-published membership
+   *  (see receive()'s note). */
   private readonly ingestJobs = new Map<number, { generation: string; doc: string }>();
   /** Optional PASSIVE observability sink (e2e builds) — sanitized metadata
    *  only; the client never behaves differently when it is present. */

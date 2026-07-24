@@ -48,7 +48,7 @@ export const DEFAULT_STRUCTURE_RECIPE: StructureRecipeProvisional = {
 };
 
 export async function hashStructureRecipe(recipe: StructureRecipeProvisional): Promise<string> {
-  return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
+  return sha256Hex(canonicalJson(recipe));
 }
 
 const isInt = (v: unknown): v is number => typeof v === 'number' && Number.isInteger(v);
@@ -146,7 +146,7 @@ const CHAPTER_RE =
 const ROMAN_RE = /^m{0,4}(cm|cd|d?c{0,3})(xc|xl|l?x{0,3})(ix|iv|v?i{0,3})$/i;
 
 function validRoman(s: string): boolean {
-  return s.length > 0 && ROMAN_RE.test(s) && s.toLowerCase() !== '';
+  return s.length > 0 && ROMAN_RE.test(s);
 }
 
 /** Unicode line boundaries the recipe's linePolicy names — LF, CR, CRLF,

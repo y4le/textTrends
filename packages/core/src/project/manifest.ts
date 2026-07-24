@@ -1,6 +1,7 @@
 /**
- * Project manifest — contract §12.6. The main thread OWNS this; the worker
- * stores it durably and answers project-load/save. Because the durable
+ * Project manifest — contract §12.6. The main thread edits the WORKING COPY;
+ * the WORKER is the sole durable-admission authority — it stores the manifest
+ * and answers project-load/save. Because the durable
  * user-data store persists an `unknown` payload, the worker MUST validate a
  * canonical ProjectManifestV1 before accepting project-save or emitting
  * project-loaded (engine-v4 consult): a corrupt/foreign manifest must not

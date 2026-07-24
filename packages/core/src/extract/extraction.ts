@@ -118,11 +118,14 @@ export type ExtractionRecipeProvisional =
       readonly candidateReconstruction: 'source';
     };
 
-/** PLAIN records only: a class instance or custom prototype could satisfy
- *  value checks while carrying behavior (getters, prototype state) outside
- *  the canonical-JSON domain the hash boundary operates on; symbol-keyed
- *  properties are invisible to key checks (round-4 review). */
-const isRecord = (v: unknown): v is Record<string, unknown> => {
+/** IDENTITY-TIER record guard: PLAIN records only — a class instance or
+ *  custom prototype could satisfy value checks while carrying behavior
+ *  (getters, prototype state) outside the canonical-JSON domain the hash
+ *  boundary operates on; symbol-keyed properties are invisible to key checks
+ *  (round-4 review). Deliberately STRICTER than the shared plain-shape
+ *  `isRecord` in contract/guards.ts and named differently so the two tiers
+ *  can never be confused. */
+const isStrictPlainRecord = (v: unknown): v is Record<string, unknown> => {
   if (v === null || typeof v !== 'object') return false;
   const proto = Object.getPrototypeOf(v);
   if (proto !== Object.prototype && proto !== null) return false;
@@ -167,7 +170,7 @@ function isCanonicalPartitions(ps: readonly unknown[]): boolean {
 
 /** Validate the shared byte-decoder policy of the literal (txt/md) formats. */
 async function validateDecoderPolicy(d: unknown): Promise<void> {
-  if (!isRecord(d)) throw new RangeError('decoder policy must be an object');
+  if (!isStrictPlainRecord(d)) throw new RangeError('decoder policy must be an object');
   requireExactKeys(
     d,
     ['id', 'bom', 'unicodeErrors', 'fallback', 'windows1252TableHash', 'newlineNormalization'],
@@ -194,7 +197,7 @@ async function validateDecoderPolicy(d: unknown): Promise<void> {
  * (REQUEST_INVALID at the wire), never TypeError.
  */
 export async function validateExtractionRecipe(recipe: unknown): Promise<ExtractionRecipeProvisional> {
-  if (!isRecord(recipe)) throw new RangeError('extraction recipe must be an object');
+  if (!isStrictPlainRecord(recipe)) throw new RangeError('extraction recipe must be an object');
   if (recipe.schema !== 'texttrends/extraction-recipe/0-provisional') {
     throw new RangeError(`unknown extraction recipe schema '${String(recipe.schema)}'`);
   }
@@ -215,7 +218,7 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     requireExactKeys(recipe, ['schema', 'format', 'decoder', 'parser', 'candidateReconstruction'], 'extraction recipe');
     await validateDecoderPolicy(recipe.decoder);
     const p = recipe.parser;
-    if (!isRecord(p)) throw new RangeError('parser must be an object');
+    if (!isStrictPlainRecord(p)) throw new RangeError('parser must be an object');
     if (recipe.format === 'txt') {
       requireExactKeys(p, ['id'], 'txt parser');
       if (p.id !== 'txt-literal-v1') throw new RangeError('format/parser combination is not a supported extraction');
@@ -232,7 +235,7 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
   } else if (recipe.format === 'epub') {
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
     const e = recipe.extractor;
-    if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
+    if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'partitions', 'serializer', 'sectioning'], 'epub extractor');
     if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1' || e.sectioning !== 'spine-order-v1') {
       throw new RangeError('unsupported epub extractor policy');
@@ -244,7 +247,7 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     // recipe.format === 'html' — the closed catalog admits nothing else.
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
     const e = recipe.extractor;
-    if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
+    if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer', 'sectioning'], 'html extractor');
     if (
       e.id !== 'html5-inert-v1' || e.parser !== 'parse5-v7' ||
@@ -355,7 +358,7 @@ export function epubExtractionRecipe(
 }
 
 export async function hashExtractionRecipe(recipe: ExtractionRecipeProvisional): Promise<string> {
-  return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
+  return sha256Hex(canonicalJson(recipe));
 }
 
 /**
@@ -531,7 +534,7 @@ export type PreparedExtraction =
  * and format equal the ones it is being admitted against.
  */
 export function isValidSourceDescriptor(d: unknown, sourceHash: string, format: SourceFormat): d is SourceDescriptorV1 {
-  if (!isRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
+  if (!isStrictPlainRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
   // The catalog is the ONE authority for the kind↔format pairing: the descriptor
   // `kind` MUST be the one this format is declared to produce. A catalog edit
   // propagates here instead of drifting from a second, restated format list.

@@ -53,7 +53,9 @@ import {
 } from '@texttrends/core';
 import type {
   GenerationDocSpecV4,
+  SourceAvailability,
   SourceFormat,
+  WarmMissReasonV4,
 } from '../shared/analysis-contract.ts';
 import type {
   GenerationReady,
@@ -134,10 +136,21 @@ export interface ProjectSessionDeps {
 /** Per-document source runtime status — observable, File-free (the `File`
  *  itself is private). Canonical `sourceAvailability` lives in the manifest;
  *  this is the transient operation view. */
+/** WHY a document's source needs user repair (pass-2 Track S2): durable-source
+ *  damage is class-1 USER data needing reattachment — it must never be
+ *  flattened into a generic "missing" or reported through the disposable
+ *  artifact-cache warning vocabulary. Closed union, derived from the warm-miss
+ *  reason + the doc's availability. */
+export type SourceRepairReason =
+  | 'external-not-attached' // external source: the tab has no File — pick it again
+  | 'persisted-missing'     // durable copy expected but absent from storage
+  | 'persisted-corrupt'     // durable copy present but damaged (envelope or hash)
+  | 'rehydrate-failed';     // durable copy read but re-extraction failed
+
 export type SourceStatus =
   | { readonly phase: 'bundled' }
   | { readonly phase: 'external-attached'; readonly name: string; readonly size: number }
-  | { readonly phase: 'external-missing' }
+  | { readonly phase: 'external-missing'; readonly repair: SourceRepairReason }
   | { readonly phase: 'persist-saving' }
   | { readonly phase: 'persist-failed'; readonly message: string }
   | { readonly phase: 'persisted' };
@@ -275,12 +288,6 @@ interface PendingImport {
   status: ImportStatus;
 }
 
-interface AttachedSource {
-  readonly file: FileLike;
-  /** The attach token — a stale reattach completion cannot overwrite it. */
-  readonly token: number;
-}
-
 /** The captured immutable payload of an in-flight save — enough to reconcile an
  *  uncertain commit against a freshly loaded record. */
 interface PendingSave {
@@ -359,7 +366,9 @@ export class ProjectSession {
   private readonly persistIntent = new Set<string>();
 
   // ── Source runtime + reattach. ──
-  private readonly attached = new Map<string, AttachedSource>();
+  // doc -> the retained File. Attach-staleness is owned by the reattach
+  // lease lane; nothing else fences here.
+  private readonly attached = new Map<string, FileLike>();
   private readonly sourceStatus = new Map<string, SourceStatus>();
   private readonly reattachStatus = new Map<string, ReattachStatus>();
 
@@ -677,7 +686,7 @@ export class ProjectSession {
       } else {
         // A generic rejection HERE is provably pre-delivery — a genuinely
         // uncertain worker-death rejection arrives WITH a restart, whose
-        // saveCounter bump makes this continuation stale (returns above) and is
+        // save-lane invalidation makes this continuation stale (returns above) and is
         // reconciled in handleRestart. So this is retryable, not uncertain.
         this.pendingSave = null;
         this.saveState = { phase: 'error', code: 'SAVE_FAILED', message: msg(e) };
@@ -721,7 +730,7 @@ export class ProjectSession {
       this.persistOps.invalidate(doc);
       const s = this.sourceStatus.get(doc);
       if (s?.phase === 'persist-saving') {
-        this.sourceStatus.set(doc, this.attached.has(doc) ? { phase: 'external-attached', name: this.finalized.get(doc)!.sourceName, size: this.attached.get(doc)!.file.size } : { phase: 'external-missing' });
+        this.sourceStatus.set(doc, this.attached.has(doc) ? { phase: 'external-attached', name: this.finalized.get(doc)!.sourceName, size: this.attached.get(doc)!.size } : { phase: 'external-missing', repair: 'external-not-attached' });
         this.publish();
       }
       return;
@@ -740,7 +749,7 @@ export class ProjectSession {
     this.publish();
     let bytes: ArrayBuffer;
     try {
-      bytes = await attachment.file.arrayBuffer(); // reread — ingest transferred its buffer
+      bytes = await attachment.arrayBuffer(); // reread — ingest transferred its buffer
     } catch (e) {
       if (!lease.isCurrent()) return;
       this.sourceStatus.set(doc, { phase: 'persist-failed', message: msg(e) });
@@ -826,7 +835,7 @@ export class ProjectSession {
     // Match: attach for the tab, ingest into the current generation with the
     // stable doc id + expected identities. Attaching an identical source does
     // NOT dirty (the manifest is unchanged).
-    this.attached.set(doc, { file, token: lease.id });
+    this.attached.set(doc, file);
     this.sourceStatus.set(doc, source.sourceAvailability === 'persisted' ? { phase: 'persisted' } : { phase: 'external-attached', name: source.sourceName, size: file.size });
     this.reattachStatus.set(doc, { phase: 'attached' });
     if (this.generation) this.deps.client.ingest(this.generation, doc, buffer);
@@ -956,7 +965,7 @@ export class ProjectSession {
       .then((ready) => {
         if (this.disposed || attempt !== this.genAttempt) return;
         this.activeOpenCancel = null;
-        for (const miss of ready.missing) void this.resolveMiss(generation, attempt, miss.doc);
+        for (const miss of ready.missing) void this.resolveMiss(generation, attempt, miss.doc, miss.reason);
       })
       .catch((e: unknown) => {
         if (this.disposed || attempt !== this.genAttempt) return;
@@ -979,7 +988,23 @@ export class ProjectSession {
     };
   }
 
-  private async resolveMiss(generation: string, attempt: number, doc: string): Promise<void> {
+  /** Map a warm-miss reason + the doc's availability to the closed repair
+   *  vocabulary the UI renders. An external doc always needs its file back;
+   *  a persisted doc distinguishes absent / damaged / unre-extractable. */
+  private static repairReasonFor(availability: SourceAvailability, reason: WarmMissReasonV4): SourceRepairReason {
+    if (availability !== 'persisted') return 'external-not-attached';
+    switch (reason) {
+      case 'source-miss':
+      case 'source-not-persisted':
+        return 'persisted-missing';
+      case 'source-corrupt':
+        return 'persisted-corrupt';
+      default:
+        return 'rehydrate-failed';
+    }
+  }
+
+  private async resolveMiss(generation: string, attempt: number, doc: string, reason: WarmMissReasonV4): Promise<void> {
     if (this.disposed || attempt !== this.genAttempt || generation !== this.generation) return;
     const pending = this.pending.get(doc);
     if (pending) {
@@ -1019,7 +1044,10 @@ export class ProjectSession {
         if (this.attached.has(doc)) {
           await this.ingestAttached(generation, attempt, doc);
         } else {
-          this.sourceStatus.set(doc, { phase: 'external-missing' });
+          this.sourceStatus.set(doc, {
+            phase: 'external-missing',
+            repair: ProjectSession.repairReasonFor(finalizedDoc.sourceAvailability, reason),
+          });
           this.publish();
         }
         return;
@@ -1032,10 +1060,10 @@ export class ProjectSession {
     if (!attachment) return;
     let bytes: ArrayBuffer;
     try {
-      bytes = await attachment.file.arrayBuffer();
+      bytes = await attachment.arrayBuffer();
     } catch (e) {
       if (this.disposed || attempt !== this.genAttempt) return;
-      this.sourceStatus.set(doc, { phase: 'external-missing' });
+      this.sourceStatus.set(doc, { phase: 'external-missing', repair: 'external-not-attached' });
       this.analysis = { phase: 'error', message: `failed to read '${doc}': ${msg(e)}`, fatal: false };
       this.publish();
       return;
@@ -1299,7 +1327,7 @@ export class ProjectSession {
     }
     for (const { doc, file, format, importToken } of plans) {
       this.order.push(doc);
-      this.attached.set(doc, { file, token: 0 });
+      this.attached.set(doc, file);
       this.sourceStatus.set(doc, { phase: 'external-attached', name: file.name, size: file.size });
       if (persist) this.persistIntent.add(doc);
       this.pending.set(doc, {
@@ -1408,7 +1436,7 @@ export class ProjectSession {
     for (const d of project.data.docs) {
       if (d.sourceAvailability === 'bundled') this.sourceStatus.set(d.doc, { phase: 'bundled' });
       else if (d.sourceAvailability === 'persisted') this.sourceStatus.set(d.doc, { phase: 'persisted' });
-      else this.sourceStatus.set(d.doc, { phase: 'external-missing' });
+      else this.sourceStatus.set(d.doc, { phase: 'external-missing', repair: 'external-not-attached' });
     }
     this.data = this.materialize();
   }
