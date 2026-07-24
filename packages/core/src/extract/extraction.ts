@@ -10,7 +10,7 @@
  * provisional hashes are disposable and never aliased to canonical names.
  */
 
-import { canonicalJson, sha256Hex, hashText } from '../contract/hash.ts';
+import { canonicalJson, hashSourceBytes, hashText, sha256Hex } from '../contract/hash.ts';
 import { exactRecord } from '../contract/recipes.ts';
 import {
   DETECTED_ENCODINGS,
@@ -31,7 +31,7 @@ import { scanMarkdownHeadings } from './markdown.ts';
 // kind↔format pairing, and candidate-reconstruction semantics; SourceFormat and
 // CandidateReconstruction are re-exported here so existing importers of the
 // extraction module keep working.
-import { isSourceFormat, SOURCE_FORMATS, type CandidateReconstruction, type SourceFormat } from './formats.ts';
+import { isLiteralFormat, isSourceFormat, SOURCE_FORMATS, type CandidateReconstruction, type SourceFormat } from './formats.ts';
 export type { CandidateReconstruction, SourceFormat };
 
 /** Which reading-order partitions an EPUB extraction includes in its text. */
@@ -198,14 +198,21 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
   if (recipe.schema !== 'texttrends/extraction-recipe/0-provisional') {
     throw new RangeError(`unknown extraction recipe schema '${String(recipe.schema)}'`);
   }
+  if (!isSourceFormat(recipe.format)) {
+    throw new RangeError(`unknown source format '${String(recipe.format)}'`);
+  }
+  // The redundant-but-hashed discriminant must match the CATALOG's fact for the
+  // format — stated once here, never per format arm.
+  if (recipe.candidateReconstruction !== SOURCE_FORMATS[recipe.format].candidateReconstruction) {
+    throw new RangeError(
+      `format '${recipe.format}' must declare candidateReconstruction '${SOURCE_FORMATS[recipe.format].candidateReconstruction}'`,
+    );
+  }
   // Container and literal formats carry DIFFERENT key sets — the exact-key
   // guard is applied per format so an extra field can never be hashed into a
   // second identity for the same behavior.
   if (recipe.format === 'txt' || recipe.format === 'md') {
     requireExactKeys(recipe, ['schema', 'format', 'decoder', 'parser', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'text') {
-      throw new RangeError(`format '${recipe.format}' must declare candidateReconstruction 'text'`);
-    }
     await validateDecoderPolicy(recipe.decoder);
     const p = recipe.parser;
     if (!isRecord(p)) throw new RangeError('parser must be an object');
@@ -224,9 +231,6 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     }
   } else if (recipe.format === 'epub') {
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'source') {
-      throw new RangeError("format 'epub' must declare candidateReconstruction 'source'");
-    }
     const e = recipe.extractor;
     if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'partitions', 'serializer', 'sectioning'], 'epub extractor');
@@ -236,11 +240,9 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     if (!Array.isArray(e.partitions) || !isCanonicalPartitions(e.partitions)) {
       throw new RangeError('epub extractor partitions must be unique and in canonical reading order');
     }
-  } else if (recipe.format === 'html') {
+  } else {
+    // recipe.format === 'html' — the closed catalog admits nothing else.
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'source') {
-      throw new RangeError("format 'html' must declare candidateReconstruction 'source'");
-    }
     const e = recipe.extractor;
     if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer', 'sectioning'], 'html extractor');
@@ -251,8 +253,6 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
       throw new RangeError('unsupported html extractor policy');
     }
     await validateDecoderPolicy(e.decoder);
-  } else {
-    throw new RangeError(`unknown source format '${String(recipe.format)}'`);
   }
   return recipe as unknown as ExtractionRecipeProvisional;
 }
@@ -356,41 +356,8 @@ export function epubExtractionRecipe(
   };
 }
 
-/** The HTML extraction recipe. Async because the shared byte-decoder policy
- *  embeds the windows-1252 table hash in the identity (as txt/md do). */
-export async function htmlExtractionRecipe(): Promise<ExtractionRecipeProvisional> {
-  const tableHash = await windows1252TableHash();
-  return {
-    schema: 'texttrends/extraction-recipe/0-provisional',
-    format: 'html',
-    extractor: {
-      id: 'html5-inert-v1',
-      decoder: {
-        id: 'bom-utf8-windows1252-v1',
-        bom: 'utf8-utf16le-utf16be-v1',
-        unicodeErrors: 'fatal',
-        fallback: 'windows-1252-whatwg-v1',
-        windows1252TableHash: tableHash,
-        newlineNormalization: 'none',
-      },
-      parser: 'parse5-v7',
-      serializer: 'html-block-collapse-v1',
-      sectioning: 'heading-order-v1',
-    },
-    candidateReconstruction: 'source',
-  };
-}
-
 export async function hashExtractionRecipe(recipe: ExtractionRecipeProvisional): Promise<string> {
   return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
-}
-
-export async function hashSourceBytes(bytes: Uint8Array): Promise<string> {
-  // Cast for consumers type-checked against lib.dom's BufferSource (the
-  // core ambient takes Uint8Array): every caller passes ArrayBuffer-backed
-  // bytes.
-  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 /**
@@ -521,7 +488,7 @@ export async function decodeDocumentSource(
   recipe: ExtractionRecipeProvisional,
 ): Promise<DecodedDocument> {
   await validateExtractionRecipe(recipe);
-  if (recipe.format === 'epub' || recipe.format === 'html') {
+  if (!isLiteralFormat(recipe.format)) {
     throw new RangeError(`${recipe.format} is a transformed format and has no whole-file byte-decode path; extract it and finalize a transformed document`);
   }
   const source = await hashSourceBytes(bytes);
@@ -635,7 +602,7 @@ export async function finalizeExtraction(
   recipe: ExtractionRecipeProvisional,
 ): Promise<ExtractedDocument> {
   if (prepared.kind === 'literal') {
-    if (recipe.format === 'epub' || recipe.format === 'html') {
+    if (!isLiteralFormat(recipe.format)) {
       throw new RangeError(`${recipe.format} cannot use the literal extract path`);
     }
     const { decoded, source, byteLength } = prepared.decoded;

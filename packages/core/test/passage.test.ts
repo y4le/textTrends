@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
 import { CapError } from '../src/contract/brands.ts';
-import { rootOnlyStructure } from '../src/contract/identity.ts';
+import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, type BoundTexts } from '../src/ops/binding.ts';
@@ -39,7 +39,7 @@ async function world(texts: Record<string, string>): Promise<World> {
     const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
     shards.set(id, shard);
     resolvers.set(id, new Map([[modeKey(FOLD), await buildResolver(shard, R, FOLD)]]));
-    ready.set(id, await makeReadyDocument(id, shard, rootOnlyStructure(shard.text, text.length)));
+    ready.set(id, await makeReadyDocument(id, shard, rootOnlyV2(text, shard.text)));
   }
   const snapshot = await composeSnapshot(GEN, ids, ready);
   const bound = await bindShards(snapshot, shards);

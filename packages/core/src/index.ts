@@ -16,7 +16,7 @@ export { dp, dpNorm } from './stats/dispersion.ts';
 export { mattr, mtld } from './stats/diversity.ts';
 export { CapError, V1_CAPS } from './contract/brands.ts';
 export type * from './contract/brands.ts';
-export { canonicalJson, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export { canonicalJson, hashSourceBytes, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
 export {
   DEFAULT_INDEX_RECIPE,
   exactArray,
@@ -45,11 +45,8 @@ export {
   bindSectionId,
   hashSegmenterFingerprint,
   indexArtifactHash,
-  rootOnlyStructure,
-  structureHash,
   type DocumentIndexIdentityV1,
   type SegmenterFingerprintHash,
-  type StructureArtifactV1,
 } from './contract/identity.ts';
 export {
   composeSnapshot,
@@ -139,9 +136,7 @@ export {
   extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
-  htmlExtractionRecipe,
   validateExtractionRecipe,
-  hashSourceBytes,
   type CandidateReconstruction,
   type ContainerSourceDescriptorV1,
   type DecodedDocument,

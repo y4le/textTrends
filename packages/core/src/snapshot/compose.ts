@@ -24,22 +24,17 @@ import {
   type StructureHash,
 } from '../contract/brands.ts';
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
-import {
-  indexArtifactHash,
-  structureHash,
-  type StructureArtifactV1,
-} from '../contract/identity.ts';
+import { indexArtifactHash } from '../contract/identity.ts';
 import type { StructureArtifactV2 } from '../structure/build.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 
-/** Either sanctioned structure artifact shape a ReadyDocument may carry: the
- *  root-only V1 (the v3 vertical slice) or the chapter-detected V2. */
-export type ReadyStructure = StructureArtifactV1 | StructureArtifactV2;
+/** The ONE sanctioned structure artifact shape a ReadyDocument carries. (The
+ *  root-only V1 lineage is deleted: no persisted path could produce it, and V2
+ *  is the only schema the validators admit.) */
+export type ReadyStructure = StructureArtifactV2;
 
-/** Canonical structure hash dispatched by schema — explicit per-schema
- *  hashing, never a silent widening of V1 handling (engine-v4 consult). */
+/** Canonical structure hash. */
 export async function structureHashOf(artifact: ReadyStructure): Promise<StructureHash> {
-  if (artifact.schema === 'texttrends/structure/1') return structureHash(artifact);
   return (await sha256Hex(canonicalJson(artifact as unknown as Parameters<typeof canonicalJson>[0]))) as StructureHash;
 }
 
@@ -59,7 +54,6 @@ export interface ReadyDocument {
 /**
  * The only sanctioned way to build a ReadyDocument: hashes are computed from
  * the artifacts, and the structure artifact must describe the shard's text.
- * Accepts either structure schema (V1 root-only or V2 chapter-detected).
  */
 export async function makeReadyDocument(
   doc: ProjectDocId,

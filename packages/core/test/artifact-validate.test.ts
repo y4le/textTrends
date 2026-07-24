@@ -33,6 +33,7 @@ import {
   validateProjectManifest,
   validateStructureArtifactV2,
   type PreparedExtraction,
+  type StructureArtifactV2,
 } from '../src/index.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 
@@ -209,6 +210,31 @@ describe('makeReadyDocument with a V2 structure', () => {
     const v2 = { ...structure, text: shard.text };
     const ready = await makeReadyDocument('d' as never, shard, v2 as never);
     expect(ready.structure).toBe(await structureHashOf(v2 as never));
+  });
+
+  it('GOLDEN: the StructureHash of a fixed V2 artifact is pinned — every persisted identity depends on it', async () => {
+    // A hand-written artifact literal, deliberately NOT built by
+    // composeStructure, so this pins the canonical serialization + hash alone.
+    // If this test ever fails, every durable StructureHash (cache keys,
+    // manifests, snapshots) moves: that is a SCHEMA/VERSION decision, never a
+    // refactor side effect — bump the artifact schema instead of the pin.
+    // `satisfies` (no cast): an unversioned change to the V2 persisted shape
+    // fails HERE at compile time, so the golden guards both the shape and the
+    // canonical hash.
+    const artifact = {
+      schema: 'texttrends/structure/2',
+      text: 't',
+      candidates: 'c',
+      recipe: 'r',
+      override: 'o',
+      sections: [
+        { key: 'root', origin: 'fixed', level: 0, chars: { start: 0, end: 27 } },
+        { key: 'sec-0000', origin: 'heuristic', parent: 'root', level: 1, title: 'Chapter 1', chars: { start: 0, end: 27 } },
+      ],
+    } as const satisfies StructureArtifactV2;
+    expect(await structureHashOf(artifact)).toBe(
+      'd83bc30e9a686b804bada387b64ba5694b5b35016d30a9b81b3e772e13776a57',
+    );
   });
 });
 

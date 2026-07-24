@@ -10,18 +10,13 @@
  * adjacency. The hash is COMPUTED here — never accepted from a caller.
  */
 
-import type { DocTokenPos, ProjectDocId, SelectionHash } from '../contract/brands.ts';
+import type { DocTokenPos, HalfOpenRange, ProjectDocId, SelectionHash } from '../contract/brands.ts';
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
 import type { CorpusSnapshotV1 } from './compose.ts';
 
-export interface TokenRange {
-  readonly start: DocTokenPos;
-  readonly end: DocTokenPos;
-}
-
 export interface SelectionSpec {
   readonly docs: readonly ProjectDocId[];
-  readonly ranges?: readonly { readonly doc: ProjectDocId; readonly tokens: TokenRange }[];
+  readonly ranges?: readonly { readonly doc: ProjectDocId; readonly tokens: HalfOpenRange<DocTokenPos> }[];
 }
 
 export interface ResolvedSelection {

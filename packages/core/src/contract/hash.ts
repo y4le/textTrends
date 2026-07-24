@@ -29,6 +29,15 @@ export async function hashText(text: string): Promise<string> {
   return sha256Hex(text);
 }
 
+/** Hash raw source bytes (the SourceHash identity). */
+export async function hashSourceBytes(bytes: Uint8Array): Promise<string> {
+  // Cast for consumers type-checked against lib.dom's BufferSource (the
+  // core ambient takes Uint8Array): every caller passes ArrayBuffer-backed
+  // bytes.
+  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
+  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+}
+
 /**
  * Canonical JSON: recursively key-sorted, no whitespace — the hash input form.
  *

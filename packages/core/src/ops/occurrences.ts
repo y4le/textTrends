@@ -33,6 +33,7 @@ import {
 } from '../resolve/fold.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection } from '../snapshot/selection.ts';
+import { lowerBound } from '../structure/project.ts';
 
 export type GroupMember =
   | { readonly id: string; readonly kind: 'token'; readonly surface: string;
@@ -127,18 +128,6 @@ function crossesSentence(shard: DocumentIndexV1, start: number, span: number): b
     if (b >= start + span) break;
   }
   return false;
-}
-
-/** First index whose posting is >= value (postings are position-sorted). */
-function lowerBound(postings: Uint32Array, value: number): number {
-  let lo = 0;
-  let hi = postings.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if ((postings[mid] as number) < value) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
 }
 
 /**

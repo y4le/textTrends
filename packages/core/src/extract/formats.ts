@@ -74,6 +74,17 @@ export function isSourceFormat(value: unknown): value is SourceFormat {
   return typeof value === 'string' && Object.prototype.hasOwnProperty.call(SOURCE_FORMATS, value);
 }
 
+/** The formats whose indexed text IS the byte-decoded source — DERIVED from
+ *  the catalog's `extractionKind` (type and predicate alike), so a new format
+ *  cannot drift between the two. */
+export type LiteralSourceFormat = {
+  [F in SourceFormat]: (typeof SOURCE_FORMATS)[F]['extractionKind'] extends 'literal' ? F : never;
+}[SourceFormat];
+
+export function isLiteralFormat(format: SourceFormat): format is LiteralSourceFormat {
+  return SOURCE_FORMATS[format].extractionKind === 'literal';
+}
+
 /** Longest matching known extension so any hypothetical overlapping suffix is
  *  unambiguous. */
 function matchedExtension(name: string): { format: SourceFormat; ext: string } | null {

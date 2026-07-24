@@ -5,7 +5,8 @@ import type {
   ProjectDocId,
   StructureHash,
 } from '../src/contract/brands.ts';
-import { indexArtifactHash, rootOnlyStructure } from '../src/contract/identity.ts';
+import { indexArtifactHash } from '../src/contract/identity.ts';
+import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex } from '../src/index/build.ts';
 import { segment } from '../src/segment/intl.ts';
@@ -21,7 +22,7 @@ const GEN = 'gen-1' as BuildGeneration;
 
 async function readyDoc(id: string, text: string): Promise<ReadyDocument> {
   const shard = await createDocumentIndex(text, await segment(text, 'en'), DEFAULT_INDEX_RECIPE);
-  return makeReadyDocument(id as ProjectDocId, shard, rootOnlyStructure(shard.text, text.length));
+  return makeReadyDocument(id as ProjectDocId, shard, rootOnlyV2(text, shard.text));
 }
 
 describe('artifact identity', () => {
@@ -126,7 +127,7 @@ describe('composeSnapshot determinism', () => {
     const shard = await createDocumentIndex('a b', await segment('a b', 'en'), DEFAULT_INDEX_RECIPE);
     const other = await createDocumentIndex('c d', await segment('c d', 'en'), DEFAULT_INDEX_RECIPE);
     await expect(
-      makeReadyDocument('a' as ProjectDocId, shard, rootOnlyStructure(other.text, 3)),
+      makeReadyDocument('a' as ProjectDocId, shard, rootOnlyV2('c d', other.text)),
     ).rejects.toThrow(/different text/);
   });
 
@@ -166,13 +167,6 @@ describe('composeSnapshot determinism', () => {
     await expect(
       composeSnapshot(GEN, ['a'] as ProjectDocId[], new Map([[forged.doc, forged]])),
     ).rejects.toThrow(/stale structure identity/);
-  });
-
-  it('rootOnlyStructure honors the exact cap boundary', async () => {
-    const a = await readyDoc('a', 'x');
-    const cap = 2 ** 32 - 2;
-    expect(() => rootOnlyStructure(a.shard.text, cap)).not.toThrow();
-    expect(() => rootOnlyStructure(a.shard.text, cap + 1)).toThrow(RangeError);
   });
 
   it('resolveSelection returns the canonical contract spec; equivalent inputs are identical', async () => {
@@ -272,13 +266,6 @@ describe('composeSnapshot determinism', () => {
     const shards = new Map([[a.doc, a.shard]]);
     await expect(validateSnapshot(s, shards, tiny)).rejects.toThrow(/vocabulary exceeds/);
     await expect(validateSnapshot(s, shards, tinyTokens)).rejects.toThrow(/corpus token cap/);
-  });
-
-  it('rootOnlyStructure validates its text length', async () => {
-    const a = await readyDoc('a', 'x');
-    expect(() => rootOnlyStructure(a.shard.text, -1)).toThrow(RangeError);
-    expect(() => rootOnlyStructure(a.shard.text, 1.5)).toThrow(RangeError);
-    expect(() => rootOnlyStructure(a.shard.text, 0)).not.toThrow();
   });
 
   it('rejects duplicate expectedDocs and unknown ready docs', async () => {
