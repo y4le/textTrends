@@ -18,7 +18,8 @@
  * for durable project data; downstream handlers never re-verify these.
  */
 
-import { exactArray, exactRecord, hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
+import { exactArray, exactRecord, isNonNegSafeInt as isSafeNonNeg, isRecord as isRec, isString as isStr } from '../contract/guards.ts';
+import { hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
 import {
   hashStructureOverride,
   hashStructureRecipe,
@@ -96,10 +97,6 @@ export class ManifestInvalidError extends Error {
   }
 }
 
-const isStr = (v: unknown): v is string => typeof v === 'string';
-const isSafeNonNeg = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
-const isRec = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /** Enclosing identities the override's status must be consistent with (§12.6). */
 interface DocIdentities {

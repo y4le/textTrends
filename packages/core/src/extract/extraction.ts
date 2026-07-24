@@ -11,7 +11,7 @@
  */
 
 import { canonicalJson, hashSourceBytes, hashText, sha256Hex } from '../contract/hash.ts';
-import { exactRecord } from '../contract/recipes.ts';
+import { exactRecord, isNonNegSafeInt as isNonNegInt } from '../contract/guards.ts';
 import {
   DETECTED_ENCODINGS,
   DecodeError,
@@ -516,7 +516,6 @@ export type PreparedExtraction =
       readonly evidence: ExtractionEvidence;
     };
 
-const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 /**
  * The EXACT source-descriptor ABI — the SINGLE authority the transformed

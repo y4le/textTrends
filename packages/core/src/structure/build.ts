@@ -11,7 +11,7 @@
  */
 
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
-import { exactArray, exactRecord } from '../contract/recipes.ts';
+import { exactArray, exactRecord } from '../contract/guards.ts';
 import type { StructureCandidateV1 } from '../extract/candidates.ts';
 import { STRUCTURE_LIMITS_V0 } from '../contract/structure-limits.ts';
 import {

@@ -17,10 +17,9 @@ export { mattr, mtld } from './stats/diversity.ts';
 export { CapError, V1_CAPS } from './contract/brands.ts';
 export type * from './contract/brands.ts';
 export { canonicalJson, hashSourceBytes, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export { exactArray, exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
   DEFAULT_INDEX_RECIPE,
-  exactArray,
-  exactRecord,
   hashIndexRecipe,
   isIndexRecipeProvisional,
   TOKEN_CLASS,
@@ -223,4 +222,5 @@ export {
   type PersistedOverride,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type SourceAvailability,
 } from './project/manifest.ts';
