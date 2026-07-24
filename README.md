@@ -20,7 +20,10 @@ produced it.
 - `docs/design/` — design-stage contracts (start with `analysis-contract.md`)
 - `packages/core` — the analysis engine: environment-agnostic TypeScript (tokenizer,
   positional index, analysis passes)
-- `packages/cli` — Node adapter: conformance fixtures, benchmarks, batch analysis
+- `packages/extractors` — transformed-format extraction (epub, html): the lazy-loaded
+  parsers and the one `extractSource` runtime, outside core by design
+- `packages/cli` — Node benchmark/portability harness over the core (a real
+  distributable CLI comes later)
 - `apps/web` — the webapp: React + hand-rolled SVG, Vite
 - `text/` — sample corpora (see `text/README.md` for provenance)
 

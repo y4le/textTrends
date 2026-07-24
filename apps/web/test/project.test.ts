@@ -16,18 +16,16 @@ import {
   userProjectFromManifest,
   type ProjectDataV1,
 } from '../src/lib/project.ts';
-import { SHERLOCK } from '../src/lib/store.ts';
+import { SHERLOCK, sherlockProjectData } from '../src/lib/store.ts';
 import { emptyOverride, hashStructureOverride, validateProjectManifest, type PersistedOverride, type ProjectManifestV1 } from '@texttrends/core';
 
 /** A durable manifest built directly for validation — bypasses the guarded
  *  save path (which correctly rejects the built-in origin). */
 const asManifest = (data: ProjectDataV1, revision: number): ProjectManifestV1 => ({ schema: 'texttrends/project/1', revision, ...data });
 
-const builtin = () =>
-  buildBuiltinProjectData(
-    BUILTIN_SHERLOCK_ID,
-    SHERLOCK.map(({ doc, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title: doc, bytes, textLengthUtf16, sourceHash, textHash })),
-  );
+// THE production constructor — every assertion below covers the object the live
+// app actually builds, so a mapping drift in sherlockProjectData fails here.
+const builtin = () => sherlockProjectData();
 
 describe('overrideInputFromPersisted', () => {
   it('passes none and active through; sends needs-review as none (never a stale active)', async () => {
@@ -55,6 +53,15 @@ describe('the built-in Sherlock project', () => {
   it('the built-in origin can NEVER be materialized for a durable save', async () => {
     const data = await builtin();
     expect(() => manifestForSave(builtinProject(data))).toThrow(ReadOnlyProjectError);
+  });
+
+  it('carries the real book titles as presentation metadata — doc ids stay identity-only', async () => {
+    const data = await builtin();
+    expect(data.docs.map((d) => d.meta.title)).toEqual(SHERLOCK.map((s) => s.title));
+    // Titles are presentation ("A Study in Scarlet"), never the raw doc id —
+    // panels label documents via meta.title, so a doc-id leak regresses UUID
+    // labels for user projects.
+    for (const d of data.docs) expect(d.meta.title).not.toBe(d.doc);
   });
 
   it('every built-in doc is bundled, txt, no override', async () => {

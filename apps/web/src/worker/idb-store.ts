@@ -3,8 +3,8 @@
  *
  * PROVISIONAL NAMESPACE: the index recipe is still
  * 'texttrends/index-recipe/0-provisional', so every record in this database
- * is disposable by design. The database name carries 'index0-provisional';
- * the trailing 'db1' is the DATABASE LAYOUT version, not IndexRecipeV1.
+ * is disposable by design. The database name's trailing 'db2' is the DATABASE
+ * LAYOUT version, not IndexRecipeV1.
  * Recipe graduation opens a NEW database name and never reads provisional
  * records as canonical — there will never be a migration of these records.
  *

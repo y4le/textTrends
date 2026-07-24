@@ -8,11 +8,10 @@
  * all the async ordering policy lives.
  *
  * Deliberate contract choices from the ruling:
- * - LANDED UNUSED. Production still drives Sherlock through `store.ts`'s
- *   `loadSherlock`; 7c performs the single atomic listener cutover (the session
- *   becomes the sole owner of the client's generation event lane) plus the
- *   import UI. Two components must never contend for a last-wins client
- *   callback, so nothing here is wired into the live app yet.
+ * - The composition root (`store-instance.ts`) constructs exactly ONE session
+ *   and wires it as the sole owner of the client's generation event lane —
+ *   client callbacks are last-wins, so no second component may ever register
+ *   for them.
  * - The session OWNS the entire generation event lane (snapshot / progress /
  *   ingest-error / source-ready / restart / openGeneration / ingest). Worker
  *   restart is part of generation ownership, not display state.

@@ -147,14 +147,6 @@ function requireExactKeys(record: Record<string, unknown>, keys: readonly string
   }
 }
 
-/**
- * Boundary validation — a TOTAL wire boundary: accepts `unknown`, requires
- * plain records with EXACT key sets, and matches every field against what
- * this extractor actually implements, INCLUDING the embedded windows-1252
- * table hash — a recipe claiming a different table would record an identity
- * for behavior that never ran. Every malformed input throws RangeError
- * (REQUEST_INVALID at the wire), never TypeError.
- */
 /** Reading order — the ONE canonical order + de-dup for a partition SELECTION,
  *  so `['bodymatter','frontmatter']`, its reverse, and duplicates all describe
  *  the same operation under a single recipe identity (the extractor treats
@@ -193,6 +185,14 @@ async function validateDecoderPolicy(d: unknown): Promise<void> {
   }
 }
 
+/**
+ * Boundary validation — a TOTAL wire boundary: accepts `unknown`, requires
+ * plain records with EXACT key sets, and matches every field against what
+ * this extractor actually implements, INCLUDING the embedded windows-1252
+ * table hash — a recipe claiming a different table would record an identity
+ * for behavior that never ran. Every malformed input throws RangeError
+ * (REQUEST_INVALID at the wire), never TypeError.
+ */
 export async function validateExtractionRecipe(recipe: unknown): Promise<ExtractionRecipeProvisional> {
   if (!isRecord(recipe)) throw new RangeError('extraction recipe must be an object');
   if (recipe.schema !== 'texttrends/extraction-recipe/0-provisional') {
@@ -331,9 +331,10 @@ export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
   return defaultRecipes;
 }
 
-/** The EPUB extraction recipe for the selected reading-order partitions —
- *  synchronous (no decoder table hash) and pure, so the worker builds it when
- *  staging an `.epub` and the manifest carries its exact identity. */
+/** The EPUB extraction recipe for a NON-DEFAULT reading-order partition
+ *  selection. Production staging uses `defaultExtractionRecipes()` for every
+ *  format (no partition-selection UI exists); this constructor is exercised by
+ *  tests until one does. Synchronous (no decoder table hash) and pure. */
 export function epubExtractionRecipe(
   partitions: readonly EbookPartition[] = ['bodymatter'],
 ): ExtractionRecipeProvisional {

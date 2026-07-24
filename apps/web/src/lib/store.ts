@@ -75,13 +75,13 @@ import {
  *  change, and a TextHash can never be routed into a source/extraction key. The
  *  hashes are the authoritative warm-reopen identities the worker rehydrates
  *  against; a mutable doc-label → hash cache must never outrank this manifest. */
-export const SHERLOCK: readonly { doc: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', bytes: 244251, textLengthUtf16: 239435, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', bytes: 236849, textLengthUtf16: 232130, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', bytes: 575804, textLengthUtf16: 562213, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', bytes: 581689, textLengthUtf16: 569564, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', bytes: 360865, textLengthUtf16: 354130, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', bytes: 686382, textLengthUtf16: 673685, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
+export const SHERLOCK: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 244251, textLengthUtf16: 239435, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
+  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236849, textLengthUtf16: 232130, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
+  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', title: 'The Adventures of Sherlock Holmes', bytes: 575804, textLengthUtf16: 562213, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
+  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', title: 'The Memoirs of Sherlock Holmes', bytes: 581689, textLengthUtf16: 569564, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
+  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', title: 'The Hound of the Baskervilles', bytes: 360865, textLengthUtf16: 354130, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
+  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', title: 'The Return of Sherlock Holmes', bytes: 686382, textLengthUtf16: 673685, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
 ];
 
 /** The bundled corpus as the built-in `ProjectDataV1`, built ONCE (the recipe
@@ -93,7 +93,7 @@ let sherlockData: Promise<ProjectDataV1> | null = null;
 export function sherlockProjectData(): Promise<ProjectDataV1> {
   sherlockData ??= buildBuiltinProjectData(
     BUILTIN_SHERLOCK_ID,
-    SHERLOCK.map(({ doc, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title: doc, bytes, textLengthUtf16, sourceHash, textHash })),
+    SHERLOCK.map(({ doc, title, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title, bytes, textLengthUtf16, sourceHash, textHash })),
   );
   return sherlockData;
 }

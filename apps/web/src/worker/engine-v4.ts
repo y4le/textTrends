@@ -1565,7 +1565,7 @@ export class WorkerEngineV4 {
     // Detected baseline: reconstruct candidates from resident text and verify
     // they still hash to the admitted identity (a nondeterminism/corruption
     // guard), then build the detected table. Memoized per identity triple.
-    const cacheKey = `${artifact.text} ${artifact.candidates} ${artifact.recipe}`;
+    const cacheKey = `${artifact.text}\u0000${artifact.candidates}\u0000${artifact.recipe}`;
     let detected = gen.detectedTables.get(cacheKey);
     if (!detected) {
       const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
