@@ -28,6 +28,7 @@
  * source is never repair-deleted.
  */
 
+import type { StorageOpen } from '../shared/storage-contract.ts';
 import {
   CapError,
   DependencyError,
@@ -87,6 +88,7 @@ import {
   type Resolver,
   StructureCapError,
   StructureError,
+  type SourceDescriptorV1,
   type StructureArtifactV2,
   type StructureOverrideV1,
   type StructureRecipeProvisional,
@@ -102,7 +104,6 @@ import {
   type OverrideInputV4,
   type EditSectionRow,
   type QueryOpV4,
-  type SourceDescriptorV4,
   type StorageWarningCodeV4,
   type ToWorkerV4,
   type UserDataErrorCodeV4,
@@ -124,10 +125,7 @@ type Yield = () => Promise<void>;
  * a user-data command awaits the provider; the provider memoizes the (single,
  * bounded) open so repeated commands do not re-open.
  */
-export type UserDataAccess =
-  | { readonly kind: 'ok'; readonly store: UserDataStore }
-  | { readonly kind: 'blocked'; readonly message: string }
-  | { readonly kind: 'unavailable'; readonly message: string };
+export type UserDataAccess = StorageOpen<UserDataStore>;
 export type UserDataProvider = () => Promise<UserDataAccess>;
 
 /** Bail-out sentinels caught at the dispatch boundary and swallowed:
@@ -1157,9 +1155,9 @@ export class WorkerEngineV4 {
 
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
-    // The artifact descriptor IS the wire descriptor (SourceDescriptorV4 =
+    // The artifact descriptor IS the wire descriptor (the wire emits core's
     // core's SourceDescriptorV1) — emit it as-is, no re-shaping.
-    const source: SourceDescriptorV4 = a.descriptor;
+    const source: SourceDescriptorV1 = a.descriptor;
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'source-ready',

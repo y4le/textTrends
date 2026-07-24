@@ -11,19 +11,10 @@
  * into the worker in place of the inline v3 narrowers.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isSourceFormat, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
-
-const isStr = (v: unknown): v is string => typeof v === 'string';
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
-/** A non-negative safe integer — the total wire guard for every COUNT/POSITION/
- *  LENGTH quantity. `typeof number` alone let NaN/±Infinity/negative/fractional
- *  values through the boundary, where they poison cap-preflight totals and
- *  defeat kernel stopping comparisons (Codex architecture review §7). */
-const isCount = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 const MATCH = new Set(['sensitive', 'folded']);
 const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);

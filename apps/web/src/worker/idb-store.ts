@@ -22,8 +22,9 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { isRecord } from '@texttrends/core';
 import type { DocumentIndexV1 } from '@texttrends/core';
-import type { StorageWarningCodeV4 as StorageWarningCode } from './protocol-v4.ts';
+import type { StorageWarningCode } from '../shared/storage-contract.ts';
 import {
   InMemoryArtifactStore,
   type ArtifactStore,
@@ -98,8 +99,6 @@ interface ArtifactDb extends DBSchema {
   };
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object';
 
 /** Shallow storage-envelope validation for a text record. */
 function checkTextEnvelope(record: unknown, hash: string): string | null {

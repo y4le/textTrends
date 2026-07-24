@@ -13,14 +13,13 @@
  * worker-instance epoch so a stale instance can never publish.
  */
 
-import type { IndexRecipeProvisional, ProjectManifestV1 } from '@texttrends/core';
+import type { IndexRecipeProvisional, ProjectManifestV1, SourceDescriptorV1 } from '@texttrends/core';
 import type {
   FromWorkerV4,
   GenerationDocSpecV4,
   MissingWarmDocV4,
   QueryOpV4,
   QueryResultDataV4,
-  SourceDescriptorV4,
   ToWorkerV4,
   UserDataErrorCodeV4,
   WorkerErrorCodeV4,
@@ -72,11 +71,12 @@ export class WorkerClientError extends Error {
 export const isCancelled = (e: unknown): boolean =>
   e instanceof WorkerClientError && e.code === 'CANCELLED';
 
-/** Resolution of projectLoad: the raw persisted manifest (the caller
- *  deep-validates it), or a miss. Corrupt/unavailable rejects with a
- *  UserDataClientError. */
+/** Resolution of projectLoad: the WORKER-VALIDATED manifest (the worker is
+ *  the sole durable-admission authority — it upgrades + deep-validates before
+ *  emitting), or a miss. Corrupt/unavailable rejects with a
+ *  UserDataClientError (DATA_CORRUPT / PERSISTENCE_UNAVAILABLE). */
 export type ProjectLoadResult =
-  | { readonly kind: 'loaded'; readonly manifest: unknown }
+  | { readonly kind: 'loaded'; readonly manifest: ProjectManifestV1 }
   | { readonly kind: 'missing' };
 
 /** The correlated extraction event: the source/text/candidate identities a
@@ -88,7 +88,7 @@ export interface SourceReadyInfo {
   readonly job: number;
   readonly generation: string;
   readonly doc: string;
-  readonly source: SourceDescriptorV4;
+  readonly source: SourceDescriptorV1;
   readonly extractionRecipeHash: string;
   readonly text: string;
   readonly textLengthUtf16: number;
@@ -471,10 +471,10 @@ export class WorkerClient {
     return { job };
   }
 
-  /** Load a durable project by id. Resolves `loaded` with the RAW manifest (the
-   *  caller deep-validates it) or `missing`; rejects UserDataClientError on a
-   *  corrupt record or unavailable storage. Cancellable before the read/deep
-   *  validation completes. */
+  /** Load a durable project by id. Resolves `loaded` with the WORKER-VALIDATED
+   *  manifest or `missing`; rejects UserDataClientError on a corrupt record or
+   *  unavailable storage. Cancellable before the worker's read/deep validation
+   *  completes. */
   projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void } {
     return this.request<ProjectLoadResult>(
       (job, resolve, reject) => {
@@ -484,9 +484,11 @@ export class WorkerClient {
     );
   }
 
-  /** Save an ALREADY-VALIDATED manifest by compare-and-swap. Resolves with the
-   *  committed revision; rejects UserDataClientError (REVISION_CONFLICT carries
-   *  the stored `currentRevision`). Cancellable before the durable write begins. */
+  /** Save a manifest by compare-and-swap. The WORKER deep-validates it at its
+   *  trust boundary before any durable write (an invalid one rejects
+   *  REQUEST_INVALID). Resolves with the committed revision; rejects
+   *  UserDataClientError (REVISION_CONFLICT carries the stored
+   *  `currentRevision`). Cancellable before the durable write begins. */
   projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
     return this.request<{ revision: number }>(
       (job, resolve, reject) => {

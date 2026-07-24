@@ -57,7 +57,7 @@ import type {
   QueryResultDataV4,
   StructureEditContextV1,
   StructureQueryResultV1,
-} from '../worker/protocol-v4.ts';
+} from '../shared/analysis-contract.ts';
 import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, type ProjectDataV1 } from './project.ts';
 import {
   SessionCommandError,

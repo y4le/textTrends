@@ -16,7 +16,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { overrideFromEditedOutline, ROOT_KEY, type EditableSectionValue, type StructureSectionRecordV2 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { canAddSection, newDraftSection, normalizeLevels } from '../lib/structure-view.ts';
-import type { StructureEditContextV1 } from '../worker/protocol-v4.ts';
+import type { StructureEditContextV1 } from '../shared/analysis-contract.ts';
 
 /** The added-row key allocator — injectable so tests are deterministic;
  *  production mints a fresh uuid per Add (ruling §5, no per-session counter). */

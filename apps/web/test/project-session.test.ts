@@ -867,15 +867,19 @@ describe('superseded generation (planner case 5)', () => {
 });
 
 describe('load validation fence (planner case 14)', () => {
-  it('a corrupt load result surfaces an error and does not replace the current project', async () => {
+  it('a corrupt durable record (typed DATA_CORRUPT from the worker authority) surfaces an error and does not replace the current project', async () => {
     const { session, client } = makeSession(builtin([bundledDoc('b1', 20)]));
     session.start();
     session.loadUserProject();
     await settle();
     expect(client.loads).toHaveLength(1);
-    client.loads[0]!.resolve({ kind: 'loaded', manifest: { schema: 'texttrends/project/1', revision: 0 } }); // invalid (rev 0)
+    // The WORKER deep-validates before emitting; corruption arrives as a
+    // typed rejection, never as a value for the session to re-validate.
+    client.loads[0]!.reject(new UserDataClientError('DATA_CORRUPT', 'stored project failed validation: bad revision'));
     await settle();
-    expect(session.getState().analysis.phase).toBe('error');
+    const analysis = session.getState().analysis;
+    expect(analysis.phase).toBe('error');
+    expect(analysis.phase === 'error' && analysis.message).toContain('corrupt');
     expect(session.getState().project.kind).toBe('builtin'); // unchanged
   });
 
@@ -906,16 +910,20 @@ describe('load validation fence (planner case 14)', () => {
 // Review round 1 fixes (Codex claude_7b_review_v2): fencing/ordering hardening.
 // ────────────────────────────────────────────────────────────────────────────
 
-describe('restart during save validation (review finding 1)', () => {
-  it('a worker restart before the save is posted aborts it and never posts', async () => {
+describe('save posting is synchronous with the command (worker is the validation authority)', () => {
+  it('save() posts in the same task — a restart can only interrupt a POSTED save, which reconciles', async () => {
     const { session, client } = makeSession(builtin());
     await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    session.save(); // enters `saving`, awaiting async manifest validation (not yet posted)
-    client.emitRestart(false); // restart DURING validation
+    session.save();
+    // No main-thread deep-validation await remains: the manifest is
+    // constructed synchronously and the post happens before control returns,
+    // so there is no pre-post window a restart could abort into a retryable
+    // error. The worker validates at its own trust boundary.
+    expect(client.saves).toHaveLength(1); // posted synchronously
+    client.emitRestart(false); // restart while the posted save is in flight
     await settle();
-    const st = session.getState();
-    expect(st.project.save.phase).toBe('error'); // aborted, retryable — not reconcile-required
-    expect(client.saves).toHaveLength(0); // the abandoned continuation never posted
+    // The write may or may not have committed — reconcile, never guess.
+    expect(session.getState().project.save.phase).toBe('reconcile-required');
   });
 });
 
@@ -928,7 +936,7 @@ describe('load must not strand in-flight operations (review finding 2)', () => {
     expect(client.saves).toHaveLength(1); // posted
     session.loadUserProject();
     await settle();
-    client.loads[0]!.resolve({ kind: 'loaded', manifest: { schema: 'texttrends/project/1', revision: 0 } }); // corrupt
+    client.loads[0]!.reject(new UserDataClientError('DATA_CORRUPT', 'stored project failed validation')); // corrupt record
     await settle();
     expect(session.getState().analysis.phase).toBe('error'); // load failed
     // The pre-existing save is NOT stranded: its ack still lands.
@@ -1125,7 +1133,7 @@ describe('progress is generation-fenced (review finding 10)', () => {
 // ────────────────────────────────────────────────────────────────────────────
 
 describe('save ownership across retries (r2 finding 1)', () => {
-  it('a restart during a RETRY still in validation is not misclassified against a prior failed attempt', async () => {
+  it('a restart during a RETRY reconciles against the RETRY manifest, never a prior failed attempt', async () => {
     const { session, client } = makeSession(builtin());
     await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
     session.save();
@@ -1133,12 +1141,21 @@ describe('save ownership across retries (r2 finding 1)', () => {
     client.saves[0]!.reject(new UserDataClientError('DATA_CORRUPT', 'bad')); // attempt A terminal
     await settle();
     expect(session.getState().project.save.phase).toBe('error');
-    session.save(); // retry B — enters `saving`, awaiting validation (pendingSave cleared)
-    client.emitRestart(false); // restart during B's validation
+    session.save(); // retry B — posts synchronously; pendingSave is B's OWN capture
+    expect(client.saves).toHaveLength(2);
+    const bManifest = client.saves[1]!.manifest;
+    client.emitRestart(false); // restart while B is in flight
     await settle();
-    // B never posted → retryable error, NOT reconcile against A's stale manifest.
-    expect(session.getState().project.save).toMatchObject({ phase: 'error', code: 'WORKER_RESTARTED' });
-    expect(client.loads).toHaveLength(0); // no reconciliation load fired
+    // B was posted → uncertain commit, reconciled by a fresh load — and the
+    // comparison target is B's manifest, never A's stale capture.
+    expect(session.getState().project.save.phase).toBe('reconcile-required');
+    expect(client.loads).toHaveLength(1);
+    client.loads[0]!.resolve({ kind: 'loaded', manifest: { ...bManifest } });
+    await settle();
+    // The durable record IS B's target → adopted exactly like a normal ack.
+    expect(session.getState().project.save.phase).toBe('idle');
+    expect(session.getState().project.baseRevision).toBe(bManifest.revision);
+    expect(session.getState().project.dirty).toBe(false);
   });
 });
 
@@ -1239,24 +1256,29 @@ describe('reattachment publishes a distinct mismatch code (r2 finding 7)', () =>
 // Review round 3 fixes (Codex claude_7b_review_r3): final ownership interleavings.
 // ────────────────────────────────────────────────────────────────────────────
 
-describe('a restart-aborted save does not leak a coalesced request (r3 finding 1)', () => {
-  it('a stale saveAgain from an aborted attempt never auto-fires after a retry', async () => {
+describe('a lost save does not leak a coalesced request (r3 finding 1)', () => {
+  it('a stale saveAgain from an uncommitted attempt never auto-fires after a retry', async () => {
     const { session, client } = makeSession(builtin());
     const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    session.save(); // attempt A — validating
+    session.save(); // attempt A — posted synchronously
     session.editMeta(docs[0]!, { title: 'edit during A' });
     session.save(); // coalesced request during A (saveAgain = true)
-    client.emitRestart(false); // A aborted before posting
+    client.emitRestart(false); // worker died with A in flight → reconcile
     await settle();
-    expect(session.getState().project.save).toMatchObject({ phase: 'error', code: 'WORKER_RESTARTED' });
+    expect(session.getState().project.save.phase).toBe('reconcile-required');
+    // The record is absent: A never committed. The stale coalesced request is
+    // dropped WITH it — an unrequested save must not auto-fire later.
+    client.loads[0]!.resolve({ kind: 'missing' });
+    await settle();
+    expect(session.getState().project.save).toMatchObject({ phase: 'error', code: 'SAVE_UNCOMMITTED' });
     // Retry B, then edit during B WITHOUT requesting another save.
     session.save();
     await settle();
-    expect(client.saves).toHaveLength(1); // B posted (A never did)
+    expect(client.saves).toHaveLength(2); // A (lost) + B
     session.editMeta(docs[0]!, { title: 'edit during B, not requested to save' });
-    client.saves[0]!.resolve({ revision: 1 }); // B acked
+    client.saves[1]!.resolve({ revision: 1 }); // B acked
     await settle();
-    expect(client.saves).toHaveLength(1); // NO unrequested follow-up save fired
+    expect(client.saves).toHaveLength(2); // NO unrequested follow-up save fired
     expect(session.getState().project.dirty).toBe(true); // the B-time edit stays dirty, unsaved
   });
 });

@@ -133,6 +133,27 @@ describe('IdbUserDataStore durability specifics', () => {
     opened.store.close();
   });
 
+  it('an ARRAY-shaped source record is corrupt — reported and retained, never a hit (C5 hardening)', async () => {
+    await openUserDataStore().then((o) => o.kind === 'ok' && o.store.close());
+    const db = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    // An array can carry every named envelope property through structuredClone;
+    // the durable policy for a malformed record is REFUSAL (corrupt, retained),
+    // never a hit that hands smuggled bytes to the engine.
+    const bytes = new ArrayBuffer(4);
+    const arrayRecord = Object.assign([], { schema: 'texttrends/source/1', hash: 'h', bytes, byteLength: 4 });
+    await db.put('sources', arrayRecord as never); // keyPath 'hash' — in-line key
+    db.close();
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
+    expect((await opened.store.getSource('h')).kind).toBe('corrupt');
+    // RETAINED, not repair-deleted: refusal must be non-destructive. A second
+    // read still sees the record, and the raw row is still in the database.
+    expect((await opened.store.getSource('h')).kind).toBe('corrupt');
+    opened.store.close();
+    const check = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    expect(await check.get('sources', 'h')).toBeDefined();
+    check.close();
+  });
+
   it('migrates a consistent v1 wrapper into its canonical manifest, leaving an inconsistent one corrupt', async () => {
     // Seed a REAL version-1 database with the old wrapper shape.
     const v1 = await openDB(USER_DATA_DB_NAME, 1, {

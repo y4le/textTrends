@@ -23,9 +23,10 @@
  * than masquerading as a miss.
  */
 
+import { isNonNegSafeInt, isRecord } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import type { ProjectManifestV1 } from '@texttrends/core';
-import type { CacheRead } from './store.ts';
+import type { CacheRead, StorageOpen } from '../shared/storage-contract.ts';
 import {
   UserDataError,
   assertRevisionContract,
@@ -43,9 +44,6 @@ interface UserDataDb extends DBSchema {
   projects: { key: string; value: ProjectManifestV1 };
   sources: { key: string; value: StoredSourceV1 };
 }
-
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object';
 
 function isQuota(e: unknown): boolean {
   return e instanceof DOMException && (e.name === 'QuotaExceededError' || e.code === 22);
@@ -136,7 +134,7 @@ export class IdbUserDataStore implements UserDataStore {
     if (
       !isRecord(record) || record.schema !== 'texttrends/source/1' || record.hash !== hash ||
       !(record.bytes instanceof ArrayBuffer) ||
-      !Number.isSafeInteger(record.byteLength) || (record.byteLength as number) < 0 ||
+      !isNonNegSafeInt(record.byteLength) ||
       record.byteLength !== record.bytes.byteLength // declared length must equal the buffer
     ) {
       return { kind: 'corrupt', reason: 'stored source envelope invalid' };
@@ -169,10 +167,7 @@ export class IdbUserDataStore implements UserDataStore {
   }
 }
 
-export type UserDataOpen =
-  | { readonly kind: 'ok'; readonly store: UserDataStore }
-  | { readonly kind: 'blocked'; readonly message: string }
-  | { readonly kind: 'unavailable'; readonly message: string };
+export type UserDataOpen = StorageOpen<UserDataStore>;
 
 /**
  * Open the durable store. UNLIKE the artifact cache, a blocked upgrade is
@@ -268,7 +263,7 @@ const defaultUserDataOpen: UserDataOpener = (onBlocked) =>
             const inner = rec.manifest as Record<string, unknown> | null;
             const outerValid =
               rec.schema === 'texttrends/project/1' && typeof rec.id === 'string' &&
-              Number.isSafeInteger(rec.revision) && (rec.revision as number) >= 1;
+              isNonNegSafeInt(rec.revision) && (rec.revision as number) >= 1;
             const innerAgrees =
               inner !== null && typeof inner === 'object' &&
               inner.schema === 'texttrends/project/1' && inner.id === rec.id && inner.revision === rec.revision;

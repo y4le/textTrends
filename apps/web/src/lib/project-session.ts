@@ -30,6 +30,7 @@
  */
 
 import {
+  canonicalJson,
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
@@ -42,8 +43,6 @@ import {
   SOURCE_FORMAT_IDS,
   sourceFormatForFilename,
   stripSourceExtension,
-  upgradeStoredManifest,
-  validateProjectManifest,
   type DocumentMetaV1,
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
@@ -55,7 +54,7 @@ import {
 import type {
   GenerationDocSpecV4,
   SourceFormat,
-} from '../worker/protocol-v4.ts';
+} from '../shared/analysis-contract.ts';
 import type {
   GenerationReady,
   IngestProgress,
@@ -248,6 +247,15 @@ interface ImportRecipes {
   readonly structureRecipeHash: string;
 }
 
+/** Recipe staging state: `hashing` until `finishStaging` computes the real
+ *  values + hashes — only then may this import contribute a cold spec — then
+ *  `ready` carrying them. A discriminated union: the unhashed state carries NO
+ *  recipe fields at all (the previous placeholder object smuggled an
+ *  `undefined as unknown as` cast through the identity boundary). */
+type ImportStaging =
+  | { readonly phase: 'hashing' }
+  | { readonly phase: 'ready'; readonly recipes: ImportRecipes };
+
 /** A staged import: an identity-incomplete document awaiting the two-fact join.
  *  Correlation is by (importToken, generation, doc, ingestJob) — a stale event
  *  never mutates the draft even if its hash happens to match. */
@@ -258,10 +266,7 @@ interface PendingImport {
   readonly meta: DocumentMetaV1;
   readonly format: SourceFormat;
   readonly byteLength: number;
-  readonly recipes: ImportRecipes;
-  /** True once `finishStaging` has computed real recipe hashes — only then may
-   *  this import contribute a cold spec to a generation open. */
-  recipesReady: boolean;
+  readonly staging: ImportStaging;
   /** The generation currently analyzing this import (reset each reopen). */
   generation: string | null;
   ingestJob: number | null;
@@ -618,28 +623,26 @@ export class ProjectSession {
     const payloadEpoch = this.editEpoch;
     const expectedRevision = this.baseRevision;
     const targetRevision = expectedRevision + 1;
-    // A new attempt: drop any captured payload from a prior terminal attempt so a
-    // restart mid-VALIDATION of THIS attempt cannot be misclassified as an
-    // uncertain (posted) commit against the stale one. pendingSave is set only
-    // just before this attempt actually posts.
+    // A new attempt: drop any captured payload from a prior terminal attempt.
+    // pendingSave is set only just before this attempt actually posts.
     this.pendingSave = null;
-    // Enter `saving` BEFORE awaiting deep validation so a concurrent command
-    // sees exactly one active save.
     this.saveState = { phase: 'saving', token, payloadEpoch, targetRevision };
     this.publish();
 
+    // Cheap SYNCHRONOUS construction invariants only — the WORKER is the one
+    // deep-validation authority at its trust boundary (an invalid manifest
+    // comes back as a typed REQUEST_INVALID rejection below). There is no
+    // longer a pre-post await, so this attempt posts in the same task as
+    // save(); a worker restart can only interrupt it after it was posted.
     let manifest: ProjectManifestV1;
     try {
       manifest = manifestForSave({ kind: 'user', data: payloadData, baseRevision: expectedRevision });
-      await validateProjectManifest(manifest);
     } catch (e) {
-      if (!lease.isCurrent()) return;
       this.saveAgain = false;
       this.saveState = { phase: 'error', code: 'INVALID', message: msg(e) };
       this.publish();
       return;
     }
-    if (!lease.isCurrent()) return;
     this.pendingSave = { token, payloadEpoch, expectedRevision, targetRevision, manifest };
     const { result } = this.deps.client.projectSave(manifest, expectedRevision);
     try {
@@ -866,9 +869,15 @@ export class ProjectSession {
     let loaded: ProjectLoadResult;
     try {
       loaded = await result;
-    } catch {
+    } catch (e) {
       if (!lease.isCurrent()) return;
-      this.analysis = { phase: 'error', message: 'failed to load the durable project', fatal: false };
+      // The worker is the sole durable-admission authority (it upgrades + deep
+      // validates before emitting): a corrupt record arrives as a typed
+      // DATA_CORRUPT rejection, never as a value to re-validate here.
+      this.analysis =
+        e instanceof UserDataClientError && e.code === 'DATA_CORRUPT'
+          ? { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false }
+          : { phase: 'error', message: 'failed to load the durable project', fatal: false };
       this.publish();
       return;
     }
@@ -878,19 +887,7 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    let manifest: ProjectManifestV1;
-    try {
-      // Lazily migrate a manifest saved by an older build (pre-container source
-      // discriminant / candidateReconstruction) before deep validation, so a
-      // prior project reopens instead of reporting DATA_CORRUPT.
-      manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
-    } catch (e) {
-      if (!lease.isCurrent()) return;
-      this.analysis = { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false };
-      this.publish();
-      return;
-    }
-    if (!lease.isCurrent()) return;
+    const manifest: ProjectManifestV1 = loaded.manifest;
     // A valid load must yield to newer local intent, an in-flight save, OR a save
     // that acknowledged during the load — rather than silently discard the newer
     // draft or make a save acknowledgement unobservable.
@@ -951,7 +948,7 @@ export class ProjectSession {
       // Only imports whose recipe hashes are computed contribute a cold spec; a
       // still-staging import is picked up when `finishStaging` reopens.
       const p = this.pending.get(id);
-      if (p?.recipesReady) specs.push(this.coldSpec(p));
+      if (p?.staging.phase === 'ready') specs.push(this.coldSpec(p, p.staging.recipes));
     }
     const { result, cancel } = this.deps.client.openGeneration(generation, specs, this.indexRecipe);
     this.activeOpenCancel = cancel;
@@ -972,13 +969,13 @@ export class ProjectSession {
   /** The cold spec for an identity-incomplete staged import: recipe values +
    *  hashes, availability external, and NO expected source/text/candidate
    *  identities (a genuine miss the worker cold-ingests). */
-  private coldSpec(p: PendingImport): GenerationDocSpecV4 {
+  private coldSpec(p: PendingImport, recipes: ImportRecipes): GenerationDocSpecV4 {
     return {
       doc: p.doc,
       language: p.meta.language,
       source: { byteLength: p.byteLength, format: p.format, availability: 'external' },
-      extraction: { recipe: p.recipes.extraction, recipeHash: p.recipes.extractionRecipeHash },
-      structure: { recipe: p.recipes.structure, recipeHash: p.recipes.structureRecipeHash, override: { kind: 'none' } },
+      extraction: { recipe: recipes.extraction, recipeHash: recipes.extractionRecipeHash },
+      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { kind: 'none' } },
     };
   }
 
@@ -1095,6 +1092,10 @@ export class ProjectSession {
   private tryFinalize(doc: string): void {
     const p = this.pending.get(doc);
     if (!p || !p.sourceReady || !p.published || p.status === 'failed') return;
+    // Both facts require a generation that carried this import's cold spec,
+    // which only a `ready` staging can contribute — now type-enforced.
+    if (p.staging.phase !== 'ready') return;
+    const { recipes } = p.staging;
     const info = p.sourceReady;
     const finalizedDoc: ProjectDocV1 = {
       doc: p.doc,
@@ -1103,13 +1104,13 @@ export class ProjectSession {
       source: info.source,
       sourceAvailability: 'external',
       extraction: {
-        recipe: p.recipes.extraction,
+        recipe: recipes.extraction,
         recipeHash: info.extractionRecipeHash,
         text: info.text,
         textLengthUtf16: info.textLengthUtf16,
         candidates: info.candidates,
       },
-      structure: { recipe: p.recipes.structure, recipeHash: p.recipes.structureRecipeHash, override: { status: 'none' } },
+      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { status: 'none' } },
     };
     this.pending.delete(doc);
     this.finalized.set(doc, finalizedDoc); // `order` already carries `doc` at its selection position
@@ -1139,21 +1140,21 @@ export class ProjectSession {
     this.abortFetches();
     this.activeOpenCancel = null;
     // A save in flight when the worker died must have its continuation fenced:
-    // advance the save counter so the awaiting validation/post continuation goes
-    // stale and cannot post or settle behind our back. Whether it is an
-    // UNCERTAIN commit depends on whether it was actually POSTED — pendingSave is
-    // assigned only immediately before the post, so its presence means the write
-    // reached the worker (reconcile by load). A save still in local validation
-    // never reached the worker, so it is simply aborted and retryable.
+    // invalidate the save lane so the awaiting ack continuation goes stale and
+    // cannot settle behind our back. runSave posts SYNCHRONOUSLY with save()
+    // (the worker is the validation authority — there is no pre-post await),
+    // so a live `saving` phase means the write reached the worker and its
+    // outcome is UNCERTAIN: reconcile by load, never guess. The not-posted arm
+    // below is pure defense for the zero-width window between saveState
+    // assignment and the post (e.g. a synchronous manifestForSave throw path).
     if (this.kind === 'user' && this.saveState.phase === 'saving') {
       const posted = this.pendingSave !== null && this.pendingSave.token === this.saveState.token;
       this.saveOps.invalidate();
       if (posted) {
         this.saveState = { phase: 'reconcile-required', targetRevision: this.pendingSave!.targetRevision };
       } else {
-        // Never reached the worker: abort it cleanly. Its captured payload and any
-        // coalesced follow-up request are abandoned — a stale saveAgain must not
-        // auto-fire an unrequested save after a later retry acknowledges.
+        // Defensive only (see above): abandon cleanly — a stale saveAgain must
+        // not auto-fire an unrequested save after a later retry acknowledges.
         this.pendingSave = null;
         this.saveAgain = false;
         this.saveState = { phase: 'error', code: 'WORKER_RESTARTED', message: 'the save did not reach the worker; retry' };
@@ -1191,36 +1192,35 @@ export class ProjectSession {
     let loaded: ProjectLoadResult;
     try {
       loaded = await result;
-    } catch {
+    } catch (e) {
       if (!scopeLease.isCurrent()) return;
       this.saveAgain = false; // a lost coalesced request must not auto-fire later
-      this.saveState = { phase: 'error', code: 'RECONCILE_FAILED', message: 'could not load the project to reconcile the save' };
+      // A DATA_CORRUPT rejection is the worker's admission verdict on the
+      // durable record itself (the former second validation pass here).
+      this.saveState =
+        e instanceof UserDataClientError && e.code === 'DATA_CORRUPT'
+          ? { phase: 'error', code: 'DATA_CORRUPT', message: 'the durable record is corrupt' }
+          : { phase: 'error', code: 'RECONCILE_FAILED', message: 'could not load the project to reconcile the save' };
       this.publish();
       return;
     }
     if (!scopeLease.isCurrent() || this.saveState.phase !== 'reconcile-required') return;
     if (loaded.kind === 'loaded') {
-      try {
-        const manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
-        if (!scopeLease.isCurrent() || this.saveState.phase !== 'reconcile-required') return;
-        if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
-          // Our write DID commit before the crash: adopt it through the ONE
-          // completion path so File retention + any coalesced follow-up save are
-          // handled exactly as a normal ack.
-          this.applySaved(target.targetRevision, target.payloadEpoch, target.manifest);
-          return;
-        }
-        // Any other durable outcome is non-overwriting conflict/rebase.
-        this.saveAgain = false;
-        this.saveState = { phase: 'conflict', currentRevision: manifest.revision };
-        this.publish();
-        return;
-      } catch {
-        this.saveAgain = false;
-        this.saveState = { phase: 'error', code: 'DATA_CORRUPT', message: 'the durable record is corrupt' };
-        this.publish();
+      // Worker-validated already — reconcile compares the durable truth to the
+      // captured target; no second validation pass on the main thread.
+      const manifest = loaded.manifest;
+      if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
+        // Our write DID commit before the crash: adopt it through the ONE
+        // completion path so File retention + any coalesced follow-up save are
+        // handled exactly as a normal ack.
+        this.applySaved(target.targetRevision, target.payloadEpoch, target.manifest);
         return;
       }
+      // Any other durable outcome is non-overwriting conflict/rebase.
+      this.saveAgain = false;
+      this.saveState = { phase: 'conflict', currentRevision: manifest.revision };
+      this.publish();
+      return;
     }
     // The record is absent: our save did not commit. Surface a retryable error
     // (NOT a silent success) — base is unchanged, so a retry targets the same
@@ -1309,8 +1309,7 @@ export class ProjectSession {
         meta: initialMetaFor(file.name),
         format,
         byteLength: file.size,
-        recipes: PLACEHOLDER_RECIPES,
-        recipesReady: false,
+        staging: { phase: 'hashing' },
         generation: null,
         ingestJob: null,
         sourceReady: null,
@@ -1355,7 +1354,7 @@ export class ProjectSession {
         structure: DEFAULT_STRUCTURE_RECIPE,
         structureRecipeHash: structureHash,
       };
-      this.pending.set(doc, { ...p, recipes, recipesReady: true });
+      this.pending.set(doc, { ...p, staging: { phase: 'ready', recipes } });
       matched++;
     }
     // If every staged import was removed/superseded meanwhile, this stale
@@ -1524,34 +1523,7 @@ export class ProjectSession {
   }
 }
 
-/** Placeholder recipe values a `PendingImport` carries until `finishStaging`
- *  computes the real hashes; a cold spec is never opened before then. */
-const PLACEHOLDER_RECIPES: ImportRecipes = {
-  extraction: undefined as unknown as ExtractionRecipeProvisional,
-  extractionRecipeHash: '',
-  structure: DEFAULT_STRUCTURE_RECIPE,
-  structureRecipeHash: '',
-};
-
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Order-independent structural equality for reconcile (two manifests denote
- *  the same durable record). Reuses the same canonicalization the core hashes
- *  use — a stable key ordering with array order preserved where it is
- *  meaningful (declared order). */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeys(value));
-}
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = sortKeys((value as Record<string, unknown>)[key]);
-    }
-    return out;
-  }
-  return value;
-}

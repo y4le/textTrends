@@ -805,6 +805,37 @@ describe('user-data lane', () => {
     expect(h.last('user-data-error').code).toBe('DATA_CORRUPT');
   });
 
+  it('project-save deep-validates BEFORE any durable write: invalid → REQUEST_INVALID, putProject never called', async () => {
+    const h = harness();
+    // The worker is the SOLE save-admission authority (the session posts
+    // without a main-thread deep pass), so this gate is the only one: an
+    // invalid manifest must be refused with a correlated typed error, no ack,
+    // and — critically — no durable write attempt at all.
+    let puts = 0;
+    const store: UserDataStore = {
+      getProject: () => Promise.resolve({ kind: 'miss' }),
+      putProject: () => { puts++; return Promise.reject(new Error('must never be reached')); },
+      getSource: () => Promise.resolve({ kind: 'miss' }),
+      putSource: () => Promise.resolve(),
+      close: () => undefined,
+    };
+    h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
+    // A manifest that satisfies EVERY downstream check (target id matches,
+    // revision === expectedRevision + 1) and fails ONLY deep admission (wrong
+    // indexRecipeHash) — so deleting or delaying validateProjectManifest must
+    // reach putProject and fail this test (mutation-sensitive by construction).
+    await h.send({
+      t: 'project-save', job: 9, project: 'p',
+      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
+      expectedRevision: 0,
+    });
+    const err = h.last('user-data-error');
+    expect(err.code).toBe('REQUEST_INVALID');
+    expect(err.job).toBe(9);
+    expect(h.all('project-saved').length).toBe(0);
+    expect(puts).toBe(0); // validation gated the write, not the other way round
+  });
+
   it('project-load returns project-missing for an absent project', async () => {
     const h = harness();
     await h.send({ t: 'project-load', job: 1, project: 'absent' });

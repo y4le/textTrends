@@ -34,7 +34,7 @@ import {
   type ProjectDocV1,
   type ProjectManifestV1,
 } from '@texttrends/core';
-import type { GenerationDocSpecV4, OverrideInputV4 } from '../worker/protocol-v4.ts';
+import type { GenerationDocSpecV4, OverrideInputV4 } from '../shared/analysis-contract.ts';
 
 /** The file-input `accept` attribute — every supported source extension, derived
  *  from the core format catalog so it can never drift from what import accepts. */
@@ -128,8 +128,9 @@ export class ReadOnlyProjectError extends Error {
  * Materialize the durable manifest for a CAS save: the USER working copy at its
  * NEXT revision (`baseRevision + 1`). This is the single save-materialization
  * path and it REJECTS the built-in origin — Sherlock can never be written to
- * class-1 storage. The caller validates the result (validateProjectManifest)
- * before sending; this only assembles the canonical shape.
+ * class-1 storage. Deliberately construction-only: the WORKER is the sole
+ * deep-validation authority at its trust boundary (an invalid manifest comes
+ * back as a typed REQUEST_INVALID, never a durable write).
  */
 export function manifestForSave(project: CurrentProject): ProjectManifestV1 {
   if (project.kind === 'builtin') throw new ReadOnlyProjectError();
