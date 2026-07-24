@@ -13,7 +13,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, DB_NAME, events, trace } from './helpers.ts';
+import { awaitAllReady, clearArtifactStores, events, trace } from './helpers.ts';
 
 const DOC_NAME = 'smoke-doc.txt';
 const DOC_TITLE = 'smoke-doc';
@@ -22,29 +22,6 @@ const DOC_BYTES = Buffer.byteLength(DOC_TEXT, 'utf-8');
 
 function fileInput(text: string) {
   return { name: DOC_NAME, mimeType: 'text/plain', buffer: Buffer.from(text, 'utf-8') };
-}
-
-/** Clear ONLY the disposable artifact stores (db2), preserving the durable
- *  user-data project record. Forces the next warm probe to miss. */
-async function clearArtifacts(page: import('@playwright/test').Page): Promise<void> {
-  await page.evaluate(async (dbName) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(dbName);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    try {
-      const stores = [...db.objectStoreNames];
-      await new Promise<void>((resolve, reject) => {
-        const tx = db.transaction(stores, 'readwrite');
-        for (const s of stores) tx.objectStore(s).clear();
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-      });
-    } finally {
-      db.close();
-    }
-  }, DB_NAME);
 }
 
 /** The ingest transfer events posted for a given doc since `sinceSeq`, proving
@@ -86,7 +63,7 @@ test('import → transfer → save → reload → load → reattach', async ({ p
   await expect(page.getByText('rev 1 · saved')).toBeVisible({ timeout: 30_000 });
 
   // ── Evict analysis artifacts (keep the durable project), then reload. ──
-  await clearArtifacts(page);
+  await clearArtifactStores(page);
   await page.reload();
   await awaitAllReady(page); // the built-in cold-reboots into the empty db2
 

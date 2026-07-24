@@ -12,7 +12,6 @@
 import {
   finalizeExtraction,
   hashSourceBytes,
-  type EbookPartition,
   type ExtractedDocument,
   type ExtractionRecipeProvisional,
   type PreparedExtraction,
@@ -37,7 +36,7 @@ export async function extractEpubDocument(
   let result;
   try {
     result = extractEpub(bytes, {
-      partitions: recipe.extractor.partitions as readonly EbookPartition[],
+      partitions: recipe.extractor.partitions,
       maxExtractedBytes,
     });
   } catch (e) {
