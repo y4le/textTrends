@@ -21,7 +21,6 @@ import {
   KWIC_CENTER_DEBOUNCE_MS,
   parseSeries,
   MAX_SERIES,
-  SHERLOCK,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
@@ -33,6 +32,7 @@ import type {
   SessionState,
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
+import { SHERLOCK } from '../src/lib/project.ts';
 import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {

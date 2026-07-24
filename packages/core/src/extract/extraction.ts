@@ -260,8 +260,6 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
 /** The recipe arm for one format, so a caller holding the default recipe for a
  *  format sees its exact shape (not the whole union). */
 export type ExtractionRecipeFor<F extends SourceFormat> = Extract<ExtractionRecipeProvisional, { format: F }>;
-export type TxtExtractionRecipe = ExtractionRecipeFor<'txt'>;
-export type MdExtractionRecipe = ExtractionRecipeFor<'md'>;
 
 /** The default extraction recipe for every catalog format, so a caller selects
  *  `recipes[format]` with no per-format switch. The EPUB default reads the
@@ -410,7 +408,14 @@ export type SourceDescriptorV1 =
   | ContainerSourceDescriptorV1
   | MarkupSourceDescriptorV1;
 
-/** The decoder/parser evidence recorded on every artifact. */
+/** Decode-quality evidence surfaced with an extraction. NOTE the per-format
+ *  semantics of `suspiciousControlCount` (admission only requires
+ *  `decoderReplacementCount === 0`, so this is advisory):
+ *  - txt/md: counted over the decoded text (the indexed text itself);
+ *  - html: counted over the RAW decoded markup source, tags included — a
+ *    signal about the input document, not the extracted text;
+ *  - epub: always 0 (the container's XHTML is parsed, never byte-decoded as
+ *    one stream, so no comparable count exists). */
 export interface ExtractionEvidence {
   readonly decoderReplacementCount: number;
   readonly suspiciousControlCount: number;
@@ -639,11 +644,13 @@ export async function finalizeExtraction(
 }
 
 /**
- * Extract a document: decode per policy, well-formedness gate, candidate
- * scan (md only). The convenience composition of decodeDocumentSource and
- * finalizeExtraction — cold extraction and the split worker path share one
- * artifact builder. Throws DecodeError for malformed BOM-declared Unicode or
- * lone-surrogate UTF-16; the caller maps that to DECODE_FAILED.
+ * TEST ORACLE — not a production entry point. Production extraction goes
+ * through `@texttrends/extractors`' `extractSource` (which enforces caps and
+ * runs the ownership hooks); this convenience composition of
+ * decodeDocumentSource + finalizeExtraction exists so tests can assert the
+ * split pipeline composes to exactly what the monolithic path produces, and
+ * as a fixture builder. Throws DecodeError for malformed BOM-declared Unicode
+ * or lone-surrogate UTF-16.
  */
 export async function extractDocument(
   bytes: Uint8Array,

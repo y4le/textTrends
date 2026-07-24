@@ -31,10 +31,16 @@ export interface ExtractionLimits {
 export interface ExtractionHooks {
   /** Announce the phase about to run (for progress reporting). */
   onPhaseStart?(phase: 'decode' | 'extract'): void;
-  /** An awaitable ownership/cancellation gate the caller runs at the phase
-   *  boundary (cold ingest passes its doc gate; warm re-extraction its
-   *  generation/ownership gate). An OPAQUE supersession/cancellation thrown here
-   *  passes through UNCHANGED — it is never remapped to a failure code. */
+  /** An awaitable ownership/cancellation gate (cold ingest passes its doc
+   *  gate; warm re-extraction its generation/ownership gate). EXACT timing,
+   *  once per branch: the literal path runs it BETWEEN decode and finalize;
+   *  the transformed path runs it once AFTER the adapter returns. It is NOT
+   *  the final result-consumption fence — a caller with ownership/cancellation
+   *  semantics MUST gate again after `extractSource` returns, before consuming
+   *  the result (both engine call sites do; the transformed path therefore
+   *  double-checks, which is harmless and deliberate). An OPAQUE
+   *  supersession/cancellation thrown here passes through UNCHANGED — it is
+   *  never remapped to a failure code. */
   afterPhase?(): void | Promise<void>;
 }
 

@@ -58,7 +58,6 @@ import type {
   StructureEditContextV1,
   StructureQueryResultV1,
 } from '../shared/analysis-contract.ts';
-import { BUILTIN_SHERLOCK_ID, buildBuiltinProjectData, type ProjectDataV1 } from './project.ts';
 import {
   SessionCommandError,
   type AnalysisPhase,
@@ -66,41 +65,6 @@ import {
   type SessionState,
 } from './project-session.ts';
 
-/** Manifest with the exact staged LF byte lengths and FULL content hashes —
- *  a 200-with-HTML-shell response must never be indexed as a book, and a
- *  fixture compares every entry against the shipped assets (round 2: the
- *  first manifest carried pre-normalization CRLF sizes and rejected all six).
- *
- *  `sourceHash` (SHA-256 of the exact bytes) and `textHash` (hashText of the
- *  decoded text) are DISTINCT identities (§12.4): for these UTF-8 files with no
- *  ill-formed sequences the two values coincide, and the fixture asserts each
- *  independently plus the coincidence — but the two fields carry different
- *  meanings so a future BOM/1252/transform file can diverge without a data-model
- *  change, and a TextHash can never be routed into a source/extraction key. The
- *  hashes are the authoritative warm-reopen identities the worker rehydrates
- *  against; a mutable doc-label → hash cache must never outrank this manifest. */
-export const SHERLOCK: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 244251, textLengthUtf16: 239435, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236849, textLengthUtf16: 232130, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', title: 'The Adventures of Sherlock Holmes', bytes: 575804, textLengthUtf16: 562213, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', title: 'The Memoirs of Sherlock Holmes', bytes: 581689, textLengthUtf16: 569564, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', title: 'The Hound of the Baskervilles', bytes: 360865, textLengthUtf16: 354130, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', title: 'The Return of Sherlock Holmes', bytes: 686382, textLengthUtf16: 673685, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
-];
-
-/** The bundled corpus as the built-in `ProjectDataV1`, built ONCE (the recipe
- *  and empty-candidate hashes are corpus-wide constants). One project
- *  abstraction drives every origin; Sherlock is simply the read-only built-in.
- *  The composition root (`store-instance.ts`) awaits this to construct the
- *  session's initial `CurrentProject`. */
-let sherlockData: Promise<ProjectDataV1> | null = null;
-export function sherlockProjectData(): Promise<ProjectDataV1> {
-  sherlockData ??= buildBuiltinProjectData(
-    BUILTIN_SHERLOCK_ID,
-    SHERLOCK.map(({ doc, title, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title, bytes, textLengthUtf16, sourceHash, textHash })),
-  );
-  return sherlockData;
-}
 
 export interface KwicRowView {
   /** The series (track) that produced this row — the merged concordance tags

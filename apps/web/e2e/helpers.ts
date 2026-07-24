@@ -6,7 +6,7 @@
 
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
-import { SHERLOCK } from '../src/lib/store.ts';
+import { SHERLOCK } from '../src/lib/project.ts';
 import { USER_PROJECT_ID } from '../src/lib/project.ts';
 import { ARTIFACT_DB_NAME } from '../src/worker/idb-store.ts';
 import { USER_DATA_DB_NAME } from '../src/worker/idb-user-data-store.ts';

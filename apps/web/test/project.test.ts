@@ -14,9 +14,10 @@ import {
   overrideInputFromPersisted,
   ReadOnlyProjectError,
   userProjectFromManifest,
+  SHERLOCK,
+  sherlockProjectData,
   type ProjectDataV1,
 } from '../src/lib/project.ts';
-import { SHERLOCK, sherlockProjectData } from '../src/lib/store.ts';
 import { emptyOverride, hashStructureOverride, validateProjectManifest, type PersistedOverride, type ProjectManifestV1 } from '@texttrends/core';
 
 /** A durable manifest built directly for validation — bypasses the guarded

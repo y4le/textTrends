@@ -19,9 +19,9 @@
 import { hashSourceBytes } from '@texttrends/core';
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
-import { builtinProject } from './project.ts';
+import { builtinProject, sherlockProjectData } from './project.ts';
 import { ProjectSession, type BundledByteProvider } from './project-session.ts';
-import { createAppRuntime, sherlockProjectData } from './store.ts';
+import { createAppRuntime } from './store.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
