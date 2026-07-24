@@ -1,309 +1,274 @@
-# Simplification and architecture plan — joint review synthesis (2026-07-24)
+# Simplification and architecture — executed record and forward roadmap
 
-This plan is the synthesis of a full-codebase re-review performed in parallel by four
-Claude deep-dive analyses (worker layer; client/session/store; core + extractors + cli;
-cross-cutting seams) and an independent Codex planner ruling, taken at branch
-`simplify/architecture-cleanup` commit `375e6ae` (after Phase 0 correctness fixes and
-Phase 1 format centralization). Every finding cited here was verified against the code,
-not carried over from the earlier review. Guiding principle throughout (Codex):
-**centralize decisions before splitting files** — ownership, contracts, and single
-authorities land first; file moves come last and stay mechanical.
+Two joint Claude+Codex full-codebase passes produced and then closed out this
+document. **Pass 1 (2026-07-24) planned the cleanup; it has been FULLY
+EXECUTED** — twelve reviewed commits, `875e458..3b4ee78` on
+`simplify/architecture-cleanup`, every commit taken through Codex
+`review-diff` to looks-good or with prescribed remedies applied and confirmed
+the following round. Final verification: all four typechecks, core 279 +
+extractors 11 + web 332 unit tests, production build with the lazy
+transformed-format chunks intact, 26/26 Chromium functional e2e.
 
-Line references are to `375e6ae` and will drift as phases land; they locate the
-evidence, they are not the contract.
+**Pass 2 (2026-07-24, four parallel Claude analyses + an independent Codex
+planner ruling over the executed tree)** concluded that the architecture
+cleanup is complete: no further repo-wide simplification phase is justified.
+The remainder is the forward roadmap below — publication hardening, two
+semantic defects the cleaner architecture exposed, a residue sweep, one
+just-in-time seam, and then feature delivery.
 
-## Resolved decisions (owner, 2026-07-24)
+---
 
-1. **standard-ebooks `file:` dependency stays deferred.** Codex rates the
-   out-of-repository `file:../../../standard_ebooks` dependency (packages/extractors,
-   apps/web, lockfile) a blocking CI/hermeticity defect: a clean clone plus the CI
-   frozen install cannot reproduce the local graph. Owner ruling: defer anyway; the
-   library will be fixed and published right before the textTrends publication cut.
-   Nothing in this plan may depend on resolving it.
-2. **The idle stats surface stays.** `packages/core/src/stats/` (g2Keyness, logRatio,
-   logDice, pmi, tScore, dp, dpNorm, mattr, mtld) has zero consumers but is the
-   documented contract convention of docs/design/statistics.md: implemented ⇒ exported
-   with hand-verified fixtures, versioned method ids referenced by future QueryOps.
-   Barrel curation (F3) groups them under one labeled block; it does not trim them.
-3. **`onWarning` plumbing is deleted.** The worker's `t:'warning'` channel carries
-   artifact-cache health only (CACHE_UNAVAILABLE/READ_FAILED/WRITE_FAILED/CORRUPT);
-   consequence is cold recomputes, never data loss (durability failures already have
-   the typed `UserDataClientError` path). The unused `WorkerClient.onWarning` setter
-   and listener field go; the unconditional `console.warn` fallback stays. A UI
-   surface, if ever wanted, is pre-publication UX work, not cleanup.
-4. **Split appetite:** D1 engine dedup and D2 `UserDataHandler` are committed; D3
-   `QueryExecutor` is provisional (reassess after D1+D2); D4 further generation
-   splitting is rejected; E1 `ProjectModel` extraction is rejected with a named
-   re-check after Phase B; E2 `AnalysisQueryController` is a checkpoint after B6,
-   not a commitment.
+## Part I — Executed record (pass 1)
 
-## Where the parallel analyses disagreed, and the resolution
+Line references in this section describe the pre-execution tree; the commits
+are the record.
 
-- **Protocol boundary.** The Claude worker analysis refuted the original "neutral
-  protocol package + domain ports" proposal: all non-worker imports of
-  `worker/protocol-v4.ts` are `import type` (plus one const), so there is no runtime
-  coupling to break. Codex still argued for a contract move because the wire file mixes
-  domain shapes (lines 63–201) with versioned envelopes (248–291) and three type
-  duplications exist across layers. Resolution: do Codex's **minimal** form (C1) —
-  app-local `shared/` contract modules, pure moves and re-exports, an import-boundary
-  test — and explicitly not a workspace package, not a ports framework, not a mapping
-  layer.
-- **Lease migration order.** Codex preferred session-first; the Claude client-layer
-  analysis preferred store-first. Resolution: **store-first** — lower risk, proves the
-  corrected primitive before it touches the invariant-dense save/restart/reconcile
-  code.
-- **Worker split shape.** Both sides independently converged: only `UserDataHandler`
-  and `QueryExecutor` are real seams; the previously proposed four-way split
-  (DocumentPipeline + GenerationCoordinator) is refuted because engine sections 1–5
-  are one atomicity domain — claims, `transferredSourceBytes` cap accounting
-  (`freezeAccepted` → `commitDocuments`), and the composition mutex are only sound
-  running synchronously on shared state.
+- ✅ **Phase A — quick wins** (`875e458`): raw NUL bytes in the engine's
+  edit-context cache key (grep saw the file as binary) → source escapes;
+  TrendPanel/KwicPanel doc labels derived by regexing doc ids (user projects
+  rendered UUID fragments) → `meta.title` lookups with mutation-tested unit +
+  e2e coverage; actively false comments fixed; README/CLI claims made honest.
+- ✅ **Phase B — ownership, typed errors, teardown** (`d6a3998`, `1f77cfa`,
+  `6f2c8d9`, `4b9809b`, `bd6fd91`): the operation-lease primitive landed with
+  the corrected contract (only `begin()` mints an id-bearing
+  `OwnedOperationLease`); `WorkerClientError{code}` + one guarded `request()`
+  harness + terminal `close()` replaced every message-string error path; the
+  dead excerpt vertical, unreachable `UNKNOWN_OP`, `deleteSource`, and
+  `onWarning` were deleted end-to-end; the store's six epoch lanes became
+  `QueryLane`s with one `issueOn` harness and full teardown
+  (dispose/HMR-fenced bootstrap); the session's five counter/token fences
+  became leases over one project `OperationScope` (loadFence, genAttempt, and
+  importToken deliberately stayed bespoke).
+- ✅ **Phase C — contracts and single authorities** (`7e5f04b`, `60ed9c3`,
+  `c9c424c`): two-tier shared guards in `core/contract/guards.ts`;
+  `shared/analysis-contract.ts` + `shared/storage-contract.ts` with an
+  import-boundary test (the wire module is now worker-internal +
+  `lib/client.ts` only); the worker became the SOLE manifest admission
+  authority — `project-loaded` carries the validated `ProjectManifestV1`,
+  the session's second validation passes were deleted, and saves post
+  synchronously (mutation-verified engine save-gate test);
+  `PendingImport` became a staged/ready union; one `canonicalJson`.
+- ✅ **Phase D — engine** (`429b0a0`): the docGate/warm-failure/structure-query
+  dedups (one statement of each invariant) and the `UserDataHandler`
+  extraction (`worker/user-data-handler.ts`, cancellation semantics
+  verbatim-preserved). Engine: 1,925 → ~1,770 lines.
+- ✅ **Phases E3/F/G subset** (`20deace`, `3b4ee78`): the V1 structure lineage
+  deleted with a golden `StructureHash` pin (`satisfies`-typed fixed
+  artifact); format decisions centralized on the `SOURCE_FORMATS` catalog
+  (derived `isLiteralFormat` guard); the SHERLOCK corpus manifest moved out
+  of the state container into `lib/project.ts`; the core barrel curated from
+  a fresh mechanical audit (11 value un-exports, dead aliases deleted, stats
+  surface deliberately kept and labeled, `extractDocument` documented as the
+  test oracle); e2e helpers import the real DB-name constants; the
+  `afterPhase` hook contract documented (Codex ruling: document-only).
 
-## Findings refuted from the earlier review
+**Resolved owner decisions** (2026-07-24): standard-ebooks hermeticity
+deferred to the publication cut; the stats surface stays; `onWarning`
+plumbing deleted (console fallback stays); split appetite D1+D2 firm, D3
+provisional, D4/E1 rejected, E2 checkpoint.
 
-- `candidateReconstruction` recipe-field removal: the field is redundant as
-  information but hashed into `ExtractionRecipeHash` (every persisted artifact and
-  manifest key), and `upgradeStoredManifest` exists to insert it. It stays on the
-  wire; its validation centralizes to the catalog (F1).
-- `PLACEHOLDER_RECIPES` as dead code: it is live (import staging). The actual defect
-  is the `undefined as unknown as ExtractionRecipeProvisional` escape hatch next to
-  it; the fix is the C3 discriminated union, not deletion.
-- Broad `idb-common` consolidation: the two stores' opposite failure policies
-  (artifact: degrade to memory; user-data: typed refusal) are the design. Only
-  genuinely neutral mechanics move (C1 storage contract; optionally a settle-once
-  open-race helper).
-- The "~50 unused core exports ⇒ dead code" framing: 94 of 197 barrel exports have no
-  external consumer (verified name-by-name), but most are internally live or
-  deliberate contract surface. F3 triages instead of deleting.
+### Checkpoint verdicts after both passes
 
-## Phase A — quick wins (each small, independent, no ordering constraints)
+| Checkpoint | Pass-1 outcome | Pass-2 fresh verdict |
+|---|---|---|
+| D3 QueryExecutor module | provisional → declined post-D1/D2 | **Staged**: take the cheap in-file win now (private `queryTrend`/`queryKwic`/`queryPassage` methods make `query()` a ~35-line dispatcher and subsume the resolver-map dedup); extract the full executor **just in time, immediately before the first new `QueryOp`** (the stats slice) — Codex's seam sketch is in the pass-2 ruling. Not a publication blocker. |
+| D4 further generation splits | rejected | **Upheld** — claims, cap accounting, composition mutex, and publication epoch re-verified as one synchronous atomicity domain. |
+| E1 ProjectModel | rejected | **Upheld** — the fences now declare themselves in one 15-line lease block; what remains is ordering policy + invariant documentation driven by a 1,336-line public-surface suite. Revisit for multi-project, undo/redo, or a second controller. |
+| E2 AnalysisQueryController | checkpoint → declined post-B6 | **Upheld** — `QueryLane`/`issueOn` already centralize ownership; the passage scheduler's coupling to `get`/`set` is load-bearing. Revisit only if stats introduces a genuinely reusable scheduler. |
+| G2 fixture consolidation | declined | **Narrowly overturned** — share ONLY memoized valid defaults (canonical recipes + real hashes + one visible-defaults `GenerationDocSpecV4` builder); malformed/fake-hash/cap-edge fixtures stay local so the boundary violation each test makes remains visible. |
+| G3 suite reorganization | declined | **Narrowly overturned** — align tests with the production seams that now exist: move user-data behavior to `user-data-handler.test.ts` (keep engine routing tests); move query semantics to `query-executor.test.ts` when D3 lands. No cosmetic session/store/Playwright splits. |
 
-- **A1. NUL bytes.** `engine-v4.ts:1568` embeds two raw 0x00 bytes in a cache-key
-  template literal — grep/rg classify the engine as a binary file and silently stop
-  scanning mid-file (this corrupted searches during the review itself). Replace with
-  ``\u0000`` escapes, matching the file's other composite keys (:283, :1439).
-- **A2. Doc-label bug (user-visible).** `TrendPanel.tsx:63-67` derives labels by
-  regexing the doc id against a hardcoded `- Arthur Conan Doyle` pattern;
-  `KwicPanel.tsx:20` slices the id. User-project doc ids are `crypto.randomUUID()`,
-  so imported projects render UUID fragments in chart labels, table rows, tooltips,
-  scrub captions, and the concordance. Fix: `doc → meta.title` map from the session's
-  project data (the `StructurePanel.tsx:58` pattern); keep a width truncation only.
-- **A3. False and stale comments.** `project-session.ts:10-15` claims the session is
-  "landed unused" (it is constructed in `store-instance.ts`); `idb-store.ts:4-8`
-  describes the db1 name while the code defines db2; `extraction.ts:150-157` has a
-  stranded "Boundary validation" jsdoc detached from its function;
-  `epubExtractionRecipe`'s doc claims production staging uses it (staging uses
-  `defaultExtractionRecipes` for every format). Historical commit-narrative headers in
-  engine-v4/protocol-v4/store become present-tense invariants.
-- **A4. Docs/CLI honesty.** README repository layout gains `packages/extractors`.
-  `packages/cli` claims conformance fixtures and batch analysis but implements only
-  `bench`: narrow the package/README claim to the Node benchmark/portability harness,
-  drop the unused vitest devDependency and the tsconfig include of the nonexistent
-  `test/` directory. No feature work to justify the old description.
+---
 
-## Phase B — ownership primitive, typed errors, teardown
+## Part II — Forward roadmap (pass 2)
 
-- **B1. Fix the lease contract, then land it.** The WIP `operation-lease.ts` fits the
-  fence inventory, but `OperationScope.lease()` returns the scope *revision* as the
-  lease id, so two scope-only leases in one revision share an id while the id is
-  documented as a monotonic correlation id (and session code compares captured ids).
-  Split the contract: `OperationLease { isCurrent() }` for scope leases,
-  `OwnedOperationLease extends OperationLease { id }` returned only by
-  `LatestOperation.begin()` / `KeyedLatestOperation.begin(key)`. Land the corrected
-  primitive with its tests as one commit.
-- **B2. Typed client errors.** Replace message-string encodings with
-  `WorkerClientError { code: 'CANCELLED' | 'WORKER_RESTARTED' | 'WORKER_TERMINATED'
-  | 'WORKER_POST_FAILED' | 'WORKER_ERROR' }` (minted at `client.ts:276-281` and the
-  restart/terminate/post sites; consumed today by six message comparisons in
-  store.ts). `UserDataClientError` stays separate — its codes and `currentRevision`
-  are domain data, not transport lifecycle. Worker analysis error codes ride a typed
-  field instead of a `${code}: ${message}` prefix. Fakes in tests reject the typed
-  error and assert the discriminant.
-- **B3. Dead-vertical deletions (separate small commits, before lane migration).**
-  (a) The direct `excerpt` operation end-to-end — protocol op + schema narrowing +
-  engine dispatch/handler + client pending-kind/receive/API + tests; the live
-  replacement is the bounded `line-excerpt` query. (b) `onWarning` per resolved
-  decision 3. (c) `UserDataStore.deleteSource` — test-only, no product command.
-  (d) The unreachable `UNKNOWN_OP` arm — the schema maps unknown tags to null and
-  `handle()` emits PARSE_FAILED before dispatch.
-- **B4. Store lease adoption + the teardown gap.** `AppRuntime.dispose()` today only
-  unsubscribes and disposes the session: in-flight query handles can still mutate the
-  Zustand store, the KWIC debounce timer can fire afterward, and `WorkerClient` has no
-  close at all. With the store's six lanes on the lease: dispose closes the operation
-  scope, clears `kwicCenterTimer`, cancels outstanding handles and the passage pending
-  slot; add `WorkerClient.close()` (fence the worker epoch, reject pending promises
-  with the typed error, clear maps/listeners, terminate the Worker); wire teardown at
-  the composition root with a Vite HMR dispose hook. Bump-without-reissue sites become
-  `invalidate()`. Tests: late settlement after dispose, queued timer after dispose,
-  pending rejection + termination on close.
-- **B5. Session lease adoption, lane-sized commits, highest risk in the plan.**
-  Order: save/load → keyed persist/reattach → correction. Explicitly stays bespoke:
-  `importToken` (entity identity in the staging two-fact join), `genAttempt`
-  (externally reflected in generation ids and event correlation), `loadFence`
-  (deliberately narrower than the project epoch), the posted-save
-  `pendingSave.token` comparison (lease ids support it — semantics unchanged), and
-  the passage pump (a one-active/one-pending scheduler, not latest-wins). Run the
-  full session suite plus targeted restart/durability/override-race Playwright specs
-  after each commit.
-- **B6. `guardedQuery` helper.** Five store lanes repeat one skeleton
-  (cancel prior → bump → precondition → capture key → issue → store cancel → guard →
-  write → swallow cancellation): runKwic, runStructure, requestEditContext,
-  requestLineExcerpt, and the per-series body of runQueries — ~150 duplicated lines,
-  the three newest near character-identical. Build the helper on B1+B2; trend stays a
-  variant; the passage pump stays out. **Checkpoint (decision 4):** after B6, decide
-  E2 — extract an `AnalysisQueryController` only if store.ts still reads as two files
-  trapped in one.
+Ordered tracks; every commit stays independently green and non-trivial
+commits go through Codex `review-diff`, as before.
 
-## Phase C — contracts and single authorities
+### Track P — publication blockers and hardening
 
-- **C1. Neutral app-local contracts (minimal form).** `shared/analysis-contract.ts`:
-  generation/override/warm-miss/query/structure/edit/excerpt DTOs, importing
-  `SourceFormat` and `SourceAvailability` from core — deleting the wire's independent
-  `SourceAvailability` declaration. `shared/storage-contract.ts`: `ReadResult`/
-  `CacheRead` and the durable-open union — deleting the structurally-synced-by-comment
-  `UserDataAccess`/`UserDataOpen` twins and the cross-store `CacheRead` import.
-  `protocol-v4.ts` keeps the protocol version, wire-only codes, and envelopes.
-  Components and lib stop importing `worker/` paths (`StructureEditor` takes its type
-  from the store's `EditContextState`); `client.ts` re-exports what consumers need.
-  An import-boundary test locks `components/` and `lib/` out of `worker/protocol-*`.
-  Two green commits: types + re-exports, then consumer imports. Explicitly not a
-  workspace package and not a ports framework.
-- **C2. One manifest admission authority.** Deep manifest validation (which recomputes
-  every recipe/override hash) currently runs in the worker on load and save *and*
-  again in the session on load, reconciliation, and save. The worker is the sole
-  durable-storage actor: keep upgrade + deep validation there, type the loaded result
-  as `ProjectManifestV1`, delete the session's second deep pass, and let save-side
-  REQUEST_INVALID map into a typed durable failure. The main thread keeps cheap
-  construction invariants only. Preserve corrupt-record retention, CAS semantics, and
-  uncertain-write reconciliation tests unchanged. Precedes D2.
-- **C3. `PendingImport` becomes a discriminated staged/ready union**, deleting the
-  `undefined as unknown as ExtractionRecipeProvisional` cast and the
-  recipes/recipesReady twin fields at the identity boundary. `PLACEHOLDER_RECIPES`
-  folds into the staged arm.
-- **C4. One canonical JSON.** `project-session.ts:1560` defines a weaker local
-  `canonicalJson` under the same name as core's strict authority; reconciliation
-  imports core's instead.
-- **C5. Shared primitive guards.** Six independent copies of the non-negative
-  safe-integer guard and three of `isRecord` across core and web consolidate into
-  `core/contract/guards.ts` (also the truer home for `exactRecord`/`exactArray`).
-  Caution: the wire-schema `isRecord` excludes arrays — variants are not
-  interchangeable; each boundary keeps its required strictness.
-- **C6. Warning-code ownership direction.** `idb-store` imports its own warning
-  vocabulary from the wire file (backwards — the user-data side correctly defines
-  store codes and lets the wire be a superset). Define `StorageWarningCode` beside
-  `CacheRead`; the wire aliases it.
+- **P1. Corpus rights and provenance (BLOCKS the public cut; owner-led).**
+  `text/README.md` already records that `ASOIF/` and `lotr/` are not public
+  domain; they are tracked full-text corpora, so this is a
+  repository-distribution issue including git HISTORY, not just a deployment
+  question (`text/other/common_word_list.txt` also lacks a recorded source).
+  Produce a corpus inventory (source, rights basis, modifications,
+  distribution status); remove anything without a documented basis; choose
+  ONE publication strategy — a one-time history rewrite at branch freeze, or
+  a clean public export whose history never carried them. Decide now,
+  execute once at the freeze. (M; high operational care, owner-controlled.)
+- **P2. standard-ebooks hermeticity (BLOCKS clean CI; owner-scheduled for
+  right before the publication cut).** Both `file:../../../standard_ebooks`
+  dependencies must become one immutable source — preferred: a published,
+  pinned `@texttrends/standard-ebooks` carrying both the extraction and
+  catalog surfaces; acceptable: vendor into the workspace with provenance.
+  Keep the lazy import boundary; acceptance is a sibling-free clean checkout
+  passing the full matrix. (M/medium.)
+- **P3. Repo/product hardening (after P1/P2):** repository LICENSE +
+  corpus/dependency notices; README rewritten to the current architecture
+  (supported formats, browser-local storage and repair semantics,
+  privacy/network behavior); a reproducible deploy workflow with a
+  base-path smoke check (today a local `vite build` is the whole deployment
+  contract); a narrowly-scoped `beforeunload` warning only while the project
+  is dirty or save/persist/import is in flight. (S–M/low.)
 
-## Phase D — worker engine, proven seams only
+### Track S — semantic defects exposed by the cleanup (fix now)
 
-- **D1. Internal dedup first (committed).** One commit, ~325 lines: use the existing
-  `docGate` helper at the ~15 sites that inline its exact body (the non-throwing
-  `owns` checks stay); extract `classifyWarmFailure` for the two byte-identical
-  warm-failure catch blocks (preserving and documenting the deliberate
-  RangeError→miss divergence from `mapError`); extract `resolveStructureDoc` +
-  `bindSectionRows` for the ~80 lines duplicated between `queryStructure` and
-  `queryStructureEditContext`.
-- **D2. `UserDataHandler` extraction (committed).** The user-data section touches only
-  `userData`, `cancelledJobs`, `emit`, and one cap — no generation state, its own
-  error channel and cancellation helper. Extract a ~150-line class injected with the
-  durable access provider, caps, a cancellation predicate, and a narrow emitter; the
-  engine keeps job bookkeeping. After C2 so the admission decision is settled.
-  Black-box engine tests do not move yet.
-- **D3. `QueryExecutor` extraction (provisional — reassess after D1+D2).** The query
-  section's caches already live in `GenerationStateV4`, so the state design
-  anticipates the seam. Cost: `GenerationStateV4` becomes a shared internal module;
-  the executor takes `getGeneration`, the cancellation predicate, `emit`,
-  `yieldControl`. Lean: do it, leaving the remaining engine centered purely on
-  generation/ingest atomicity — but confirm the need once D1+D2 have landed.
-- **D4. No further generation splitting (rejected).** Sections 1–5 are one atomicity
-  domain. At most a single `GenerationRuntime` later, and only if a real feature
-  forces it.
+- **S1. KWIC stale rows are unkeyed evidence.** `KwicPanel` caches the last
+  ready rows in a component `useRef` keyed by nothing, and renders them —
+  with the caption computed from the CURRENT center — during any pending
+  query: rows from center A can sit under "nearest to" center B, and rows
+  from a departed term/snapshot survive while the new query is pending. The
+  store's lanes supersede correctly; the component-local cache bypasses that
+  ownership discipline. Preferred S fix per the Codex ruling: delete
+  `lastReady` and show the existing skeleton for every pending request. If
+  stale-while-revalidate is a firm UX requirement (the ref exists for height
+  stability), it becomes an M design: the STORE must carry a served-result
+  identity (snapshot, center, tracks, sort, page) and the caption must
+  describe the served identity — an owner UX call. Either way, add a bridge
+  test: change center/terms/snapshot mid-pending and assert old rows never
+  appear under the new caption.
+- **S2. Durable-source corruption is misclassified and flattened.** A corrupt
+  PERSISTED source (class-1 user data needing repair) is emitted as
+  `CACHE_CORRUPT` — a vocabulary whose contract says "disposable cache;
+  recompute" — and the session flattens external-not-attached /
+  persisted-missing / persisted-corrupt / rehydrate-failed into one generic
+  `external-missing`, so the UI can only say "source missing." Carry a
+  closed `SourceRepairReason` through the existing warm-miss/source-status
+  path (no new notification bus); classify a post-read hash mismatch as
+  `persisted-corrupt`; keep retention + the existing reattachment flow; let
+  the UI distinguish "reattach your file" from "the durable copy is
+  damaged." Note: the IDB envelope check validates shape/length, not the
+  content hash — a same-length mutation surfaces late; add the real-browser
+  test that mutates persisted bytes in place, observes the repair state,
+  reattaches, and warm-reopens. (M/medium; the engine test pinning
+  `CACHE_CORRUPT` moves with the contract.)
+- **S3. Small correctness batch (S each):** the engine's `detectedTables`
+  bound uses global `INGEST_CAPS_V0` instead of injected `this.caps` (found
+  independently by both passes; add a non-default-caps test); TrendPanel's
+  unreachable `sequenceBases` fallback is mathematically wrong (`d*count[d]`
+  is not a prefix sum) — make null an asserted invariant; the wire schema
+  narrows passage tracks more loosely than KWIC tracks (empty `seriesId`
+  admitted) — reuse `narrowTracks` and pin with one test; the series-chip
+  tooltip claims chart focus controls the concordance (it does not).
 
-## Phase E — main thread (mostly declined)
+### Track R — residue sweep and second-generation helpers
 
-- **E1. No `ProjectModel` split (rejected; re-check after Phase B).** Lease adoption
-  deletes the five counters and four `*Stale()` helpers — most of the file's
-  mechanical weight. What remains is invariant-dense policy, ~40% deliberate
-  documentation, fully driven through its public surface by a 1,314-line suite.
-  Extraction would thread a mutable model and publish callback through every
-  collaborator: indirection without decoupling. Revisit only when adding a new lane.
-- **E2. `AnalysisQueryController`: checkpoint after B6** (see there). If extracted:
-  it owns the query lanes and passage pump; Zustand state shape and UI actions stay
-  in store.ts; inject narrow `getState`/`publish` — no generic query framework.
-- **E3. Move the built-in corpus fixture (committed, trivial).** The SHERLOCK hash
-  manifest and `sherlockProjectData()` move from store.ts to `lib/builtin-project.ts`
-  beside `buildBuiltinProjectData`; store-instance and the Playwright helpers import
-  from there — e2e stops importing a state container for fixture metadata.
+Grouped, commit-sized; none urgent, all cheap. From the four pass-2 analyses:
 
-## Phase F — core layout and public surface
+- **R1. Comment/dead-code residue (S, zero risk):** engine — orphaned
+  `// 7. User-data lane` banner, the §12.7 doc comment displaced onto
+  `resolveStructureDoc` (move to `queryStructure`), two stacked doc-comment
+  pairs (`freezeAccepted`, `assertAssertedIdentity`), doubled "core's" typo,
+  unused `ToWorkerV4`/`SourceFormat` imports; session — the comment naming
+  the deleted `saveCounter`, the dead `AttachedSource.token` field (+its
+  claim of a fence the lease now owns) → `Map<string, FileLike>`; client —
+  the ingest-jobs-cleared-at-publication comment contradicting the code;
+  `user-data-store.ts` importing `CacheRead` via `store.ts` instead of the
+  storage contract; the `UserDataOpen`/`UserDataAccess` double alias;
+  `validate.ts` dead `isSafeInt`; four vestigial `canonicalJson` casts;
+  `validRoman`'s unreachable clause; the obsolete v3 narration in the schema
+  header; `manifest.ts`'s header overstating main-thread ownership; the
+  `msg()`/inline error-message twins (~15 sites — pick one home per side of
+  the worker boundary).
+- **R2. Guards/format completion (S–M):** add the throwing identity-tier
+  (`assertExactRecord`) to `guards.ts` and delete `extraction.ts`'s private
+  strict `isRecord`+`requireExactKeys` twins (rename any strict local that
+  must remain — the name currently shadows the loose shared guard);
+  barrel-export `isLiteralFormat`/`LiteralSourceFormat` (+ the catalog types
+  from `formats.ts`) and use `isLiteralFormat` in
+  `extractors/extract-source.ts` (it restates the catalog check the guard
+  exists to centralize); delete `extraction.ts`'s transitional catalog-type
+  re-export shim; move `lowerBound` to `index/build.ts` (its arrays' home —
+  fixes the flagged ops→structure direction) and rewrite `tokenCharLength`'s
+  hand-rolled search over it; share the structure `isInt`; normalize the two
+  locally-declared brands onto `Brand<T,B>`; express the epub default recipe
+  via `epubExtractionRecipe()` (one identity, one spelling); a `rangesByDoc`
+  helper for the occurrences/trend twin; core `SOURCE_AVAILABILITIES` +
+  `isSourceAvailability` so the manifest and wire derive membership from one
+  authority (as formats already do).
+- **R3. Second-generation helpers (S–M):** store — `beginAtSnapshot` (the
+  six hand-repeated lease mints are the one place a new lane could get the
+  guard wrong), `cancelCenterTimer`/`supersedePassage` for the copy-pasted
+  pump teardown; session — `clearPerProjectRuntime` + `resetCasState` (the
+  duplicated 14-line project-reset block is the file's highest drift risk);
+  engine — `structureKeyFor` (twin five-field key assembly), the D3-cheap
+  in-file query-method extraction (subsumes the triplicated resolver-map
+  loops), `queryLineExcerpt` takes `gen` like its siblings, the dispatch
+  catch emits through `emitError`; tests still importing neutral types
+  through worker protocol re-exports move to the owning modules (then drop
+  the engine's compatibility re-export); `KwicRowView` becomes a projection
+  of core's `KwicRow` instead of a hand-copied subset.
+- **R4. Boundary/config hardening (S):** extend the import-boundary test to
+  the edges that are clean today but unguarded — `lib/*` (except client)
+  importing non-protocol `worker/` modules, `shared/` as a leaf, the
+  reverse `worker/ → lib|components` edge, dynamic-import syntax; the e2e
+  helpers' `worker/idb-*` constant imports remain sanctioned (outside
+  `src/`, deliberately anti-drift). Add `noUnusedLocals` to
+  `tsconfig.base.json` (it would have caught the dead guard).
+- **R5. Components (S):** one shared mono-button style (three byte-identical
+  copies); one `titlesByDoc` helper (three implementations of the A2 fix);
+  the TrendPanel trio (`strokePropsFor`, `totalTokens` passed via layout,
+  `binTooltip`); CatalogPanel's abort-controller unmount cleanup (before any
+  routing/modal work). Extract the SVG views into `components/trend/` only
+  when chart work next touches them.
+- **R6. Docs refresh (M, doc-only):** `analysis-contract.md` — extend the
+  SUPERSEDED banner to the error taxonomy (`UNKNOWN_OP`/`ARTIFACT_CORRUPT`/
+  `CANCELLED_RACE` are gone; `SOURCE_MISMATCH`/`EXTRACTION_MISMATCH`/
+  `REQUEST_INVALID` are real), fix the dead `protocol.ts` pointer, add the
+  v4-current delta for §12.8 (structure-edit-context, line-excerpt, kwic/2;
+  the direct excerpt vertical is deleted); status banners on
+  `ingest-structure-plan.md` (`deleteSource`, V1), `concordance-plan.md`
+  (epochs → leases), `phase1-plan.md` (V1).
 
-- **F1. Catalog-lookup centralization in extraction.ts (committed, do regardless of
-  any split).** Replace the inline `format === 'epub' || format === 'html'` checks
-  with the catalog's `extractionKind`; replace the per-format
-  `candidateReconstruction` literals in `validateExtractionRecipe` with
-  `SOURCE_FORMATS` lookups; delete `htmlExtractionRecipe` (third restatement of the
-  decoder-policy literal; tests use `defaultExtractionRecipes()`); hoist one shared
-  decoder-literal builder.
-- **F2. Optional source-layout splits (moves only).** extract/{recipe, artifact,
-  pipeline} and structure/{recipe, detect, override, artifact}, each retaining
-  exactly one exported finalizer / one admission authority / one canonical override
-  path. Only after the web boundaries stabilize; a later commit may adjust exports,
-  never the same commit.
-- **F3. Barrel curation (after F2).** Verified: 94 of 197 exports have no consumer
-  outside core. Triage: delete the genuinely dead (rootOnlyStructure +
-  StructureArtifactV1 + structureHash via F4; epub/htmlExtractionRecipe;
-  Txt/MdExtractionRecipe aliases; demote `extractDocument` to a marked test oracle);
-  un-export ~37 internally-live helpers; keep the stats surface (decision 2) under
-  one labeled block; keep zero-cost type exports; merge the fragmented duplicate
-  export blocks. Not a blanket delete.
-- **F4. V1 structure lineage removal.** `StructureArtifactV1`/`rootOnlyStructure`/
-  `structureHash` are production-dead (no persisted path can produce V1) but prop up
-  core test fixtures. Port ~5 fixture files to a V2 root-only builder first, then
-  collapse `ReadyStructure` to V2 and delete the trio. No persisted identity moves.
-- **F5. Small twins.** Two identical `lowerBound` binary searches; two different
-  `TokenRange` types under one name (rename selection's to `SelectedTokenRange`);
-  `hashSourceBytes` moves beside the other hashing in `contract/hash.ts`; drop the
-  `SourceDescriptorV4 = SourceDescriptorV1` pass-through alias (other version
-  suffixes stay — they encode real per-shape versioning).
-- **F6. Extractors polish.** The `afterPhase` hook asymmetry (the literal path gates
-  only at decode→extract; both engine call sites re-gate after return, so the
-  transformed path double-gates) — resolve only after a Codex consult, since
-  lifecycle parity was a reviewed deliberate property; document the three different
-  meanings of `suspiciousControlCount` across formats in `ExtractionEvidence`; drop
-  the redundant partitions cast in epub-extract.
+### Track F — feature-adjacent work (when features resume)
 
-## Phase G — tests and e2e (follow production seams; never lead them)
+- **F1. Narrow test support, then the just-in-time QueryExecutor.** Before
+  the first new `QueryOp`: land the narrow G2 support module (valid defaults
+  only), extract `QueryExecutor` along the pass-2 seam (bind a read-only
+  published generation + its query-derived caches; job ownership, snapshot
+  validation, cancellation, and emission stay in the engine; never pass the
+  whole engine), and move query/user-data tests to match the real seams
+  (`user-data-handler.test.ts` can move now).
+- **F2. Stats as ONE vertical slice (L; product-semantics risk).** The scalar
+  functions stay; do not expose them raw or build a generic statistics
+  engine. Pick one product question (e.g. keyness) and take it end to end:
+  closed method id/version and boundary-valid request/result → harden scalar
+  input validation (some accept degenerate totals producing non-finite
+  results) → aggregate counting against a bound snapshot in core → the new
+  `QueryOp` through `QueryExecutor` → one store lane → one UI → unit +
+  browser evidence for supersession and snapshot identity.
 
-- **G1. e2e duplication.** Delete the verbatim `clearArtifacts` copy in
-  import.spec.ts in favor of the helpers export; helpers.ts imports
-  `ARTIFACT_DB_NAME`/`USER_DATA_DB_NAME` from src instead of restating the strings.
-- **G2. Shared fixture builder.** One real-hash `GenerationDocSpecV4` builder in
-  `apps/web/test/support/` replaces four hand-maintained copies plus three
-  recipe-hash-quad preambles; the schema test's fake-hash builder stays separate.
-- **G3. Suite reorganization** happens only alongside the D/E extractions, split by
-  responsibility, keeping a small composition suite per former orchestrator. The
-  Playwright matrix is untouched — the real-browser specs cover transfer, IDB
-  versionchange, worker restart, encodings, corruption, and race timing that unit
-  tests cannot.
+### Contested — needs a ruling before acting
 
-## Consensus non-goals
+- **Snapshot vocabulary-merge sharing.** One pass-2 analysis argues
+  `composeSnapshot`/`validateSnapshot` should share a `mergeVocabulary`
+  helper (the validator would still recompute from resident shards); the
+  pass-1 record holds the opposite as a leave-alone (the validator must not
+  share the builder's code path, or a bug validates itself). Do not touch
+  without an explicit Codex ruling; identity-adjacent.
 
-No parsers or adapter dispatch into core. No generic lease over import correlation,
-the two-fact finalization join, the passage pump, or generation publication. No
-four-way worker split. No generic IndexedDB repository — the artifact and user-data
-failure policies stay visibly different. No new workspace package for web DTOs. No
-Zustand replacement, state-machine framework, or service container. No deleting core
-implementations merely for being barrel-unused. No Playwright consolidation. No
-changes to artifact schemas, hashes, cache identities, cap semantics, transfer
-policy, or checkpoint placement while moving code. No TrendPanel split for line
-count (at most the two SVG views + scrub hook later, as navigation cleanup). No
-merging the composeSnapshot/validateSnapshot vocabulary loops — the validator must
-recompute, not share the builder's path. binding.ts's capability pattern and
-`upgradeStoredManifest`'s verify-before-touch discipline stay.
+### Standing non-goals (re-affirmed by pass 2)
 
-## Verification bar
+No repo-wide cleanup phases driven by file size. No generation split
+(`DocumentPipeline`/`GenerationCoordinator`). No `ProjectModel`, generic
+store controller, state-machine framework, or command bus without a second
+real consumer. No parsers/DOM/ZIP into core. No generic stats framework
+ahead of a chosen product question. No universal fixture builder; no
+Playwright consolidation. No merging the durable user-data and disposable
+artifact-cache storage policies — Track S2 sharpens that distinction rather
+than blurring it. No casual history rewriting — if publication requires it,
+coordinate and do it exactly once at the freeze. `structure/build.ts` and
+(post-R2) `extract/extraction.ts` stay whole unless a second implementation
+seam appears; the optional `extract/recipe.ts` cut is endorsed but only
+worth taking after R2 removes the shared locals.
 
-Every commit: typecheck + unit suites green. Protocol/storage/package-boundary
-commits additionally require the production build (lazy-chunk facade gate). Race,
-persistence, or worker-lifecycle commits require their targeted Playwright specs
-before review; the full functional matrix runs at the end of each phase. Non-trivial
-commits get a Codex `review-diff` per the collaboration workflow.
+### Suggested sequence
+
+1. This doc closeout (done — you are reading it).
+2. P1 provenance decision now; execution at branch freeze.
+3. P2 hermetic dependency; prove the sibling-free clean checkout.
+4. S1 + S3 small correctness commits; then S2's repair contract.
+5. P3 publication hardening.
+6. R1–R6 opportunistically, commit-sized, between the above.
+7. F1 then F2 when feature work resumes.
