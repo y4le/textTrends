@@ -534,20 +534,19 @@ describe('persisted source re-extraction', () => {
   it('a corrupt persisted source is reported and RETAINED (never auto-deleted)', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far', { availability: 'persisted' });
-    let deleted = 0;
     const corruptStore: UserDataStore = {
       getProject: () => Promise.resolve({ kind: 'miss' }),
       putProject: () => Promise.reject(new Error('n/a')),
       getSource: () => Promise.resolve({ kind: 'corrupt', reason: 'bytes do not match' }),
       putSource: () => Promise.resolve(),
-      deleteSource: () => { deleted++; return Promise.resolve(); },
       close: () => undefined,
     };
     h.setUserData(() => Promise.resolve({ kind: 'ok', store: corruptStore }));
     await begin(h, [spec], 'warm');
     const ready = h.last('generation-ready');
+    // Retention (never auto-delete the user's only durable copy) is enforced by
+    // the type system now: UserDataStore has no delete operation at all.
     expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-    expect(deleted).toBe(0); // the durable source is the user's only copy
     expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
   });
 });
@@ -850,7 +849,6 @@ describe('user-data lane', () => {
       putProject: () => Promise.reject(new Error('n/a')),
       getSource: () => Promise.resolve({ kind: 'miss' }),
       putSource: () => Promise.resolve(),
-      deleteSource: () => Promise.resolve(),
       close: () => undefined,
     };
     h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
@@ -1240,16 +1238,6 @@ describe('queries and excerpts (v4)', () => {
     const snap = h.last('snapshot-published').snapshot;
     await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
     expect(h.last('error').code).toBe('SELECTION_INVALID');
-  });
-
-  it('serves and validates excerpts', async () => {
-    const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'excerpt', job: 40, snapshot: snap, doc: 'a', charStart: 4, charEnd: 8 });
-    expect(h.last('excerpt-result').text).toBe('wolf');
-    await h.send({ t: 'excerpt', job: 41, snapshot: snap, doc: 'a', charStart: 8, charEnd: 4 });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    await h.send({ t: 'excerpt', job: 42, snapshot: 'nope', doc: 'a', charStart: 0, charEnd: 2 });
-    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
   });
 
   it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {

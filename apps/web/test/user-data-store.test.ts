@@ -92,15 +92,13 @@ function contractSuite(name: string, make: () => Promise<UserDataStore>) {
       await expect(store.putProject(pm('p', 1), 0)).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
     });
 
-    it('round-trips and deletes opted-in sources', async () => {
+    it('round-trips opted-in sources', async () => {
       const store = await make();
       expect((await store.getSource('h')).kind).toBe('miss');
       await store.putSource(source('h', 8));
       const read = await store.getSource('h');
       expect(read.kind).toBe('hit');
       if (read.kind === 'hit') expect(read.value.byteLength).toBe(8);
-      await store.deleteSource('h');
-      expect((await store.getSource('h')).kind).toBe('miss');
       store.close();
     });
   });
@@ -249,14 +247,7 @@ describe('IdbUserDataStore durability specifics', () => {
     internal.db.delete = quota;
     await expect(opened.store.putProject(pm('p', 1, { title: 'x' }), 0)).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
     await expect(opened.store.putSource(source('h2', 4))).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
-    await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' }); // NOT a silent success
     opened.store.close();
-  });
-
-  it('deleteSource on a closed store throws PERSISTENCE_UNAVAILABLE, never fake success', async () => {
-    const opened = (await openUserDataStore()) as { kind: 'ok'; store: IdbUserDataStore };
-    opened.store.close();
-    await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
   });
 
   it('handleVersionChange closes the connection; later ops reject PERSISTENCE_UNAVAILABLE', async () => {

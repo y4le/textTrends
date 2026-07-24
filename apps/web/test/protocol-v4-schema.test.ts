@@ -103,23 +103,22 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ ...base, docs: [badLen] })).toBeNull();
   });
 
-  it('narrows ingest transfer, cancel, and excerpt', () => {
+  it('narrows ingest transfer and cancel; an unknown tag maps to null', () => {
     expect(parseToWorkerV4({ v, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: new ArrayBuffer(4) })).not.toBeNull();
     expect(parseToWorkerV4({ v, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: [1, 2] })).toBeNull();
     expect(parseToWorkerV4({ v, t: 'cancel', job: 3 })).not.toBeNull();
-    expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: 2 })).not.toBeNull();
+    // The retired direct-excerpt op is an unknown tag now — PARSE_FAILED at the
+    // wire, exactly like any tag the protocol never knew.
+    expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: 2 })).toBeNull();
   });
 
-  it('rejects non-finite/negative/fractional/UNSAFE envelope quantities (byteLength, textLength, job, excerpt offsets)', () => {
+  it('rejects non-finite/negative/fractional/UNSAFE envelope quantities (byteLength, textLength, job)', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
     for (const n of BAD_QUANTITIES) {
       const why = String(n);
       // A poisoned declared byteLength/textLength would corrupt the cap-preflight total.
       expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: n, format: 'txt', availability: 'bundled' } })] }), why).toBeNull();
       expect(parseToWorkerV4({ ...base, docs: [docSpec({ extraction: { recipe: extractionRecipes.txt, recipeHash: 'e', expectedTextLengthUtf16: n } })] }), why).toBeNull();
-      // Both excerpt offsets are pinned (each is a separate isCount call site).
-      expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: n, charEnd: 2 }), why).toBeNull();
-      expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: n }), why).toBeNull();
       expect(parseToWorkerV4({ v, t: 'cancel', job: n }), why).toBeNull();
     }
   });

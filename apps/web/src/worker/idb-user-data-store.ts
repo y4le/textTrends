@@ -156,20 +156,6 @@ export class IdbUserDataStore implements UserDataStore {
     }
   }
 
-  async deleteSource(hash: string): Promise<void> {
-    // DURABLE deletion is NOT best-effort (unlike class-3 repair deletes):
-    // the UI must not acknowledge a deletion that did not persist.
-    const db = this.requireOpen();
-    try {
-      await db.delete('sources', hash);
-    } catch (e) {
-      throw new UserDataError(
-        isQuota(e) ? 'QUOTA_EXCEEDED' : 'PERSISTENCE_UNAVAILABLE',
-        `source delete failed: ${e instanceof Error ? e.message : String(e)}`,
-      );
-    }
-  }
-
   close(): void {
     this.db?.close();
     this.db = null;

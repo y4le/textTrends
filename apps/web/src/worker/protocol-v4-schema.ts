@@ -185,8 +185,9 @@ export function narrowQueryV4(q: unknown): boolean {
 
 /**
  * Top-level v4 envelope narrowing. Returns the narrowed message or null; the
- * caller distinguishes null (malformed → PARSE_FAILED) from a version
- * mismatch (checked separately) and unknown ops (dispatch → UNKNOWN_OP).
+ * caller distinguishes null (malformed OR unknown tag → PARSE_FAILED) from a
+ * version mismatch (checked separately). Every unknown tag maps to null here,
+ * so the engine dispatch can never see an unknown message type.
  */
 export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
   if (!isRecord(m) || m.v !== PROTOCOL_VERSION_V4 || !isStr(m.t)) return null;
@@ -200,9 +201,6 @@ export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
         ? (m as unknown as ToWorkerV4) : null;
     case 'query':
       return isCount(m.job) && isStr(m.snapshot) && narrowQueryV4(m.query) ? (m as unknown as ToWorkerV4) : null;
-    case 'excerpt':
-      return isCount(m.job) && isStr(m.snapshot) && isStr(m.doc) && isCount(m.charStart) && isCount(m.charEnd)
-        ? (m as unknown as ToWorkerV4) : null;
     case 'cancel':
       return isCount(m.job) ? (m as unknown as ToWorkerV4) : null;
     case 'project-load':

@@ -345,9 +345,6 @@ export class WorkerEngineV4 {
         case 'query':
           await this.query(message.job, message.snapshot, message.query);
           return;
-        case 'excerpt':
-          this.excerpt(message.job, message.snapshot, message.doc, message.charStart, message.charEnd);
-          return;
         case 'cancel':
           if (this.activeJobs.has(message.job)) this.cancelledJobs.add(message.job);
           return;
@@ -357,8 +354,11 @@ export class WorkerEngineV4 {
           await this.handleUserData(message);
           return;
         default: {
+          // Unreachable: parseToWorkerV4 maps every unknown tag to null and
+          // handle() emits PARSE_FAILED before dispatch. Kept for compile-time
+          // exhaustiveness only.
           const unknown: never = message;
-          this.emitError('UNKNOWN_OP', { job: (unknown as { job?: number }).job, message: 'unknown message type', recoverable: true });
+          void unknown;
           return;
         }
       }
@@ -1676,24 +1676,6 @@ export class WorkerEngineV4 {
         excerpt: { doc, chars: { start: w.start, end: w.end }, text: w.text, truncatedStart: w.truncatedStart, truncatedEnd: w.truncatedEnd },
       },
     });
-  }
-
-  private excerpt(job: number, snapshotId: string, doc: string, charStart: number, charEnd: number): void {
-    const gen = this.generation;
-    if (!gen?.snapshot || gen.snapshot.id !== snapshotId) {
-      this.emitError('SNAPSHOT_UNKNOWN', { job, message: 'excerpt is bound to an unknown or superseded snapshot', recoverable: true });
-      return;
-    }
-    const text = gen.texts.get(doc);
-    if (text === undefined) {
-      this.emitError('DEPENDENCY_MISSING', { job, message: `text for '${doc}' is not resident`, recoverable: true });
-      return;
-    }
-    if (!Number.isInteger(charStart) || !Number.isInteger(charEnd) || charStart < 0 || charStart >= charEnd || charEnd > text.length) {
-      this.emitError('REQUEST_INVALID', { job, message: `invalid excerpt range [${charStart}, ${charEnd})`, recoverable: true });
-      return;
-    }
-    this.emit({ v: PROTOCOL_VERSION_V4, t: 'excerpt-result', job, snapshot: snapshotId, doc, charStart, charEnd, text: text.slice(charStart, charEnd) });
   }
 
   // -------------------------------------------------------------------------

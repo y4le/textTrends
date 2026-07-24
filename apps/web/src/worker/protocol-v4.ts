@@ -203,7 +203,6 @@ export type QueryResultDataV4 =
 export type StorageWarningCodeV4 = 'CACHE_UNAVAILABLE' | 'CACHE_READ_FAILED' | 'CACHE_WRITE_FAILED' | 'CACHE_CORRUPT';
 
 export type WorkerErrorCodeV4 =
-  | 'UNKNOWN_OP'
   | 'PROTOCOL_VERSION'
   | 'SNAPSHOT_UNKNOWN'
   | 'GENERATION_STALE'
@@ -255,8 +254,6 @@ export type ToWorkerV4 = VersionedV4 &
         readonly docs: readonly GenerationDocSpecV4[]; readonly indexRecipe: IndexRecipeProvisional }
     | { readonly t: 'ingest'; readonly job: number; readonly generation: string; readonly doc: string; readonly bytes: ArrayBuffer }
     | { readonly t: 'query'; readonly job: number; readonly snapshot: string; readonly query: QueryOpV4 }
-    | { readonly t: 'excerpt'; readonly job: number; readonly snapshot: string; readonly doc: string;
-        readonly charStart: number; readonly charEnd: number }
     | { readonly t: 'cancel'; readonly job: number }
     | UserDataOpV4
   );
@@ -273,8 +270,6 @@ export type FromWorkerV4 = VersionedV4 &
     | { readonly t: 'generation-ready'; readonly job: number; readonly generation: string;
         readonly snapshot: string | null; readonly readyDocs: readonly string[]; readonly missing: readonly MissingWarmDocV4[] }
     | { readonly t: 'result'; readonly job: number; readonly snapshot: string; readonly data: QueryResultDataV4 }
-    | { readonly t: 'excerpt-result'; readonly job: number; readonly snapshot: string; readonly doc: string;
-        readonly charStart: number; readonly charEnd: number; readonly text: string }
     | { readonly t: 'warning'; readonly generation?: string; readonly code: StorageWarningCodeV4; readonly message: string }
     | { readonly t: 'error'; readonly job?: number; readonly generation?: string;
         readonly code: WorkerErrorCodeV4; readonly message: string; readonly recoverable: boolean }
