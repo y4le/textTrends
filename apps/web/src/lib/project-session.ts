@@ -64,6 +64,7 @@ import type {
   SourceReadyInfo,
 } from './client.ts';
 import { UserDataClientError } from './client.ts';
+import { KeyedLatestOperation, LatestOperation, OperationScope, type OwnedOperationLease } from './operation-lease.ts';
 import {
   generationSpecsFromProject,
   manifestForSave,
@@ -348,9 +349,6 @@ export class ProjectSession {
   /** Per-generation extraction evidence by doc (§12.4), captured from
    *  `source-ready`; cleared when a new generation begins. */
   private readonly sourceEvidence = new Map<string, SourceEvidence>();
-  /** Per-doc monotonic authoring token — a later `setStructureOverride` (or a
-   *  discard) supersedes an earlier one's pending async hash. */
-  private readonly correctionTokens = new Map<string, number>();
   /** Per-doc correction status (hashing / rejected). Absence = idle. */
   private readonly corrections = new Map<string, CorrectionStatus>();
   private readonly persistIntent = new Set<string>();
@@ -358,22 +356,26 @@ export class ProjectSession {
   // ── Source runtime + reattach. ──
   private readonly attached = new Map<string, AttachedSource>();
   private readonly sourceStatus = new Map<string, SourceStatus>();
-  private persistCounter = 0;
-  private readonly persistTokens = new Map<string, number>();
-  private reattachCounter = 0;
-  private readonly reattachTokens = new Map<string, number>();
   private readonly reattachStatus = new Map<string, ReattachStatus>();
 
-  // ── Save/load fences. ──
-  private saveCounter = 0;
+  // ── Ownership fences. ──
+  // ONE scope for project ownership: invalidated on every project replacement
+  // (create/load install), closed on dispose. Every lease below dies with it.
+  private readonly scope = new OperationScope();
+  // Latest-wins lanes (unkeyed): one save in flight wins, one load wins.
+  private readonly saveOps = new LatestOperation(this.scope);
+  private readonly loadOps = new LatestOperation(this.scope);
+  // Latest-wins per document: persist, reattach, and correction-hash attempts
+  // supersede only their own doc's prior attempt.
+  private readonly persistOps = new KeyedLatestOperation<string>(this.scope);
+  private readonly reattachOps = new KeyedLatestOperation<string>(this.scope);
+  private readonly correctionOps = new KeyedLatestOperation<string>(this.scope);
   private saveAgain = false;
   private pendingSave: PendingSave | null = null;
-  private loadCounter = 0;
-  private sessionEpoch = 0; // bumped on every project replacement (create/load)
   /** Bumped by every user MUTATION command. A load that resolves after the fence
    *  advanced is stale (newer local intent exists) and must not install — WITHOUT
    *  staling in-flight save/persist/reattach continuations (those use their own
-   *  tokens/epoch), which bumping sessionEpoch would wrongly do. */
+   *  lanes/scope), which invalidating the scope would wrongly do. */
   private loadFence = 0;
 
   constructor(initial: CurrentProject, deps: ProjectSessionDeps) {
@@ -412,6 +414,7 @@ export class ProjectSession {
    *  lifetime), but every guarded continuation checks `disposed` first. */
   dispose(): void {
     this.disposed = true;
+    this.scope.close(); // every outstanding lease (save/load/persist/…) dies
     this.abortFetches();
     this.activeOpenCancel?.();
     this.activeOpenCancel = null;
@@ -443,7 +446,7 @@ export class ProjectSession {
     this.preflightImport(files, /* fromEmpty */ true);
     // A distinct user id per this v1 one-project slot. Replacing the project is
     // a new ownership epoch: every prior generation/import/attachment is moot.
-    this.sessionEpoch++;
+    this.scope.invalidate();
     this.resetToEmptyUser();
     this.stage(files, opts.persist ?? false);
   }
@@ -514,13 +517,11 @@ export class ProjectSession {
     this.assertUserCommand('setStructureOverride');
     const existing = this.finalized.get(doc);
     if (!existing) throw new SessionCommandError(`setStructureOverride: '${doc}' is not a finalized document`);
-    // Bump the token: any in-flight hash for this doc is now superseded. The
-    // PROJECT epoch is captured too — a project replacement (create/load) during
-    // the async hash must invalidate this attempt even when the reloaded doc is
-    // content-identical, so a stale hash can never mutate the new project.
-    const token = (this.correctionTokens.get(doc) ?? 0) + 1;
-    this.correctionTokens.set(doc, token);
-    const epoch = this.sessionEpoch;
+    // Supersede any in-flight hash for this doc. The lease's scope covers
+    // project replacement (create/load) during the async hash — a stale hash
+    // must never mutate the new project even when the reloaded doc is
+    // content-identical.
+    this.correctionOps.invalidate(doc);
 
     // Clear: install `none` (and reopen only if the effective override changes).
     if (override === null || override.changes.length === 0) {
@@ -546,19 +547,20 @@ export class ProjectSession {
     this.corrections.set(doc, { phase: 'hashing' });
     this.publish();
 
+    const lease = this.correctionOps.begin(doc);
     void (async () => {
       let hash: string;
       try {
         hash = await hashStructureOverride(override);
       } catch (e) {
-        // A project replacement (epoch) OR a newer attempt (token) invalidates
+        // A project replacement (scope) OR a newer attempt (lane) invalidates
         // this: never publish an error into a project this attempt no longer owns.
-        if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return;
+        if (!lease.isCurrent()) return;
         this.corrections.set(doc, { phase: 'error', reason: 'invalid', message: e instanceof Error ? e.message : String(e) });
         this.publish();
         return;
       }
-      if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return; // superseded mid-hash
+      if (!lease.isCurrent()) return; // superseded mid-hash
       const current = this.finalized.get(doc);
       // Re-check against the THEN-current doc: a re-extraction during the await
       // may have changed identities — a stale result is rejected, not sent.
@@ -607,8 +609,11 @@ export class ProjectSession {
   }
 
   private async runSave(): Promise<void> {
-    const token = ++this.saveCounter;
-    const epochAtStart = this.sessionEpoch;
+    // The lane fence: a newer save's begin() supersedes this one, and the
+    // scope covers project replacement. The lease id doubles as the save's
+    // correlation token in saveState/pendingSave (posted-commit detection).
+    const lease = this.saveOps.begin();
+    const token = lease.id;
     const payloadData = this.data;
     const payloadEpoch = this.editEpoch;
     const expectedRevision = this.baseRevision;
@@ -628,18 +633,18 @@ export class ProjectSession {
       manifest = manifestForSave({ kind: 'user', data: payloadData, baseRevision: expectedRevision });
       await validateProjectManifest(manifest);
     } catch (e) {
-      if (this.stale(token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.saveAgain = false;
       this.saveState = { phase: 'error', code: 'INVALID', message: msg(e) };
       this.publish();
       return;
     }
-    if (this.stale(token, epochAtStart)) return;
+    if (!lease.isCurrent()) return;
     this.pendingSave = { token, payloadEpoch, expectedRevision, targetRevision, manifest };
     const { result } = this.deps.client.projectSave(manifest, expectedRevision);
     try {
       const { revision } = await result;
-      if (this.stale(token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       if (revision !== targetRevision) {
         // The record's own revision is the sole authority; a save ack that is
         // not exactly the target is an invariant fault, not a success.
@@ -651,7 +656,7 @@ export class ProjectSession {
       }
       this.applySaved(targetRevision, payloadEpoch, manifest);
     } catch (e) {
-      if (this.stale(token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.saveAgain = false; // a coalesced request cannot survive a terminal failure
       if (e instanceof UserDataClientError) {
         if (e.code === 'REVISION_CONFLICT') {
@@ -710,7 +715,7 @@ export class ProjectSession {
       this.persistIntent.delete(doc);
       // Retire any in-flight persist so its late ack cannot flip availability or
       // dirty the project (acceptance invariant 2).
-      this.persistTokens.set(doc, ++this.persistCounter);
+      this.persistOps.invalidate(doc);
       const s = this.sourceStatus.get(doc);
       if (s?.phase === 'persist-saving') {
         this.sourceStatus.set(doc, this.attached.has(doc) ? { phase: 'external-attached', name: this.finalized.get(doc)!.sourceName, size: this.attached.get(doc)!.file.size } : { phase: 'external-missing' });
@@ -727,25 +732,23 @@ export class ProjectSession {
     const attachment = this.attached.get(doc);
     const source = this.finalized.get(doc);
     if (!attachment || !source) return;
-    const token = ++this.persistCounter;
-    this.persistTokens.set(doc, token);
-    const epochAtStart = this.sessionEpoch;
+    const lease = this.persistOps.begin(doc);
     this.sourceStatus.set(doc, { phase: 'persist-saving' });
     this.publish();
     let bytes: ArrayBuffer;
     try {
       bytes = await attachment.file.arrayBuffer(); // reread — ingest transferred its buffer
     } catch (e) {
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.sourceStatus.set(doc, { phase: 'persist-failed', message: msg(e) });
       this.publish();
       return;
     }
-    if (this.persistStale(doc, token, epochAtStart)) return;
+    if (!lease.isCurrent()) return;
     const { result } = this.deps.client.sourcePersist(source.source.hash, bytes);
     try {
       await result;
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       // Flip canonical availability external → persisted, dirtying the project,
       // so a subsequent CAS save records the durable reference.
       const current = this.finalized.get(doc);
@@ -757,7 +760,7 @@ export class ProjectSession {
       this.sourceStatus.set(doc, { phase: 'persisted' });
       this.publish();
     } catch (e) {
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       // Availability stays external; the File stays retained for an idempotent,
       // content-addressed retry.
       this.sourceStatus.set(doc, { phase: 'persist-failed', message: msg(e) });
@@ -776,10 +779,9 @@ export class ProjectSession {
     const source = this.finalized.get(doc);
     if (!source) throw new SessionCommandError(`reattach: '${doc}' is not a finalized document`);
     if (source.sourceAvailability === 'bundled') throw new SessionCommandError('reattach: a bundled source is fetched from its URL, never reattached');
-    // Advance the reattach token FIRST — even an early rejection must supersede a
-    // prior in-flight digest so its late completion cannot attach a stale File.
-    const token = ++this.reattachCounter;
-    this.reattachTokens.set(doc, token);
+    // Supersede any prior in-flight digest FIRST — even an early rejection must
+    // stale it so its late completion cannot attach a stale File.
+    this.reattachOps.invalidate(doc);
     // Cheap early rejections before any read: the cap, and — since SourceHash is
     // over the exact bytes — a byte length that cannot possibly match.
     if (file.size > CAPS.maxSourceBytesPerFile) {
@@ -792,26 +794,25 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    void this.runReattach(doc, file, source, token);
+    void this.runReattach(doc, file, source, this.reattachOps.begin(doc));
   }
 
-  private async runReattach(doc: string, file: FileLike, source: ProjectDocV1, token: number): Promise<void> {
-    const epochAtStart = this.sessionEpoch;
+  private async runReattach(doc: string, file: FileLike, source: ProjectDocV1, lease: OwnedOperationLease): Promise<void> {
     this.reattachStatus.set(doc, { phase: 'hashing' });
     this.publish();
     let buffer: ArrayBuffer;
     let hash: string;
     try {
       buffer = await file.arrayBuffer();
-      if (this.reattachStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       hash = await this.deps.hashBytes(new Uint8Array(buffer));
     } catch (e) {
-      if (this.reattachStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.reattachStatus.set(doc, { phase: 'mismatch', code: 'READ_FAILED', message: msg(e) });
       this.publish();
       return;
     }
-    if (this.reattachStale(doc, token, epochAtStart)) return;
+    if (!lease.isCurrent()) return;
     if (hash !== source.source.hash) {
       // Never send the bad bytes; the worker's SOURCE_MISMATCH stays as
       // defense in depth for anything that slips past.
@@ -822,7 +823,7 @@ export class ProjectSession {
     // Match: attach for the tab, ingest into the current generation with the
     // stable doc id + expected identities. Attaching an identical source does
     // NOT dirty (the manifest is unchanged).
-    this.attached.set(doc, { file, token });
+    this.attached.set(doc, { file, token: lease.id });
     this.sourceStatus.set(doc, source.sourceAvailability === 'persisted' ? { phase: 'persisted' } : { phase: 'external-attached', name: source.sourceName, size: file.size });
     this.reattachStatus.set(doc, { phase: 'attached' });
     if (this.generation) this.deps.client.ingest(this.generation, doc, buffer);
@@ -846,12 +847,11 @@ export class ProjectSession {
   }
 
   private async runLoad(): Promise<void> {
-    const token = ++this.loadCounter;
-    // Do NOT bump the session epoch until a validated install: a load is a read.
-    // Superseding current-project ownership up front would silently strand an
-    // in-flight save/persist/reattach if the load then fails or the record is
-    // missing/corrupt. The ownership epoch advances only inside installProject.
-    const epoch = this.sessionEpoch;
+    // Do NOT invalidate the ownership scope until a validated install: a load
+    // is a read. Superseding current-project ownership up front would silently
+    // strand an in-flight save/persist/reattach if the load then fails or the
+    // record is missing/corrupt. The scope advances only inside installProject.
+    const lease = this.loadOps.begin();
     // Capture the intent fence, the CAS base, AND whether a save was already
     // active. A valid load must NOT clobber newer local intent (append/edit/
     // reorder/persist/reattach/save issued while it validated), regress over a
@@ -867,12 +867,12 @@ export class ProjectSession {
     try {
       loaded = await result;
     } catch {
-      if (this.loadStale(token, epoch)) return;
+      if (!lease.isCurrent()) return;
       this.analysis = { phase: 'error', message: 'failed to load the durable project', fatal: false };
       this.publish();
       return;
     }
-    if (this.loadStale(token, epoch)) return;
+    if (!lease.isCurrent()) return;
     if (loaded.kind === 'missing') {
       this.analysis = { phase: 'error', message: 'no saved project', fatal: false };
       this.publish();
@@ -885,12 +885,12 @@ export class ProjectSession {
       // prior project reopens instead of reporting DATA_CORRUPT.
       manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
     } catch (e) {
-      if (this.loadStale(token, epoch)) return;
+      if (!lease.isCurrent()) return;
       this.analysis = { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false };
       this.publish();
       return;
     }
-    if (this.loadStale(token, epoch)) return;
+    if (!lease.isCurrent()) return;
     // A valid load must yield to newer local intent, an in-flight save, OR a save
     // that acknowledged during the load — rather than silently discard the newer
     // draft or make a save acknowledgement unobservable.
@@ -1147,7 +1147,7 @@ export class ProjectSession {
     // never reached the worker, so it is simply aborted and retryable.
     if (this.kind === 'user' && this.saveState.phase === 'saving') {
       const posted = this.pendingSave !== null && this.pendingSave.token === this.saveState.token;
-      this.saveCounter++;
+      this.saveOps.invalidate();
       if (posted) {
         this.saveState = { phase: 'reconcile-required', targetRevision: this.pendingSave!.targetRevision };
       } else {
@@ -1183,23 +1183,26 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    const epoch = this.sessionEpoch;
+    // Scope-only fence: reconcile is not a latest-wins lane (the save lane was
+    // already invalidated by the restart) — only project replacement/disposal
+    // may stale it, plus the explicit reconcile-required phase checks below.
+    const scopeLease = this.scope.lease();
     const { result } = this.deps.client.projectLoad(this.id);
     let loaded: ProjectLoadResult;
     try {
       loaded = await result;
     } catch {
-      if (this.disposed || epoch !== this.sessionEpoch) return;
+      if (!scopeLease.isCurrent()) return;
       this.saveAgain = false; // a lost coalesced request must not auto-fire later
       this.saveState = { phase: 'error', code: 'RECONCILE_FAILED', message: 'could not load the project to reconcile the save' };
       this.publish();
       return;
     }
-    if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
+    if (!scopeLease.isCurrent() || this.saveState.phase !== 'reconcile-required') return;
     if (loaded.kind === 'loaded') {
       try {
         const manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
-        if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
+        if (!scopeLease.isCurrent() || this.saveState.phase !== 'reconcile-required') return;
         if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
           // Our write DID commit before the crash: adopt it through the ONE
           // completion path so File retention + any coalesced follow-up save are
@@ -1326,7 +1329,7 @@ export class ProjectSession {
    *  Fenced by the session epoch (project replacement) AND per-entry importToken
    *  (a re-staged id) so stale staging work never mutates a newer pending entry. */
   private async finishStaging(staged: readonly { doc: string; importToken: number }[]): Promise<void> {
-    const epoch = this.sessionEpoch;
+    const scopeLease = this.scope.lease();
     // One default recipe per catalog format — select `byFormat[format]`, no
     // per-format switch. Hash every catalog format (derived from
     // SOURCE_FORMAT_IDS so a new format needs no edit here) plus structure/index
@@ -1337,7 +1340,7 @@ export class ProjectSession {
       hashIndexRecipe(this.indexRecipe),
       Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
     ]);
-    if (this.disposed || epoch !== this.sessionEpoch) return;
+    if (!scopeLease.isCurrent()) return;
     const hashByFormat = Object.fromEntries(
       SOURCE_FORMAT_IDS.map((f, i) => [f, formatHashes[i]!]),
     ) as { readonly [F in SourceFormat]: string };
@@ -1377,20 +1380,20 @@ export class ProjectSession {
 
   private installProject(project: CurrentProject): void {
     // Replace everything: a new project owns a fresh generation lane, and THIS
-    // is where ownership actually changes — advance the session epoch so any
+    // is where ownership actually changes — invalidate the scope so any
     // still-pending operation on the outgoing project goes stale.
-    this.sessionEpoch++;
+    this.scope.invalidate();
     this.pending.clear();
     this.persistIntent.clear();
     this.attached.clear();
     this.sourceStatus.clear();
     this.reattachStatus.clear();
-    this.persistTokens.clear();
-    this.reattachTokens.clear();
+    this.persistOps.clear();
+    this.reattachOps.clear();
     // A pending correction belonged to the OUTGOING project; its status must
-    // not leak into the replacement (the sessionEpoch fence also drops any
-    // in-flight hash below).
-    this.correctionTokens.clear();
+    // not leak into the replacement (the scope invalidation above also drops
+    // any in-flight hash).
+    this.correctionOps.clear();
     this.corrections.clear();
     this.id = project.data.id;
     this.kind = project.kind;
@@ -1417,9 +1420,9 @@ export class ProjectSession {
     this.attached.clear();
     this.sourceStatus.clear();
     this.reattachStatus.clear();
-    this.persistTokens.clear();
-    this.reattachTokens.clear();
-    this.correctionTokens.clear();
+    this.persistOps.clear();
+    this.reattachOps.clear();
+    this.correctionOps.clear();
     this.corrections.clear();
     this.finalized.clear();
     this.order = [];
@@ -1504,24 +1507,6 @@ export class ProjectSession {
    *  is stale and must not install over it. */
   private markUserIntent(): void {
     this.loadFence++;
-  }
-
-  // ── Fences ──────────────────────────────────────────────────────────────────
-
-  private stale(saveToken: number, epoch: number): boolean {
-    // The save counter (bumped at runSave entry) is the ownership fence — a
-    // newer save supersedes this one. pendingSave is assigned only just before
-    // the post, so it cannot serve as the fence for the pre-post checks.
-    return this.disposed || this.saveCounter !== saveToken || this.sessionEpoch !== epoch;
-  }
-  private persistStale(doc: string, token: number, epoch: number): boolean {
-    return this.disposed || this.persistTokens.get(doc) !== token || this.sessionEpoch !== epoch;
-  }
-  private reattachStale(doc: string, token: number, epoch: number): boolean {
-    return this.disposed || this.reattachTokens.get(doc) !== token || this.sessionEpoch !== epoch;
-  }
-  private loadStale(token: number, epoch: number): boolean {
-    return this.disposed || this.loadCounter !== token || this.sessionEpoch !== epoch;
   }
 
   private abortFetches(): void {
