@@ -203,6 +203,18 @@ interface GenerationStateV4 {
    *  cannot grow it. Dropped with the generation; superseded snapshots key
    *  distinctly and never collide. */
   readonly kwicOccCache: Map<string, NumericOccurrences>;
+  /** Per-generation SectionId binding cache (Phase D ruling, workstream D4).
+   *  Section ids depend only on (doc, lineageKey) and are DELIBERATELY stable
+   *  across snapshots within a generation, so both structure query paths share
+   *  one cache dropped with the generation. NESTED maps, doc → lineage key —
+   *  neither identifier contract forbids '\0', so a delimiter-joined string
+   *  key would not be collision-free. The value is the PENDING promise, stored
+   *  synchronously on first request so concurrent queries deduplicate the same
+   *  digest; a rejection evicts exactly that promise (identity-compared) so a
+   *  later request retries without clobbering a concurrent replacement.
+   *  Unbounded on purpose: the section cap is 2,048/doc and the map dies with
+   *  the generation (ruling: no LRU, no semaphore). */
+  readonly sectionIds: Map<string, Map<string, Promise<string>>>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
   /** Running ACTUAL totals (not just declared) enforced against the project
@@ -401,6 +413,7 @@ export class WorkerEngineV4 {
       tokenViews: new Map(),
       detectedTables: new Map(),
       kwicOccCache: new Map(),
+      sectionIds: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
     };
@@ -1491,9 +1504,33 @@ export class WorkerEngineV4 {
     return ranges;
   }
 
+  /** The (doc, lineageKey) → SectionId binding, memoized on `gen.sectionIds`
+   *  (see the field's contract). The pending promise is installed BEFORE any
+   *  await so overlapping structure/edit-context queries share one digest. */
+  private cachedSectionId(gen: GenerationStateV4, doc: string, lineageKey: string): Promise<string> {
+    let byKey = gen.sectionIds.get(doc);
+    if (!byKey) {
+      byKey = new Map();
+      gen.sectionIds.set(doc, byKey);
+    }
+    const hit = byKey.get(lineageKey);
+    if (hit) return hit;
+    const scope = byKey;
+    const pending: Promise<string> = bindSectionId(doc, lineageKey).catch((e: unknown) => {
+      // Evict ONLY this promise so a later request retries; a concurrent
+      // replacement (installed after this one was evicted) must survive.
+      if (scope.get(lineageKey) === pending) scope.delete(lineageKey);
+      throw e;
+    });
+    scope.set(lineageKey, pending);
+    return pending;
+  }
+
   /** Bind lineage keys → project-scoped SectionIds and materialize the keyed
-   *  section rows (parents translated). Gates after the awaited binding loop;
-   *  the caller gates again before emitting. */
+   *  section rows (parents translated). All missing bindings are launched in
+   *  parallel (ruling D4: ~345 ms sequential vs ~35 ms parallel at the 2,048
+   *  section cap; WebCrypto schedules its own work — no concurrency bound).
+   *  Gates after the awaited bindings; the caller gates again before emitting. */
   private async bindSectionRows(
     job: number,
     gen: GenerationStateV4,
@@ -1502,8 +1539,9 @@ export class WorkerEngineV4 {
     artifact: StructureArtifactV2,
     ranges: readonly TokenRange[],
   ): Promise<{ key: string; section: WireSection; tokens: TokenRange }[]> {
+    const ids = await Promise.all(artifact.sections.map((s) => this.cachedSectionId(gen, doc, s.key)));
     const idByKey = new Map<string, string>();
-    for (const s of artifact.sections) idByKey.set(s.key, await bindSectionId(doc, s.key));
+    artifact.sections.forEach((s, i) => idByKey.set(s.key, ids[i]!));
     this.queryGate(job, gen, snapshotId);
     return artifact.sections.map((s, i) => ({
       key: s.key,

@@ -13,6 +13,7 @@ import { InMemoryArtifactStore, type ArtifactStore, type CacheRead } from '../sr
 import { InMemoryUserDataStore, UserDataError, type UserDataStore } from '../src/worker/user-data-store.ts';
 import { PROTOCOL_VERSION_V4, type FromWorkerV4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
 import {
+  bindSectionId,
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
@@ -789,6 +790,251 @@ describe('authoring context + line excerpt queries (8b)', () => {
     await coldIngest(h, 'g', 'a', text, 10);
     expect(h.last('error').code).toBe('CAP_EXCEEDED');
     expect(h.all('snapshot-published').length).toBe(0);
+  });
+});
+
+describe('section-id binding cache (Phase D workstream D4)', () => {
+  const MD = '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept';
+  const MD_SECTIONS = 3; // root + two detected chapters
+
+  /** The engine internals this suite must reach: the per-generation cache map
+   *  and the private binding helper (for inputs the wire cannot carry). */
+  interface EngineInternals {
+    generation: { sectionIds: Map<string, Map<string, Promise<string>>> } | null;
+    cachedSectionId(gen: unknown, doc: string, key: string): Promise<string>;
+  }
+  const internals = (h: Harness) => h.engine as unknown as EngineInternals;
+
+  /** Intercept ONLY section-id binding digests, recognized by the versioned
+   *  method tag in the canonical digest input; every other digest passes
+   *  through untouched. `defer` parks each binding until its queued release
+   *  fires; `rejectFirst` fails exactly the first binding. */
+  function spySectionIdDigests(opts: { defer?: boolean; rejectFirst?: boolean } = {}) {
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    const calls: string[] = [];
+    const releases: (() => void)[] = [];
+    let rejectArmed = opts.rejectFirst === true;
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
+      const input = new TextDecoder().decode(args[1]);
+      if (!input.includes('section-id/1')) return realDigest(...args);
+      calls.push(input);
+      if (rejectArmed) { rejectArmed = false; return Promise.reject(new Error('binding digest failed')); }
+      if (!opts.defer) return realDigest(...args);
+      return new Promise<ArrayBuffer>((resolve) => { releases.push(() => resolve(realDigest(...args))); });
+    }) as typeof crypto.subtle.digest);
+    return { calls, releases, restore: () => spy.mockRestore() };
+  }
+
+  /** Pump the event loop until `done` (bounded, so a hung engine FAILS the
+   *  assertion that follows instead of hanging the suite). */
+  async function settle(h: Harness, done: () => boolean, turns = 100) {
+    for (let i = 0; i < turns && !done(); i++) await h.flush();
+  }
+
+  function structureRows(h: Harness, job: number) {
+    const msg = h.all('result').find((m) => m.job === job);
+    if (!msg || msg.data.op !== 'structure') throw new Error(`no structure result for job ${job}`);
+    return msg.data.structure.rows;
+  }
+  function currentRows(h: Harness, job: number) {
+    const msg = h.all('result').find((m) => m.job === job);
+    if (!msg || msg.data.op !== 'structure-edit-context') throw new Error(`no edit-context result for job ${job}`);
+    return msg.data.context.current;
+  }
+
+  async function publishMd(h: Harness, docs: string[], generation = 'g'): Promise<string> {
+    const specs = await Promise.all(docs.map((d) => docSpec(d, MD, { format: 'md' })));
+    await begin(h, specs, generation);
+    for (let i = 0; i < docs.length; i++) await coldIngest(h, generation, docs[i]!, MD, 10 + i);
+    return h.last('snapshot-published').snapshot;
+  }
+
+  it("keys containing '\\0' stay distinct — the nested-map shape admits no joined-string collision", async () => {
+    const h = harness();
+    await begin(h, [await docSpec('a', 'the wolf ran far')]);
+    const engine = internals(h);
+    const gen = engine.generation!;
+    // Joined with '\0' (or any single delimiter) these two pairs collide:
+    // 'a\0b' + 'c' and 'a' + 'b\0c' both flatten to 'a\0b\0c'.
+    const id1 = await engine.cachedSectionId(gen, 'a\u0000b', 'c');
+    const id2 = await engine.cachedSectionId(gen, 'a', 'b\u0000c');
+    expect(id1).not.toBe(id2);
+    expect(id1).toBe(await bindSectionId('a\u0000b', 'c'));
+    expect(id2).toBe(await bindSectionId('a', 'b\u0000c'));
+    // The cache keeps them under distinct outer (document) keys.
+    expect(gen.sectionIds.get('a\u0000b')?.has('c')).toBe(true);
+    expect(gen.sectionIds.get('a')?.has('b\u0000c')).toBe(true);
+  });
+
+  it('the same lineage key in two documents binds to separate ids (no wrong-document reuse)', async () => {
+    const h = harness();
+    const snap = await publishMd(h, ['a', 'b']); // identical text → identical lineage keys
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure', request: { doc: 'b' } } });
+    const rowsA = structureRows(h, 20);
+    const rowsB = structureRows(h, 21);
+    expect(rowsA.length).toBe(MD_SECTIONS);
+    expect(rowsB.length).toBe(MD_SECTIONS);
+    for (let i = 0; i < rowsA.length; i++) {
+      expect(rowsA[i]!.section.doc).toBe('a');
+      expect(rowsB[i]!.section.doc).toBe('b');
+      expect(rowsA[i]!.section.id).not.toBe(rowsB[i]!.section.id); // same key, different doc
+    }
+  });
+
+  it('cross-snapshot reuse: the same (doc, key) across a supersession digests ONCE and keeps its id', async () => {
+    const h = harness();
+    const a = await docSpec('a', MD, { format: 'md' });
+    const b = await docSpec('b', 'a wolf slept');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', MD, 10);
+    const snap1 = h.last('snapshot-published').snapshot;
+    const s = spySectionIdDigests();
+    await h.send({ t: 'query', job: 20, snapshot: snap1, query: { op: 'structure', request: { doc: 'a' } } });
+    expect(s.calls.length).toBe(MD_SECTIONS); // cold: one digest per section
+    await coldIngest(h, 'g', 'b', 'a wolf slept', 11); // supersedes the snapshot, same generation
+    const snap2 = h.last('snapshot-published').snapshot;
+    expect(snap2).not.toBe(snap1);
+    await h.send({ t: 'query', job: 21, snapshot: snap2, query: { op: 'structure', request: { doc: 'a' } } });
+    s.restore();
+    expect(s.calls.length).toBe(MD_SECTIONS); // warm: ZERO new binding digests
+    expect(structureRows(h, 21)).toEqual(structureRows(h, 20)); // ids stable across snapshots
+  });
+
+  it('concurrent structure + edit-context queries share ONE pending digest per key', async () => {
+    const h = harness();
+    const snap = await publishMd(h, ['a']);
+    const s = spySectionIdDigests({ defer: true });
+    const p1 = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    const p2 = h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
+    // Let BOTH queries reach their binding phase while every digest is parked.
+    await settle(h, () => s.releases.length >= MD_SECTIONS);
+    await settle(h, () => false, 10); // extra turns: a non-deduplicating engine would digest again
+    expect(s.calls.length).toBe(MD_SECTIONS); // one pending digest per key, shared by both queries
+    s.releases.forEach((r) => r());
+    await Promise.all([p1, p2]);
+    s.restore();
+    const rows = structureRows(h, 20);
+    const current = currentRows(h, 21);
+    expect(current.length).toBe(rows.length);
+    for (let i = 0; i < rows.length; i++) expect(current[i]!.section).toEqual(rows[i]!.section);
+  });
+
+  it('a rejected binding digest is evicted — a retry recomputes ONLY the failed key and succeeds', async () => {
+    const h = harness();
+    const snap = await publishMd(h, ['a']);
+    const s = spySectionIdDigests({ rejectFirst: true });
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    expect(h.all('result').length).toBe(0);
+    expect(h.last('error').code).toBe('INTERNAL');
+    expect(s.calls.length).toBe(MD_SECTIONS); // all were launched; one rejected
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    s.restore();
+    // Exactly ONE recomputation: the failed entry was evicted, the survivors reused.
+    expect(s.calls.length).toBe(MD_SECTIONS + 1);
+    const rows = structureRows(h, 21);
+    expect(rows.length).toBe(MD_SECTIONS);
+    expect(rows[0]!.section.id).toBe(await bindSectionId('a', 'root'));
+  });
+
+  it('eviction compares promise identity — a stale rejection cannot evict a concurrent replacement', async () => {
+    const h = harness();
+    await begin(h, [await docSpec('a', 'the wolf ran far')]);
+    const engine = internals(h);
+    const gen = engine.generation!;
+    // The FIRST binding digest is held open so its rejection lands LATE —
+    // after the cache entry has already been dropped and re-created.
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let rejectHeld: ((e: Error) => void) | null = null;
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
+      if (rejectHeld === null && new TextDecoder().decode(args[1]).includes('section-id/1')) {
+        return new Promise<ArrayBuffer>((_resolve, reject) => { rejectHeld = reject; });
+      }
+      return realDigest(...args);
+    }) as typeof crypto.subtle.digest);
+    const stale = engine.cachedSectionId(gen, 'a', 'root');
+    gen.sectionIds.get('a')!.delete('root'); // the entry is replaced while the digest is in flight
+    const fresh = engine.cachedSectionId(gen, 'a', 'root');
+    expect(fresh).not.toBe(stale);
+    rejectHeld!(new Error('late failure'));
+    await expect(stale).rejects.toThrow('late failure');
+    spy.mockRestore();
+    // The stale rejection must NOT have evicted the replacement.
+    expect(gen.sectionIds.get('a')!.get('root')).toBe(fresh);
+    expect(await fresh).toBe(await bindSectionId('a', 'root'));
+  });
+
+  it('replacing the generation drops the cache; a late old-generation completion cannot answer the new one', async () => {
+    const h = harness();
+    const spec = await docSpec('a', MD, { format: 'md' });
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', MD, 10);
+    const snap1 = h.last('snapshot-published').snapshot;
+    const engine = internals(h);
+    const gen1 = engine.generation!;
+    const s = spySectionIdDigests({ defer: true });
+    // Park a g1 query mid-binding, then replace the generation under it.
+    const p1 = h.send({ t: 'query', job: 20, snapshot: snap1, query: { op: 'structure', request: { doc: 'a' } } });
+    await settle(h, () => s.releases.length >= MD_SECTIONS);
+    expect(s.calls.length).toBe(MD_SECTIONS);
+    await begin(h, [spec], 'g2'); // warm reopen from the cold pass's cache writes
+    const gen2 = engine.generation!;
+    expect(gen2).not.toBe(gen1);
+    expect(gen2.sectionIds.size).toBe(0); // the new generation starts EMPTY
+    const snap2 = h.last('snapshot-published').snapshot;
+    // Release the old generation's digests: the parked query dies at its gate,
+    // and the late completions land ONLY in the dead generation's map.
+    const released = s.releases.length;
+    s.releases.forEach((r) => r());
+    await p1;
+    expect(h.all('result').length).toBe(0);
+    expect(gen2.sectionIds.size).toBe(0);
+    expect(gen1.sectionIds.get('a')!.size).toBe(MD_SECTIONS);
+    // The new generation cannot be answered from the old map: it re-digests.
+    const p2 = h.send({ t: 'query', job: 21, snapshot: snap2, query: { op: 'structure', request: { doc: 'a' } } });
+    await settle(h, () => s.calls.length >= MD_SECTIONS * 2);
+    expect(s.calls.length).toBe(MD_SECTIONS * 2);
+    s.releases.slice(released).forEach((r) => r());
+    await p2;
+    s.restore();
+    expect(structureRows(h, 21).length).toBe(MD_SECTIONS);
+  });
+
+  it('out-of-order digest resolution preserves row order and parent translation', async () => {
+    // Reference rows from an undisturbed engine (binding is deterministic).
+    const ref = harness();
+    const refSnap = await publishMd(ref, ['a']);
+    await ref.send({ t: 'query', job: 20, snapshot: refSnap, query: { op: 'structure', request: { doc: 'a' } } });
+    const expected = structureRows(ref, 20);
+    expect(expected.length).toBe(MD_SECTIONS);
+    expect(expected[1]!.section.parent).toBe(expected[0]!.section.id); // chapters hang off root
+
+    const h = harness();
+    const snap = await publishMd(h, ['a']);
+    const s = spySectionIdDigests({ defer: true });
+    const p = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    await settle(h, () => s.releases.length >= MD_SECTIONS);
+    expect(s.releases.length).toBe(MD_SECTIONS);
+    [...s.releases].reverse().forEach((r) => r()); // resolve LAST-first (root resolves last)
+    await p;
+    s.restore();
+    expect(structureRows(h, 20)).toEqual(expected); // order + parent ids + tokens intact
+  });
+
+  it('all missing bindings START before the first digest resolves (parallel launch)', async () => {
+    const h = harness();
+    const snap = await publishMd(h, ['a']);
+    const s = spySectionIdDigests({ defer: true });
+    const p = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
+    await settle(h, () => s.calls.length >= MD_SECTIONS);
+    // Every binding digest has STARTED while NONE has resolved — a sequential
+    // await-per-row implementation would have started only the first.
+    expect(s.calls.length).toBe(MD_SECTIONS);
+    expect(h.all('result').length).toBe(0);
+    s.releases.forEach((r) => r());
+    await p;
+    s.restore();
+    expect(structureRows(h, 20).length).toBe(MD_SECTIONS);
   });
 });
 
