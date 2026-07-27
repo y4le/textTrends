@@ -1,7 +1,8 @@
 /**
  * Main-thread service for ADDING a Standard Ebooks book. The catalog itself
- * is a baked snapshot (standard-ebooks-catalog.ts) — browsing costs zero
- * network requests and nothing here lists anything. A book's SOURCE is
+ * is a baked snapshot (standard-ebooks-catalog.ts, fetched on demand as a
+ * hashed same-origin asset) — browsing makes no external requests and
+ * nothing here lists anything. A book's SOURCE is
  * downloaded by repository name from raw.githubusercontent.com (a
  * CORS-accessible origin, unlike the standardebooks.org release download)
  * and repackaged into a `.epub` in the browser, ready to ingest exactly like

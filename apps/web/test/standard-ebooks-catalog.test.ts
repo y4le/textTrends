@@ -9,12 +9,13 @@
  */
 import { REPOSITORY_NAME } from '@texttrends/standard-ebooks';
 import { describe, expect, it } from 'vitest';
-import {
-  STANDARD_EBOOKS_CATALOG,
-  type CatalogBook,
-} from '../src/lib/standard-ebooks-catalog.ts';
+import catalogJson from '../src/lib/standard-ebooks-catalog.json';
+import type { CatalogBook, StandardEbooksCatalog } from '../src/lib/standard-ebooks-catalog.ts';
 
-const catalog = STANDARD_EBOOKS_CATALOG;
+// The typed assignment IS the compile-time shape pin over the real artifact —
+// the adapter now ships only the asset URL (fetched on demand), so the static
+// structural check lives here instead.
+const catalog: StandardEbooksCatalog = catalogJson;
 const TOP_COUNT = 100;
 
 const isTrimmedNonEmpty = (value: string) => value !== '' && value === value.trim();

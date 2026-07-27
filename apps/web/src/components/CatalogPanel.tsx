@@ -1,17 +1,19 @@
 /**
  * Standard Ebooks catalog: a BAKED snapshot (standard-ebooks-catalog.json,
- * regenerated ad hoc via `pnpm update:se-catalog`) — browsing costs zero
- * network requests. Adding a book downloads its source from GitHub
+ * regenerated ad hoc via `pnpm update:se-catalog`) — browsing makes no
+ * external/live-catalog requests; the snapshot is fetched as a hashed
+ * same-origin static asset on first open, keeping ~20 kB of JSON out of the
+ * entry bundle. Adding a book downloads its source from GitHub
  * (raw.githubusercontent.com, CORS-clean, by repository name) and repackages
  * it into a `.epub` in the browser, ingested through the same import path as
  * an uploaded file. Series render as ordered groups (showcasing series-based
  * analysis); the popular list follows, minus books already shown in a series.
  */
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { catalogSections, type CatalogSectionBook } from '../lib/catalog-view.ts';
-import { STANDARD_EBOOKS_CATALOG } from '../lib/standard-ebooks-catalog.ts';
+import { loadStandardEbooksCatalog, type StandardEbooksCatalog } from '../lib/standard-ebooks-catalog.ts';
 import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
 
 export function CatalogPanel() {
@@ -20,8 +22,28 @@ export function CatalogPanel() {
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [catalog, setCatalog] = useState<StandardEbooksCatalog | null>(null);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  // Bumping retries a failed asset fetch (the loader's memo clears on rejection).
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
-  const sections = useMemo(() => catalogSections(STANDARD_EBOOKS_CATALOG, q), [q]);
+  useEffect(() => {
+    if (!open || catalog !== null || loadError !== null) return;
+    let cancelled = false;
+    loadStandardEbooksCatalog().then(
+      (loaded) => {
+        if (!cancelled) setCatalog(loaded);
+      },
+      (e: unknown) => {
+        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e));
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [open, catalog, loadError, loadAttempt]);
+
+  const sections = useMemo(() => (catalog === null ? [] : catalogSections(catalog, q)), [catalog, q]);
 
   const add = async (book: CatalogSectionBook) => {
     setAdding(book.name);
@@ -70,7 +92,27 @@ export function CatalogPanel() {
         {open ? '▾' : '▸'} Standard Ebooks catalog
       </button>
 
-      {open && (
+      {open && loadError !== null && (
+        <p style={{ ...label, marginTop: 'var(--space-2)', color: 'var(--accent-text)' }}>
+          Could not load the catalog: {loadError}{' '}
+          <button
+            type="button"
+            onClick={() => {
+              setLoadError(null);
+              setLoadAttempt((n) => n + 1);
+            }}
+            style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', cursor: 'pointer' }}
+          >
+            retry
+          </button>
+        </p>
+      )}
+
+      {open && loadError === null && catalog === null && (
+        <p style={{ ...label, marginTop: 'var(--space-2)' }}>loading catalog…</p>
+      )}
+
+      {open && catalog !== null && (
         <div style={{ marginTop: 'var(--space-2)' }}>
           <input
             type="search"
@@ -105,7 +147,7 @@ export function CatalogPanel() {
             <a href="https://standardebooks.org" target="_blank" rel="noreferrer" style={{ color: 'inherit' }}>
               standardebooks.org
             </a>
-            , generated {STANDARD_EBOOKS_CATALOG.generatedAt.slice(0, 10)}
+            , generated {catalog.generatedAt.slice(0, 10)}
           </p>
         </div>
       )}
