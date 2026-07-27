@@ -24,7 +24,7 @@
  * navigates locally inside them.
  */
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
@@ -44,6 +44,7 @@ import {
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
+import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
 
 const SERIES_HEIGHT = 180;
@@ -61,21 +62,25 @@ interface ReadySeries {
 }
 
 export function TrendPanel() {
+  // Deliberately NO `scrub`/`passage` subscription here: those update once per
+  // pointer animation frame, and this component's render rebuilds every path,
+  // hover rect, label, and totals row. The ScrubSurface child owns the
+  // per-frame state; this panel re-renders only on data/view/focus/resize
+  // changes (the Phase B ruling's invariant).
   const series = useApp((s) => s.series);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const trends = useApp((s) => s.trends);
   const trendView = useApp((s) => s.trendView);
   const focusedSeries = useApp((s) => s.focusedSeries);
   const setFocus = useApp((s) => s.setFocus);
-  const scrub = useApp((s) => s.scrub);
-  const passage = useApp((s) => s.passage);
-  const setScrub = useApp((s) => s.setScrub);
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
   const sectionMarks = useApp((s) => s.sectionMarks);
 
   // Callback ref, not a RefObject: the container mounts only after the trend
-  // results settle, so a mount-time effect would observe nothing.
+  // results settle, so a mount-time effect would observe nothing. The ref is
+  // handed to ScrubSurface's stage div; the width state stays here because
+  // all chart geometry derives from it.
   const [containerEl, setContainerEl] = useState<HTMLDivElement | null>(null);
   const [plotW, setPlotW] = useState(720);
   useLayoutEffect(() => {
@@ -89,24 +94,6 @@ export function TrendPanel() {
     observer.observe(containerEl);
     return () => observer.disconnect();
   }, [containerEl]);
-
-  // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
-  const pointerSample = useRef<ScrubTarget | null>(null);
-  const frame = useRef<number | null>(null);
-  const scheduleScrub = useCallback(
-    (target: ScrubTarget | null) => {
-      if (!target) return;
-      pointerSample.current = target;
-      frame.current ??= requestAnimationFrame(() => {
-        frame.current = null;
-        if (pointerSample.current) setScrub(pointerSample.current);
-      });
-    },
-    [setScrub],
-  );
-  useEffect(() => () => {
-    if (frame.current !== null) cancelAnimationFrame(frame.current);
-  }, []);
 
   if (series.length === 0) return null;
 
@@ -180,52 +167,6 @@ export function TrendPanel() {
     bookXFromTokenEdge(t, plotW, geo.docTokenCount[focusedDocOrdinal] ?? 0),
   );
 
-  const scrubDocOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
-  const scrubX =
-    scrub && scrubDocOrdinal >= 0
-      ? trendView === 'series'
-        ? seriesXFromToken(scrubDocOrdinal, scrub.token, plotW, layout)
-        : bookXFromToken(scrub.token, plotW, geo.docTokenCount[scrubDocOrdinal] ?? 0)
-      : null;
-
-  const targetFromPointer = (px: number, py: number): ScrubTarget | null => {
-    const hit =
-      trendView === 'series'
-        ? pointerTargetSeries(px, py, plotW, SERIES_HEIGHT, layout)
-        : pointerTargetByBook(px, py, plotW, ROW_HEIGHT, ROW_GAP, geo.docTokenCount);
-    return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
-  };
-
-  const onKeyDown = (e: React.KeyboardEvent) => {
-    const current: ScrubTarget =
-      scrub && scrubDocOrdinal >= 0
-        ? scrub
-        : { doc: docs.find((_, d) => (geo.docTokenCount[d] ?? 0) > 0) ?? '', token: 0 };
-    const d = docs.indexOf(current.doc);
-    if (d < 0) return;
-    const tc = geo.docTokenCount[d] ?? 0;
-    const binWidth = tc === 0 ? 1 : Math.ceil(tc / bins);
-    const step = (delta: number): ScrubTarget | null => {
-      if (trendView === 'series') {
-        const next = stepAlongSequence(d, current.token, delta, layout);
-        return next ? { doc: docs[next.d]!, token: next.token } : null;
-      }
-      return { doc: current.doc, token: Math.max(0, Math.min(tc - 1, current.token + delta)) };
-    };
-    let next: ScrubTarget | null = null;
-    switch (e.key) {
-      case 'ArrowLeft': next = step(e.shiftKey ? -5 : -1); break;
-      case 'ArrowRight': next = step(e.shiftKey ? 5 : 1); break;
-      case 'PageUp': next = step(-binWidth); break;
-      case 'PageDown': next = step(binWidth); break;
-      case 'Home': next = { doc: current.doc, token: 0 }; break;
-      case 'End': next = { doc: current.doc, token: Math.max(0, tc - 1) }; break;
-      default: return;
-    }
-    e.preventDefault();
-    if (next) setScrub(next);
-  };
-
   // Per-book / corpus exact totals (sums of counts and denominators — never
   // averages of rates).
   const bookCount = (t: NumericTrend, d: number) => {
@@ -241,17 +182,6 @@ export function TrendPanel() {
   const totalTokens = docs.reduce((s, _, d) => s + bookTokens(d), 0);
 
   const methodLine = `rate per 10k tokens · ${bins} equal-token bins per book · unsmoothed · books token-proportional in declared order`;
-
-  const passageServes =
-    scrub !== null &&
-    passage !== null &&
-    passage.doc === scrub.doc &&
-    scrub.token >= passage.tokens.start &&
-    scrub.token < passage.tokens.end;
-  const scrubTitle = scrub ? titleByDoc.get(scrub.doc) ?? scrub.doc : '';
-  const scrubCaption = scrub && scrubDocOrdinal >= 0
-    ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(geo.docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
-    : '';
 
   return (
     <section>
@@ -271,27 +201,16 @@ export function TrendPanel() {
           </span>
         )}
       </h2>
-      <div
-        ref={setContainerEl}
-        role="slider"
-        tabIndex={0}
-        aria-label="Reading position scrubber"
-        aria-valuemin={0}
-        aria-valuemax={Math.max(0, layout.totalTokens - 1)}
-        aria-valuenow={
-          scrub && scrubDocOrdinal >= 0 ? (bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
-        }
-        aria-valuetext={scrubCaption || 'no position'}
-        onKeyDown={onKeyDown}
-        style={{ width: '100%', outline: 'none' }}
-        onPointerMove={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
-        }}
-        onPointerDown={(e) => {
-          const rect = e.currentTarget.getBoundingClientRect();
-          scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
-        }}
+      <ScrubSurface
+        containerRef={setContainerEl}
+        trendView={trendView}
+        docs={docs}
+        titleByDoc={titleByDoc}
+        layout={layout}
+        bins={bins}
+        plotW={plotW}
+        series={series}
+        focusedSeries={focusedSeries}
       >
         {trendView === 'series' ? (
           <SeriesView
@@ -302,7 +221,6 @@ export function TrendPanel() {
             bases={bases}
             maxRate={maxRate}
             plotW={plotW}
-            scrubX={scrubX}
             sectionMarks={seriesMarks}
             strokeFor={strokeFor}
             onFocus={setFocus}
@@ -315,50 +233,13 @@ export function TrendPanel() {
             bins={bins}
             maxRate={maxRate}
             plotW={plotW}
-            scrubX={scrubX}
-            scrubDocOrdinal={scrubDocOrdinal}
             sectionMarks={byBookMarks}
             sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
             onFocus={setFocus}
           />
         )}
-        {scrub && passageServes && scrubX !== null ? (
-          <PassageLine
-            passage={passage}
-            token={scrub.token}
-            crosshairX={scrubX}
-            series={series}
-            focusedSeries={focusedSeries}
-            caption={scrubCaption}
-          />
-        ) : scrub ? (
-          <p
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--fg-muted)',
-              minHeight: '3.2em',
-              margin: 'var(--space-2) 0 0',
-            }}
-          >
-            {scrubCaption} · loading text…
-          </p>
-        ) : (
-          <p
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-xs)',
-              color: 'var(--fg-muted)',
-              minHeight: '3.2em',
-              margin: 'var(--space-2) 0 0',
-            }}
-          >
-            hover or focus the chart to read the text at any position — arrows step by
-            token, shift+arrows by 5, PageUp/Down by bin
-          </p>
-        )}
-      </div>
+      </ScrubSurface>
       <table
         style={{
           fontFamily: 'var(--font-mono)',
@@ -427,6 +308,211 @@ export function TrendPanel() {
   );
 }
 
+/**
+ * The per-frame half of the trend panel: the ONLY component that subscribes
+ * to `scrub`/`passage` (which update once per pointer animation frame). It
+ * owns the slider container (pointer + keyboard + ARIA), the moving chart
+ * cursor — an absolutely-positioned overlay div, NOT an SVG line, so cursor
+ * motion never re-renders the chart — and the passage/caption/hint area.
+ *
+ * The chart SVG arrives as `children`, created by the non-rendering outer
+ * panel, so every scrub-frame render here hands React the SAME element and
+ * the chart subtree is skipped entirely. The load-bearing invariant is
+ * "TrendPanel does not subscribe to scrub/passage and its child element is
+ * stable across child-local updates" — the views' React.memo is secondary
+ * protection, not the contract (their props may legitimately change identity
+ * whenever the outer panel really re-renders).
+ */
+function ScrubSurface({
+  containerRef,
+  trendView,
+  docs,
+  titleByDoc,
+  layout,
+  bins,
+  plotW,
+  series,
+  focusedSeries,
+  children,
+}: {
+  containerRef: (el: HTMLDivElement | null) => void;
+  trendView: 'series' | 'by-book';
+  docs: readonly string[];
+  titleByDoc: ReadonlyMap<string, string>;
+  layout: SequenceLayout;
+  bins: number;
+  plotW: number;
+  series: readonly SeriesIntent[];
+  focusedSeries: string | null;
+  children: React.ReactNode;
+}) {
+  const scrub = useApp((s) => s.scrub);
+  const passage = useApp((s) => s.passage);
+  const setScrub = useApp((s) => s.setScrub);
+
+  // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
+  const pointerSample = useRef<ScrubTarget | null>(null);
+  const frame = useRef<number | null>(null);
+  const scheduleScrub = useCallback(
+    (target: ScrubTarget | null) => {
+      if (!target) return;
+      pointerSample.current = target;
+      frame.current ??= requestAnimationFrame(() => {
+        frame.current = null;
+        if (pointerSample.current) setScrub(pointerSample.current);
+      });
+    },
+    [setScrub],
+  );
+  useEffect(() => () => {
+    if (frame.current !== null) cancelAnimationFrame(frame.current);
+  }, []);
+
+  const docTokenCount = layout.tokenCounts;
+  const scrubDocOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
+  const scrubX =
+    scrub && scrubDocOrdinal >= 0
+      ? trendView === 'series'
+        ? seriesXFromToken(scrubDocOrdinal, scrub.token, plotW, layout)
+        : bookXFromToken(scrub.token, plotW, docTokenCount[scrubDocOrdinal] ?? 0)
+      : null;
+
+  const targetFromPointer = (px: number, py: number): ScrubTarget | null => {
+    const hit =
+      trendView === 'series'
+        ? pointerTargetSeries(px, py, plotW, SERIES_HEIGHT, layout)
+        : pointerTargetByBook(px, py, plotW, ROW_HEIGHT, ROW_GAP, docTokenCount);
+    return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
+  };
+
+  const onKeyDown = (e: React.KeyboardEvent) => {
+    const current: ScrubTarget =
+      scrub && scrubDocOrdinal >= 0
+        ? scrub
+        : { doc: docs.find((_, d) => (docTokenCount[d] ?? 0) > 0) ?? '', token: 0 };
+    const d = docs.indexOf(current.doc);
+    if (d < 0) return;
+    const tc = docTokenCount[d] ?? 0;
+    const binWidth = tc === 0 ? 1 : Math.ceil(tc / bins);
+    const step = (delta: number): ScrubTarget | null => {
+      if (trendView === 'series') {
+        const next = stepAlongSequence(d, current.token, delta, layout);
+        return next ? { doc: docs[next.d]!, token: next.token } : null;
+      }
+      return { doc: current.doc, token: Math.max(0, Math.min(tc - 1, current.token + delta)) };
+    };
+    let next: ScrubTarget | null = null;
+    switch (e.key) {
+      case 'ArrowLeft': next = step(e.shiftKey ? -5 : -1); break;
+      case 'ArrowRight': next = step(e.shiftKey ? 5 : 1); break;
+      case 'PageUp': next = step(-binWidth); break;
+      case 'PageDown': next = step(binWidth); break;
+      case 'Home': next = { doc: current.doc, token: 0 }; break;
+      case 'End': next = { doc: current.doc, token: Math.max(0, tc - 1) }; break;
+      default: return;
+    }
+    e.preventDefault();
+    if (next) setScrub(next);
+  };
+
+  const passageServes =
+    scrub !== null &&
+    passage !== null &&
+    passage.doc === scrub.doc &&
+    scrub.token >= passage.tokens.start &&
+    scrub.token < passage.tokens.end;
+  const scrubTitle = scrub ? titleByDoc.get(scrub.doc) ?? scrub.doc : '';
+  const scrubCaption = scrub && scrubDocOrdinal >= 0
+    ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
+    : '';
+
+  // Cursor geometry per the Phase B ruling: series spans TOP_PAD..SERIES_HEIGHT;
+  // by-book covers only the scrubbed row. transform (not left/top mutation)
+  // so frame-to-frame motion is a compositor-friendly update.
+  const cursorTop = trendView === 'series' ? TOP_PAD : scrubDocOrdinal * (ROW_HEIGHT + ROW_GAP);
+  const cursorHeight = trendView === 'series' ? SERIES_HEIGHT - TOP_PAD : ROW_HEIGHT;
+
+  return (
+    <div
+      ref={containerRef}
+      role="slider"
+      tabIndex={0}
+      aria-label="Reading position scrubber"
+      aria-valuemin={0}
+      aria-valuemax={Math.max(0, layout.totalTokens - 1)}
+      aria-valuenow={
+        scrub && scrubDocOrdinal >= 0 ? (layout.bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
+      }
+      aria-valuetext={scrubCaption || 'no position'}
+      onKeyDown={onKeyDown}
+      style={{ width: '100%', outline: 'none', position: 'relative' }}
+      onPointerMove={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
+      }}
+      onPointerDown={(e) => {
+        const rect = e.currentTarget.getBoundingClientRect();
+        scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
+      }}
+    >
+      {children}
+      {scrubX !== null && (
+        <div
+          aria-hidden="true"
+          data-testid="chart-cursor"
+          style={{
+            position: 'absolute',
+            left: 0,
+            top: 0,
+            width: 1,
+            height: cursorHeight,
+            transform: `translate3d(${scrubX}px, ${cursorTop}px, 0)`,
+            willChange: 'transform',
+            background: 'var(--fg-muted)',
+            pointerEvents: 'none',
+            zIndex: 1,
+          }}
+        />
+      )}
+      {scrub && passageServes && scrubX !== null ? (
+        <PassageLine
+          passage={passage}
+          token={scrub.token}
+          crosshairX={scrubX}
+          series={series}
+          focusedSeries={focusedSeries}
+          caption={scrubCaption}
+        />
+      ) : scrub ? (
+        <p
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--fg-muted)',
+            minHeight: '3.2em',
+            margin: 'var(--space-2) 0 0',
+          }}
+        >
+          {scrubCaption} · loading text…
+        </p>
+      ) : (
+        <p
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            color: 'var(--fg-muted)',
+            minHeight: '3.2em',
+            margin: 'var(--space-2) 0 0',
+          }}
+        >
+          hover or focus the chart to read the text at any position — arrows step by
+          token, shift+arrows by 5, PageUp/Down by bin
+        </p>
+      )}
+    </div>
+  );
+}
+
 function SubHeads() {
   return (
     <>
@@ -445,7 +531,18 @@ function Cells({ count, rate }: { count: number; rate: number }) {
   );
 }
 
-function SeriesView({
+/** E2E-only commit counter (dead code in production builds): an effect with no
+ *  dependency array fires after EVERY commit of its owning subtree, which is
+ *  exactly the "did the chart re-render on scrub?" probe the regression test
+ *  needs. Never incremented during render. */
+function ChartCommitProbe({ view }: { view: 'series' | 'by-book' }) {
+  useEffect(() => {
+    recordChartCommit(view);
+  });
+  return null;
+}
+
+const SeriesView = memo(function SeriesView({
   ready,
   docs,
   titles,
@@ -453,7 +550,6 @@ function SeriesView({
   bases,
   maxRate,
   plotW,
-  scrubX,
   sectionMarks,
   strokeFor,
   onFocus,
@@ -465,7 +561,6 @@ function SeriesView({
   bases: readonly number[];
   maxRate: number;
   plotW: number;
-  scrubX: number | null;
   sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
@@ -598,17 +693,9 @@ function SeriesView({
           pointerEvents="none"
         />
       ))}
-      {scrubX !== null && (
-        <line
-          x1={scrubX}
-          y1={TOP_PAD}
-          x2={scrubX}
-          y2={axisY}
-          stroke="var(--fg-muted)"
-          strokeWidth={1}
-          pointerEvents="none"
-        />
-      )}
+      {/* The moving cursor is NOT here: it is ScrubSurface's overlay div, so
+          scrubbing never re-renders this SVG. */}
+      {__TT_E2E__ && <ChartCommitProbe view="series" />}
       {/* Hover layer: one column per (book, bin) reporting every series */}
       {docs.map((doc, d) =>
         Array.from({ length: bins }, (_, b) => {
@@ -632,17 +719,15 @@ function SeriesView({
       )}
     </svg>
   );
-}
+});
 
-function ByBookView({
+const ByBookView = memo(function ByBookView({
   ready,
   docs,
   titles,
   bins,
   maxRate,
   plotW,
-  scrubX,
-  scrubDocOrdinal,
   sectionMarks,
   sectionMarkDoc,
   strokeFor,
@@ -654,8 +739,6 @@ function ByBookView({
   bins: number;
   maxRate: number;
   plotW: number;
-  scrubX: number | null;
-  scrubDocOrdinal: number;
   sectionMarks: readonly number[];
   sectionMarkDoc: number;
   strokeFor: (id: string) => number;
@@ -711,17 +794,6 @@ function ByBookView({
                   pointerEvents="none"
                 />
               ))}
-            {scrubX !== null && scrubDocOrdinal === d && (
-              <line
-                x1={scrubX}
-                y1={rowY}
-                x2={scrubX}
-                y2={rowY + ROW_HEIGHT}
-                stroke="var(--fg-muted)"
-                strokeWidth={1}
-                pointerEvents="none"
-              />
-            )}
             <text
               x={plotW + 6}
               y={rowY + ROW_HEIGHT - 2}
@@ -755,6 +827,8 @@ function ByBookView({
           </g>
         );
       })}
+      {/* Moving cursor lives in ScrubSurface's overlay div, not this SVG. */}
+      {__TT_E2E__ && <ChartCommitProbe view="by-book" />}
     </svg>
   );
-}
+});
