@@ -92,15 +92,13 @@ function contractSuite(name: string, make: () => Promise<UserDataStore>) {
       await expect(store.putProject(pm('p', 1), 0)).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
     });
 
-    it('round-trips and deletes opted-in sources', async () => {
+    it('round-trips opted-in sources', async () => {
       const store = await make();
       expect((await store.getSource('h')).kind).toBe('miss');
       await store.putSource(source('h', 8));
       const read = await store.getSource('h');
       expect(read.kind).toBe('hit');
       if (read.kind === 'hit') expect(read.value.byteLength).toBe(8);
-      await store.deleteSource('h');
-      expect((await store.getSource('h')).kind).toBe('miss');
       store.close();
     });
   });
@@ -133,6 +131,27 @@ describe('IdbUserDataStore durability specifics', () => {
     const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
     expect((await opened.store.getProject('p')).kind).toBe('corrupt');
     opened.store.close();
+  });
+
+  it('an ARRAY-shaped source record is corrupt — reported and retained, never a hit (C5 hardening)', async () => {
+    await openUserDataStore().then((o) => o.kind === 'ok' && o.store.close());
+    const db = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    // An array can carry every named envelope property through structuredClone;
+    // the durable policy for a malformed record is REFUSAL (corrupt, retained),
+    // never a hit that hands smuggled bytes to the engine.
+    const bytes = new ArrayBuffer(4);
+    const arrayRecord = Object.assign([], { schema: 'texttrends/source/1', hash: 'h', bytes, byteLength: 4 });
+    await db.put('sources', arrayRecord as never); // keyPath 'hash' — in-line key
+    db.close();
+    const opened = (await openUserDataStore()) as { kind: 'ok'; store: UserDataStore };
+    expect((await opened.store.getSource('h')).kind).toBe('corrupt');
+    // RETAINED, not repair-deleted: refusal must be non-destructive. A second
+    // read still sees the record, and the raw row is still in the database.
+    expect((await opened.store.getSource('h')).kind).toBe('corrupt');
+    opened.store.close();
+    const check = await openDB(USER_DATA_DB_NAME, USER_DATA_DB_VERSION);
+    expect(await check.get('sources', 'h')).toBeDefined();
+    check.close();
   });
 
   it('migrates a consistent v1 wrapper into its canonical manifest, leaving an inconsistent one corrupt', async () => {
@@ -249,14 +268,7 @@ describe('IdbUserDataStore durability specifics', () => {
     internal.db.delete = quota;
     await expect(opened.store.putProject(pm('p', 1, { title: 'x' }), 0)).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
     await expect(opened.store.putSource(source('h2', 4))).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
-    await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' }); // NOT a silent success
     opened.store.close();
-  });
-
-  it('deleteSource on a closed store throws PERSISTENCE_UNAVAILABLE, never fake success', async () => {
-    const opened = (await openUserDataStore()) as { kind: 'ok'; store: IdbUserDataStore };
-    opened.store.close();
-    await expect(opened.store.deleteSource('h')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
   });
 
   it('handleVersionChange closes the connection; later ops reject PERSISTENCE_UNAVAILABLE', async () => {

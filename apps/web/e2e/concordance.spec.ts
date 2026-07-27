@@ -61,6 +61,18 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
+  // Labels come from document METADATA (meta.title), never the raw doc id — a
+  // user project's ids are UUIDs, so an id leak regresses to UUID fragments.
+  // The imported doc's title is the extension-stripped file name: 'beasts'.
+  const bookCells = await page
+    .getByRole('table', { name: 'Concordance' })
+    .locator('tbody tr td:nth-child(2)')
+    .allInnerTexts();
+  expect(bookCells.length).toBeGreaterThan(0);
+  for (const cell of bookCells) expect(cell.trim()).toBe('beasts');
+  // The trend summary labels the book by reading-order ordinal + title.
+  await expect(page.getByRole('table', { name: /exact totals by book/i }).getByText('1 · beasts')).toBeVisible();
+
   // Move the axis to the END via the KEYBOARD scrubber (token 12 of 12). The
   // concordance re-centres: the nearest hit is the LAST fox (fox@10, right
   // context 'fled'), then wolf@7, fox@4, wolf@1 — proving the End-key center and
@@ -70,7 +82,10 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   const mark1 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('End');
   await awaitFreshKwic(page, mark1);
-  await expect(page.getByText(/nearest to .* token 12\b/)).toBeVisible(); // the served End token
+  // The served End token, captioned with the metadata title (not the doc id).
+  await expect(page.getByText(/nearest to beasts · token 12\b/)).toBeVisible();
+  // The scrubber's accessible position text uses the same metadata title.
+  await expect(scrubber).toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
   await expect
     .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged proximity order' })
     .toEqual(['fox', 'wolf', 'fox', 'wolf']);

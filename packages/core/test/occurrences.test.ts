@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
-import { rootOnlyStructure } from '../src/contract/identity.ts';
+import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
-import { occurrences, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { occurrences, termGroupIdentity, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
@@ -34,7 +34,7 @@ async function world(texts: Record<string, string>): Promise<World> {
     const byMode = new Map<string, Resolver>();
     for (const mode of MODES) byMode.set(modeKey(mode), await buildResolver(shard, R, mode));
     resolvers.set(id, byMode);
-    ready.set(id, await makeReadyDocument(id, shard, rootOnlyStructure(shard.text, text.length)));
+    ready.set(id, await makeReadyDocument(id, shard, rootOnlyV2(text, shard.text)));
   }
   const snapshot = await composeSnapshot(GEN, ids, ready);
   const all = await resolveSelection(snapshot, { docs: ids });
@@ -241,5 +241,56 @@ describe('binding checks', () => {
     expect(() =>
       occurrences(w.snapshot, w.shards, resolvers, w.all, group([token('m1', 'x')])),
     ).toThrow(/different shard/);
+  });
+});
+
+describe('termGroupIdentity — the canonical matching key (not group.id)', () => {
+  it('is stable across the caller-owned provenance ids (group.id and member ids)', () => {
+    const a = { id: 'gA', members: [token('m1', 'wolf', FOLD)], countOverlaps: false };
+    const b = { id: 'gB', members: [token('DIFFERENT', 'wolf', FOLD)], countOverlaps: false };
+    expect(termGroupIdentity(a)).toBe(termGroupIdentity(b));
+  });
+
+  // Exhaustive: EVERY field that can change `NumericOccurrences` must change the
+  // identity. Each row is a pair that must NOT share a key. The match modes
+  // below vary case and diacritics independently (the I/İ class of bug).
+  const CASE_FOLD: MatchMode = { case: 'folded', diacritics: 'sensitive' };
+  const DIA_FOLD: MatchMode = { case: 'sensitive', diacritics: 'folded' };
+  const prefix = (stem: string, match: MatchMode = FOLD) => ({ id: 'm', kind: 'prefix' as const, stem, match });
+  const suffix = (stem: string, match: MatchMode = FOLD) => ({ id: 'm', kind: 'suffix' as const, stem, match });
+  it.each<[string, TermGroupSpec, TermGroupSpec]>([
+    ['token surface', group([token('m', 'wolf', FOLD)]), group([token('m', 'fox', FOLD)])],
+    ['token case mode', group([token('m', 'wolf', CASE_FOLD)]), group([token('m', 'wolf', EXACT)])],
+    ['token diacritic mode', group([token('m', 'wolf', DIA_FOLD)]), group([token('m', 'wolf', EXACT)])],
+    ['countOverlaps', group([token('m', 'wolf', FOLD)], false), group([token('m', 'wolf', FOLD)], true)],
+    ['kind (token vs phrase)', group([token('m', 'wolf', FOLD)]), group([phrase('m', ['wolf'])])],
+    ['phrase surface content', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['dire', 'fox'])])],
+    ['phrase surface ORDER', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['wolf', 'dire'])])],
+    ['phrase crossSentence', group([phrase('m', ['dire', 'wolf'], false)]), group([phrase('m', ['dire', 'wolf'], true)])],
+    ['prefix vs suffix (same stem)', group([prefix('wolf')]), group([suffix('wolf')])],
+    ['affix stem', group([prefix('wolf')]), group([prefix('fox')])],
+    ['affix match mode', group([prefix('wolf', CASE_FOLD)]), group([prefix('wolf', EXACT)])],
+  ])('distinguishes %s', (_name, a, b) => {
+    expect(termGroupIdentity(a)).not.toBe(termGroupIdentity(b));
+  });
+
+  it('depends on member ORDER — memberOrdinals index into members', () => {
+    const ab = group([token('m1', 'wolf', FOLD), token('m2', 'fox', FOLD)]);
+    const ba = group([token('m1', 'fox', FOLD), token('m2', 'wolf', FOLD)]);
+    expect(termGroupIdentity(ab)).not.toBe(termGroupIdentity(ba));
+  });
+
+  it('keeps distinct surfaces distinct even when a guessed en fold would unify them', () => {
+    // The store used a fixed `en` fold that collapsed I and İ; the matching
+    // identity keys on the surface, so the two never share a cache slot.
+    const upperI = group([token('m', 'I', { case: 'folded', diacritics: 'folded' })]);
+    const dottedI = group([token('m', 'İ', { case: 'folded', diacritics: 'folded' })]);
+    expect(termGroupIdentity(upperI)).not.toBe(termGroupIdentity(dottedI));
+  });
+
+  it('does not validate — a malformed group still yields a deterministic key (occurrences validates)', () => {
+    const empty = { id: 'g', members: [phrase('p', [])], countOverlaps: false };
+    expect(() => termGroupIdentity(empty)).not.toThrow();
+    expect(termGroupIdentity(empty)).toBe(termGroupIdentity(empty));
   });
 });

@@ -8,9 +8,42 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, submitAndAwaitFreshResults, trace, userDataCounts } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, submitAndAwaitFreshResults, trace, USER_DATA_DB, userDataCounts } from './helpers.ts';
 
 const DOC_TEXT = `# Chapter One\n\n${'the wolf ran far over the hill. '.repeat(60)}`;
+
+/** Flip one byte of every persisted source IN PLACE (same length, same key) —
+ *  the envelope check cannot catch this; the warm path's pre-extraction
+ *  content-hash authentication does. */
+async function mutatePersistedSources(page: import('@playwright/test').Page): Promise<void> {
+  await page.evaluate(async (dbName) => {
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const req = indexedDB.open(dbName);
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const tx = db.transaction('sources', 'readwrite');
+        const store = tx.objectStore('sources');
+        const cursorReq = store.openCursor();
+        cursorReq.onsuccess = () => {
+          const cursor = cursorReq.result;
+          if (!cursor) return;
+          const record = cursor.value as { bytes: ArrayBuffer };
+          const view = new Uint8Array(record.bytes);
+          view[view.length - 1] = view[view.length - 1]! ^ 0xff; // same length, wrong hash
+          cursor.update(record);
+          cursor.continue();
+        };
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+      });
+    } finally {
+      db.close();
+    }
+  }, USER_DATA_DB);
+}
 
 test('a persisted source warm-reopens after a db2 clear; user data stays isolated', async ({ page }) => {
   await page.goto('./');
@@ -69,5 +102,54 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
   // No missing/reattach state; the source is persisted; analysis works fresh.
   await expect(page.getByText('source missing')).toHaveCount(0);
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible();
+  await submitAndAwaitFreshResults(page, 'wolf');
+});
+
+test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing repair; reattach heals it', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  // Import, persist, save — then corrupt the durable copy in place and force a
+  // cold-cache reload so the warm reopen must read the damaged bytes.
+  await page.getByLabel('Create project from files').setInputFiles({ name: 'hound.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await awaitReadyCount(page, 1);
+  await page.getByRole('button', { name: 'persist' }).click();
+  await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
+  const save = page.getByRole('button', { name: 'Save project' });
+  await expect(save).toBeEnabled({ timeout: 30_000 });
+  await save.click();
+  await expect(page.getByText('rev 1 · saved')).toBeVisible({ timeout: 30_000 });
+
+  await mutatePersistedSources(page);
+  await clearArtifactStores(page);
+  await page.reload();
+  await awaitAllReady(page);
+  await page.getByRole('button', { name: 'Load saved project' }).click();
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+
+  // The damaged durable copy is CLASSIFIED as such — the repair-specific text,
+  // never the generic external "source missing", and never silently ready.
+  await expect(page.getByText('persisted copy damaged — reattach to repair')).toBeVisible({ timeout: 30_000 });
+
+  // Reattach the original file: hash matches the manifest, the repaired copy
+  // persists (content-addressed re-put), and the doc becomes ready again.
+  await page.getByLabel(/Reattach source for/).setInputFiles({ name: 'hound.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
+  await awaitReadyCount(page, 1);
+  await expect(page.getByText('persisted copy damaged — reattach to repair')).toHaveCount(0);
+  // Readiness settles CONCURRENTLY with the durable repair write — wait for
+  // the source status to return to exact `persisted` (the repair's own
+  // acknowledgement) before tearing the caches down, or the reload could
+  // race a still-running write (track-S review).
+  await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+  // And the NEXT warm reopen succeeds from the repaired durable copy.
+  await clearArtifactStores(page);
+  await page.reload();
+  await awaitAllReady(page);
+  await page.getByRole('button', { name: 'Load saved project' }).click();
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await awaitReadyCount(page, 1);
+  await expect(page.getByText(/reattach to repair/)).toHaveCount(0);
   await submitAndAwaitFreshResults(page, 'wolf');
 });

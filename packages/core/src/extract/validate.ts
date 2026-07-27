@@ -12,7 +12,7 @@
  */
 
 import { hashText } from '../contract/hash.ts';
-import { exactArray, exactRecord } from '../contract/recipes.ts';
+import { exactArray, exactRecord, isNonNegSafeInt as isSafeNonNeg, isRecord as isRec, isString as isStr } from '../contract/guards.ts';
 import { validateSectionTable, type StructureSectionRecordV2 } from '../structure/sections.ts';
 import {
   deriveCandidatesFromText,
@@ -47,11 +47,6 @@ export class ArtifactCorruptError extends Error {
   }
 }
 
-const isRec = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
-const isStr = (v: unknown): v is string => typeof v === 'string';
-const isSafeInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v);
-const isSafeNonNeg = (v: unknown): v is number => isSafeInt(v) && v >= 0;
 
 // Candidate ABI is defined ONCE in candidates.ts so cold extraction, the
 // transformed builder, and this admission path can never diverge on what a

@@ -7,7 +7,6 @@
  * focused series. The table IS the visualization.
  */
 
-import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import type { KwicRowView } from '../lib/store.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
@@ -17,33 +16,25 @@ import { slotColor, slotDash } from '../lib/series-style.ts';
  *  slice — presentation only, the underlying text is untouched. */
 const oneLine = (s: string) => s.replace(/\s+/g, ' ');
 
-const shortDoc = (doc: string) => doc.replace(/ -.*$/, '').slice(0, 16);
-
 export function KwicPanel() {
   const kwic = useApp((s) => s.kwic);
+  const project = useApp((s) => s.projectSession?.project ?? null);
   const series = useApp((s) => s.series);
   const enabled = useApp((s) => s.kwicEnabledSeries);
   const toggle = useApp((s) => s.toggleKwicSeries);
-  // Remember the last populated table. A re-center recomputes the same
-  // occurrences in a new order, so during that reload we refresh the prior rows
-  // in place (dimmed) instead of blanking to a one-line message — the section
-  // keeps its height and never jumps the content below it. (Declared before any
-  // early return so the hook order is stable.)
-  const lastReady = useRef<{ total: number; rows: readonly KwicRowView[] } | null>(null);
 
   if (series.length === 0) return null;
   const slotOf = (id: string) => series.find((s) => s.id === id)?.styleSlot ?? 0;
   const labelOf = (id: string) => series.find((s) => s.id === id)?.label ?? id;
+  // Presentation titles come from document metadata — doc ids are opaque
+  // identity (user projects use UUIDs).
+  const titleOf = (doc: string) =>
+    project?.data.docs.find((d) => d.doc === doc)?.meta.title ?? doc;
 
-  if (kwic?.state.status === 'ready' && kwic.state.rows.length > 0) {
-    lastReady.current = { total: kwic.state.total, rows: kwic.state.rows };
-  }
-
-  const table = (total: number, rows: readonly KwicRowView[], stale: boolean) => (
+  const table = (total: number, rows: readonly KwicRowView[]) => (
     <table
       aria-label="Concordance"
-      aria-busy={stale || undefined}
-      style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', borderCollapse: 'collapse', whiteSpace: 'pre', opacity: stale ? 0.5 : 1, transition: 'opacity 120ms' }}
+      style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', borderCollapse: 'collapse', whiteSpace: 'pre' }}
     >
       <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
         Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences
@@ -61,7 +52,7 @@ export function KwicPanel() {
         {rows.map((r) => (
           <tr key={`${r.seriesId}:${r.doc}:${r.pos}`} style={{ borderTop: '1px solid var(--rule)' }}>
             <td style={{ color: slotColor(slotOf(r.seriesId)), paddingRight: '1ch', whiteSpace: 'nowrap' }}>{labelOf(r.seriesId)}</td>
-            <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>{shortDoc(r.doc).slice(0, 12)}</td>
+            <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>{titleOf(r.doc).slice(0, 12)}</td>
             <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>
             <td style={{ color: slotColor(slotOf(r.seriesId)), padding: '0 1ch', fontWeight: 600 }}>{oneLine(r.nodeText)}</td>
             <td style={{ color: 'var(--fg-muted)' }}>{oneLine(r.right).slice(0, 38)}</td>
@@ -71,8 +62,8 @@ export function KwicPanel() {
     </table>
   );
 
-  // First-ever load (no prior rows to hold): reserve a few rows of height so the
-  // real table lands into space that already exists rather than pushing the page.
+  // Every pending load: reserve a few rows of height so the result lands into
+  // space that already exists rather than pushing the page.
   const skeleton = (
     <div aria-hidden="true" style={{ opacity: 0.4 }}>
       {Array.from({ length: 6 }, (_, i) => (
@@ -125,7 +116,7 @@ export function KwicPanel() {
 
   const caption =
     kwic?.center != null
-      ? `nearest to ${shortDoc(kwic.center.doc)} · token ${(kwic.center.token + 1).toLocaleString()}`
+      ? `nearest to ${titleOf(kwic.center.doc)} · token ${(kwic.center.token + 1).toLocaleString()}`
       : 'reading order';
 
   const status = kwic?.state.status ?? 'pending';
@@ -136,15 +127,15 @@ export function KwicPanel() {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>concordance failed: {message}</p>;
   } else if (status === 'pending') {
-    // Refresh in place: hold the last table dimmed if we have one, otherwise
-    // reserve height with skeleton rows so the first result never shoves the page.
-    body = lastReady.current
-      ? table(lastReady.current.total, lastReady.current.rows, true)
-      : skeleton;
+    // EVIDENCE DISCIPLINE (pass-2 ruling): the panel renders ONLY rows the
+    // current store state owns. A component-local "last table" cache showed
+    // center-A rows under a center-B caption during reloads — the skeleton
+    // reserves height instead, so the page still never shoves.
+    body = skeleton;
   } else if (kwic?.state.status === 'ready' && kwic.state.rows.length === 0) {
     body = <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>No occurrences of the enabled terms.</p>;
   } else if (kwic?.state.status === 'ready') {
-    body = table(kwic.state.total, kwic.state.rows, false);
+    body = table(kwic.state.total, kwic.state.rows);
   }
 
   return (

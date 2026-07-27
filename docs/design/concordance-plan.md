@@ -1,5 +1,10 @@
 # Concordance: nearest-to-axis + all-terms (kwic/2) — plan
 
+*STATUS (2026-07-24): dated design record. The store's epoch/cancel fences
+described below were since replaced by operation LEASES (`QueryLane` lanes
+over one `OperationScope` — see `apps/web/src/lib/operation-lease.ts`); the
+fencing INTENT is unchanged. The panel no longer holds a component-local
+last-result cache (pass-2 Track S1): pending requests render a skeleton.*
 Owner request (2026-07-22): the concordance shows the nearest examples to the current axis
 position and includes all search terms by default, with per-term toggle on/off.
 

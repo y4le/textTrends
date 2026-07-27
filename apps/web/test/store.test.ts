@@ -8,7 +8,7 @@
  *    session and translate a synchronous SessionCommandError into one bounded
  *    UI error. A second attachment is rejected; dispose fences the bridge.
  * 2. The retained query/KWIC/scrub intent discipline (unchanged from the
- *    listener-owning store): epochs, snapshot fences, and stale-result guards.
+ *    listener-owning store): lease lanes, snapshot fences, and stale-result guards.
  *
  * The generation lifecycle (loadSherlock/fetch/restart/import/CAS/reattach)
  * moved WHOLESALE to `ProjectSession` and is covered in project-session.test.ts;
@@ -21,7 +21,6 @@ import {
   KWIC_CENTER_DEBOUNCE_MS,
   parseSeries,
   MAX_SERIES,
-  SHERLOCK,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
@@ -33,6 +32,8 @@ import type {
   SessionState,
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
+import { SHERLOCK } from '../src/lib/project.ts';
+import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
@@ -82,7 +83,7 @@ function fakeQueryClient() {
       return {
         result,
         // Realistic: cancel only MARKS intent (a real worker may still emit a
-        // raced result afterward) — the store's epoch gate must protect.
+        // raced result afterward) — the store's lease gate must protect.
         cancel: () => {
           entry.cancelled = true;
         },
@@ -268,10 +269,35 @@ describe('parseSeries', () => {
     expect(p.series!.map((s) => s.styleSlot)).toEqual([0, 1]);
   });
 
-  it('dedupes by SEMANTIC key (case and diacritic folds), not raw spelling', () => {
+  it('gives distinct spellings distinct PRESENTATION ids (dedup is exact-after-NFC, locale-independent)', () => {
+    // Whether two spellings match identically is per-document (folded under
+    // each shard's locale in the worker), so the store must NOT guess a corpus
+    // locale to collapse them. Distinct labels are distinct series; only
+    // canonically-equivalent (post-NFC) repeats dedup.
     const p = parseSeries('Holmes, holmes, Hólmes, watson');
-    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'watson']);
-    expect(p.series![0]!.id).toBe(parseSeries('hólmes').series![0]!.id);
+    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'holmes', 'Hólmes', 'watson']);
+    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
+    const dup = parseSeries('cat, cat, Cat');
+    expect(dup.series!.map((s) => s.label)).toEqual(['cat', 'Cat']);
+  });
+
+  it('dedups only canonically-equivalent spellings — NFC(composed) === NFC(decomposed)', () => {
+    // Composed 'é' (U+00E9) and decomposed 'e' + U+0301 are the SAME text after
+    // NFC, so they collapse to one series despite differing byte for byte before
+    // normalization.
+    const composed = 'caf\u00e9';
+    const decomposed = 'cafe\u0301';
+    expect(composed).not.toBe(decomposed); // genuinely distinct inputs
+    const p = parseSeries(`${composed}, ${decomposed}`);
+    expect(p.series!).toHaveLength(1);
+    expect(p.series![0]!.id).toBe(composed.normalize('NFC'));
+  })
+
+  it('keeps I and İ distinct — a fixed `en` fold wrongly unified them (they resolve differently in Turkish)', () => {
+    const p = parseSeries('I, İ');
+    expect(p.series).not.toBeNull();
+    expect(p.series!).toHaveLength(2);
+    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
   });
 
   it('refuses more than MAX_SERIES distinct terms instead of truncating', () => {
@@ -434,6 +460,51 @@ describe('the session bridge', () => {
     expect(store.getState().snapshot!.snapshot).toBe('s1'); // unchanged
     expect(trends().length).toBe(t1); // no reissue
   });
+
+  it('dispose cancels in-flight queries AND a late settlement cannot write (even uncancelled)', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    const q = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    f.runtime.dispose();
+    expect(q.cancelled).toBe(true); // best-effort transport cleanup ran
+    // Even if the worker never acknowledged the cancel, the settled result's
+    // lease is dead — the store must not mutate after disposal.
+    const before = f.store.getState().trends;
+    q.resolve({ op: 'trend', trend: fakeTrend(3) });
+    await flush();
+    expect(f.store.getState().trends).toBe(before); // no write, same map identity
+  });
+
+  it('a session attached AFTER dispose is disposed, never bridged (late async bootstrap)', () => {
+    // No harness(): the race under test is dispose BEFORE any attachment.
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client);
+    runtime.dispose();
+    const late = new FakeSessionPort();
+    runtime.attachSession(late);
+    expect(late.disposed).toBe(true); // the runtime owns and retires it
+    expect(runtime.useApp.getState().bootstrap.phase).toBe('initializing'); // never seeded
+    // And a torn-down runtime reports no late bootstrap failure either.
+    runtime.failBootstrap(new Error('late'));
+    expect(runtime.useApp.getState().bootstrap.phase).toBe('initializing');
+  });
+
+  it('dispose clears the queued KWIC debounce — no query can fire after teardown', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setInput('holmes');
+      f.store.getState().setScrub({ doc: 'a', token: 100 }); // arms the debounce timer
+      const count = f.kwics().length;
+      f.runtime.dispose();
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 3);
+      expect(f.kwics().length).toBe(count); // the queued center never issued
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
 
 describe('store query intent discipline', () => {
@@ -490,6 +561,24 @@ describe('store query intent discipline', () => {
     const failed = after.get(moriarty!.id)!;
     expect(failed.status).toBe('error');
     expect(failed.status === 'error' && failed.message).toContain('CAP_EXCEEDED');
+  });
+
+  it('cancellation is discriminated by the TYPED code, never by message text', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [q1, q2] = f.trends().filter((q) => !q.cancelled);
+    // A typed CANCELLED rejection is deliberate noise — no error state.
+    q1!.reject(new WorkerClientError('CANCELLED', 'cancelled'));
+    await flush();
+    const [holmes, moriarty] = f.store.getState().series;
+    expect(f.store.getState().trends.get(holmes!.id)!.status).toBe('pending');
+    // A plain Error whose message merely READS 'cancelled' is a real failure
+    // (the accidental-collision the typed code exists to prevent).
+    q2!.reject(new Error('cancelled'));
+    await flush();
+    const collided = f.store.getState().trends.get(moriarty!.id)!;
+    expect(collided.status).toBe('error');
   });
 
   it('a focus change does NOT reissue or cancel the concordance (focus independence)', () => {
@@ -793,7 +882,7 @@ describe('store query intent discipline', () => {
 });
 
 // ── The chapter-outline (structure) query intent (commit 8a). Independent of
-// the term series, epoch- and (generation,snapshot,doc)-guarded. ──
+// the term series, lease-guarded on (generation,snapshot,doc). ──
 describe('the outline (structure) intent', () => {
   /** A session state whose project declares `order` (docs left empty — the
    *  store's focus resolution reads only the order). */
@@ -881,7 +970,7 @@ describe('the outline (structure) intent', () => {
 });
 
 // ── On-demand authoring intents (commit 8b): edit-context + line-excerpt, each
-// with its own epoch and (generation,snapshot,doc) guard, cleared on a snapshot
+// with its own lease lane and (generation,snapshot,doc) guard, cleared on a snapshot
 // change. The correction editor (8c) drives these. ──
 describe('authoring intents (edit-context + line-excerpt)', () => {
   it('requestEditContext issues for a ready doc and writes the ready result', async () => {

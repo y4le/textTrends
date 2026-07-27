@@ -8,11 +8,10 @@
  * all the async ordering policy lives.
  *
  * Deliberate contract choices from the ruling:
- * - LANDED UNUSED. Production still drives Sherlock through `store.ts`'s
- *   `loadSherlock`; 7c performs the single atomic listener cutover (the session
- *   becomes the sole owner of the client's generation event lane) plus the
- *   import UI. Two components must never contend for a last-wins client
- *   callback, so nothing here is wired into the live app yet.
+ * - The composition root (`store-instance.ts`) constructs exactly ONE session
+ *   and wires it as the sole owner of the client's generation event lane —
+ *   client callbacks are last-wins, so no second component may ever register
+ *   for them.
  * - The session OWNS the entire generation event lane (snapshot / progress /
  *   ingest-error / source-ready / restart / openGeneration / ingest). Worker
  *   restart is part of generation ownership, not display state.
@@ -31,18 +30,19 @@
  */
 
 import {
+  canonicalJson,
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
-  epubExtractionRecipe,
-  htmlExtractionRecipe,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashStructureOverride,
   hashStructureRecipe,
   INGEST_CAPS_V0,
-  upgradeStoredManifest,
-  validateProjectManifest,
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
+  sourceFormatForFilename,
+  stripSourceExtension,
   type DocumentMetaV1,
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
@@ -53,8 +53,10 @@ import {
 } from '@texttrends/core';
 import type {
   GenerationDocSpecV4,
+  SourceAvailability,
   SourceFormat,
-} from '../worker/protocol-v4.ts';
+  WarmMissReasonV4,
+} from '../shared/analysis-contract.ts';
 import type {
   GenerationReady,
   IngestProgress,
@@ -63,6 +65,7 @@ import type {
   SourceReadyInfo,
 } from './client.ts';
 import { UserDataClientError } from './client.ts';
+import { KeyedLatestOperation, LatestOperation, OperationScope, type OwnedOperationLease } from './operation-lease.ts';
 import {
   generationSpecsFromProject,
   manifestForSave,
@@ -133,10 +136,21 @@ export interface ProjectSessionDeps {
 /** Per-document source runtime status — observable, File-free (the `File`
  *  itself is private). Canonical `sourceAvailability` lives in the manifest;
  *  this is the transient operation view. */
+/** WHY a document's source needs user repair (pass-2 Track S2): durable-source
+ *  damage is class-1 USER data needing reattachment — it must never be
+ *  flattened into a generic "missing" or reported through the disposable
+ *  artifact-cache warning vocabulary. Closed union, derived from the warm-miss
+ *  reason + the doc's availability. */
+export type SourceRepairReason =
+  | 'external-not-attached' // external source: the tab has no File — pick it again
+  | 'persisted-missing'     // durable copy expected but absent from storage
+  | 'persisted-corrupt'     // durable copy present but damaged (envelope or hash)
+  | 'rehydrate-failed';     // durable copy read but re-extraction failed
+
 export type SourceStatus =
   | { readonly phase: 'bundled' }
   | { readonly phase: 'external-attached'; readonly name: string; readonly size: number }
-  | { readonly phase: 'external-missing' }
+  | { readonly phase: 'external-missing'; readonly repair: SourceRepairReason }
   | { readonly phase: 'persist-saving' }
   | { readonly phase: 'persist-failed'; readonly message: string }
   | { readonly phase: 'persisted' };
@@ -246,6 +260,15 @@ interface ImportRecipes {
   readonly structureRecipeHash: string;
 }
 
+/** Recipe staging state: `hashing` until `finishStaging` computes the real
+ *  values + hashes — only then may this import contribute a cold spec — then
+ *  `ready` carrying them. A discriminated union: the unhashed state carries NO
+ *  recipe fields at all (the previous placeholder object smuggled an
+ *  `undefined as unknown as` cast through the identity boundary). */
+type ImportStaging =
+  | { readonly phase: 'hashing' }
+  | { readonly phase: 'ready'; readonly recipes: ImportRecipes };
+
 /** A staged import: an identity-incomplete document awaiting the two-fact join.
  *  Correlation is by (importToken, generation, doc, ingestJob) — a stale event
  *  never mutates the draft even if its hash happens to match. */
@@ -256,22 +279,13 @@ interface PendingImport {
   readonly meta: DocumentMetaV1;
   readonly format: SourceFormat;
   readonly byteLength: number;
-  readonly recipes: ImportRecipes;
-  /** True once `finishStaging` has computed real recipe hashes — only then may
-   *  this import contribute a cold spec to a generation open. */
-  recipesReady: boolean;
+  readonly staging: ImportStaging;
   /** The generation currently analyzing this import (reset each reopen). */
   generation: string | null;
   ingestJob: number | null;
   sourceReady: SourceReadyInfo | null;
   published: boolean;
   status: ImportStatus;
-}
-
-interface AttachedSource {
-  readonly file: FileLike;
-  /** The attach token — a stale reattach completion cannot overwrite it. */
-  readonly token: number;
 }
 
 /** The captured immutable payload of an in-flight save — enough to reconcile an
@@ -297,22 +311,11 @@ function overrideMatchesDoc(override: StructureOverrideV1, doc: ProjectDocV1): b
   );
 }
 
-/** Filename → advertised format. A filename alone never bypasses format policy;
- *  content sniffing that refines this is deferred (commit 8+). */
-function formatForName(name: string): SourceFormat | null {
-  const lower = name.toLowerCase();
-  if (lower.endsWith('.md') || lower.endsWith('.markdown')) return 'md';
-  if (lower.endsWith('.txt')) return 'txt';
-  if (lower.endsWith('.epub')) return 'epub';
-  if (lower.endsWith('.html') || lower.endsWith('.htm') || lower.endsWith('.xhtml')) return 'html';
-  return null;
-}
-
 /** Default document metadata from a filename: the title is the name minus its
- *  extension; language/tags take neutral defaults the user edits in 7c. */
+ *  known source extension (via the core format catalog); language/tags take
+ *  neutral defaults the user edits in 7c. */
 function initialMetaFor(name: string): DocumentMetaV1 {
-  const title = name.replace(/\.(txt|md|markdown|epub|html|htm|xhtml)$/i, '') || name;
-  return { title, language: 'en', tags: [] };
+  return { title: stripSourceExtension(name), language: 'en', tags: [] };
 }
 
 /**
@@ -358,32 +361,35 @@ export class ProjectSession {
   /** Per-generation extraction evidence by doc (§12.4), captured from
    *  `source-ready`; cleared when a new generation begins. */
   private readonly sourceEvidence = new Map<string, SourceEvidence>();
-  /** Per-doc monotonic authoring token — a later `setStructureOverride` (or a
-   *  discard) supersedes an earlier one's pending async hash. */
-  private readonly correctionTokens = new Map<string, number>();
   /** Per-doc correction status (hashing / rejected). Absence = idle. */
   private readonly corrections = new Map<string, CorrectionStatus>();
   private readonly persistIntent = new Set<string>();
 
   // ── Source runtime + reattach. ──
-  private readonly attached = new Map<string, AttachedSource>();
+  // doc -> the retained File. Attach-staleness is owned by the reattach
+  // lease lane; nothing else fences here.
+  private readonly attached = new Map<string, FileLike>();
   private readonly sourceStatus = new Map<string, SourceStatus>();
-  private persistCounter = 0;
-  private readonly persistTokens = new Map<string, number>();
-  private reattachCounter = 0;
-  private readonly reattachTokens = new Map<string, number>();
   private readonly reattachStatus = new Map<string, ReattachStatus>();
 
-  // ── Save/load fences. ──
-  private saveCounter = 0;
+  // ── Ownership fences. ──
+  // ONE scope for project ownership: invalidated on every project replacement
+  // (create/load install), closed on dispose. Every lease below dies with it.
+  private readonly scope = new OperationScope();
+  // Latest-wins lanes (unkeyed): one save in flight wins, one load wins.
+  private readonly saveOps = new LatestOperation(this.scope);
+  private readonly loadOps = new LatestOperation(this.scope);
+  // Latest-wins per document: persist, reattach, and correction-hash attempts
+  // supersede only their own doc's prior attempt.
+  private readonly persistOps = new KeyedLatestOperation<string>(this.scope);
+  private readonly reattachOps = new KeyedLatestOperation<string>(this.scope);
+  private readonly correctionOps = new KeyedLatestOperation<string>(this.scope);
   private saveAgain = false;
   private pendingSave: PendingSave | null = null;
-  private loadCounter = 0;
-  private sessionEpoch = 0; // bumped on every project replacement (create/load)
   /** Bumped by every user MUTATION command. A load that resolves after the fence
    *  advanced is stale (newer local intent exists) and must not install — WITHOUT
    *  staling in-flight save/persist/reattach continuations (those use their own
-   *  tokens/epoch), which bumping sessionEpoch would wrongly do. */
+   *  lanes/scope), which invalidating the scope would wrongly do. */
   private loadFence = 0;
 
   constructor(initial: CurrentProject, deps: ProjectSessionDeps) {
@@ -422,6 +428,7 @@ export class ProjectSession {
    *  lifetime), but every guarded continuation checks `disposed` first. */
   dispose(): void {
     this.disposed = true;
+    this.scope.close(); // every outstanding lease (save/load/persist/…) dies
     this.abortFetches();
     this.activeOpenCancel?.();
     this.activeOpenCancel = null;
@@ -453,7 +460,7 @@ export class ProjectSession {
     this.preflightImport(files, /* fromEmpty */ true);
     // A distinct user id per this v1 one-project slot. Replacing the project is
     // a new ownership epoch: every prior generation/import/attachment is moot.
-    this.sessionEpoch++;
+    this.scope.invalidate();
     this.resetToEmptyUser();
     this.stage(files, opts.persist ?? false);
   }
@@ -524,13 +531,11 @@ export class ProjectSession {
     this.assertUserCommand('setStructureOverride');
     const existing = this.finalized.get(doc);
     if (!existing) throw new SessionCommandError(`setStructureOverride: '${doc}' is not a finalized document`);
-    // Bump the token: any in-flight hash for this doc is now superseded. The
-    // PROJECT epoch is captured too — a project replacement (create/load) during
-    // the async hash must invalidate this attempt even when the reloaded doc is
-    // content-identical, so a stale hash can never mutate the new project.
-    const token = (this.correctionTokens.get(doc) ?? 0) + 1;
-    this.correctionTokens.set(doc, token);
-    const epoch = this.sessionEpoch;
+    // Supersede any in-flight hash for this doc. The lease's scope covers
+    // project replacement (create/load) during the async hash — a stale hash
+    // must never mutate the new project even when the reloaded doc is
+    // content-identical.
+    this.correctionOps.invalidate(doc);
 
     // Clear: install `none` (and reopen only if the effective override changes).
     if (override === null || override.changes.length === 0) {
@@ -556,19 +561,20 @@ export class ProjectSession {
     this.corrections.set(doc, { phase: 'hashing' });
     this.publish();
 
+    const lease = this.correctionOps.begin(doc);
     void (async () => {
       let hash: string;
       try {
         hash = await hashStructureOverride(override);
       } catch (e) {
-        // A project replacement (epoch) OR a newer attempt (token) invalidates
+        // A project replacement (scope) OR a newer attempt (lane) invalidates
         // this: never publish an error into a project this attempt no longer owns.
-        if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return;
+        if (!lease.isCurrent()) return;
         this.corrections.set(doc, { phase: 'error', reason: 'invalid', message: e instanceof Error ? e.message : String(e) });
         this.publish();
         return;
       }
-      if (this.disposed || this.sessionEpoch !== epoch || this.correctionTokens.get(doc) !== token) return; // superseded mid-hash
+      if (!lease.isCurrent()) return; // superseded mid-hash
       const current = this.finalized.get(doc);
       // Re-check against the THEN-current doc: a re-extraction during the await
       // may have changed identities — a stale result is rejected, not sent.
@@ -617,39 +623,40 @@ export class ProjectSession {
   }
 
   private async runSave(): Promise<void> {
-    const token = ++this.saveCounter;
-    const epochAtStart = this.sessionEpoch;
+    // The lane fence: a newer save's begin() supersedes this one, and the
+    // scope covers project replacement. The lease id doubles as the save's
+    // correlation token in saveState/pendingSave (posted-commit detection).
+    const lease = this.saveOps.begin();
+    const token = lease.id;
     const payloadData = this.data;
     const payloadEpoch = this.editEpoch;
     const expectedRevision = this.baseRevision;
     const targetRevision = expectedRevision + 1;
-    // A new attempt: drop any captured payload from a prior terminal attempt so a
-    // restart mid-VALIDATION of THIS attempt cannot be misclassified as an
-    // uncertain (posted) commit against the stale one. pendingSave is set only
-    // just before this attempt actually posts.
+    // A new attempt: drop any captured payload from a prior terminal attempt.
+    // pendingSave is set only just before this attempt actually posts.
     this.pendingSave = null;
-    // Enter `saving` BEFORE awaiting deep validation so a concurrent command
-    // sees exactly one active save.
     this.saveState = { phase: 'saving', token, payloadEpoch, targetRevision };
     this.publish();
 
+    // Cheap SYNCHRONOUS construction invariants only — the WORKER is the one
+    // deep-validation authority at its trust boundary (an invalid manifest
+    // comes back as a typed REQUEST_INVALID rejection below). There is no
+    // longer a pre-post await, so this attempt posts in the same task as
+    // save(); a worker restart can only interrupt it after it was posted.
     let manifest: ProjectManifestV1;
     try {
       manifest = manifestForSave({ kind: 'user', data: payloadData, baseRevision: expectedRevision });
-      await validateProjectManifest(manifest);
     } catch (e) {
-      if (this.stale(token, epochAtStart)) return;
       this.saveAgain = false;
       this.saveState = { phase: 'error', code: 'INVALID', message: msg(e) };
       this.publish();
       return;
     }
-    if (this.stale(token, epochAtStart)) return;
     this.pendingSave = { token, payloadEpoch, expectedRevision, targetRevision, manifest };
     const { result } = this.deps.client.projectSave(manifest, expectedRevision);
     try {
       const { revision } = await result;
-      if (this.stale(token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       if (revision !== targetRevision) {
         // The record's own revision is the sole authority; a save ack that is
         // not exactly the target is an invariant fault, not a success.
@@ -661,7 +668,7 @@ export class ProjectSession {
       }
       this.applySaved(targetRevision, payloadEpoch, manifest);
     } catch (e) {
-      if (this.stale(token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.saveAgain = false; // a coalesced request cannot survive a terminal failure
       if (e instanceof UserDataClientError) {
         if (e.code === 'REVISION_CONFLICT') {
@@ -679,7 +686,7 @@ export class ProjectSession {
       } else {
         // A generic rejection HERE is provably pre-delivery — a genuinely
         // uncertain worker-death rejection arrives WITH a restart, whose
-        // saveCounter bump makes this continuation stale (returns above) and is
+        // save-lane invalidation makes this continuation stale (returns above) and is
         // reconciled in handleRestart. So this is retryable, not uncertain.
         this.pendingSave = null;
         this.saveState = { phase: 'error', code: 'SAVE_FAILED', message: msg(e) };
@@ -720,10 +727,10 @@ export class ProjectSession {
       this.persistIntent.delete(doc);
       // Retire any in-flight persist so its late ack cannot flip availability or
       // dirty the project (acceptance invariant 2).
-      this.persistTokens.set(doc, ++this.persistCounter);
+      this.persistOps.invalidate(doc);
       const s = this.sourceStatus.get(doc);
       if (s?.phase === 'persist-saving') {
-        this.sourceStatus.set(doc, this.attached.has(doc) ? { phase: 'external-attached', name: this.finalized.get(doc)!.sourceName, size: this.attached.get(doc)!.file.size } : { phase: 'external-missing' });
+        this.sourceStatus.set(doc, this.attached.has(doc) ? { phase: 'external-attached', name: this.finalized.get(doc)!.sourceName, size: this.attached.get(doc)!.size } : { phase: 'external-missing', repair: 'external-not-attached' });
         this.publish();
       }
       return;
@@ -737,25 +744,23 @@ export class ProjectSession {
     const attachment = this.attached.get(doc);
     const source = this.finalized.get(doc);
     if (!attachment || !source) return;
-    const token = ++this.persistCounter;
-    this.persistTokens.set(doc, token);
-    const epochAtStart = this.sessionEpoch;
+    const lease = this.persistOps.begin(doc);
     this.sourceStatus.set(doc, { phase: 'persist-saving' });
     this.publish();
     let bytes: ArrayBuffer;
     try {
-      bytes = await attachment.file.arrayBuffer(); // reread — ingest transferred its buffer
+      bytes = await attachment.arrayBuffer(); // reread — ingest transferred its buffer
     } catch (e) {
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.sourceStatus.set(doc, { phase: 'persist-failed', message: msg(e) });
       this.publish();
       return;
     }
-    if (this.persistStale(doc, token, epochAtStart)) return;
+    if (!lease.isCurrent()) return;
     const { result } = this.deps.client.sourcePersist(source.source.hash, bytes);
     try {
       await result;
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       // Flip canonical availability external → persisted, dirtying the project,
       // so a subsequent CAS save records the durable reference.
       const current = this.finalized.get(doc);
@@ -767,7 +772,7 @@ export class ProjectSession {
       this.sourceStatus.set(doc, { phase: 'persisted' });
       this.publish();
     } catch (e) {
-      if (this.persistStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       // Availability stays external; the File stays retained for an idempotent,
       // content-addressed retry.
       this.sourceStatus.set(doc, { phase: 'persist-failed', message: msg(e) });
@@ -786,10 +791,9 @@ export class ProjectSession {
     const source = this.finalized.get(doc);
     if (!source) throw new SessionCommandError(`reattach: '${doc}' is not a finalized document`);
     if (source.sourceAvailability === 'bundled') throw new SessionCommandError('reattach: a bundled source is fetched from its URL, never reattached');
-    // Advance the reattach token FIRST — even an early rejection must supersede a
-    // prior in-flight digest so its late completion cannot attach a stale File.
-    const token = ++this.reattachCounter;
-    this.reattachTokens.set(doc, token);
+    // Supersede any prior in-flight digest FIRST — even an early rejection must
+    // stale it so its late completion cannot attach a stale File.
+    this.reattachOps.invalidate(doc);
     // Cheap early rejections before any read: the cap, and — since SourceHash is
     // over the exact bytes — a byte length that cannot possibly match.
     if (file.size > CAPS.maxSourceBytesPerFile) {
@@ -802,26 +806,25 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    void this.runReattach(doc, file, source, token);
+    void this.runReattach(doc, file, source, this.reattachOps.begin(doc));
   }
 
-  private async runReattach(doc: string, file: FileLike, source: ProjectDocV1, token: number): Promise<void> {
-    const epochAtStart = this.sessionEpoch;
+  private async runReattach(doc: string, file: FileLike, source: ProjectDocV1, lease: OwnedOperationLease): Promise<void> {
     this.reattachStatus.set(doc, { phase: 'hashing' });
     this.publish();
     let buffer: ArrayBuffer;
     let hash: string;
     try {
       buffer = await file.arrayBuffer();
-      if (this.reattachStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       hash = await this.deps.hashBytes(new Uint8Array(buffer));
     } catch (e) {
-      if (this.reattachStale(doc, token, epochAtStart)) return;
+      if (!lease.isCurrent()) return;
       this.reattachStatus.set(doc, { phase: 'mismatch', code: 'READ_FAILED', message: msg(e) });
       this.publish();
       return;
     }
-    if (this.reattachStale(doc, token, epochAtStart)) return;
+    if (!lease.isCurrent()) return;
     if (hash !== source.source.hash) {
       // Never send the bad bytes; the worker's SOURCE_MISMATCH stays as
       // defense in depth for anything that slips past.
@@ -832,7 +835,7 @@ export class ProjectSession {
     // Match: attach for the tab, ingest into the current generation with the
     // stable doc id + expected identities. Attaching an identical source does
     // NOT dirty (the manifest is unchanged).
-    this.attached.set(doc, { file, token });
+    this.attached.set(doc, file);
     this.sourceStatus.set(doc, source.sourceAvailability === 'persisted' ? { phase: 'persisted' } : { phase: 'external-attached', name: source.sourceName, size: file.size });
     this.reattachStatus.set(doc, { phase: 'attached' });
     if (this.generation) this.deps.client.ingest(this.generation, doc, buffer);
@@ -856,12 +859,11 @@ export class ProjectSession {
   }
 
   private async runLoad(): Promise<void> {
-    const token = ++this.loadCounter;
-    // Do NOT bump the session epoch until a validated install: a load is a read.
-    // Superseding current-project ownership up front would silently strand an
-    // in-flight save/persist/reattach if the load then fails or the record is
-    // missing/corrupt. The ownership epoch advances only inside installProject.
-    const epoch = this.sessionEpoch;
+    // Do NOT invalidate the ownership scope until a validated install: a load
+    // is a read. Superseding current-project ownership up front would silently
+    // strand an in-flight save/persist/reattach if the load then fails or the
+    // record is missing/corrupt. The scope advances only inside installProject.
+    const lease = this.loadOps.begin();
     // Capture the intent fence, the CAS base, AND whether a save was already
     // active. A valid load must NOT clobber newer local intent (append/edit/
     // reorder/persist/reattach/save issued while it validated), regress over a
@@ -876,31 +878,25 @@ export class ProjectSession {
     let loaded: ProjectLoadResult;
     try {
       loaded = await result;
-    } catch {
-      if (this.loadStale(token, epoch)) return;
-      this.analysis = { phase: 'error', message: 'failed to load the durable project', fatal: false };
+    } catch (e) {
+      if (!lease.isCurrent()) return;
+      // The worker is the sole durable-admission authority (it upgrades + deep
+      // validates before emitting): a corrupt record arrives as a typed
+      // DATA_CORRUPT rejection, never as a value to re-validate here.
+      this.analysis =
+        e instanceof UserDataClientError && e.code === 'DATA_CORRUPT'
+          ? { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false }
+          : { phase: 'error', message: 'failed to load the durable project', fatal: false };
       this.publish();
       return;
     }
-    if (this.loadStale(token, epoch)) return;
+    if (!lease.isCurrent()) return;
     if (loaded.kind === 'missing') {
       this.analysis = { phase: 'error', message: 'no saved project', fatal: false };
       this.publish();
       return;
     }
-    let manifest: ProjectManifestV1;
-    try {
-      // Lazily migrate a manifest saved by an older build (pre-container source
-      // discriminant / candidateReconstruction) before deep validation, so a
-      // prior project reopens instead of reporting DATA_CORRUPT.
-      manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
-    } catch (e) {
-      if (this.loadStale(token, epoch)) return;
-      this.analysis = { phase: 'error', message: `the saved project is corrupt: ${msg(e)}`, fatal: false };
-      this.publish();
-      return;
-    }
-    if (this.loadStale(token, epoch)) return;
+    const manifest: ProjectManifestV1 = loaded.manifest;
     // A valid load must yield to newer local intent, an in-flight save, OR a save
     // that acknowledged during the load — rather than silently discard the newer
     // draft or make a save acknowledgement unobservable.
@@ -961,7 +957,7 @@ export class ProjectSession {
       // Only imports whose recipe hashes are computed contribute a cold spec; a
       // still-staging import is picked up when `finishStaging` reopens.
       const p = this.pending.get(id);
-      if (p?.recipesReady) specs.push(this.coldSpec(p));
+      if (p?.staging.phase === 'ready') specs.push(this.coldSpec(p, p.staging.recipes));
     }
     const { result, cancel } = this.deps.client.openGeneration(generation, specs, this.indexRecipe);
     this.activeOpenCancel = cancel;
@@ -969,7 +965,7 @@ export class ProjectSession {
       .then((ready) => {
         if (this.disposed || attempt !== this.genAttempt) return;
         this.activeOpenCancel = null;
-        for (const miss of ready.missing) void this.resolveMiss(generation, attempt, miss.doc);
+        for (const miss of ready.missing) void this.resolveMiss(generation, attempt, miss.doc, miss.reason);
       })
       .catch((e: unknown) => {
         if (this.disposed || attempt !== this.genAttempt) return;
@@ -982,17 +978,33 @@ export class ProjectSession {
   /** The cold spec for an identity-incomplete staged import: recipe values +
    *  hashes, availability external, and NO expected source/text/candidate
    *  identities (a genuine miss the worker cold-ingests). */
-  private coldSpec(p: PendingImport): GenerationDocSpecV4 {
+  private coldSpec(p: PendingImport, recipes: ImportRecipes): GenerationDocSpecV4 {
     return {
       doc: p.doc,
       language: p.meta.language,
       source: { byteLength: p.byteLength, format: p.format, availability: 'external' },
-      extraction: { recipe: p.recipes.extraction, recipeHash: p.recipes.extractionRecipeHash },
-      structure: { recipe: p.recipes.structure, recipeHash: p.recipes.structureRecipeHash, override: { kind: 'none' } },
+      extraction: { recipe: recipes.extraction, recipeHash: recipes.extractionRecipeHash },
+      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { kind: 'none' } },
     };
   }
 
-  private async resolveMiss(generation: string, attempt: number, doc: string): Promise<void> {
+  /** Map a warm-miss reason + the doc's availability to the closed repair
+   *  vocabulary the UI renders. An external doc always needs its file back;
+   *  a persisted doc distinguishes absent / damaged / unre-extractable. */
+  private static repairReasonFor(availability: SourceAvailability, reason: WarmMissReasonV4): SourceRepairReason {
+    if (availability !== 'persisted') return 'external-not-attached';
+    switch (reason) {
+      case 'source-miss':
+      case 'source-not-persisted':
+        return 'persisted-missing';
+      case 'source-corrupt':
+        return 'persisted-corrupt';
+      default:
+        return 'rehydrate-failed';
+    }
+  }
+
+  private async resolveMiss(generation: string, attempt: number, doc: string, reason: WarmMissReasonV4): Promise<void> {
     if (this.disposed || attempt !== this.genAttempt || generation !== this.generation) return;
     const pending = this.pending.get(doc);
     if (pending) {
@@ -1032,7 +1044,10 @@ export class ProjectSession {
         if (this.attached.has(doc)) {
           await this.ingestAttached(generation, attempt, doc);
         } else {
-          this.sourceStatus.set(doc, { phase: 'external-missing' });
+          this.sourceStatus.set(doc, {
+            phase: 'external-missing',
+            repair: ProjectSession.repairReasonFor(finalizedDoc.sourceAvailability, reason),
+          });
           this.publish();
         }
         return;
@@ -1045,10 +1060,10 @@ export class ProjectSession {
     if (!attachment) return;
     let bytes: ArrayBuffer;
     try {
-      bytes = await attachment.file.arrayBuffer();
+      bytes = await attachment.arrayBuffer();
     } catch (e) {
       if (this.disposed || attempt !== this.genAttempt) return;
-      this.sourceStatus.set(doc, { phase: 'external-missing' });
+      this.sourceStatus.set(doc, { phase: 'external-missing', repair: 'external-not-attached' });
       this.analysis = { phase: 'error', message: `failed to read '${doc}': ${msg(e)}`, fatal: false };
       this.publish();
       return;
@@ -1105,6 +1120,10 @@ export class ProjectSession {
   private tryFinalize(doc: string): void {
     const p = this.pending.get(doc);
     if (!p || !p.sourceReady || !p.published || p.status === 'failed') return;
+    // Both facts require a generation that carried this import's cold spec,
+    // which only a `ready` staging can contribute — now type-enforced.
+    if (p.staging.phase !== 'ready') return;
+    const { recipes } = p.staging;
     const info = p.sourceReady;
     const finalizedDoc: ProjectDocV1 = {
       doc: p.doc,
@@ -1113,13 +1132,13 @@ export class ProjectSession {
       source: info.source,
       sourceAvailability: 'external',
       extraction: {
-        recipe: p.recipes.extraction,
+        recipe: recipes.extraction,
         recipeHash: info.extractionRecipeHash,
         text: info.text,
         textLengthUtf16: info.textLengthUtf16,
         candidates: info.candidates,
       },
-      structure: { recipe: p.recipes.structure, recipeHash: p.recipes.structureRecipeHash, override: { status: 'none' } },
+      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { status: 'none' } },
     };
     this.pending.delete(doc);
     this.finalized.set(doc, finalizedDoc); // `order` already carries `doc` at its selection position
@@ -1149,21 +1168,21 @@ export class ProjectSession {
     this.abortFetches();
     this.activeOpenCancel = null;
     // A save in flight when the worker died must have its continuation fenced:
-    // advance the save counter so the awaiting validation/post continuation goes
-    // stale and cannot post or settle behind our back. Whether it is an
-    // UNCERTAIN commit depends on whether it was actually POSTED — pendingSave is
-    // assigned only immediately before the post, so its presence means the write
-    // reached the worker (reconcile by load). A save still in local validation
-    // never reached the worker, so it is simply aborted and retryable.
+    // invalidate the save lane so the awaiting ack continuation goes stale and
+    // cannot settle behind our back. runSave posts SYNCHRONOUSLY with save()
+    // (the worker is the validation authority — there is no pre-post await),
+    // so a live `saving` phase means the write reached the worker and its
+    // outcome is UNCERTAIN: reconcile by load, never guess. The not-posted arm
+    // below is pure defense for the zero-width window between saveState
+    // assignment and the post (e.g. a synchronous manifestForSave throw path).
     if (this.kind === 'user' && this.saveState.phase === 'saving') {
       const posted = this.pendingSave !== null && this.pendingSave.token === this.saveState.token;
-      this.saveCounter++;
+      this.saveOps.invalidate();
       if (posted) {
         this.saveState = { phase: 'reconcile-required', targetRevision: this.pendingSave!.targetRevision };
       } else {
-        // Never reached the worker: abort it cleanly. Its captured payload and any
-        // coalesced follow-up request are abandoned — a stale saveAgain must not
-        // auto-fire an unrequested save after a later retry acknowledges.
+        // Defensive only (see above): abandon cleanly — a stale saveAgain must
+        // not auto-fire an unrequested save after a later retry acknowledges.
         this.pendingSave = null;
         this.saveAgain = false;
         this.saveState = { phase: 'error', code: 'WORKER_RESTARTED', message: 'the save did not reach the worker; retry' };
@@ -1193,41 +1212,43 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    const epoch = this.sessionEpoch;
+    // Scope-only fence: reconcile is not a latest-wins lane (the save lane was
+    // already invalidated by the restart) — only project replacement/disposal
+    // may stale it, plus the explicit reconcile-required phase checks below.
+    const scopeLease = this.scope.lease();
     const { result } = this.deps.client.projectLoad(this.id);
     let loaded: ProjectLoadResult;
     try {
       loaded = await result;
-    } catch {
-      if (this.disposed || epoch !== this.sessionEpoch) return;
+    } catch (e) {
+      if (!scopeLease.isCurrent()) return;
       this.saveAgain = false; // a lost coalesced request must not auto-fire later
-      this.saveState = { phase: 'error', code: 'RECONCILE_FAILED', message: 'could not load the project to reconcile the save' };
+      // A DATA_CORRUPT rejection is the worker's admission verdict on the
+      // durable record itself (the former second validation pass here).
+      this.saveState =
+        e instanceof UserDataClientError && e.code === 'DATA_CORRUPT'
+          ? { phase: 'error', code: 'DATA_CORRUPT', message: 'the durable record is corrupt' }
+          : { phase: 'error', code: 'RECONCILE_FAILED', message: 'could not load the project to reconcile the save' };
       this.publish();
       return;
     }
-    if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
+    if (!scopeLease.isCurrent() || this.saveState.phase !== 'reconcile-required') return;
     if (loaded.kind === 'loaded') {
-      try {
-        const manifest = await validateProjectManifest(await upgradeStoredManifest(loaded.manifest));
-        if (this.disposed || epoch !== this.sessionEpoch || this.saveState.phase !== 'reconcile-required') return;
-        if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
-          // Our write DID commit before the crash: adopt it through the ONE
-          // completion path so File retention + any coalesced follow-up save are
-          // handled exactly as a normal ack.
-          this.applySaved(target.targetRevision, target.payloadEpoch, target.manifest);
-          return;
-        }
-        // Any other durable outcome is non-overwriting conflict/rebase.
-        this.saveAgain = false;
-        this.saveState = { phase: 'conflict', currentRevision: manifest.revision };
-        this.publish();
-        return;
-      } catch {
-        this.saveAgain = false;
-        this.saveState = { phase: 'error', code: 'DATA_CORRUPT', message: 'the durable record is corrupt' };
-        this.publish();
+      // Worker-validated already — reconcile compares the durable truth to the
+      // captured target; no second validation pass on the main thread.
+      const manifest = loaded.manifest;
+      if (manifest.revision === target.targetRevision && canonicalJson(manifest) === canonicalJson(target.manifest)) {
+        // Our write DID commit before the crash: adopt it through the ONE
+        // completion path so File retention + any coalesced follow-up save are
+        // handled exactly as a normal ack.
+        this.applySaved(target.targetRevision, target.payloadEpoch, target.manifest);
         return;
       }
+      // Any other durable outcome is non-overwriting conflict/rebase.
+      this.saveAgain = false;
+      this.saveState = { phase: 'conflict', currentRevision: manifest.revision };
+      this.publish();
+      return;
     }
     // The record is absent: our save did not commit. Surface a retryable error
     // (NOT a silent success) — base is unchanged, so a retry targets the same
@@ -1245,8 +1266,12 @@ export class ProjectSession {
    * mutation): a violation throws so the caller aborts before any side effect.
    * The RESULTING project is what is bounded: existing finalized docs AND
    * already-pending imports count toward every cap (a second append before the
-   * first finalizes must not slip past). Every supported encoding decodes to at
-   * most `byteLength` UTF-16 units, so a byte sum bounds undetermined text.
+   * first finalizes must not slip past). This is a BEST-EFFORT early guard, not
+   * the final authority: a pending import has no decoded length yet, so its
+   * `byteLength` stands in for its text. That is exact for txt/md/html but an
+   * UNDERESTIMATE for a compressed epub (decompression can exceed the archive),
+   * so the worker re-enforces the real text caps on ACTUAL decoded lengths at
+   * ingest (an over-large doc becomes a normal CAP_EXCEEDED missing doc).
    */
   private preflightImport(files: readonly FileLike[], fromEmpty: boolean): void {
     if (files.length === 0) return;
@@ -1263,13 +1288,18 @@ export class ProjectSession {
       }
       for (const p of this.pending.values()) {
         existingBytes += p.byteLength;
-        existingText += p.byteLength; // pending text length is unknown; the byte length bounds it
+        // No decoded length yet — byteLength is a proxy (exact for txt/md/html,
+        // an underestimate for a compressed epub; the worker is authoritative).
+        existingText += p.byteLength;
       }
     }
     let newBytes = 0;
     for (const f of files) {
-      const format = formatForName(f.name);
-      if (format === null) throw new SessionCommandError(`unsupported file type: '${f.name}' (.txt, .md, .epub, or .html)`);
+      const format = sourceFormatForFilename(f.name);
+      if (format === null) {
+        const supported = SOURCE_FORMAT_IDS.flatMap((id) => SOURCE_FORMATS[id].extensions).join(', ');
+        throw new SessionCommandError(`unsupported file type: '${f.name}' (${supported})`);
+      }
       if (f.size > CAPS.maxSourceBytesPerFile) throw new SessionCommandError(`'${f.name}' exceeds the ${CAPS.maxSourceBytesPerFile}-byte per-file cap`);
       newBytes += f.size;
     }
@@ -1288,7 +1318,7 @@ export class ProjectSession {
     const plans = files.map((file) => ({
       doc: this.deps.newDocId(),
       file,
-      format: formatForName(file.name)!,
+      format: sourceFormatForFilename(file.name)!,
       importToken: ++this.importCounter,
     }));
     const ids = new Set(plans.map((p) => p.doc));
@@ -1297,7 +1327,7 @@ export class ProjectSession {
     }
     for (const { doc, file, format, importToken } of plans) {
       this.order.push(doc);
-      this.attached.set(doc, { file, token: 0 });
+      this.attached.set(doc, file);
       this.sourceStatus.set(doc, { phase: 'external-attached', name: file.name, size: file.size });
       if (persist) this.persistIntent.add(doc);
       this.pending.set(doc, {
@@ -1307,8 +1337,7 @@ export class ProjectSession {
         meta: initialMetaFor(file.name),
         format,
         byteLength: file.size,
-        recipes: PLACEHOLDER_RECIPES,
-        recipesReady: false,
+        staging: { phase: 'hashing' },
         generation: null,
         ingestJob: null,
         sourceReady: null,
@@ -1327,36 +1356,33 @@ export class ProjectSession {
    *  Fenced by the session epoch (project replacement) AND per-entry importToken
    *  (a re-staged id) so stale staging work never mutates a newer pending entry. */
   private async finishStaging(staged: readonly { doc: string; importToken: number }[]): Promise<void> {
-    const epoch = this.sessionEpoch;
-    const { txt, md } = await defaultExtractionRecipes();
-    const epub = epubExtractionRecipe(['bodymatter']);
-    const html = await htmlExtractionRecipe();
-    const [txtHash, mdHash, epubHash, htmlHash, structureHash, indexHash] = await Promise.all([
-      hashExtractionRecipe(txt),
-      hashExtractionRecipe(md),
-      hashExtractionRecipe(epub),
-      hashExtractionRecipe(html),
+    const scopeLease = this.scope.lease();
+    // One default recipe per catalog format — select `byFormat[format]`, no
+    // per-format switch. Hash every catalog format (derived from
+    // SOURCE_FORMAT_IDS so a new format needs no edit here) plus structure/index
+    // in parallel.
+    const byFormat = await defaultExtractionRecipes();
+    const [structureHash, indexHash, formatHashes] = await Promise.all([
       hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
       hashIndexRecipe(this.indexRecipe),
+      Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
     ]);
-    if (this.disposed || epoch !== this.sessionEpoch) return;
-    const recipeFor = (format: SourceFormat): { recipe: ExtractionRecipeProvisional; hash: string } =>
-      format === 'md' ? { recipe: md, hash: mdHash }
-        : format === 'epub' ? { recipe: epub, hash: epubHash }
-        : format === 'html' ? { recipe: html, hash: htmlHash }
-        : { recipe: txt, hash: txtHash };
+    if (!scopeLease.isCurrent()) return;
+    const hashByFormat = Object.fromEntries(
+      SOURCE_FORMAT_IDS.map((f, i) => [f, formatHashes[i]!]),
+    ) as { readonly [F in SourceFormat]: string };
     let matched = 0;
     for (const { doc, importToken } of staged) {
       const p = this.pending.get(doc);
       if (!p || p.importToken !== importToken) continue; // a newer entry / removed
-      const chosen = recipeFor(p.format);
+      const chosen = { recipe: byFormat[p.format], hash: hashByFormat[p.format] };
       const recipes: ImportRecipes = {
         extraction: chosen.recipe,
         extractionRecipeHash: chosen.hash,
         structure: DEFAULT_STRUCTURE_RECIPE,
         structureRecipeHash: structureHash,
       };
-      this.pending.set(doc, { ...p, recipes, recipesReady: true });
+      this.pending.set(doc, { ...p, staging: { phase: 'ready', recipes } });
       matched++;
     }
     // If every staged import was removed/superseded meanwhile, this stale
@@ -1381,20 +1407,20 @@ export class ProjectSession {
 
   private installProject(project: CurrentProject): void {
     // Replace everything: a new project owns a fresh generation lane, and THIS
-    // is where ownership actually changes — advance the session epoch so any
+    // is where ownership actually changes — invalidate the scope so any
     // still-pending operation on the outgoing project goes stale.
-    this.sessionEpoch++;
+    this.scope.invalidate();
     this.pending.clear();
     this.persistIntent.clear();
     this.attached.clear();
     this.sourceStatus.clear();
     this.reattachStatus.clear();
-    this.persistTokens.clear();
-    this.reattachTokens.clear();
+    this.persistOps.clear();
+    this.reattachOps.clear();
     // A pending correction belonged to the OUTGOING project; its status must
-    // not leak into the replacement (the sessionEpoch fence also drops any
-    // in-flight hash below).
-    this.correctionTokens.clear();
+    // not leak into the replacement (the scope invalidation above also drops
+    // any in-flight hash).
+    this.correctionOps.clear();
     this.corrections.clear();
     this.id = project.data.id;
     this.kind = project.kind;
@@ -1410,7 +1436,7 @@ export class ProjectSession {
     for (const d of project.data.docs) {
       if (d.sourceAvailability === 'bundled') this.sourceStatus.set(d.doc, { phase: 'bundled' });
       else if (d.sourceAvailability === 'persisted') this.sourceStatus.set(d.doc, { phase: 'persisted' });
-      else this.sourceStatus.set(d.doc, { phase: 'external-missing' });
+      else this.sourceStatus.set(d.doc, { phase: 'external-missing', repair: 'external-not-attached' });
     }
     this.data = this.materialize();
   }
@@ -1421,9 +1447,9 @@ export class ProjectSession {
     this.attached.clear();
     this.sourceStatus.clear();
     this.reattachStatus.clear();
-    this.persistTokens.clear();
-    this.reattachTokens.clear();
-    this.correctionTokens.clear();
+    this.persistOps.clear();
+    this.reattachOps.clear();
+    this.correctionOps.clear();
     this.corrections.clear();
     this.finalized.clear();
     this.order = [];
@@ -1510,24 +1536,6 @@ export class ProjectSession {
     this.loadFence++;
   }
 
-  // ── Fences ──────────────────────────────────────────────────────────────────
-
-  private stale(saveToken: number, epoch: number): boolean {
-    // The save counter (bumped at runSave entry) is the ownership fence — a
-    // newer save supersedes this one. pendingSave is assigned only just before
-    // the post, so it cannot serve as the fence for the pre-post checks.
-    return this.disposed || this.saveCounter !== saveToken || this.sessionEpoch !== epoch;
-  }
-  private persistStale(doc: string, token: number, epoch: number): boolean {
-    return this.disposed || this.persistTokens.get(doc) !== token || this.sessionEpoch !== epoch;
-  }
-  private reattachStale(doc: string, token: number, epoch: number): boolean {
-    return this.disposed || this.reattachTokens.get(doc) !== token || this.sessionEpoch !== epoch;
-  }
-  private loadStale(token: number, epoch: number): boolean {
-    return this.disposed || this.loadCounter !== token || this.sessionEpoch !== epoch;
-  }
-
   private abortFetches(): void {
     for (const c of this.activeFetches) c.abort();
     this.activeFetches.clear();
@@ -1543,34 +1551,7 @@ export class ProjectSession {
   }
 }
 
-/** Placeholder recipe values a `PendingImport` carries until `finishStaging`
- *  computes the real hashes; a cold spec is never opened before then. */
-const PLACEHOLDER_RECIPES: ImportRecipes = {
-  extraction: undefined as unknown as ExtractionRecipeProvisional,
-  extractionRecipeHash: '',
-  structure: DEFAULT_STRUCTURE_RECIPE,
-  structureRecipeHash: '',
-};
-
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-/** Order-independent structural equality for reconcile (two manifests denote
- *  the same durable record). Reuses the same canonicalization the core hashes
- *  use — a stable key ordering with array order preserved where it is
- *  meaningful (declared order). */
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(sortKeys(value));
-}
-function sortKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortKeys);
-  if (value && typeof value === 'object') {
-    const out: Record<string, unknown> = {};
-    for (const key of Object.keys(value as Record<string, unknown>).sort()) {
-      out[key] = sortKeys((value as Record<string, unknown>)[key]);
-    }
-    return out;
-  }
-  return value;
-}

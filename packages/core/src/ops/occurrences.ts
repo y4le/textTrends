@@ -21,6 +21,7 @@
  */
 
 import type { LocalTypeId } from '../contract/brands.ts';
+import { canonicalJson } from '../contract/hash.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 import { postingsFor } from '../index/build.ts';
 import {
@@ -32,6 +33,7 @@ import {
 } from '../resolve/fold.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection } from '../snapshot/selection.ts';
+import { lowerBound } from '../structure/project.ts';
 
 export type GroupMember =
   | { readonly id: string; readonly kind: 'token'; readonly surface: string;
@@ -63,6 +65,41 @@ export interface NumericOccurrences {
   readonly memberOrdinals: Uint32Array;  // indexes into group.members
 }
 
+/**
+ * The canonical MATCHING identity of a term group — the coordinates that fully
+ * determine the `NumericOccurrences` a group produces against a fixed
+ * (snapshot, selection). It captures every member's matching semantics (kind,
+ * surface/surfaces/stem, resolved match mode, and a phrase's crossSentence
+ * flag), member ORDER (the emitted `memberOrdinals` index into `members`), and
+ * `countOverlaps`. It deliberately EXCLUDES the caller-owned provenance ids
+ * (`group.id`, each member's `id`), which never reach the numeric output — so a
+ * cache keyed on this identity is sound where one keyed on `group.id` is not:
+ * `group.id` is presentation provenance and two groups may share it while
+ * matching differently (e.g. surfaces `I` vs `İ` fold alike under a guessed
+ * `en` locale but resolve differently per document). Callers that memoize
+ * occurrences MUST key on this, never on `group.id`.
+ *
+ * This is a pure serialization: it does NOT semantically validate the group
+ * (that is `occurrences`' job, which every caller reaches). Computing an
+ * identity for a to-be-run group therefore never changes when a malformed
+ * group surfaces its error — a batch of track keys can be built up front
+ * without eagerly rejecting a later track.
+ */
+export function termGroupIdentity(group: TermGroupSpec): string {
+  const members = group.members.map((m) => {
+    const mode = modeKey(m.match);
+    switch (m.kind) {
+      case 'token':
+        return { k: 'token', mode, surface: m.surface };
+      case 'phrase':
+        return { k: 'phrase', mode, surfaces: [...m.surfaces], crossSentence: m.crossSentence };
+      default:
+        return { k: m.kind, mode, stem: m.stem };
+    }
+  });
+  return canonicalJson({ members, countOverlaps: group.countOverlaps });
+}
+
 function validateGroup(group: TermGroupSpec): void {
   for (const m of group.members) {
     if (m.kind === 'phrase' && m.surfaces.length === 0) {
@@ -91,18 +128,6 @@ function crossesSentence(shard: DocumentIndexV1, start: number, span: number): b
     if (b >= start + span) break;
   }
   return false;
-}
-
-/** First index whose posting is >= value (postings are position-sorted). */
-function lowerBound(postings: Uint32Array, value: number): number {
-  let lo = 0;
-  let hi = postings.length;
-  while (lo < hi) {
-    const mid = (lo + hi) >> 1;
-    if ((postings[mid] as number) < value) lo = mid + 1;
-    else hi = mid;
-  }
-  return lo;
 }
 
 /**

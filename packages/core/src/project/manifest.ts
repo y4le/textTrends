@@ -1,6 +1,7 @@
 /**
- * Project manifest — contract §12.6. The main thread OWNS this; the worker
- * stores it durably and answers project-load/save. Because the durable
+ * Project manifest — contract §12.6. The main thread edits the WORKING COPY;
+ * the WORKER is the sole durable-admission authority — it stores the manifest
+ * and answers project-load/save. Because the durable
  * user-data store persists an `unknown` payload, the worker MUST validate a
  * canonical ProjectManifestV1 before accepting project-save or emitting
  * project-loaded (engine-v4 consult): a corrupt/foreign manifest must not
@@ -18,19 +19,21 @@
  * for durable project data; downstream handlers never re-verify these.
  */
 
-import { exactArray, exactRecord, hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
+import { exactArray, exactRecord, isNonNegSafeInt as isSafeNonNeg, isRecord as isRec, isString as isStr } from '../contract/guards.ts';
+import { hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
 import {
   hashStructureOverride,
   hashStructureRecipe,
   isStructureOverrideV1,
   isStructureRecipeProvisional,
 } from '../structure/build.ts';
-import { DETECTED_ENCODINGS } from '../extract/decode.ts';
 import {
   hashExtractionRecipe,
+  isValidSourceDescriptor,
   validateExtractionRecipe,
   type ExtractionRecipeProvisional,
   type SourceDescriptorV1,
+  type SourceFormat,
 } from '../extract/extraction.ts';
 import type { IndexRecipeProvisional } from '../contract/recipes.ts';
 import type { StructureOverrideV1, StructureRecipeProvisional } from '../structure/build.ts';
@@ -95,10 +98,6 @@ export class ManifestInvalidError extends Error {
   }
 }
 
-const isStr = (v: unknown): v is string => typeof v === 'string';
-const isSafeNonNeg = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
-const isRec = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /** Enclosing identities the override's status must be consistent with (§12.6). */
 interface DocIdentities {
@@ -157,43 +156,19 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   }
   if (!isStr(v.doc) || !isStr(v.sourceName)) throw new ManifestInvalidError('doc identity invalid');
   validateMeta(v.meta);
+  // ONE authority for source-descriptor admission: the SAME total guard the
+  // extraction-artifact boundary applies (`isValidSourceDescriptor`). A durable
+  // manifest must not accept a descriptor the artifact boundary would reject —
+  // the hand-rolled arms here previously admitted `hadReplacementChars: true`,
+  // which is structurally impossible under the implemented decoders and which
+  // artifact admission refuses. The descriptor self-describes its hash/format;
+  // `format` is cross-checked against the extraction recipe below, while `hash`
+  // is the durable ASSERTED source identity — it carries no independent check
+  // here and is verified against byte/artifact identities when the worker
+  // consumes the source.
   const s = v.source;
-  if (!isRec(s) || !isStr(s.hash) || !isSafeNonNeg(s.byteLength)) {
+  if (!isRec(s) || !isStr(s.hash) || !isValidSourceDescriptor(s, s.hash, s.format as SourceFormat)) {
     throw new ManifestInvalidError('doc source descriptor invalid');
-  }
-  if (s.kind === 'text') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) ||
-      (s.format !== 'txt' && s.format !== 'md') ||
-      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
-    ) {
-      throw new ManifestInvalidError('doc text source descriptor invalid');
-    }
-    // The detected encoding is a CLOSED union — a durable descriptor may only
-    // name an encoding the decoder can actually report.
-    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
-      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
-    }
-  } else if (s.kind === 'container') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'container']) || s.format !== 'epub' ||
-      !exactRecord(s.container, ['internalDecoding', 'documentCount']) ||
-      s.container.internalDecoding !== 'utf-8-strict' || !isSafeNonNeg(s.container.documentCount)
-    ) {
-      throw new ManifestInvalidError('doc container source descriptor invalid');
-    }
-  } else if (s.kind === 'markup') {
-    if (
-      !exactRecord(s, ['kind', 'hash', 'byteLength', 'format', 'encoding']) || s.format !== 'html' ||
-      !exactRecord(s.encoding, ['detected', 'hadReplacementChars']) || !isStr(s.encoding.detected) || typeof s.encoding.hadReplacementChars !== 'boolean'
-    ) {
-      throw new ManifestInvalidError('doc markup source descriptor invalid');
-    }
-    if (!DETECTED_ENCODINGS.has(s.encoding.detected)) {
-      throw new ManifestInvalidError(`doc source encoding '${s.encoding.detected}' is not a supported encoding`);
-    }
-  } else {
-    throw new ManifestInvalidError('doc source descriptor has an unknown kind');
   }
   if (v.sourceAvailability !== 'bundled' && v.sourceAvailability !== 'persisted' && v.sourceAvailability !== 'external') {
     throw new ManifestInvalidError('doc sourceAvailability invalid');

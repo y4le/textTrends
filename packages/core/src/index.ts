@@ -10,28 +10,31 @@
 
 // Explicit .ts specifiers keep these modules loadable under Node's type-stripping
 // runner as well as bundlers — the CLI adapter depends on it.
+
+// The statistics contract surface — implemented AHEAD of UI per
+// docs/design/statistics.md ("implemented ⇒ exported with fixtures"); each
+// method carries a versioned id future QueryOps reference. Deliberately kept
+// exported with zero app consumers (owner decision, simplification plan §2).
 export { g2Keyness, logRatio } from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
 export { mattr, mtld } from './stats/diversity.ts';
-export { CapError, V1_CAPS } from './contract/brands.ts';
+export { CapError } from './contract/brands.ts';
 export type * from './contract/brands.ts';
-export { canonicalJson, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export { canonicalJson, hashSourceBytes, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export { exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
   DEFAULT_INDEX_RECIPE,
-  exactArray,
-  exactRecord,
   hashIndexRecipe,
   isIndexRecipeProvisional,
   TOKEN_CLASS,
   type IndexRecipeProvisional,
 } from './contract/recipes.ts';
-export { segment, fingerprint, SEGMENTER_PROBE } from './segment/intl.ts';
+export { segment, fingerprint } from './segment/intl.ts';
 export type { SegmentationBatch, SegmenterFingerprint } from './segment/intl.ts';
 export {
   buildDocumentIndex,
   createDocumentIndex,
-  paragraphCharStarts,
   postingsFor,
   tokenCharLength,
   tokenEndChar,
@@ -45,16 +48,15 @@ export {
   bindSectionId,
   hashSegmenterFingerprint,
   indexArtifactHash,
-  rootOnlyStructure,
-  structureHash,
   type DocumentIndexIdentityV1,
   type SegmenterFingerprintHash,
-  type StructureArtifactV1,
 } from './contract/identity.ts';
 export {
   composeSnapshot,
   makeReadyDocument,
+  structureHashOf,
   validateSnapshot,
+  type ReadyStructure,
   type CorpusDocRef,
   type CorpusSnapshotV1,
   type ReadyDocument,
@@ -82,9 +84,8 @@ export {
 } from './ops/kwic.ts';
 export {
   checkedResolverFor,
-  matchGroupInTokenRanges,
-  mergeGroupSpans,
   occurrences,
+  termGroupIdentity,
   type GroupMember,
   type GroupSpan,
   type NumericOccurrences,
@@ -106,7 +107,6 @@ export {
 } from './ops/passage.ts';
 export {
   buildResolver,
-  FOLD_RESOLVER,
   foldKey,
   modeKey,
   resolveAffix,
@@ -116,17 +116,13 @@ export {
 } from './resolve/fold.ts';
 export {
   DecodeError,
-  DETECTED_ENCODINGS,
   decodeSource,
   windows1252TableHash,
   type DecodedSource,
   type DetectedEncoding,
 } from './extract/decode.ts';
 export {
-  assertValidCandidates,
   hashStructureCandidates,
-  isValidCandidate,
-  STRUCTURE_CANDIDATE_KINDS,
   type StructureCandidateKind,
   type StructureCandidateV1,
 } from './extract/candidates.ts';
@@ -134,13 +130,13 @@ export { scanMarkdownHeadings } from './extract/markdown.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,
+  deriveCandidatesFromText,
+  type CandidateBundle,
   epubExtractionRecipe,
   extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
-  htmlExtractionRecipe,
   validateExtractionRecipe,
-  hashSourceBytes,
   type CandidateReconstruction,
   type ContainerSourceDescriptorV1,
   type DecodedDocument,
@@ -152,13 +148,21 @@ export {
   type ExtractionArtifactV1,
   type ExtractionEvidence,
   type ExtractionRecipeProvisional,
-  type MdExtractionRecipe,
   type PreparedExtraction,
   type SourceDescriptorV1,
   type SourceFormat,
   type TextSourceDescriptorV1,
-  type TxtExtractionRecipe,
 } from './extract/extraction.ts';
+export {
+  isLiteralFormat,
+  isSourceFormat,
+  SOURCE_FORMATS,
+  SOURCE_FORMAT_IDS,
+  sourceFormatForFilename,
+  stripSourceExtension,
+  type LiteralSourceFormat,
+  type SourceFormatMetadata,
+} from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
 export { STRUCTURE_LIMITS_V0, type StructureLimitsV0 } from './contract/structure-limits.ts';
 export { lineWindowAround, type LineWindow } from './extract/lines.ts';
@@ -204,14 +208,6 @@ export {
   validateStructureArtifactV2,
 } from './extract/validate.ts';
 export {
-  deriveCandidatesFromText,
-  type CandidateBundle,
-} from './extract/extraction.ts';
-export {
-  structureHashOf,
-  type ReadyStructure,
-} from './snapshot/compose.ts';
-export {
   ManifestInvalidError,
   upgradeStoredManifest,
   validateProjectManifest,
@@ -219,4 +215,5 @@ export {
   type PersistedOverride,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type SourceAvailability,
 } from './project/manifest.ts';

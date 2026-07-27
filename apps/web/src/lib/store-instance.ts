@@ -19,9 +19,9 @@
 import { hashSourceBytes } from '@texttrends/core';
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
-import { builtinProject } from './project.ts';
+import { builtinProject, sherlockProjectData } from './project.ts';
 import { ProjectSession, type BundledByteProvider } from './project-session.ts';
-import { createAppRuntime, sherlockProjectData } from './store.ts';
+import { createAppRuntime } from './store.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
@@ -43,10 +43,15 @@ const bundledBytes: BundledByteProvider = {
   },
 };
 
+/** Set by the HMR dispose hook: the async bootstrap below must not construct
+ *  a session, register client listeners, or attach after teardown began. */
+let torndown = false;
+
 async function bootstrap(): Promise<void> {
   let session: ProjectSession;
   try {
     const data = await sherlockProjectData();
+    if (torndown) return; // HMR replaced this module mid-bootstrap
     session = new ProjectSession(builtinProject(data), {
       client,
       bundledBytes,
@@ -54,7 +59,7 @@ async function bootstrap(): Promise<void> {
       hashBytes: (bytes) => hashSourceBytes(bytes),
     });
   } catch (error) {
-    runtime.failBootstrap(error);
+    if (!torndown) runtime.failBootstrap(error);
     return;
   }
   runtime.attachSession(session); // subscribe + seed, exactly once
@@ -62,6 +67,23 @@ async function bootstrap(): Promise<void> {
 }
 
 void bootstrap();
+
+// Dev-server module replacement: this module owns the app's live resources
+// (the Worker, the session, in-flight queries), so a hot swap must tear the
+// old instance fully down — otherwise each edit leaks a Worker and the stale
+// instance keeps answering. The client close is a `finally` so a throwing
+// dispose can never leak the Worker. Dead code in production builds
+// (import.meta.hot is undefined outside the dev server).
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    torndown = true;
+    try {
+      runtime.dispose();
+    } finally {
+      client.close();
+    }
+  });
+}
 
 if (__TT_E2E__ && trace && typeof window !== 'undefined') {
   (window as unknown as { __ttE2E: unknown }).__ttE2E = Object.freeze({

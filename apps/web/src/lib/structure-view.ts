@@ -11,7 +11,7 @@
  */
 
 import { ROOT_KEY, STRUCTURE_LIMITS_V0, type EditableSectionValue } from '@texttrends/core';
-import type { StructureQueryResultV1 } from '../worker/protocol-v4.ts';
+import type { StructureQueryResultV1 } from '../shared/analysis-contract.ts';
 
 export type StructureRow = StructureQueryResultV1['rows'][number];
 

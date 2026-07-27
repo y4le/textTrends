@@ -6,14 +6,18 @@
 
 import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
-import { SHERLOCK } from '../src/lib/store.ts';
+import { SHERLOCK } from '../src/lib/project.ts';
 import { USER_PROJECT_ID } from '../src/lib/project.ts';
+import { ARTIFACT_DB_NAME } from '../src/worker/idb-store.ts';
+import { USER_DATA_DB_NAME } from '../src/worker/idb-user-data-store.ts';
 import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 export { SHERLOCK };
 export const DOC_COUNT = SHERLOCK.length;
-export const DB_NAME = 'texttrends-artifacts-provisional-db2';
-export const USER_DATA_DB = 'texttrends-user-data';
+// The REAL database-name constants — a rename in src can never strand these
+// helpers on a stale string literal.
+export const DB_NAME = ARTIFACT_DB_NAME;
+export const USER_DATA_DB = USER_DATA_DB_NAME;
 
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
 

@@ -10,6 +10,7 @@
  * 'texttrends/index-recipe/1' only when those fields land.
  */
 
+import { exactRecord } from './guards.ts';
 import { canonicalJson, sha256Hex } from './hash.ts';
 import type { IndexRecipeHash } from './brands.ts';
 
@@ -64,45 +65,6 @@ export async function hashIndexRecipe(recipe: IndexRecipeProvisional): Promise<I
   return (await sha256Hex(canonicalJson(recipe))) as IndexRecipeHash;
 }
 
-/** A PLAIN record with EXACTLY `keys` as own enumerable data properties —
- *  an extra field would be serialized into a DISTINCT recipe/override hash
- *  though no code reads it (the "one operation, many identities" hazard the
- *  extraction validator already guards). Shared by every recipe/override
- *  wire validator. */
-export function exactRecord(v: unknown, keys: readonly string[]): v is Record<string, unknown> {
-  if (v === null || typeof v !== 'object' || Array.isArray(v)) return false;
-  const proto = Object.getPrototypeOf(v);
-  if (proto !== Object.prototype && proto !== null) return false;
-  if (Object.getOwnPropertySymbols(v).length !== 0) return false;
-  const names = Object.getOwnPropertyNames(v);
-  if (names.length !== keys.length || !keys.every((k) => Object.prototype.hasOwnProperty.call(v, k))) return false;
-  for (const name of names) {
-    const d = Object.getOwnPropertyDescriptor(v, name)!;
-    if (!d.enumerable || d.get !== undefined || d.set !== undefined) return false;
-  }
-  return true;
-}
-
-/** A DENSE Array of exactly `length` elements carrying no extra own
- *  properties (named or symbol), no holes, and plain enumerable data
- *  descriptors — an identity-bearing tuple whose canonical JSON must not
- *  smuggle a named array property (which structuredClone preserves and the
- *  canonical hasher rejects). */
-export function exactArray(v: unknown, length: number): v is readonly unknown[] {
-  if (!Array.isArray(v) || v.length !== length) return false;
-  if (Object.getOwnPropertySymbols(v).length !== 0) return false;
-  const names = Object.getOwnPropertyNames(v);
-  // Own names must be exactly the numeric indices [0..length) plus 'length'.
-  if (names.length !== length + 1) return false;
-  for (let i = 0; i < length; i++) {
-    const d = Object.getOwnPropertyDescriptor(v, i);
-    if (!d || !d.enumerable || d.get !== undefined || d.set !== undefined) return false;
-  }
-  return true;
-}
-
-const isRec = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
  * Total structural validation of an IndexRecipeProvisional — every field is

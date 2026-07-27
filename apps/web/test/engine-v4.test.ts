@@ -24,6 +24,7 @@ import {
   hashSourceBytes,
   hashStructureOverride,
   hashStructureRecipe,
+  MAX_KWIC_TRACKS,
   type IngestCapsV0,
   type StructureOverrideV1,
 } from '@texttrends/core';
@@ -530,24 +531,63 @@ describe('persisted source re-extraction', () => {
     expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
   });
 
+  it('a SAME-LENGTH byte mutation of the persisted copy is classified source-corrupt, not rehydrate-failed', async () => {
+    const h = harness();
+    const text = 'the wolf ran far over the hill';
+    const bytes = utf8(text);
+    const sourceHash = await hashSourceBytes(bytes);
+    // Store bytes of the RIGHT length under the RIGHT key that do not hash to
+    // it — the envelope check (schema/length) passes; the warm path's
+    // PRE-EXTRACTION content-hash authentication catches it. That is a
+    // DAMAGED DURABLE COPY needing repair.
+    const mutated = utf8('the wolf ran far over the hilL');
+    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
+    const spec = await docSpec('a', text, { availability: 'persisted' });
+    await begin(h, [spec], 'warm');
+    const ready = h.last('generation-ready');
+    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
+    // Not an EXTRACTION_MISMATCH terminal error, and no cache-vocabulary warning.
+    expect(h.all('error').some((e) => e.code === 'EXTRACTION_MISMATCH')).toBe(false);
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
+  });
+
+  it('a same-length mutation that is UNDECODABLE is still source-corrupt — authentication precedes extraction', async () => {
+    const h = harness();
+    const text = 'the wolf ran far over the hill';
+    const bytes = utf8(text);
+    const sourceHash = await hashSourceBytes(bytes);
+    // Same length, right key, but the bytes begin with a UTF-8 BOM followed by
+    // a malformed sequence — decoding would FAIL, so a post-extraction hash
+    // check could never run (track-S review mutation). The pre-extraction
+    // authentication must classify it as a damaged durable copy regardless.
+    const mutated = new Uint8Array(bytes.length);
+    mutated.set([0xef, 0xbb, 0xbf, 0xff, 0xfe, 0x80], 0);
+    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
+    const spec = await docSpec('a', text, { availability: 'persisted' });
+    await begin(h, [spec], 'warm');
+    const ready = h.last('generation-ready');
+    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
+  });
+
   it('a corrupt persisted source is reported and RETAINED (never auto-deleted)', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far', { availability: 'persisted' });
-    let deleted = 0;
     const corruptStore: UserDataStore = {
       getProject: () => Promise.resolve({ kind: 'miss' }),
       putProject: () => Promise.reject(new Error('n/a')),
       getSource: () => Promise.resolve({ kind: 'corrupt', reason: 'bytes do not match' }),
       putSource: () => Promise.resolve(),
-      deleteSource: () => { deleted++; return Promise.resolve(); },
       close: () => undefined,
     };
     h.setUserData(() => Promise.resolve({ kind: 'ok', store: corruptStore }));
     await begin(h, [spec], 'warm');
     const ready = h.last('generation-ready');
+    // Retention (never auto-delete the user's only durable copy) is enforced by
+    // the type system now: UserDataStore has no delete operation at all.
     expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-    expect(deleted).toBe(0); // the durable source is the user's only copy
-    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(true);
+    // Durable damage travels ONLY on the warm-miss reason (class-1 repair),
+    // never through the artifact-CACHE warning vocabulary (pass-2 Track S2).
+    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
   });
 });
 
@@ -805,6 +845,37 @@ describe('user-data lane', () => {
     expect(h.last('user-data-error').code).toBe('DATA_CORRUPT');
   });
 
+  it('project-save deep-validates BEFORE any durable write: invalid → REQUEST_INVALID, putProject never called', async () => {
+    const h = harness();
+    // The worker is the SOLE save-admission authority (the session posts
+    // without a main-thread deep pass), so this gate is the only one: an
+    // invalid manifest must be refused with a correlated typed error, no ack,
+    // and — critically — no durable write attempt at all.
+    let puts = 0;
+    const store: UserDataStore = {
+      getProject: () => Promise.resolve({ kind: 'miss' }),
+      putProject: () => { puts++; return Promise.reject(new Error('must never be reached')); },
+      getSource: () => Promise.resolve({ kind: 'miss' }),
+      putSource: () => Promise.resolve(),
+      close: () => undefined,
+    };
+    h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
+    // A manifest that satisfies EVERY downstream check (target id matches,
+    // revision === expectedRevision + 1) and fails ONLY deep admission (wrong
+    // indexRecipeHash) — so deleting or delaying validateProjectManifest must
+    // reach putProject and fail this test (mutation-sensitive by construction).
+    await h.send({
+      t: 'project-save', job: 9, project: 'p',
+      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
+      expectedRevision: 0,
+    });
+    const err = h.last('user-data-error');
+    expect(err.code).toBe('REQUEST_INVALID');
+    expect(err.job).toBe(9);
+    expect(h.all('project-saved').length).toBe(0);
+    expect(puts).toBe(0); // validation gated the write, not the other way round
+  });
+
   it('project-load returns project-missing for an absent project', async () => {
     const h = harness();
     await h.send({ t: 'project-load', job: 1, project: 'absent' });
@@ -849,7 +920,6 @@ describe('user-data lane', () => {
       putProject: () => Promise.reject(new Error('n/a')),
       getSource: () => Promise.resolve({ kind: 'miss' }),
       putSource: () => Promise.resolve(),
-      deleteSource: () => Promise.resolve(),
       close: () => undefined,
     };
     h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
@@ -1149,6 +1219,55 @@ describe('queries and excerpts (v4)', () => {
     expect(h.all('result').some((m) => m.job === 51)).toBe(false);
   });
 
+  it('re-querying with a REUSED group.id but different members returns FRESH rows (cache keys on matching identity)', async () => {
+    // group.id is caller-owned provenance. A memo keyed on it would serve the
+    // first query's occurrences for the second — the exact stale-row bug.
+    const { h, snap } = await ready(); // 'the wolf ran far. a wolf slept.'
+    const kwic = (surface: string, job: number) => h.send({
+      t: 'query', job, snapshot: snap, query: {
+        op: 'kwic', selection: { docs: ['a'] },
+        // SAME group.id 'REUSED' both times; only the member surface changes.
+        tracks: [{ seriesId: 's', group: { id: 'REUSED', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface, match: FOLD }] } }],
+        request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } },
+      },
+    });
+    await kwic('wolf', 60);
+    const first = h.last('result');
+    expect(first.data.op === 'kwic' && first.data.rows.map((r) => r.nodeText)).toEqual(['wolf', 'wolf']);
+    await kwic('ran', 61);
+    const second = h.last('result');
+    expect(second.data.op === 'kwic' && second.data.rows.map((r) => r.nodeText)).toEqual(['ran']);
+  });
+
+  it('bounds the occurrence cache at MAX_KWIC_TRACKS even under overlapping, interleaving KWIC jobs', async () => {
+    const { h, snap } = await ready('the wolf ran far. a wolf slept. i saw the fox and the owl.');
+    const cache = () => (h.engine as unknown as { generation: { kwicOccCache: Map<string, unknown> } | null }).generation!.kwicOccCache;
+    const kwicQuery = (surfaces: string[]) => ({
+      op: 'kwic' as const, selection: { docs: ['a'] },
+      tracks: surfaces.map((surface, i) => ({ seriesId: `s${i}`, group: { id: `g${i}`, countOverlaps: false, members: [{ id: 'm', kind: 'token' as const, surface, match: FOLD }] } })),
+      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
+    });
+    // Two DISTINCT 4-track jobs (8 unique groups > MAX_KWIC_TRACKS=5). In manual
+    // yield mode each per-track checkpoint parks; releasing them round-robin
+    // interleaves A and B so a prune-before-the-loop would let the map grow past
+    // the cap. Drive them to completion and assert the hard bound held throughout.
+    h.manual();
+    const pA = h.send({ t: 'query', job: 80, snapshot: snap, query: kwicQuery(['the', 'wolf', 'ran', 'far']) });
+    const pB = h.send({ t: 'query', job: 81, snapshot: snap, query: kwicQuery(['a', 'i', 'saw', 'fox']) });
+    let guard = 0;
+    while (guard++ < 200) {
+      expect(cache().size).toBeLessThanOrEqual(MAX_KWIC_TRACKS);
+      h.releaseYield();
+      // eslint-disable-next-line no-await-in-loop
+      await h.flush();
+      const done = h.all('result').filter((m) => m.job === 80 || m.job === 81).length;
+      if (done >= 2) break;
+    }
+    await Promise.all([pA, pB]);
+    expect(cache().size).toBeLessThanOrEqual(MAX_KWIC_TRACKS);
+    expect(h.all('result').filter((m) => m.data.op === 'kwic' && (m.job === 80 || m.job === 81))).toHaveLength(2);
+  });
+
   it('answers passage with marks, per-token extents, and a center span', async () => {
     const { h, snap } = await ready();
     await h.send({ t: 'query', job: 25, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] } } });
@@ -1190,16 +1309,6 @@ describe('queries and excerpts (v4)', () => {
     const snap = h.last('snapshot-published').snapshot;
     await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
     expect(h.last('error').code).toBe('SELECTION_INVALID');
-  });
-
-  it('serves and validates excerpts', async () => {
-    const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'excerpt', job: 40, snapshot: snap, doc: 'a', charStart: 4, charEnd: 8 });
-    expect(h.last('excerpt-result').text).toBe('wolf');
-    await h.send({ t: 'excerpt', job: 41, snapshot: snap, doc: 'a', charStart: 8, charEnd: 4 });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    await h.send({ t: 'excerpt', job: 42, snapshot: 'nope', doc: 'a', charStart: 0, charEnd: 2 });
-    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
   });
 
   it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {

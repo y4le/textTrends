@@ -10,8 +10,8 @@
  * provisional hashes are disposable and never aliased to canonical names.
  */
 
-import { canonicalJson, sha256Hex, hashText } from '../contract/hash.ts';
-import { exactRecord } from '../contract/recipes.ts';
+import { canonicalJson, hashSourceBytes, hashText, sha256Hex } from '../contract/hash.ts';
+import { exactRecord, isNonNegSafeInt as isNonNegInt } from '../contract/guards.ts';
 import {
   DETECTED_ENCODINGS,
   DecodeError,
@@ -27,22 +27,12 @@ import {
   type StructureCandidateV1,
 } from './candidates.ts';
 import { scanMarkdownHeadings } from './markdown.ts';
-
-/** Literal, byte-decoded formats (the indexed text IS the decoded source) plus
- *  transformed formats (the text is EXTRACTED from an archive or markup tree). */
-export type SourceFormat = 'txt' | 'md' | 'epub' | 'html';
-
-/**
- * How a warm reopen may rebuild this format's structure candidates:
- * - `'text'`  — candidates are a pure function of the extracted text (the
- *   Markdown heading scan), so a reopen reconstructs them without the source
- *   bytes. `deriveCandidatesFromText` serves them.
- * - `'source'` — candidates depend on the container/source itself (an EPUB
- *   spine/nav), which the joined text does not carry; a reopen MUST re-extract
- *   the persisted source. `deriveCandidatesFromText` refuses.
- * Explicit on the recipe (never inferred from a parser id downstream).
- */
-export type CandidateReconstruction = 'text' | 'source';
+// The format catalog (formats.ts) is the single authority for SourceFormat, the
+// kind↔format pairing, and candidate-reconstruction semantics; SourceFormat and
+// CandidateReconstruction are re-exported here so existing importers of the
+// extraction module keep working.
+import { isLiteralFormat, isSourceFormat, SOURCE_FORMATS, type CandidateReconstruction, type SourceFormat } from './formats.ts';
+export type { CandidateReconstruction, SourceFormat };
 
 /** Which reading-order partitions an EPUB extraction includes in its text. */
 export type EbookPartition = 'frontmatter' | 'bodymatter' | 'backmatter' | 'unknown';
@@ -128,11 +118,14 @@ export type ExtractionRecipeProvisional =
       readonly candidateReconstruction: 'source';
     };
 
-/** PLAIN records only: a class instance or custom prototype could satisfy
- *  value checks while carrying behavior (getters, prototype state) outside
- *  the canonical-JSON domain the hash boundary operates on; symbol-keyed
- *  properties are invisible to key checks (round-4 review). */
-const isRecord = (v: unknown): v is Record<string, unknown> => {
+/** IDENTITY-TIER record guard: PLAIN records only — a class instance or
+ *  custom prototype could satisfy value checks while carrying behavior
+ *  (getters, prototype state) outside the canonical-JSON domain the hash
+ *  boundary operates on; symbol-keyed properties are invisible to key checks
+ *  (round-4 review). Deliberately STRICTER than the shared plain-shape
+ *  `isRecord` in contract/guards.ts and named differently so the two tiers
+ *  can never be confused. */
+const isStrictPlainRecord = (v: unknown): v is Record<string, unknown> => {
   if (v === null || typeof v !== 'object') return false;
   const proto = Object.getPrototypeOf(v);
   if (proto !== Object.prototype && proto !== null) return false;
@@ -157,14 +150,6 @@ function requireExactKeys(record: Record<string, unknown>, keys: readonly string
   }
 }
 
-/**
- * Boundary validation — a TOTAL wire boundary: accepts `unknown`, requires
- * plain records with EXACT key sets, and matches every field against what
- * this extractor actually implements, INCLUDING the embedded windows-1252
- * table hash — a recipe claiming a different table would record an identity
- * for behavior that never ran. Every malformed input throws RangeError
- * (REQUEST_INVALID at the wire), never TypeError.
- */
 /** Reading order — the ONE canonical order + de-dup for a partition SELECTION,
  *  so `['bodymatter','frontmatter']`, its reverse, and duplicates all describe
  *  the same operation under a single recipe identity (the extractor treats
@@ -185,7 +170,7 @@ function isCanonicalPartitions(ps: readonly unknown[]): boolean {
 
 /** Validate the shared byte-decoder policy of the literal (txt/md) formats. */
 async function validateDecoderPolicy(d: unknown): Promise<void> {
-  if (!isRecord(d)) throw new RangeError('decoder policy must be an object');
+  if (!isStrictPlainRecord(d)) throw new RangeError('decoder policy must be an object');
   requireExactKeys(
     d,
     ['id', 'bom', 'unicodeErrors', 'fallback', 'windows1252TableHash', 'newlineNormalization'],
@@ -203,22 +188,37 @@ async function validateDecoderPolicy(d: unknown): Promise<void> {
   }
 }
 
+/**
+ * Boundary validation — a TOTAL wire boundary: accepts `unknown`, requires
+ * plain records with EXACT key sets, and matches every field against what
+ * this extractor actually implements, INCLUDING the embedded windows-1252
+ * table hash — a recipe claiming a different table would record an identity
+ * for behavior that never ran. Every malformed input throws RangeError
+ * (REQUEST_INVALID at the wire), never TypeError.
+ */
 export async function validateExtractionRecipe(recipe: unknown): Promise<ExtractionRecipeProvisional> {
-  if (!isRecord(recipe)) throw new RangeError('extraction recipe must be an object');
+  if (!isStrictPlainRecord(recipe)) throw new RangeError('extraction recipe must be an object');
   if (recipe.schema !== 'texttrends/extraction-recipe/0-provisional') {
     throw new RangeError(`unknown extraction recipe schema '${String(recipe.schema)}'`);
+  }
+  if (!isSourceFormat(recipe.format)) {
+    throw new RangeError(`unknown source format '${String(recipe.format)}'`);
+  }
+  // The redundant-but-hashed discriminant must match the CATALOG's fact for the
+  // format — stated once here, never per format arm.
+  if (recipe.candidateReconstruction !== SOURCE_FORMATS[recipe.format].candidateReconstruction) {
+    throw new RangeError(
+      `format '${recipe.format}' must declare candidateReconstruction '${SOURCE_FORMATS[recipe.format].candidateReconstruction}'`,
+    );
   }
   // Container and literal formats carry DIFFERENT key sets — the exact-key
   // guard is applied per format so an extra field can never be hashed into a
   // second identity for the same behavior.
   if (recipe.format === 'txt' || recipe.format === 'md') {
     requireExactKeys(recipe, ['schema', 'format', 'decoder', 'parser', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'text') {
-      throw new RangeError(`format '${recipe.format}' must declare candidateReconstruction 'text'`);
-    }
     await validateDecoderPolicy(recipe.decoder);
     const p = recipe.parser;
-    if (!isRecord(p)) throw new RangeError('parser must be an object');
+    if (!isStrictPlainRecord(p)) throw new RangeError('parser must be an object');
     if (recipe.format === 'txt') {
       requireExactKeys(p, ['id'], 'txt parser');
       if (p.id !== 'txt-literal-v1') throw new RangeError('format/parser combination is not a supported extraction');
@@ -234,11 +234,8 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     }
   } else if (recipe.format === 'epub') {
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'source') {
-      throw new RangeError("format 'epub' must declare candidateReconstruction 'source'");
-    }
     const e = recipe.extractor;
-    if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
+    if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'partitions', 'serializer', 'sectioning'], 'epub extractor');
     if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1' || e.sectioning !== 'spine-order-v1') {
       throw new RangeError('unsupported epub extractor policy');
@@ -246,13 +243,11 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
     if (!Array.isArray(e.partitions) || !isCanonicalPartitions(e.partitions)) {
       throw new RangeError('epub extractor partitions must be unique and in canonical reading order');
     }
-  } else if (recipe.format === 'html') {
+  } else {
+    // recipe.format === 'html' — the closed catalog admits nothing else.
     requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
-    if (recipe.candidateReconstruction !== 'source') {
-      throw new RangeError("format 'html' must declare candidateReconstruction 'source'");
-    }
     const e = recipe.extractor;
-    if (!isRecord(e)) throw new RangeError('extractor policy must be an object');
+    if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
     requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer', 'sectioning'], 'html extractor');
     if (
       e.id !== 'html5-inert-v1' || e.parser !== 'parse5-v7' ||
@@ -261,25 +256,25 @@ export async function validateExtractionRecipe(recipe: unknown): Promise<Extract
       throw new RangeError('unsupported html extractor policy');
     }
     await validateDecoderPolicy(e.decoder);
-  } else {
-    throw new RangeError(`unknown source format '${String(recipe.format)}'`);
   }
   return recipe as unknown as ExtractionRecipeProvisional;
 }
 
-/** The specific recipe arms, so a caller holding the default txt/md recipe sees
- *  its `decoder`/`parser` (not the whole union, which includes the epub arm). */
-export type TxtExtractionRecipe = Extract<ExtractionRecipeProvisional, { format: 'txt' }>;
-export type MdExtractionRecipe = Extract<ExtractionRecipeProvisional, { format: 'md' }>;
+/** The recipe arm for one format, so a caller holding the default recipe for a
+ *  format sees its exact shape (not the whole union). */
+export type ExtractionRecipeFor<F extends SourceFormat> = Extract<ExtractionRecipeProvisional, { format: F }>;
+
+/** The default extraction recipe for every catalog format, so a caller selects
+ *  `recipes[format]` with no per-format switch. The EPUB default reads the
+ *  bodymatter partition; non-default partition selections use
+ *  `epubExtractionRecipe`. */
+export type DefaultExtractionRecipes = { readonly [F in SourceFormat]: ExtractionRecipeFor<F> };
 
 /** The default recipes are async because the decoder table hash is part of
  *  the identity — computed once and cached. */
-let defaultRecipes: Promise<{ txt: TxtExtractionRecipe; md: MdExtractionRecipe }> | null = null;
+let defaultRecipes: Promise<DefaultExtractionRecipes> | null = null;
 
-export function defaultExtractionRecipes(): Promise<{
-  txt: TxtExtractionRecipe;
-  md: MdExtractionRecipe;
-}> {
+export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
   defaultRecipes ??= (async () => {
     const tableHash = await windows1252TableHash();
     const decoder = {
@@ -309,14 +304,38 @@ export function defaultExtractionRecipes(): Promise<{
         },
         candidateReconstruction: 'text',
       },
+      epub: {
+        schema: 'texttrends/extraction-recipe/0-provisional',
+        format: 'epub',
+        extractor: {
+          id: 'standard-ebooks-epub-v1',
+          partitions: ['bodymatter'],
+          serializer: 'xhtml-block-collapse-v1',
+          sectioning: 'spine-order-v1',
+        },
+        candidateReconstruction: 'source',
+      },
+      html: {
+        schema: 'texttrends/extraction-recipe/0-provisional',
+        format: 'html',
+        extractor: {
+          id: 'html5-inert-v1',
+          decoder,
+          parser: 'parse5-v7',
+          serializer: 'html-block-collapse-v1',
+          sectioning: 'heading-order-v1',
+        },
+        candidateReconstruction: 'source',
+      },
     };
   })();
   return defaultRecipes;
 }
 
-/** The EPUB extraction recipe for the selected reading-order partitions —
- *  synchronous (no decoder table hash) and pure, so the worker builds it when
- *  staging an `.epub` and the manifest carries its exact identity. */
+/** The EPUB extraction recipe for a NON-DEFAULT reading-order partition
+ *  selection. Production staging uses `defaultExtractionRecipes()` for every
+ *  format (no partition-selection UI exists); this constructor is exercised by
+ *  tests until one does. Synchronous (no decoder table hash) and pure. */
 export function epubExtractionRecipe(
   partitions: readonly EbookPartition[] = ['bodymatter'],
 ): ExtractionRecipeProvisional {
@@ -338,41 +357,8 @@ export function epubExtractionRecipe(
   };
 }
 
-/** The HTML extraction recipe. Async because the shared byte-decoder policy
- *  embeds the windows-1252 table hash in the identity (as txt/md do). */
-export async function htmlExtractionRecipe(): Promise<ExtractionRecipeProvisional> {
-  const tableHash = await windows1252TableHash();
-  return {
-    schema: 'texttrends/extraction-recipe/0-provisional',
-    format: 'html',
-    extractor: {
-      id: 'html5-inert-v1',
-      decoder: {
-        id: 'bom-utf8-windows1252-v1',
-        bom: 'utf8-utf16le-utf16be-v1',
-        unicodeErrors: 'fatal',
-        fallback: 'windows-1252-whatwg-v1',
-        windows1252TableHash: tableHash,
-        newlineNormalization: 'none',
-      },
-      parser: 'parse5-v7',
-      serializer: 'html-block-collapse-v1',
-      sectioning: 'heading-order-v1',
-    },
-    candidateReconstruction: 'source',
-  };
-}
-
 export async function hashExtractionRecipe(recipe: ExtractionRecipeProvisional): Promise<string> {
-  return sha256Hex(canonicalJson(recipe as unknown as Parameters<typeof canonicalJson>[0]));
-}
-
-export async function hashSourceBytes(bytes: Uint8Array): Promise<string> {
-  // Cast for consumers type-checked against lib.dom's BufferSource (the
-  // core ambient takes Uint8Array): every caller passes ArrayBuffer-backed
-  // bytes.
-  const digest = await crypto.subtle.digest('SHA-256', bytes as Uint8Array<ArrayBuffer>);
-  return Array.from(new Uint8Array(digest), (b) => b.toString(16).padStart(2, '0')).join('');
+  return sha256Hex(canonicalJson(recipe));
 }
 
 /**
@@ -425,7 +411,14 @@ export type SourceDescriptorV1 =
   | ContainerSourceDescriptorV1
   | MarkupSourceDescriptorV1;
 
-/** The decoder/parser evidence recorded on every artifact. */
+/** Decode-quality evidence surfaced with an extraction. NOTE the per-format
+ *  semantics of `suspiciousControlCount` (admission only requires
+ *  `decoderReplacementCount === 0`, so this is advisory):
+ *  - txt/md: counted over the decoded text (the indexed text itself);
+ *  - html: counted over the RAW decoded markup source, tags included — a
+ *    signal about the input document, not the extracted text;
+ *  - epub: always 0 (the container's XHTML is parsed, never byte-decoded as
+ *    one stream, so no comparable count exists). */
 export interface ExtractionEvidence {
   readonly decoderReplacementCount: number;
   readonly suspiciousControlCount: number;
@@ -503,7 +496,7 @@ export async function decodeDocumentSource(
   recipe: ExtractionRecipeProvisional,
 ): Promise<DecodedDocument> {
   await validateExtractionRecipe(recipe);
-  if (recipe.format === 'epub' || recipe.format === 'html') {
+  if (!isLiteralFormat(recipe.format)) {
     throw new RangeError(`${recipe.format} is a transformed format and has no whole-file byte-decode path; extract it and finalize a transformed document`);
   }
   const source = await hashSourceBytes(bytes);
@@ -531,7 +524,6 @@ export type PreparedExtraction =
       readonly evidence: ExtractionEvidence;
     };
 
-const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number.isSafeInteger(v) && v >= 0;
 
 /**
  * The EXACT source-descriptor ABI — the SINGLE authority the transformed
@@ -542,22 +534,26 @@ const isNonNegInt = (v: unknown): v is number => typeof v === 'number' && Number
  * and format equal the ones it is being admitted against.
  */
 export function isValidSourceDescriptor(d: unknown, sourceHash: string, format: SourceFormat): d is SourceDescriptorV1 {
-  if (!isRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
+  if (!isStrictPlainRecord(d) || d.hash !== sourceHash || !isNonNegInt(d.byteLength) || d.format !== format) return false;
+  // The catalog is the ONE authority for the kind↔format pairing: the descriptor
+  // `kind` MUST be the one this format is declared to produce. A catalog edit
+  // propagates here instead of drifting from a second, restated format list.
+  if (!isSourceFormat(format) || d.kind !== SOURCE_FORMATS[format].sourceKind) return false;
   const encodingOk = (): boolean =>
     exactRecord(d.encoding, ['detected', 'hadReplacementChars']) &&
     (d.encoding as { hadReplacementChars: unknown }).hadReplacementChars === false &&
     DETECTED_ENCODINGS.has((d.encoding as { detected: unknown }).detected as string);
   if (d.kind === 'text') {
-    return (format === 'txt' || format === 'md') && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
   }
   if (d.kind === 'container') {
-    return format === 'epub' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) &&
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'container']) &&
       exactRecord(d.container, ['internalDecoding', 'documentCount']) &&
       (d.container as { internalDecoding: unknown }).internalDecoding === 'utf-8-strict' &&
       isNonNegInt((d.container as { documentCount: unknown }).documentCount);
   }
   if (d.kind === 'markup') {
-    return format === 'html' && exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
+    return exactRecord(d, ['kind', 'hash', 'byteLength', 'format', 'encoding']) && encodingOk();
   }
   return false;
 }
@@ -613,7 +609,7 @@ export async function finalizeExtraction(
   recipe: ExtractionRecipeProvisional,
 ): Promise<ExtractedDocument> {
   if (prepared.kind === 'literal') {
-    if (recipe.format === 'epub' || recipe.format === 'html') {
+    if (!isLiteralFormat(recipe.format)) {
       throw new RangeError(`${recipe.format} cannot use the literal extract path`);
     }
     const { decoded, source, byteLength } = prepared.decoded;
@@ -651,11 +647,13 @@ export async function finalizeExtraction(
 }
 
 /**
- * Extract a document: decode per policy, well-formedness gate, candidate
- * scan (md only). The convenience composition of decodeDocumentSource and
- * finalizeExtraction — cold extraction and the split worker path share one
- * artifact builder. Throws DecodeError for malformed BOM-declared Unicode or
- * lone-surrogate UTF-16; the caller maps that to DECODE_FAILED.
+ * TEST ORACLE — not a production entry point. Production extraction goes
+ * through `@texttrends/extractors`' `extractSource` (which enforces caps and
+ * runs the ownership hooks); this convenience composition of
+ * decodeDocumentSource + finalizeExtraction exists so tests can assert the
+ * split pipeline composes to exactly what the monolithic path produces, and
+ * as a fixture builder. Throws DecodeError for malformed BOM-declared Unicode
+ * or lone-surrogate UTF-16.
  */
 export async function extractDocument(
   bytes: Uint8Array,

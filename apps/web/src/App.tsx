@@ -7,7 +7,8 @@ import { useApp } from './lib/store-instance.ts';
 import { slotColor, slotDash } from './lib/series-style.ts';
 
 /** Term chip: the series' persistent identity (line sample + name) and the
- *  KWIC focus control. aria-pressed carries the focused state. */
+ *  CHART-emphasis control (concordance membership is the KwicPanel chips'
+ *  job, independent of focus). aria-pressed carries the focused state. */
 function SeriesChip({
   label,
   slot,
@@ -26,7 +27,7 @@ function SeriesChip({
       type="button"
       onClick={onFocus}
       aria-pressed={focused}
-      title={status === 'error' ? 'query failed' : `show concordance for “${label}”`}
+      title={status === 'error' ? 'query failed' : `emphasize “${label}” in the chart`}
       style={{
         font: 'inherit',
         fontFamily: 'var(--font-mono)',

@@ -1,10 +1,8 @@
-// texttrends CLI — Node adapter over @texttrends/core.
-//
-// Purpose (per the portable-core decision, synthesis §8.10): prove the core's
-// portability, run conformance fixtures and benchmarks headlessly, and offer
-// batch analysis with machine-readable output. Runs on Node's native type
-// stripping (invoke as `node packages/cli/src/main.ts`); a built distributable
-// with a `bin` entry comes later with real subcommands.
+// texttrends CLI — Node benchmark/portability harness over @texttrends/core
+// (per the portable-core decision, synthesis §8.10): prove the core runs
+// headlessly and measure it. Only `bench` exists today. Runs on Node's native
+// type stripping (invoke as `node packages/cli/src/main.ts`); a built
+// distributable with a `bin` entry comes later with real subcommands.
 
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';

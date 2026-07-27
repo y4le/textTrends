@@ -9,7 +9,7 @@
 
 import { WorkerClient, type SnapshotInfo } from '../lib/client.ts';
 import { RingTrace, type ProtocolTraceEvent } from '../lib/trace.ts';
-import type { GenerationDocSpecV4 } from '../worker/protocol-v4.ts';
+import type { GenerationDocSpecV4 } from '../shared/analysis-contract.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,

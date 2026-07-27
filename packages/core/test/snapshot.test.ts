@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  BuildGeneration,
-  IndexArtifactHash,
-  ProjectDocId,
-  StructureHash,
-} from '../src/contract/brands.ts';
-import { indexArtifactHash, rootOnlyStructure } from '../src/contract/identity.ts';
+import type { BuildGeneration, ProjectDocId, StructureHash } from '../src/contract/brands.ts';
+import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex } from '../src/index/build.ts';
 import { segment } from '../src/segment/intl.ts';
@@ -21,7 +16,7 @@ const GEN = 'gen-1' as BuildGeneration;
 
 async function readyDoc(id: string, text: string): Promise<ReadyDocument> {
   const shard = await createDocumentIndex(text, await segment(text, 'en'), DEFAULT_INDEX_RECIPE);
-  return makeReadyDocument(id as ProjectDocId, shard, rootOnlyStructure(shard.text, text.length));
+  return makeReadyDocument(id as ProjectDocId, shard, rootOnlyV2(text, shard.text));
 }
 
 describe('artifact identity', () => {
@@ -61,6 +56,30 @@ describe('composeSnapshot determinism', () => {
     const bRef = s.docs[1]!;
     // 'beta' is local id 1 in doc a and local id 0 in doc b — same corpus id.
     expect(aRef.localToCorpusType[1]).toBe(bRef.localToCorpusType[0]);
+  });
+
+  it('GOLDEN merge: declared order + overlap + a missing doc pin the exact key/translation assignment', async () => {
+    // Pass-2 contested-item ruling: composeSnapshot and validateSnapshot keep
+    // INDEPENDENT merge implementations (the validator is the verification
+    // authority); drift between them is mitigated by pinning the exact merge
+    // output here, not by sharing production code. If this fails, one of the
+    // two implementations changed the canonical merge — reconcile them, never
+    // weaken this expectation.
+    const a = await readyDoc('a', 'alpha beta');
+    const c = await readyDoc('c', 'beta gamma alpha');
+    // 'b' is declared but not ready — the merge must skip it and record it.
+    const s = await composeSnapshot(GEN, ['a', 'b', 'c'] as ProjectDocId[], new Map([[a.doc, a], [c.doc, c]]));
+    expect(s.vocabulary.keys).toEqual(['alpha', 'beta', 'gamma']); // declared-order interning
+    expect(s.missingDocs).toEqual(['b']);
+    expect(s.docs.map((d) => d.doc)).toEqual(['a', 'c']);
+    // Exact per-doc translations: a's locals [alpha, beta] → [0, 1];
+    // c's locals [beta, gamma, alpha] → [1, 2, 0].
+    expect(Array.from(s.docs[0]!.localToCorpusType)).toEqual([0, 1]);
+    expect(Array.from(s.docs[1]!.localToCorpusType)).toEqual([1, 2, 0]);
+    // And the independent validator accepts exactly this assignment.
+    await expect(
+      validateSnapshot(s, new Map([[a.doc, a.shard], [c.doc, c.shard]])),
+    ).resolves.toBeUndefined();
   });
 
   it('reordering changes only order, bases, and id — not translations', async () => {
@@ -126,7 +145,7 @@ describe('composeSnapshot determinism', () => {
     const shard = await createDocumentIndex('a b', await segment('a b', 'en'), DEFAULT_INDEX_RECIPE);
     const other = await createDocumentIndex('c d', await segment('c d', 'en'), DEFAULT_INDEX_RECIPE);
     await expect(
-      makeReadyDocument('a' as ProjectDocId, shard, rootOnlyStructure(other.text, 3)),
+      makeReadyDocument('a' as ProjectDocId, shard, rootOnlyV2('c d', other.text)),
     ).rejects.toThrow(/different text/);
   });
 
@@ -166,13 +185,6 @@ describe('composeSnapshot determinism', () => {
     await expect(
       composeSnapshot(GEN, ['a'] as ProjectDocId[], new Map([[forged.doc, forged]])),
     ).rejects.toThrow(/stale structure identity/);
-  });
-
-  it('rootOnlyStructure honors the exact cap boundary', async () => {
-    const a = await readyDoc('a', 'x');
-    const cap = 2 ** 32 - 2;
-    expect(() => rootOnlyStructure(a.shard.text, cap)).not.toThrow();
-    expect(() => rootOnlyStructure(a.shard.text, cap + 1)).toThrow(RangeError);
   });
 
   it('resolveSelection returns the canonical contract spec; equivalent inputs are identical', async () => {
@@ -272,13 +284,6 @@ describe('composeSnapshot determinism', () => {
     const shards = new Map([[a.doc, a.shard]]);
     await expect(validateSnapshot(s, shards, tiny)).rejects.toThrow(/vocabulary exceeds/);
     await expect(validateSnapshot(s, shards, tinyTokens)).rejects.toThrow(/corpus token cap/);
-  });
-
-  it('rootOnlyStructure validates its text length', async () => {
-    const a = await readyDoc('a', 'x');
-    expect(() => rootOnlyStructure(a.shard.text, -1)).toThrow(RangeError);
-    expect(() => rootOnlyStructure(a.shard.text, 1.5)).toThrow(RangeError);
-    expect(() => rootOnlyStructure(a.shard.text, 0)).not.toThrow();
   });
 
   it('rejects duplicate expectedDocs and unknown ready docs', async () => {

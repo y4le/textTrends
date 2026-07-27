@@ -43,6 +43,56 @@ afterEach(() => {
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
+describe('WorkerClient close()', () => {
+  it('rejects every pending request typed, terminates the Worker, and is NOT revivable', async () => {
+    const client = new WorkerClient();
+    const query = client.query('snap', { op: 'trend' } as never);
+    const load = client.projectLoad('p');
+    client.close();
+    await expect(query.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_TERMINATED' });
+    await expect(load.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_TERMINATED' });
+    expect(FakeWorker.instances.at(-1)!.terminated).toBe(true);
+    // Unlike restart exhaustion, openGeneration must NOT revive a closed
+    // client — teardown (disposal/HMR) is terminal.
+    const open = client.openGeneration('g', [], DEFAULT_INDEX_RECIPE);
+    await expect(open.result).rejects.toMatchObject({ code: 'WORKER_TERMINATED' });
+    expect(FakeWorker.instances.length).toBe(1); // no replacement Worker spawned
+  });
+
+  it('fences straggling events: a message from the terminated instance is ignored', () => {
+    const client = new WorkerClient();
+    const phases: string[] = [];
+    client.onProgress((p) => phases.push(p.phase));
+    const worker = FakeWorker.instances.at(-1)!;
+    // Delivered before close: proves the listener/event pair is actually live.
+    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'progress', job: 1, generation: 'g', phase: 'decode', doc: 'a' } });
+    expect(phases).toEqual(['decode']);
+    client.close();
+    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'progress', job: 1, generation: 'g', phase: 'extract', doc: 'a' } });
+    expect(phases).toEqual(['decode']); // listeners cleared
+    // Re-register AFTER close: only the worker-epoch fence can block delivery
+    // now, so this pins the fence independently of listener clearing.
+    client.onProgress((p) => phases.push(p.phase));
+    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'progress', job: 1, generation: 'g', phase: 'segment', doc: 'a' } });
+    expect(phases).toEqual(['decode']); // epoch fenced
+  });
+
+  it('a synchronous post failure in query()/openGeneration() rejects typed and never throws', async () => {
+    const client = new WorkerClient();
+    const worker = FakeWorker.instances.at(-1)!;
+    worker.postMessage = () => {
+      throw new DOMException('detached', 'DataCloneError');
+    };
+    const q = client.query('snap', { op: 'trend' } as never);
+    await expect(q.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_POST_FAILED' });
+    const open = client.openGeneration('g', [], DEFAULT_INDEX_RECIPE);
+    await expect(open.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_POST_FAILED' });
+    // The cancel closures are best-effort no-throw even though posting fails.
+    expect(() => q.cancel()).not.toThrow();
+    expect(() => open.cancel()).not.toThrow();
+  });
+});
+
 describe('WorkerClient restart machinery', () => {
   it('bounded restarts: each death respawns until the budget is exhausted, then fatal', () => {
     const restarts: boolean[] = [];
@@ -66,7 +116,6 @@ describe('WorkerClient restart machinery', () => {
     // The old failure mode: this posted into a terminated worker and the
     // promise stayed pending forever (review P2).
     await expect(client.query('snap', { op: 'trend' } as never).result).rejects.toThrow('WORKER_TERMINATED');
-    await expect(client.excerpt('snap', 'a', 0, 1)).rejects.toThrow('WORKER_TERMINATED');
     const errors: string[] = [];
     client.onIngestError((_g, message) => errors.push(message));
     client.ingest('gen', 'a', new ArrayBuffer(1));
@@ -372,7 +421,8 @@ describe('WorkerClient user-data seam (v4)', () => {
     expect(cancelPost).toMatchObject({ t: 'cancel', job });
     // The worker acknowledges the cancel before its durable read completes.
     worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'cancelled', job } });
-    await expect(load.result).rejects.toThrow('cancelled');
+    // The rejection is the TYPED discriminant (code), not a message contract.
+    await expect(load.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'CANCELLED' });
   });
 
   it('a synchronous postMessage failure rejects the request and leaves NO dangling pending entry', async () => {

@@ -3,8 +3,8 @@
  *
  * PROVISIONAL NAMESPACE: the index recipe is still
  * 'texttrends/index-recipe/0-provisional', so every record in this database
- * is disposable by design. The database name carries 'index0-provisional';
- * the trailing 'db1' is the DATABASE LAYOUT version, not IndexRecipeV1.
+ * is disposable by design. The database name's trailing 'db2' is the DATABASE
+ * LAYOUT version, not IndexRecipeV1.
  * Recipe graduation opens a NEW database name and never reads provisional
  * records as canonical — there will never be a migration of these records.
  *
@@ -22,8 +22,9 @@
  */
 
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
+import { isRecord } from '@texttrends/core';
 import type { DocumentIndexV1 } from '@texttrends/core';
-import type { StorageWarningCodeV4 as StorageWarningCode } from './protocol-v4.ts';
+import type { StorageWarningCode } from '../shared/storage-contract.ts';
 import {
   InMemoryArtifactStore,
   type ArtifactStore,
@@ -98,8 +99,6 @@ interface ArtifactDb extends DBSchema {
   };
 }
 
-const isRecord = (v: unknown): v is Record<string, unknown> =>
-  v !== null && typeof v === 'object';
 
 /** Shallow storage-envelope validation for a text record. */
 function checkTextEnvelope(record: unknown, hash: string): string | null {

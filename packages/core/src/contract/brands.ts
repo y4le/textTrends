@@ -33,7 +33,6 @@ export interface HalfOpenRange<T> {
   readonly start: T;
   readonly end: T;
 }
-export type TokenRange = HalfOpenRange<DocTokenPos>;
 export type CharRange = HalfOpenRange<Utf16Offset>;
 
 /** Typed cap violation — protocol adapters map this to CAP_EXCEEDED without

@@ -17,7 +17,6 @@ import {
   finalizeExtraction,
   hashExtractionRecipe,
   hashSourceBytes,
-  htmlExtractionRecipe,
   hashStructureCandidates,
   hashText,
   scanMarkdownHeadings,
@@ -233,7 +232,10 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
     candidates?: readonly { kind: string; level: number; title: string; chars: { start: number; end: number } }[];
     format?: string;
     documentCount?: number;
-  } = {}): Promise<{ prepared: PreparedExtraction; recipe: ReturnType<typeof epubExtractionRecipe> }> {
+  } = {}): Promise<{
+    prepared: Extract<PreparedExtraction, { kind: 'transformed' }>;
+    recipe: ReturnType<typeof epubExtractionRecipe>;
+  }> {
     const text = overrides.text ?? 'Chapter One\n\nThe body of the chapter.';
     const bytes = utf8('PK pretend epub bytes');
     const hash = await hashSourceBytes(bytes);
@@ -251,7 +253,7 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
         { kind: 'epub-section', level: 1, title: 'Chapter One', chars: { start: 0, end: 11 } },
       ],
       evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
-    } as unknown as PreparedExtraction;
+    } as unknown as Extract<PreparedExtraction, { kind: 'transformed' }>;
     return { prepared, recipe: epubExtractionRecipe(['bodymatter']) };
   }
 
@@ -293,7 +295,7 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
     const withExtraEvidenceField = { ...base.prepared, evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0, extra: 1 } };
     await expect(finalizeExtraction(withExtraEvidenceField as never, recipe)).rejects.toThrow(RangeError);
     // A markup (html) descriptor with a bogus detected encoding is inadmissible.
-    const htmlRecipe = await htmlExtractionRecipe();
+    const htmlRecipe = (await defaultExtractionRecipes()).html;
     const bogusEncoding = {
       kind: 'transformed',
       source: { kind: 'markup', hash: 'e'.repeat(64), byteLength: 3, format: 'html', encoding: { detected: 'klingon', hadReplacementChars: false } },
@@ -339,15 +341,15 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
 });
 
 describe('html extraction recipe + markup transformed finalize', () => {
-  it('htmlExtractionRecipe validates and is source-reconstructed', async () => {
-    const recipe = await htmlExtractionRecipe();
+  it('the default html recipe validates and is source-reconstructed', async () => {
+    const recipe = (await defaultExtractionRecipes()).html;
     expect(recipe.format).toBe('html');
     expect(recipe.candidateReconstruction).toBe('source');
-    expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe(await htmlExtractionRecipe()));
+    expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe((await defaultExtractionRecipes()).html));
   });
 
   it('a markup transformed input builds a self-consistent artifact', async () => {
-    const recipe = await htmlExtractionRecipe();
+    const recipe = (await defaultExtractionRecipes()).html;
     const text = 'Heading\n\nParagraph text about owls.';
     const bytes = utf8('<html><body><h1>Heading</h1><p>Paragraph text about owls.</p></body></html>');
     const hash = await hashSourceBytes(bytes);
@@ -365,7 +367,7 @@ describe('html extraction recipe + markup transformed finalize', () => {
   });
 
   it('deriveCandidatesFromText refuses an html recipe', async () => {
-    await expect(deriveCandidatesFromText('<h1>x</h1>', await htmlExtractionRecipe())).rejects.toThrow(RangeError);
+    await expect(deriveCandidatesFromText('<h1>x</h1>', (await defaultExtractionRecipes()).html)).rejects.toThrow(RangeError);
   });
 });
 

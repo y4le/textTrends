@@ -1,5 +1,8 @@
 # Reviewed Phase 1 plan: worker adapter, snapshots, and first query surface
 
+*STATUS (2026-07-24): dated consult record. The root-only
+`StructureArtifactV1` sketched here was since deleted (V2 is the only
+structure schema). Where shapes disagree with the code, the code governs.*
 ## Executive recommendation
 
 Proceed with the worker-owned architecture, but change the sequencing before implementation. The proposed package split is right:

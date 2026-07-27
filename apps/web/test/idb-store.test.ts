@@ -169,6 +169,21 @@ describe('IdbArtifactStore', () => {
     store.close();
   });
 
+  it('an ARRAY-shaped record is corrupt even when it carries the envelope properties (C5 hardening)', async () => {
+    const store = await open();
+    const db = await openDB(ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION);
+    // structuredClone preserves named enumerable properties on arrays, so a
+    // malformed writer COULD store one carrying every discriminant — the
+    // envelope guard rejects the shape itself (cache policy: corrupt → the
+    // artifact is recomputed; nothing depends on the record).
+    const arrayRecord = Object.assign([], { schema: 'texttrends/stored-text/1', hash: 'ah', text: 'smuggled' });
+    await db.put('texts', arrayRecord as never);
+    db.close();
+    const read = await store.getText('ah');
+    expect(read.kind).toBe('corrupt');
+    store.close();
+  });
+
   it('a write failure disables further writes but leaves reads working', async () => {
     const warnings: Warning[] = [];
     const store = await open(warnings);

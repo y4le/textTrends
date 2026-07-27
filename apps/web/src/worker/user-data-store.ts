@@ -24,7 +24,7 @@
  */
 
 import type { ProjectManifestV1 } from '@texttrends/core';
-import type { CacheRead } from './store.ts';
+import type { CacheRead } from '../shared/storage-contract.ts';
 
 export type UserDataErrorCode =
   | 'PERSISTENCE_UNAVAILABLE'
@@ -77,7 +77,10 @@ export interface UserDataStore {
 
   getSource(hash: string): Promise<CacheRead<StoredSourceV1>>;
   putSource(source: StoredSourceV1): Promise<void>;
-  deleteSource(hash: string): Promise<void>;
+  // Deliberately NO deleteSource: there is no unpersist/delete product command,
+  // and a persisted source is the user's only durable copy — the engine's
+  // "never repair-delete a durable source" invariant is enforced by this
+  // interface having no delete at all.
 
   close(): void;
 }
@@ -161,11 +164,6 @@ export class InMemoryUserDataStore implements UserDataStore {
     this.assertOpen();
     this.sources.set(source.hash, source);
   }
-  async deleteSource(hash: string): Promise<void> {
-    this.assertOpen();
-    this.sources.delete(hash);
-  }
-
   close(): void {
     this.closed = true;
   }

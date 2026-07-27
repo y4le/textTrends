@@ -60,14 +60,9 @@ interface ReadySeries {
   readonly trend: NumericTrend;
 }
 
-function shortTitle(doc: string): { n: string | null; title: string } {
-  const m = /^(\d+) - (.*?)(?: - Arthur Conan Doyle)?$/.exec(doc);
-  if (m) return { n: m[1]!, title: m[2]! };
-  return { n: null, title: doc };
-}
-
 export function TrendPanel() {
   const series = useApp((s) => s.series);
+  const project = useApp((s) => s.projectSession?.project ?? null);
   const trends = useApp((s) => s.trends);
   const trendView = useApp((s) => s.trendView);
   const focusedSeries = useApp((s) => s.focusedSeries);
@@ -141,8 +136,17 @@ export function TrendPanel() {
   // take it from the first ready result.
   const geo = ready[0]!.trend;
   const docs = geo.order;
+  // Presentation titles come from the project's document metadata — doc ids
+  // are opaque identity (user projects use UUIDs). Ordinals are reading-order.
+  const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
+  const titles = docs.map((doc) => titleByDoc.get(doc) ?? doc);
   const bins = docs.length === 0 ? 0 : geo.binIndex.length / docs.length;
-  const bases = geo.sequenceBases ?? docs.map((_, d) => d * (geo.docTokenCount[d] ?? 0));
+  // The store always requests declared-sequence coordinates, so the kernel
+  // always returns sequenceBases — a null here is an invariant violation, and
+  // the old ad-hoc fallback (d * count[d]) was NOT a prefix sum and would have
+  // silently mislaid every x-position had it ever run.
+  if (!geo.sequenceBases) throw new Error('trend result missing sequenceBases (declared-sequence is the only requested coordinate)');
+  const bases = geo.sequenceBases;
   const layout: SequenceLayout = {
     bases,
     tokenCounts: geo.docTokenCount,
@@ -244,7 +248,7 @@ export function TrendPanel() {
     passage.doc === scrub.doc &&
     scrub.token >= passage.tokens.start &&
     scrub.token < passage.tokens.end;
-  const scrubTitle = scrub ? shortTitle(scrub.doc).title : '';
+  const scrubTitle = scrub ? titleByDoc.get(scrub.doc) ?? scrub.doc : '';
   const scrubCaption = scrub && scrubDocOrdinal >= 0
     ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(geo.docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
     : '';
@@ -293,6 +297,7 @@ export function TrendPanel() {
           <SeriesView
             ready={ready}
             docs={docs}
+            titles={titles}
             bins={bins}
             bases={bases}
             maxRate={maxRate}
@@ -306,6 +311,7 @@ export function TrendPanel() {
           <ByBookView
             ready={ready}
             docs={docs}
+            titles={titles}
             bins={bins}
             maxRate={maxRate}
             plotW={plotW}
@@ -384,12 +390,12 @@ export function TrendPanel() {
         </thead>
         <tbody>
           {docs.map((doc, d) => {
-            const { n, title } = shortTitle(doc);
+            const title = titles[d] ?? doc;
             const tokens = bookTokens(d);
             return (
               <tr key={doc} style={{ borderTop: '1px solid var(--rule)' }}>
                 <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch', whiteSpace: 'nowrap' }}>
-                  {n ? `${n} · ${title}` : title}
+                  {`${d + 1} · ${title}`}
                 </th>
                 <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
                   {tokens.toLocaleString()}
@@ -442,6 +448,7 @@ function Cells({ count, rate }: { count: number; rate: number }) {
 function SeriesView({
   ready,
   docs,
+  titles,
   bins,
   bases,
   maxRate,
@@ -453,6 +460,7 @@ function SeriesView({
 }: {
   ready: readonly ReadySeries[];
   docs: readonly string[];
+  titles: readonly string[];
   bins: number;
   bases: readonly number[];
   maxRate: number;
@@ -496,8 +504,9 @@ function SeriesView({
       {docs.map((doc, d) => {
         const x0 = x(bases[d] ?? 0);
         const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
-        const { n, title } = shortTitle(doc);
-        const label = (x1 - x0) > 7 * (title.length + (n ? 4 : 0)) ? (n ? `${n} · ${title}` : title) : n ?? '·';
+        const title = titles[d] ?? doc;
+        const n = String(d + 1);
+        const label = (x1 - x0) > 7 * (title.length + 4) ? `${n} · ${title}` : n;
         return (
           <g key={doc}>
             {d > 0 && (
@@ -607,7 +616,7 @@ function SeriesView({
           const { start, end } = binSpan(tokens, bins, b);
           const x0 = x((bases[d] ?? 0) + start);
           const w = Math.max(1, x((bases[d] ?? 0) + end) - x0);
-          const { title } = shortTitle(doc);
+          const title = titles[d] ?? doc;
           const lines = ready
             .map((r) => {
               const iRow = d * bins + b;
@@ -628,6 +637,7 @@ function SeriesView({
 function ByBookView({
   ready,
   docs,
+  titles,
   bins,
   maxRate,
   plotW,
@@ -640,6 +650,7 @@ function ByBookView({
 }: {
   ready: readonly ReadySeries[];
   docs: readonly string[];
+  titles: readonly string[];
   bins: number;
   maxRate: number;
   plotW: number;
@@ -663,7 +674,7 @@ function ByBookView({
     >
       {docs.map((doc, d) => {
         const rowY = d * (ROW_HEIGHT + ROW_GAP);
-        const { n, title } = shortTitle(doc);
+        const title = titles[d] ?? doc;
         return (
           <g key={doc}>
             <line x1={0} y1={rowY + ROW_HEIGHT} x2={plotW} y2={rowY + ROW_HEIGHT} stroke="var(--rule)" strokeWidth={1} />
@@ -718,7 +729,7 @@ function ByBookView({
               fontSize="var(--text-xs)"
               fontFamily="var(--font-mono)"
             >
-              {n ? `${n} · ` : ''}{title.slice(0, 16)}
+              {`${d + 1} · `}{title.slice(0, 16)}
               <title>{title}</title>
             </text>
             {Array.from({ length: bins }, (_, b) => {

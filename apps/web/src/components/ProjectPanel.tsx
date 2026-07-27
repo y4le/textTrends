@@ -13,6 +13,7 @@
 
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import { SOURCE_FILE_ACCEPT } from '../lib/project.ts';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import type { SourceStatus, UserSaveState } from '../lib/project-session.ts';
 
@@ -20,7 +21,15 @@ function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
     case 'bundled': return 'bundled';
     case 'external-attached': return `attached · ${status.name}`;
-    case 'external-missing': return 'source missing';
+    case 'external-missing':
+      // Reattach-vs-repair must read differently: an external file simply
+      // needs re-picking; a damaged/absent DURABLE copy is data needing repair.
+      switch (status.repair) {
+        case 'external-not-attached': return 'source missing — reattach the file';
+        case 'persisted-missing': return 'persisted copy missing — reattach to repair';
+        case 'persisted-corrupt': return 'persisted copy damaged — reattach to repair';
+        case 'rehydrate-failed': return 'persisted copy unreadable — reattach to repair';
+      }
     case 'persist-saving': return 'persisting…';
     case 'persist-failed': return `persist failed: ${status.message}`;
     case 'persisted': return 'persisted';
@@ -103,7 +112,7 @@ export function ProjectPanel() {
             ref={importRef}
             type="file"
             multiple
-            accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
+            accept={SOURCE_FILE_ACCEPT}
             aria-label={importLabel}
             onChange={(e) => onImport(e.target.files)}
             style={{ display: 'none' }}
@@ -156,7 +165,7 @@ export function ProjectPanel() {
                   reattach…
                   <input
                     type="file"
-                    accept=".txt,.md,.markdown,.epub,.html,.htm,.xhtml"
+                    accept={SOURCE_FILE_ACCEPT}
                     aria-label={`Reattach source for ${doc.meta.title}`}
                     onChange={(e) => {
                       const f = e.target.files?.[0];

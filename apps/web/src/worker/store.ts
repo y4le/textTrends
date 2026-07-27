@@ -16,6 +16,7 @@
  *   type must not claim more trust than the boundary has earned.
  */
 
+import type { CacheRead } from '../shared/storage-contract.ts';
 import type { DocumentIndexV1 } from '@texttrends/core';
 
 /** Identity tuple for a cached document index. `segmenter` is the canonical
@@ -46,10 +47,7 @@ export interface StructureCacheKey {
   readonly override: string;
 }
 
-export type CacheRead<T> =
-  | { readonly kind: 'miss' }
-  | { readonly kind: 'hit'; readonly value: T }
-  | { readonly kind: 'corrupt'; readonly reason: string };
+export type { CacheRead } from '../shared/storage-contract.ts';
 
 /**
  * Class-3 disposable artifact storage (content-addressed, recomputable).

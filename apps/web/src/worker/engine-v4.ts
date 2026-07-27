@@ -33,6 +33,7 @@ import {
   DependencyError,
   INGEST_CAPS_V0,
   bindSectionId,
+  hashSourceBytes,
   bindShards,
   bindTexts,
   buildDetectedSections,
@@ -41,16 +42,13 @@ import {
   composeSnapshot,
   composeStructure,
   createDocumentIndex,
-  decodeDocumentSource,
   deriveCandidatesFromText,
   emptyOverride,
-  finalizeExtraction,
   lineWindowAround,
   fingerprint,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashSegmenterFingerprint,
-  hashSourceBytes,
   hashStructureOverride,
   hashStructureRecipe,
   hashText,
@@ -58,8 +56,10 @@ import {
   makeReadyDocument,
   materializeKwicPage,
   materializePassage,
+  MAX_KWIC_TRACKS,
   modeKey,
   occurrences,
+  termGroupIdentity,
   type NumericOccurrences,
   planPassage,
   projectSections,
@@ -67,10 +67,8 @@ import {
   segment,
   tokenEndChar,
   trend,
-  upgradeStoredManifest,
   validateExtractionArtifact,
   validateExtractionRecipe,
-  validateProjectManifest,
   validateShardStructure,
   validateStructureArtifactV2,
   type BoundShards,
@@ -87,6 +85,7 @@ import {
   type Resolver,
   StructureCapError,
   StructureError,
+  type SourceDescriptorV1,
   type StructureArtifactV2,
   type StructureOverrideV1,
   type StructureRecipeProvisional,
@@ -102,35 +101,22 @@ import {
   type OverrideInputV4,
   type EditSectionRow,
   type QueryOpV4,
-  type SourceDescriptorV4,
   type StorageWarningCodeV4,
-  type ToWorkerV4,
-  type UserDataErrorCodeV4,
   type WarmMissReasonV4,
   type WireSection,
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
-import { extractEpubDocument } from './epub-extract.ts';
-import { extractHtmlDocument } from './html-extract.ts';
-import { TransformedExtractionError } from './transformed-extract.ts';
+import { extractSource, ExtractionFailure, type ExtractionLimits } from '@texttrends/extractors';
 import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
-import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
 
 type EmitV4 = (message: FromWorkerV4, transfers?: readonly Transferable[]) => void;
 type Yield = () => Promise<void>;
 
-/**
- * The durable user-data access seam (engine-v4 consult §Q2). The engine never
- * requires a durable store to CONSTRUCT — analysis must start without it. Only
- * a user-data command awaits the provider; the provider memoizes the (single,
- * bounded) open so repeated commands do not re-open.
- */
-export type UserDataAccess =
-  | { readonly kind: 'ok'; readonly store: UserDataStore }
-  | { readonly kind: 'blocked'; readonly message: string }
-  | { readonly kind: 'unavailable'; readonly message: string };
-export type UserDataProvider = () => Promise<UserDataAccess>;
+// The durable user-data seam types live with the extracted handler; re-export
+// so the worker shell and tests keep one engine import.
+export type { UserDataAccess, UserDataProvider } from './user-data-handler.ts';
+import { UserDataHandler, type UserDataProvider } from './user-data-handler.ts';
 
 /** Bail-out sentinels caught at the dispatch boundary and swallowed:
  *  CANCELLED aborts the whole job (a `cancelled`/error was already emitted);
@@ -209,9 +195,13 @@ interface GenerationStateV4 {
   readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
   /** Ephemeral per-track occurrence cache for KWIC re-centering. A re-center
    *  changes only the sort/page (`center`), never the occurrence sets, so the
-   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash, GroupId]
-   *  — the coordinates that FULLY determine a `NumericOccurrences`. Dropped with
-   *  the generation; superseded snapshots key distinctly and never collide. */
+   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash,
+   *  termGroupIdentity] — the group's canonical MATCHING identity, NOT its
+   *  caller-owned `group.id` (which can collide across groups that resolve
+   *  differently). Insertion order is the LRU recency order; the KWIC handler
+   *  caps it at MAX_KWIC_TRACKS on every write so concurrent/interleaving jobs
+   *  cannot grow it. Dropped with the generation; superseded snapshots key
+   *  distinctly and never collide. */
   readonly kwicOccCache: Map<string, NumericOccurrences>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
@@ -280,20 +270,6 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
 
-/** Extract a transformed (container/markup) format from bytes → an
- *  ExtractedDocument, dispatching by format. The epub archive limit is a
- *  multiple of the per-document text cap (compressed OPF/XHTML inflates); html's
- *  output is bounded by the text cap directly. */
-function extractTransformed(
-  bytes: Uint8Array,
-  recipe: Extract<ExtractionRecipeProvisional, { format: 'epub' | 'html' }>,
-  maxTextUtf16PerDoc: number,
-) {
-  return recipe.format === 'html'
-    ? extractHtmlDocument(bytes, recipe, maxTextUtf16PerDoc)
-    : extractEpubDocument(bytes, recipe, maxTextUtf16PerDoc * 4);
-}
-
 /** Hard ceiling on a line-excerpt window so a caller cannot request an
  *  unbounded slice of a pathological physical line (§4). */
 const LINE_EXCERPT_MAX_CHARS = 4096;
@@ -301,6 +277,7 @@ const LINE_EXCERPT_MAX_CHARS = 4096;
 export class WorkerEngineV4 {
   private readonly store: ArtifactStore;
   private readonly userData: UserDataProvider;
+  private readonly userDataHandler: UserDataHandler;
   private readonly emit: EmitV4;
   private readonly yieldControl: Yield;
   private generation: GenerationStateV4 | null = null;
@@ -318,6 +295,23 @@ export class WorkerEngineV4 {
     this.emit = emit;
     this.yieldControl = yieldControl;
     this.caps = caps;
+    // The user-data lane is a separate subsystem (own error channel, no
+    // generation state) — the engine keeps only job bookkeeping and dispatch.
+    this.userDataHandler = new UserDataHandler({
+      provider: userData,
+      maxSourceBytesPerFile: caps.maxSourceBytesPerFile,
+      isCancelled: (job) => this.cancelledJobs.has(job),
+      emit: (m) => this.emit(m),
+    });
+  }
+
+  /** The per-document extraction limits `extractSource` enforces — the output
+   *  text cap (all formats) and the decompressed-archive input cap (epub). */
+  private extractionLimits(): ExtractionLimits {
+    return {
+      maxTextUtf16PerDoc: this.caps.maxTextUtf16PerDoc,
+      maxArchiveInflatedBytesPerDoc: this.caps.maxArchiveInflatedBytesPerDoc,
+    };
   }
 
   async handle(raw: unknown): Promise<void> {
@@ -348,26 +342,27 @@ export class WorkerEngineV4 {
         case 'query':
           await this.query(message.job, message.snapshot, message.query);
           return;
-        case 'excerpt':
-          this.excerpt(message.job, message.snapshot, message.doc, message.charStart, message.charEnd);
-          return;
         case 'cancel':
           if (this.activeJobs.has(message.job)) this.cancelledJobs.add(message.job);
           return;
         case 'project-load':
         case 'project-save':
         case 'source-persist':
-          await this.handleUserData(message);
+          await this.userDataHandler.handle(message);
           return;
         default: {
+          // Unreachable: parseToWorkerV4 maps every unknown tag to null and
+          // handle() emits PARSE_FAILED before dispatch. Kept for compile-time
+          // exhaustiveness only.
           const unknown: never = message;
-          this.emitError('UNKNOWN_OP', { job: (unknown as { job?: number }).job, message: 'unknown message type', recoverable: true });
+          void unknown;
           return;
         }
       }
     } catch (e) {
       if (e === CANCELLED || e === SUPERSEDED) return;
-      this.emit({ v: PROTOCOL_VERSION_V4, t: 'error', ...(job === undefined ? {} : { job }), ...mapError(e), recoverable: true });
+      const m = mapError(e);
+      this.emitError(m.code, { ...(job === undefined ? {} : { job }), message: m.message, recoverable: true });
     } finally {
       if (job !== undefined && message.t !== 'cancel') {
         this.activeJobs.delete(job);
@@ -447,25 +442,11 @@ export class WorkerEngineV4 {
       } catch (e) {
         if (e === SUPERSEDED) continue; // an ingest claimed this doc mid-probe
         if (e === CANCELLED) throw e;
-        if (e instanceof ExtractionMismatchError) {
-          // A deterministic candidate contradiction is TERMINAL — bytes cannot
-          // repair it, so report it and do NOT list it as a byte miss.
-          this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
-          continue;
+        if (!this.emitTerminalWarmFailure(e, job, generation)) {
+          // A failed warm attempt falls back to the byte path; a real fault
+          // will surface with full context on the cold ingest.
+          misses.push({ doc, need: 'source-bytes', reason: 'rehydrate-failed' });
         }
-        if (e instanceof CapError || e instanceof StructureCapError) {
-          this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
-          continue;
-        }
-        if (e instanceof StructureError) {
-          // A malformed override / invalid table is TERMINAL — bytes cannot
-          // repair it, so it is never downgraded to a rehydrate miss.
-          this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
-          continue;
-        }
-        // A failed warm attempt falls back to the byte path; a real fault will
-        // surface with full context on the cold ingest.
-        misses.push({ doc, need: 'source-bytes', reason: 'rehydrate-failed' });
       }
     }
 
@@ -489,19 +470,9 @@ export class WorkerEngineV4 {
       } catch (e) {
         if (e === SUPERSEDED) continue;
         if (e === CANCELLED) throw e;
-        if (e instanceof ExtractionMismatchError) {
-          this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
-          continue;
+        if (!this.emitTerminalWarmFailure(e, job, generation)) {
+          misses.push({ doc: work.plan.doc, need: 'source-bytes', reason: 'rehydrate-failed' });
         }
-        if (e instanceof CapError || e instanceof StructureCapError) {
-          this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
-          continue;
-        }
-        if (e instanceof StructureError) {
-          this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
-          continue;
-        }
-        misses.push({ doc: work.plan.doc, need: 'source-bytes', reason: 'rehydrate-failed' });
       }
     }
 
@@ -569,10 +540,13 @@ export class WorkerEngineV4 {
         throw new CapError(`document '${spec.doc}' source of ${spec.source.byteLength} bytes exceeds the per-file cap`);
       }
       sourceBytesTotal += spec.source.byteLength;
-      // A fresh import has no `expectedTextLengthUtf16` yet, but every supported
-      // encoding decodes to at most `byteLength` UTF-16 units, so the byte count
-      // is a sound upper bound on its text — contributing it keeps the project
-      // text cap enforced for fresh imports (contract §12.9).
+      // A fresh import has no `expectedTextLengthUtf16` yet, so `byteLength`
+      // stands in — a sound bound for byte-decoded/markup formats (txt/md/html)
+      // but an UNDERESTIMATE for a compressed epub. This preflight is a
+      // best-effort declared-total guard; the AUTHORITATIVE text-cap check runs
+      // on the ACTUAL decoded length at ingest (below / at publish), where an
+      // over-large doc fails CAP_EXCEEDED and degrades to a missing doc
+      // (contract §12.9).
       const declaredTextUtf16 = spec.extraction.expectedTextLengthUtf16 ?? spec.source.byteLength;
       if (declaredTextUtf16 > this.caps.maxTextUtf16PerDoc) {
         throw new CapError(`document '${spec.doc}' declared text exceeds the per-document UTF-16 cap`);
@@ -633,14 +607,12 @@ export class WorkerEngineV4 {
       return this.probeFromSource(job, plan, token, 'extraction-miss');
     }
     const read = await this.store.getText(plan.expectedText);
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (read.kind === 'miss') return this.probeFromSource(job, plan, token, 'extraction-miss');
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' is corrupt (${read.reason}); deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       return this.probeFromSource(job, plan, token, 'extraction-miss');
     }
     // The stored text must HASH to its asserted identity — a record under the
@@ -652,13 +624,11 @@ export class WorkerEngineV4 {
     } catch {
       actual = null; // ill-formed UTF-16 is corruption
     }
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (actual !== plan.expectedText) {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' does not hash to its key; deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       return this.probeFromSource(job, plan, token, 'extraction-miss');
     }
     const textHash = plan.expectedText;
@@ -688,16 +658,14 @@ export class WorkerEngineV4 {
       // the verified text (the current recipes define candidates as a pure
       // function of decoded text + recipe).
       const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       candidateHash = bundle.candidateHash;
       parts.candidates = bundle;
     }
 
     // Admit a cached structure artifact for the exact identity tuple.
     const { overrideHash } = await this.resolveOverride(plan, textHash, candidateHash);
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     const structureKey: StructureCacheKey = {
       schema: 'texttrends/structure/2',
       text: textHash,
@@ -710,8 +678,7 @@ export class WorkerEngineV4 {
 
     // Admit a cached shard for the full identity tuple.
     const shardKey = await this.shardKeyFor(gen, plan.effectiveLocale, textHash);
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     const shard = await this.admitCachedShard(job, plan, token, shardKey, text);
     if (shard) parts.shard = shard;
 
@@ -752,8 +719,7 @@ export class WorkerEngineV4 {
       return { kind: 'needs-bytes', reason: missReason };
     }
     const access = await this.userData();
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     // Durable store unavailable — still need bytes, for the disposable reason.
     if (access.kind !== 'ok') return { kind: 'needs-bytes', reason: missReason };
     let read;
@@ -762,11 +728,25 @@ export class WorkerEngineV4 {
     } catch {
       return { kind: 'needs-bytes', reason: 'source-not-persisted' };
     }
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (read.kind === 'miss') return { kind: 'needs-bytes', reason: 'source-miss' };
     if (read.kind === 'corrupt') {
-      this.warnStorage('CACHE_CORRUPT', `persisted source for '${plan.doc}' is corrupt (${read.reason}); retained`, gen.generation);
+      // Durable damage is CLASS-1 user data needing repair — it is reported
+      // through the warm-miss reason (→ the session's SourceRepairReason),
+      // NEVER through the artifact-CACHE warning vocabulary, whose contract
+      // says "disposable; recompute" (pass-2 Track S2). The record is retained.
+      return { kind: 'needs-bytes', reason: 'source-corrupt' };
+    }
+    // AUTHENTICATE BEFORE EXTRACTING (track-S review): the envelope check
+    // proves schema/length only. Hash the stored bytes now, so EVERY content
+    // mismatch — including one that would make decoding/parsing fail or blow
+    // an extraction cap — reaches the repairable persisted-corrupt path
+    // instead of degrading to rehydrate-failed or a terminal error.
+    // `rehydrate-failed` is reserved for an AUTHENTIC source the current
+    // extractor can no longer reproduce.
+    const storedHash = await hashSourceBytes(new Uint8Array(read.value.bytes));
+    this.docGate(job, token);
+    if (storedHash !== plan.expectedSourceHash) {
       return { kind: 'needs-bytes', reason: 'source-corrupt' };
     }
     // Re-extract the durable bytes as if freshly ingested. A source-dependent
@@ -775,40 +755,32 @@ export class WorkerEngineV4 {
     // recipe decodes. Determinism means the re-extraction reproduces the
     // manifest's TextHash + candidate hash; a mismatch surfaces downstream as
     // EXTRACTION_MISMATCH.
-    const rrc = plan.extractionRecipe;
+    // Same ONE extraction runtime the cold path uses; only the FAILURE POLICY
+    // differs here (warm re-extraction of an already-hash-verified source): a cap
+    // becomes a CapError the warm loop maps to CAP_EXCEEDED, while a decode/parse
+    // failure downgrades to a byte miss (the warm loop's rehydrate-failed
+    // fallback) rather than a terminal error. The afterPhase hook runs this doc's
+    // generation/ownership gate at the phase boundary.
     let extracted;
-    if (rrc.format === 'epub' || rrc.format === 'html') {
-      this.progress(job, gen.generation, 'extract', plan.doc);
-      try {
-        extracted = await extractTransformed(new Uint8Array(read.value.bytes), rrc, this.caps.maxTextUtf16PerDoc);
-      } catch (e) {
-        if (e instanceof TransformedExtractionError && e.cap) throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
-        throw e;
+    try {
+      extracted = await extractSource(new Uint8Array(read.value.bytes), plan.extractionRecipe, this.extractionLimits(), {
+        onPhaseStart: (phase) => this.progress(job, gen.generation, phase, plan.doc),
+        afterPhase: () => this.docGate(job, token),
+      });
+    } catch (e) {
+      if (e instanceof ExtractionFailure) {
+        if (e.code === 'CAP_EXCEEDED') throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
+        // Decode/parse failure on a persisted source is NOT terminal — a plain
+        // error routes the warm loop to its rehydrate-failed byte-miss fallback.
+        throw new Error(`persisted source for '${plan.doc}' failed to re-extract: ${e.message}`);
       }
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
-      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
-        throw new CapError(`persisted source for '${plan.doc}' extracts past the per-document UTF-16 cap`);
-      }
-    } else {
-      this.progress(job, gen.generation, 'decode', plan.doc);
-      const decoded = await decodeDocumentSource(new Uint8Array(read.value.bytes), plan.extractionRecipe);
-      this.gate(job, gen);
-      if (!this.owns(token)) throw SUPERSEDED;
-      // The same per-document decoded-text cap the cold path enforces (an
-      // understated declaration must not bypass it on warm reopen). CapError is
-      // caught by the warm loop and reported as CAP_EXCEEDED.
-      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-        throw new CapError(`persisted source for '${plan.doc}' decodes past the per-document UTF-16 cap`);
-      }
-      this.progress(job, gen.generation, 'extract', plan.doc);
-      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
+      throw e; // SUPERSEDED / CANCELLED from the gate
     }
-    this.gate(job, gen);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
-    // Warm re-extraction: the persisted source already matched its hash, so a
-    // text/candidate drift is a terminal EXTRACTION_MISMATCH, not a byte miss.
+    // The source bytes were hash-authenticated BEFORE extraction, so a
+    // text/candidate drift here is a terminal EXTRACTION_MISMATCH
+    // (deterministic re-extraction contradiction), never a byte miss.
     this.assertAssertedIdentity(plan, identity, true);
     // A re-extracted persisted source performed NO main-thread transfer.
     this.freezeAccepted(token, identity, 0);
@@ -844,8 +816,7 @@ export class WorkerEngineV4 {
   ): Promise<{ artifact: ExtractionArtifactV1; key: ExtractionCacheKey } | undefined> {
     const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: sourceHash, recipe: plan.extractionRecipeHash };
     const read = await this.store.getExtraction(key);
-    this.gate(job, token.generation);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (read.kind === 'miss') return undefined;
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `cached extraction for '${plan.doc}' failed the envelope check (${read.reason}); deleted`, token.generation.generation);
@@ -858,8 +829,7 @@ export class WorkerEngineV4 {
     } catch (e) {
       // Ownership FIRST — a supersession during deep admission must not warn or
       // delete a record the new owner may have replaced.
-      this.gate(job, token.generation);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       this.warnStorage('CACHE_CORRUPT', `cached extraction for '${plan.doc}' failed deep admission (${e instanceof Error ? e.message : String(e)}); deleted`, token.generation.generation);
       await this.store.deleteExtraction(key).catch(() => undefined);
       return undefined;
@@ -875,8 +845,7 @@ export class WorkerEngineV4 {
     textLength: number,
   ): Promise<StructureArtifactV2 | undefined> {
     const read = await this.store.getStructure(key);
-    this.gate(job, token.generation);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (read.kind === 'miss') return undefined;
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `cached structure for '${plan.doc}' failed the envelope check (${read.reason}); deleted`, token.generation.generation);
@@ -888,8 +857,7 @@ export class WorkerEngineV4 {
     } catch (e) {
       // Ownership FIRST — a supersession during the (awaited) deep admission
       // must not warn or delete a record the new owner may have replaced.
-      this.gate(job, token.generation);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       this.warnStorage('CACHE_CORRUPT', `cached structure for '${plan.doc}' failed deep admission (${e instanceof Error ? e.message : String(e)}); deleted`, token.generation.generation);
       await this.store.deleteStructure(key).catch(() => undefined);
       return undefined;
@@ -908,8 +876,7 @@ export class WorkerEngineV4 {
     text: string,
   ): Promise<DocumentIndexV1 | undefined> {
     const read = await this.store.getShard(key);
-    this.gate(job, token.generation);
-    if (!this.owns(token)) throw SUPERSEDED;
+    this.docGate(job, token);
     if (read.kind === 'miss') return undefined;
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `cached shard for '${plan.doc}' failed the envelope check (${read.reason}); rebuilding`, token.generation.generation);
@@ -931,8 +898,7 @@ export class WorkerEngineV4 {
     } catch (e) {
       // Ownership FIRST — the segmenter-hash await above could have overlapped a
       // supersession; a stale owner must not warn or delete the new owner's write.
-      this.gate(job, token.generation);
-      if (!this.owns(token)) throw SUPERSEDED;
+      this.docGate(job, token);
       this.warnStorage('CACHE_CORRUPT', `cached shard for '${plan.doc}' failed verification (${e instanceof Error ? e.message : String(e)}); rebuilding`, token.generation.generation);
       await this.store.deleteShard(key).catch(() => undefined);
       return undefined;
@@ -1038,11 +1004,10 @@ export class WorkerEngineV4 {
     return { schema: 'texttrends/document-index/1', text: textHash, recipe: gen.indexRecipeHash, segmenter };
   }
 
-  /** Freeze the first accepted source/text/candidate identity for a document.
-   *  A later same-generation attempt with a DIFFERENT identity is rejected —
-   *  it must not change what this generation's document means in place. */
   /**
-   * Freeze the first accepted identity for a document AND, atomically, charge
+   * Freeze the first accepted source/text/candidate identity for a document
+   * (a later same-generation attempt with a DIFFERENT identity is rejected —
+   * it must not change what the document means in place) AND, atomically, charge
    * its transferred source bytes against the project transfer cap. This runs
    * SYNCHRONOUSLY (no await since the document was claimed), so two interleaved
    * ingests cannot both observe a pre-charge total and both slip the cap — the
@@ -1071,8 +1036,8 @@ export class WorkerEngineV4 {
     return true;
   }
 
-  /** A delivered/extracted identity must agree with any asserted expectation. */
-  /** `sourceVerified` is true on a WARM re-extraction from persisted bytes,
+  /** A delivered/extracted identity must agree with any asserted expectation.
+   *  `sourceVerified` is true on a WARM re-extraction from persisted bytes,
    *  where the source hash has ALREADY matched its key. There, a text/candidate
    *  drift is extraction nondeterminism / recipe drift — a terminal
    *  EXTRACTION_MISMATCH — NOT a different source (Codex review). On a COLD
@@ -1115,49 +1080,25 @@ export class WorkerEngineV4 {
     // pair of under-declared ingests cannot both slip the project caps.
     const token = this.claim(gen, doc);
 
-    const rc = plan.extractionRecipe;
+    // ONE extraction runtime (literal decode→finalize or transformed adapter),
+    // with progress phases and the per-document cap folded in; the afterPhase
+    // hook runs this doc's ownership gate at the phase boundary so a cancel or
+    // supersession during extraction aborts cleanly (throws, caught below).
     let extracted;
-    if (rc.format === 'epub' || rc.format === 'html') {
-      // Transformed format: extract from the archive/markup tree → transformed
-      // finalize (NO whole-file byte-decode phase). A malformed archive/markup
-      // is PARSE_FAILED, a size overrun CAP_EXCEEDED — never DECODE_FAILED.
-      this.progress(job, generation, 'extract', doc);
-      try {
-        extracted = await extractTransformed(new Uint8Array(bytes), rc, this.caps.maxTextUtf16PerDoc);
-      } catch (e) {
-        this.gate(job, gen);
-        if (!this.owns(token)) throw SUPERSEDED;
-        const cap = e instanceof TransformedExtractionError && e.cap;
-        this.emitError(cap ? 'CAP_EXCEEDED' : 'PARSE_FAILED', {
-          job, generation,
-          message: e instanceof Error ? e.message : `document '${doc}' failed to extract`,
-          recoverable: true,
-        });
+    try {
+      extracted = await extractSource(new Uint8Array(bytes), plan.extractionRecipe, this.extractionLimits(), {
+        onPhaseStart: (phase) => this.progress(job, generation, phase, doc),
+        afterPhase: () => this.docGate(job, token),
+      });
+    } catch (e) {
+      if (e instanceof ExtractionFailure) {
+        // Re-check ownership after the async failure: a cancel/supersession must
+        // surface as cancelled/superseded, never as a domain error.
+        this.docGate(job, token);
+        this.emitError(e.code, { job, generation, message: e.message, recoverable: true });
         return;
       }
-      this.docGate(job, token);
-      if (extracted.text.length > this.caps.maxTextUtf16PerDoc) {
-        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' extracted text exceeds the per-document UTF-16 cap`, recoverable: true });
-        return;
-      }
-    } else {
-      this.progress(job, generation, 'decode', doc);
-      let decoded;
-      try {
-        decoded = await decodeDocumentSource(new Uint8Array(bytes), plan.extractionRecipe);
-      } catch (e) {
-        this.gate(job, gen);
-        if (!this.owns(token)) throw SUPERSEDED;
-        this.emitError('DECODE_FAILED', { job, generation, message: e instanceof Error ? e.message : `document '${doc}' failed to decode`, recoverable: true });
-        return;
-      }
-      this.docGate(job, token);
-      if (decoded.decoded.text.length > this.caps.maxTextUtf16PerDoc) {
-        this.emitError('CAP_EXCEEDED', { job, generation, message: `document '${doc}' decoded text exceeds the per-document UTF-16 cap`, recoverable: true });
-        return;
-      }
-      this.progress(job, generation, 'extract', doc);
-      extracted = await finalizeExtraction({ kind: 'literal', decoded }, plan.extractionRecipe);
+      throw e; // SUPERSEDED / CANCELLED from the gate, or an internal fault
     }
     this.docGate(job, token);
 
@@ -1188,9 +1129,9 @@ export class WorkerEngineV4 {
 
   private emitSourceReady(job: number, generation: string, plan: ResolvedDocPlan, extracted: { artifact: ExtractionArtifactV1 }): void {
     const a = extracted.artifact;
-    // The artifact descriptor IS the wire descriptor (SourceDescriptorV4 =
-    // core's SourceDescriptorV1) — emit it as-is, no re-shaping.
-    const source: SourceDescriptorV4 = a.descriptor;
+    // The artifact descriptor IS the wire descriptor (the wire emits core's
+    // SourceDescriptorV1) — emit it as-is, no re-shaping.
+    const source: SourceDescriptorV1 = a.descriptor;
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'source-ready',
@@ -1384,7 +1325,7 @@ export class WorkerEngineV4 {
     }
 
     if (q.op === 'line-excerpt') {
-      this.queryLineExcerpt(job, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
+      this.queryLineExcerpt(job, gen, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
       return;
     }
 
@@ -1456,17 +1397,38 @@ export class WorkerEngineV4 {
     }
     await this.queryCheckpoint(job, gen, snapshotId);
 
+    // Re-centering the concordance re-issues this query with the same
+    // snapshot/selection/tracks and only a new `center`; the occurrence sets
+    // are identical, so memoize them and let the re-center pay only for the
+    // top-K ordering + text slicing below. The key uses the group's canonical
+    // MATCHING identity (`termGroupIdentity`), NEVER `group.id` — that is
+    // caller-owned presentation provenance and can collide across groups that
+    // resolve to different occurrences (e.g. `I` vs `İ` under a guessed
+    // locale), which would serve stale rows.
+    const cache = gen.kwicOccCache;
     const trackOccs: NumericOccurrences[] = [];
     for (const track of q.tracks) {
-      // Re-centering the concordance re-issues this query with the same
-      // snapshot/selection/tracks and only a new `center`; the occurrence sets
-      // are identical, so memoize them and let the re-center pay only for the
-      // top-K ordering + text slicing below.
-      const key = `${snapshot.id}\u0000${selection.hash}\u0000${track.group.id}`;
-      let occ = gen.kwicOccCache.get(key);
-      if (!occ) {
+      const key = `${snapshot.id}\u0000${selection.hash}\u0000${termGroupIdentity(track.group)}`;
+      let occ = cache.get(key);
+      if (occ) {
+        // Touch → most-recently-used (Map preserves insertion order as recency).
+        cache.delete(key);
+        cache.set(key, occ);
+      } else {
         occ = occurrences(snapshot, shards, resolvers, selection, track.group);
-        gen.kwicOccCache.set(key, occ);
+        cache.set(key, occ);
+        // Hard LRU bound enforced on EVERY write: the worker runs handlers
+        // concurrently (`void engine.handle(...)`), so two non-cancelled KWIC
+        // jobs interleave across the checkpoint below — a single prune before
+        // the loop would not survive those yields and the map could grow with
+        // the active-job count. Capping here bounds it unconditionally; an
+        // evicted entry is simply recomputed on its next query (this request
+        // already holds its own `occ` via `trackOccs`).
+        while (cache.size > MAX_KWIC_TRACKS) {
+          const oldest = cache.keys().next().value as string | undefined;
+          if (oldest === undefined) break;
+          cache.delete(oldest);
+        }
         await this.queryCheckpoint(job, gen, snapshotId);
       }
       trackOccs.push(occ);
@@ -1480,45 +1442,71 @@ export class WorkerEngineV4 {
   }
 
   /**
-   * The snapshot-bound structure query (§12.7, engine-v4 consult §Q5.4). Bound
-   * to the current snapshot OBJECT — a successful generation gate alone is
-   * insufficient because an incremental publication can supersede the snapshot
-   * within the same generation. Requires the ready document's identities to
-   * still equal the snapshot ref's, projects sections to token ranges (cached
-   * doc-independently by [StructureHash, IndexArtifactHash]), binds section ids
-   * deterministically from doc + lineage key, and echoes both bound identities.
+   * Resolve a structure-bearing document for a snapshot-bound query: the
+   * snapshot ref, the resident ready document (whose identities must still be
+   * the ones the ref names), and its V2 artifact. Emits the appropriate typed
+   * error and returns null when the binding cannot be served — the ONE copy of
+   * this correctness-sensitive prologue for both structure queries.
    */
-  private async queryStructure(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
+  private resolveStructureDoc(
+    job: number,
+    gen: GenerationStateV4,
+    snapshot: CorpusSnapshotV1,
+    doc: string,
+    what: string,
+  ): { ref: CorpusSnapshotV1['docs'][number]; ready: ReadyDocument; artifact: StructureArtifactV2 } | null {
     const ref = snapshot.docs.find((r) => r.doc === doc);
     if (!ref) {
       this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
-      return;
+      return null;
     }
     const ready = gen.ready.get(doc);
     if (!ready) throw new DependencyError('shard', doc);
     // The resident document must still be the one the snapshot ref names.
     if (ready.index !== ref.index || ready.structure !== ref.structure) {
-      this.emitError('SNAPSHOT_UNKNOWN', { job, message: 'structure query is bound to a superseded document', recoverable: true });
-      return;
+      this.emitError('SNAPSHOT_UNKNOWN', { job, message: `${what} is bound to a superseded document`, recoverable: true });
+      return null;
     }
     const artifact = ready.structureArtifact;
     if (artifact.schema !== 'texttrends/structure/2') {
       this.emitError('REQUEST_INVALID', { job, message: `document '${doc}' has no chapter structure`, recoverable: true });
-      return;
+      return null;
     }
+    return { ref, ready, artifact };
+  }
+
+  /** The memoized token-range projection for a resolved structure doc. */
+  private tokenRangesFor(
+    gen: GenerationStateV4,
+    ref: CorpusSnapshotV1['docs'][number],
+    ready: ReadyDocument,
+    artifact: StructureArtifactV2,
+  ): readonly TokenRange[] {
     const viewKey = tokenViewKey(ref.structure, ref.index);
     let ranges = gen.tokenViews.get(viewKey);
     if (!ranges) {
       ranges = projectSections(artifact.sections, ready.shard.startsUtf16);
       gen.tokenViews.set(viewKey, ranges);
     }
-    await this.queryCheckpoint(job, gen, snapshot.id);
+    return ranges;
+  }
 
-    // Bind lineage keys → project-scoped SectionIds, then translate parents.
+  /** Bind lineage keys → project-scoped SectionIds and materialize the keyed
+   *  section rows (parents translated). Gates after the awaited binding loop;
+   *  the caller gates again before emitting. */
+  private async bindSectionRows(
+    job: number,
+    gen: GenerationStateV4,
+    snapshotId: string,
+    doc: string,
+    artifact: StructureArtifactV2,
+    ranges: readonly TokenRange[],
+  ): Promise<{ key: string; section: WireSection; tokens: TokenRange }[]> {
     const idByKey = new Map<string, string>();
     for (const s of artifact.sections) idByKey.set(s.key, await bindSectionId(doc, s.key));
-    this.queryGate(job, gen, snapshot.id);
-    const rows: { section: WireSection; tokens: TokenRange }[] = artifact.sections.map((s, i) => ({
+    this.queryGate(job, gen, snapshotId);
+    return artifact.sections.map((s, i) => ({
+      key: s.key,
       section: {
         id: idByKey.get(s.key)!,
         doc,
@@ -1528,8 +1516,28 @@ export class WorkerEngineV4 {
         ...(s.title === undefined ? {} : { title: s.title }),
         chars: { start: s.chars.start, end: s.chars.end },
       },
-      tokens: ranges![i]!,
+      tokens: ranges[i]!,
     }));
+  }
+
+  /**
+   * The snapshot-bound structure query (§12.7, engine-v4 consult §Q5.4). Bound
+   * to the current snapshot OBJECT — a successful generation gate alone is
+   * insufficient because an incremental publication can supersede the snapshot
+   * within the same generation. Requires the ready document's identities to
+   * still equal the snapshot ref's, projects sections to token ranges (cached
+   * doc-independently by [StructureHash, IndexArtifactHash]), binds section ids
+   * deterministically from doc + lineage key, and echoes both bound identities.
+   */
+  private async queryStructure(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
+    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, 'structure query');
+    if (!resolved) return;
+    const { ref, ready, artifact } = resolved;
+    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
+    await this.queryCheckpoint(job, gen, snapshot.id);
+
+    const keyed = await this.bindSectionRows(job, gen, snapshot.id, doc, artifact, ranges);
+    const rows = keyed.map(({ section, tokens }) => ({ section, tokens }));
 
     this.queryGate(job, gen, snapshot.id);
     this.emit({
@@ -1552,22 +1560,9 @@ export class WorkerEngineV4 {
    * lineage key + token range) so the UI can render while it edits.
    */
   private async queryStructureEditContext(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
-    const ref = snapshot.docs.find((r) => r.doc === doc);
-    if (!ref) {
-      this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
-      return;
-    }
-    const ready = gen.ready.get(doc);
-    if (!ready) throw new DependencyError('shard', doc);
-    if (ready.index !== ref.index || ready.structure !== ref.structure) {
-      this.emitError('SNAPSHOT_UNKNOWN', { job, message: 'edit context is bound to a superseded document', recoverable: true });
-      return;
-    }
-    const artifact = ready.structureArtifact;
-    if (artifact.schema !== 'texttrends/structure/2') {
-      this.emitError('REQUEST_INVALID', { job, message: `document '${doc}' has no chapter structure`, recoverable: true });
-      return;
-    }
+    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, 'edit context');
+    if (!resolved) return;
+    const { ref, ready, artifact } = resolved;
     const plan = gen.plans.get(doc);
     const text = gen.texts.get(doc);
     if (!plan || text === undefined) throw new DependencyError('text', doc);
@@ -1575,7 +1570,7 @@ export class WorkerEngineV4 {
     // Detected baseline: reconstruct candidates from resident text and verify
     // they still hash to the admitted identity (a nondeterminism/corruption
     // guard), then build the detected table. Memoized per identity triple.
-    const cacheKey = `${artifact.text} ${artifact.candidates} ${artifact.recipe}`;
+    const cacheKey = `${artifact.text}\u0000${artifact.candidates}\u0000${artifact.recipe}`;
     let detected = gen.detectedTables.get(cacheKey);
     if (!detected) {
       const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
@@ -1585,7 +1580,7 @@ export class WorkerEngineV4 {
       }
       detected = buildDetectedSections(text, bundle.candidates, plan.structureRecipe);
       // Bound the ephemeral cache (at most one entry per project doc).
-      if (gen.detectedTables.size >= INGEST_CAPS_V0.maxDocsPerProject) {
+      if (gen.detectedTables.size >= this.caps.maxDocsPerProject) {
         const oldest = gen.detectedTables.keys().next().value;
         if (oldest !== undefined) gen.detectedTables.delete(oldest);
       }
@@ -1595,30 +1590,10 @@ export class WorkerEngineV4 {
 
     // Token ranges for the CURRENT composed sections (same projection + cache
     // as the plain structure query).
-    const viewKey = tokenViewKey(ref.structure, ref.index);
-    let ranges = gen.tokenViews.get(viewKey);
-    if (!ranges) {
-      ranges = projectSections(artifact.sections, ready.shard.startsUtf16);
-      gen.tokenViews.set(viewKey, ranges);
-    }
+    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
     this.queryGate(job, gen, snapshot.id);
 
-    const idByKey = new Map<string, string>();
-    for (const s of artifact.sections) idByKey.set(s.key, await bindSectionId(doc, s.key));
-    this.queryGate(job, gen, snapshot.id);
-    const current = artifact.sections.map((s, i) => ({
-      key: s.key,
-      section: {
-        id: idByKey.get(s.key)!,
-        doc,
-        origin: s.origin,
-        ...(s.parent === undefined ? {} : { parent: idByKey.get(s.parent)! }),
-        level: s.level,
-        ...(s.title === undefined ? {} : { title: s.title }),
-        chars: { start: s.chars.start, end: s.chars.end },
-      },
-      tokens: ranges![i]!,
-    }));
+    const current = await this.bindSectionRows(job, gen, snapshot.id, doc, artifact, ranges);
     const detectedRows: EditSectionRow[] = detected.map((s) => ({
       key: s.key,
       origin: s.origin,
@@ -1652,8 +1627,7 @@ export class WorkerEngineV4 {
   /** The bounded source line around a char anchor (§4). Synchronous and cheap —
    *  a `maxChars`-bounded window (hard-capped so a caller cannot request an
    *  unbounded slice), never splitting a surrogate pair. */
-  private queryLineExcerpt(job: number, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
-    const gen = this.generation!;
+  private queryLineExcerpt(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
     const ref = snapshot.docs.find((r) => r.doc === doc);
     if (!ref) {
       this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
@@ -1688,157 +1662,8 @@ export class WorkerEngineV4 {
     });
   }
 
-  private excerpt(job: number, snapshotId: string, doc: string, charStart: number, charEnd: number): void {
-    const gen = this.generation;
-    if (!gen?.snapshot || gen.snapshot.id !== snapshotId) {
-      this.emitError('SNAPSHOT_UNKNOWN', { job, message: 'excerpt is bound to an unknown or superseded snapshot', recoverable: true });
-      return;
-    }
-    const text = gen.texts.get(doc);
-    if (text === undefined) {
-      this.emitError('DEPENDENCY_MISSING', { job, message: `text for '${doc}' is not resident`, recoverable: true });
-      return;
-    }
-    if (!Number.isInteger(charStart) || !Number.isInteger(charEnd) || charStart < 0 || charStart >= charEnd || charEnd > text.length) {
-      this.emitError('REQUEST_INVALID', { job, message: `invalid excerpt range [${charStart}, ${charEnd})`, recoverable: true });
-      return;
-    }
-    this.emit({ v: PROTOCOL_VERSION_V4, t: 'excerpt-result', job, snapshot: snapshotId, doc, charStart, charEnd, text: text.slice(charStart, charEnd) });
-  }
-
   // -------------------------------------------------------------------------
-  // 7. User-data lane
-  // -------------------------------------------------------------------------
-
-  /**
-   * User-data commands share the worker's job/cancellation infrastructure but
-   * NOT generation state, snapshots, progress, or the analysis error channel —
-   * they emit ONLY user-data acknowledgements/errors. Reads and pre-write CPU
-   * work are cancellable; a durable write is cancellable only BEFORE its
-   * transaction starts — once it commits, a truthful acknowledgement wins over
-   * a late cancel (else the main thread sits at revision N while storage is at
-   * N+1, producing a misleading conflict on retry).
-   */
-  private async handleUserData(message: Extract<ToWorkerV4, { t: 'project-load' | 'project-save' | 'source-persist' }>): Promise<void> {
-    const job = message.job;
-    // Tracks whether an IRREVERSIBLE durable write has begun. A failure from a
-    // cancellable PRE-WRITE await (provider, read, hash, validation) on a
-    // cancelled job must surface as `cancelled`, not as a storage error — but
-    // once a write has started the truthful ack/error rule takes over.
-    let writeStarted = false;
-    try {
-      if (message.t === 'project-load') {
-        const access = await this.access(job);
-        if (!access) return;
-        if (this.checkCancelled(job)) return;
-        const read = await access.getProject(message.project);
-        if (this.checkCancelled(job)) return;
-        if (read.kind === 'miss') {
-          this.emit({ v: PROTOCOL_VERSION_V4, t: 'project-missing', job, project: message.project });
-          return;
-        }
-        if (read.kind === 'corrupt') {
-          this.emitUserDataError(job, 'DATA_CORRUPT', `stored project is corrupt: ${read.reason}`);
-          return;
-        }
-        let manifest;
-        try {
-          // Lazily migrate a manifest saved by an older build (pre-container
-          // source discriminant / candidateReconstruction) BEFORE durable
-          // admission — this is the worker's own validation gate, so the upgrade
-          // must happen here (not only main-thread) or an old project is rejected
-          // as DATA_CORRUPT before it can reopen. A genuinely-corrupt record is
-          // left unchanged by the upgrader and still fails validation below.
-          manifest = await validateProjectManifest(await upgradeStoredManifest(read.value));
-        } catch (e) {
-          if (this.checkCancelled(job)) return; // cancelled during recipe/hash recomputation
-          this.emitUserDataError(job, 'DATA_CORRUPT', `stored project failed validation: ${e instanceof Error ? e.message : String(e)}`);
-          return;
-        }
-        if (this.checkCancelled(job)) return; // deep validation recomputes hashes — recheck before publishing
-        this.emit({ v: PROTOCOL_VERSION_V4, t: 'project-loaded', job, project: message.project, manifest });
-        return;
-      }
-
-      if (message.t === 'project-save') {
-        let next;
-        try {
-          next = await validateProjectManifest(message.manifest);
-        } catch (e) {
-          if (this.checkCancelled(job)) return;
-          this.emitUserDataError(job, 'REQUEST_INVALID', `manifest failed validation: ${e instanceof Error ? e.message : String(e)}`);
-          return;
-        }
-        if (this.checkCancelled(job)) return; // recheck after the (awaited) deep validation, before the write
-        if (next.id !== message.project) {
-          this.emitUserDataError(job, 'REQUEST_INVALID', 'manifest id does not match the save target');
-          return;
-        }
-        if (next.revision !== message.expectedRevision + 1) {
-          this.emitUserDataError(job, 'REQUEST_INVALID', `manifest revision ${next.revision} must be expectedRevision + 1 (${message.expectedRevision + 1})`);
-          return;
-        }
-        const access = await this.access(job);
-        if (!access) return;
-        if (this.checkCancelled(job)) return; // last cancellable point before the durable write
-        writeStarted = true;
-        const { committed } = await access.putProject(next, message.expectedRevision);
-        this.emit({ v: PROTOCOL_VERSION_V4, t: 'project-saved', job, project: message.project, revision: committed.revision });
-        return;
-      }
-
-      // source-persist: cap → hash → verify → durable put → ack.
-      if (message.bytes.byteLength > this.caps.maxSourceBytesPerFile) {
-        this.emitUserDataError(job, 'REQUEST_INVALID', `source of ${message.bytes.byteLength} bytes exceeds the per-file cap`);
-        return;
-      }
-      const hash = await hashSourceBytes(new Uint8Array(message.bytes));
-      if (this.checkCancelled(job)) return;
-      if (hash !== message.sourceHash) {
-        this.emitUserDataError(job, 'SOURCE_MISMATCH', `bytes hashed to ${hash.slice(0, 16)}… but the claim was ${message.sourceHash.slice(0, 16)}…`);
-        return;
-      }
-      const access = await this.access(job);
-      if (!access) return;
-      if (this.checkCancelled(job)) return; // last cancellable point before the durable write
-      writeStarted = true;
-      const record: StoredSourceV1 = { schema: 'texttrends/source/1', hash, byteLength: message.bytes.byteLength, bytes: message.bytes };
-      await access.putSource(record);
-      this.emit({ v: PROTOCOL_VERSION_V4, t: 'source-persisted', job, sourceHash: hash });
-    } catch (e) {
-      // A pre-write failure on a cancelled job is a cancellation, not a storage
-      // error — cancellation wins until an irreversible write has begun.
-      if (!writeStarted && this.checkCancelled(job)) return;
-      this.emitUserDataError(job, mapUserDataCode(e), e instanceof Error ? e.message : String(e), e instanceof UserDataError ? e.currentRevision : undefined);
-    }
-  }
-
-  /** Await the durable provider for a user-data command; emit a precise
-   *  user-data error (never an analysis error) when it is not available. */
-  private async access(job: number): Promise<UserDataStore | null> {
-    const access = await this.userData();
-    if (this.checkCancelled(job)) return null;
-    if (access.kind === 'ok') return access.store;
-    this.emitUserDataError(job, 'PERSISTENCE_UNAVAILABLE', access.message);
-    return null;
-  }
-
-  /** True if the job was cancelled — emits `cancelled` and returns true so the
-   *  caller stops BEFORE an irreversible write. */
-  private checkCancelled(job: number): boolean {
-    if (this.cancelledJobs.has(job)) {
-      this.emit({ v: PROTOCOL_VERSION_V4, t: 'cancelled', job });
-      return true;
-    }
-    return false;
-  }
-
-  private emitUserDataError(job: number, code: UserDataErrorCodeV4, message: string, currentRevision?: number): void {
-    this.emit({ v: PROTOCOL_VERSION_V4, t: 'user-data-error', job, code, message, ...(currentRevision === undefined ? {} : { currentRevision }) });
-  }
-
-  // -------------------------------------------------------------------------
-  // 8. Gates, checkpoints, and emission
+  // 7. Gates, checkpoints, and emission
   // -------------------------------------------------------------------------
 
   /** Yielding checkpoint: parks on the task queue so queued cancels run, then
@@ -1871,6 +1696,33 @@ export class WorkerEngineV4 {
   private docGate(job: number, token: DocWorkToken): void {
     this.gate(job, token.generation);
     if (!this.owns(token)) throw SUPERSEDED;
+  }
+
+  /**
+   * The ONE classification of a warm-path failure as TERMINAL (emitted, never
+   * listed as a byte miss — a refetch cannot repair a candidate contradiction,
+   * a cap violation, or a malformed override). Returns false for everything
+   * else, which the caller degrades to a `rehydrate-failed` byte miss — that
+   * DELIBERATELY includes RangeError, unlike `mapError` (a warm attempt may
+   * fall back to the byte path; the cold ingest surfaces the real fault with
+   * full context).
+   */
+  private emitTerminalWarmFailure(e: unknown, job: number, generation: string): boolean {
+    if (e instanceof ExtractionMismatchError) {
+      this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
+      return true;
+    }
+    if (e instanceof CapError || e instanceof StructureCapError) {
+      this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
+      return true;
+    }
+    if (e instanceof StructureError) {
+      // A malformed override / invalid table is TERMINAL — bytes cannot
+      // repair it, so it is never downgraded to a rehydrate miss.
+      this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
+      return true;
+    }
+    return false;
   }
 
   private progress(job: number, generation: string, phase: BuildPhaseV4, doc: string): void {
@@ -1925,11 +1777,4 @@ function mapError(e: unknown): { code: WorkerErrorCodeV4; message: string } {
   if (e instanceof StructureError) return { code: 'REQUEST_INVALID', message };
   if (e instanceof RangeError) return { code: 'REQUEST_INVALID', message };
   return { code: 'INTERNAL', message };
-}
-
-/** Map a caught user-data failure to its precise code (storage faults keep
- *  their UserDataError code; anything else is a request/persistence fault). */
-function mapUserDataCode(e: unknown): UserDataErrorCodeV4 {
-  if (e instanceof UserDataError) return e.code as UserDataErrorCodeV4;
-  return 'PERSISTENCE_UNAVAILABLE';
 }
