@@ -12,6 +12,11 @@
  * each segment's cleaned text is concatenated with blank-line joins, and each
  * heading-led segment yields one `html-heading` candidate at its range — the
  * range addresses the FINAL text exactly, from one running cursor.
+ *
+ * Segments are FLUSHED during the walk — when the next top-level heading opens
+ * and once at the end — so the per-document text cap is enforced against the
+ * EXACT accumulated output length as it grows, and the walk never holds a
+ * second whole-document intermediate alongside the parse tree.
  */
 
 import {
@@ -51,6 +56,18 @@ interface Segment {
   chunks: string[];
 }
 
+/** The during-walk output accumulator: flushed segments ARE the final text. */
+interface Emitter {
+  readonly maxTextUtf16: number;
+  /** Cleaned segment texts interleaved with their '\n\n' joins. */
+  readonly out: string[];
+  readonly candidates: StructureCandidateV1[];
+  /** The EXACT accumulated final-output UTF-16 length (one running cursor). */
+  length: number;
+  /** The segment currently being collected. */
+  cur: Segment;
+}
+
 function attr(node: P5Node, name: string): string | undefined {
   return node.attrs?.find((a) => a.name === name)?.value;
 }
@@ -64,42 +81,70 @@ function clean(value: string): string {
     .trim();
 }
 
-/** Walk a parse5 tree, splitting into heading-delimited segments. */
-function walk(node: P5Node, segments: Segment[], inHeading: { level: number } | null): void {
+/**
+ * Close the current segment: clean it, account for the EXACT blank-line join
+ * plus cleaned length on the running output cursor, emit its heading range,
+ * release the segment's chunk references, and reject the moment the exact
+ * accumulated output length exceeds the cap. Raw chunk length is NEVER compared
+ * against the cap — `clean()` collapses arbitrary whitespace runs, so raw-length
+ * accounting would change the accept/reject set.
+ */
+function flushSegment(em: Emitter): void {
+  const { level, title } = em.cur;
+  const text = clean(em.cur.chunks.join(''));
+  em.cur.chunks.length = 0; // the walk holds no other reference to these chunks
+  if (text === '') return;
+  if (em.out.length > 0) { em.out.push('\n\n'); em.length += 2; }
+  const start = em.length;
+  em.out.push(text);
+  em.length += text.length;
+  if (level !== null && title.trim() !== '') {
+    em.candidates.push({ kind: 'html-heading', level, title, chars: { start, end: em.length } });
+  }
+  if (em.length > em.maxTextUtf16) {
+    throw new ExtractionFailure('CAP_EXCEEDED', `html extracted text of ${em.length} exceeds the per-document cap`);
+  }
+}
+
+/** Walk a parse5 tree, splitting into heading-delimited segments and flushing
+ *  the previous segment (cap-checked) whenever a top-level heading opens. */
+function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null): void {
   const name = node.nodeName;
   if (node.nodeName === '#text') {
-    segments[segments.length - 1]!.chunks.push((node.value ?? '').replace(/[\t\r\n\f\v ]+/gu, ' '));
+    em.cur.chunks.push((node.value ?? '').replace(/[\t\r\n\f\v ]+/gu, ' '));
     return;
   }
   if (node.tagName === undefined) {
-    for (const c of node.childNodes ?? []) walk(c, segments, inHeading);
+    for (const c of node.childNodes ?? []) walk(c, em, inHeading);
     return;
   }
   const tag = name.toLowerCase();
   if (SKIPPED.has(tag) || attr(node, 'aria-hidden') === 'true') return;
-  if (tag === 'br') { segments[segments.length - 1]!.chunks.push('\n'); return; }
+  if (tag === 'br') { em.cur.chunks.push('\n'); return; }
   if (tag === 'img') {
     const alt = attr(node, 'alt')?.trim();
-    if (alt) segments[segments.length - 1]!.chunks.push(alt);
+    if (alt) em.cur.chunks.push(alt);
     return;
   }
 
   const level = HEADINGS[tag];
   if (level !== undefined && inHeading === null) {
-    // Open a new segment; the heading text is its title AND its opening text.
-    segments.push({ level, title: '', chunks: [] });
-    const cur = segments[segments.length - 1]!;
+    // A top-level heading closes (flushes) the previous segment and opens a new
+    // one; the heading text is its title AND its opening text.
+    flushSegment(em);
+    const cur: Segment = { level, title: '', chunks: [] };
+    em.cur = cur;
     cur.chunks.push('\n\n');
-    for (const c of node.childNodes ?? []) walk(c, segments, { level });
+    for (const c of node.childNodes ?? []) walk(c, em, { level });
     cur.chunks.push('\n\n');
     cur.title = clean(cur.chunks.join('')).replace(/\n+/gu, ' ');
     return;
   }
 
   const isBlock = BLOCK.has(tag);
-  if (isBlock) segments[segments.length - 1]!.chunks.push('\n\n');
-  for (const c of node.childNodes ?? []) walk(c, segments, inHeading);
-  if (isBlock) segments[segments.length - 1]!.chunks.push('\n\n');
+  if (isBlock) em.cur.chunks.push('\n\n');
+  for (const c of node.childNodes ?? []) walk(c, em, inHeading);
+  if (isBlock) em.cur.chunks.push('\n\n');
 }
 
 function findBody(node: P5Node): P5Node | null {
@@ -109,6 +154,36 @@ function findBody(node: P5Node): P5Node | null {
     if (found) return found;
   }
   return null;
+}
+
+/**
+ * Parse + walk in ONE synchronous scope: the parse5 tree (many times the source
+ * size) is unreachable — garbage-collectible — before any later await (source
+ * hash / finalization). The cap is enforced DURING the walk at each segment
+ * flush against the exact accumulated output length, so an over-cap document
+ * with heading-delimited segments rejects at the first over-cap boundary and
+ * completed segments release their chunk references as the walk proceeds.
+ * (A heading-FREE document is one segment: its single end-of-walk flush still
+ * cleans the whole text beside the live tree before the cap check — the win
+ * there is only that the old retained `parts` intermediate is gone.)
+ */
+function parseAndCollect(
+  parse: (html: string) => unknown,
+  html: string,
+  maxTextUtf16: number,
+): { text: string; candidates: StructureCandidateV1[] } {
+  const doc = parse(html) as P5Node;
+  const body = findBody(doc) ?? doc;
+  const em: Emitter = {
+    maxTextUtf16,
+    out: [],
+    candidates: [],
+    length: 0,
+    cur: { level: null, title: '', chunks: [] },
+  };
+  walk(body, em, null);
+  flushSegment(em); // the final segment has no next heading to flush it
+  return { text: em.out.join(''), candidates: em.candidates };
 }
 
 export async function extractHtmlDocument(
@@ -126,32 +201,8 @@ export async function extractHtmlDocument(
     throw new ExtractionFailure('DECODE_FAILED', e.message, { cause: e });
   }
   const { parse } = await import('parse5');
-  const doc = parse(decoded.text) as unknown as P5Node;
-  const body = findBody(doc) ?? doc;
-
-  const segments: Segment[] = [{ level: null, title: '', chunks: [] }];
-  walk(body, segments, null);
-
-  // Clean each segment, drop empties, join with blank lines, and record ranges
-  // from ONE running cursor so candidate spans address the final text exactly.
-  const parts: { level: number | null; title: string; text: string }[] = [];
-  for (const s of segments) {
-    const text = clean(s.chunks.join(''));
-    if (text !== '') parts.push({ level: s.level, title: s.title, text });
-  }
-  const chunks: string[] = [];
-  const candidates: StructureCandidateV1[] = [];
-  let length = 0;
-  for (const p of parts) {
-    if (chunks.length > 0) { chunks.push('\n\n'); length += 2; }
-    const start = length;
-    chunks.push(p.text);
-    length += p.text.length;
-    if (p.level !== null && p.title.trim() !== '') {
-      candidates.push({ kind: 'html-heading', level: p.level, title: p.title, chars: { start, end: length } });
-    }
-  }
-  const text = chunks.join('');
+  const { text, candidates } = parseAndCollect(parse, decoded.text, maxTextUtf16);
+  // Defensive re-assertion of the invariant the per-flush accounting enforces.
   if (text.length > maxTextUtf16) {
     throw new ExtractionFailure('CAP_EXCEEDED', `html extracted text of ${text.length} exceeds the per-document cap`);
   }

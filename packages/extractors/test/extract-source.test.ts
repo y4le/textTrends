@@ -8,6 +8,8 @@ import { ExtractionFailure } from '../src/failure.ts';
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 const LIMITS: ExtractionLimits = { maxTextUtf16PerDoc: 32 * 1024 * 1024, maxArchiveInflatedBytesPerDoc: 128 * 1024 * 1024 };
+/** LIMITS with a small text cap, so cap tests never allocate megabytes. */
+const capped = (maxTextUtf16PerDoc: number): ExtractionLimits => ({ ...LIMITS, maxTextUtf16PerDoc });
 const recipes = await defaultExtractionRecipes();
 
 describe('extractSource — the one extraction runtime', () => {
@@ -122,6 +124,55 @@ describe('extractSource — the one extraction runtime', () => {
         afterPhase: () => { throw SUPERSEDED; },
       }),
     ).rejects.toBe(SUPERSEDED);
+  });
+
+  it('caps HTML against the EXACT cleaned output, not raw length — collapsed whitespace far over the cap stays ACCEPTED', async () => {
+    // Raw source is thousands of chars of whitespace, but clean() collapses the
+    // run to ONE space: cleaned output is 'alpha beta' (10). Raw-length
+    // accounting would wrongly reject this document; exact accounting accepts.
+    const tiny = capped(16);
+    const { text } = await extractSource(utf8(`<p>alpha${' '.repeat(4096)}beta</p>`), recipes.html, tiny);
+    expect(text).toBe('alpha beta');
+  });
+
+  it('rejects HTML the moment the exact accumulated output crosses the cap at a segment JOIN (boundary pinned both ways)', async () => {
+    // Two segments: 'aaaa' (4) + blank-line join (2) + heading segment 'bb' (2) = 8.
+    const source = utf8('<p>aaaa</p><h1>bb</h1>');
+    // Exactly at the cap: accepted, byte-identical text + candidate range.
+    const at = await extractSource(source, recipes.html, capped(8));
+    expect(at.text).toBe('aaaa\n\nbb');
+    expect(at.artifact.candidates).toEqual([
+      { kind: 'html-heading', level: 1, title: 'bb', chars: { start: 6, end: 8 } },
+    ]);
+    // One below: the SECOND flush (join + segment) crosses 7 → CAP_EXCEEDED,
+    // thrown from the adapter's during-walk accounting (its message template),
+    // not the runtime's outer defensive check.
+    const err = await extractSource(source, recipes.html, capped(7)).catch((e) => e);
+    expect(err).toMatchObject({ name: 'ExtractionFailure', code: 'CAP_EXCEEDED' });
+    expect((err as Error).message).toMatch(/^html extracted text of /);
+  });
+
+  it('rejects one giant single HTML segment over the cap during its flush', async () => {
+    const err = await extractSource(
+      utf8(`<p>${'x'.repeat(5000)}</p>`),
+      recipes.html,
+      capped(1024),
+    ).catch((e) => e);
+    expect(err).toMatchObject({ name: 'ExtractionFailure', code: 'CAP_EXCEEDED' });
+    expect((err as Error).message).toMatch(/^html extracted text of /);
+  });
+
+  it('emits byte-identical text and exact candidate ranges for a below-cap HTML document with headings', async () => {
+    const { text, artifact } = await extractSource(
+      utf8('<html><body><h1>One</h1><p>alpha</p><h2>Two</h2><p>beta</p></body></html>'),
+      recipes.html,
+      LIMITS,
+    );
+    expect(text).toBe('One\n\nalpha\n\nTwo\n\nbeta');
+    expect(artifact.candidates).toEqual([
+      { kind: 'html-heading', level: 1, title: 'One', chars: { start: 0, end: 10 } },
+      { kind: 'html-heading', level: 2, title: 'Two', chars: { start: 12, end: 21 } },
+    ]);
   });
 
   it('reaches the transformed gate ONLY after adapter success — an adapter DECODE failure short-circuits before it', async () => {
