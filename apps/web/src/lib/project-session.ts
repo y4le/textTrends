@@ -324,6 +324,62 @@ function initialMetaFor(name: string): DocumentMetaV1 {
  * public commands are synchronous entry points that publish immediately and
  * fence their async continuations by monotonic tokens.
  */
+/** The one idle save-state object: identity-comparable across publications
+ *  (the built-in project reports it always; user projects return to it). */
+const IDLE_SAVE: UserSaveState = { phase: 'idle' };
+
+/** Shallow field equality for the published ProjectView (all seven fields are
+ *  primitives or immutably-replaced references). */
+function sameProjectView(a: ProjectView, b: ProjectView): boolean {
+  return (
+    a.kind === b.kind &&
+    a.id === b.id &&
+    a.data === b.data &&
+    a.baseRevision === b.baseRevision &&
+    a.dirty === b.dirty &&
+    a.save === b.save &&
+    a.saveable === b.saveable
+  );
+}
+
+function sameImports(prev: readonly ImportView[], next: readonly ImportView[]): boolean {
+  if (prev.length !== next.length) return false;
+  for (let i = 0; i < next.length; i += 1) {
+    const a = prev[i]!;
+    const b = next[i]!;
+    if (a.doc !== b.doc || a.sourceName !== b.sourceName || a.status !== b.status || a.published !== b.published) {
+      return false;
+    }
+  }
+  return true;
+}
+
+/** Reuse the previous record when the map holds identical values for the same
+ *  key set: equal size plus every map key matching by identity covers
+ *  replacement, deletion, clear, and same-size key swaps (a swapped-in key
+ *  is not an own property of the old record and fails the check). Own-key
+ *  semantics throughout: document IDs are arbitrary strings (the manifest
+ *  validator accepts `__proto__`), so lookups must not walk the prototype and
+ *  materialization must define own properties — `Object.fromEntries` does;
+ *  a plain `record[key] = value` would invoke the legacy `__proto__` setter
+ *  and poison the record's prototype. */
+function reuseRecord<T>(
+  prev: Readonly<Record<string, T>> | undefined,
+  map: ReadonlyMap<string, T>,
+): Readonly<Record<string, T>> {
+  if (prev !== undefined && Object.keys(prev).length === map.size) {
+    let same = true;
+    for (const [key, value] of map) {
+      if (!Object.hasOwn(prev, key) || !Object.is(prev[key], value)) {
+        same = false;
+        break;
+      }
+    }
+    if (same) return prev;
+  }
+  return Object.fromEntries(map) as Record<string, T>;
+}
+
 export class ProjectSession {
   private readonly deps: ProjectSessionDeps;
   private readonly listeners = new Set<(state: SessionState) => void>();
@@ -345,7 +401,15 @@ export class ProjectSession {
   private baseRevision = 0;
   private editEpoch = 0;
   private savedEpoch = 0;
-  private saveState: UserSaveState = { phase: 'idle' };
+  private saveState: UserSaveState = IDLE_SAVE;
+
+  /** The last built state: `buildState` reuses every slice whose backing data
+   *  is unchanged (semantic shallow reconciliation, Phase B ruling W2), so
+   *  zustand's narrow selectors stop firing on unrelated publications — an
+   *  ingest's per-phase progress publishes no longer re-render every panel.
+   *  Nulled on `installProject` so a replacement project can never reuse a
+   *  cached slice. Published objects are never mutated. */
+  private lastState: SessionState | null = null;
 
   // ── Generation lane. ──
   private genAttempt = 0;
@@ -698,7 +762,7 @@ export class ProjectSession {
   private applySaved(targetRevision: number, payloadEpoch: number, acked: ProjectManifestV1): void {
     this.baseRevision = targetRevision;
     this.savedEpoch = payloadEpoch; // edits during the flight leave editEpoch > this ⇒ still dirty
-    this.saveState = { phase: 'idle' };
+    this.saveState = IDLE_SAVE;
     this.pendingSave = null;
     // File-retention boundary: release a doc's File only when the JUST-ACKED
     // manifest records it `persisted` AND its durable write is CONFIRMED present
@@ -1208,7 +1272,7 @@ export class ProjectSession {
   private async reconcileSave(): Promise<void> {
     const target = this.pendingSave;
     if (!target) {
-      this.saveState = { phase: 'idle' };
+      this.saveState = IDLE_SAVE;
       this.publish();
       return;
     }
@@ -1405,10 +1469,31 @@ export class ProjectSession {
     this.order = [...data.order];
   }
 
+  /** Synchronously retire the CURRENT generation at an ownership boundary
+   *  (project replacement/reset): cancel the open, abort fetches, stale-guard
+   *  every in-flight attempt-gated continuation, and drop the outgoing
+   *  snapshot/analysis — so nothing from the old project can be published
+   *  under the new one, and a LATE event carrying the old generation id fails
+   *  every `=== this.generation` gate instead of repopulating outgoing facts
+   *  (the review-b2b-identity finding). The replacement's own startGeneration
+   *  installs fresh values asynchronously. */
+  private retireGeneration(): void {
+    this.activeOpenCancel?.();
+    this.activeOpenCancel = null;
+    this.abortFetches();
+    this.genAttempt++;
+    this.generation = null;
+    this.snapshot = null;
+    this.analysis = { phase: 'idle' };
+  }
+
   private installProject(project: CurrentProject): void {
     // Replace everything: a new project owns a fresh generation lane, and THIS
     // is where ownership actually changes — invalidate the scope so any
     // still-pending operation on the outgoing project goes stale.
+    this.lastState = null; // the replacement must never reuse a cached slice
+    this.sourceEvidence.clear(); // generation-local; the outgoing project's evidence must not leak
+    this.retireGeneration();
     this.scope.invalidate();
     this.pending.clear();
     this.persistIntent.clear();
@@ -1430,7 +1515,7 @@ export class ProjectSession {
     this.baseRevision = project.kind === 'user' ? project.baseRevision : 0;
     this.editEpoch = 0;
     this.savedEpoch = 0;
-    this.saveState = { phase: 'idle' };
+    this.saveState = IDLE_SAVE;
     this.pendingSave = null;
     this.saveAgain = false;
     for (const d of project.data.docs) {
@@ -1442,6 +1527,15 @@ export class ProjectSession {
   }
 
   private resetToEmptyUser(): void {
+    // Ownership change: the cached publication, the generation-local
+    // evidence, AND the outgoing generation's snapshot/analysis belong to the
+    // OUTGOING project — all retired synchronously, before `stage` publishes
+    // (the review-b2/b2b findings: waiting for the async generation start
+    // leaked the old evidence record, snapshot, and analysis phase under the
+    // new project, and late old-generation events could repopulate them).
+    this.lastState = null;
+    this.sourceEvidence.clear();
+    this.retireGeneration();
     this.pending.clear();
     this.persistIntent.clear();
     this.attached.clear();
@@ -1461,7 +1555,7 @@ export class ProjectSession {
     this.baseRevision = 0;
     this.editEpoch = 0;
     this.savedEpoch = 0;
-    this.saveState = { phase: 'idle' };
+    this.saveState = IDLE_SAVE;
     this.pendingSave = null;
     this.saveAgain = false;
     this.data = this.materialize();
@@ -1480,34 +1574,62 @@ export class ProjectSession {
     };
   }
 
+  /** Materialize the published view, reusing the previous publication's slice
+   *  identities wherever the backing state is unchanged (Phase B ruling W2:
+   *  semantic shallow reconciliation, NOT mutation-site dirty flags — a missed
+   *  flag would silently publish stale UI, whereas comparing the actual
+   *  backing state here is safe for every future mutation site by default).
+   *  All backing values (`data`, `saveState`, map values, `analysis`,
+   *  `snapshot`) are replaced immutably at their mutation sites, so identity
+   *  comparison is sufficient. */
   private buildState(): SessionState {
+    const prev = this.lastState;
     const dirty = this.kind === 'user' && this.editEpoch !== this.savedEpoch;
-    const project: ProjectView = {
+    const candidate: ProjectView = {
       kind: this.kind,
       id: this.id,
       data: this.data,
       baseRevision: this.kind === 'user' ? this.baseRevision : null,
       dirty,
-      save: this.kind === 'user' ? this.saveState : { phase: 'idle' },
+      // IDLE_SAVE (one stable object) rather than a fresh literal — a fresh
+      // `{ phase: 'idle' }` would defeat the shallow reuse on every builtin
+      // publication.
+      save: this.kind === 'user' ? this.saveState : IDLE_SAVE,
       saveable: this.computeSaveable(),
     };
-    // Imports in declared (selection) order, not Map/completion order.
+    const project = prev !== null && sameProjectView(prev.project, candidate) ? prev.project : candidate;
+
+    // Imports in declared (selection) order, not Map/completion order. Fresh
+    // ImportView objects each build, so reuse compares the four exposed
+    // fields by index — never element identity.
     const importsByDoc = this.pending;
-    const imports: ImportView[] = this.order
+    const candidateImports: ImportView[] = this.order
       .filter((id) => importsByDoc.has(id))
       .map((id) => {
         const p = importsByDoc.get(id)!;
         return { doc: p.doc, sourceName: p.sourceName, status: p.status, published: p.published };
       });
-    const sources: Record<string, SourceStatus> = {};
-    for (const [doc, s] of this.sourceStatus) sources[doc] = s;
-    const reattach: Record<string, ReattachStatus> = {};
-    for (const [doc, s] of this.reattachStatus) reattach[doc] = s;
-    const sourceEvidence: Record<string, SourceEvidence> = {};
-    for (const [doc, e] of this.sourceEvidence) sourceEvidence[doc] = e;
-    const corrections: Record<string, CorrectionStatus> = {};
-    for (const [doc, c] of this.corrections) corrections[doc] = c;
-    return { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence, corrections };
+    const imports = prev !== null && sameImports(prev.imports, candidateImports) ? prev.imports : candidateImports;
+
+    const sources = reuseRecord(prev?.sources, this.sourceStatus);
+    const reattach = reuseRecord(prev?.reattach, this.reattachStatus);
+    const sourceEvidence = reuseRecord(prev?.sourceEvidence, this.sourceEvidence);
+    const corrections = reuseRecord(prev?.corrections, this.corrections);
+
+    const next: SessionState =
+      prev !== null &&
+      prev.project === project &&
+      prev.analysis === this.analysis &&
+      prev.snapshot === this.snapshot &&
+      prev.imports === imports &&
+      prev.sources === sources &&
+      prev.reattach === reattach &&
+      prev.sourceEvidence === sourceEvidence &&
+      prev.corrections === corrections
+        ? prev
+        : { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence, corrections };
+    this.lastState = next;
+    return next;
   }
 
   private publish(): void {

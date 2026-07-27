@@ -1355,3 +1355,160 @@ describe('a load overlapping an in-flight save cannot regress it (r3 finding 2 /
     expect(session.getState().project.baseRevision).toBe(1);
   });
 });
+
+// ── Publication identity reconciliation (Phase B ruling W2): zustand's narrow
+// selectors rely on unchanged slices keeping their object identity across
+// publications. These assert strict identity (toBe), never deep equality. ──
+describe('publication identity reconciliation', () => {
+  it('repeated getState with no mutation returns the identical state object', () => {
+    const { session } = makeSession(builtin([bundledDoc('a', 10)]));
+    expect(session.getState()).toBe(session.getState());
+  });
+
+  it('the built-in publishes one stable idle save identity across its whole boot', async () => {
+    const { session, client, states } = makeSession(builtin([bundledDoc('a', 10)]));
+    session.start();
+    await settle();
+    const open = client.lastOpen();
+    open.resolve({
+      generation: open.generation,
+      snapshot: null,
+      readyDocs: [],
+      missing: [{ doc: 'a', need: 'source-bytes', reason: 'source-not-persisted' }],
+    });
+    await settle();
+    client.emitSourceReady(readyInfo(open.generation, 'a', client.ingestFor(open.generation, 'a')));
+    client.emitSnapshot({ generation: open.generation, snapshot: 's1', readyDocs: ['a'], missingDocs: [] });
+    await settle();
+    expect(states.length).toBeGreaterThan(2);
+    expect(new Set(states.map((s) => s.project.save)).size).toBe(1);
+  });
+
+  it('a snapshot-only publication retains every other slice identity', async () => {
+    const { session, client } = makeSession(builtin([]));
+    const { generation, docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const before = session.getState();
+    client.emitSnapshot({ generation, snapshot: 'snap-2', readyDocs: docs, missingDocs: [] });
+    await settle();
+    const after = session.getState();
+    expect(after).not.toBe(before);
+    expect(after.snapshot).not.toBe(before.snapshot);
+    expect(after.project).toBe(before.project);
+    expect(after.imports).toBe(before.imports);
+    expect(after.sources).toBe(before.sources);
+    expect(after.reattach).toBe(before.reattach);
+    expect(after.sourceEvidence).toBe(before.sourceEvidence);
+    expect(after.corrections).toBe(before.corrections);
+  });
+
+  it('a metadata edit replaces project but retains the record slices and imports', async () => {
+    const { session, client } = makeSession(builtin([]));
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    const before = session.getState();
+    session.editMeta(docs[0]!, { title: 'renamed' });
+    const after = session.getState();
+    expect(after.project).not.toBe(before.project);
+    expect(after.project.data).not.toBe(before.project.data);
+    expect(after.imports).toBe(before.imports);
+    expect(after.sources).toBe(before.sources);
+    expect(after.reattach).toBe(before.reattach);
+    expect(after.sourceEvidence).toBe(before.sourceEvidence);
+    expect(after.corrections).toBe(before.corrections);
+  });
+
+  it('a source-ready replaces the evidence/import slices it changes and retains the rest', async () => {
+    const { session, client } = makeSession(builtin([]));
+    session.createUserProject([fakeFile('a.txt', 10)]);
+    await settle();
+    const open = client.lastOpen();
+    const generation = open.generation;
+    const cold = open.docs.filter((d) => d.source.availability === 'external' && d.source.expectedHash === undefined);
+    open.resolve({
+      generation,
+      snapshot: null,
+      readyDocs: [],
+      missing: cold.map((d) => ({ doc: d.doc, need: 'source-bytes' as const, reason: 'source-not-persisted' })),
+    });
+    await settle();
+    const before = session.getState();
+    expect(before.imports.length).toBe(1);
+    client.emitSourceReady(readyInfo(generation, cold[0]!.doc, client.ingestFor(generation, cold[0]!.doc), { replacements: 2 }));
+    await settle();
+    const after = session.getState();
+    expect(after.sourceEvidence).not.toBe(before.sourceEvidence);
+    expect(after.reattach).toBe(before.reattach);
+    expect(after.corrections).toBe(before.corrections);
+  });
+
+  it('createUserProject from the built-in reuses no cached slice and leaks no evidence', async () => {
+    // The review-b2-identity finding: resetToEmptyUser published through a
+    // stale cache and left generation-local evidence to the async open.
+    const { session, client } = makeSession(builtin([bundledDoc('a', 10)]));
+    session.start();
+    await settle();
+    const open = client.lastOpen();
+    open.resolve({
+      generation: open.generation,
+      snapshot: null,
+      readyDocs: [],
+      missing: [{ doc: 'a', need: 'source-bytes', reason: 'source-not-persisted' }],
+    });
+    await settle();
+    client.emitSourceReady(readyInfo(open.generation, 'a', client.ingestFor(open.generation, 'a'), { replacements: 3 }));
+    client.emitSnapshot({ generation: open.generation, snapshot: 'builtin-snap', readyDocs: ['a'], missingDocs: [] });
+    await settle();
+    const before = session.getState();
+    expect(before.sourceEvidence['a']).toBeDefined();
+    expect(before.snapshot?.snapshot).toBe('builtin-snap');
+    session.createUserProject([fakeFile('b.txt', 12)]);
+    const after = session.getState(); // synchronous: BEFORE the async generation start
+    expect(after.project).not.toBe(before.project);
+    expect(after.sourceEvidence).not.toBe(before.sourceEvidence);
+    expect(after.sourceEvidence['a']).toBeUndefined();
+    expect(Object.keys(after.sourceEvidence)).toEqual([]);
+    expect(after.reattach).not.toBe(before.reattach);
+    expect(after.corrections).not.toBe(before.corrections);
+    expect(after.sources).not.toBe(before.sources);
+    // The OUTGOING generation's facts are retired synchronously too …
+    expect(after.snapshot).toBeNull();
+    expect(after.analysis).toEqual({ phase: 'idle' });
+    // … and LATE events carrying the old generation id are ignored, not
+    // repopulated into the replacement project (review-b2b finding).
+    client.emitSnapshot({ generation: open.generation, snapshot: 'stale-late', readyDocs: ['a'], missingDocs: [] });
+    client.emitSourceReady(readyInfo(open.generation, 'a', client.ingestFor(open.generation, 'a'), { replacements: 9 }));
+    const later = session.getState();
+    expect(later.snapshot).toBeNull();
+    expect(later.sourceEvidence['a']).toBeUndefined();
+  });
+
+  it('a __proto__ document id becomes an own record key, never the prototype', async () => {
+    // Document IDs are arbitrary strings (the durable validator accepts
+    // '__proto__'), so record materialization must define own properties.
+    const { session, client } = makeSession(builtin([]), { newDocId: () => '__proto__' });
+    session.createUserProject([fakeFile('a.txt', 10)]);
+    await settle();
+    client.lastOpen(); // the open was issued for the new project
+    const state = session.getState();
+    expect(Object.hasOwn(state.sources, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(state.sources)).toBe(Object.prototype);
+    expect(state.imports[0]?.doc).toBe('__proto__');
+  });
+
+  it('installing a replacement project never reuses a cached slice', async () => {
+    const { session, client } = makeSession(builtin([]));
+    await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
+    session.save();
+    await settle();
+    client.saves[0]!.resolve({ revision: 1 });
+    await settle();
+    const before = session.getState();
+    session.loadUserProject();
+    await settle();
+    client.loads[0]!.resolve({ kind: 'loaded', manifest: client.saves[0]!.manifest });
+    await settle();
+    const after = session.getState();
+    expect(after.project).not.toBe(before.project);
+    expect(after.sources).not.toBe(before.sources);
+    expect(after.imports).not.toBe(before.imports);
+  });
+});
