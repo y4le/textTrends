@@ -871,7 +871,7 @@ describe('store query intent discipline', () => {
     const { readFile } = await import('node:fs/promises');
     const { hashSourceBytes, hashText } = await import('@texttrends/core');
     for (const { doc, bytes, sourceHash, textHash } of SHERLOCK) {
-      const data = await readFile(new URL(`../public/corpora/sherlock/${doc}`, import.meta.url));
+      const data = await readFile(new URL(`../public/corpora/sherlock/${doc}.txt`, import.meta.url));
       expect(data.byteLength, doc).toBe(bytes);
       expect(await hashSourceBytes(new Uint8Array(data)), doc).toBe(sourceHash);
       const decoded = new TextDecoder('utf-8', { fatal: true }).decode(data);

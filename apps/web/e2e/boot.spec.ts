@@ -37,8 +37,14 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   expect(ingests.length).toBe(DOC_COUNT);
   expect(barriers[0]!.seq).toBeLessThan(ingests[0]!.seq);
 
-  // Exactly the six manifest corpus files were fetched, after the barrier.
+  // Exactly the six manifest corpus files were fetched, after the barrier —
+  // by the `.txt` transport paths (the manifest doc identities themselves
+  // stay extensionless; the suffix gives static hosts a text MIME suffix so
+  // they CAN serve text/plain with compression — a deployment property, not
+  // something this test observes).
   expect(corpusRequests.length).toBe(DOC_COUNT);
+  const requestedFiles = corpusRequests.map((u) => new URL(u).pathname.split('/').at(-1)).sort();
+  expect(requestedFiles).toEqual(SHERLOCK.map(({ doc }) => `${encodeURIComponent(doc)}.txt`).sort());
 
   // Ingest bytes genuinely TRANSFER: detachment is synchronous, so the
   // byteLength observed immediately after postMessage is zero. The session

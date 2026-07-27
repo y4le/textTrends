@@ -33,11 +33,16 @@ export const useApp = runtime.useApp;
 
 /** Built-in byte acquisition: fetch a bundled document by its source name under
  *  the deployed base path. The session verifies the returned length against the
- *  authoritative descriptor before transfer, so this only fetches. */
+ *  authoritative descriptor before transfer, so this only fetches. The `.txt`
+ *  suffix is a transport/storage-path detail only — it gives static hosts a
+ *  recognizable text MIME suffix, ENABLING (not guaranteeing) text/plain +
+ *  compression, which stays a deployment property of the host. The
+ *  `doc`/`sourceName` identities stay extensionless, and the hashes cover
+ *  the identical bytes either way. */
 const bundledBytes: BundledByteProvider = {
   async get(doc, signal) {
     const base = `${import.meta.env.BASE_URL ?? '/'}corpora/sherlock/`;
-    const response = await fetch(base + encodeURIComponent(doc.sourceName), { signal });
+    const response = await fetch(`${base}${encodeURIComponent(doc.sourceName)}.txt`, { signal });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);
     return response.arrayBuffer();
   },
