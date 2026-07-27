@@ -4,6 +4,23 @@
  * without rendering.
  */
 
+/** Two-point linear map [d0,d1] → [r0,r1] — the only thing the charts ever
+ *  asked of d3-scale. Matches d3's degenerate-domain behavior: when d0 === d1
+ *  every input maps to the range midpoint (returning r0 instead would be a
+ *  silent semantic change). No clamping. */
+export function linearMap(
+  d0: number,
+  d1: number,
+  r0: number,
+  r1: number,
+): (v: number) => number {
+  if (d0 === d1) {
+    const mid = (r0 + r1) / 2;
+    return () => mid;
+  }
+  return (v) => r0 + ((v - d0) * (r1 - r0)) / (d1 - d0);
+}
+
 /** Bin token extents for one doc: equal-width construction (ceil(tokens/bins),
  *  matching the trend kernel), last bin clamped. */
 export function binSpan(

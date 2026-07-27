@@ -24,7 +24,6 @@
  * navigates locally inside them.
  */
 
-import { scaleLinear } from 'd3-scale';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
@@ -34,6 +33,7 @@ import {
   bookXFromToken,
   bookXFromTokenEdge,
   clampToSpan,
+  linearMap,
   pointerTargetByBook,
   pointerTargetSeries,
   seriesXFromToken,
@@ -473,8 +473,8 @@ function SeriesView({
   const geo = ready[0]!.trend;
   const totalTokens =
     docs.length === 0 ? 0 : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0);
-  const x = scaleLinear([0, Math.max(1, totalTokens)], [0, plotW]);
-  const y = scaleLinear([0, maxRate], [SERIES_HEIGHT, TOP_PAD]);
+  const x = linearMap(0, Math.max(1, totalTokens), 0, plotW);
+  const y = linearMap(0, maxRate, SERIES_HEIGHT, TOP_PAD);
   const axisY = SERIES_HEIGHT;
   const height = SERIES_HEIGHT + 34;
 
@@ -661,8 +661,8 @@ function ByBookView({
   strokeFor: (id: string) => number;
   onFocus: (id: string) => void;
 }) {
-  const x = scaleLinear([0, bins], [0, plotW]);
-  const y = scaleLinear([0, maxRate], [ROW_HEIGHT, 0]);
+  const x = linearMap(0, bins, 0, plotW);
+  const y = linearMap(0, maxRate, ROW_HEIGHT, 0);
   const height = docs.length * (ROW_HEIGHT + ROW_GAP) + 4;
 
   return (

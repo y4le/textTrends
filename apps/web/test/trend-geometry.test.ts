@@ -4,6 +4,7 @@ import {
   bookTokenFromX,
   bookXFromTokenEdge,
   clampToSpan,
+  linearMap,
   pointerTargetByBook,
   pointerTargetSeries,
   seriesDocFromGlobal,
@@ -14,6 +15,30 @@ import {
   stepAlongSequence,
   type SequenceLayout,
 } from '../src/lib/trend-geometry.ts';
+
+describe('linearMap', () => {
+  it('maps a normal domain linearly, without clamping', () => {
+    const x = linearMap(0, 10, 0, 100);
+    expect(x(0)).toBe(0);
+    expect(x(5)).toBe(50);
+    expect(x(10)).toBe(100);
+    expect(x(12)).toBe(120); // extrapolates, matching d3-scale's default
+  });
+
+  it('maps a reversed range (screen-y style)', () => {
+    const y = linearMap(0, 4, 200, 0);
+    expect(y(0)).toBe(200);
+    expect(y(1)).toBe(150);
+    expect(y(4)).toBe(0);
+  });
+
+  it('degenerate domain returns the range midpoint for every input (d3 semantics)', () => {
+    const y = linearMap(0, 0, 200, 40);
+    expect(y(0)).toBe(120);
+    expect(y(123)).toBe(120);
+    expect(y(-5)).toBe(120);
+  });
+});
 
 /** Three books: 100 tokens, an EMPTY one, then 50 — bases skip the empty. */
 const LAYOUT: SequenceLayout = {
