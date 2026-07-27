@@ -34,8 +34,9 @@ import {
   INGEST_CAPS_V0,
   bindSectionId,
   hashSourceBytes,
-  bindShards,
+  bindShardsIncremental,
   bindTextsVerified,
+  createBindingSession,
   buildDetectedSections,
   buildResolver,
   checkedResolverFor,
@@ -73,6 +74,7 @@ import {
   verifiedHashOf,
   verifiedTextOf,
   verifyText,
+  type BindingSession,
   type BoundShards,
   type BoundTexts,
   type CandidateBundle,
@@ -193,6 +195,12 @@ interface GenerationStateV4 {
   snapshot: CorpusSnapshotV1 | null;
   bound: BoundShards | null;
   boundTexts: BoundTexts | null;
+  /** Generation-owned incremental binding session (Phase D workstream D1):
+   *  the publication path's `bindShardsIncremental` memoizes per-document
+   *  clone+validation on it, so publication K+1 with one new document pays
+   *  for one document. Opaque and WeakMap-authenticated inside core's
+   *  binding module; dropped with the generation. */
+  readonly binding: BindingSession;
   readonly resolvers: Map<string, Map<string, Resolver>>;
   /** Doc-independent section→token projections, keyed [StructureHash, IndexArtifactHash]. */
   readonly tokenViews: Map<string, readonly TokenRange[]>;
@@ -419,6 +427,7 @@ export class WorkerEngineV4 {
       snapshot: null,
       bound: null,
       boundTexts: null,
+      binding: createBindingSession(),
       resolvers: new Map(),
       tokenViews: new Map(),
       detectedTables: new Map(),
@@ -1237,9 +1246,16 @@ export class WorkerEngineV4 {
         );
         const shards = new Map<string, DocumentIndexV1>();
         for (const [id, r] of nextReady) shards.set(id, r.shard);
-        const bound = await bindShards(snapshot, shards);
+        // Generation-scoped incremental binding (D1): unchanged per-doc clone/
+        // ABI-validation for documents this generation has not bound before
+        // (keyed by source-object identity + expected descriptor hash), reuse
+        // of the already-owned clones otherwise. The full cross-artifact
+        // validateSnapshot pass still runs for every composed snapshot.
+        const bound = await bindShardsIncremental(gen.binding, snapshot, shards);
         // The verified binding path: proofs minted at extraction / stored-text
-        // admission — no per-commit re-digest of resident texts.
+        // admission — no per-commit re-digest of resident texts. Cheap per
+        // publication post-D2 (per doc: WeakMap proof lookup, hash string
+        // compare, O(1) geometry bound) — no session caching needed for texts.
         const boundTexts = await bindTextsVerified(snapshot, bound, nextTexts);
 
         // SYNCHRONOUS commit gate: recheck job, generation, the staged base,

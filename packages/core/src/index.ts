@@ -69,9 +69,12 @@ export { resolveSelection, type ResolvedSelection, type SelectionSpec } from './
 export { trend, type NumericTrend, type TrendRequest } from './ops/trend.ts';
 export {
   bindShards,
+  bindShardsIncremental,
   bindTexts,
   bindTextsVerified,
+  createBindingSession,
   DependencyError,
+  type BindingSession,
   type BoundShards,
   type BoundTexts,
 } from './ops/binding.ts';

@@ -274,6 +274,35 @@ export function validateShardStructure(shard: DocumentIndexV1): void {
   if (shard.tokenClassVersion !== 1) {
     throw new RangeError(`unknown token class version ${shard.tokenClassVersion}`);
   }
+  // Descriptor identities and segmenter provenance must be exact runtime
+  // primitives/literals — a cast shard carrying an OBJECT where a string
+  // belongs survives canonical hashing (which stringifies) yet hands binding
+  // a mutable alias that would ride into the "owned" clone
+  // (review-d1-binding finding).
+  const hex64 = (v: unknown, name: string): void => {
+    if (typeof v !== 'string' || !/^[0-9a-f]{64}$/.test(v)) {
+      throw new RangeError(`${name} must be a 64-hex hash string`);
+    }
+  };
+  hex64(shard.text, 'text');
+  hex64(shard.recipe, 'recipe');
+  const seg = shard.segmenter as unknown;
+  if (seg === null || typeof seg !== 'object') throw new RangeError('segmenter must be a record');
+  const segRec = seg as Record<string, unknown>;
+  const SEG_KEYS = ['adapter', 'adapterVersion', 'locale', 'wordPolicy', 'sentencePolicy', 'classifierVersion', 'probeHash'];
+  const present = Object.getOwnPropertyNames(segRec);
+  if (present.length !== SEG_KEYS.length || !SEG_KEYS.every((k) => Object.prototype.hasOwnProperty.call(segRec, k))) {
+    throw new RangeError(`segmenter must have exactly the keys [${SEG_KEYS.join(', ')}]`);
+  }
+  for (const key of ['adapter', 'adapterVersion', 'locale']) {
+    if (typeof segRec[key] !== 'string' || segRec[key] === '') {
+      throw new RangeError(`segmenter.${key} must be a non-empty string`);
+    }
+  }
+  if (segRec['wordPolicy'] !== 'intl-word-v1') throw new RangeError("segmenter.wordPolicy must be 'intl-word-v1'");
+  if (segRec['sentencePolicy'] !== 'intl-sentence-v1') throw new RangeError("segmenter.sentencePolicy must be 'intl-sentence-v1'");
+  if (segRec['classifierVersion'] !== 'numeral-re-v1') throw new RangeError("segmenter.classifierVersion must be 'numeral-re-v1'");
+  hex64(segRec['probeHash'], 'segmenter.probeHash');
   const u32 = (v: unknown, name: string): Uint32Array => {
     if (!(v instanceof Uint32Array)) throw new RangeError(`${name} must be a Uint32Array`);
     return v;

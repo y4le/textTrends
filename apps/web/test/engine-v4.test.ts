@@ -14,6 +14,9 @@ import { InMemoryUserDataStore, UserDataError, type UserDataStore } from '../src
 import { PROTOCOL_VERSION_V4, type FromWorkerV4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
 import {
   bindSectionId,
+  bindShards,
+  bindShardsIncremental,
+  createBindingSession,
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
@@ -29,6 +32,20 @@ import {
   type IngestCapsV0,
   type StructureOverrideV1,
 } from '@texttrends/core';
+
+// D1 wiring seam: pass-through spies on the shard-binding entry points, so the
+// incremental-binding suite below can observe WHICH bind path the publication
+// mutex uses and WHICH session object it carries. Every wrapper delegates to
+// the real implementation — behavior is unchanged for all other tests.
+vi.mock('@texttrends/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@texttrends/core')>();
+  return {
+    ...actual,
+    bindShards: vi.fn(actual.bindShards),
+    bindShardsIncremental: vi.fn(actual.bindShardsIncremental),
+    createBindingSession: vi.fn(actual.createBindingSession),
+  };
+});
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 const buf = (s: string): ArrayBuffer => utf8(s).buffer as ArrayBuffer;
@@ -1866,5 +1883,54 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
     } finally {
       spy.restore();
     }
+  });
+});
+
+describe('generation-scoped incremental binding (Phase D workstream D1)', () => {
+  it('every publication binds through bindShardsIncremental with the ONE session created at beginGeneration', async () => {
+    const inc = vi.mocked(bindShardsIncremental);
+    const mkSession = vi.mocked(createBindingSession);
+    const fresh = vi.mocked(bindShards);
+    inc.mockClear();
+    mkSession.mockClear();
+    fresh.mockClear();
+    const h = harness();
+    await begin(h, [await docSpec('a', 'wolf one'), await docSpec('b', 'wolf two')]);
+    await coldIngest(h, 'g', 'a', 'wolf one', 2);
+    await coldIngest(h, 'g', 'b', 'wolf two', 3);
+    expect(h.all('snapshot-published')).toHaveLength(2);
+    expect(h.all('error')).toHaveLength(0);
+    // One session, minted at beginGeneration, carried by BOTH publications.
+    expect(mkSession).toHaveBeenCalledTimes(1);
+    const session = mkSession.mock.results[0]!.value;
+    expect(inc).toHaveBeenCalledTimes(2);
+    for (const call of inc.mock.calls) expect(call[0]).toBe(session);
+    // The always-fresh public path is NOT the publication path.
+    expect(fresh).not.toHaveBeenCalled();
+  });
+
+  it('a replacement generation mints a FRESH session and publishes only through it', async () => {
+    const inc = vi.mocked(bindShardsIncremental);
+    const mkSession = vi.mocked(createBindingSession);
+    inc.mockClear();
+    mkSession.mockClear();
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran far');
+    await begin(h, [spec], 'g1');
+    await coldIngest(h, 'g1', 'a', 'the wolf ran far', 2);
+    await h.flush(); // let the disposable cache writes settle for the warm reopen
+    h.clear();
+    await begin(h, [spec], 'g2'); // warm exact hit — publishes during begin
+    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
+    expect(mkSession).toHaveBeenCalledTimes(2);
+    const s1 = mkSession.mock.results[0]!.value;
+    const s2 = mkSession.mock.results[1]!.value;
+    expect(s2).not.toBe(s1);
+    // g1's publication used g1's session; g2's warm publication used g2's —
+    // per-generation cache entries can never cross a generation replacement.
+    expect(inc.mock.calls.length).toBeGreaterThanOrEqual(2);
+    expect(inc.mock.calls[0]![0]).toBe(s1);
+    expect(inc.mock.calls.at(-1)![0]).toBe(s2);
+    for (const call of inc.mock.calls.slice(1)) expect(call[0]).toBe(s2);
   });
 });
