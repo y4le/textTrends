@@ -7,14 +7,15 @@
   },
   "packageManager": "pnpm@10.19.0",
   "devDependencies": {
-    "@texttrends/standard-ebooks": "file:../standard_ebooks"
+    "@texttrends/standard-ebooks": "workspace:*"
   },
   "scripts": {
-    "dev": "pnpm --filter @texttrends/web dev",
+    "dev": "pnpm build:se && pnpm --filter @texttrends/web dev",
     "build": "pnpm -r build",
-    "test": "node --test 'scripts/*.test.mjs' && pnpm -r test",
-    "typecheck": "pnpm -r typecheck",
-    "e2e": "pnpm --filter @texttrends/web e2e",
-    "update:se-catalog": "node scripts/update-se-catalog.mjs"
+    "build:se": "pnpm --filter @texttrends/standard-ebooks build",
+    "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && pnpm -r test",
+    "typecheck": "pnpm build:se && pnpm -r typecheck",
+    "e2e": "pnpm build:se && pnpm --filter @texttrends/web e2e",
+    "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs"
   }
 }

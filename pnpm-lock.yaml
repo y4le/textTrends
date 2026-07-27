@@ -9,8 +9,24 @@ importers:
   .:
     devDependencies:
       '@texttrends/standard-ebooks':
-        specifier: file:../standard_ebooks
-        version: file:../standard_ebooks
+        specifier: workspace:*
+        version: link:../standard_ebooks
+
+  ../standard_ebooks:
+    dependencies:
+      '@xmldom/xmldom':
+        specifier: 0.9.10
+        version: 0.9.10
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
+    devDependencies:
+      typescript:
+        specifier: ^5.9.3
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.10
+        version: 4.1.10(@types/node@24.13.3)(vite@8.1.5(@types/node@24.13.3))
 
   apps/web:
     dependencies:
@@ -21,8 +37,8 @@ importers:
         specifier: workspace:*
         version: link:../../packages/extractors
       '@texttrends/standard-ebooks':
-        specifier: file:../../../standard_ebooks
-        version: file:../standard_ebooks
+        specifier: workspace:*
+        version: link:../../../standard_ebooks
       idb:
         specifier: ^8.0.3
         version: 8.0.3
@@ -92,8 +108,8 @@ importers:
         specifier: workspace:*
         version: link:../core
       '@texttrends/standard-ebooks':
-        specifier: file:../../../standard_ebooks
-        version: file:../standard_ebooks
+        specifier: workspace:*
+        version: link:../../../standard_ebooks
       parse5:
         specifier: 7.3.0
         version: 7.3.0
@@ -227,10 +243,6 @@ packages:
 
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
-
-  '@texttrends/standard-ebooks@file:../standard_ebooks':
-    resolution: {directory: ../standard_ebooks, type: directory}
-    engines: {node: '>=22.12.0'}
 
   '@tybys/wasm-util@0.10.3':
     resolution: {integrity: sha512-F3fo1MYrRJYL3zER0OUOmkutjr1Vp23m7OsSgp7nq4SP6OqX6C/56XFIPAl5bt3zaBRjmW7SGz3u/6LwFpYcOg==}
@@ -725,11 +737,6 @@ snapshots:
   '@rolldown/pluginutils@1.0.1': {}
 
   '@standard-schema/spec@1.1.0': {}
-
-  '@texttrends/standard-ebooks@file:../standard_ebooks':
-    dependencies:
-      '@xmldom/xmldom': 0.9.10
-      fflate: 0.8.3
 
   '@tybys/wasm-util@0.10.3':
     dependencies:

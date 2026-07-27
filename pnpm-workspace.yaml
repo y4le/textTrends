@@ -1,3 +1,11 @@
 packages:
   - packages/*
   - apps/*
+  # Sibling private library (publishing deferred): enrolled so one
+  # workspace:* spec replaces three divergent file: paths and its checks
+  # join `pnpm -r`. The sibling keeps its own workspace root + lockfile for
+  # standalone use — a manifest change there must update BOTH lockfiles
+  # (its own via `pnpm install` in the sibling, this one via root install).
+  # Root test/typecheck build the sibling's dist first (`build:se`) so they
+  # can never run against absent or stale library output.
+  - ../standard_ebooks

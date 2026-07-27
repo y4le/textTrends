@@ -9,7 +9,7 @@
     "preview": "vite preview",
     "typecheck": "tsc -p tsconfig.json",
     "test": "vitest run",
-    "build:e2e": "vite build --mode e2e",
+    "build:e2e": "pnpm --filter @texttrends/standard-ebooks build && vite build --mode e2e",
     "e2e": "playwright test --project=chromium-functional && playwright test --project=chromium-benchmark --workers=1",
     "e2e:functional": "playwright test --project=chromium-functional",
     "e2e:bench": "playwright test --project=chromium-benchmark --workers=1"
@@ -17,7 +17,7 @@
   "dependencies": {
     "@texttrends/core": "workspace:*",
     "@texttrends/extractors": "workspace:*",
-    "@texttrends/standard-ebooks": "file:../../../standard_ebooks",
+    "@texttrends/standard-ebooks": "workspace:*",
     "idb": "^8.0.3",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

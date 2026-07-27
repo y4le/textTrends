@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@texttrends/core": "workspace:*",
-    "@texttrends/standard-ebooks": "file:../../../standard_ebooks",
+    "@texttrends/standard-ebooks": "workspace:*",
     "parse5": "7.3.0"
   },
   "devDependencies": {
