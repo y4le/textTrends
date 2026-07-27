@@ -157,26 +157,44 @@ export async function composeSnapshot(
   if (new Set(expectedDocs).size !== expectedDocs.length) {
     throw new RangeError('expectedDocs must be unique');
   }
+  // Re-verify every identity claim against the artifacts actually being
+  // composed — a stale or foreign hash must never enter the snapshot ID
+  // (review findings, rounds 1-2). Every CHEAP synchronous claim is checked
+  // for every record first; only then are the hash proofs launched, in
+  // parallel (the old per-record sequential awaits serialized D SHA-256
+  // rounds per publication). Proof results are compared afterward in
+  // ready-map order, so a stale identity surfaces deterministically, and no
+  // snapshot materialization below starts until every proof has resolved.
+  const expectedSet = new Set(expectedDocs);
   for (const [key, item] of ready) {
-    if (!expectedDocs.includes(key)) {
+    if (!expectedSet.has(key)) {
       throw new RangeError(`ready document '${key}' is not in expectedDocs`);
     }
     if (item.doc !== key) {
       throw new RangeError(`ready record for '${key}' claims document id '${item.doc}'`);
     }
-    // Re-verify every identity claim against the artifacts actually being
-    // composed — a stale or foreign hash must never enter the snapshot ID
-    // (review findings, rounds 1-2).
-    const recomputedIndex = await indexArtifactHash(item.shard);
-    if (recomputedIndex !== item.index) {
-      throw new RangeError(`ready record for '${key}' carries a stale index identity`);
-    }
     if (item.structureArtifact.text !== item.shard.text) {
       throw new RangeError(`structure artifact for '${key}' describes a different text`);
     }
-    const recomputedStructure = await structureHashOf(item.structureArtifact);
-    if (recomputedStructure !== item.structure) {
-      throw new RangeError(`ready record for '${key}' carries a stale structure identity`);
+  }
+  const proofs = await Promise.all(
+    [...ready.values()].map(async (item) => {
+      // Both digests concurrently WITHIN each document too — awaiting index
+      // before structure would leave an independent digest on every
+      // document's critical path (review-c3-compose finding).
+      const [index, structure] = await Promise.all([
+        indexArtifactHash(item.shard),
+        structureHashOf(item.structureArtifact),
+      ]);
+      return { item, index, structure };
+    }),
+  );
+  for (const { item, index, structure } of proofs) {
+    if (index !== item.index) {
+      throw new RangeError(`ready record for '${item.doc}' carries a stale index identity`);
+    }
+    if (structure !== item.structure) {
+      throw new RangeError(`ready record for '${item.doc}' carries a stale structure identity`);
     }
   }
 

@@ -119,11 +119,43 @@ describe('composeSnapshot determinism', () => {
 
   it('rejects a stale/foreign index identity claim', async () => {
     const a = await readyDoc('a', 'a b');
-    const grown = await createDocumentIndex('a b a', await segment('a b a', 'en'), DEFAULT_INDEX_RECIPE);
-    const stale: ReadyDocument = { ...a, shard: grown }; // hash no longer matches shard
+    const b = await readyDoc('b', 'x y');
+    // Tamper ONLY the index identity (a foreign but well-formed hash): the
+    // shard/structure texts stay equal, so this isolates the hash proof from
+    // the cheap structure-text claim that is now checked first.
+    const stale: ReadyDocument = { ...a, index: b.index };
     await expect(
       composeSnapshot(GEN, ['a'] as ProjectDocId[], new Map([[stale.doc, stale]])),
     ).rejects.toThrow(/stale index identity/);
+  });
+
+  it('cheap claims outrank hash proofs; proofs compare in ready-map order', async () => {
+    // A record with BOTH a mismatched structure text and a stale index now
+    // reports the structure-text claim (all synchronous claims are checked
+    // for every record before any hash proof launches — Phase C compose
+    // ruling), and with two stale-hash records the FIRST in ready-map order
+    // wins deterministically even though proofs run in parallel.
+    const a = await readyDoc('a', 'a b');
+    const b = await readyDoc('b', 'x y');
+    const grown = await createDocumentIndex('a b a', await segment('a b a', 'en'), DEFAULT_INDEX_RECIPE);
+    const bothDefects: ReadyDocument = { ...a, shard: grown, index: b.index };
+    await expect(
+      composeSnapshot(GEN, ['a'] as ProjectDocId[], new Map([[bothDefects.doc, bothDefects]])),
+    ).rejects.toThrow(/describes a different text/);
+
+    const staleA: ReadyDocument = { ...a, index: b.index };
+    const staleB: ReadyDocument = { ...b, structure: a.structure };
+    await expect(
+      composeSnapshot(GEN, ['a', 'b'] as ProjectDocId[], new Map([[staleA.doc, staleA], [staleB.doc, staleB]])),
+    ).rejects.toThrow(/ready record for 'a' carries a stale index identity/);
+
+    // The all-record boundary: a LATER record's cheap structure-text defect
+    // must outrank an EARLIER record's stale hash — a regressed per-record
+    // cheap-then-hash loop would report record a's stale index first.
+    const laterCheap: ReadyDocument = { ...b, shard: grown };
+    await expect(
+      composeSnapshot(GEN, ['a', 'b'] as ProjectDocId[], new Map([[staleA.doc, staleA], [laterCheap.doc, laterCheap]])),
+    ).rejects.toThrow(/structure artifact for 'b' describes a different text/);
   });
 
   it('rejects a ready record filed under a different map key', async () => {
