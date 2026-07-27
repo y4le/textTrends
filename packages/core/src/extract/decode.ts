@@ -71,8 +71,20 @@ const WINDOWS_1252_HIGH: readonly number[] = [
   0x02dc, 0x2122, 0x0161, 0x203a, 0x0153, 0x009d, 0x017e, 0x0178,
 ];
 
-export async function windows1252TableHash(): Promise<string> {
-  return sha256Hex(canonicalJson({ high: WINDOWS_1252_HIGH, low: 'identity-0x00-0x7f-0xa0-0xff' }));
+/** ONE module-level memo shared by every concurrent caller: the table is a
+ *  compile-time constant, so its digest can never change for the module
+ *  lifetime. Cleared on rejection so a TRANSIENT digest failure (a flaky
+ *  crypto provider) is retryable and never cached as a permanent disproof. */
+let tableHashMemo: Promise<string> | null = null;
+
+export function windows1252TableHash(): Promise<string> {
+  tableHashMemo ??= sha256Hex(
+    canonicalJson({ high: WINDOWS_1252_HIGH, low: 'identity-0x00-0x7f-0xa0-0xff' }),
+  ).catch((e: unknown) => {
+    tableHashMemo = null; // retryable: the failure was the digest call, not the table
+    throw e;
+  });
+  return tableHashMemo;
 }
 
 /** Decode per the table directly — used as the implementation so behavior

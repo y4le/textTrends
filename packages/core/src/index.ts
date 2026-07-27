@@ -137,6 +137,7 @@ export {
   finalizeExtraction,
   hashExtractionRecipe,
   validateExtractionRecipe,
+  validatedExtractionRecipe,
   type CandidateReconstruction,
   type ContainerSourceDescriptorV1,
   type DecodedDocument,

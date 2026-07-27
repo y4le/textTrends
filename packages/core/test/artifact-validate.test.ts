@@ -27,6 +27,7 @@ import {
   scanMarkdownHeadings,
   structureHashOf,
   upgradeStoredManifest,
+  validatedExtractionRecipe,
   validateExtractionArtifact,
   validateProjectManifest,
   validateStructureArtifactV2,
@@ -280,6 +281,24 @@ describe('validateProjectManifest', () => {
 
   it('admits a well-formed manifest', async () => {
     expect((await validateProjectManifest(await manifest())).id).toBe('proj-1');
+  });
+
+  it('returns docs carrying the CANONICAL recipe, decoupled from a raw stored input (review-d3-recipes)', async () => {
+    // The stored manifest's recipe is an ordinary mutable JSON graph (a deep
+    // clone, NOT the canonical default object) — validation must return a
+    // canonical frozen copy and never the raw graph.
+    const m = (await manifest()) as { docs: { extraction: { recipe: unknown } }[] };
+    const raw = JSON.parse(JSON.stringify(m.docs[0]!.extraction.recipe)) as Record<string, unknown>;
+    m.docs[0]!.extraction.recipe = raw;
+    const validated = await validateProjectManifest(m);
+    const carried = validated.docs[0]!.extraction.recipe;
+    expect(carried).not.toBe(raw);
+    expect(Object.isFrozen(carried)).toBe(true);
+    // Identity revalidation: the carried canonical object is a cache hit.
+    await expect(validatedExtractionRecipe(carried)).resolves.toBe(carried);
+    // Mutating the raw input after validation cannot reach the carried copy.
+    raw['format'] = 'html';
+    expect(carried.format).toBe('md');
   });
 
   it('upgradeStoredManifest migrates a pre-container manifest, preserving revision + content', async () => {

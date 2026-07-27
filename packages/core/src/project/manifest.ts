@@ -182,6 +182,9 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   }
   // validateExtractionRecipe throws RangeError; normalize to keep the
   // documented "every invalid manifest throws ManifestInvalidError" contract.
+  // The validator RETURNS a canonical frozen snapshot of the recipe (Phase D /
+  // D3); every check below — and the admitted doc itself — carries that
+  // returned value, never the raw stored graph.
   let extractionRecipe: ExtractionRecipeProvisional;
   try {
     extractionRecipe = await validateExtractionRecipe(e.recipe); // deep authority (table hash etc.)
@@ -205,7 +208,11 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
     throw new ManifestInvalidError('doc structure recipeHash does not match its recipe');
   }
   await validateOverride(st.override, { text: e.text, candidates: e.candidates, structureRecipeHash: st.recipeHash });
-  return v as unknown as ProjectDocV1;
+  // Substitute the CANONICAL recipe (deep-equal to the stored one — its hash
+  // was just verified) so the admitted doc holds the immutable validated
+  // snapshot: a later mutation of the raw stored graph cannot reach durable
+  // writes, and revalidating the doc's recipe is a WeakSet identity hit.
+  return { ...v, extraction: { ...e, recipe: extractionRecipe } } as unknown as ProjectDocV1;
 }
 
 /**
@@ -245,7 +252,10 @@ export async function validateProjectManifest(value: unknown): Promise<ProjectMa
     throw new ManifestInvalidError('order and docs disagree');
   }
   if (new Set(order).size !== order.length) throw new ManifestInvalidError('order has duplicates');
-  return value as unknown as ProjectManifestV1;
+  // Return the manifest carrying the ADMITTED docs (whose extraction recipes
+  // are the canonical validated snapshots) — the caller must retain and use
+  // this returned value, per the validated-recipe contract.
+  return { ...value, docs } as unknown as ProjectManifestV1;
 }
 
 /**
