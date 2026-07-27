@@ -67,7 +67,8 @@ export function validateSectionTable(
     throw new StructureError(`invalid text length ${textLength}`);
   }
   if (sections.length === 0) throw new StructureError('section table is empty');
-  // Bound the table before the O(n²) overlap check below can run away.
+  // Table size is capped regardless of validation cost (the sweep below is
+  // O(n log n), but the cap is a §12.2 contract, not a perf guard).
   if (sections.length > STRUCTURE_LIMITS_V0.maxSectionsPerTable) {
     throw new StructureCapError(
       `section table has ${sections.length} sections, over the ${STRUCTURE_LIMITS_V0.maxSectionsPerTable} cap`,
@@ -121,47 +122,91 @@ export function validateSectionTable(
     }
   }
 
-  // Parent graph: every parent exists; acyclic; child range contained in
-  // parent (walking to root proves acyclicity by bounded depth).
+  // Parent graph: every parent exists; acyclic; child range contained in its
+  // direct parent. One memoized walk per node (O(n) total): each chain is
+  // followed only until it reaches an already-resolved key, and every chain
+  // terminates at root (a non-root without a parent was rejected above).
+  // Depths feed the sweep's sort below.
+  const depth = new Map<string, number>([[ROOT_KEY, 0]]);
   for (const s of sections) {
-    if (s.parent === undefined) continue;
-    const seen = new Set<string>([s.key]);
-    let cur: StructureSectionRecordV2 | undefined = s;
-    while (cur && cur.parent !== undefined) {
-      const parent = byKey.get(cur.parent);
-      if (!parent) throw new StructureError(`section '${cur.key}' references missing parent '${cur.parent}'`);
-      if (seen.has(parent.key)) throw new StructureError(`section '${s.key}' is in a parent cycle`);
-      seen.add(parent.key);
-      cur = parent;
+    if (!depth.has(s.key)) {
+      const chain: StructureSectionRecordV2[] = [];
+      const onChain = new Set<string>();
+      let cur: StructureSectionRecordV2 = s;
+      while (!depth.has(cur.key)) {
+        if (onChain.has(cur.key)) throw new StructureError(`section '${s.key}' is in a parent cycle`);
+        onChain.add(cur.key);
+        chain.push(cur);
+        const parent = byKey.get(cur.parent!);
+        if (!parent) throw new StructureError(`section '${cur.key}' references missing parent '${cur.parent}'`);
+        cur = parent;
+      }
+      let d = depth.get(cur.key)!;
+      for (let i = chain.length - 1; i >= 0; i--) {
+        d += 1;
+        depth.set(chain[i]!.key, d);
+      }
     }
-    const parent = byKey.get(s.parent)!;
-    if (s.chars.start < parent.chars.start || s.chars.end > parent.chars.end) {
-      throw new StructureError(`section '${s.key}' is not contained in parent '${s.parent}'`);
+    if (s.parent !== undefined) {
+      const parent = byKey.get(s.parent)!;
+      if (s.chars.start < parent.chars.start || s.chars.end > parent.chars.end) {
+        throw new StructureError(`section '${s.key}' is not contained in parent '${s.parent}'`);
+      }
     }
   }
 
-  // Non-ancestor records must be disjoint (half-open). Check every ordered
-  // pair once: two sections either nest (one's range contains the other's)
-  // or are disjoint; a partial overlap is illegal.
-  const isAncestor = (maybeAncestor: string, node: StructureSectionRecordV2): boolean => {
-    let cur: StructureSectionRecordV2 | undefined = node;
-    while (cur && cur.parent !== undefined) {
-      if (cur.parent === maybeAncestor) return true;
-      cur = byKey.get(cur.parent);
+  // O(1) declared-ancestry via DFS entry/exit intervals over the parent
+  // graph (iterative — a legal chain can be `maxSectionsPerTable` deep).
+  const children = new Map<string, StructureSectionRecordV2[]>();
+  for (const s of sections) {
+    if (s.parent === undefined) continue;
+    (children.get(s.parent) ?? children.set(s.parent, []).get(s.parent)!).push(s);
+  }
+  const tin = new Map<string, number>();
+  const tout = new Map<string, number>();
+  {
+    let clock = 0;
+    const work: { key: string; entered: boolean }[] = [{ key: ROOT_KEY, entered: false }];
+    while (work.length > 0) {
+      const frame = work.pop()!;
+      if (frame.entered) {
+        tout.set(frame.key, ++clock);
+        continue;
+      }
+      tin.set(frame.key, ++clock);
+      work.push({ key: frame.key, entered: true });
+      for (const child of children.get(frame.key) ?? []) work.push({ key: child.key, entered: false });
     }
-    return false;
-  };
-  for (let i = 0; i < sections.length; i++) {
-    for (let j = i + 1; j < sections.length; j++) {
-      const a = sections[i]!;
-      const b = sections[j]!;
-      const overlap = a.chars.start < b.chars.end && b.chars.start < a.chars.end;
-      if (!overlap) continue;
-      const nested = isAncestor(a.key, b) || isAncestor(b.key, a);
-      if (!nested) {
-        throw new StructureError(`sections '${a.key}' and '${b.key}' overlap without nesting`);
+  }
+  const isDeclaredAncestor = (ancestor: StructureSectionRecordV2, node: StructureSectionRecordV2): boolean =>
+    tin.get(ancestor.key)! < tin.get(node.key)! && tout.get(node.key)! <= tout.get(ancestor.key)!;
+
+  // Non-ancestor records must be disjoint (half-open). Sweep in (start asc,
+  // end desc, depth asc, key) order with a stack of still-open ranges: the
+  // stack is always a declared-ancestor chain (each push is verified against
+  // the then-innermost), so the pairwise invariant reduces to "each section
+  // fits inside the innermost open range AND that range is a declared
+  // ancestor" — geometric containment alone is NOT acceptance (a contained
+  // non-ancestor is still 'overlap without nesting'). O(n log n) for the
+  // sort; the old check was O(n² × chain depth) and took ~17 s at the
+  // 2,048-section cap on valid input.
+  const sweep = [...sections].sort(
+    (a, b) =>
+      a.chars.start - b.chars.start ||
+      b.chars.end - a.chars.end ||
+      depth.get(a.key)! - depth.get(b.key)! ||
+      (a.key < b.key ? -1 : a.key > b.key ? 1 : 0),
+  );
+  const open: StructureSectionRecordV2[] = [];
+  for (const s of sweep) {
+    while (open.length > 0 && open[open.length - 1]!.chars.end <= s.chars.start) open.pop();
+    if (open.length > 0) {
+      const top = open[open.length - 1]!;
+      if (s.chars.end > top.chars.end || !isDeclaredAncestor(top, s)) {
+        throw new StructureError(`sections '${top.key}' and '${s.key}' overlap without nesting`);
       }
     }
+    open.push(s);
   }
 
   return canonicalOrder(sections, byKey);

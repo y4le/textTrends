@@ -2,9 +2,10 @@
  * Structure authoring limits — provisional bounds that must hold BEFORE the
  * correction UI can add sections (commit 8b, planner ruling §5). They bound the
  * three things ingest caps do not: the section-table size, the number of
- * override changes, and the lineage-key length — so a hostile or runaway
- * correction cannot bloat a record or make `validateSectionTable`'s O(n²)
- * overlap check quadratic-explode.
+ * override changes, and the lineage-key length — persisted/authoring bounds on
+ * record size, independent of validation cost (validateSectionTable's overlap
+ * check is O(n log n); the cap is a contract on what may be stored, not a
+ * performance guard).
  *
  * A section-count violation (detected or final) is CAP_EXCEEDED (via
  * `StructureCapError`); malformed/colliding edits and over-long keys/changes

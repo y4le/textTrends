@@ -16,6 +16,7 @@ import type { StructureCandidateV1 } from '../extract/candidates.ts';
 import { STRUCTURE_LIMITS_V0 } from '../contract/structure-limits.ts';
 import {
   ROOT_KEY,
+  StructureCapError,
   StructureError,
   validateSectionTable,
   type CharRange,
@@ -225,6 +226,36 @@ export function buildDetectedSections(
   const ordered = [...headings].sort(
     (a, b) => a.anchor - b.anchor || a.rank - b.rank || (a.title < b.title ? -1 : 1),
   );
+  // End of each heading's section = the next heading of equal-or-higher
+  // outline rank (rank <=), else the document end. One backward pass with a
+  // next-smaller-or-equal-rank monotonic stack (the old per-heading forward
+  // scan was O(H²) — quadratic on tens of thousands of headings BEFORE the
+  // cap could reject them).
+  const ends = new Array<number>(ordered.length);
+  {
+    const pending: number[] = []; // indices with strictly LOWER rank than all below them
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      while (pending.length > 0 && ordered[pending[pending.length - 1]!]!.rank > ordered[i]!.rank) {
+        pending.pop();
+      }
+      ends[i] = pending.length > 0 ? ordered[pending[pending.length - 1]!]!.anchor : textLength;
+      pending.push(i);
+    }
+  }
+  // Enforce the table cap on the ACTUAL emitted count (nondegenerate
+  // sections + root) — degenerate same-anchor headings are skipped and must
+  // not count, or previously-accepted input would newly reject. Throwing
+  // here (before building records) is a cost guard with the exact error the
+  // final validator would raise.
+  let emitted = 1;
+  for (let i = 0; i < ordered.length; i++) {
+    if (ordered[i]!.anchor < ends[i]!) emitted += 1;
+  }
+  if (emitted > STRUCTURE_LIMITS_V0.maxSectionsPerTable) {
+    throw new StructureCapError(
+      `section table has ${emitted} sections, over the ${STRUCTURE_LIMITS_V0.maxSectionsPerTable} cap`,
+    );
+  }
   // Drop a heading anchored at 0 duplicating the root boundary only if it
   // would create an empty range; otherwise sections start at their heading.
   const sections: StructureSectionRecordV2[] = [
@@ -233,14 +264,7 @@ export function buildDetectedSections(
   const stack: { key: string; rank: number }[] = []; // open sections by rank
   ordered.forEach((h, idx) => {
     const start = h.anchor;
-    // End = next heading of equal-or-higher outline rank (rank <=), else doc.
-    let end = textLength;
-    for (let j = idx + 1; j < ordered.length; j++) {
-      if (ordered[j]!.rank <= h.rank) {
-        end = ordered[j]!.anchor;
-        break;
-      }
-    }
+    const end = ends[idx]!;
     if (start >= end) return; // degenerate (adjacent same-rank at same anchor)
     // Parent = nearest open section with strictly higher outline rank whose
     // range contains this one; else root.

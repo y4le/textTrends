@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   ROOT_KEY,
+  StructureCapError,
   StructureError,
   applyOverride,
   boundTitle,
@@ -401,5 +402,223 @@ describe('composeStructure', () => {
     expect(artifact.override).toBe('oh');
     expect(artifact.sections[0]!.key).toBe(ROOT_KEY);
     expect(artifact.sections.length).toBe(5); // root + 4 headings
+  });
+});
+
+// ── Sweep-validator equivalence and scale (Phase C ruling C1): the pairwise
+// O(n²·depth) overlap check became a sorted sweep over a declared-ancestor
+// stack. These prove the accept/reject SET is unchanged — including the cases
+// where geometric nesting alone must NOT be accepted — and that the validator
+// completes at the cap within the suite's normal timeout. ──
+describe('validateSectionTable sweep equivalence', () => {
+  const text = 100;
+  const root: StructureSectionRecordV2 = { key: ROOT_KEY, origin: 'fixed', level: 0, chars: { start: 0, end: text } };
+  const sec = (
+    key: string,
+    parent: string,
+    start: number,
+    end: number,
+    level = 1,
+  ): StructureSectionRecordV2 => ({ key, origin: 'user', parent, level, chars: { start, end } });
+
+  /** The REMOVED pairwise algorithm, kept as a reference oracle. */
+  function pairwiseAccepts(sections: readonly StructureSectionRecordV2[]): boolean {
+    const byKey = new Map(sections.map((s) => [s.key, s]));
+    const isAncestor = (maybeAncestor: string, node: StructureSectionRecordV2): boolean => {
+      let cur: StructureSectionRecordV2 | undefined = node;
+      while (cur && cur.parent !== undefined) {
+        if (cur.parent === maybeAncestor) return true;
+        cur = byKey.get(cur.parent);
+      }
+      return false;
+    };
+    for (let i = 0; i < sections.length; i++) {
+      for (let j = i + 1; j < sections.length; j++) {
+        const a = sections[i]!;
+        const b = sections[j]!;
+        const overlap = a.chars.start < b.chars.end && b.chars.start < a.chars.end;
+        if (!overlap) continue;
+        if (!(isAncestor(a.key, b) || isAncestor(b.key, a))) return false;
+      }
+    }
+    return true;
+  }
+
+  const accepts = (sections: readonly StructureSectionRecordV2[]): boolean => {
+    try {
+      validateSectionTable(sections, text);
+      return true;
+    } catch (e) {
+      if (e instanceof StructureError && /overlap without nesting/.test(e.message)) return false;
+      throw e;
+    }
+  };
+
+  it('accepts an ancestor/descendant pair with identical ranges', () => {
+    const t = [root, sec('a', ROOT_KEY, 10, 40), sec('b', 'a', 10, 40, 2)];
+    expect(accepts(t)).toBe(true);
+    expect(pairwiseAccepts(t)).toBe(true);
+  });
+
+  it('rejects identical sibling ranges', () => {
+    const t = [root, sec('a', ROOT_KEY, 10, 40), sec('b', ROOT_KEY, 10, 40)];
+    expect(accepts(t)).toBe(false);
+    expect(pairwiseAccepts(t)).toBe(false);
+  });
+
+  it('rejects a geometrically contained NON-ancestor (nesting is ancestry, not geometry)', () => {
+    // b sits inside a's range but declares root as parent — the old pairwise
+    // check rejected this, and the sweep must too.
+    const t = [root, sec('a', ROOT_KEY, 10, 60), sec('b', ROOT_KEY, 20, 30)];
+    expect(accepts(t)).toBe(false);
+    expect(pairwiseAccepts(t)).toBe(false);
+  });
+
+  it('rejects a contained sibling under a shared parent (uncle, not ancestor)', () => {
+    // p contains both; t contains s geometrically but s's parent is p — the
+    // innermost open range at the sweep is t, which is NOT an ancestor of s.
+    const t = [root, sec('p', ROOT_KEY, 0, 100), sec('t', 'p', 0, 50, 2), sec('s', 'p', 10, 20, 2)];
+    // p's range equals root's — allowed only via ancestry, which holds here.
+    expect(accepts(t)).toBe(false);
+    expect(pairwiseAccepts(t)).toBe(false);
+  });
+
+  it('accepts disjoint adjacency at shared boundaries (half-open)', () => {
+    const t = [root, sec('a', ROOT_KEY, 10, 40), sec('b', ROOT_KEY, 40, 70), sec('c', ROOT_KEY, 70, 100)];
+    expect(accepts(t)).toBe(true);
+  });
+
+  it('rejects a partial overlap regardless of same-start ties', () => {
+    const t = [root, sec('a', ROOT_KEY, 10, 40), sec('b', ROOT_KEY, 10, 60)];
+    expect(accepts(t)).toBe(false);
+    expect(pairwiseAccepts(t)).toBe(false);
+  });
+
+  it('is input-order independent (every permutation of a valid table validates identically)', () => {
+    const base = [root, sec('a', ROOT_KEY, 10, 50), sec('b', 'a', 10, 30, 2), sec('c', 'a', 30, 50, 2), sec('d', ROOT_KEY, 60, 90)];
+    const permute = (arr: readonly StructureSectionRecordV2[]): StructureSectionRecordV2[][] => {
+      if (arr.length <= 1) return [[...arr]];
+      return arr.flatMap((x, i) => permute([...arr.slice(0, i), ...arr.slice(i + 1)]).map((rest) => [x, ...rest]));
+    };
+    for (const p of permute(base)) {
+      expect(validateSectionTable(p, text).map((s) => s.key)).toEqual(['root', 'a', 'b', 'c', 'd']);
+    }
+  });
+
+  it('randomized tables agree with the removed pairwise oracle', () => {
+    // Deterministic LCG so failures reproduce.
+    let seed = 0x1234_5678;
+    const rnd = (n: number): number => {
+      seed = (seed * 1664525 + 1013904223) >>> 0;
+      return seed % n;
+    };
+    for (let round = 0; round < 300; round++) {
+      const sections: StructureSectionRecordV2[] = [root];
+      const count = 2 + rnd(6);
+      for (let i = 0; i < count; i++) {
+        const start = rnd(text - 1);
+        const end = start + 1 + rnd(text - start - 1 || 1);
+        const parent = sections[rnd(sections.length)]!.key;
+        sections.push(sec(`s${i}`, parent, start, Math.min(end, text), 1 + rnd(4)));
+      }
+      let sweepVerdict: boolean;
+      try {
+        validateSectionTable(sections, text);
+        sweepVerdict = true;
+      } catch {
+        sweepVerdict = false;
+      }
+      // The oracle covers only the overlap invariant; feed it tables that
+      // pass every OTHER invariant by checking those separately first.
+      let otherInvariantsOk = true;
+      try {
+        // Containment in direct parent (the other geometric invariant).
+        const byKey = new Map(sections.map((s) => [s.key, s]));
+        for (const s of sections) {
+          if (s.parent === undefined) continue;
+          const p = byKey.get(s.parent)!;
+          if (s.chars.start < p.chars.start || s.chars.end > p.chars.end) otherInvariantsOk = false;
+        }
+      } catch {
+        otherInvariantsOk = false;
+      }
+      if (otherInvariantsOk) {
+        expect(sweepVerdict, JSON.stringify(sections)).toBe(pairwiseAccepts(sections));
+      } else {
+        expect(sweepVerdict, JSON.stringify(sections)).toBe(false);
+      }
+    }
+  });
+
+  it('validates a deep chain and a full-cap valid table within the normal timeout', () => {
+    const bigText = 1_000_000;
+    const bigRoot: StructureSectionRecordV2 = { key: ROOT_KEY, origin: 'fixed', level: 0, chars: { start: 0, end: bigText } };
+    // Deep chain: 500 nested sections.
+    const chain: StructureSectionRecordV2[] = [bigRoot];
+    for (let i = 0; i < 500; i++) {
+      chain.push({ key: `c${i}`, origin: 'user', parent: i === 0 ? ROOT_KEY : `c${i - 1}`, level: i + 1, chars: { start: i, end: bigText - i } });
+    }
+    expect(validateSectionTable(chain, bigText).length).toBe(501);
+    // Full cap: 2047 disjoint siblings + root (the old pairwise check took
+    // ~17 s here; the sweep must complete inside the suite's timeout).
+    const flat: StructureSectionRecordV2[] = [bigRoot];
+    for (let i = 0; i < 2047; i++) {
+      flat.push({ key: `f${i}`, origin: 'user', parent: ROOT_KEY, level: 1, chars: { start: i * 400, end: i * 400 + 400 } });
+    }
+    expect(validateSectionTable(flat, bigText).length).toBe(2048);
+  });
+});
+
+describe('buildDetectedSections cap and backward-pass equivalence', () => {
+  it('over-cap raw headings whose degenerate table stays within cap still build', () => {
+    // 3000 headings at the SAME anchor and rank: all but one degenerate (the
+    // ruling: the cap counts EMITTED sections, not raw headings).
+    const text = 'x'.repeat(500);
+    const candidates = Array.from({ length: 3000 }, (_, i) => ({
+      kind: 'md-heading-atx' as const,
+      title: `H${String(i).padStart(4, '0')}`,
+      level: 1,
+      chars: { start: 0, end: 1 },
+    }));
+    const table = buildDetectedSections(text, candidates, recipe);
+    expect(table.length).toBe(2); // root + the single nondegenerate section
+  });
+
+  it('over-cap EMITTED sections reject with the exact cap error before record building', () => {
+    const text = 'x'.repeat(3000);
+    const candidates = Array.from({ length: 2100 }, (_, i) => ({
+      kind: 'md-heading-atx' as const,
+      title: `H${i}`,
+      level: 1,
+      chars: { start: i, end: i + 1 },
+    }));
+    let thrown: unknown;
+    try {
+      buildDetectedSections(text, candidates, recipe);
+    } catch (e) {
+      thrown = e;
+    }
+    // Exact class AND message: StructureCapError is what maps to CAP_EXCEEDED,
+    // and this early branch must be indistinguishable from the validator's.
+    expect(thrown).toBeInstanceOf(StructureCapError);
+    expect((thrown as Error).message).toBe('section table has 2101 sections, over the 2048 cap');
+  });
+
+  it('the backward end pass matches the removed forward scan on a mixed-rank shape', () => {
+    // book(1) at 0, chapters(2) at 10/40, book(1) at 60, chapter(2) at 70 —
+    // chapter at 40 must close at 60 (next rank<=2 is the rank-1 book).
+    const text = 'x'.repeat(100);
+    const mk = (start: number, level: number, title: string) => ({ kind: 'md-heading-atx' as const, title, level, chars: { start, end: start + 1 } });
+    const table = buildDetectedSections(
+      text,
+      [mk(0, 1, 'B1'), mk(10, 2, 'C1'), mk(40, 2, 'C2'), mk(60, 1, 'B2'), mk(70, 2, 'C3')],
+      recipe,
+    );
+    const byTitle = new Map(table.map((s) => [s.title, s.chars]));
+    expect(byTitle.get('B1')).toEqual({ start: 0, end: 60 });
+    expect(byTitle.get('C1')).toEqual({ start: 10, end: 40 });
+    expect(byTitle.get('C2')).toEqual({ start: 40, end: 60 });
+    expect(byTitle.get('B2')).toEqual({ start: 60, end: 100 });
+    expect(byTitle.get('C3')).toEqual({ start: 70, end: 100 });
   });
 });
