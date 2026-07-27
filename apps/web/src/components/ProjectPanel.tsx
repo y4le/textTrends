@@ -11,6 +11,7 @@
  * is ever enabled for it (its source is bundled, fetched from a URL).
  */
 
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { SOURCE_FILE_ACCEPT } from '../lib/project.ts';
@@ -121,7 +122,7 @@ export function ProjectPanel() {
         <button
           type="button"
           onClick={() => loadSavedProject()}
-          style={buttonStyle}
+          style={SMALL_BUTTON_STYLE}
         >
           Load saved project
         </button>
@@ -130,7 +131,7 @@ export function ProjectPanel() {
           onClick={() => saveProject()}
           disabled={!project.saveable}
           aria-disabled={!project.saveable}
-          style={{ ...buttonStyle, opacity: project.saveable ? 1 : 0.5, cursor: project.saveable ? 'pointer' : 'default' }}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: project.saveable ? 1 : 0.5, cursor: project.saveable ? 'pointer' : 'default' }}
         >
           Save project
         </button>
@@ -139,7 +140,7 @@ export function ProjectPanel() {
       {commandError && (
         <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>
           {commandError}{' '}
-          <button type="button" onClick={() => clearCommandError()} style={{ ...buttonStyle, padding: '0 0.5ch' }}>
+          <button type="button" onClick={() => clearCommandError()} style={{ ...SMALL_BUTTON_STYLE, padding: '0 0.5ch' }}>
             dismiss
           </button>
         </p>
@@ -177,12 +178,12 @@ export function ProjectPanel() {
                 </label>
               )}
               {canPersist && (
-                <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={buttonStyle}>
+                <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={SMALL_BUTTON_STYLE}>
                   persist
                 </button>
               )}
               {canRetryPersist && (
-                <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={buttonStyle}>
+                <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={SMALL_BUTTON_STYLE}>
                   Retry persist
                 </button>
               )}
@@ -201,13 +202,3 @@ export function ProjectPanel() {
   );
 }
 
-const buttonStyle: React.CSSProperties = {
-  font: 'inherit',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-xs)',
-  color: 'var(--fg)',
-  background: 'none',
-  border: '1px solid var(--rule-strong)',
-  cursor: 'pointer',
-  padding: '1px 0.75ch',
-};

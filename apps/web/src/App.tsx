@@ -4,12 +4,14 @@ import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { StructurePanel } from './components/StructurePanel.tsx';
 import { TrendPanel } from './components/TrendPanel.tsx';
 import { useApp } from './lib/store-instance.ts';
-import { slotColor, slotDash } from './lib/series-style.ts';
+import { SeriesLineSample } from './components/chrome.tsx';
 
-/** Term chip: the series' persistent identity (line sample + name) and the
- *  CHART-emphasis control (concordance membership is the KwicPanel chips'
- *  job, independent of focus). aria-pressed carries the focused state. */
-function SeriesChip({
+/** Chart-focus chip: the series' persistent identity (line sample + name) and
+ *  the CHART-emphasis control (concordance membership is the KwicPanel
+ *  toggle chips' job, independent of focus — deliberately a separate control
+ *  with its own semantics, not a variant of this one). aria-pressed carries
+ *  the focused state. */
+function ChartFocusChip({
   label,
   slot,
   focused,
@@ -43,18 +45,7 @@ function SeriesChip({
         padding: '1px 0.75ch',
       }}
     >
-      <svg width={22} height={8} aria-hidden="true">
-        <line
-          x1={1}
-          y1={4}
-          x2={21}
-          y2={4}
-          stroke={slotColor(slot)}
-          strokeWidth={focused ? 2.5 : 1.5}
-          strokeDasharray={slotDash(slot)}
-          strokeLinecap={slotDash(slot) === '1 3' ? 'round' : 'butt'}
-        />
-      </svg>
+      <SeriesLineSample slot={slot} emphasized={focused} />
       {label}
       {status === 'pending' && <span style={{ color: 'var(--fg-muted)' }}>…</span>}
       {status === 'error' && <span style={{ color: 'var(--accent-text)' }}>error</span>}
@@ -156,7 +147,7 @@ export function App() {
           }}
         >
           {series.map((s) => (
-            <SeriesChip
+            <ChartFocusChip
               key={s.id}
               label={s.label}
               slot={s.styleSlot}

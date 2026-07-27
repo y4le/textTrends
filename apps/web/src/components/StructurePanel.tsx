@@ -11,6 +11,7 @@
  * PARENT chain, never the `level` metadata field.
  */
 
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { useEffect, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { provenanceLabel, type StructureRow } from '../lib/structure-view.ts';
@@ -116,7 +117,7 @@ export function StructurePanel() {
           mark chapters on chart
         </label>
         {isUser && editableChapters && !editing && overrideStatus !== 'needs-review' && (
-          <button type="button" onClick={() => setEditing(true)} style={editBtn}>
+          <button type="button" onClick={() => setEditing(true)} style={SMALL_BUTTON_STYLE}>
             edit chapters
           </button>
         )}
@@ -149,7 +150,7 @@ export function StructurePanel() {
         <p role="alert" style={{ margin: 'var(--space-1) 0 0', color: 'var(--accent-text)' }}>
           a saved chapter correction is INACTIVE — the source was re-extracted and the correction no longer matches.{' '}
           {isUser && (
-            <button type="button" onClick={() => setStructureOverride(focusedDoc, null)} style={editBtn}>
+            <button type="button" onClick={() => setStructureOverride(focusedDoc, null)} style={SMALL_BUTTON_STYLE}>
               discard stale correction and start from current detection
             </button>
           )}
@@ -194,13 +195,3 @@ export function StructurePanel() {
   );
 }
 
-const editBtn: React.CSSProperties = {
-  font: 'inherit',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-xs)',
-  color: 'var(--fg)',
-  background: 'none',
-  border: '1px solid var(--rule-strong)',
-  cursor: 'pointer',
-  padding: '1px 0.75ch',
-};

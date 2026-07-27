@@ -9,7 +9,8 @@
 
 import { useApp } from '../lib/store-instance.ts';
 import type { KwicRowView } from '../lib/store.ts';
-import { slotColor, slotDash } from '../lib/series-style.ts';
+import { slotColor } from '../lib/series-style.ts';
+import { SeriesLineSample } from './chrome.tsx';
 
 /** One display line per occurrence: the source text's own line breaks (and
  *  any whitespace runs) collapse to single spaces before the fixed-width
@@ -24,12 +25,15 @@ export function KwicPanel() {
   const toggle = useApp((s) => s.toggleKwicSeries);
 
   if (series.length === 0) return null;
-  const slotOf = (id: string) => series.find((s) => s.id === id)?.styleSlot ?? 0;
-  const labelOf = (id: string) => series.find((s) => s.id === id)?.label ?? id;
+  // Map lookups, built once per render — the table does up to 50 rows × 5
+  // cells of these (matching TrendPanel's titleByDoc pattern).
+  const seriesById = new Map(series.map((s) => [s.id, s]));
+  const slotOf = (id: string) => seriesById.get(id)?.styleSlot ?? 0;
+  const labelOf = (id: string) => seriesById.get(id)?.label ?? id;
   // Presentation titles come from document metadata — doc ids are opaque
   // identity (user projects use UUIDs).
-  const titleOf = (doc: string) =>
-    project?.data.docs.find((d) => d.doc === doc)?.meta.title ?? doc;
+  const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
+  const titleOf = (doc: string) => titleByDoc.get(doc) ?? doc;
 
   const table = (total: number, rows: readonly KwicRowView[]) => (
     <table
@@ -104,9 +108,7 @@ export function KwicPanel() {
               opacity: on ? 1 : 0.6,
             }}
           >
-            <svg width={22} height={8} aria-hidden="true">
-              <line x1={1} y1={4} x2={21} y2={4} stroke={slotColor(s.styleSlot)} strokeWidth={on ? 2.5 : 1.5} strokeDasharray={slotDash(s.styleSlot)} />
-            </svg>
+            <SeriesLineSample slot={s.styleSlot} emphasized={on} />
             {on ? '✓ ' : ''}{s.label}
           </button>
         );

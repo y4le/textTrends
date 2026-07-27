@@ -12,6 +12,7 @@
  * reconstructed here from the bound-id → key map — no protocol change needed.
  */
 
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { useEffect, useMemo, useState } from 'react';
 import { overrideFromEditedOutline, ROOT_KEY, type EditableSectionValue, type StructureSectionRecordV2 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
@@ -140,12 +141,12 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
         {correction?.phase === 'hashing' && <span style={{ color: 'var(--fg-muted)' }}>applying…</span>}
         {correction?.phase === 'error' && <span role="alert" style={{ color: 'var(--accent-text)' }}>{correction.message}</span>}
         <span style={{ flex: 1 }} />
-        <button type="button" onClick={addRow} disabled={!ctx || !canAddSection(rows.length)} style={btn}>add chapter</button>
+        <button type="button" onClick={addRow} disabled={!ctx || !canAddSection(rows.length)} style={SMALL_BUTTON_STYLE}>add chapter</button>
         {/* Apply stays enabled while a prior correction is still hashing: a newer
             Apply (or discard) intentionally SUPERSEDES the pending one — the
             session's per-doc token fence guarantees only the latest installs. */}
-        <button type="button" onClick={apply} disabled={!ctx} style={btn}>apply</button>
-        <button type="button" onClick={onClose} style={btn}>cancel</button>
+        <button type="button" onClick={apply} disabled={!ctx} style={SMALL_BUTTON_STYLE}>apply</button>
+        <button type="button" onClick={onClose} style={SMALL_BUTTON_STYLE}>cancel</button>
       </div>
 
       {ctxError && <p role="alert" style={{ color: 'var(--accent-text)' }}>could not open the editor: {ctxError}</p>}
@@ -179,7 +180,7 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
                   ))}
                 </select>
               </label>
-              <button type="button" onClick={() => removeRow(r.key)} style={btn}>remove</button>
+              <button type="button" onClick={() => removeRow(r.key)} style={SMALL_BUTTON_STYLE}>remove</button>
             </li>
           ))}
         </ul>
@@ -188,13 +189,3 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
   );
 }
 
-const btn: React.CSSProperties = {
-  font: 'inherit',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-xs)',
-  color: 'var(--fg)',
-  background: 'none',
-  border: '1px solid var(--rule-strong)',
-  cursor: 'pointer',
-  padding: '1px 0.75ch',
-};
