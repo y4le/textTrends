@@ -113,6 +113,24 @@ describe('token and affix occurrences', () => {
     expect(rows(occurrences(w.snapshot, w.shards, w.resolvers, cut, group([phrase('m1', ['dire', 'wolf'])]))))
       .toEqual([]);
   });
+
+  it('multi-doc, multi-range selections match per range in declared order', async () => {
+    const w = await world({ a: 'wolf x wolf y wolf', b: 'wolf z wolf' });
+    const sel = await resolveSelection(w.snapshot, {
+      docs: ['b', 'a'] as ProjectDocId[],
+      ranges: [
+        { doc: 'a' as ProjectDocId, tokens: { start: 0 as never, end: 1 as never } },
+        { doc: 'a' as ProjectDocId, tokens: { start: 4 as never, end: 5 as never } },
+        { doc: 'b' as ProjectDocId, tokens: { start: 2 as never, end: 3 as never } },
+      ],
+    });
+    const o = occurrences(w.snapshot, w.shards, w.resolvers, sel, group([token('m1', 'wolf')]));
+    expect(rows(o)).toEqual([
+      { doc: 0, pos: 0, span: 1, members: [0] }, // wolf@2 excluded (unselected)
+      { doc: 0, pos: 4, span: 1, members: [0] },
+      { doc: 1, pos: 2, span: 1, members: [0] }, // wolf@0 excluded
+    ]);
+  });
 });
 
 describe('phrases', () => {
@@ -149,6 +167,26 @@ describe('phrases', () => {
     expect(rows(occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([
       phrase('m1', ['dire', 'wolf'], true),
     ])))).toEqual([{ doc: 0, pos: 3, span: 2, members: [0] }]);
+  });
+
+  it('a sentence bound exactly at phrase start or end does not cross; strictly inside does', async () => {
+    const w = await world({ a: 'One two. Wolf howled. Dire wolf.' });
+    // Pin the geometry: sentence bounds at tokens 0, 2 ('Wolf'), 4 ('Dire'), 6 (end).
+    expect(Array.from(w.shards.get('a')!.sentenceBounds)).toEqual([0, 2, 4, 6]);
+    // 'wolf howled' spans [2, 4): the bound AT its start (2) and AT its end (4)
+    // both leave it inside one sentence — half-open on both edges.
+    expect(rows(occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([
+      phrase('m1', ['wolf', 'howled'], false),
+    ]))).map((r) => r.pos)).toEqual([2]);
+    // 'dire wolf' spans [4, 6): the bound AT start (4) and AT start+span (6)
+    // do not cross — including the final bound at the document edge.
+    expect(rows(occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([
+      phrase('m1', ['dire', 'wolf'], false),
+    ]))).map((r) => r.pos)).toEqual([4]);
+    // 'howled dire' spans [3, 5): the bound at 4 lies strictly inside — crossing.
+    expect(rows(occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([
+      phrase('m1', ['howled', 'dire'], false),
+    ])))).toEqual([]);
   });
 
   it('a phrase with an unmatched surface finds nothing; an empty phrase is rejected', async () => {

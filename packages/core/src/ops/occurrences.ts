@@ -32,8 +32,10 @@ import {
   type Resolver,
 } from '../resolve/fold.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
-import type { ResolvedSelection } from '../snapshot/selection.ts';
+import type { ResolvedSelection, TokenRangeSpan } from '../snapshot/selection.ts';
 import { lowerBound } from '../structure/project.ts';
+
+export type { TokenRangeSpan } from '../snapshot/selection.ts';
 
 export type GroupMember =
   | { readonly id: string; readonly kind: 'token'; readonly surface: string;
@@ -100,7 +102,11 @@ export function termGroupIdentity(group: TermGroupSpec): string {
   return canonicalJson({ members, countOverlaps: group.countOverlaps });
 }
 
-function validateGroup(group: TermGroupSpec): void {
+/** Semantic group validation — every PUBLIC kernel entry (occurrences,
+ *  planPassage) must run this exactly once so a malformed group classifies
+ *  as RangeError/REQUEST_INVALID, never as an internal fault. Internal to
+ *  the kernel modules; deliberately NOT in the public barrel. */
+export function validateGroup(group: TermGroupSpec): void {
   for (const m of group.members) {
     if (m.kind === 'phrase' && m.surfaces.length === 0) {
       throw new RangeError(`phrase member '${m.id}' has no surfaces`);
@@ -114,20 +120,12 @@ export interface RawMatch {
   member: number;
 }
 
-/** Half-open document-local token range. */
-export interface TokenRangeSpan {
-  readonly start: number;
-  readonly end: number;
-}
-
 function crossesSentence(shard: DocumentIndexV1, start: number, span: number): boolean {
+  // First bound strictly greater than `start` (lowerBound is >=, hence +1);
+  // half-open: a bound at `start` or at `start + span` does not cross.
   const bounds = shard.sentenceBounds;
-  for (let i = 0; i < bounds.length; i++) {
-    const b = bounds[i] as number;
-    if (b > start && b < start + span) return true;
-    if (b >= start + span) break;
-  }
-  return false;
+  const i = lowerBound(bounds, start + 1);
+  return i < bounds.length && (bounds[i] as number) < start + span;
 }
 
 /**
@@ -137,6 +135,9 @@ function crossesSentence(shard: DocumentIndexV1, start: number, span: number): b
  * window, never by the document (a scrub sample over 200 tokens must not
  * walk a whole book's postings for a common word). A match counts only when
  * FULLY contained in a single range.
+ *
+ * PRECONDITION: `group` has passed `validateGroup` — the public kernel entry
+ * (occurrences, planPassage) validates once; this matcher does not re-check.
  */
 export function matchGroupInTokenRanges(
   shard: DocumentIndexV1,
@@ -144,10 +145,6 @@ export function matchGroupInTokenRanges(
   group: TermGroupSpec,
   ranges: readonly TokenRangeSpan[] | null,
 ): RawMatch[] {
-  // Semantic validation lives WITH the matcher — every entry point (trend/
-  // kwic via occurrences, passage via planPassage) must classify a malformed
-  // group as RangeError/REQUEST_INVALID, never as an internal fault.
-  validateGroup(group);
   const out: RawMatch[] = [];
   const n = shard.tokenTypeIds.length;
   const whole: readonly TokenRangeSpan[] = [{ start: 0, end: n }];
@@ -312,15 +309,9 @@ export function occurrences(
   const memberOffsets: number[] = [0];
   const memberOrdinals: number[] = [];
 
-  const selectedRanges = new Map<string, readonly { start: number; end: number }[]>();
-  for (const r of selection.spec.ranges ?? []) {
-    const list = selectedRanges.get(r.doc) ?? [];
-    selectedRanges.set(r.doc, [...list, { start: r.tokens.start, end: r.tokens.end }]);
-  }
-
   for (let ord = 0; ord < snapshot.docs.length; ord++) {
     const ref = snapshot.docs[ord]!;
-    if (!selection.spec.docs.includes(ref.doc)) continue;
+    if (!selection.docSet.has(ref.doc)) continue;
     const shard = shards.get(ref.doc);
     const docResolvers = resolvers.get(ref.doc);
     if (!shard || !docResolvers) throw new RangeError(`missing shard/resolvers for '${ref.doc}'`);
@@ -330,7 +321,7 @@ export function occurrences(
       shard,
       resolverFor,
       group,
-      selectedRanges.get(ref.doc) ?? null,
+      selection.rangesByDoc.get(ref.doc) ?? null,
     );
     if (matches.length === 0) continue;
 

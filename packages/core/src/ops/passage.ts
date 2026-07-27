@@ -33,6 +33,7 @@ import { internalTextOf, type BoundTexts } from './binding.ts';
 import {
   matchGroupInTokenRanges,
   mergeGroupSpans,
+  validateGroup,
   type TermGroupSpec,
 } from './occurrences.ts';
 
@@ -156,6 +157,11 @@ export function planPassage(
     tokenStarts[t] = (shard.startsUtf16[start + t] as number) - charStart;
     tokenEnds[t] = tokenEndChar(shard, start + t) - charStart;
   }
+
+  // Groups are validated ONCE here, immediately before matching — after the
+  // document/center/cap checks above (their error precedence is contractual);
+  // matchGroupInTokenRanges assumes validated input.
+  for (const group of groups) validateGroup(group);
 
   const markTrackOrdinal: number[] = [];
   const markTokenStart: number[] = [];

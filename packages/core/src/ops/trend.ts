@@ -16,6 +16,7 @@
  */
 
 import type { NumericOccurrences } from './occurrences.ts';
+import type { ProjectDocId } from '../contract/brands.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection } from '../snapshot/selection.ts';
 
@@ -68,13 +69,8 @@ export function trend(
     throw new RangeError(`unknown trend coordinate '${String(request.coordinate)}'`);
   }
 
-  const selectedRanges = new Map<string, readonly { start: number; end: number }[]>();
-  for (const r of selection.spec.ranges ?? []) {
-    const list = selectedRanges.get(r.doc) ?? [];
-    selectedRanges.set(r.doc, [...list, { start: r.tokens.start, end: r.tokens.end }]);
-  }
-  const selectedTokensIn = (doc: string, from: number, to: number, tokenCount: number): number => {
-    const ranges = selectedRanges.get(doc);
+  const selectedTokensIn = (doc: ProjectDocId, from: number, to: number, tokenCount: number): number => {
+    const ranges = selection.rangesByDoc.get(doc);
     if (!ranges) return Math.max(0, Math.min(to, tokenCount) - from);
     let n = 0;
     for (const r of ranges) {
@@ -96,7 +92,7 @@ export function trend(
   const rowBase = new Map<number, number>(); // snapshot doc ordinal -> first row
   for (let ord = 0; ord < snapshot.docs.length; ord++) {
     const ref = snapshot.docs[ord]!;
-    if (!selection.spec.docs.includes(ref.doc)) continue;
+    if (!selection.docSet.has(ref.doc)) continue;
     order.push(ref.doc);
     sequenceBases.push(ref.sequenceTokenBase);
     docTokenCount.push(ref.tokenCount);

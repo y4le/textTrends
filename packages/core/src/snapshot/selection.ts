@@ -19,18 +19,32 @@ export interface SelectionSpec {
   readonly ranges?: readonly { readonly doc: ProjectDocId; readonly tokens: HalfOpenRange<DocTokenPos> }[];
 }
 
+/** Half-open document-local token range. */
+export interface TokenRangeSpan {
+  readonly start: number;
+  readonly end: number;
+}
+
 export interface ResolvedSelection {
   readonly snapshot: CorpusSnapshotV1['id'];
   /** Canonicalized spec — contract §6 shape, declared-doc/start order. */
   readonly spec: SelectionSpec;
   readonly hash: SelectionHash;
+  /** EXECUTION INDEX (derived from `spec`, eager): selected-doc membership.
+   *  Never serialized — the contract and the hash are fed by `spec` alone. */
+  readonly docSet: ReadonlySet<ProjectDocId>;
+  /** EXECUTION INDEX (derived from `spec`, eager): canonical merged token
+   *  ranges per document; a doc absent here is selected in full. Never
+   *  serialized — the contract and the hash are fed by `spec` alone. */
+  readonly rangesByDoc: ReadonlyMap<ProjectDocId, readonly TokenRangeSpan[]>;
 }
 
 export async function resolveSelection(
   snapshot: CorpusSnapshotV1,
   spec: SelectionSpec,
 ): Promise<ResolvedSelection> {
-  if (new Set(spec.docs).size !== spec.docs.length) {
+  const requested = new Set(spec.docs);
+  if (requested.size !== spec.docs.length) {
     throw new RangeError('selection docs must be unique');
   }
   const composed = new Map(snapshot.docs.map((r) => [r.doc, r]));
@@ -40,13 +54,13 @@ export async function resolveSelection(
     }
   }
   // Snapshot-declared order, never spec order.
-  const docs = snapshot.docs.map((r) => r.doc).filter((d) => spec.docs.includes(d));
+  const docs = snapshot.docs.map((r) => r.doc).filter((d) => requested.has(d));
 
   const byDoc = new Map<ProjectDocId, { start: number; end: number }[]>();
   if (spec.ranges) {
     for (const r of spec.ranges) {
       const ref = composed.get(r.doc);
-      if (!ref || !docs.includes(r.doc)) {
+      if (!ref || !requested.has(r.doc)) {
         throw new RangeError(`range references document '${r.doc}' outside the selection`);
       }
       const start = r.tokens.start as number;
@@ -87,6 +101,8 @@ export async function resolveSelection(
   const canonicalSpec: SelectionSpec =
     ranges.length > 0 ? { docs, ranges } : { docs };
 
+  // The hash is fed by the canonical spec ALONE — the execution indexes
+  // below are derived views and must never widen this serialization.
   const hash = (await sha256Hex(
     canonicalJson({
       snapshot: snapshot.id,
@@ -95,5 +111,15 @@ export async function resolveSelection(
     }),
   )) as SelectionHash;
 
-  return { snapshot: snapshot.id, spec: canonicalSpec, hash };
+  // Execution indexes (eager): membership set + canonical merged ranges per
+  // doc, so kernels never rebuild them per call. Docs without ranges are
+  // absent from the map — absent means "whole document".
+  const docSet: ReadonlySet<ProjectDocId> = new Set(docs);
+  const rangesByDoc = new Map<ProjectDocId, readonly TokenRangeSpan[]>();
+  for (const doc of docs) {
+    const merged = byDoc.get(doc);
+    if (merged) rangesByDoc.set(doc, merged);
+  }
+
+  return { snapshot: snapshot.id, spec: canonicalSpec, hash, docSet, rangesByDoc };
 }

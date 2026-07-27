@@ -146,6 +146,25 @@ describe('trend/1', () => {
     expect(t.ratePer10k[1]).toBe(0);
   });
 
+  it('multi-doc, multi-range selections keep per-doc denominators and counts aligned', async () => {
+    const w = await world({ a: 'wolf b c d wolf f', b: 'x wolf y z' });
+    const sel = await resolveSelection(w.snapshot, {
+      docs: ['a', 'b'] as ProjectDocId[],
+      ranges: [
+        { doc: 'a' as ProjectDocId, tokens: { start: 0 as never, end: 2 as never } },
+        { doc: 'a' as ProjectDocId, tokens: { start: 4 as never, end: 6 as never } },
+        { doc: 'b' as ProjectDocId, tokens: { start: 1 as never, end: 2 as never } },
+      ],
+    });
+    const occ = occurrences(w.snapshot, w.shards, w.resolvers, sel, wolfGroup);
+    const t = trend(w.snapshot, sel, occ, { coordinate: 'document-relative', binsPerDoc: 2 });
+    // a (6 tokens, bins [0,3)/[3,6)): selected 2+2, wolf@0 and wolf@4;
+    // b (4 tokens, bins [0,2)/[2,4)): selected 1+0, wolf@1.
+    expect(t.order).toEqual(['a', 'b']);
+    expect(Array.from(t.binTokens)).toEqual([2, 2, 1, 0]);
+    expect(Array.from(t.count)).toEqual([1, 1, 1, 0]);
+  });
+
   it('rejects foreign selections, bad bin counts, and unknown coordinates', async () => {
     const w1 = await world({ a: 'x' });
     const w2 = await world({ a: 'x y' });

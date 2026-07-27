@@ -143,6 +143,28 @@ describe('passage', () => {
       countOverlaps: false,
     };
     expect(() => planPassage(w.snapshot, 'a', shard, rf, [emptyPhrase], 1, 3)).toThrow(RangeError);
+    expect(() => planPassage(w.snapshot, 'a', shard, rf, [emptyPhrase], 1, 3)).toThrow(/no surfaces/);
+  });
+
+  it('document, maxTokens, center, and cap errors all take precedence over an invalid group', async () => {
+    const w = await world({ a: 'one two three' });
+    const shard = w.shards.get('a')!;
+    const ref = w.snapshot.docs.find((r) => r.doc === 'a')!;
+    const rf = checkedResolverFor('a', ref.index, shard, w.resolvers.get('a')!);
+    const bad: TermGroupSpec = {
+      id: 'g-bad',
+      members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }],
+      countOverlaps: false,
+    };
+    expect(() => planPassage(w.snapshot, 'zz', shard, rf, [bad], 1, 3)).toThrow(/not a member/);
+    expect(() => planPassage(w.snapshot, 'a', shard, rf, [bad], 1, 0)).toThrow(/maxTokens/);
+    expect(() => planPassage(w.snapshot, 'a', shard, rf, [bad], 99, 3)).toThrow(/outside \[0/);
+    // CapError (center token alone over the char cap) also precedes the group check.
+    const big = await world({ a: `tiny ${'y'.repeat(PASSAGE_MAX_UTF16 + 1)} tiny` });
+    const bigShard = big.shards.get('a')!;
+    const bigRef = big.snapshot.docs.find((r) => r.doc === 'a')!;
+    const bigRf = checkedResolverFor('a', bigRef.index, bigShard, big.resolvers.get('a')!);
+    expect(() => planPassage(big.snapshot, 'a', bigShard, bigRf, [bad], 1, 200)).toThrow(CapError);
   });
 
   it('rejects an out-of-range center (including zero-token docs) instead of clamping', async () => {

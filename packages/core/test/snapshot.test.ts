@@ -217,6 +217,38 @@ describe('composeSnapshot determinism', () => {
     ).rejects.toThrow(/invalid range/);
   });
 
+  it('execution indexes mirror the canonical spec and never feed the hash', async () => {
+    const a = await readyDoc('a', 'alpha beta gamma delta');
+    const b = await readyDoc('b', 'beta delta');
+    const s = await composeSnapshot(GEN, ['a', 'b'] as ProjectDocId[], new Map([[a.doc, a], [b.doc, b]]));
+    const range = (doc: string, start: number, end: number) => ({
+      doc: doc as ProjectDocId,
+      tokens: { start: start as never, end: end as never },
+    });
+    const sel = await resolveSelection(s, {
+      docs: ['b', 'a'] as ProjectDocId[],
+      ranges: [range('a', 2, 4), range('a', 0, 2)],
+    });
+    // docSet follows canonical (declared) order; rangesByDoc carries the
+    // merged canonical ranges; a whole-doc selection has NO map entry.
+    expect([...sel.docSet]).toEqual(['a', 'b']);
+    expect(sel.rangesByDoc.get('a' as ProjectDocId)).toEqual([{ start: 0, end: 4 }]);
+    expect(sel.rangesByDoc.has('b' as ProjectDocId)).toBe(false);
+    // The hash is a function of `spec` ALONE — recomputing it from the spec
+    // reproduces the stored hash, so the indexes cannot have widened it.
+    const { sha256Hex, canonicalJson } = await import('../src/contract/hash.ts');
+    const specOnly = await sha256Hex(
+      canonicalJson({
+        snapshot: s.id,
+        docs: sel.spec.docs,
+        ranges: (sel.spec.ranges ?? []).map((r) => ({ doc: r.doc, start: r.tokens.start, end: r.tokens.end })),
+      }),
+    );
+    expect(sel.hash).toBe(specOnly);
+    // And the serialized contract shape itself never mentions the indexes.
+    expect(canonicalJson(sel.spec)).not.toMatch(/docSet|rangesByDoc/);
+  });
+
   it('validateSnapshot rejects schema, missing-order, and alternative-merge tampering', async () => {
     const a = await readyDoc('a', 'alpha beta');
     const b = await readyDoc('b', 'beta gamma');
