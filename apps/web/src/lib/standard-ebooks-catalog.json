@@ -1,0 +1,740 @@
+{
+  "schemaVersion": 1,
+  "generatedAt": "2026-07-27T13:18:21.184Z",
+  "source": {
+    "popularityUrl": "https://standardebooks.org/ebooks?sort=popularity&per-page=48"
+  },
+  "books": [
+    {
+      "name": "mary-shelley_frankenstein",
+      "title": "Frankenstein",
+      "author": "Mary Shelley",
+      "popularityRank": 1
+    },
+    {
+      "name": "homer_the-odyssey_william-cullen-bryant",
+      "title": "The Odyssey",
+      "author": "Homer",
+      "popularityRank": 2
+    },
+    {
+      "name": "alexandre-dumas_the-count-of-monte-cristo_chapman-and-hall",
+      "title": "The Count of Monte Cristo",
+      "author": "Alexandre Dumas",
+      "popularityRank": 3
+    },
+    {
+      "name": "jane-austen_pride-and-prejudice",
+      "title": "Pride and Prejudice",
+      "author": "Jane Austen",
+      "popularityRank": 4
+    },
+    {
+      "name": "marcus-aurelius_meditations_george-long",
+      "title": "Meditations",
+      "author": "Marcus Aurelius",
+      "popularityRank": 5
+    },
+    {
+      "name": "kahlil-gibran_jesus-the-son-of-man",
+      "title": "Jesus the Son of Man",
+      "author": "Kahlil Gibran",
+      "popularityRank": 6
+    },
+    {
+      "name": "agatha-christie_partners-in-crime",
+      "title": "Partners in Crime",
+      "author": "Agatha Christie",
+      "popularityRank": 7
+    },
+    {
+      "name": "confucius_analects_james-legge",
+      "title": "Analects",
+      "author": "Confucius",
+      "popularityRank": 8
+    },
+    {
+      "name": "harry-harrison_short-fiction",
+      "title": "Short Fiction",
+      "author": "Harry Harrison",
+      "popularityRank": 9
+    },
+    {
+      "name": "bram-stoker_dracula",
+      "title": "Dracula",
+      "author": "Bram Stoker",
+      "popularityRank": 10
+    },
+    {
+      "name": "fyodor-dostoevsky_crime-and-punishment_constance-garnett",
+      "title": "Crime and Punishment",
+      "author": "Fyodor Dostoevsky",
+      "popularityRank": 11
+    },
+    {
+      "name": "charles-dickens_the-mystery-of-edwin-drood",
+      "title": "The Mystery of Edwin Drood",
+      "author": "Charles Dickens",
+      "popularityRank": 12
+    },
+    {
+      "name": "herman-melville_moby-dick",
+      "title": "Moby Dick",
+      "author": "Herman Melville",
+      "popularityRank": 13
+    },
+    {
+      "name": "f-scott-fitzgerald_the-great-gatsby",
+      "title": "The Great Gatsby",
+      "author": "F. Scott Fitzgerald",
+      "popularityRank": 14
+    },
+    {
+      "name": "oscar-wilde_the-picture-of-dorian-gray",
+      "title": "The Picture of Dorian Gray",
+      "author": "Oscar Wilde",
+      "popularityRank": 15
+    },
+    {
+      "name": "lewis-carroll_alices-adventures-in-wonderland_john-tenniel",
+      "title": "Alice’s Adventures in Wonderland",
+      "author": "Lewis Carroll",
+      "popularityRank": 16
+    },
+    {
+      "name": "ameen-rihani_the-book-of-khalid",
+      "title": "The Book of Khalid",
+      "author": "Ameen Rihani",
+      "popularityRank": 17
+    },
+    {
+      "name": "noel-loomis_short-science-fiction",
+      "title": "Short Science Fiction",
+      "author": "Noel Loomis",
+      "popularityRank": 18
+    },
+    {
+      "name": "arthur-conan-doyle_the-adventures-of-sherlock-holmes",
+      "title": "The Adventures of Sherlock Holmes",
+      "author": "Arthur Conan Doyle",
+      "popularityRank": 19
+    },
+    {
+      "name": "charlotte-bronte_jane-eyre",
+      "title": "Jane Eyre",
+      "author": "Charlotte Brontë",
+      "popularityRank": 20
+    },
+    {
+      "name": "siegfried-sassoon_memoirs-of-an-infantry-officer",
+      "title": "Memoirs of an Infantry Officer",
+      "author": "Siegfried Sassoon",
+      "popularityRank": 21
+    },
+    {
+      "name": "w-e-b-du-bois_the-quest-of-the-silver-fleece",
+      "title": "The Quest of the Silver Fleece",
+      "author": "W. E. B. Du Bois",
+      "popularityRank": 22
+    },
+    {
+      "name": "homer_the-iliad_william-cullen-bryant",
+      "title": "The Iliad",
+      "author": "Homer",
+      "popularityRank": 23
+    },
+    {
+      "name": "friedrich-engels_the-condition-of-the-working-class-in-england_florence-kelley-wischnewetzky",
+      "title": "The Condition of the Working Class in England",
+      "author": "Friedrich Engels",
+      "popularityRank": 24
+    },
+    {
+      "name": "fyodor-dostoevsky_the-brothers-karamazov_constance-garnett",
+      "title": "The Brothers Karamazov",
+      "author": "Fyodor Dostoevsky",
+      "popularityRank": 25
+    },
+    {
+      "name": "h-g-wells_the-time-machine",
+      "title": "The Time Machine",
+      "author": "H. G. Wells",
+      "popularityRank": 26
+    },
+    {
+      "name": "emily-bronte_wuthering-heights",
+      "title": "Wuthering Heights",
+      "author": "Emily Brontë",
+      "popularityRank": 27
+    },
+    {
+      "name": "arthur-conan-doyle_a-study-in-scarlet",
+      "title": "A Study in Scarlet",
+      "author": "Arthur Conan Doyle",
+      "popularityRank": 28
+    },
+    {
+      "name": "edgar-saltus_the-perfume-of-eros",
+      "title": "The Perfume of Eros",
+      "author": "Edgar Saltus",
+      "popularityRank": 29
+    },
+    {
+      "name": "wilkie-collins_basil",
+      "title": "Basil",
+      "author": "Wilkie Collins",
+      "popularityRank": 30
+    },
+    {
+      "name": "robert-louis-stevenson_the-strange-case-of-dr-jekyll-and-mr-hyde",
+      "title": "The Strange Case of Dr. Jekyll and Mr. Hyde",
+      "author": "Robert Louis Stevenson",
+      "popularityRank": 31
+    },
+    {
+      "name": "edgar-rice-burroughs_pirates-of-venus",
+      "title": "Pirates of Venus",
+      "author": "Edgar Rice Burroughs",
+      "popularityRank": 32
+    },
+    {
+      "name": "robert-hugh-benson_the-necromancers",
+      "title": "The Necromancers",
+      "author": "Robert Hugh Benson",
+      "popularityRank": 33
+    },
+    {
+      "name": "walter-white_flight",
+      "title": "Flight",
+      "author": "Walter White",
+      "popularityRank": 34
+    },
+    {
+      "name": "dorothy-m-richardson_deadlock",
+      "title": "Deadlock",
+      "author": "Dorothy M. Richardson",
+      "popularityRank": 35
+    },
+    {
+      "name": "miguel-de-cervantes-saavedra_don-quixote_john-ormsby",
+      "title": "Don Quixote",
+      "author": "Miguel de Cervantes Saavedra",
+      "popularityRank": 36
+    },
+    {
+      "name": "sun-tzu_the-art-of-war_lionel-giles",
+      "title": "The Art of War",
+      "author": "Sun Tzu",
+      "popularityRank": 37
+    },
+    {
+      "name": "robert-louis-stevenson_treasure-island",
+      "title": "Treasure Island",
+      "author": "Robert Louis Stevenson",
+      "popularityRank": 38
+    },
+    {
+      "name": "willa-cather_the-professors-house",
+      "title": "The Professor’s House",
+      "author": "Willa Cather",
+      "popularityRank": 39
+    },
+    {
+      "name": "niccolo-machiavelli_the-prince_w-k-marriott",
+      "title": "The Prince",
+      "author": "Niccolò Machiavelli",
+      "popularityRank": 40
+    },
+    {
+      "name": "arthur-b-reeve_craig-kennedy-stories",
+      "title": "Craig Kennedy Stories",
+      "author": "Arthur B. Reeve",
+      "popularityRank": 41
+    },
+    {
+      "name": "leo-tolstoy_war-and-peace_louise-maude_aylmer-maude",
+      "title": "War and Peace",
+      "author": "Leo Tolstoy",
+      "popularityRank": 42
+    },
+    {
+      "name": "george-eliot_middlemarch",
+      "title": "Middlemarch",
+      "author": "George Eliot",
+      "popularityRank": 43
+    },
+    {
+      "name": "ring-lardner_george-s-kaufman_june-moon",
+      "title": "June Moon",
+      "author": "Ring Lardner and George S. Kaufman",
+      "popularityRank": 44
+    },
+    {
+      "name": "maria-lowell_poetry",
+      "title": "Poetry",
+      "author": "Maria Lowell",
+      "popularityRank": 45
+    },
+    {
+      "name": "james-joyce_ulysses",
+      "title": "Ulysses",
+      "author": "James Joyce",
+      "popularityRank": 46
+    },
+    {
+      "name": "plato_dialogues_benjamin-jowett",
+      "title": "Dialogues",
+      "author": "Plato",
+      "popularityRank": 47
+    },
+    {
+      "name": "rudyard-kipling_captains-courageous",
+      "title": "Captains Courageous",
+      "author": "Rudyard Kipling",
+      "popularityRank": 48
+    },
+    {
+      "name": "dante-alighieri_the-divine-comedy_henry-wadsworth-longfellow",
+      "title": "The Divine Comedy",
+      "author": "Dante Alighieri",
+      "popularityRank": 49
+    },
+    {
+      "name": "robert-w-chambers_the-king-in-yellow",
+      "title": "The King in Yellow",
+      "author": "Robert W. Chambers",
+      "popularityRank": 50
+    },
+    {
+      "name": "john-milton_paradise-lost",
+      "title": "Paradise Lost",
+      "author": "John Milton",
+      "popularityRank": 51
+    },
+    {
+      "name": "george-eliot_romola",
+      "title": "Romola",
+      "author": "George Eliot",
+      "popularityRank": 52
+    },
+    {
+      "name": "agatha-christie_the-murder-of-roger-ackroyd",
+      "title": "The Murder of Roger Ackroyd",
+      "author": "Agatha Christie",
+      "popularityRank": 53
+    },
+    {
+      "name": "virginia-woolf_to-the-lighthouse",
+      "title": "To the Lighthouse",
+      "author": "Virginia Woolf",
+      "popularityRank": 54
+    },
+    {
+      "name": "d-l-moody_the-way-to-god-and-how-to-find-it",
+      "title": "The Way to God and How to Find It",
+      "author": "D. L. Moody",
+      "popularityRank": 55
+    },
+    {
+      "name": "frances-hodgson-burnett_the-secret-garden",
+      "title": "The Secret Garden",
+      "author": "Frances Hodgson Burnett",
+      "popularityRank": 56
+    },
+    {
+      "name": "dashiell-hammett_the-maltese-falcon",
+      "title": "The Maltese Falcon",
+      "author": "Dashiell Hammett",
+      "popularityRank": 57
+    },
+    {
+      "name": "leo-tolstoy_anna-karenina_constance-garnett",
+      "title": "Anna Karenina",
+      "author": "Leo Tolstoy",
+      "popularityRank": 58
+    },
+    {
+      "name": "isaac-asimov_short-science-fiction",
+      "title": "Short Science Fiction",
+      "author": "Isaac Asimov",
+      "popularityRank": 59
+    },
+    {
+      "name": "h-g-wells_the-war-of-the-worlds",
+      "title": "The War of the Worlds",
+      "author": "H. G. Wells",
+      "popularityRank": 60
+    },
+    {
+      "name": "jane-austen_emma",
+      "title": "Emma",
+      "author": "Jane Austen",
+      "popularityRank": 61
+    },
+    {
+      "name": "henry-david-thoreau_walden",
+      "title": "Walden",
+      "author": "Henry David Thoreau",
+      "popularityRank": 62
+    },
+    {
+      "name": "arthur-conan-doyle_the-hound-of-the-baskervilles",
+      "title": "The Hound of the Baskervilles",
+      "author": "Arthur Conan Doyle",
+      "popularityRank": 63
+    },
+    {
+      "name": "jane-austen_persuasion",
+      "title": "Persuasion",
+      "author": "Jane Austen",
+      "popularityRank": 64
+    },
+    {
+      "name": "laozi_tao-te-ching_james-legge",
+      "title": "Tao Te Ching",
+      "author": "Laozi",
+      "popularityRank": 65
+    },
+    {
+      "name": "james-branch-cabell_the-line-of-love",
+      "title": "The Line of Love",
+      "author": "James Branch Cabell",
+      "popularityRank": 66
+    },
+    {
+      "name": "marcel-proust_in-search-of-lost-time_c-k-scott-moncrieff",
+      "title": "In Search of Lost Time",
+      "author": "Marcel Proust",
+      "popularityRank": 67
+    },
+    {
+      "name": "adam-smith_the-wealth-of-nations",
+      "title": "The Wealth of Nations",
+      "author": "Adam Smith",
+      "popularityRank": 68
+    },
+    {
+      "name": "charles-dickens_a-tale-of-two-cities",
+      "title": "A Tale of Two Cities",
+      "author": "Charles Dickens",
+      "popularityRank": 69
+    },
+    {
+      "name": "ring-lardner_fred-gross-stories",
+      "title": "Fred Gross Stories",
+      "author": "Ring Lardner",
+      "popularityRank": 70
+    },
+    {
+      "name": "jane-austen_sense-and-sensibility",
+      "title": "Sense and Sensibility",
+      "author": "Jane Austen",
+      "popularityRank": 71
+    },
+    {
+      "name": "edgar-allan-poe_short-fiction",
+      "title": "Short Fiction",
+      "author": "Edgar Allan Poe",
+      "popularityRank": 72
+    },
+    {
+      "name": "fyodor-dostoevsky_notes-from-underground_constance-garnett",
+      "title": "Notes from Underground",
+      "author": "Fyodor Dostoevsky",
+      "popularityRank": 73
+    },
+    {
+      "name": "franz-kafka_the-castle_willa-muir_edwin-muir",
+      "title": "The Castle",
+      "author": "Franz Kafka",
+      "popularityRank": 74
+    },
+    {
+      "name": "william-shakespeare_macbeth",
+      "title": "Macbeth",
+      "author": "William Shakespeare",
+      "popularityRank": 75
+    },
+    {
+      "name": "h-p-lovecraft_at-the-mountains-of-madness",
+      "title": "At the Mountains of Madness",
+      "author": "H. P. Lovecraft",
+      "popularityRank": 76
+    },
+    {
+      "name": "charles-dickens_great-expectations",
+      "title": "Great Expectations",
+      "author": "Charles Dickens",
+      "popularityRank": 77
+    },
+    {
+      "name": "agatha-christie_the-mysterious-affair-at-styles",
+      "title": "The Mysterious Affair at Styles",
+      "author": "Agatha Christie",
+      "popularityRank": 78
+    },
+    {
+      "name": "joseph-conrad_heart-of-darkness",
+      "title": "Heart of Darkness",
+      "author": "Joseph Conrad",
+      "popularityRank": 79
+    },
+    {
+      "name": "louisa-may-alcott_little-women",
+      "title": "Little Women",
+      "author": "Louisa May Alcott",
+      "popularityRank": 80
+    },
+    {
+      "name": "mark-twain_the-adventures-of-huckleberry-finn",
+      "title": "The Adventures of Huckleberry Finn",
+      "author": "Mark Twain",
+      "popularityRank": 81
+    },
+    {
+      "name": "william-shakespeare_hamlet",
+      "title": "Hamlet",
+      "author": "William Shakespeare",
+      "popularityRank": 82
+    },
+    {
+      "name": "arthur-conan-doyle_the-sign-of-the-four",
+      "title": "The Sign of the Four",
+      "author": "Arthur Conan Doyle",
+      "popularityRank": 83
+    },
+    {
+      "name": "l-m-montgomery_anne-of-green-gables",
+      "title": "Anne of Green Gables",
+      "author": "L. M. Montgomery",
+      "popularityRank": 84
+    },
+    {
+      "name": "ernest-hemingway_a-farewell-to-arms",
+      "title": "A Farewell to Arms",
+      "author": "Ernest Hemingway",
+      "popularityRank": 85
+    },
+    {
+      "name": "virginia-woolf_orlando",
+      "title": "Orlando",
+      "author": "Virginia Woolf",
+      "popularityRank": 86
+    },
+    {
+      "name": "fyodor-dostoevsky_the-idiot_eva-m-martin",
+      "title": "The Idiot",
+      "author": "Fyodor Dostoevsky",
+      "popularityRank": 87
+    },
+    {
+      "name": "karl-marx_friedrich-engels_the-communist-manifesto_samuel-moore",
+      "title": "The Communist Manifesto",
+      "author": "Karl Marx and Friedrich Engels",
+      "popularityRank": 88
+    },
+    {
+      "name": "edward-gibbon_the-history-of-the-decline-and-fall-of-the-roman-empire",
+      "title": "The History of the Decline and Fall of the Roman Empire",
+      "author": "Edward Gibbon",
+      "popularityRank": 89
+    },
+    {
+      "name": "william-faulkner_as-i-lay-dying",
+      "title": "As I Lay Dying",
+      "author": "William Faulkner",
+      "popularityRank": 90
+    },
+    {
+      "name": "agatha-christie_the-murder-at-the-vicarage",
+      "title": "The Murder at the Vicarage",
+      "author": "Agatha Christie",
+      "popularityRank": 91
+    },
+    {
+      "name": "joshua-slocum_sailing-alone-around-the-world",
+      "title": "Sailing Alone Around the World",
+      "author": "Joshua Slocum",
+      "popularityRank": 92
+    },
+    {
+      "name": "mark-twain_the-adventures-of-tom-sawyer",
+      "title": "The Adventures of Tom Sawyer",
+      "author": "Mark Twain",
+      "popularityRank": 93
+    },
+    {
+      "name": "friedrich-nietzsche_beyond-good-and-evil_helen-zimmern",
+      "title": "Beyond Good and Evil",
+      "author": "Friedrich Nietzsche",
+      "popularityRank": 94
+    },
+    {
+      "name": "jack-london_the-call-of-the-wild",
+      "title": "The Call of the Wild",
+      "author": "Jack London",
+      "popularityRank": 95
+    },
+    {
+      "name": "victor-hugo_les-miserables_isabel-f-hapgood",
+      "title": "Les Misérables",
+      "author": "Victor Hugo",
+      "popularityRank": 96
+    },
+    {
+      "name": "virginia-woolf_mrs-dalloway",
+      "title": "Mrs. Dalloway",
+      "author": "Virginia Woolf",
+      "popularityRank": 97
+    },
+    {
+      "name": "jules-verne_journey-to-the-center-of-the-earth_f-a-malleson",
+      "title": "Journey to the Center of the Earth",
+      "author": "Jules Verne",
+      "popularityRank": 98
+    },
+    {
+      "name": "noel-coward_hay-fever",
+      "title": "Hay Fever",
+      "author": "Noël Coward",
+      "popularityRank": 99
+    },
+    {
+      "name": "h-g-wells_the-invisible-man",
+      "title": "The Invisible Man",
+      "author": "H. G. Wells",
+      "popularityRank": 100
+    },
+    {
+      "name": "arthur-conan-doyle_the-memoirs-of-sherlock-holmes",
+      "title": "The Memoirs of Sherlock Holmes",
+      "author": "Arthur Conan Doyle"
+    },
+    {
+      "name": "arthur-conan-doyle_the-return-of-sherlock-holmes",
+      "title": "The Return of Sherlock Holmes",
+      "author": "Arthur Conan Doyle"
+    },
+    {
+      "name": "arthur-conan-doyle_the-valley-of-fear",
+      "title": "The Valley of Fear",
+      "author": "Arthur Conan Doyle"
+    },
+    {
+      "name": "arthur-conan-doyle_his-last-bow",
+      "title": "His Last Bow",
+      "author": "Arthur Conan Doyle"
+    },
+    {
+      "name": "arthur-conan-doyle_the-casebook-of-sherlock-holmes",
+      "title": "The Casebook of Sherlock Holmes",
+      "author": "Arthur Conan Doyle"
+    },
+    {
+      "name": "anthony-trollope_can-you-forgive-her",
+      "title": "Can You Forgive Her?",
+      "author": "Anthony Trollope"
+    },
+    {
+      "name": "anthony-trollope_phineas-finn",
+      "title": "Phineas Finn",
+      "author": "Anthony Trollope"
+    },
+    {
+      "name": "anthony-trollope_the-eustace-diamonds",
+      "title": "The Eustace Diamonds",
+      "author": "Anthony Trollope"
+    },
+    {
+      "name": "anthony-trollope_phineas-redux",
+      "title": "Phineas Redux",
+      "author": "Anthony Trollope"
+    },
+    {
+      "name": "anthony-trollope_the-prime-minister",
+      "title": "The Prime Minister",
+      "author": "Anthony Trollope"
+    },
+    {
+      "name": "anthony-trollope_the-dukes-children",
+      "title": "The Duke’s Children",
+      "author": "Anthony Trollope"
+    }
+  ],
+  "series": [
+    {
+      "slug": "sherlock-holmes",
+      "title": "Sherlock Holmes",
+      "sourceUrl": "https://standardebooks.org/collections/sherlock-holmes",
+      "members": [
+        {
+          "name": "arthur-conan-doyle_a-study-in-scarlet",
+          "position": 1
+        },
+        {
+          "name": "arthur-conan-doyle_the-sign-of-the-four",
+          "position": 2
+        },
+        {
+          "name": "arthur-conan-doyle_the-adventures-of-sherlock-holmes",
+          "position": 3
+        },
+        {
+          "name": "arthur-conan-doyle_the-memoirs-of-sherlock-holmes",
+          "position": 4
+        },
+        {
+          "name": "arthur-conan-doyle_the-hound-of-the-baskervilles",
+          "position": 5
+        },
+        {
+          "name": "arthur-conan-doyle_the-return-of-sherlock-holmes",
+          "position": 6
+        },
+        {
+          "name": "arthur-conan-doyle_the-valley-of-fear",
+          "position": 7
+        },
+        {
+          "name": "arthur-conan-doyle_his-last-bow",
+          "position": 8
+        },
+        {
+          "name": "arthur-conan-doyle_the-casebook-of-sherlock-holmes",
+          "position": 9
+        }
+      ]
+    },
+    {
+      "slug": "palliser",
+      "title": "Palliser",
+      "sourceUrl": "https://standardebooks.org/collections/palliser",
+      "members": [
+        {
+          "name": "anthony-trollope_can-you-forgive-her",
+          "position": 1
+        },
+        {
+          "name": "anthony-trollope_phineas-finn",
+          "position": 2
+        },
+        {
+          "name": "anthony-trollope_the-eustace-diamonds",
+          "position": 3
+        },
+        {
+          "name": "anthony-trollope_phineas-redux",
+          "position": 4
+        },
+        {
+          "name": "anthony-trollope_the-prime-minister",
+          "position": 5
+        },
+        {
+          "name": "anthony-trollope_the-dukes-children",
+          "position": 6
+        }
+      ]
+    }
+  ]
+}
