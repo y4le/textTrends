@@ -6,7 +6,11 @@ settings:
 
 importers:
 
-  .: {}
+  .:
+    devDependencies:
+      '@texttrends/standard-ebooks':
+        specifier: file:../standard_ebooks
+        version: file:../standard_ebooks
 
   apps/web:
     dependencies:

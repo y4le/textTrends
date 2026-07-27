@@ -6,6 +6,9 @@
     "node": ">=22.12.0"
   },
   "packageManager": "pnpm@10.19.0",
+  "devDependencies": {
+    "@texttrends/standard-ebooks": "file:../standard_ebooks"
+  },
   "scripts": {
     "dev": "pnpm --filter @texttrends/web dev",
     "build": "pnpm -r build",

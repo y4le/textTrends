@@ -3,14 +3,19 @@
  * (update-se-catalog.mjs holds the fetch orchestration and file writes).
  * Everything here fails closed by throwing DriftError; the offline fixture
  * suite (se-catalog-lib.test.mjs) exercises the drift gates without network.
+ *
+ * HTML scraping (site-specific, brittle by nature) stays here; the stable
+ * Standard Ebooks contracts — the path→repository-name mapping and OPF
+ * parsing (identifier, code repository, collections) — come from
+ * @texttrends/standard-ebooks, so this module holds drift POLICY over the
+ * library's parsed facts rather than its own OPF regexes.
  */
+
+import { ebookPathToRepositoryName, parsePackage } from '@texttrends/standard-ebooks';
 
 export const ORIGIN = 'https://standardebooks.org';
 export const RAW_ORIGIN = 'https://raw.githubusercontent.com';
 export const ORGANIZATION = 'standardebooks';
-
-/** Mirrors the @texttrends/standard-ebooks client's repository-name grammar. */
-export const REPOSITORY_NAME = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
 
 export class DriftError extends Error {}
 
@@ -78,17 +83,16 @@ export function parseBookEntries(html, label) {
 }
 
 /**
- * `/ebooks/homer/the-odyssey/william-cullen-bryant` → `homer_the-odyssey_william-cullen-bryant`.
- * A segment may itself contain `_` (multiple translators, e.g.
- * `louise-maude_aylmer-maude`); the OPF cross-check proves the derived name
- * is a real repository that identifies as exactly this path.
+ * The library's slash-to-underscore mapping, reclassified as catalog drift:
+ * the OPF cross-check proves the derived name is a real repository that
+ * identifies as exactly this path.
  */
 export function pathToRepositoryName(path) {
-  const segments = path.replace(/^\/ebooks\//u, '').split('/');
-  assert(segments.length >= 2 && segments.every((s) => s !== ''), `Unexpected ebook path shape: ${path}`);
-  const name = segments.join('_');
-  assert(REPOSITORY_NAME.test(name), `Derived repository name fails the client grammar: ${name}`);
-  return name;
+  try {
+    return ebookPathToRepositoryName(path);
+  } catch (error) {
+    throw new DriftError(error instanceof Error ? error.message : String(error));
+  }
 }
 
 /** One popularity page: selected-option drift gates + expected entry count. */
@@ -128,44 +132,33 @@ export function parseSeriesPage(html, slug) {
  * `rel="schema:codeRepository"` link to agree with the derived name, and each
  * claimed series membership to be declared with the same position, so markup
  * or mapping drift fails at generation instead of producing bad downloads at
- * add-time.
+ * add-time. The facts come from the library's real XML parse (parsePackage:
+ * comments ignored, attribute/element identity exact); only the drift policy
+ * lives here.
  */
 export function validateOpfDocument(opf, book, seriesMemberships) {
   const label = `OPF ${book.name}`;
-  // Commented-out markup must never satisfy any check.
-  const scanned = opf.replace(/<!--[\s\S]*?-->/gu, '');
-  assert(scanned.includes('<package'), `${label}: not an OPF package document`);
+  let metadata;
+  try {
+    metadata = parsePackage(opf, label).metadata;
+  } catch (error) {
+    throw new DriftError(`${label}: ${error instanceof Error ? error.message : String(error)}`);
+  }
   assert(
-    scanned.includes(`<dc:identifier id="uid">${ORIGIN}${book.path}</dc:identifier>`),
-    `${label}: dc:identifier does not match ${book.path}`,
+    metadata.identifier === `${ORIGIN}${book.path}`,
+    `${label}: dc:identifier "${metadata.identifier}" does not match ${book.path}`,
   );
-  // Attribute IDENTITY, not substrings: parse each <link>'s attributes so a
-  // near-name attribute (data-rel=…/data-href=…) or an unrelated link to the
-  // same repo URL can never satisfy the check. Attribute order is free. The
-  // element name must end exactly at `link` (`\b` would accept `<link-other>`
-  // because `-` is a regex non-word character but a valid XML name character).
-  const codeRepository = [...scanned.matchAll(/<link(?=[\s/>])([^>]*?)\/?>/gu)].some((m) => {
-    const attrs = new Map(
-      [...m[1].matchAll(/(?:^|\s)([a-zA-Z][a-zA-Z0-9:_-]*)="([^"]*)"/gu)].map((a) => [a[1], a[2]]),
-    );
-    return attrs.get('rel') === 'schema:codeRepository'
-      && attrs.get('href') === `https://github.com/${ORGANIZATION}/${book.name}`;
-  });
-  assert(codeRepository, `${label}: no rel="schema:codeRepository" link for the derived repository name`);
+  assert(
+    metadata.repositoryUrl === `https://github.com/${ORGANIZATION}/${book.name}`,
+    `${label}: schema:codeRepository "${metadata.repositoryUrl ?? '(none)'}" does not match the derived repository name`,
+  );
   for (const { seriesTitle, position } of seriesMemberships) {
-    const collection = [...scanned.matchAll(/<meta id="([^"]+)" property="belongs-to-collection">([^<]+)<\/meta>/gu)]
-      .find((m) => decodeEntities(m[2]).trim() === seriesTitle);
+    const collection = metadata.collections.find((c) => c.title === seriesTitle);
     assert(collection !== undefined, `${label}: no belongs-to-collection for "${seriesTitle}"`);
-    const id = collection[1];
+    assert(collection.type === 'series', `${label}: "${seriesTitle}" is not declared collection-type=series`);
     assert(
-      scanned.includes(`<meta property="collection-type" refines="#${id}">series</meta>`),
-      `${label}: "${seriesTitle}" is not declared collection-type=series`,
-    );
-    const escapedId = id.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
-    const declared = new RegExp(`<meta property="group-position" refines="#${escapedId}">([^<]+)</meta>`, 'u').exec(scanned)?.[1];
-    assert(
-      declared !== undefined && Number(declared) === position,
-      `${label}: group-position ${declared ?? '(none)'} disagrees with collection position ${position}`,
+      collection.position === position,
+      `${label}: group-position ${collection.position ?? '(none)'} disagrees with collection position ${position}`,
     );
   }
 }

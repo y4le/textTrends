@@ -39,10 +39,13 @@ const seriesPage = (slug, title, entries) => `
     <meta property="schema:name" content="${title}"/>${entries.join('')}
   </ol>`;
 
+/** A minimal but REAL package: the validator parses it with the library's
+ *  parsePackage (title, manifest, and an XHTML spine are required). */
 const opfFor = ({ path, name, collections = [] }) => `<?xml version="1.0"?>
-<package xmlns="http://www.idpf.org/2007/opf" version="3.0">
-  <metadata>
+<package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="3.0">
+  <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="uid">${ORIGIN}${path}</dc:identifier>
+    <dc:title>A Fixture</dc:title>
     ${collections.map(({ id, title, type, position }) => `
       <meta id="${id}" property="belongs-to-collection">${title}</meta>
       <meta property="collection-type" refines="#${id}">${type}</meta>
@@ -50,6 +53,8 @@ const opfFor = ({ path, name, collections = [] }) => `<?xml version="1.0"?>
     <meta property="se:url.vcs.github" id="vcs-repository">https://github.com/standardebooks/${name}</meta>
     <link href="https://github.com/standardebooks/${name}" refines="#vcs-repository" rel="schema:codeRepository"/>
   </metadata>
+  <manifest><item href="text/ch1.xhtml" id="c1" media-type="application/xhtml+xml"/></manifest>
+  <spine><itemref idref="c1"/></spine>
 </package>`;
 
 const throws = (fn, pattern) => assert.throws(fn, (e) => e instanceof DriftError && pattern.test(e.message));
@@ -70,9 +75,9 @@ describe('pathToRepositoryName', () => {
     assert.equal(pathToRepositoryName('/ebooks/homer/the-odyssey/william-cullen-bryant'), 'homer_the-odyssey_william-cullen-bryant');
     assert.equal(pathToRepositoryName('/ebooks/leo-tolstoy/war-and-peace/louise-maude_aylmer-maude'), 'leo-tolstoy_war-and-peace_louise-maude_aylmer-maude');
   });
-  it('rejects single-segment and empty-segment paths', () => {
-    throws(() => pathToRepositoryName('/ebooks/only-author'), /Unexpected ebook path shape/u);
-    throws(() => pathToRepositoryName('/ebooks/a//b'), /Unexpected ebook path shape/u);
+  it('rejects single-segment and empty-segment paths as DriftError', () => {
+    throws(() => pathToRepositoryName('/ebooks/only-author'), /Not a Standard Ebooks ebook URL path/u);
+    throws(() => pathToRepositoryName('/ebooks/a//b'), /Not a Standard Ebooks ebook URL path/u);
   });
 });
 
@@ -137,37 +142,53 @@ describe('validateOpfDocument', () => {
     validateOpfDocument(opf, book, [{ seriesTitle: 'The Series', position: 3 }]);
   });
   it('rejects identifier or code-repository drift', () => {
-    throws(() => validateOpfDocument(opfFor({ path: '/ebooks/a/OTHER', name: 'a_b' }), book, []), /dc:identifier does not match/u);
+    throws(() => validateOpfDocument(opfFor({ path: '/ebooks/a/OTHER', name: 'a_b' }), book, []), /dc:identifier .* does not match/u);
     // An unqualified link to the right URL must NOT satisfy the check: the
     // rel="schema:codeRepository" declaration itself is what is validated.
     const noRel = opfFor(book).replace(' rel="schema:codeRepository"', '');
-    throws(() => validateOpfDocument(noRel, book, []), /no rel="schema:codeRepository" link/u);
+    throws(() => validateOpfDocument(noRel, book, []), /schema:codeRepository .* does not match/u);
+    throws(() => validateOpfDocument('<not-a-package/>', book, []), /root is not an OPF package element/u);
   });
-  it('requires attribute IDENTITY: impostor names, wrong href, and comments all fail', () => {
+  it('requires element and attribute IDENTITY via the real XML parse', () => {
     const realLink = /<link [^>]*rel="schema:codeRepository"[^>]*>/u;
     const withLink = (replacement) => opfFor(book).replace(realLink, replacement);
     // data-rel/data-href carry the right VALUES under near-name attributes.
     throws(
       () => validateOpfDocument(withLink('<link data-rel="schema:codeRepository" data-href="https://github.com/standardebooks/a_b"/>'), book, []),
-      /no rel="schema:codeRepository" link/u,
+      /schema:codeRepository .* does not match/u,
     );
     // The correct relation pointing at the wrong repository.
     throws(
       () => validateOpfDocument(withLink('<link href="https://github.com/standardebooks/other_repo" rel="schema:codeRepository"/>'), book, []),
-      /no rel="schema:codeRepository" link/u,
+      /schema:codeRepository .* does not match/u,
     );
     // A commented-out declaration must not satisfy the check.
     throws(
       () => validateOpfDocument(opfFor(book).replace(realLink, (m) => `<!-- ${m} -->`), book, []),
-      /no rel="schema:codeRepository" link/u,
+      /schema:codeRepository .* does not match/u,
     );
     // A near-name ELEMENT with the right attributes must not satisfy it either.
     throws(
       () => validateOpfDocument(withLink('<link-other href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []),
-      /no rel="schema:codeRepository" link/u,
+      /schema:codeRepository .* does not match/u,
     );
     // Attribute order stays free: href-before-rel with the right values passes.
     validateOpfDocument(withLink('<link href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []);
+    // A foreign-NAMESPACE link with the right local name, attributes, and
+    // values must not satisfy the check (XML identity = namespace + name).
+    throws(
+      () => validateOpfDocument(withLink('<evil:link xmlns:evil="urn:not-opf" href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []),
+      /schema:codeRepository .* does not match/u,
+    );
+  });
+  it('resolves the identifier via unique-identifier, so a decoy cannot satisfy policy', () => {
+    // First identifier carries the EXPECTED value but is not the declared
+    // unique identifier; the canonical one identifies as something else.
+    const decoyed = opfFor(book).replace(
+      `<dc:identifier id="uid">${ORIGIN}${book.path}</dc:identifier>`,
+      `<dc:identifier id="decoy">${ORIGIN}${book.path}</dc:identifier><dc:identifier id="uid">urn:wrong-unique-id</dc:identifier>`,
+    );
+    throws(() => validateOpfDocument(decoyed, book, []), /dc:identifier .* does not match/u);
   });
   it('rejects set-typed, absent, or mispositioned series membership', () => {
     const set = opfFor({ ...book, collections: [{ id: 'c1', title: 'S', type: 'set', position: 1 }] });

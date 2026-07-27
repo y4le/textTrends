@@ -7,6 +7,7 @@
  * unexpected keys (so book text/descriptions/covers can never leak into the
  * artifact) — is proven here against the real file.
  */
+import { REPOSITORY_NAME } from '@texttrends/standard-ebooks';
 import { describe, expect, it } from 'vitest';
 import {
   STANDARD_EBOOKS_CATALOG,
@@ -15,9 +16,6 @@ import {
 
 const catalog = STANDARD_EBOOKS_CATALOG;
 const TOP_COUNT = 100;
-
-/** Mirrors the @texttrends/standard-ebooks client's repository-name grammar. */
-const REPOSITORY_NAME = /^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/u;
 
 const isTrimmedNonEmpty = (value: string) => value !== '' && value === value.trim();
 
