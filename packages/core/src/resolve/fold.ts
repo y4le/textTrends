@@ -93,7 +93,13 @@ export function resolveToken(resolver: Resolver, surface: string): readonly Loca
   return resolver.map.get(queryKey(resolver, surface)) ?? [];
 }
 
-/** Prefix/suffix resolution: linear scan over folded vocabulary keys (no trie in v1). */
+/**
+ * Prefix/suffix resolution: linear scan over the resolver's PRECOMPUTED folded
+ * keys (no re-folding of the raw vocabulary; no trie in v1). Matching buckets
+ * are unioned and sorted numerically ascending — ids are assigned in
+ * vocabulary order by buildResolver, so this reproduces vocabulary order
+ * exactly, independent of Map insertion order.
+ */
 export function resolveAffix(
   resolver: Resolver,
   kind: 'prefix' | 'suffix',
@@ -101,11 +107,17 @@ export function resolveAffix(
 ): readonly LocalTypeId[] {
   const foldedStem = queryKey(resolver, stem);
   const out: LocalTypeId[] = [];
-  const { shard, mode, locale } = resolver;
-  for (let id = 0; id < shard.vocabulary.length; id++) {
-    const folded = foldKey(shard.vocabulary[id] as string, mode, locale);
+  for (const [folded, ids] of resolver.map) {
     const hit = kind === 'prefix' ? folded.startsWith(foldedStem) : folded.endsWith(foldedStem);
-    if (hit) out.push(id as LocalTypeId);
+    if (hit) {
+      // Iterative flatten — `out.push(...ids)` passes every id as a call
+      // argument, and a large folded-collision bucket (hundreds of
+      // thousands of diacritic variants folding to one key is legal well
+      // under the vocab cap) overflows V8's argument limit
+      // (review-c6-fold finding).
+      for (const id of ids) out.push(id);
+    }
   }
+  out.sort((a, b) => a - b);
   return out;
 }

@@ -83,6 +83,31 @@ describe('resolvers bound to a shard', () => {
     expect(resolveAffix(r, 'prefix', 'Winter').length).toBe(3);
     expect(resolveAffix(r, 'suffix', 'er').length).toBe(2); // winter, summer
   });
+
+  it('affix output stays in vocabulary order when interleaved entries fold to one key', async () => {
+    // 'Cafe' (id 0) and 'café' (id 2) both fold to 'cafe', with 'bar' (id 1)
+    // between them — the collided bucket is [0, 2], not adjacent ids.
+    const shard = await shardOf('Cafe bar café');
+    expect(shard.vocabulary).toEqual(['Cafe', 'bar', 'café']);
+    const r = await buildResolver(shard, R, BOTH);
+    expect(resolveAffix(r, 'prefix', 'caf')).toEqual([0, 2]);
+  });
+
+  it('affix union across multiple buckets returns full vocabulary (ascending id) order', async () => {
+    // Buckets in map insertion order: 'winter' → [0, 2], 'summer' → [1],
+    // 'otter' → [3]; naive bucket flattening would yield [0, 2, 1, 3].
+    const shard = await shardOf('winter summer Winter otter');
+    expect(shard.vocabulary).toEqual(['winter', 'summer', 'Winter', 'otter']);
+    const r = await buildResolver(shard, R, CASE_ONLY);
+    expect(resolveAffix(r, 'suffix', 'er')).toEqual([0, 1, 2, 3]);
+  });
+
+  it('an empty stem matches every entry, in vocabulary order', async () => {
+    const shard = await shardOf('beta Alpha ALPHA');
+    const r = await buildResolver(shard, R, CASE_ONLY);
+    expect(resolveAffix(r, 'prefix', '')).toEqual([0, 1, 2]);
+    expect(resolveAffix(r, 'suffix', '')).toEqual([0, 1, 2]);
+  });
 });
 
 describe('package entry point', () => {
@@ -93,5 +118,25 @@ describe('package entry point', () => {
     expect(typeof entry.validateSnapshot).toBe('function');
     expect(typeof entry.indexArtifactHash).toBe('function');
     expect(typeof entry.buildResolver).toBe('function');
+  });
+});
+
+describe('large folded-collision buckets', () => {
+  it('a bucket beyond the spread-argument limit resolves instead of throwing', async () => {
+    // The review-c6-fold finding: `out.push(...ids)` overflows V8's call-
+    // argument limit on a large single bucket, and a shard whose vocabulary
+    // diacritic-folds thousands of variants onto one key is legal well under
+    // maxVocabSize (reproduced end-to-end at 140k keys in review). The
+    // resolver here is built over a real small shard, then its map is
+    // swapped for a synthetic one-bucket view — the flatten path under test
+    // is identical, without paying multi-second segmentation in a unit test.
+    const shard = await shardOf('alpha beta');
+    const real = await buildResolver(shard, R, CASE_ONLY);
+    const big = Array.from({ length: 200_000 }, (_, i) => i as (typeof real.map extends ReadonlyMap<string, readonly (infer T)[]> ? T : never));
+    const resolver = { ...real, map: new Map([['aaa', big]]) };
+    const out = resolveAffix(resolver, 'prefix', 'a');
+    expect(out.length).toBe(200_000);
+    expect(out[0]).toBe(0);
+    expect(out[199_999]).toBe(199_999);
   });
 });
