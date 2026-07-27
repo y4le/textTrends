@@ -86,7 +86,10 @@ import {
   type IndexRecipeProvisional,
   type MatchMode,
   type ReadyDocument,
+  type ResolvedSelection,
   type Resolver,
+  type ResolverTable,
+  type TermGroupSpec,
   StructureCapError,
   StructureError,
   type SourceDescriptorV1,
@@ -207,16 +210,19 @@ interface GenerationStateV4 {
   /** Bounded ephemeral DETECTED-table cache for the edit-context query, keyed
    *  [TextHash, CandidateHash, StructureRecipeHash] — never persisted (ruling §2). */
   readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
-  /** Ephemeral per-track occurrence cache for KWIC re-centering. A re-center
-   *  changes only the sort/page (`center`), never the occurrence sets, so the
-   *  expensive per-doc match is memoized by [SnapshotId, SelectionHash,
-   *  termGroupIdentity] — the group's canonical MATCHING identity, NOT its
-   *  caller-owned `group.id` (which can collide across groups that resolve
-   *  differently). Insertion order is the LRU recency order; the KWIC handler
-   *  caps it at MAX_KWIC_TRACKS on every write so concurrent/interleaving jobs
-   *  cannot grow it. Dropped with the generation; superseded snapshots key
-   *  distinctly and never collide. */
-  readonly kwicOccCache: Map<string, NumericOccurrences>;
+  /** Ephemeral occurrence cache SHARED by the trend and kwic query branches
+   *  (Phase E): a fixed [SnapshotId, SelectionHash, termGroupIdentity] tuple
+   *  fully determines one raw `NumericOccurrences`, which trend consumes
+   *  directly and kwic consumes as per-track arrays — so exactly that raw
+   *  value is cached and every projection (bins/coordinate/center/sort/
+   *  context/page) stays consumer-side. Keyed by the group's canonical
+   *  MATCHING identity, NOT its caller-owned `group.id` (which can collide
+   *  across groups that resolve differently). Insertion order is the LRU
+   *  recency order: a hit from EITHER consumer refreshes recency and every
+   *  miss caps the map at MAX_OCCURRENCE_CACHE_ENTRIES so concurrent/
+   *  interleaving jobs cannot grow it. Dropped with the generation;
+   *  superseded snapshots key distinctly and never collide. */
+  readonly occurrenceCache: Map<string, NumericOccurrences>;
   /** Per-generation SectionId binding cache (Phase D ruling, workstream D4).
    *  Section ids depend only on (doc, lineageKey) and are DELIBERATELY stable
    *  across snapshots within a generation, so both structure query paths share
@@ -299,6 +305,24 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
+
+/** Hard LRU cap on the shared occurrence cache (Phase E). DELIBERATELY the
+ *  same value as MAX_KWIC_TRACKS — NOT doubled for the second consumer: trend
+ *  and kwic queries over the same view touch the same ≤MAX_KWIC_TRACKS
+ *  (snapshot, selection, identity) tuples (the trend group IS one of the kwic
+ *  tracks), so sharing adds reuse, not working-set size. Exported for the
+ *  engine test suite's bound assertions. */
+export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
+
+/** The shared occurrence-cache key for both query branches. The three
+ *  components are joined with a literal NUL, which is collision-free BY
+ *  CONSTRUCTION (unlike D4's section ids, whose contracts do not forbid NUL
+ *  and which therefore use nested maps): the snapshot id and the selection
+ *  hash are internally computed SHA-256 hex, and `termGroupIdentity` is
+ *  canonical JSON, where JSON.stringify escapes U+0000 as a backslash-u
+ *  sequence — so no component can ever contain the delimiter. */
+const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelection, group: TermGroupSpec): string =>
+  [snapshot.id, selection.hash, termGroupIdentity(group)].join('\u0000');
 
 /** Hard ceiling on a line-excerpt window so a caller cannot request an
  *  unbounded slice of a pathological physical line (§4). */
@@ -431,7 +455,7 @@ export class WorkerEngineV4 {
       resolvers: new Map(),
       tokenViews: new Map(),
       detectedTables: new Map(),
-      kwicOccCache: new Map(),
+      occurrenceCache: new Map(),
       sectionIds: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
@@ -1349,6 +1373,43 @@ export class WorkerEngineV4 {
     }
   }
 
+  /** Lookup/touch/compute/prune on the generation's shared occurrence cache —
+   *  the ONE cache discipline for both the trend and kwic query branches
+   *  (Phase E). Synchronous ON PURPOSE: `occurrences` is synchronous, so there
+   *  is no await between the miss observation, the compute/store, and the
+   *  bound enforcement for an interleaving job to race. A hit from EITHER
+   *  consumer refreshes recency; every miss prunes to the hard cap before
+   *  returning (the worker runs handlers concurrently, so a prune anywhere
+   *  else would not survive the callers' checkpoints and the map could grow
+   *  with the active-job count). An evicted entry is simply recomputed on its
+   *  next query — an in-flight request already holds its own reference. */
+  private occurrencesFor(
+    gen: GenerationStateV4,
+    snapshot: CorpusSnapshotV1,
+    shards: ReadonlyMap<string, DocumentIndexV1>,
+    resolvers: ResolverTable,
+    selection: ResolvedSelection,
+    group: TermGroupSpec,
+  ): NumericOccurrences {
+    const cache = gen.occurrenceCache;
+    const key = occurrenceCacheKey(snapshot, selection, group);
+    const hit = cache.get(key);
+    if (hit) {
+      // Touch → most-recently-used (Map preserves insertion order as recency).
+      cache.delete(key);
+      cache.set(key, hit);
+      return hit;
+    }
+    const occ = occurrences(snapshot, shards, resolvers, selection, group);
+    cache.set(key, occ);
+    while (cache.size > MAX_OCCURRENCE_CACHE_ENTRIES) {
+      const oldest = cache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      cache.delete(oldest);
+    }
+    return occ;
+  }
+
   private async query(job: number, snapshotId: string, q: QueryOpV4): Promise<void> {
     const gen = this.generation;
     if (!gen?.snapshot || gen.snapshot.id !== snapshotId || !gen.bound || !gen.boundTexts) {
@@ -1417,7 +1478,7 @@ export class WorkerEngineV4 {
         resolvers.set(id, byMode);
       }
       await this.queryCheckpoint(job, gen, snapshotId);
-      const occ = occurrences(snapshot, shards, resolvers, selection, q.group);
+      const occ = this.occurrencesFor(gen, snapshot, shards, resolvers, selection, q.group);
       await this.queryCheckpoint(job, gen, snapshotId);
       const data = trend(snapshot, selection, occ, q.request);
       await this.queryCheckpoint(job, gen, snapshotId);
@@ -1444,39 +1505,16 @@ export class WorkerEngineV4 {
 
     // Re-centering the concordance re-issues this query with the same
     // snapshot/selection/tracks and only a new `center`; the occurrence sets
-    // are identical, so memoize them and let the re-center pay only for the
-    // top-K ordering + text slicing below. The key uses the group's canonical
-    // MATCHING identity (`termGroupIdentity`), NEVER `group.id` — that is
-    // caller-owned presentation provenance and can collide across groups that
-    // resolve to different occurrences (e.g. `I` vs `İ` under a guessed
-    // locale), which would serve stale rows.
-    const cache = gen.kwicOccCache;
+    // are identical, so each track is served from the shared occurrence cache
+    // (also warmed by trend queries over the same tuple — see occurrencesFor
+    // and the gen.occurrenceCache contract) and a re-center pays only for the
+    // top-K ordering + text slicing below.
     const trackOccs: NumericOccurrences[] = [];
     for (const track of q.tracks) {
-      const key = `${snapshot.id}\u0000${selection.hash}\u0000${termGroupIdentity(track.group)}`;
-      let occ = cache.get(key);
-      if (occ) {
-        // Touch → most-recently-used (Map preserves insertion order as recency).
-        cache.delete(key);
-        cache.set(key, occ);
-      } else {
-        occ = occurrences(snapshot, shards, resolvers, selection, track.group);
-        cache.set(key, occ);
-        // Hard LRU bound enforced on EVERY write: the worker runs handlers
-        // concurrently (`void engine.handle(...)`), so two non-cancelled KWIC
-        // jobs interleave across the checkpoint below — a single prune before
-        // the loop would not survive those yields and the map could grow with
-        // the active-job count. Capping here bounds it unconditionally; an
-        // evicted entry is simply recomputed on its next query (this request
-        // already holds its own `occ` via `trackOccs`).
-        while (cache.size > MAX_KWIC_TRACKS) {
-          const oldest = cache.keys().next().value as string | undefined;
-          if (oldest === undefined) break;
-          cache.delete(oldest);
-        }
-        await this.queryCheckpoint(job, gen, snapshotId);
-      }
-      trackOccs.push(occ);
+      trackOccs.push(this.occurrencesFor(gen, snapshot, shards, resolvers, selection, track.group));
+      // Per-track gate: a cancel raised while a track resolved must stop
+      // before the next track computes (see the phase-tied cancel tests).
+      await this.queryCheckpoint(job, gen, snapshotId);
     }
     const page = kwicPage(snapshot, bound, selection, trackOccs, q.request);
     await this.queryCheckpoint(job, gen, snapshotId);
