@@ -5,7 +5,7 @@ import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { buildDocumentIndex, createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, DependencyError, type BoundShards, type BoundTexts } from '../src/ops/binding.ts';
 import { validateShardStructure } from '../src/index/build.ts';
-import { kwicPage, KWIC_MAX_PAGE, materializeKwicPage } from '../src/ops/kwic.ts';
+import { kwicPage, KWIC_MAX_PAGE, materializeKwicPage, type KwicSortKey, type NumericKwicPage } from '../src/ops/kwic.ts';
 
 // kwic/2 is multi-track; these single-track wrappers keep the kwic/1 legacy
 // tests terse. New multi-track/proximity behavior is covered separately below.
@@ -18,7 +18,7 @@ function matk1(
   snapshot: Parameters<typeof materializeKwicPage>[0], page: Parameters<typeof materializeKwicPage>[1],
   texts: Parameters<typeof materializeKwicPage>[2],
 ) { return materializeKwicPage(snapshot, page, texts, [{ seriesId: 's', groupId: 'g' }]); }
-import { occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { occurrences, type NumericOccurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { trend } from '../src/ops/trend.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
@@ -431,6 +431,184 @@ describe('kwic/2 merged multi-track + proximity', () => {
     const w = await twoDoc();
     const page = kwicPage(w.snapshot, w.bound, w.all, tracksOf(w), req());
     expect(() => materializeKwicPage(w.snapshot, page, w.texts, [{ seriesId: 'only', groupId: 'gfox' }])).toThrow(/unknown track ordinal/);
+  });
+});
+
+describe('kwic/2 ranked-candidate order vs reference full sort', () => {
+  // A straightforward reimplementation of the pinned comparator semantics over
+  // FULLY materialized rows — the oracle the optimized tuple path must match
+  // row-for-row (the whole ordered page, never just the set):
+  //   1. center (when present): ascending |globalStart - centerGlobal|;
+  //   2. each caller sort entry in caller order (doc/pos numeric; L*/R* by JS
+  //      string order of the vocabulary key, '' when out of range) x its dir;
+  //   3. deterministic finals: doc ordinal, pos, span, track ordinal;
+  //   4. member ordinals lexicographically, then member-count.
+  type Sort = readonly { readonly at: KwicSortKey; readonly dir: 1 | -1 }[];
+  interface RefRow { t: number; doc: number; pos: number; span: number; global: number; members: number[] }
+  const rowKey = (t: number, doc: number, pos: number, span: number, members: readonly number[]) =>
+    `${t}:${doc}:${pos}:${span}:[${members.join(',')}]`;
+  const pageKeys = (page: NumericKwicPage) =>
+    page.rows.map((r) => rowKey(r.trackOrdinal, r.docOrdinal, r.pos, r.spanTokens, r.members));
+
+  const referenceOrder = (
+    w: World,
+    tracks: readonly NumericOccurrences[],
+    sort: Sort,
+    center?: { readonly doc: string; readonly token: number },
+  ): string[] => {
+    const rows: RefRow[] = [];
+    for (let t = 0; t < tracks.length; t++) {
+      const occ = tracks[t]!;
+      for (let i = 0; i < occ.pos.length; i++) {
+        const doc = occ.docOrdinal[i] as number;
+        rows.push({
+          t, doc,
+          pos: occ.pos[i] as number,
+          span: occ.spanTokens[i] as number,
+          global: w.snapshot.docs[doc]!.sequenceTokenBase + (occ.pos[i] as number),
+          members: Array.from(occ.memberOrdinals.slice(occ.memberOffsets[i] as number, occ.memberOffsets[i + 1] as number)),
+        });
+      }
+    }
+    const centerGlobal = center === undefined
+      ? null
+      : w.snapshot.docs.find((d) => d.doc === center.doc)!.sequenceTokenBase + center.token;
+    const ctxKey = (r: RefRow, at: Exclude<KwicSortKey, 'doc' | 'pos'>): string => {
+      const shard = w.shards.get(w.snapshot.docs[r.doc]!.doc)!;
+      const off = Number(at.slice(1));
+      const tok = at.startsWith('L') ? r.pos - off : r.pos + r.span - 1 + off;
+      if (tok < 0 || tok >= shard.tokenTypeIds.length) return '';
+      return shard.vocabulary[shard.tokenTypeIds[tok] as number] as string;
+    };
+    rows.sort((a, b) => {
+      if (centerGlobal !== null) {
+        const d = Math.abs(a.global - centerGlobal) - Math.abs(b.global - centerGlobal);
+        if (d !== 0) return d;
+      }
+      for (const s of sort) {
+        let c = 0;
+        if (s.at === 'doc') c = a.doc - b.doc;
+        else if (s.at === 'pos') c = a.pos - b.pos;
+        else {
+          const ka = ctxKey(a, s.at);
+          const kb = ctxKey(b, s.at);
+          c = ka < kb ? -1 : ka > kb ? 1 : 0;
+        }
+        if (c !== 0) return c * s.dir;
+      }
+      let c = a.doc - b.doc || a.pos - b.pos || a.span - b.span || a.t - b.t;
+      if (c !== 0) return c;
+      const n = Math.min(a.members.length, b.members.length);
+      for (let k = 0; k < n; k++) {
+        c = (a.members[k] as number) - (b.members[k] as number);
+        if (c !== 0) return c;
+      }
+      return a.members.length - b.members.length;
+    });
+    return rows.map((r) => rowKey(r.t, r.doc, r.pos, r.span, r.members));
+  };
+
+  // Handcrafted CSR tracks — legal occurrence shapes made maximally tie-heavy.
+  const mkOcc = (
+    w: World,
+    rows: readonly { d: number; p: number; s: number; m: readonly number[] }[],
+  ): NumericOccurrences => {
+    const memberOffsets = [0];
+    const memberOrdinals: number[] = [];
+    for (const r of rows) {
+      for (const ord of r.m) memberOrdinals.push(ord);
+      memberOffsets.push(memberOrdinals.length);
+    }
+    return {
+      snapshot: w.snapshot.id,
+      selection: w.all.hash,
+      docOrdinal: Uint32Array.from(rows.map((r) => r.d)),
+      pos: Uint32Array.from(rows.map((r) => r.p)),
+      spanTokens: Uint32Array.from(rows.map((r) => r.s)),
+      memberOffsets: Uint32Array.from(memberOffsets),
+      memberOrdinals: Uint32Array.from(memberOrdinals),
+    };
+  };
+
+  // Repeated tokens make every L/R context key collide on purpose.
+  const tieWorld = () => world({ a: 'x wolf x wolf x wolf x', b: 'x wolf x' });
+  const tieTracks = (w: World): NumericOccurrences[] => [
+    mkOcc(w, [
+      { d: 0, p: 1, s: 1, m: [0] },     // vs next: [0] is a strict prefix of [0,1]
+      { d: 0, p: 1, s: 1, m: [0, 1] },  // vs next: first ordinal decides (0 < 1) despite shorter list losing on count
+      { d: 0, p: 1, s: 1, m: [1] },
+      { d: 0, p: 1, s: 2, m: [0] },     // same start, wider span
+      { d: 0, p: 3, s: 1, m: [1] },
+      { d: 1, p: 1, s: 1, m: [0] },
+    ]),
+    mkOcc(w, [
+      { d: 0, p: 1, s: 1, m: [0] },     // same (doc,pos,span) as track 0 rows — track ordinal decides
+      { d: 0, p: 3, s: 2, m: [0, 1] },
+      { d: 1, p: 1, s: 1, m: [1] },
+    ]),
+    mkOcc(w, [
+      { d: 0, p: 5, s: 1, m: [2] },
+      { d: 1, p: 1, s: 1, m: [0, 2] },
+    ]),
+  ];
+
+  const SORTS: readonly Sort[] = [
+    [],                                              // finals only
+    [{ at: 'L1', dir: 1 }],                          // repeated context keys ('x' everywhere)
+    [{ at: 'L1', dir: -1 }],
+    [{ at: 'L3', dir: 1 }],                          // out-of-range context '' sorts first
+    [{ at: 'R3', dir: -1 }],
+    [{ at: 'R1', dir: 1 }, { at: 'L2', dir: -1 }],   // mixed keys, mixed directions
+    [{ at: 'L1', dir: 1 }, { at: 'L1', dir: -1 }],   // repeated sort key, both directions
+    [{ at: 'doc', dir: -1 }, { at: 'pos', dir: 1 }],
+    [{ at: 'pos', dir: -1 }, { at: 'R2', dir: 1 }],
+  ];
+  const CENTERS = [undefined, { doc: 'a', token: 3 }, { doc: 'b', token: 0 }] as const;
+
+  it('matches the reference over tie-heavy handcrafted tracks for every sort x center', async () => {
+    const w = await tieWorld();
+    const tracks = tieTracks(w);
+    for (const center of CENTERS) {
+      for (const sort of SORTS) {
+        const page = kwicPage(w.snapshot, w.bound, w.all, tracks, {
+          contextTokens: 0, sort, page: { offset: 0, limit: 50 }, ...(center ? { center } : {}),
+        });
+        const label = `sort=${JSON.stringify(sort)} center=${JSON.stringify(center ?? null)}`;
+        expect(pageKeys(page), label).toEqual(referenceOrder(w, tracks, sort, center));
+      }
+    }
+  });
+
+  it('bounded top-K pages are exact contiguous slices of the reference order', async () => {
+    const w = await tieWorld();
+    const tracks = tieTracks(w);
+    const sort: Sort = [{ at: 'L1', dir: 1 }];
+    const center = { doc: 'a', token: 3 };
+    const ref = referenceOrder(w, tracks, sort, center);
+    for (const offset of [0, 2, 5, 9]) {
+      const page = kwicPage(w.snapshot, w.bound, w.all, tracks, {
+        contextTokens: 0, sort, center, page: { offset, limit: 3 },
+      });
+      expect(pageKeys(page), `offset=${offset}`).toEqual(ref.slice(offset, offset + 3));
+    }
+  });
+
+  it('matches the reference for organic union/raw tracks with multi-member evidence', async () => {
+    const w = await world({ a: 'dire wolf x dire wolf y wolf', b: 'wolf dire wolf' });
+    const tracks = [
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, direWolfGroup(false)), // union: members accumulate
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, direWolfGroup(true)),  // raw: one row per member match
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, wolfGroup),
+    ];
+    for (const center of [undefined, { doc: 'b', token: 1 }]) {
+      for (const sort of SORTS) {
+        const page = kwicPage(w.snapshot, w.bound, w.all, tracks, {
+          contextTokens: 0, sort, page: { offset: 0, limit: 50 }, ...(center ? { center } : {}),
+        });
+        const label = `sort=${JSON.stringify(sort)} center=${JSON.stringify(center ?? null)}`;
+        expect(pageKeys(page), label).toEqual(referenceOrder(w, tracks, sort, center));
+      }
+    }
   });
 });
 

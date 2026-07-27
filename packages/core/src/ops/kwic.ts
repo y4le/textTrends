@@ -16,7 +16,10 @@
  * ordinals). WITHOUT a center the caller's `sort` is primary — reading order is
  * the caller's `[doc,pos]` request, never a core override. Paging is an EXACT
  * bounded top-K: the page is the true global slice; a lossy per-track prefix or
- * a full five-way sort is not used.
+ * a full five-way sort is not used. Candidates enter the selection carrying a
+ * precomputed rank tuple (center distance, resolved context keys for exactly
+ * the requested sort keys, CSR member addresses) so the comparator is pure
+ * field comparison — no per-comparison key derivation or slice allocation.
  */
 
 import { tokenEndChar, type DocumentIndexV1 } from '../index/build.ts';
@@ -75,18 +78,46 @@ function contextKeyAt(
   shard: DocumentIndexV1,
   pos: number,
   span: number,
-  at: Exclude<KwicSortKey, 'doc' | 'pos'>,
+  left: boolean,
+  offset: number,
 ): string {
-  const offset = Number(at.slice(1));
-  const t = at.startsWith('L') ? pos - offset : pos + span - 1 + offset;
+  const t = left ? pos - offset : pos + span - 1 + offset;
   if (t < 0 || t >= shard.tokenTypeIds.length) return ''; // absent context sorts first
   return shard.vocabulary[shard.tokenTypeIds[t] as number] as string;
 }
 
-/** A (track, occurrence-index) candidate — the numeric kernel's unit of order. */
+/** One caller `sort` entry compiled ONCE per query — side/offset parsed here,
+ *  never re-derived per comparison. `keyIndex` addresses the candidate's
+ *  resolved context-key tuple for context (`L*`/`R*`) entries. */
+type CompiledSortEntry =
+  | { readonly kind: 'doc'; readonly dir: 1 | -1 }
+  | { readonly kind: 'pos'; readonly dir: 1 | -1 }
+  | {
+      readonly kind: 'ctx';
+      readonly dir: 1 | -1;
+      readonly left: boolean;
+      readonly offset: number;
+      readonly keyIndex: number;
+    };
+
+const NO_CTX_KEYS: readonly string[] = [];
+
+/** A (track, occurrence-index) candidate — the numeric kernel's unit of order —
+ *  carrying its precomputed rank tuple. `memberStart`/`memberCount` address the
+ *  track's CSR `memberOrdinals` directly; the public member array is
+ *  materialized only for rows retained in the returned page. */
 interface Candidate {
   readonly t: number;
   readonly i: number;
+  readonly docOrdinal: number;
+  readonly pos: number;
+  readonly span: number;
+  /** Ascending-primary distance from the center; 0 when there is no center. */
+  readonly dist: number;
+  /** Resolved context-key strings for exactly the requested ctx sort keys. */
+  readonly keys: readonly string[];
+  readonly memberStart: number;
+  readonly memberCount: number;
 }
 
 /**
@@ -134,7 +165,15 @@ export function kwicPage(
     if (!ref) throw new RangeError(`occurrence references unknown doc ordinal ${ord}`);
     return ref.sequenceTokenBase;
   };
-  const shardOf = (ord: number): DocumentIndexV1 => internalShardOf(bound, snapshot.docs[ord]!.doc);
+  const shardCache = new Array<DocumentIndexV1 | undefined>(snapshot.docs.length);
+  const shardOf = (ord: number): DocumentIndexV1 => {
+    let s = shardCache[ord];
+    if (s === undefined) {
+      s = internalShardOf(bound, snapshot.docs[ord]!.doc);
+      shardCache[ord] = s;
+    }
+    return s;
+  };
 
   // Resolve the center (if any) to a GLOBAL declared-sequence anchor. A stale
   // center is rejected, never clamped.
@@ -149,48 +188,78 @@ export function kwicPage(
     centerGlobal = ref.sequenceTokenBase + center.token;
   }
 
-  const globalStart = (c: Candidate): number => baseOf(tracks[c.t]!.docOrdinal[c.i] as number) + (tracks[c.t]!.pos[c.i] as number);
-  const membersOf = (t: number, i: number): Uint32Array => {
+  // Compile the caller `sort` descriptors ONCE per query.
+  const compiledSort: CompiledSortEntry[] = [];
+  let ctxKeyCount = 0;
+  for (const s of sort) {
+    if (s.at === 'doc' || s.at === 'pos') {
+      compiledSort.push({ kind: s.at, dir: s.dir });
+    } else {
+      compiledSort.push({
+        kind: 'ctx',
+        dir: s.dir,
+        left: s.at.startsWith('L'),
+        offset: Number(s.at.slice(1)),
+        keyIndex: ctxKeyCount++,
+      });
+    }
+  }
+
+  const candidateOf = (t: number, i: number): Candidate => {
     const occ = tracks[t]!;
-    return occ.memberOrdinals.slice(occ.memberOffsets[i] as number, occ.memberOffsets[i + 1] as number);
+    const ord = occ.docOrdinal[i] as number;
+    const pos = occ.pos[i] as number;
+    const span = occ.spanTokens[i] as number;
+    const dist = centerGlobal === null ? 0 : Math.abs(baseOf(ord) + pos - centerGlobal);
+    let keys = NO_CTX_KEYS;
+    if (ctxKeyCount > 0) {
+      const shard = shardOf(ord);
+      const resolved = new Array<string>(ctxKeyCount);
+      for (const s of compiledSort) {
+        if (s.kind === 'ctx') resolved[s.keyIndex] = contextKeyAt(shard, pos, span, s.left, s.offset);
+      }
+      keys = resolved;
+    }
+    const memberStart = occ.memberOffsets[i] as number;
+    return {
+      t, i, docOrdinal: ord, pos, span, dist, keys,
+      memberStart,
+      memberCount: (occ.memberOffsets[i + 1] as number) - memberStart,
+    };
   };
 
-  /** Full comparator: negative when `a` ranks before `b`. */
+  /** Full comparator: negative when `a` ranks before `b`. Pure tuple/field
+   *  comparison — every derived key was computed once at candidate creation. */
   const cmp = (a: Candidate, b: Candidate): number => {
     if (centerGlobal !== null) {
-      const d = Math.abs(globalStart(a) - centerGlobal) - Math.abs(globalStart(b) - centerGlobal);
+      const d = a.dist - b.dist;
       if (d !== 0) return d;
     }
-    const oa = tracks[a.t]!;
-    const ob = tracks[b.t]!;
-    for (const s of sort) {
+    for (const s of compiledSort) {
       let c = 0;
-      if (s.at === 'doc') {
-        c = (oa.docOrdinal[a.i] as number) - (ob.docOrdinal[b.i] as number);
-      } else if (s.at === 'pos') {
-        c = (oa.pos[a.i] as number) - (ob.pos[b.i] as number);
+      if (s.kind === 'doc') {
+        c = a.docOrdinal - b.docOrdinal;
+      } else if (s.kind === 'pos') {
+        c = a.pos - b.pos;
       } else {
-        const ka = contextKeyAt(shardOf(oa.docOrdinal[a.i] as number), oa.pos[a.i] as number, oa.spanTokens[a.i] as number, s.at);
-        const kb = contextKeyAt(shardOf(ob.docOrdinal[b.i] as number), ob.pos[b.i] as number, ob.spanTokens[b.i] as number, s.at);
+        const ka = a.keys[s.keyIndex] as string;
+        const kb = b.keys[s.keyIndex] as string;
         c = ka < kb ? -1 : ka > kb ? 1 : 0;
       }
       if (c !== 0) return c * s.dir;
     }
     // Deterministic finals: doc ordinal, start, span, track ordinal, members.
-    let c =
-      (oa.docOrdinal[a.i] as number) - (ob.docOrdinal[b.i] as number) ||
-      (oa.pos[a.i] as number) - (ob.pos[b.i] as number) ||
-      (oa.spanTokens[a.i] as number) - (ob.spanTokens[b.i] as number) ||
-      a.t - b.t;
+    let c = a.docOrdinal - b.docOrdinal || a.pos - b.pos || a.span - b.span || a.t - b.t;
     if (c !== 0) return c;
-    const ma = membersOf(a.t, a.i);
-    const mb = membersOf(b.t, b.i);
-    const n = Math.min(ma.length, mb.length);
+    // Member tie-break over the tracks' CSR arrays directly — no slices.
+    const ma = tracks[a.t]!.memberOrdinals;
+    const mb = tracks[b.t]!.memberOrdinals;
+    const n = Math.min(a.memberCount, b.memberCount);
     for (let k = 0; k < n; k++) {
-      c = (ma[k] as number) - (mb[k] as number);
+      c = (ma[a.memberStart + k] as number) - (mb[b.memberStart + k] as number);
       if (c !== 0) return c;
     }
-    return ma.length - mb.length;
+    return a.memberCount - b.memberCount;
   };
 
   // Exact bounded top-K: retain the K = offset+limit best under `cmp` in a
@@ -223,7 +292,7 @@ export function kwicPage(
     const count = tracks[t]!.pos.length;
     total += count;
     for (let i = 0; i < count; i++) {
-      const cand: Candidate = { t, i };
+      const cand = candidateOf(t, i);
       if (heap.length < K) {
         heap.push(cand);
         siftUp(heap.length - 1);
@@ -236,12 +305,9 @@ export function kwicPage(
   const ordered = heap.sort(cmp);
   const slice = ordered.slice(page.offset, page.offset + page.limit);
 
-  const rows: NumericKwicRow[] = slice.map(({ t, i }) => {
-    const occ = tracks[t]!;
-    const ord = occ.docOrdinal[i] as number;
+  const rows: NumericKwicRow[] = slice.map((c) => {
+    const { t, docOrdinal: ord, pos, span, memberStart, memberCount } = c;
     const shard = shardOf(ord);
-    const pos = occ.pos[i] as number;
-    const span = occ.spanTokens[i] as number;
     const leftTok = Math.max(0, pos - contextTokens);
     const rightTok = Math.min(shard.tokenTypeIds.length - 1, pos + span - 1 + contextTokens);
     return {
@@ -249,7 +315,8 @@ export function kwicPage(
       docOrdinal: ord,
       pos,
       spanTokens: span,
-      members: Array.from(membersOf(t, i)),
+      // The public member array is materialized ONLY for these paged rows.
+      members: Array.from(tracks[t]!.memberOrdinals.subarray(memberStart, memberStart + memberCount)),
       leftCharStart: shard.startsUtf16[leftTok] as number,
       nodeCharStart: shard.startsUtf16[pos] as number,
       nodeCharEnd: tokenEndChar(shard, pos + span - 1),
