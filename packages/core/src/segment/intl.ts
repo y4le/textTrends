@@ -12,8 +12,9 @@
  */
 
 import type { TextHash } from '../contract/brands.ts';
-import { hashText, sha256Hex } from '../contract/hash.ts';
+import { sha256Hex } from '../contract/hash.ts';
 import { TOKEN_CLASS } from '../contract/recipes.ts';
+import { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from '../contract/verified-text.ts';
 
 export interface SegmenterFingerprint {
   readonly adapter: string;
@@ -116,8 +117,17 @@ export function resolveLocale(tag: string): string {
   return new Intl.Segmenter(tag, { granularity: 'word' }).resolvedOptions().locale;
 }
 
+/** The safe self-verifying entry: verify (hash once, rejecting ill-formed
+ *  UTF-16 up front) then delegate to the verified fast lane. */
 export async function segment(text: string, locale: string): Promise<SegmentationBatch> {
-  const textHash = (await hashText(text)) as TextHash; // rejects ill-formed UTF-16 up front
+  return segmentVerified(await verifyText(text), locale);
+}
+
+/** The verified fast lane: the batch's text identity is the capability's hash
+ *  — no re-digest. Rejects unauthenticated capabilities at entry. */
+export async function segmentVerified(verified: VerifiedText, locale: string): Promise<SegmentationBatch> {
+  const text = verifiedTextOf(verified); // authenticates; throws on forgeries
+  const textHash = verifiedHashOf(verified);
   const raw = segmentRaw(text, locale);
   const sentenceBounds = new Uint32Array(raw.sentenceStarts.length + 1);
   sentenceBounds.set(raw.sentenceStarts);

@@ -18,7 +18,7 @@
  */
 
 import type { ProjectDocId } from '../contract/brands.ts';
-import { hashText } from '../contract/hash.ts';
+import { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from '../contract/verified-text.ts';
 import { indexArtifactHash } from '../contract/identity.ts';
 import { tokenEndChar, validateShardStructure, type DocumentIndexV1 } from '../index/build.ts';
 import { validateSnapshot, type CorpusSnapshotV1 } from '../snapshot/compose.ts';
@@ -146,21 +146,41 @@ export async function bindShards(
 /**
  * Verify each supplied text's identity against its bound shard (hash check
  * happens ONCE at residency time, not per page). Partial maps are fine —
- * materialization later demands only the docs actually on a page.
+ * materialization later demands only the docs actually on a page. The safe
+ * self-verifying entry: each text is hashed once (`verifyText`) and delegated
+ * to the verified binding path.
  */
 export async function bindTexts(
   snapshot: CorpusSnapshotV1,
   bound: BoundShards,
   texts: ReadonlyMap<string, string>,
 ): Promise<BoundTexts> {
+  const verified = new Map<string, VerifiedText>();
+  for (const [doc, text] of texts) verified.set(doc, await verifyText(text));
+  return bindTextsVerified(snapshot, bound, verified);
+}
+
+/**
+ * The verified binding path (a DISTINCT named API, never a permissive
+ * string-union overload): each entry's identity comes from its capability's
+ * proof instead of a re-digest, but it must still EQUAL the owned shard's text
+ * hash, and the resident token geometry is still bound to the actual text
+ * extent — only the redundant digest is gone.
+ */
+export async function bindTextsVerified(
+  snapshot: CorpusSnapshotV1,
+  bound: BoundShards,
+  texts: ReadonlyMap<string, VerifiedText>,
+): Promise<BoundTexts> {
   if (bound.snapshot !== snapshot.id) {
     throw new RangeError('bound shards belong to a different snapshot');
   }
   assertBoundShards(bound);
   const verified = new Map<string, string>();
-  for (const [doc, text] of texts) {
+  for (const [doc, proof] of texts) {
+    const text = verifiedTextOf(proof); // authenticates; throws on forgeries
     const shard = internalShardOf(bound, doc);
-    if ((await hashText(text)) !== shard.text) {
+    if (verifiedHashOf(proof) !== shard.text) {
       throw new RangeError(`text for '${doc}' does not match the bound shard's text identity`);
     }
     // Bind resident char spans to the ACTUAL verified text extent (round 6):

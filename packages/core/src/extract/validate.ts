@@ -11,7 +11,7 @@
  * caller so it is never repaired by deletion or refetched forever.
  */
 
-import { hashText } from '../contract/hash.ts';
+import { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from '../contract/verified-text.ts';
 import { exactArray, exactRecord, isNonNegSafeInt as isSafeNonNeg, isRecord as isRec, isString as isStr } from '../contract/guards.ts';
 import { validateSectionTable, type StructureSectionRecordV2 } from '../structure/sections.ts';
 import {
@@ -69,6 +69,34 @@ export async function validateExtractionArtifact(
   recipe: ExtractionRecipeProvisional,
   text?: string,
 ): Promise<ExtractionArtifactV1> {
+  // The safe self-verifying entry: hash the supplied text once, then delegate
+  // to the verified lane (same checks, capability-borne identity).
+  return admitExtractionArtifact(value, key, recipe, text === undefined ? undefined : await verifyText(text));
+}
+
+/**
+ * The verified lane of `validateExtractionArtifact`: the text identity comes
+ * from the capability's proof instead of a re-digest. Every non-hash admission
+ * check — length agreement, descriptor/evidence ABI, candidate ranges and
+ * order, the recomputed candidate hash, and the fresh-scan comparison for
+ * text-reconstructible recipes — is unchanged.
+ */
+export async function validateExtractionArtifactVerified(
+  value: unknown,
+  key: ExtractionKey,
+  recipe: ExtractionRecipeProvisional,
+  verified: VerifiedText,
+): Promise<ExtractionArtifactV1> {
+  verifiedTextOf(verified); // authenticate at ENTRY — forgeries reject before any admission work
+  return admitExtractionArtifact(value, key, recipe, verified);
+}
+
+async function admitExtractionArtifact(
+  value: unknown,
+  key: ExtractionKey,
+  recipe: ExtractionRecipeProvisional,
+  verified: VerifiedText | undefined,
+): Promise<ExtractionArtifactV1> {
   if (!isRec(value) || value.schema !== 'texttrends/extraction/1') {
     throw new ArtifactCorruptError('extraction artifact schema invalid');
   }
@@ -107,8 +135,9 @@ export async function validateExtractionArtifact(
   if (!isValidExtractionEvidence(value.evidence)) {
     throw new ArtifactCorruptError('extraction evidence invalid');
   }
-  if (text !== undefined) {
-    if ((await hashText(text)) !== value.text || text.length !== textLength) {
+  if (verified !== undefined) {
+    const text = verifiedTextOf(verified);
+    if (verifiedHashOf(verified) !== value.text || text.length !== textLength) {
       throw new ArtifactCorruptError('extraction artifact does not describe the supplied text');
     }
     // Only a TEXT-reconstructible recipe may be re-scanned from the text. A

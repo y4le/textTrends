@@ -1791,3 +1791,80 @@ describe('legacy race parity (v4)', () => {
     expect(h.all('cancelled').some((m) => m.job === 2)).toBe(true);
   });
 });
+
+describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
+  /** Count digests whose input is EXACTLY the encoded text; every other digest
+   *  (source bytes, recipes, fingerprints, artifact identities) passes through
+   *  uncounted — byte-equality is the discriminator (same seam as the
+   *  decode-table-hash and section-binding suites). */
+  function spyTextDigests(text: string) {
+    const expected = utf8(text);
+    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
+    let count = 0;
+    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
+      const data = args[1];
+      const bytes = data instanceof Uint8Array ? data : new Uint8Array(data as ArrayBuffer);
+      if (bytes.length === expected.length && bytes.every((b, i) => b === expected[i])) count++;
+      return realDigest(...args);
+    }) as typeof crypto.subtle.digest);
+    return { count: () => count, restore: () => spy.mockRestore() };
+  }
+
+  it('a COLD ingest performs exactly ONE text digest across extract→segment→index→bind→commit', async () => {
+    const h = harness();
+    const text = 'the wolf ran far over the hill';
+    // A UTF-8 BOM makes the SOURCE bytes differ from the encoded text, so the
+    // ingest's source-byte digest can never be mistaken for a text digest.
+    const bomBytes = Uint8Array.from([0xef, 0xbb, 0xbf, ...utf8(text)]);
+    const recipes = await defaultExtractionRecipes();
+    const extracted = await extractDocument(bomBytes, recipes.txt);
+    const spec: GenerationDocSpecV4 = {
+      doc: 'a', language: 'en',
+      source: { expectedHash: extracted.artifact.source, byteLength: bomBytes.length, format: 'txt', availability: 'external' },
+      extraction: {
+        recipe: recipes.txt,
+        recipeHash: await hashExtractionRecipe(recipes.txt),
+        expectedText: extracted.artifact.text,
+        expectedTextLengthUtf16: extracted.artifact.textLengthUtf16,
+        expectedCandidates: extracted.artifact.candidateHash,
+      },
+      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
+    };
+    await begin(h, [spec]); // nothing cached — the barrier reports a byte miss
+    expect(h.last('generation-ready').missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'extraction-miss' }]);
+    const spy = spyTextDigests(text);
+    try {
+      await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: bomBytes.buffer as ArrayBuffer });
+      expect(h.last('snapshot-published').readyDocs).toEqual(['a']);
+      expect(h.all('error').length).toBe(0);
+      // ONE digest: minted at extraction; segmentVerified /
+      // createDocumentIndexVerified / bindTextsVerified consume the proof.
+      expect(spy.count()).toBe(1);
+    } finally {
+      spy.restore();
+    }
+  });
+
+  it('a WARM stored-text load performs exactly ONE text digest (mint at the expected-hash check)', async () => {
+    const h = harness();
+    const text = '# Ch\n\nthe wolf ran far';
+    const spec = await docSpec('a', text, { format: 'md' });
+    await begin(h, [spec], 'cold');
+    await coldIngest(h, 'cold', 'a', text, 10);
+    await h.flush(); // let the disposable cache writes settle
+    h.clear();
+    const spy = spyTextDigests(text);
+    try {
+      await begin(h, [spec], 'warm');
+      const ready = h.last('generation-ready');
+      expect(ready.readyDocs).toEqual(['a']);
+      expect(ready.missing).toEqual([]);
+      expect(h.all('progress').length).toBe(0); // pure admission — exact hit
+      // ONE digest: verifyText(storedText, expectedHash) at admission; the
+      // cached-extraction admission and the commit bind consume the proof.
+      expect(spy.count()).toBe(1);
+    } finally {
+      spy.restore();
+    }
+  });
+});

@@ -35,13 +35,13 @@ import {
   bindSectionId,
   hashSourceBytes,
   bindShards,
-  bindTexts,
+  bindTextsVerified,
   buildDetectedSections,
   buildResolver,
   checkedResolverFor,
   composeSnapshot,
   composeStructure,
-  createDocumentIndex,
+  createDocumentIndexVerified,
   deriveCandidatesFromText,
   emptyOverride,
   lineWindowAround,
@@ -51,7 +51,6 @@ import {
   hashSegmenterFingerprint,
   hashStructureOverride,
   hashStructureRecipe,
-  hashText,
   kwicPage,
   makeReadyDocument,
   materializeKwicPage,
@@ -64,13 +63,16 @@ import {
   planPassage,
   projectSections,
   resolveSelection,
-  segment,
+  segmentVerified,
   tokenEndChar,
   trend,
-  validateExtractionArtifact,
+  validateExtractionArtifactVerified,
   validateExtractionRecipe,
   validateShardStructure,
   validateStructureArtifactV2,
+  verifiedHashOf,
+  verifiedTextOf,
+  verifyText,
   type BoundShards,
   type BoundTexts,
   type CandidateBundle,
@@ -90,7 +92,9 @@ import {
   type StructureOverrideV1,
   type StructureRecipeProvisional,
   type StructureSectionRecordV2,
+  type TextHash,
   type TokenRange,
+  type VerifiedText,
 } from '@texttrends/core';
 import {
   PROTOCOL_VERSION_V4,
@@ -183,7 +187,9 @@ interface GenerationStateV4 {
   readonly plans: Map<string, ResolvedDocPlan>;
   readonly work: Map<string, DocWorkSlot>;
   ready: Map<string, ReadyDocument>;
-  texts: Map<string, string>;
+  /** Per-doc resident text as its VerifiedText capability — the ONE per-doc
+   *  text-identity proof retained for the generation (Phase D / D2). */
+  texts: Map<string, VerifiedText>;
   snapshot: CorpusSnapshotV1 | null;
   bound: BoundShards | null;
   boundTexts: BoundTexts | null;
@@ -229,6 +235,9 @@ interface GenerationStateV4 {
 interface PreparedDocument {
   readonly doc: string;
   readonly text: string;
+  /** The capability proving `text`'s identity — consumed by the verified
+   *  binding path at commit and retained on `gen.texts`. */
+  readonly verified: VerifiedText;
   readonly ready: ReadyDocument;
   readonly shard: DocumentIndexV1;
   readonly shardKey: DocumentIndexCacheKey;
@@ -246,10 +255,11 @@ interface AdmittedParts {
   readonly structure?: StructureArtifactV2;
 }
 
-/** The verified inputs prepareFromText builds the remaining artifacts from. */
+/** The verified inputs prepareFromText builds the remaining artifacts from.
+ *  The text travels ONLY as its VerifiedText capability — minted exactly once
+ *  per document (cold: at extraction; warm: at the stored-text check). */
 interface PrepareInput {
-  readonly text: string;
-  readonly textHash: string;
+  readonly verified: VerifiedText;
   readonly candidateHash: string;
   readonly parts: AdmittedParts;
 }
@@ -629,16 +639,18 @@ export class WorkerEngineV4 {
       return this.probeFromSource(job, plan, token, 'extraction-miss');
     }
     // The stored text must HASH to its asserted identity — a record under the
-    // right key proves nothing about its content.
+    // right key proves nothing about its content. The warm path's ONE text
+    // digest: verifyText mints the capability while checking the stored text
+    // against the expected hash; every later stage consumes the proof.
     const text = read.value;
-    let actual: string | null = null;
+    let verified: VerifiedText | null = null;
     try {
-      actual = await hashText(text);
+      verified = await verifyText(text, plan.expectedText as TextHash);
     } catch {
-      actual = null; // ill-formed UTF-16 is corruption
+      verified = null; // ill-formed UTF-16 or a hash mismatch is corruption
     }
     this.docGate(job, token);
-    if (actual !== plan.expectedText) {
+    if (verified === null) {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' does not hash to its key; deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
       this.docGate(job, token);
@@ -657,7 +669,7 @@ export class WorkerEngineV4 {
       // asserted `expectedCandidates` is a TERMINAL manifest mismatch, not a
       // reason to fall through and rebuild (which would loop on a byte refetch).
       if (plan.expectedSourceHash !== undefined) {
-        const admitted = await this.admitCachedExtraction(job, plan, token, plan.expectedSourceHash, text);
+        const admitted = await this.admitCachedExtraction(job, plan, token, plan.expectedSourceHash, verified);
         if (admitted) {
           if (admitted.artifact.candidateHash !== candidateHash) {
             return { kind: 'mismatch', message: `document '${plan.doc}' extracted candidates do not match the asserted identity` };
@@ -713,7 +725,7 @@ export class WorkerEngineV4 {
     // ExtractionMismatchError if they contradict `expectedCandidates`.
     // Cheap = no index rebuild required (the shard was admitted). An exact hit
     // (shard + structure) and a structure-only reconstruction are both cheap.
-    return { kind: 'prepare', cheap: parts.shard !== undefined, input: { text, textHash, candidateHash, parts } };
+    return { kind: 'prepare', cheap: parts.shard !== undefined, input: { verified, candidateHash, parts } };
   }
 
   /** Warm resolution from a PERSISTED source only: re-extract the durable bytes
@@ -803,8 +815,7 @@ export class WorkerEngineV4 {
       kind: 'prepare',
       cheap: false,
       input: {
-        text: extracted.text,
-        textHash: extracted.artifact.text,
+        verified: extracted.verified,
         candidateHash: extracted.artifact.candidateHash,
         parts: {
           extraction: { artifact: extracted.artifact, key },
@@ -825,7 +836,7 @@ export class WorkerEngineV4 {
     plan: ResolvedDocPlan,
     token: DocWorkToken,
     sourceHash: string,
-    text: string,
+    verified: VerifiedText,
   ): Promise<{ artifact: ExtractionArtifactV1; key: ExtractionCacheKey } | undefined> {
     const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: sourceHash, recipe: plan.extractionRecipeHash };
     const read = await this.store.getExtraction(key);
@@ -837,7 +848,7 @@ export class WorkerEngineV4 {
       return undefined;
     }
     try {
-      const artifact = await validateExtractionArtifact(read.value, key, plan.extractionRecipe, text);
+      const artifact = await validateExtractionArtifactVerified(read.value, key, plan.extractionRecipe, verified);
       return { artifact, key };
     } catch (e) {
       // Ownership FIRST — a supersession during deep admission must not warn or
@@ -931,18 +942,21 @@ export class WorkerEngineV4 {
    */
   private async prepareFromText(job: number, plan: ResolvedDocPlan, input: PrepareInput, token: DocWorkToken): Promise<PreparedDocument> {
     const gen = token.generation;
-    const { text, textHash, candidateHash } = input;
+    const { verified, candidateHash } = input;
+    const text = verifiedTextOf(verified);
+    const textHash: string = verifiedHashOf(verified);
 
-    // Shard.
+    // Shard — built through the VERIFIED lanes: the capability's proof is the
+    // text identity, so no pipeline stage re-digests the text.
     const shardKey = await this.shardKeyFor(gen, plan.effectiveLocale, textHash);
     this.docGate(job, token);
     let shard = input.parts.shard;
     if (!shard) {
       this.progress(job, gen.generation, 'segment', plan.doc);
-      const batch = await segment(text, plan.effectiveLocale);
+      const batch = await segmentVerified(verified, plan.effectiveLocale);
       await this.docCheckpoint(job, token);
       this.progress(job, gen.generation, 'index', plan.doc);
-      shard = await createDocumentIndex(text, batch, gen.indexRecipe);
+      shard = await createDocumentIndexVerified(verified, batch, gen.indexRecipe);
       await this.docCheckpoint(job, token);
     }
 
@@ -983,6 +997,7 @@ export class WorkerEngineV4 {
     return {
       doc: plan.doc,
       text,
+      verified,
       ready,
       shard,
       shardKey,
@@ -1126,8 +1141,7 @@ export class WorkerEngineV4 {
 
     const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: extracted.artifact.source, recipe: plan.extractionRecipeHash };
     const prepared = await this.prepareFromText(job, plan, {
-      text: extracted.text,
-      textHash: extracted.artifact.text,
+      verified: extracted.verified,
       candidateHash: extracted.artifact.candidateHash,
       parts: {
         extraction: { artifact: extracted.artifact, key },
@@ -1191,7 +1205,7 @@ export class WorkerEngineV4 {
         // already-committed) documents stand (§12.9 crossing-document rule).
         const ownedByDoc = new Map(owned.map((i) => [i.prepared.doc, i]));
         let running = 0;
-        for (const [id, text] of gen.texts) if (!ownedByDoc.has(id)) running += text.length;
+        for (const [id, vt] of gen.texts) if (!ownedByDoc.has(id)) running += verifiedTextOf(vt).length;
         const included: { prepared: PreparedDocument; token: DocWorkToken }[] = [];
         const rejected: string[] = [];
         for (const doc of gen.docs) {
@@ -1213,7 +1227,7 @@ export class WorkerEngineV4 {
         const nextTexts = new Map(gen.texts);
         for (const item of included) {
           nextReady.set(item.prepared.doc, item.prepared.ready);
-          nextTexts.set(item.prepared.doc, item.prepared.text);
+          nextTexts.set(item.prepared.doc, item.prepared.verified);
         }
         const expected = gen.docs;
         const snapshot = await composeSnapshot(
@@ -1224,7 +1238,9 @@ export class WorkerEngineV4 {
         const shards = new Map<string, DocumentIndexV1>();
         for (const [id, r] of nextReady) shards.set(id, r.shard);
         const bound = await bindShards(snapshot, shards);
-        const boundTexts = await bindTexts(snapshot, bound, nextTexts);
+        // The verified binding path: proofs minted at extraction / stored-text
+        // admission — no per-commit re-digest of resident texts.
+        const boundTexts = await bindTextsVerified(snapshot, bound, nextTexts);
 
         // SYNCHRONOUS commit gate: recheck job, generation, the staged base,
         // and EVERY currently-owned candidate token — INCLUDING cap-rejected
@@ -1602,8 +1618,9 @@ export class WorkerEngineV4 {
     if (!resolved) return;
     const { ref, ready, artifact } = resolved;
     const plan = gen.plans.get(doc);
-    const text = gen.texts.get(doc);
-    if (!plan || text === undefined) throw new DependencyError('text', doc);
+    const residentText = gen.texts.get(doc);
+    if (!plan || residentText === undefined) throw new DependencyError('text', doc);
+    const text = verifiedTextOf(residentText);
 
     // Detected baseline: reconstruct candidates from resident text and verify
     // they still hash to the admitted identity (a nondeterminism/corruption
@@ -1671,11 +1688,12 @@ export class WorkerEngineV4 {
       this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
       return;
     }
-    const text = gen.texts.get(doc);
-    if (text === undefined) {
+    const residentText = gen.texts.get(doc);
+    if (residentText === undefined) {
       this.emitError('DEPENDENCY_MISSING', { job, message: `text for '${doc}' is not resident`, recoverable: true });
       return;
     }
+    const text = verifiedTextOf(residentText);
     if (!Number.isInteger(anchor) || anchor < 0 || anchor > text.length) {
       this.emitError('REQUEST_INVALID', { job, message: `invalid line anchor ${anchor}`, recoverable: true });
       return;

@@ -10,7 +10,8 @@
  * provisional hashes are disposable and never aliased to canonical names.
  */
 
-import { canonicalJson, hashSourceBytes, hashText, sha256Hex } from '../contract/hash.ts';
+import { canonicalJson, hashSourceBytes, sha256Hex } from '../contract/hash.ts';
+import { verifiedHashOf, verifyText, type VerifiedText } from '../contract/verified-text.ts';
 import { exactRecord, isNonNegSafeInt as isNonNegInt } from '../contract/guards.ts';
 import {
   DETECTED_ENCODINGS,
@@ -611,6 +612,10 @@ export interface ExtractedDocument {
   readonly artifact: ExtractionArtifactV1;
   /** The extracted text itself — storage-resident, NEVER on the artifact. */
   readonly text: string;
+  /** The text-identity capability minted when extraction authenticated the
+   *  output — `verifiedHashOf(verified)` IS `artifact.text`. Realm-local:
+   *  never structured-clone/post it; a receiving boundary re-mints by hashing. */
+  readonly verified: VerifiedText;
 }
 
 export interface CandidateBundle {
@@ -745,7 +750,10 @@ export function isValidExtractionEvidence(ev: unknown): ev is ExtractionEvidence
 }
 
 /** The single artifact assembler both prepared kinds route through — the one
- *  place source/text/candidate/recipe identities are hashed together. */
+ *  place source/text/candidate/recipe identities are hashed together. This is
+ *  where the ONE text digest of a cold ingest happens: the VerifiedText
+ *  capability is minted here and carried on the returned document so the
+ *  downstream verified lanes (segment/index/bind) never re-digest. */
 async function assembleArtifact(
   recipe: ExtractionRecipeProvisional,
   sourceHash: string,
@@ -755,18 +763,19 @@ async function assembleArtifact(
   candidateHash: string,
   evidence: ExtractionEvidence,
 ): Promise<ExtractedDocument> {
+  const verified = await verifyText(text);
   const artifact: ExtractionArtifactV1 = {
     schema: 'texttrends/extraction/1',
     source: sourceHash,
     recipe: await hashExtractionRecipe(recipe),
-    text: await hashText(text),
+    text: verifiedHashOf(verified),
     textLengthUtf16: text.length,
     descriptor,
     candidates,
     candidateHash,
     evidence,
   };
-  return { artifact, text };
+  return { artifact, text, verified };
 }
 
 /**

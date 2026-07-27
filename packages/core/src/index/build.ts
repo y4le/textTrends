@@ -10,7 +10,7 @@
  */
 
 import { CapError, V1_CAPS, type IndexRecipeHash, type TextHash } from '../contract/brands.ts';
-import { hashText } from '../contract/hash.ts';
+import { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from '../contract/verified-text.ts';
 import {
   hashIndexRecipe,
   TOKEN_CLASS,
@@ -446,6 +446,25 @@ export async function createDocumentIndex(
   seg: SegmentationBatch,
   recipe: IndexRecipeProvisional,
 ): Promise<DocumentIndexV1> {
+  // The safe self-verifying entry: hash once (rejecting ill-formed UTF-16),
+  // then delegate to the verified fast lane.
+  return createDocumentIndexVerified(await verifyText(text), seg, recipe);
+}
+
+/**
+ * The verified fast lane of `createDocumentIndex`: the text identity comes
+ * from the capability (no re-digest), and the batch must still have been
+ * produced from THAT text — a mismatched intermediate rejects. Every non-hash
+ * invariant (classifier/locale agreement, full batch validation in
+ * `buildDocumentIndex`) is unchanged.
+ */
+export async function createDocumentIndexVerified(
+  verified: VerifiedText,
+  seg: SegmentationBatch,
+  recipe: IndexRecipeProvisional,
+): Promise<DocumentIndexV1> {
+  const text = verifiedTextOf(verified); // authenticates; throws on forgeries
+  const textHash = verifiedHashOf(verified);
   if (recipe.numerals.classifierVersion !== seg.provenance.classifierVersion) {
     throw new RangeError('recipe classifier version disagrees with segmenter provenance');
   }
@@ -460,12 +479,12 @@ export async function createDocumentIndex(
       );
     }
   }
-  const [textHash, recipeHash] = await Promise.all([hashText(text), hashIndexRecipe(recipe)]);
-  if (seg.text !== (textHash as TextHash)) {
+  if (seg.text !== textHash) {
     throw new RangeError('segmentation batch was produced from a different text');
   }
+  const recipeHash = await hashIndexRecipe(recipe);
   return buildDocumentIndex(text, seg, recipe, {
-    text: textHash as TextHash,
+    text: textHash,
     recipe: recipeHash,
   });
 }

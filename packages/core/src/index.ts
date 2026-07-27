@@ -22,6 +22,7 @@ export { mattr, mtld } from './stats/diversity.ts';
 export { CapError } from './contract/brands.ts';
 export type * from './contract/brands.ts';
 export { canonicalJson, hashSourceBytes, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
 export { exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
   DEFAULT_INDEX_RECIPE,
@@ -30,11 +31,12 @@ export {
   TOKEN_CLASS,
   type IndexRecipeProvisional,
 } from './contract/recipes.ts';
-export { segment, fingerprint } from './segment/intl.ts';
+export { segment, segmentVerified, fingerprint } from './segment/intl.ts';
 export type { SegmentationBatch, SegmenterFingerprint } from './segment/intl.ts';
 export {
   buildDocumentIndex,
   createDocumentIndex,
+  createDocumentIndexVerified,
   postingsFor,
   tokenCharLength,
   tokenEndChar,
@@ -68,6 +70,7 @@ export { trend, type NumericTrend, type TrendRequest } from './ops/trend.ts';
 export {
   bindShards,
   bindTexts,
+  bindTextsVerified,
   DependencyError,
   type BoundShards,
   type BoundTexts,
@@ -206,6 +209,7 @@ export {
 export {
   ArtifactCorruptError,
   validateExtractionArtifact,
+  validateExtractionArtifactVerified,
   validateStructureArtifactV2,
 } from './extract/validate.ts';
 export {
