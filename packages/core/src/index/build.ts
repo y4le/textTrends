@@ -162,16 +162,20 @@ export function buildDocumentIndex(
   validateBatch(text, seg);
   const segCount = seg.startsUtf16.length;
 
-  // Emit tokens (class filter per recipe), interning case-bearing keys.
+  // Emit tokens (class filter per recipe), interning case-bearing keys. The
+  // dense token arrays are preallocated at segCount — an upper bound, since
+  // filtered segments emit nothing — and filled through a tokenCount cursor.
+  // The sparse overflow tables stay ordinary arrays: they are usually empty.
   const vocabulary: string[] = [];
   const lookup = new Map<string, number>();
-  const typeIds: number[] = [];
-  const starts: number[] = [];
-  const lens: number[] = [];
-  const classes: number[] = [];
+  let tokenTypeIds = new Uint32Array(segCount);
+  let startsUtf16 = new Uint32Array(segCount);
+  let lengths8 = new Uint8Array(segCount);
+  let tokenClasses = new Uint8Array(segCount);
   const longPositions: number[] = [];
   const longLengths: number[] = [];
 
+  let tokenCount = 0;
   for (let i = 0; i < segCount; i++) {
     const cls = seg.classes[i] as number;
     if (cls === TOKEN_CLASS.numeral && recipe.numerals.policy === 'drop') continue;
@@ -185,25 +189,29 @@ export function buildDocumentIndex(
       vocabulary.push(key);
       lookup.set(key, id);
     }
-    const pos = typeIds.length;
-    typeIds.push(id);
-    starts.push(s);
-    classes.push(cls);
+    const pos = tokenCount;
+    tokenTypeIds[pos] = id;
+    startsUtf16[pos] = s;
+    tokenClasses[pos] = cls;
     const len = e - s; // SOURCE span length in UTF-16 code units, not key length
-    lens.push(len);
+    lengths8[pos] = len > 254 ? 255 : len;
     if (len > 254) {
       longPositions.push(pos);
       longLengths.push(len);
     }
+    tokenCount++;
   }
 
-  const tokenCount = typeIds.length;
   if (tokenCount > V1_CAPS.maxDocTokens) throw new CapError('document exceeds v1 token cap');
 
-  const tokenTypeIds = Uint32Array.from(typeIds);
-  const startsUtf16 = Uint32Array.from(starts);
-  const tokenClasses = Uint8Array.from(classes);
-  const lengths8 = Uint8Array.from(lens, (len) => (len > 254 ? 255 : len));
+  if (tokenCount !== segCount) {
+    // Exact-size copies via slice, never subarray — a subarray view would
+    // retain (and possibly transfer) the oversized segCount backing buffer.
+    tokenTypeIds = tokenTypeIds.slice(0, tokenCount);
+    startsUtf16 = startsUtf16.slice(0, tokenCount);
+    lengths8 = lengths8.slice(0, tokenCount);
+    tokenClasses = tokenClasses.slice(0, tokenCount);
+  }
 
   // CSR postings via counting sort.
   const vocabSize = vocabulary.length;
