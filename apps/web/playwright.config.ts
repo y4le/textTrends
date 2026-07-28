@@ -8,10 +8,12 @@
  * - functional: semantic gates; may retry once in CI (traces on retry);
  * - benchmark:  timing specs — never retried, so a failed timing sample is
  *   a visible failure, not noise a retry can hide. ISOLATION is enforced
- *   by the checked-in commands, not by convention: `pnpm e2e` runs the
- *   functional project to completion FIRST, then the benchmark project
- *   with --workers=1 (same sequence as .github/workflows/ci.yml) — timing
- *   samples never share the machine with functional load.
+ *   by the config, not by convention: the benchmark project DEPENDS on the
+ *   functional project (Playwright completes dependencies first and skips
+ *   dependents on failure) and pins its own workers to 1 — so one
+ *   invocation, one webServer build, and timing samples that never share
+ *   the machine with functional load. `pnpm e2e:bench` passes --no-deps
+ *   for a deliberate timing-only run.
  */
 
 import { defineConfig } from '@playwright/test';
@@ -33,6 +35,8 @@ export default defineConfig({
     {
       name: 'chromium-benchmark',
       testMatch: /.*\.bench\.spec\.ts/,
+      dependencies: ['chromium-functional'],
+      workers: 1,
       retries: 0,
     },
   ],

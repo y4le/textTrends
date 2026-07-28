@@ -46,13 +46,8 @@ jobs:
       - name: Install Playwright Chromium
         run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium
 
-      - name: Real-browser functional suite
-        working-directory: apps/web
-        run: pnpm exec playwright test --project=chromium-functional
-
-      - name: Real-browser benchmark project (serial)
-        working-directory: apps/web
-        run: pnpm exec playwright test --project=chromium-benchmark --workers=1
+      - name: Real-browser suites (functional, then the serial benchmark)
+        run: pnpm e2e
 
       - name: Upload Playwright report and benchmark artifacts
         if: always()

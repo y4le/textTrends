@@ -7,13 +7,14 @@
   },
   "packageManager": "pnpm@10.19.0",
   "devDependencies": {
-    "@texttrends/standard-ebooks": "workspace:*"
+    "@texttrends/standard-ebooks": "workspace:*",
+    "vitest": "^4.1.0"
   },
   "scripts": {
     "dev": "pnpm build:se && pnpm --filter @texttrends/web dev",
     "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle",
     "build:se": "pnpm --filter @texttrends/standard-ebooks build",
-    "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && pnpm -r test",
+    "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && vitest run && pnpm --filter @texttrends/standard-ebooks test",
     "typecheck": "pnpm build:se && pnpm -r typecheck",
     "e2e": "pnpm --filter @texttrends/web e2e",
     "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs"
