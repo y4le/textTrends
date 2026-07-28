@@ -15,17 +15,23 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   checks:
     runs-on: ubuntu-latest
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v4
-      - uses: pnpm/action-setup@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
 
       - name: Typecheck
@@ -35,13 +41,8 @@ jobs:
 
       - name: Production build (deployability; typecheck already ran above)
         run: pnpm --filter @texttrends/web build:bundle
-      - name: Assert the e2e facade is absent from the production bundle
-        run: |
-          if grep -rl "ttE2E\|ttHarness" apps/web/dist/assets/; then
-            echo "::error::e2e facade leaked into the production bundle"
-            exit 1
-          fi
-          test ! -f apps/web/dist/e2e-harness.html
+      - name: Enforce the production bundle contract (budget, lazy chunks, no facade)
+        run: pnpm check:bundle
 
       - name: Install Playwright Chromium
         run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium
@@ -51,10 +52,11 @@ jobs:
 
       - name: Upload Playwright report and benchmark artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: playwright-artifacts
           path: |
             apps/web/playwright-report
             apps/web/test-results
+          if-no-files-found: ignore
           retention-days: 14

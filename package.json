@@ -12,7 +12,8 @@
   },
   "scripts": {
     "dev": "pnpm build:se && pnpm --filter @texttrends/web dev",
-    "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle",
+    "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle && pnpm check:bundle",
+    "check:bundle": "node scripts/check-bundle.mjs",
     "build:se": "pnpm --filter @texttrends/standard-ebooks build",
     "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && vitest run && pnpm --filter @texttrends/standard-ebooks test",
     "typecheck": "pnpm build:se && pnpm -r typecheck",
