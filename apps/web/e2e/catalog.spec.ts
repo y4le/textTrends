@@ -5,10 +5,12 @@
  * complete series renders in position order from the checked-in snapshot,
  * and adding a book downloads its source ONLY from raw.githubusercontent.com
  * — fulfilled here from fixtures, so the whole proof runs offline — and
- * ingests it through the same import path as an uploaded file. A build-shape
- * test proves payload separation (the snapshot bytes live outside every
- * script); the retry test proves on-demand timing (zero asset requests
- * before the panel opens, exactly one after).
+ * ingests it through the same import path as an uploaded file. Build-shape
+ * tests prove payload separation (the snapshot bytes live outside every
+ * script) and code separation (the archive assembly is one lazy chunk; the
+ * library's root client ships in no chunk at all); the retry test proves
+ * on-demand timing (zero asset requests before the panel opens, exactly one
+ * after).
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -123,6 +125,51 @@ test('build shape: the catalog snapshot bytes live outside every script', () => 
   );
   expect(carriers, 'exactly one hashed JSON asset carries the catalog').toHaveLength(1);
   expect(carriers[0]).toMatch(/^standard-ebooks-catalog-.+\.json$/);
+});
+
+test('build shape: the archive assembly is one lazy chunk and the root client ships in no chunk', () => {
+  // The Phase F archive-subpath split: the app imports ONLY
+  // `@texttrends/standard-ebooks/archive`, and only dynamically. Three
+  // grep-auditable consequences over the emitted dist/ (built by the
+  // webServer command before any spec runs), each on a string that survives
+  // minification because it is a literal, not an identifier:
+  //  1. The ENTRY script carries no archive machinery. Markers:
+  //     'application/epub+zip' (the archive's stored `mimetype` member,
+  //     written only by the assembly code), 'unexpected EOF' (an fflate
+  //     inflate error string), and 'xmldom' (the OPF parser's package name,
+  //     present in its error text). Booting must not pay for add-a-book.
+  //  2. Exactly ONE chunk assembles the archive — the dynamic-import target —
+  //     and it is not the entry.
+  //  3. Root-client-only code ships NOWHERE: 'release-fallback' (the client's
+  //     release→repository fallback warning literal) and 'api.github.com'
+  //     (the live catalog listing base URL) are absent from every chunk.
+  //     Nothing imports the library root anymore, so no chunk may carry its
+  //     catalog/release/text machinery — including the lazy archive chunk.
+  const dist = fileURLToPath(new URL('../dist/', import.meta.url));
+  const entry = readFileSync(`${dist}index.html`, 'utf8').match(/assets\/([^"]+\.js)/)?.[1];
+  expect(entry, 'index.html names its entry script').toBeTruthy();
+  const scripts = new Map(
+    readdirSync(`${dist}assets/`)
+      .filter((f) => f.endsWith('.js'))
+      .map((f) => [f, readFileSync(`${dist}assets/${f}`, 'utf8')] as const),
+  );
+  expect(scripts.has(entry!)).toBe(true);
+
+  for (const archiveMarker of ['application/epub+zip', 'unexpected EOF', 'xmldom']) {
+    expect(
+      scripts.get(entry!)!.includes(archiveMarker),
+      `entry chunk must not carry the archive/zip/xml marker ${JSON.stringify(archiveMarker)}`,
+    ).toBe(false);
+  }
+
+  const assemblers = [...scripts.entries()].filter(([, s]) => s.includes('application/epub+zip')).map(([f]) => f);
+  expect(assemblers, 'exactly one chunk carries the archive assembly').toHaveLength(1);
+  expect(assemblers[0], 'the archive assembly is a lazy (non-entry) chunk').not.toBe(entry);
+
+  for (const rootMarker of ['release-fallback', 'api.github.com']) {
+    const carriers = [...scripts.entries()].filter(([, s]) => s.includes(rootMarker)).map(([f]) => f);
+    expect(carriers, `root-client marker ${JSON.stringify(rootMarker)} must ship in no chunk`).toEqual([]);
+  }
 });
 
 test('the catalog asset loads on demand, and a failed fetch shows a genuinely retryable error', async ({ page }) => {

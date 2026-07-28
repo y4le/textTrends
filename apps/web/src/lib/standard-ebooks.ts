@@ -6,8 +6,11 @@
  * downloaded by repository name from raw.githubusercontent.com (a
  * CORS-accessible origin, unlike the standardebooks.org release download)
  * and repackaged into a `.epub` in the browser, ready to ingest exactly like
- * an uploaded file. The heavy client (+ zip/xml libraries) is dynamically
- * imported so it stays out of the initial bundle until the user adds a book.
+ * an uploaded file. Only the `@texttrends/standard-ebooks/archive` subpath is
+ * imported — never the root client, whose catalog/release machinery the app
+ * has no use for — and dynamically, so the archive assembly (+ zip/xml
+ * libraries) stays out of the initial bundle until the user adds a book.
+ * The build-shape e2e test (catalog.spec.ts) holds both properties.
  */
 
 export class CatalogError extends Error {
@@ -31,9 +34,8 @@ export async function downloadEbookArchive(
   signal?: AbortSignal,
 ): Promise<{ readonly bytes: Uint8Array; readonly title: string }> {
   try {
-    const { StandardEbooksClient } = await import('@texttrends/standard-ebooks');
-    const client = new StandardEbooksClient();
-    const { bytes, metadata } = await client.downloadEpubArchive(name, signal ? { signal } : {});
+    const archive = await import('@texttrends/standard-ebooks/archive');
+    const { bytes, metadata } = await archive.downloadEbookArchive(name, signal ? { signal } : {});
     return { bytes, title: metadata.title };
   } catch (e) {
     throw mapError(e);
