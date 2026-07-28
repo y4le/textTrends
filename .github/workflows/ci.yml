@@ -33,8 +33,8 @@ jobs:
       - name: Unit tests
         run: pnpm test
 
-      - name: Production build (deployability)
-        run: pnpm --filter @texttrends/web build
+      - name: Production build (deployability; typecheck already ran above)
+        run: pnpm --filter @texttrends/web build:bundle
       - name: Assert the e2e facade is absent from the production bundle
         run: |
           if grep -rl "ttE2E\|ttHarness" apps/web/dist/assets/; then
