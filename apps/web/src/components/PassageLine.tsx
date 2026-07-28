@@ -25,7 +25,7 @@ interface Segment {
 }
 
 /** Non-overlapping segments from (possibly overlapping) mark spans. */
-export function segmentMarks(
+function segmentMarks(
   length: number,
   marks: readonly { readonly seriesId: string; readonly start: number; readonly end: number }[],
   extraBoundaries: readonly number[],

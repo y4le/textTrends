@@ -179,7 +179,7 @@ export interface ScrubTarget {
 
 /** Tokens of headroom the loaded block must keep around the target before a
  *  refetch is scheduled — inside the band, scrubbing is purely local. */
-export const SCRUB_GUARD_TOKENS = 28;
+const SCRUB_GUARD_TOKENS = 28;
 
 /** Bootstrap lifecycle, distinct from analysis state: the store is exported
  *  synchronously but the session needs the async-built built-in project, so
