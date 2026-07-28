@@ -6,7 +6,10 @@
  * the @texttrends/standard-ebooks package; here we prove the app wraps the
  * ARCHIVE SUBPATH (never the root client — the streaming, yield-between-chunks
  * assembly lives behind `@texttrends/standard-ebooks/archive`) and classifies
- * failures for the UI.
+ * failures for the UI. The facade now routes through the IndexedDB cache
+ * module (standard-ebooks-cache.ts); this environment has NO indexedDB, so
+ * the cache degrades to the uncached pass-through — cache behavior itself is
+ * proven in standard-ebooks-cache.test.ts against fake-indexeddb.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -46,6 +49,15 @@ describe('standard-ebooks add service', () => {
     const bare = downloadEbookArchive('gone_book');
     await expect(bare).rejects.toBeInstanceOf(CatalogError);
     await expect(bare).rejects.toMatchObject({ code: 'ERROR' });
+  });
+
+  it('an already-aborted signal maps to an ABORTED CatalogError without any download', async () => {
+    const controller = new AbortController();
+    controller.abort();
+    const rejected = downloadEbookArchive('a_b', controller.signal);
+    await expect(rejected).rejects.toBeInstanceOf(CatalogError);
+    await expect(rejected).rejects.toMatchObject({ code: 'ABORTED' });
+    expect(libraryDownload).not.toHaveBeenCalled();
   });
 
   it('threads an abort signal through to the archive download', async () => {
