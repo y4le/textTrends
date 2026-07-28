@@ -7,33 +7,27 @@
  */
 
 declare const brand: unique symbol;
-export type Brand<T, B extends string> = T & { readonly [brand]: B };
+type Brand<T, B extends string> = T & { readonly [brand]: B };
 
 export type ProjectDocId = Brand<string, 'ProjectDocId'>;
 export type SectionId = Brand<string, 'SectionId'>;
 
-export type DocOrdinal = Brand<number, 'DocOrdinal'>;
 export type LocalTypeId = Brand<number, 'LocalTypeId'>;
-export type CorpusTypeId = Brand<number, 'CorpusTypeId'>;
 export type DocTokenPos = Brand<number, 'DocTokenPos'>;
-export type Utf16Offset = Brand<number, 'Utf16Offset'>;
 
 export type SourceHash = Brand<string, 'SourceHash'>;
 export type TextHash = Brand<string, 'TextHash'>;
 export type StructureHash = Brand<string, 'StructureHash'>;
 export type IndexArtifactHash = Brand<string, 'IndexArtifactHash'>;
 export type IndexRecipeHash = Brand<string, 'IndexRecipeHash'>;
-export type QueryHash = Brand<string, 'QueryHash'>;
 export type SelectionHash = Brand<string, 'SelectionHash'>;
 export type CorpusSnapshotId = Brand<string, 'CorpusSnapshotId'>;
 export type BuildGeneration = Brand<string, 'BuildGeneration'>;
-export type JobId = Brand<number, 'JobId'>;
 
 export interface HalfOpenRange<T> {
   readonly start: T;
   readonly end: T;
 }
-export type CharRange = HalfOpenRange<Utf16Offset>;
 
 /** Typed cap violation — protocol adapters map this to CAP_EXCEEDED without
  *  matching exception text (extends RangeError; existing guards still hold). */

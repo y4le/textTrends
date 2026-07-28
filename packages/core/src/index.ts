@@ -7,6 +7,12 @@
 // The public surface is defined by the analysis contract
 // (docs/design/analysis-contract.md) and grows here as each part is
 // implemented; methods are specified in docs/design/statistics.md.
+//
+// SURFACE DISCIPLINE (simplification plan, Phase G): the barrel exports ONLY
+// symbols consumed through the package surface by production code, plus the
+// documented owner-retained surfaces (the stats methods, epubExtractionRecipe).
+// Internal contracts stay module-exported for cross-module use and focused
+// same-package tests; those tests import the module path, never the barrel.
 
 // Explicit .ts specifiers keep these modules loadable under Node's type-stripping
 // runner as well as bundlers — the CLI adapter depends on it.
@@ -20,57 +26,37 @@ export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
 export { mattr, mtld } from './stats/diversity.ts';
 export { CapError } from './contract/brands.ts';
-export type * from './contract/brands.ts';
-export { canonicalJson, hashSourceBytes, hashText, sha256Hex, type JsonValue } from './contract/hash.ts';
+// The explicit retained brand list (the wildcard export is gone): TextHash is
+// the one brand production code names through the package surface.
+export type { TextHash } from './contract/brands.ts';
+export { canonicalJson, hashSourceBytes, hashText } from './contract/hash.ts';
 export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
 export { exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,
   isIndexRecipeProvisional,
-  TOKEN_CLASS,
   type IndexRecipeProvisional,
 } from './contract/recipes.ts';
 export { segment, segmentVerified, fingerprint } from './segment/intl.ts';
-export type { SegmentationBatch, SegmenterFingerprint } from './segment/intl.ts';
 export {
-  buildDocumentIndex,
   createDocumentIndex,
   createDocumentIndexVerified,
-  postingsFor,
-  tokenCharLength,
   tokenEndChar,
   validateShardStructure,
-  tokenKey,
-  validateBatch,
   type DocumentIndexV1,
-  type ShardIdentity,
 } from './index/build.ts';
-export {
-  bindSectionId,
-  hashSegmenterFingerprint,
-  indexArtifactHash,
-  type DocumentIndexIdentityV1,
-  type SegmenterFingerprintHash,
-} from './contract/identity.ts';
+export { bindSectionId, hashSegmenterFingerprint } from './contract/identity.ts';
 export {
   composeSnapshot,
   makeReadyDocument,
-  structureHashOf,
-  validateSnapshot,
-  type ReadyStructure,
-  type CorpusDocRef,
   type CorpusSnapshotV1,
   type ReadyDocument,
-  type SnapshotLimits,
-  type SnapshotVocabularyV1,
 } from './snapshot/compose.ts';
-export { resolveSelection, type ResolvedSelection, type SelectionSpec } from './snapshot/selection.ts';
+export { resolveSelection, type ResolvedSelection } from './snapshot/selection.ts';
 export { trend, type NumericTrend, type TrendRequest } from './ops/trend.ts';
 export {
-  bindShards,
   bindShardsIncremental,
-  bindTexts,
   bindTextsVerified,
   createBindingSession,
   DependencyError,
@@ -80,85 +66,44 @@ export {
 } from './ops/binding.ts';
 export {
   kwicPage,
-  KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
   type KwicRequest,
   type KwicRow,
-  type KwicTrackIdentity,
-  type NumericKwicPage,
 } from './ops/kwic.ts';
 export {
   checkedResolverFor,
   occurrences,
   termGroupIdentity,
-  type GroupMember,
-  type GroupSpan,
   type NumericOccurrences,
-  type RawMatch,
   type ResolverTable,
   type TermGroupSpec,
-  type TokenRangeSpan,
 } from './ops/occurrences.ts';
 export {
   materializePassage,
   PASSAGE_MAX_TOKENS,
-  PASSAGE_MAX_UTF16,
   planPassage,
-  type NumericPassagePlan,
-  type PassageMark,
   type PassageRequest,
   type PassageResult,
-  type PassageTrackSpec,
 } from './ops/passage.ts';
-export {
-  buildResolver,
-  foldKey,
-  modeKey,
-  resolveAffix,
-  resolveToken,
-  type MatchMode,
-  type Resolver,
-} from './resolve/fold.ts';
-export {
-  DecodeError,
-  decodeSource,
-  windows1252TableHash,
-  type DecodedSource,
-  type DetectedEncoding,
-} from './extract/decode.ts';
-export {
-  hashStructureCandidates,
-  type StructureCandidateKind,
-  type StructureCandidateV1,
-} from './extract/candidates.ts';
-export { scanMarkdownHeadings } from './extract/markdown.ts';
+export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
+export { DecodeError, decodeSource } from './extract/decode.ts';
+export { hashStructureCandidates, type StructureCandidateV1 } from './extract/candidates.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,
   deriveCandidatesFromText,
   type CandidateBundle,
   epubExtractionRecipe,
-  extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
   validateExtractionRecipe,
-  validatedExtractionRecipe,
-  type CandidateReconstruction,
-  type ContainerSourceDescriptorV1,
-  type DecodedDocument,
-  type EbookPartition,
-  type EpubExtractorPolicyV0,
-  type HtmlExtractorPolicyV0,
-  type MarkupSourceDescriptorV1,
   type ExtractedDocument,
   type ExtractionArtifactV1,
-  type ExtractionEvidence,
   type ExtractionRecipeProvisional,
   type PreparedExtraction,
   type SourceDescriptorV1,
   type SourceFormat,
-  type TextSourceDescriptorV1,
 } from './extract/extraction.ts';
 export {
   isLiteralFormat,
@@ -167,27 +112,20 @@ export {
   SOURCE_FORMAT_IDS,
   sourceFormatForFilename,
   stripSourceExtension,
-  type LiteralSourceFormat,
-  type SourceFormatMetadata,
 } from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
-export { STRUCTURE_LIMITS_V0, type StructureLimitsV0 } from './contract/structure-limits.ts';
-export { lineWindowAround, type LineWindow } from './extract/lines.ts';
+export { STRUCTURE_LIMITS_V0 } from './contract/structure-limits.ts';
+export { lineWindowAround } from './extract/lines.ts';
 export {
   ROOT_KEY,
   StructureCapError,
   StructureError,
-  validateSectionTable,
   type CharRange,
-  type SectionOrigin,
   type StructureSectionRecordV2,
 } from './structure/sections.ts';
 export {
   DEFAULT_STRUCTURE_RECIPE,
-  applyOverride,
-  boundTitle,
   buildDetectedSections,
-  canonicalChanges,
   composeStructure,
   emptyOverride,
   hashStructureOverride,
@@ -195,28 +133,17 @@ export {
   isStructureOverrideV1,
   isStructureRecipeProvisional,
   overrideFromEditedOutline,
-  scanChapterHeadings,
   type EditableSectionValue,
-  type SectionValue,
   type StructureArtifactV2,
-  type StructureChange,
   type StructureOverrideV1,
   type StructureRecipeProvisional,
 } from './structure/build.ts';
+export { projectSections, type TokenRange } from './structure/project.ts';
 export {
-  charRangeToTokenRange,
-  lowerBound,
-  projectSections,
-  type TokenRange,
-} from './structure/project.ts';
-export {
-  ArtifactCorruptError,
-  validateExtractionArtifact,
   validateExtractionArtifactVerified,
   validateStructureArtifactV2,
 } from './extract/validate.ts';
 export {
-  ManifestInvalidError,
   upgradeStoredManifest,
   validateProjectManifest,
   type DocumentMetaV1,

@@ -24,7 +24,8 @@ import {
 } from '../src/index/build.ts';
 import { bindShards, bindTexts, bindTextsVerified, type BoundShards } from '../src/ops/binding.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
-import { defaultExtractionRecipes, extractDocument } from '../src/extract/extraction.ts';
+import { defaultExtractionRecipes } from '../src/extract/extraction.ts';
+import { extractDocument } from './support/extract-document.ts';
 import { validateExtractionArtifact, validateExtractionArtifactVerified } from '../src/extract/validate.ts';
 import { rootOnlyV2 } from './support/root-only-structure.ts';
 

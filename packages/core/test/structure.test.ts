@@ -8,24 +8,21 @@ import {
   ROOT_KEY,
   StructureCapError,
   StructureError,
-  applyOverride,
-  boundTitle,
   buildDetectedSections,
-  charRangeToTokenRange,
   composeStructure,
   DEFAULT_STRUCTURE_RECIPE,
   emptyOverride,
   hashStructureOverride,
   isStructureOverrideV1,
   isStructureRecipeProvisional,
-  lowerBound,
   projectSections,
-  scanChapterHeadings,
-  validateSectionTable,
   type StructureOverrideV1,
   type StructureSectionRecordV2,
 } from '../src/index.ts';
-import { scanMarkdownHeadings } from '../src/index.ts';
+import { applyOverride, boundTitle, scanChapterHeadings } from '../src/structure/build.ts';
+import { validateSectionTable } from '../src/structure/sections.ts';
+import { charRangeToTokenRange, lowerBound } from '../src/structure/project.ts';
+import { scanMarkdownHeadings } from '../src/extract/markdown.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 
 const recipe = DEFAULT_STRUCTURE_RECIPE;

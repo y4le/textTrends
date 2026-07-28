@@ -13,17 +13,17 @@ import {
   defaultExtractionRecipes,
   deriveCandidatesFromText,
   epubExtractionRecipe,
-  extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
   hashSourceBytes,
   hashStructureCandidates,
   hashText,
-  scanMarkdownHeadings,
   validateExtractionRecipe,
-  windows1252TableHash,
   type PreparedExtraction,
 } from '../src/index.ts';
+import { windows1252TableHash } from '../src/extract/decode.ts';
+import { scanMarkdownHeadings } from '../src/extract/markdown.ts';
+import { extractDocument } from './support/extract-document.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 import { TECHNICAL_MD } from './fixtures/md/technical.ts';
 

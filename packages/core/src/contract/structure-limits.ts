@@ -24,4 +24,3 @@ export const STRUCTURE_LIMITS_V0 = {
   maxTitleUtf16: 512,
 } as const;
 
-export type StructureLimitsV0 = typeof STRUCTURE_LIMITS_V0;

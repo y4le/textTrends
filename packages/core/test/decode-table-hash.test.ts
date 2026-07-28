@@ -41,7 +41,8 @@ describe('windows1252TableHash memoization', () => {
 
   it('returns the same recipe-identity hash the default recipes embed', async () => {
     vi.resetModules();
-    const { windows1252TableHash, defaultExtractionRecipes } = await import('../src/index.ts');
+    const { windows1252TableHash } = await import('../src/extract/decode.ts');
+    const { defaultExtractionRecipes } = await import('../src/extract/extraction.ts');
     const hash = await windows1252TableHash();
     const { txt } = await defaultExtractionRecipes();
     expect(txt.decoder.windows1252TableHash).toBe(hash);

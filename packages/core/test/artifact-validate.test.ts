@@ -5,8 +5,6 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
-  ArtifactCorruptError,
-  ManifestInvalidError,
   bindSectionId,
   composeStructure,
   DEFAULT_INDEX_RECIPE,
@@ -15,7 +13,6 @@ import {
   defaultExtractionRecipes,
   emptyOverride,
   epubExtractionRecipe,
-  extractDocument,
   finalizeExtraction,
   hashExtractionRecipe,
   hashIndexRecipe,
@@ -24,16 +21,18 @@ import {
   hashStructureOverride,
   hashStructureRecipe,
   makeReadyDocument,
-  scanMarkdownHeadings,
-  structureHashOf,
   upgradeStoredManifest,
-  validatedExtractionRecipe,
-  validateExtractionArtifact,
   validateProjectManifest,
   validateStructureArtifactV2,
   type PreparedExtraction,
   type StructureArtifactV2,
 } from '../src/index.ts';
+import { validatedExtractionRecipe } from '../src/extract/extraction.ts';
+import { scanMarkdownHeadings } from '../src/extract/markdown.ts';
+import { ArtifactCorruptError, validateExtractionArtifact } from '../src/extract/validate.ts';
+import { ManifestInvalidError } from '../src/project/manifest.ts';
+import { structureHashOf } from '../src/snapshot/compose.ts';
+import { extractDocument } from './support/extract-document.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);

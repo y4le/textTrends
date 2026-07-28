@@ -14,7 +14,7 @@ import type { SegmenterFingerprint } from '../segment/intl.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 
 declare const brand: unique symbol;
-export type SegmenterFingerprintHash = string & { readonly [brand]: 'SegmenterFingerprintHash' };
+type SegmenterFingerprintHash = string & { readonly [brand]: 'SegmenterFingerprintHash' };
 
 export async function hashSegmenterFingerprint(
   fp: SegmenterFingerprint,
@@ -22,7 +22,7 @@ export async function hashSegmenterFingerprint(
   return (await sha256Hex(canonicalJson(fp))) as SegmenterFingerprintHash;
 }
 
-export interface DocumentIndexIdentityV1 {
+interface DocumentIndexIdentityV1 {
   readonly schema: 'texttrends/document-index-identity/1';
   readonly text: TextHash;
   readonly recipe: IndexRecipeHash;

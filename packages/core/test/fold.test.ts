@@ -115,8 +115,8 @@ describe('package entry point', () => {
     const entry = await import('@texttrends/core');
     expect(typeof entry.composeSnapshot).toBe('function');
     expect(typeof entry.makeReadyDocument).toBe('function');
-    expect(typeof entry.validateSnapshot).toBe('function');
-    expect(typeof entry.indexArtifactHash).toBe('function');
+    expect(typeof entry.resolveSelection).toBe('function');
+    expect(typeof entry.trend).toBe('function');
     expect(typeof entry.buildResolver).toBe('function');
   });
 });

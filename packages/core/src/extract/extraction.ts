@@ -832,23 +832,4 @@ export async function finalizeExtraction(
   return assembleArtifact(canonical, descriptor.hash, text, descriptor, candidates, candidateHash, evidence);
 }
 
-/**
- * TEST ORACLE — not a production entry point. Production extraction goes
- * through `@texttrends/extractors`' `extractSource` (which enforces caps and
- * runs the ownership hooks); this convenience composition of
- * decodeDocumentSource + finalizeExtraction exists so tests can assert the
- * split pipeline composes to exactly what the monolithic path produces, and
- * as a fixture builder. Throws DecodeError for malformed BOM-declared Unicode
- * or lone-surrogate UTF-16.
- */
-export async function extractDocument(
-  bytes: Uint8Array,
-  recipe: ExtractionRecipeProvisional,
-): Promise<ExtractedDocument> {
-  // Canonicalize ONCE and thread the returned value through both phases —
-  // their own revalidations are then WeakSet identity hits on the same object.
-  const canonical = await validatedExtractionRecipe(recipe);
-  return finalizeExtraction({ kind: 'literal', decoded: await decodeDocumentSource(bytes, canonical) }, canonical);
-}
-
 export { DecodeError };

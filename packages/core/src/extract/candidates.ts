@@ -16,7 +16,7 @@ import { canonicalJson, sha256Hex } from '../contract/hash.ts';
  *  `epub-section` is a spine document boundary and an `html-heading` an
  *  h1–h6 in the DOM — both source-reconstructed (the container/markup tree,
  *  not the joined text, holds the structure). */
-export type StructureCandidateKind =
+type StructureCandidateKind =
   | 'md-heading-atx'
   | 'md-heading-setext'
   | 'epub-section'

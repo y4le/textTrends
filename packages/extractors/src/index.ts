@@ -12,7 +12,3 @@
 
 export { extractSource, type ExtractionHooks, type ExtractionLimits } from './extract-source.ts';
 export { ExtractionFailure, type ExtractionFailureCode } from './failure.ts';
-// The individual adapters are exported for direct (golden) testing; normal
-// callers use extractSource.
-export { extractEpubDocument } from './epub-extract.ts';
-export { extractHtmlDocument } from './html-extract.ts';

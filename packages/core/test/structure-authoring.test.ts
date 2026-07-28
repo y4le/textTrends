@@ -9,14 +9,13 @@ import {
   STRUCTURE_LIMITS_V0,
   StructureCapError,
   StructureError,
-  applyOverride,
-  canonicalChanges,
   lineWindowAround,
   overrideFromEditedOutline,
-  validateSectionTable,
   type EditableSectionValue,
   type StructureSectionRecordV2,
 } from '../src/index.ts';
+import { applyOverride, canonicalChanges } from '../src/structure/build.ts';
+import { validateSectionTable } from '../src/structure/sections.ts';
 
 const BASE = { text: 'th', candidates: 'ch', baseRecipe: 'rh' };
 

@@ -14,7 +14,7 @@ import type { DocTokenPos, HalfOpenRange, ProjectDocId, SelectionHash } from '..
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
 import type { CorpusSnapshotV1 } from './compose.ts';
 
-export interface SelectionSpec {
+interface SelectionSpec {
   readonly docs: readonly ProjectDocId[];
   readonly ranges?: readonly { readonly doc: ProjectDocId; readonly tokens: HalfOpenRange<DocTokenPos> }[];
 }

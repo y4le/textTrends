@@ -11,12 +11,11 @@ import {
   defaultExtractionRecipes,
   epubExtractionRecipe,
   hashExtractionRecipe,
-  validatedExtractionRecipe,
   validateExtractionRecipe,
-  windows1252TableHash,
-  type EbookPartition,
   type ExtractionRecipeProvisional,
 } from '../src/index.ts';
+import { validatedExtractionRecipe, type EbookPartition } from '../src/extract/extraction.ts';
+import { windows1252TableHash } from '../src/extract/decode.ts';
 
 /** A freshly-allocated, MUTABLE, valid raw recipe (never a canonical object). */
 async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record<string, unknown>> {

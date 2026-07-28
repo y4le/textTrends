@@ -14,15 +14,15 @@ import { InMemoryUserDataStore, UserDataError, type UserDataStore } from '../src
 import { PROTOCOL_VERSION_V4, type FromWorkerV4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
 import {
   bindSectionId,
-  bindShards,
   bindShardsIncremental,
   createBindingSession,
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
+  decodeDocumentSource,
   defaultExtractionRecipes,
   emptyOverride,
-  extractDocument,
+  finalizeExtraction,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashSourceBytes,
@@ -30,6 +30,7 @@ import {
   hashStructureRecipe,
   occurrences,
   termGroupIdentity,
+  type ExtractionRecipeProvisional,
   type IngestCapsV0,
   type StructureOverrideV1,
 } from '@texttrends/core';
@@ -45,7 +46,6 @@ vi.mock('@texttrends/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@texttrends/core')>();
   return {
     ...actual,
-    bindShards: vi.fn(actual.bindShards),
     bindShardsIncremental: vi.fn(actual.bindShardsIncremental),
     createBindingSession: vi.fn(actual.createBindingSession),
     occurrences: vi.fn(actual.occurrences),
@@ -54,6 +54,12 @@ vi.mock('@texttrends/core', async (importOriginal) => {
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 const buf = (s: string): ArrayBuffer => utf8(s).buffer as ArrayBuffer;
+
+/** Fixture builder over the supported split-pipeline surface: decode + finalize
+ *  for the literal formats this suite ingests. */
+async function extractDocument(bytes: Uint8Array, recipe: ExtractionRecipeProvisional) {
+  return finalizeExtraction({ kind: 'literal', decoded: await decodeDocumentSource(bytes, recipe) }, recipe);
+}
 const FOLD = { case: 'folded', diacritics: 'sensitive' } as const;
 
 /** A store that can hide any artifact class (force a miss) to construct the
@@ -2055,10 +2061,8 @@ describe('generation-scoped incremental binding (Phase D workstream D1)', () => 
   it('every publication binds through bindShardsIncremental with the ONE session created at beginGeneration', async () => {
     const inc = vi.mocked(bindShardsIncremental);
     const mkSession = vi.mocked(createBindingSession);
-    const fresh = vi.mocked(bindShards);
     inc.mockClear();
     mkSession.mockClear();
-    fresh.mockClear();
     const h = harness();
     await begin(h, [await docSpec('a', 'wolf one'), await docSpec('b', 'wolf two')]);
     await coldIngest(h, 'g', 'a', 'wolf one', 2);
@@ -2070,8 +2074,8 @@ describe('generation-scoped incremental binding (Phase D workstream D1)', () => 
     const session = mkSession.mock.results[0]!.value;
     expect(inc).toHaveBeenCalledTimes(2);
     for (const call of inc.mock.calls) expect(call[0]).toBe(session);
-    // The always-fresh public path is NOT the publication path.
-    expect(fresh).not.toHaveBeenCalled();
+    // The always-fresh bindShards path is no longer package surface at all —
+    // the engine reaching it would be a compile error, not just a test failure.
   });
 
   it('a replacement generation mints a FRESH session and publishes only through it', async () => {

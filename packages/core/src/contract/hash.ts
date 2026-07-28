@@ -3,14 +3,9 @@
  * collision-resistant scheme for artifact and recipe identities.
  */
 
-/** The canonical-JSON input domain. Anything outside it is rejected, not coerced. */
-export type JsonValue =
-  | null
-  | boolean
-  | number
-  | string
-  | readonly JsonValue[]
-  | { readonly [key: string]: JsonValue | undefined };
+// The canonical-JSON input domain is null | boolean | number | string |
+// arrays | plain records of those; canonicalJson rejects (never coerces)
+// anything outside it at runtime.
 
 export async function sha256Hex(input: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));

@@ -13,7 +13,7 @@ const BREAKS: ReadonlySet<number> = new Set([0x0a, 0x0d, 0x85, 0x2028, 0x2029]);
 const isHighSurrogate = (c: number): boolean => c >= 0xd800 && c <= 0xdbff;
 const isLowSurrogate = (c: number): boolean => c >= 0xdc00 && c <= 0xdfff;
 
-export interface LineWindow {
+interface LineWindow {
   /** UTF-16 char offsets of the returned window, source-faithful. */
   readonly start: number;
   readonly end: number;
