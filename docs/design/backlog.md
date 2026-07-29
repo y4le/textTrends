@@ -34,6 +34,8 @@ on.
   mono-button style, TrendPanel trio, CatalogPanel abort cleanup, …). Owner
   declared simplification done; treat these as opportunistic in-path fixes
   only, when a slice touches the same file.
-- **2026-07-29 · checkpoint** — simplification-plan D3/G2/G3 are staged
-  "pending the first new QueryOp" — slice 3 (inventory/freq-list) triggers
-  them; fold into that slice's plan rather than rediscovering.
+- **2026-07-29 · checkpoint (CORRECTED by the slice-2 ruling)** — the first
+  new QueryOp is slice 2's `dispersion/1` (the barcode had no public
+  occurrence result), so F1 QueryExecutor extraction + the narrow G2 fixture
+  support land INSIDE slice 2 (plan: docs/design/linked-selection-plan.md,
+  commits A–B) before either new operation. D3/G3 remain assessed there.
