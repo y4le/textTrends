@@ -1392,3 +1392,84 @@ describe('query notebook — effective-intent gating (review-C)', () => {
     expect(f.issued.length).toBe(issued);
   });
 });
+
+/** Same UUID and member id, different MATCHING semantics (module-level twin
+ *  of the identity-discipline helper, for the dispersion lane suite). */
+const semanticEditTop = (g: { id: string; name: string; members: readonly { id: string }[]; countOverlaps: boolean }) => ({
+  ...g,
+  members: [{ id: g.members[0]!.id, kind: 'prefix' as const, stem: 'holm', match: { case: 'folded' as const, diacritics: 'folded' as const } }],
+});
+
+describe('dispersion barcode lane (slice-2 commit D)', () => {
+  it('rides the trend burst: pending with the series, ready on result, cleared when the comparison empties', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    expect(f.store.getState().dispersion!.state.status).toBe('pending');
+    const q = f.issued.filter((x) => x.op === 'dispersion' && !x.cancelled).at(-1)!;
+    const wire = q.query as { tracks: { seriesId: string }[]; request: { method: string } };
+    expect(wire.request.method).toBe('dispersion/1');
+    expect(wire.tracks.map((t) => t.seriesId)).toEqual(f.store.getState().series.map((s) => s.id));
+    q.resolve({ op: 'dispersion', dispersion: { method: 'dispersion/1', geometry: null, tracks: [] } });
+    await flush();
+    expect(f.store.getState().dispersion!.state.status).toBe('ready');
+    f.store.getState().removeGroup(f.store.getState().series[0]!.id);
+    expect(f.store.getState().dispersion).toBeNull(); // no comparison → no strip
+  });
+
+  it('a SEMANTIC-ONLY stale dispersion settlement cannot commit (identity guard, no epoch advance)', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    const g = f.store.getState().notebook.groups[0]!;
+    const q = f.issued.filter((x) => x.op === 'dispersion' && !x.cancelled).at(-1)!;
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEditTop(g)] } });
+    expect(q.cancelled).toBe(false); // the lease is genuinely alive
+    q.resolve({ op: 'dispersion', dispersion: { method: 'dispersion/1', geometry: null, tracks: [] } });
+    await flush();
+    expect(f.store.getState().dispersion!.state.status).toBe('pending'); // never adopted
+  });
+
+  it('activating a DISABLED track re-enables its concordance chip so the clicked occurrence can appear (review-D HIGH)', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const sid = f.store.getState().series[0]!.id;
+    f.store.getState().toggleKwicSeries(sid); // chip OFF → no-terms state
+    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    f.store.getState().centerKwicAt(sid, 'a', 3);
+    expect(f.store.getState().kwicEnabledSeries.has(sid)).toBe(true); // visibly re-enabled
+    const q = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(q.tracks.map((t) => t.seriesId)).toContain(sid); // the track IS in the request
+  });
+
+  it('a bucket-origin center is carried into the kwic state for honest captioning', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const sid = f.store.getState().series[0]!.id;
+    f.store.getState().centerKwicAt(sid, 'a', 42, { kind: 'bucket', count: 17 });
+    expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 42, origin: 'bucket', bucketCount: 17 });
+    f.store.getState().centerKwicAt(sid, 'a', 7); // occurrence: no origin marker
+    expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 7 });
+  });
+
+  it('centerKwicAt recenters the concordance IMMEDIATELY — no debounce, ready-doc gated', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      const sid = f.store.getState().series[0]!.id;
+      const count = f.kwics().length;
+      f.store.getState().centerKwicAt(sid, 'a', 42);
+      expect(f.kwics().length).toBe(count + 1); // issued NOW, no timer
+      const centered = f.kwics().at(-1)!.query as { request: { center?: { doc: string; token: number } } };
+      expect(centered.request.center).toEqual({ doc: 'a', token: 42 });
+      f.store.getState().centerKwicAt(sid, 'zz', 1); // not a ready doc → refused
+      expect(f.kwics().length).toBe(count + 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});

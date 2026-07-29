@@ -1,0 +1,184 @@
+/**
+ * The dispersion barcode strip (slice-2 commit D): every occurrence as a
+ * tick (exact) or an honest labeled density cell, one canvas row per active
+ * track, sharing the trend chart's token→pixel mapping so the strip and the
+ * chart place an occurrence identically.
+ *
+ * Honesty + interaction rules (recorded ruling §1/§D):
+ * - NEVER one DOM node per occurrence — 2D canvas with an HTML overlay for
+ *   labels, accessible summaries, and keyboard navigation.
+ * - Exact tick click → the concordance centers at that occurrence's exact
+ *   (doc, start) IMMEDIATELY (no debounce). Density cell click → the bucket
+ *   midpoint, and the UI says "nearest occurrence to this bucket".
+ * - Density mode is visibly labeled; a cell never renders as one occurrence.
+ * - Resize/redraw consume the RESIDENT result only — never a worker query.
+ * - Keyboard: per-track Previous/Next occurrence buttons (exact mode) walk
+ *   the ticks and center the concordance; density mode exposes bucket
+ *   totals through the same accessible summary.
+ */
+
+import { useEffect, useMemo, useRef } from 'react';
+import { useApp } from '../lib/store-instance.ts';
+import { barcodeTracks, orderTracks, resolveBarcodeActivation, stepTarget, trackSummaryText, type BarcodeActivation, type BarcodeTrackVM } from '../lib/barcode-view.ts';
+import { slotColor } from '../lib/series-style.ts';
+
+const TRACK_H = 7;
+const TRACK_GAP = 2;
+
+/** Token-START edge → x pixel for one doc row of the mounted layout. */
+export type EdgeX = (docOrdinal: number, token: number) => number;
+
+export function BarcodeStrip({
+  docs,
+  edgeX,
+  xToDocToken,
+  width,
+  slotOf,
+  labelOf,
+  focusedSeries,
+  axisLabel,
+  seriesOrder,
+}: {
+  /** Selection order the dispersion result was computed under. */
+  docs: readonly string[];
+  edgeX: EdgeX;
+  /** Pixel → (doc ordinal, document-local token) inversion for THIS layout —
+   *  the component never re-derives evidence from pixels (review-D). */
+  xToDocToken: (px: number) => { d: number; token: number } | null;
+  width: number;
+  slotOf: (seriesId: string) => number;
+  labelOf: (seriesId: string) => string;
+  /** Chart focus: non-focused tracks dim (§D focus styling). */
+  focusedSeries: string | null;
+  /** Names the strip's own axis (by-book rows use a different one). */
+  axisLabel: string;
+  /** CURRENT series order — a query-free reorder must move these rows. */
+  seriesOrder: readonly string[];
+}) {
+  const dispersion = useApp((s) => s.dispersion);
+  const centerKwicAt = useApp((s) => s.centerKwicAt);
+  const kwicCenter = useApp((s) => s.kwic?.center ?? null);
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
+
+  const tracks: readonly BarcodeTrackVM[] = useMemo(() => {
+    if (!dispersion || dispersion.state.status !== 'ready') return [];
+    // Resident result, CURRENT presentation order (review-D round 2).
+    return orderTracks(barcodeTracks(dispersion.state.result, docs), seriesOrder);
+  }, [dispersion, docs, seriesOrder]);
+
+  const height = tracks.length === 0 ? 0 : tracks.length * (TRACK_H + TRACK_GAP);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas || tracks.length === 0 || width <= 0) return;
+    const dpr = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * dpr);
+    canvas.height = Math.round(height * dpr);
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, width, height);
+    const docOrdinal = new Map(docs.map((d, i) => [d, i]));
+    // Document boundaries: the strip has its OWN axis (concatenated reading
+    // order) — separators keep it from reading as the row above (review-D).
+    ctx.fillStyle = 'rgba(128, 128, 128, 0.5)';
+    for (let d = 1; d < docs.length; d++) {
+      ctx.fillRect(Math.round(edgeX(d, 0)), 0, 1, height);
+    }
+    tracks.forEach((track, row) => {
+      const y = row * (TRACK_H + TRACK_GAP);
+      ctx.fillStyle = colorOf(slotOf(track.seriesId));
+      // §D focus styling: the focused track paints fully; others dim.
+      const focusDim = focusedSeries !== null && track.seriesId !== focusedSeries ? 0.45 : 1;
+      for (const seg of track.segments) {
+        const d = docOrdinal.get(seg.doc);
+        if (d === undefined) continue;
+        const x0 = edgeX(d, seg.t0);
+        const x1 = edgeX(d, seg.t1);
+        ctx.globalAlpha = (seg.kind === 'tick' ? 1 : 0.15 + 0.85 * seg.intensity) * focusDim;
+        ctx.fillRect(x0, y, Math.max(1, x1 - x0), TRACK_H);
+      }
+      ctx.globalAlpha = 1;
+    });
+  }, [tracks, docs, edgeX, width, height, slotOf]);
+
+  if (tracks.length === 0) return null;
+
+  /** Canvas click → invert to (doc, token) → the ONE authoritative
+   *  activation resolver (overlap tie rules live in barcode-view, tested). */
+  const onClick = (e: React.MouseEvent<HTMLCanvasElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const px = e.clientX - rect.left;
+    const row = Math.min(tracks.length - 1, Math.floor((e.clientY - rect.top) / (TRACK_H + TRACK_GAP)));
+    const track = tracks[row];
+    const at = xToDocToken(px);
+    if (!track || !at) return;
+    const doc = docs[at.d];
+    if (doc === undefined) return;
+    activate(track, resolveBarcodeActivation(track, doc, at.token));
+  };
+
+  const activate = (track: BarcodeTrackVM, target: BarcodeActivation | null) => {
+    if (!target) return;
+    centerKwicAt(
+      track.seriesId, target.doc, target.token,
+      target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
+    );
+  };
+
+  /** Keyboard navigation for BOTH representations: exact tracks step
+   *  occurrences, density tracks step nonzero buckets (midpoints) — always
+   *  relative to the current concordance center. */
+  const step = (track: BarcodeTrackVM, dir: 1 | -1) => {
+    activate(track, stepTarget(track, docs, kwicCenter, dir));
+  };
+
+  return (
+    <div style={{ position: 'relative', width }}>
+      <canvas
+        ref={canvasRef}
+        style={{ width, height, display: 'block' }}
+        onClick={onClick}
+        aria-hidden="true"
+      />
+      <div style={{ display: 'flex', gap: 'var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+        <span>{axisLabel}</span>
+        {tracks.map((track) => (
+          <span key={track.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
+            <span aria-hidden="true" style={{ width: '1.5ch', height: 3, background: colorOf(slotOf(track.seriesId)), display: 'inline-block' }} />
+            {/* The accessible per-track summary: representation is NAMED —
+                density counts are bucket totals, never occurrences. */}
+            <span>{trackSummaryText(track, labelOf(track.seriesId))}</span>
+            {track.total > 0 && (
+              <>
+                <button
+                  type="button" style={navBtn}
+                  aria-label={`Previous ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'occurrence' : 'bucket'}`}
+                  onClick={() => step(track, -1)}
+                >‹</button>
+                <button
+                  type="button" style={navBtn}
+                  aria-label={`Next ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'occurrence' : 'bucket'}`}
+                  onClick={() => step(track, 1)}
+                >›</button>
+              </>
+            )}
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+const navBtn = {
+  font: 'inherit',
+  color: 'var(--fg)',
+  background: 'none',
+  border: '1px solid var(--rule)',
+  cursor: 'pointer',
+  padding: '0 0.5ch',
+} as const;
+
+function colorOf(slot: number): string {
+  return slotColor(slot);
+}

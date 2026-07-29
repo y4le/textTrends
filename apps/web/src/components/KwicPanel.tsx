@@ -8,6 +8,7 @@
  */
 
 import { useApp } from '../lib/store-instance.ts';
+import { kwicCaptionText } from '../lib/barcode-view.ts';
 import { kwicRowKey, type KwicRowView } from '../lib/store.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
@@ -116,10 +117,11 @@ export function KwicPanel() {
     </div>
   );
 
-  const caption =
-    kwic?.center != null
-      ? `nearest to ${titleOf(kwic.center.doc)} · token ${(kwic.center.token + 1).toLocaleString()}`
-      : 'reading order';
+  const caption = kwicCaptionText(
+    kwic?.center ?? null,
+    kwic?.state.status === 'ready' && kwic.state.rows.length > 0 ? kwic.state.rows[0]!.pos : null,
+    titleOf,
+  );
 
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode = null;

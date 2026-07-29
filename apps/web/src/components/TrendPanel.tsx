@@ -27,6 +27,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { BarcodeStrip } from './BarcodeStrip.tsx';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
   binSpan,
@@ -37,6 +38,7 @@ import {
   pointerTargetByBook,
   pointerTargetSeries,
   seriesXFromToken,
+  seriesTokenFromX,
   seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
@@ -240,6 +242,21 @@ export function TrendPanel() {
           />
         )}
       </ScrubSurface>
+      {/* The dispersion barcode: every occurrence (or an honest density
+          cell) on the SAME concatenated reading-order axis as the series
+          view — present in both layouts; in by-book mode it reads as the
+          corpus summary strip. Resident-data redraws only (ruling §D). */}
+      <BarcodeStrip
+        docs={docs}
+        edgeX={(d, t) => seriesXFromTokenEdge(d, t, plotW, layout)}
+        xToDocToken={(px) => seriesTokenFromX(px, plotW, layout)}
+        width={plotW}
+        slotOf={(id) => series.find((s) => s.id === id)?.styleSlot ?? 0}
+        labelOf={(id) => series.find((s) => s.id === id)?.label ?? id}
+        focusedSeries={focusedSeries}
+        axisLabel="occurrences · corpus reading order"
+        seriesOrder={series.map((s) => s.id)}
+      />
       <table
         style={{
           fontFamily: 'var(--font-mono)',

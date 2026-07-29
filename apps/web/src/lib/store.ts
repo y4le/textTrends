@@ -46,6 +46,8 @@
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
+  DISPERSION_BUCKET_BUDGET,
+  DISPERSION_EXACT_MAX,
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
   termGroupIdentity,
@@ -69,6 +71,7 @@ import { isCancelled } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
 import type {
+  DispersionResultV1,
   LineExcerptResultV1,
   QueryOpV4,
   QueryResultDataV4,
@@ -153,7 +156,10 @@ export type SeriesTrendState =
  *  served `center` (null = reading order). The center is carried so the panel's
  *  caption describes the result that actually landed, not the live cursor. */
 export interface KwicState {
-  readonly center: ScrubTarget | null;
+  /** The served center; `origin: 'bucket'` marks a density-bucket midpoint
+   *  target so the caption says "nearest occurrence to this bucket" and can
+   *  report the first row's distance (never implying an exact occurrence). */
+  readonly center: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
@@ -199,6 +205,15 @@ export interface LineExcerptState {
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly excerpt: LineExcerptResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+/** The dispersion barcode result for the CURRENT effective comparison —
+ *  issued with the trend burst, same guards (slice-2 commit D). */
+export interface DispersionState {
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: DispersionResultV1 }
     | { readonly status: 'error'; readonly message: string };
 }
 
@@ -294,6 +309,8 @@ export interface AppState {
    *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
    *  surviving series (by presentation id). */
   kwicEnabledSeries: ReadonlySet<string>;
+  /** The barcode's dispersion result (null = no comparison/corpus). */
+  dispersion: DispersionState | null;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
@@ -334,6 +351,12 @@ export interface AppState {
    *  query, immediately, against the latest axis position. */
   toggleKwicSeries(seriesId: string): void;
   setTrendView(view: TrendView): void;
+  /** Center the concordance on activated barcode evidence IMMEDIATELY (no
+   *  scrub debounce). Carries the activated series: a deliberate occurrence
+   *  click must yield a concordance CAPABLE of containing it, so a disabled
+   *  concordance chip for that series is visibly re-enabled first (review-D
+   *  HIGH). `origin: 'bucket'` labels a density-midpoint target. */
+  centerKwicAt(seriesId: string, doc: string, token: number, origin?: { readonly kind: 'bucket'; readonly count: number }): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
@@ -449,6 +472,8 @@ export function createAppRuntime(
   // Outline query intent — a separate lane from the term series so the preview
   // survives an empty term input and a focus change reissues only it.
   const structureLane = new QueryLane(scope);
+  // The barcode's dispersion intent — reissued with the trend burst.
+  const dispersionLane = new QueryLane(scope);
   // On-demand authoring intents (edit-context + line-excerpt), each its own
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
@@ -459,7 +484,7 @@ export function createAppRuntime(
   const scrubOps = new LatestOperation(scope);
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
-  let kwicCenter: ScrubTarget | null = null;
+  let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
   let kwicCenterTimer: ReturnType<typeof setTimeout> | null = null;
   // Scrub scheduling: ONE active passage request plus ONE replaceable pending
   // target — pointer motion never queues and never cancel-storms the worker.
@@ -816,6 +841,7 @@ export function createAppRuntime(
       kwic: null,
       // Every term appears in the concordance by default.
       kwicEnabledSeries: new Set<string>(),
+      dispersion: null,
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -1016,8 +1042,9 @@ export function createAppRuntime(
         // the last settled center (degrading to reading order if its doc departed).
         if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         set({ passage: null });
+        dispersionLane.supersede();
         if (!snapshot || series.length === 0) {
-          set({ trends: new Map(), scrub: null });
+          set({ trends: new Map(), scrub: null, dispersion: null });
           resetKwicCenter(); // the axis is gone — no stale center may resurrect
           runKwic(); // clears or re-targets the evidence panel consistently
           return;
@@ -1070,6 +1097,51 @@ export function createAppRuntime(
           );
         }
 
+        // The barcode rides the SAME burst/guards as the trends: one
+        // dispersion query for the whole effective comparison.
+        dispersionLane.supersede();
+        const dTracks = trackSpecs(series);
+        if (dTracks !== null) {
+          const dLease = dispersionLane.ops.begin(
+            () => snapKey(get().snapshot) === issuedKey,
+            () => identitiesCurrent(dTracks.identities),
+          );
+          set({ dispersion: { state: { status: 'pending' } } });
+          issueOn(
+            dispersionLane,
+            issuedSnapshot,
+            {
+              op: 'dispersion',
+              selection: { docs: [...snapshot.readyDocs] },
+              tracks: dTracks.wire,
+              request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET },
+            },
+            dLease,
+            (data) => {
+              if (data.op === 'dispersion') set({ dispersion: { state: { status: 'ready', result: data.dispersion } } });
+            },
+            (message) => set({ dispersion: { state: { status: 'error', message } } }),
+          );
+        }
+
+        runKwic();
+      },
+
+      centerKwicAt(seriesId, doc, token, origin) {
+        const state = get();
+        if (!state.snapshot?.readyDocs.includes(doc)) return;
+        // The activated track must be able to appear in the result: a
+        // disabled chip is re-enabled (visible state change, not a silent
+        // override) before the reissue (review-D HIGH).
+        if (state.series.some((s) => s.id === seriesId) && !state.kwicEnabledSeries.has(seriesId)) {
+          const next = new Set(state.kwicEnabledSeries);
+          next.add(seriesId);
+          set({ kwicEnabledSeries: next });
+        }
+        // IMMEDIATE evidence: cancel any pending debounce and adopt the
+        // position as the concordance center (like the chip toggle path).
+        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
+        kwicCenter = origin ? { doc, token, origin: 'bucket', bucketCount: origin.count } : { doc, token };
         runKwic();
       },
 
@@ -1258,6 +1330,7 @@ export function createAppRuntime(
       trendLane.supersede();
       kwicLane.supersede();
       structureLane.supersede();
+      dispersionLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
       passageActiveCancel?.();

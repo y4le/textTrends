@@ -116,6 +116,10 @@ export type QueryOpV4 =
   // can drift the contract.
   | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 };
 
+/** The dispersion result type re-exported for the app boundary (components
+ *  and lib modules import from HERE, never the wire module). */
+export type { DispersionResultV1 } from '@texttrends/core';
+
 /** dispersion/1 request: the policy carried explicitly and validated against
  *  the exported core constants (DISPERSION_EXACT_MAX / DISPERSION_BUCKET_BUDGET). */
 export interface DispersionRequestV1 {
