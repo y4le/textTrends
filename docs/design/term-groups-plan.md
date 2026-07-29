@@ -6,6 +6,18 @@ audit). Branch `feature/product-slices`. The governing Codex planner ruling
 recorded below VERBATIM. The five-commit sequence A–E is the implementation
 order; every commit gets a Codex review-diff.*
 
+**STATUS: COMPLETE (2026-07-29).** Commits A–E landed on
+`feature/product-slices`, each Codex review-diff → looks-good: A `b1b6bff`
+(shared admission, 4 rounds), B `972f59a` (notebook/store cutover, 3 rounds),
+C `de38654` (panel + append-only quick-add, 2 rounds), D `91e12f3` (member
+editor + injective evidence keys, 2 rounds), E `27bd162` (browser acceptance,
+3 rounds). Phase-end matrix: typecheck clean, core 383 + web 462 unit,
+Playwright 38/38 (functional + benchmark), bundle contract OK. Deferred per
+the ruling: durable notebook persistence (arrives with the share/persistence
+slice via `parseQueryNotebook`), quote-to-phrase tokenization, and the
+corpus-aware composer (needs a vocabulary QueryOp behind simplification-plan
+F1).
+
 ---
 
 Ruling: approve Slice 1 with blocking amendments. The overall product direction is right, but do not make `TermGroupSpec.id` serve simultaneously as user-interface identity, semantic/cache identity, and persistence identity; do not silently truncate an open-ended notebook to five tracks; and do not expose arbitrary affix/phrase authoring until the shared contract rejects empty and pathological inputs.

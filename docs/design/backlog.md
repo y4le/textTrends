@@ -13,6 +13,13 @@ on.
 
 ## Open items
 
+- **2026-07-29 · wire narrowing** — protocol-v4-schema.ts still uses
+  hole-skipping `Array.prototype.every` for NON-group arrays (selection docs,
+  ranges, kwic tracks, sort). Commit A's `denseBoundedArray` fixed the group
+  paths after review; sweep the remaining `.every` narrows onto the dense
+  helper in a small dedicated commit (each has downstream TypeError potential
+  from a sparse structured-cloned array).
+
 - **2026-07-29 · docs** — Add a short *current-roadmap* document. Today a
   reader must reconcile aspirational contracts (analysis-contract.md),
   executed plans with superseded banners, explicit deferrals, and code to
