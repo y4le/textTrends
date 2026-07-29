@@ -1,0 +1,257 @@
+/**
+ * The generation-bound query executor (slice-2 ruling §B — the F1 just-in-time
+ * extraction, landed BEFORE the first new QueryOp).
+ *
+ * OWNS: trend/kwic/passage execution, resolver REUSE (per-doc, per-match-mode,
+ * rebuilt when a commit replaces a shard), and the shared query-derived
+ * occurrence cache (the Phase-E discipline, verbatim).
+ *
+ * RECEIVES: a read-only published snapshot view (snapshot, ready documents,
+ * bound shards/texts) via `publish`, a narrow resolver loader, and — per
+ * call — an injected async checkpoint that yields and gates. It never sees
+ * job ids, cancellation state, emission, or generation lifecycle.
+ *
+ * The ENGINE retains job ownership, active/cancelled bookkeeping, generation/
+ * snapshot validation, error mapping, transfer-list emission, and a final
+ * gate immediately before every emit. Structure, edit-context, line-excerpt,
+ * ingest, and user-data stay engine/handler concerns — this is deliberately
+ * not a generic worker framework.
+ */
+
+import {
+  buildResolver,
+  checkedResolverFor,
+  kwicPage,
+  MAX_KWIC_TRACKS,
+  materializeKwicPage,
+  materializePassage,
+  modeKey,
+  occurrences,
+  planPassage,
+  trend,
+  type CorpusSnapshotV1,
+  type DocumentIndexV1,
+  type KwicRequest,
+  type KwicRow,
+  type MatchMode,
+  type NumericOccurrences,
+  type NumericTrend,
+  type PassageResult,
+  type ReadyDocument,
+  type Resolver,
+  type ResolvedSelection,
+  type TermGroupSpec,
+  type TrendRequest,
+  type BoundShards,
+  type BoundTexts,
+  type IndexRecipeProvisional,
+} from '@texttrends/core';
+import { DependencyError, termGroupIdentity } from '@texttrends/core';
+
+/** The occurrence-cache hard cap — one entry per possible concurrent track. */
+export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
+
+/** [SnapshotId, SelectionHash, termGroupIdentity] — the tuple that fully
+ *  determines one raw `NumericOccurrences` (see the cache contract below). */
+const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelection, group: TermGroupSpec): string =>
+  JSON.stringify([snapshot.id, selection.hash, termGroupIdentity(group)]);
+
+/** An async checkpoint injected per call: yields control, then gates on the
+ *  caller's cancellation/supersession state (throwing to unwind). */
+export type QueryCheckpoint = () => Promise<void>;
+
+/** The read-only published state a query executes against. */
+export interface PublishedView {
+  readonly snapshot: CorpusSnapshotV1;
+  readonly ready: ReadonlyMap<string, ReadyDocument>;
+  readonly bound: BoundShards;
+  readonly boundTexts: BoundTexts;
+}
+
+export interface PassageQuery {
+  readonly doc: string;
+  readonly centerToken: number;
+  readonly maxTokens: number;
+  readonly tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[];
+}
+
+export class QueryExecutor {
+  /** Per-doc, per-mode resolver reuse. A commit that replaces a document's
+   *  shard resets that document's map (`publish`); `resolverFor` additionally
+   *  verifies the cached resolver still points at the resident shard. */
+  private readonly resolvers = new Map<string, Map<string, Resolver>>();
+  /** Ephemeral occurrence cache SHARED by the trend and kwic branches
+   *  (Phase E, moved verbatim): keyed by [SnapshotId, SelectionHash,
+   *  termGroupIdentity] — the canonical MATCHING identity, never the
+   *  caller-owned group.id. Insertion order is LRU recency; every miss
+   *  prunes to MAX_OCCURRENCE_CACHE_ENTRIES synchronously (occurrences is
+   *  synchronous, so no interleaving job can race the miss/store/prune).
+   *  An evicted entry is recomputed on its next query; an in-flight request
+   *  already holds its own reference. Generation-scoped: this executor dies
+   *  with its generation. */
+  private readonly occurrenceCache = new Map<string, NumericOccurrences>();
+  private view: PublishedView | null = null;
+
+  constructor(
+    private readonly indexRecipe: IndexRecipeProvisional,
+    private readonly loadResolver: typeof buildResolver = buildResolver,
+  ) {}
+
+  /** Adopt a newly published snapshot view. Replaced documents drop their
+   *  resolver maps — a retained map would hold resolvers bound to a replaced
+   *  shard. The occurrence cache needs no reset: superseded snapshots key
+   *  distinctly and age out of the bounded LRU. */
+  publish(view: PublishedView, replacedDocs: Iterable<string>): void {
+    this.view = view;
+    for (const doc of replacedDocs) this.resolvers.set(doc, new Map());
+  }
+
+  /** The published view, asserted — the engine validates snapshot identity
+   *  BEFORE dispatching, so a missing view here is an invariant fault. */
+  private published(): PublishedView {
+    if (!this.view) throw new Error('query executed before any publication');
+    return this.view;
+  }
+
+  private async resolverFor(doc: string, mode: MatchMode): Promise<Resolver> {
+    const ready = this.published().ready.get(doc);
+    let byMode = this.resolvers.get(doc);
+    if (!byMode) {
+      byMode = new Map();
+      this.resolvers.set(doc, byMode);
+    }
+    if (!ready) throw new DependencyError('shard', doc);
+    const key = modeKey(mode);
+    let resolver = byMode.get(key);
+    if (!resolver || resolver.shard !== ready.shard) {
+      resolver = await this.loadResolver(ready.shard, this.indexRecipe, mode);
+      byMode.set(key, resolver);
+    }
+    return resolver;
+  }
+
+  /** Lookup/touch/compute/prune on the shared occurrence cache — the ONE
+   *  cache discipline for both query branches (contract on the field). */
+  private occurrencesFor(
+    shards: ReadonlyMap<string, DocumentIndexV1>,
+    resolvers: ReadonlyMap<string, ReadonlyMap<string, Resolver>>,
+    selection: ResolvedSelection,
+    group: TermGroupSpec,
+  ): NumericOccurrences {
+    const snapshot = this.published().snapshot;
+    const key = occurrenceCacheKey(snapshot, selection, group);
+    const hit = this.occurrenceCache.get(key);
+    if (hit) {
+      // Touch → most-recently-used (Map preserves insertion order as recency).
+      this.occurrenceCache.delete(key);
+      this.occurrenceCache.set(key, hit);
+      return hit;
+    }
+    const occ = occurrences(snapshot, shards, resolvers, selection, group);
+    this.occurrenceCache.set(key, occ);
+    while (this.occurrenceCache.size > MAX_OCCURRENCE_CACHE_ENTRIES) {
+      const oldest = this.occurrenceCache.keys().next().value as string | undefined;
+      if (oldest === undefined) break;
+      this.occurrenceCache.delete(oldest);
+    }
+    return occ;
+  }
+
+  /** The selected documents' resident shards (DependencyError on a gap). */
+  private shardsFor(selection: ResolvedSelection): Map<string, DocumentIndexV1> {
+    const ready = this.published().ready;
+    const shards = new Map<string, DocumentIndexV1>();
+    for (const id of selection.spec.docs) {
+      const r = ready.get(id);
+      if (!r) throw new DependencyError('shard', id);
+      shards.set(id, r.shard);
+    }
+    return shards;
+  }
+
+  async passage(q: PassageQuery, checkpoint: QueryCheckpoint): Promise<PassageResult> {
+    const { snapshot, boundTexts, ready: readyMap } = this.published();
+    const ready = readyMap.get(q.doc);
+    if (!ready) throw new DependencyError('shard', q.doc);
+    const ref = snapshot.docs.find((r) => r.doc === q.doc);
+    if (!ref) throw new RangeError(`'${q.doc}' is not a member of the snapshot`);
+    const byMode = new Map<string, Resolver>();
+    for (const track of q.tracks) {
+      for (const member of track.group.members) byMode.set(modeKey(member.match), await this.resolverFor(q.doc, member.match));
+    }
+    await checkpoint();
+    const resolverFor = checkedResolverFor(q.doc, ref.index, ready.shard, byMode);
+    const plan = planPassage(snapshot, q.doc, ready.shard, resolverFor, q.tracks.map((t) => t.group), q.centerToken, q.maxTokens);
+    await checkpoint();
+    return materializePassage(snapshot, plan, boundTexts, q.tracks);
+  }
+
+  async trend(
+    selection: ResolvedSelection,
+    group: TermGroupSpec,
+    request: TrendRequest,
+    checkpoint: QueryCheckpoint,
+  ): Promise<NumericTrend> {
+    const snapshot = this.published().snapshot;
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const member of group.members) byMode.set(modeKey(member.match), await this.resolverFor(id, member.match));
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+    const occ = this.occurrencesFor(shards, resolvers, selection, group);
+    await checkpoint();
+    const data = trend(snapshot, selection, occ, request);
+    // Final kernel checkpoint: a cancel queued during the trend kernel is
+    // observed HERE, before the caller's sync gate + emit (race parity with
+    // the pre-extraction engine).
+    await checkpoint();
+    return data;
+  }
+
+  /** kwic/2: UNION every track's required match modes per doc (never rebuild
+   *  a duplicate resolver), then compute occurrences PER track and merge in
+   *  the numeric kernel. Checkpoint after resolver prep, after EACH track
+   *  (a cancel raised while a track resolved must stop before the next track
+   *  computes — see the phase-tied cancel tests), after numeric planning,
+   *  and after materialization is the CALLER's final gate. */
+  async kwic(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    request: KwicRequest,
+    checkpoint: QueryCheckpoint,
+  ): Promise<{ total: number; rows: readonly KwicRow[] }> {
+    const { snapshot, bound, boundTexts } = this.published();
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+
+    // Re-centering reissues with the same snapshot/selection/tracks and only
+    // a new `center`; each track is served from the shared occurrence cache
+    // (also warmed by trend queries over the same tuple), so a re-center pays
+    // only for the top-K ordering + text slicing below.
+    const trackOccs: NumericOccurrences[] = [];
+    for (const track of tracks) {
+      trackOccs.push(this.occurrencesFor(shards, resolvers, selection, track.group));
+      await checkpoint();
+    }
+    const page = kwicPage(snapshot, bound, selection, trackOccs, request);
+    await checkpoint();
+    const trackTable = tracks.map((t) => ({ seriesId: t.seriesId, groupId: t.group.id }));
+    const rows = materializeKwicPage(snapshot, page, boundTexts, trackTable);
+    await checkpoint(); // final kernel checkpoint (race parity, as in trend)
+    return { total: page.total, rows };
+  }
+}

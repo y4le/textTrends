@@ -8,7 +8,6 @@
  * structure query, and the separate user-data lane.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_OCCURRENCE_CACHE_ENTRIES } from '../src/worker/engine-v4.ts';
 import { PROTOCOL_VERSION_V4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
 import type { UserDataStore } from '../src/worker/user-data-store.ts';
 import { begin, buf, coldIngest, FOLD, harness, utf8, wolfGroup, type Harness } from './support/engine-harness.ts';
@@ -26,8 +25,6 @@ import {
   hashSourceBytes,
   hashStructureOverride,
   hashStructureRecipe,
-  occurrences,
-  termGroupIdentity,
   type StructureOverrideV1,
 } from '@texttrends/core';
 
@@ -1142,7 +1139,7 @@ describe('cache corruption repair (v4)', () => {
   });
 });
 
-describe('queries and excerpts (v4)', () => {
+describe('query dispatch and emission (engine-retained after the executor extraction)', () => {
   async function ready(text = 'the wolf ran far. a wolf slept.') {
     const h = harness();
     const spec = await docSpec('a', text);
@@ -1150,346 +1147,6 @@ describe('queries and excerpts (v4)', () => {
     await coldIngest(h, 'g', 'a', text, 10);
     return { h, snap: h.last('snapshot-published').snapshot };
   }
-
-  it('answers trend and KWIC against the published snapshot', async () => {
-    const { h, snap } = await ready();
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
-    const trend = h.last('result');
-    expect(trend.data.op).toBe('trend');
-    if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 1]);
-    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
-    const kwic = h.last('result');
-    expect(kwic.data.op).toBe('kwic');
-    if (kwic.data.op === 'kwic') {
-      expect(kwic.data.total).toBe(2);
-      expect(kwic.data.rows[0]!.nodeText).toBe('wolf');
-      expect(kwic.data.rows[0]!.seriesId).toBe('s'); // rows are track-tagged
-    }
-  });
-
-  it('kwic/2 merges two tracks and orders by proximity to an axis center', async () => {
-    const { h, snap } = await ready();
-    // The default corpus doc 'a' is 'the wolf runs and the wolf sleeps' (wolf@1, wolf@5).
-    // Two tracks over the same term produce two independently-tagged rows per hit;
-    // a center near the end orders the later hit first.
-    await h.send({ t: 'query', job: 22, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }], request: { contextTokens: 1, center: { doc: 'a', token: 5 }, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
-    const kwic = h.last('result');
-    expect(kwic.data.op).toBe('kwic');
-    if (kwic.data.op === 'kwic') {
-      expect(kwic.data.total).toBe(4); // 2 hits × 2 tracks
-      // Nearest to token 5 first (pos 5 before pos 1); both tracks tagged.
-      expect(kwic.data.rows.map((r) => [r.pos, r.seriesId])).toEqual([[5, 'A'], [5, 'B'], [1, 'A'], [1, 'B']]);
-    }
-  });
-
-  // The kwic/2 dispatch adds checkpoints the trend cancellation tests never
-  // reach. These tests tie the cancel to the actual PHASE (not a fragile yield
-  // ordinal) so deleting the per-track gate or moving the final gate before
-  // materialization makes them fail.
-  const twoTrackKwic = {
-    op: 'kwic' as const,
-    selection: { docs: ['a'] },
-    tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }],
-    request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-  };
-
-  it('the per-track gate stops BEFORE the next track computes (a cancel raised DURING track A)', async () => {
-    const { h, snap } = await ready();
-    h.clear();
-    // Track A resolves a UNIQUE surface absent from the corpus; track B passes
-    // the wire schema (narrowGroup does not check member-id uniqueness) but
-    // THROWS inside `occurrences`. The cancel is raised from inside track A's own
-    // `resolveToken` fold (String.toLocaleLowerCase on that unique surface — a
-    // call the resolver-prep vocab folding never makes). So the gate that must
-    // catch it is the one AFTER track A: move it before the loop (or delete it)
-    // and track B computes and throws instead of cancelling cleanly.
-    const MARKER = 'zzsentinelalpha';
-    const trackA = { seriesId: 'A', group: { id: 'gA', countOverlaps: false, members: [{ id: 'a', kind: 'token', surface: MARKER, match: { case: 'folded', diacritics: 'sensitive' } }] } };
-    const throwingB = { seriesId: 'B', group: { id: 'gThrow', countOverlaps: false, members: [
-      { id: 'p', kind: 'token', surface: 'x', match: { case: 'folded', diacritics: 'sensitive' } },
-      { id: 'p', kind: 'token', surface: 'y', match: { case: 'folded', diacritics: 'sensitive' } },
-    ] } };
-    const query = { op: 'kwic', selection: { docs: ['a'] }, tracks: [trackA, throwingB], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } };
-    const origLower = String.prototype.toLocaleLowerCase;
-    let firedDuringA = false;
-    String.prototype.toLocaleLowerCase = function (this: string, ...args: [(string | string[])?]) {
-      if (!firedDuringA && String(this) === MARKER) { firedDuringA = true; void h.send({ t: 'cancel', job: 52 }); }
-      return origLower.apply(this, args) as string;
-    } as typeof String.prototype.toLocaleLowerCase;
-    try {
-      await h.send({ t: 'query', job: 52, snapshot: snap, query });
-    } finally {
-      String.prototype.toLocaleLowerCase = origLower;
-    }
-    expect(firedDuringA).toBe(true); // track A's surface was resolved (A computed) before the cancel
-    expect(h.all('cancelled').some((m) => m.job === 52)).toBe(true);
-    expect(h.all('result').some((m) => m.job === 52)).toBe(false);
-    expect(h.all('error').some((m) => m.job === 52)).toBe(false); // track B never computed → never threw
-  });
-
-  it('the FINAL gate catches a cancel raised DURING materialization', async () => {
-    const { h, snap } = await ready(); // doc 'a' text contains 'the wolf ran far'
-    h.clear();
-    // Fire the cancel the first time the doc text is sliced — i.e. INSIDE
-    // materializeKwicPage, after numeric planning + its checkpoint. Only a gate
-    // AFTER materialization can catch it; a gate moved before it would already
-    // have passed and the result would emit.
-    const origSlice = String.prototype.slice;
-    let sliced = false;
-    String.prototype.slice = function (this: string, ...args: [number?, number?]) {
-      if (!sliced && this.includes('the wolf ran far')) { sliced = true; void h.send({ t: 'cancel', job: 51 }); }
-      return origSlice.apply(this, args) as string;
-    } as typeof String.prototype.slice;
-    try {
-      await h.send({ t: 'query', job: 51, snapshot: snap, query: twoTrackKwic });
-    } finally {
-      String.prototype.slice = origSlice;
-    }
-    expect(sliced).toBe(true); // materialization was actually reached (not vacuous)
-    expect(h.all('cancelled').some((m) => m.job === 51)).toBe(true);
-    expect(h.all('result').some((m) => m.job === 51)).toBe(false);
-  });
-
-  it('re-querying with a REUSED group.id but different members returns FRESH rows (cache keys on matching identity)', async () => {
-    // group.id is caller-owned provenance. A memo keyed on it would serve the
-    // first query's occurrences for the second — the exact stale-row bug.
-    const { h, snap } = await ready(); // 'the wolf ran far. a wolf slept.'
-    const occSpy = vi.mocked(occurrences);
-    occSpy.mockClear();
-    const kwic = (surface: string, job: number) => h.send({
-      t: 'query', job, snapshot: snap, query: {
-        op: 'kwic', selection: { docs: ['a'] },
-        // SAME group.id 'REUSED' both times; only the member surface changes.
-        tracks: [{ seriesId: 's', group: { id: 'REUSED', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface, match: FOLD }] } }],
-        request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } },
-      },
-    });
-    await kwic('wolf', 60);
-    const first = h.last('result');
-    expect(first.data.op === 'kwic' && first.data.rows.map((r) => r.nodeText)).toEqual(['wolf', 'wolf']);
-    await kwic('ran', 61);
-    const second = h.last('result');
-    expect(second.data.op === 'kwic' && second.data.rows.map((r) => r.nodeText)).toEqual(['ran']);
-    // Both queries were cache MISSES: the differing member surface changes the
-    // matching identity, so the reused id never aliases an occurrence entry.
-    expect(occSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('bounds the occurrence cache at MAX_OCCURRENCE_CACHE_ENTRIES under overlapping, interleaving trend AND kwic jobs', async () => {
-    const { h, snap } = await ready('the wolf ran far. a wolf slept. i saw the fox and the owl.');
-    const cache = () => (h.engine as unknown as { generation: { occurrenceCache: Map<string, unknown> } | null }).generation!.occurrenceCache;
-    const group = (surface: string, i: number) => ({ id: `g${i}`, countOverlaps: false, members: [{ id: 'm', kind: 'token' as const, surface, match: FOLD }] });
-    const kwicQuery = (surfaces: string[]) => ({
-      op: 'kwic' as const, selection: { docs: ['a'] },
-      tracks: surfaces.map((surface, i) => ({ seriesId: `s${i}`, group: group(surface, i) })),
-      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-    });
-    const trendQuery = (surface: string) => ({
-      op: 'trend' as const, selection: { docs: ['a'] }, group: group(surface, 9),
-      request: { coordinate: 'document-relative' as const, binsPerDoc: 2 },
-    });
-    // Two DISTINCT 4-track KWIC jobs plus two distinct trend jobs (10 unique
-    // identities > MAX_OCCURRENCE_CACHE_ENTRIES=5) — BOTH consumers write the
-    // shared cache. In manual yield mode each checkpoint parks; releasing them
-    // round-robin interleaves all four jobs so a prune outside occurrencesFor
-    // would let the map grow past the cap. Drive them to completion and assert
-    // the hard bound held throughout AND that every job's local results stayed
-    // correct despite its own entries being evicted mid-flight.
-    h.manual();
-    const pA = h.send({ t: 'query', job: 80, snapshot: snap, query: kwicQuery(['the', 'wolf', 'ran', 'far']) });
-    const pB = h.send({ t: 'query', job: 81, snapshot: snap, query: kwicQuery(['a', 'i', 'saw', 'fox']) });
-    const pC = h.send({ t: 'query', job: 82, snapshot: snap, query: trendQuery('owl') });
-    const pD = h.send({ t: 'query', job: 83, snapshot: snap, query: trendQuery('slept') });
-    const jobs = [80, 81, 82, 83];
-    let guard = 0;
-    while (guard++ < 400) {
-      expect(cache().size).toBeLessThanOrEqual(MAX_OCCURRENCE_CACHE_ENTRIES);
-      h.releaseYield();
-      // eslint-disable-next-line no-await-in-loop
-      await h.flush();
-      const done = h.all('result').filter((m) => jobs.includes(m.job)).length;
-      if (done >= 4) break;
-    }
-    await Promise.all([pA, pB, pC, pD]);
-    expect(cache().size).toBeLessThanOrEqual(MAX_OCCURRENCE_CACHE_ENTRIES);
-    // In-flight local results survived eviction: each job holds its own
-    // occurrence references, so evicted cache entries never corrupt output.
-    const result = (job: number) => h.all('result').find((m) => m.job === job)!;
-    const kwicA = result(80).data;
-    expect(kwicA.op === 'kwic' && kwicA.total).toBe(7); // the×3 + wolf×2 + ran + far
-    const kwicB = result(81).data;
-    expect(kwicB.op === 'kwic' && kwicB.total).toBe(4); // a + i + saw + fox
-    const trendC = result(82).data;
-    expect(trendC.op === 'trend' && Array.from(trendC.trend.count).reduce((s, n) => s + n, 0)).toBe(1); // owl
-    const trendD = result(83).data;
-    expect(trendD.op === 'trend' && Array.from(trendD.trend.count).reduce((s, n) => s + n, 0)).toBe(1); // slept
-  });
-
-  // Phase E: the trend and kwic branches share ONE generation-owned occurrence
-  // cache. The pass-through `occurrences` spy counts exactly how many times the
-  // engine pays for a full per-doc match.
-  describe('trend/kwic occurrence-cache sharing (Phase E)', () => {
-    const trendQ = { op: 'trend' as const, selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative' as const, binsPerDoc: 2 } };
-    const kwicQ = {
-      op: 'kwic' as const, selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }],
-      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-    };
-    const occSpy = () => vi.mocked(occurrences);
-    const cacheOf = (h: Harness) => (h.engine as unknown as { generation: { occurrenceCache: Map<string, unknown> } | null }).generation!.occurrenceCache;
-
-    it('the identical (snapshot, selection, identity) tuple computes occurrences EXACTLY once — trend-then-kwic AND kwic-then-trend', async () => {
-      // trend first: kwic consumes the entry trend wrote.
-      const a = await ready();
-      occSpy().mockClear();
-      await a.h.send({ t: 'query', job: 70, snapshot: a.snap, query: trendQ });
-      await a.h.send({ t: 'query', job: 71, snapshot: a.snap, query: kwicQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1);
-      // kwic first: trend consumes the entry kwic wrote.
-      const b = await ready();
-      occSpy().mockClear();
-      await b.h.send({ t: 'query', job: 72, snapshot: b.snap, query: kwicQ });
-      await b.h.send({ t: 'query', job: 73, snapshot: b.snap, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1);
-      expect([...a.h.all('error'), ...b.h.all('error')]).toEqual([]);
-    });
-
-    it('cache hits are result-equivalent for BOTH consumers (trend rows and kwic pages equal a no-cache reference)', async () => {
-      // Harness A computes trend fresh (its kwic is the hit); harness B
-      // computes kwic fresh (its trend is the hit). Cross-comparing proves a
-      // hit-served result equals a freshly computed one for each consumer.
-      const a = await ready();
-      await a.h.send({ t: 'query', job: 70, snapshot: a.snap, query: trendQ });
-      await a.h.send({ t: 'query', job: 71, snapshot: a.snap, query: kwicQ });
-      const b = await ready();
-      await b.h.send({ t: 'query', job: 72, snapshot: b.snap, query: kwicQ });
-      await b.h.send({ t: 'query', job: 73, snapshot: b.snap, query: trendQ });
-      const dataOf = (h: Harness, job: number) => h.all('result').find((m) => m.job === job)!.data;
-      const tFresh = dataOf(a.h, 70);
-      const tHit = dataOf(b.h, 73);
-      expect(tFresh.op).toBe('trend');
-      expect(tHit.op).toBe('trend');
-      if (tFresh.op === 'trend' && tHit.op === 'trend') {
-        expect(Array.from(tHit.trend.docOrdinal)).toEqual(Array.from(tFresh.trend.docOrdinal));
-        expect(Array.from(tHit.trend.binIndex)).toEqual(Array.from(tFresh.trend.binIndex));
-        expect(Array.from(tHit.trend.binStartToken)).toEqual(Array.from(tFresh.trend.binStartToken));
-        expect(Array.from(tHit.trend.binTokens)).toEqual(Array.from(tFresh.trend.binTokens));
-        expect(Array.from(tHit.trend.count)).toEqual(Array.from(tFresh.trend.count));
-        expect(Array.from(tHit.trend.ratePer10k)).toEqual(Array.from(tFresh.trend.ratePer10k));
-      }
-      const kFresh = dataOf(b.h, 72);
-      const kHit = dataOf(a.h, 71);
-      expect(kFresh.op).toBe('kwic');
-      expect(kHit.op).toBe('kwic');
-      if (kFresh.op === 'kwic' && kHit.op === 'kwic') {
-        expect(kHit.total).toBe(kFresh.total);
-        expect(kHit.rows).toEqual(kFresh.rows);
-      }
-    });
-
-    it('a different snapshot, a different selection, and a different matching identity each MISS', async () => {
-      const h = harness();
-      const textA = 'the wolf ran far. a wolf slept.';
-      const textB = 'the wolf slept here.';
-      await begin(h, [await docSpec('a', textA), await docSpec('b', textB)]);
-      await coldIngest(h, 'g', 'a', textA, 10);
-      const snap1 = h.last('snapshot-published').snapshot;
-      occSpy().mockClear();
-      await h.send({ t: 'query', job: 70, snapshot: snap1, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1);
-      // A new publication in the SAME generation keeps the cache but keys a
-      // new snapshot id — the identical selection/group MISSES.
-      await coldIngest(h, 'g', 'b', textB, 11);
-      const snap2 = h.last('snapshot-published').snapshot;
-      expect(snap2).not.toBe(snap1);
-      await h.send({ t: 'query', job: 71, snapshot: snap2, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(2);
-      // Different selection (same snapshot, same group) → MISS.
-      await h.send({ t: 'query', job: 72, snapshot: snap2, query: { ...trendQ, selection: { docs: ['a', 'b'] } } });
-      expect(occSpy()).toHaveBeenCalledTimes(3);
-      // Different matching identity (same snapshot, same selection) → MISS.
-      const ranGroup = { id: 'g1', countOverlaps: false, members: [{ id: 'm1', kind: 'token' as const, surface: 'ran', match: FOLD }] };
-      await h.send({ t: 'query', job: 73, snapshot: snap2, query: { ...trendQ, group: ranGroup } });
-      expect(occSpy()).toHaveBeenCalledTimes(4);
-      // Control: the exact tuple from job 71 is still resident → HIT.
-      await h.send({ t: 'query', job: 74, snapshot: snap2, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(4);
-      expect(h.all('error')).toEqual([]);
-    });
-
-    it('NUL-bearing group data yields distinct, collision-free cache keys (canonical JSON escapes U+0000)', async () => {
-      // The joined key uses a literal NUL delimiter, which is sound ONLY
-      // because no component can contain one: pin that termGroupIdentity is
-      // NUL-free even for NUL-bearing surfaces (JSON.stringify escapes U+0000)
-      // and that two such groups never alias one entry.
-      const { h, snap } = await ready();
-      const nulGroup = (surface: string) => ({ id: 'nul', countOverlaps: false, members: [{ id: 'm', kind: 'token' as const, surface, match: FOLD }] });
-      const g1 = nulGroup('wolf\u0000');
-      const g2 = nulGroup('\u0000wolf');
-      expect(termGroupIdentity(g1)).not.toContain('\u0000');
-      expect(termGroupIdentity(g2)).not.toContain('\u0000');
-      expect(termGroupIdentity(g1)).not.toBe(termGroupIdentity(g2));
-      occSpy().mockClear();
-      await h.send({ t: 'query', job: 70, snapshot: snap, query: { ...trendQ, group: g1 } });
-      await h.send({ t: 'query', job: 71, snapshot: snap, query: { ...trendQ, group: g2 } });
-      expect(occSpy()).toHaveBeenCalledTimes(2); // distinct keys — no alias
-      expect(cacheOf(h).size).toBe(2);
-      // Re-querying the first NUL-bearing group HITS its own entry.
-      await h.send({ t: 'query', job: 72, snapshot: snap, query: { ...trendQ, group: g1 } });
-      expect(occSpy()).toHaveBeenCalledTimes(2);
-      expect(h.all('error')).toEqual([]);
-    });
-
-    it('a replacement generation starts with an EMPTY occurrence cache and recomputes', async () => {
-      const text = 'the wolf ran far. a wolf slept.';
-      const h = harness();
-      const spec = await docSpec('a', text);
-      await begin(h, [spec], 'g1');
-      await coldIngest(h, 'g1', 'a', text, 10);
-      const snap1 = h.last('snapshot-published').snapshot;
-      occSpy().mockClear();
-      await h.send({ t: 'query', job: 70, snapshot: snap1, query: trendQ });
-      await h.send({ t: 'query', job: 71, snapshot: snap1, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1); // warmed and hit within g1
-      await begin(h, [spec], 'g2'); // warm replacement — same content, fresh generation
-      expect(cacheOf(h).size).toBe(0); // the cache died with g1
-      const snap2 = h.last('snapshot-published').snapshot;
-      await h.send({ t: 'query', job: 72, snapshot: snap2, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(2); // recomputed even for an identical tuple
-      expect(h.all('error')).toEqual([]);
-    });
-  });
-
-  it('answers passage with marks, per-token extents, and a center span', async () => {
-    const { h, snap } = await ready();
-    await h.send({ t: 'query', job: 25, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] } } });
-    const r = h.last('result');
-    expect(r.data.op).toBe('passage');
-    if (r.data.op === 'passage') {
-      const p = r.data.passage;
-      expect(p.text).toBe('the wolf ran far. a wolf slept');
-      expect(p.marks.length).toBe(2);
-      expect(p.marks.every((m) => m.seriesId === 's1')).toBe(true);
-      expect(p.marks.map((m) => p.text.slice(m.charsUtf16.start, m.charsUtf16.end))).toEqual(['wolf', 'wolf']);
-    }
-  });
-
-  it('rejects an out-of-range passage center as REQUEST_INVALID, and duplicate track ids at the wire', async () => {
-    const { h, snap } = await ready('only four tokens here');
-    await h.send({ t: 'query', job: 26, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 40, maxTokens: 10, tracks: [] } } });
-    expect(h.last('error').code).toBe('REQUEST_INVALID'); // kernel range check
-    await h.send({ t: 'query', job: 27, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 'dup', group: wolfGroup }, { seriesId: 'dup', group: { ...wolfGroup, id: 'g9' } }] } } });
-    expect(h.last('error').code).toBe('PARSE_FAILED'); // duplicate seriesId rejected by the narrower
-  });
-
-  it('a passage track with a kernel-invalid group (duplicate member ids) is REQUEST_INVALID, matching the trend path', async () => {
-    const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'query', job: 28, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'token', surface: 'x', match: FOLD }, { id: 'p', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false } }] } } });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    // The empty phrase that previously exercised this path is now refused at
-    // the wire (TERM_GROUP_LIMITS_V1).
-    await h.send({ t: 'query', job: 29, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false } }] } } });
-    expect(h.last('error').code).toBe('PARSE_FAILED');
-  });
 
   it('rejects queries against a superseded snapshot (SNAPSHOT_UNKNOWN) and invalid selections (SELECTION_INVALID)', async () => {
     const h = harness();
@@ -1505,11 +1162,10 @@ describe('queries and excerpts (v4)', () => {
     await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
     expect(h.last('error').code).toBe('SELECTION_INVALID');
   });
-
   it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {
     const { h, snap } = await ready();
     await h.send({ t: 'query', job: 50, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
-    const idx = h.messages.findIndex((m) => m.t === 'result');
+    const idx = h.messages.findIndex((m: { t: string }) => m.t === 'result');
     const transfers = h.transferLists[idx];
     expect(transfers).toBeDefined();
     const result = h.messages[idx]!;
@@ -1531,39 +1187,6 @@ describe('queries and excerpts (v4)', () => {
     await h.send({ t: 'query', job: 51, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
     const results = h.all('result');
     expect(results.length).toBe(2);
-  });
-
-  it('re-ingesting a document replaces its resolver cache atomically', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'wolf');
-    await begin(h, [spec]);
-    await coldIngest(h, 'g', 'a', 'wolf', 10);
-    const snap1 = h.last('snapshot-published').snapshot;
-    await h.send({ t: 'query', job: 70, snapshot: snap1, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
-    expect(h.last('result').data.op).toBe('trend');
-    // Replace the document under the SAME generation (a fresh spec with no
-    // asserted identity so different bytes are accepted).
-    const fresh = await freshTxtSpec('a', 4);
-    await h.send({ t: 'begin-generation', job: 71, generation: 'g2', docs: [fresh], indexRecipe: DEFAULT_INDEX_RECIPE });
-    await coldIngest(h, 'g2', 'a', 'bear', 72);
-    const snap2 = h.last('snapshot-published').snapshot;
-    expect(snap2).not.toBe(snap1);
-    const bearGroup = { id: 'g2', members: [{ id: 'm', kind: 'token' as const, surface: 'bear', match: FOLD }], countOverlaps: false };
-    await h.send({ t: 'query', job: 73, snapshot: snap2, query: { op: 'trend', selection: { docs: ['a'] }, group: bearGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
-    const r = h.last('result');
-    expect(r.data.op).toBe('trend');
-    if (r.data.op === 'trend') expect(Array.from(r.data.trend.count)).toEqual([1]);
-    expect(h.all('error').some((e) => /different shard/.test(e.message))).toBe(false);
-  });
-
-  it('a late cancel for a finished job is dropped; job bookkeeping does not accrete', async () => {
-    const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'query', job: 40, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
-    expect(h.last('result').data.op).toBe('trend');
-    await h.send({ t: 'cancel', job: 40 }); // job already finished
-    const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
-    expect(internals.activeJobs.size).toBe(0);
-    expect(internals.cancelledJobs.size).toBe(0);
   });
 });
 

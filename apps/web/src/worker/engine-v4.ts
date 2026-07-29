@@ -1,3 +1,4 @@
+import { QueryExecutor } from './query-executor.ts';
 /**
  * WorkerEngineV4 — the ingest/structure worker lifecycle (contract §12.8;
  * "Commit 6 design of record" and the "6b/6c boundary ruling" in
@@ -38,8 +39,6 @@ import {
   bindTextsVerified,
   createBindingSession,
   buildDetectedSections,
-  buildResolver,
-  checkedResolverFor,
   composeSnapshot,
   composeStructure,
   createDocumentIndexVerified,
@@ -52,21 +51,11 @@ import {
   hashSegmenterFingerprint,
   hashStructureOverride,
   hashStructureRecipe,
-  kwicPage,
   makeReadyDocument,
-  materializeKwicPage,
-  materializePassage,
-  MAX_KWIC_TRACKS,
-  modeKey,
-  occurrences,
-  termGroupIdentity,
-  type NumericOccurrences,
-  planPassage,
   projectSections,
   resolveSelection,
   segmentVerified,
   tokenEndChar,
-  trend,
   validateExtractionArtifactVerified,
   validateExtractionRecipe,
   validateShardStructure,
@@ -84,12 +73,7 @@ import {
   type ExtractionArtifactV1,
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
-  type MatchMode,
   type ReadyDocument,
-  type ResolvedSelection,
-  type Resolver,
-  type ResolverTable,
-  type TermGroupSpec,
   StructureCapError,
   StructureError,
   type SourceDescriptorV1,
@@ -204,25 +188,16 @@ interface GenerationStateV4 {
    *  for one document. Opaque and WeakMap-authenticated inside core's
    *  binding module; dropped with the generation. */
   readonly binding: BindingSession;
-  readonly resolvers: Map<string, Map<string, Resolver>>;
+  /** The generation-bound query executor (slice-2 ruling §B): owns trend/
+   *  kwic/passage execution, resolver reuse, and the shared occurrence cache.
+   *  Fed a fresh read-only view at every publication; dies with the
+   *  generation. The engine keeps job/cancel/emission authority. */
+  readonly executor: QueryExecutor;
   /** Doc-independent section→token projections, keyed [StructureHash, IndexArtifactHash]. */
   readonly tokenViews: Map<string, readonly TokenRange[]>;
   /** Bounded ephemeral DETECTED-table cache for the edit-context query, keyed
    *  [TextHash, CandidateHash, StructureRecipeHash] — never persisted (ruling §2). */
   readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
-  /** Ephemeral occurrence cache SHARED by the trend and kwic query branches
-   *  (Phase E): a fixed [SnapshotId, SelectionHash, termGroupIdentity] tuple
-   *  fully determines one raw `NumericOccurrences`, which trend consumes
-   *  directly and kwic consumes as per-track arrays — so exactly that raw
-   *  value is cached and every projection (bins/coordinate/center/sort/
-   *  context/page) stays consumer-side. Keyed by the group's canonical
-   *  MATCHING identity, NOT its caller-owned `group.id` (which can collide
-   *  across groups that resolve differently). Insertion order is the LRU
-   *  recency order: a hit from EITHER consumer refreshes recency and every
-   *  miss caps the map at MAX_OCCURRENCE_CACHE_ENTRIES so concurrent/
-   *  interleaving jobs cannot grow it. Dropped with the generation;
-   *  superseded snapshots key distinctly and never collide. */
-  readonly occurrenceCache: Map<string, NumericOccurrences>;
   /** Per-generation SectionId binding cache (Phase D ruling, workstream D4).
    *  Section ids depend only on (doc, lineageKey) and are DELIBERATELY stable
    *  across snapshots within a generation, so both structure query paths share
@@ -306,23 +281,7 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 /** The composite key for a doc-independent section→token projection. */
 const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
 
-/** Hard LRU cap on the shared occurrence cache (Phase E). DELIBERATELY the
- *  same value as MAX_KWIC_TRACKS — NOT doubled for the second consumer: trend
- *  and kwic queries over the same view touch the same ≤MAX_KWIC_TRACKS
- *  (snapshot, selection, identity) tuples (the trend group IS one of the kwic
- *  tracks), so sharing adds reuse, not working-set size. Exported for the
- *  engine test suite's bound assertions. */
-export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
 
-/** The shared occurrence-cache key for both query branches. The three
- *  components are joined with a literal NUL, which is collision-free BY
- *  CONSTRUCTION (unlike D4's section ids, whose contracts do not forbid NUL
- *  and which therefore use nested maps): the snapshot id and the selection
- *  hash are internally computed SHA-256 hex, and `termGroupIdentity` is
- *  canonical JSON, where JSON.stringify escapes U+0000 as a backslash-u
- *  sequence — so no component can ever contain the delimiter. */
-const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelection, group: TermGroupSpec): string =>
-  [snapshot.id, selection.hash, termGroupIdentity(group)].join('\u0000');
 
 /** Hard ceiling on a line-excerpt window so a caller cannot request an
  *  unbounded slice of a pathological physical line (§4). */
@@ -452,10 +411,9 @@ export class WorkerEngineV4 {
       bound: null,
       boundTexts: null,
       binding: createBindingSession(),
-      resolvers: new Map(),
+      executor: new QueryExecutor(indexRecipe),
       tokenViews: new Map(),
       detectedTables: new Map(),
-      occurrenceCache: new Map(),
       sectionIds: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
@@ -1298,9 +1256,13 @@ export class WorkerEngineV4 {
         gen.bound = bound;
         gen.boundTexts = boundTexts;
         gen.publicationEpoch += 1;
-        // Replace committed docs' resolver maps — a retained map holds
-        // resolvers bound to a replaced shard.
-        for (const item of included) gen.resolvers.set(item.prepared.doc, new Map());
+        // Hand the executor the fresh read-only view; committed documents
+        // drop their resolver maps (a retained map holds resolvers bound to
+        // a replaced shard).
+        gen.executor.publish(
+          { snapshot, ready: nextReady, bound, boundTexts },
+          included.map((i) => i.prepared.doc),
+        );
         this.emit({
           v: PROTOCOL_VERSION_V4,
           t: 'snapshot-published',
@@ -1344,19 +1306,6 @@ export class WorkerEngineV4 {
   // 6. Queries / resolver caches
   // -------------------------------------------------------------------------
 
-  private async resolverFor(gen: GenerationStateV4, doc: string, mode: MatchMode): Promise<Resolver> {
-    const byMode = gen.resolvers.get(doc);
-    const ready = gen.ready.get(doc);
-    if (!byMode || !ready) throw new DependencyError('shard', doc);
-    const key = modeKey(mode);
-    let resolver = byMode.get(key);
-    if (!resolver || resolver.shard !== ready.shard) {
-      resolver = await buildResolver(ready.shard, gen.indexRecipe, mode);
-      byMode.set(key, resolver);
-    }
-    return resolver;
-  }
-
   private async queryCheckpoint(job: number, gen: GenerationStateV4, snapshotId: string): Promise<void> {
     await this.yieldControl();
     this.queryGate(job, gen, snapshotId);
@@ -1373,43 +1322,6 @@ export class WorkerEngineV4 {
     }
   }
 
-  /** Lookup/touch/compute/prune on the generation's shared occurrence cache —
-   *  the ONE cache discipline for both the trend and kwic query branches
-   *  (Phase E). Synchronous ON PURPOSE: `occurrences` is synchronous, so there
-   *  is no await between the miss observation, the compute/store, and the
-   *  bound enforcement for an interleaving job to race. A hit from EITHER
-   *  consumer refreshes recency; every miss prunes to the hard cap before
-   *  returning (the worker runs handlers concurrently, so a prune anywhere
-   *  else would not survive the callers' checkpoints and the map could grow
-   *  with the active-job count). An evicted entry is simply recomputed on its
-   *  next query — an in-flight request already holds its own reference. */
-  private occurrencesFor(
-    gen: GenerationStateV4,
-    snapshot: CorpusSnapshotV1,
-    shards: ReadonlyMap<string, DocumentIndexV1>,
-    resolvers: ResolverTable,
-    selection: ResolvedSelection,
-    group: TermGroupSpec,
-  ): NumericOccurrences {
-    const cache = gen.occurrenceCache;
-    const key = occurrenceCacheKey(snapshot, selection, group);
-    const hit = cache.get(key);
-    if (hit) {
-      // Touch → most-recently-used (Map preserves insertion order as recency).
-      cache.delete(key);
-      cache.set(key, hit);
-      return hit;
-    }
-    const occ = occurrences(snapshot, shards, resolvers, selection, group);
-    cache.set(key, occ);
-    while (cache.size > MAX_OCCURRENCE_CACHE_ENTRIES) {
-      const oldest = cache.keys().next().value as string | undefined;
-      if (oldest === undefined) break;
-      cache.delete(oldest);
-    }
-    return occ;
-  }
-
   private async query(job: number, snapshotId: string, q: QueryOpV4): Promise<void> {
     const gen = this.generation;
     if (!gen?.snapshot || gen.snapshot.id !== snapshotId || !gen.bound || !gen.boundTexts) {
@@ -1417,8 +1329,6 @@ export class WorkerEngineV4 {
       return;
     }
     const snapshot = gen.snapshot;
-    const bound = gen.bound;
-    const boundTexts = gen.boundTexts;
 
     if (q.op === 'structure') {
       await this.queryStructure(job, gen, snapshot, q.request.doc);
@@ -1435,21 +1345,14 @@ export class WorkerEngineV4 {
       return;
     }
 
+    // The generation-bound executor runs the analysis ops (slice-2 ruling §B);
+    // this engine keeps job ownership, the injected checkpoint (yield + gate),
+    // and a FINAL gate immediately before every emit.
+    const checkpoint = () => this.queryCheckpoint(job, gen, snapshotId);
+
     if (q.op === 'passage') {
-      const { doc, centerToken, maxTokens, tracks } = q.request;
-      const ready = gen.ready.get(doc);
-      if (!ready) throw new DependencyError('shard', doc);
-      const ref = snapshot.docs.find((r) => r.doc === doc);
-      if (!ref) throw new RangeError(`'${doc}' is not a member of the snapshot`);
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) byMode.set(modeKey(member.match), await this.resolverFor(gen, doc, member.match));
-      }
-      await this.queryCheckpoint(job, gen, snapshotId);
-      const resolverFor = checkedResolverFor(doc, ref.index, ready.shard, byMode);
-      const plan = planPassage(snapshot, doc, ready.shard, resolverFor, tracks.map((t) => t.group), centerToken, maxTokens);
-      await this.queryCheckpoint(job, gen, snapshotId);
-      const passage = materializePassage(snapshot, plan, boundTexts, tracks);
+      const passage = await gen.executor.passage(q.request, checkpoint);
+      this.queryGate(job, gen, snapshotId);
       this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'passage', passage } });
       return;
     }
@@ -1463,65 +1366,16 @@ export class WorkerEngineV4 {
     }
     await this.queryCheckpoint(job, gen, snapshotId);
 
-    const shards = new Map<string, DocumentIndexV1>();
-    for (const id of selection.spec.docs) {
-      const ready = gen.ready.get(id);
-      if (!ready) throw new DependencyError('shard', id);
-      shards.set(id, ready.shard);
-    }
-
     if (q.op === 'trend') {
-      const resolvers = new Map<string, Map<string, Resolver>>();
-      for (const id of selection.spec.docs) {
-        const byMode = new Map<string, Resolver>();
-        for (const member of q.group.members) byMode.set(modeKey(member.match), await this.resolverFor(gen, id, member.match));
-        resolvers.set(id, byMode);
-      }
-      await this.queryCheckpoint(job, gen, snapshotId);
-      const occ = this.occurrencesFor(gen, snapshot, shards, resolvers, selection, q.group);
-      await this.queryCheckpoint(job, gen, snapshotId);
-      const data = trend(snapshot, selection, occ, q.request);
-      await this.queryCheckpoint(job, gen, snapshotId);
+      const data = await gen.executor.trend(selection, q.group, q.request, checkpoint);
+      this.queryGate(job, gen, snapshotId);
       this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'trend', trend: data } }, trendTransferList(data));
       return;
     }
 
-    // kwic/2: UNION every track's required match modes per doc (never rebuild a
-    // duplicate resolver), then compute occurrences PER track and merge in the
-    // numeric kernel. Checkpoint after resolver prep, after each track, after
-    // numeric planning, and after materialization.
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of q.tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(gen, id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await this.queryCheckpoint(job, gen, snapshotId);
-
-    // Re-centering the concordance re-issues this query with the same
-    // snapshot/selection/tracks and only a new `center`; the occurrence sets
-    // are identical, so each track is served from the shared occurrence cache
-    // (also warmed by trend queries over the same tuple — see occurrencesFor
-    // and the gen.occurrenceCache contract) and a re-center pays only for the
-    // top-K ordering + text slicing below.
-    const trackOccs: NumericOccurrences[] = [];
-    for (const track of q.tracks) {
-      trackOccs.push(this.occurrencesFor(gen, snapshot, shards, resolvers, selection, track.group));
-      // Per-track gate: a cancel raised while a track resolved must stop
-      // before the next track computes (see the phase-tied cancel tests).
-      await this.queryCheckpoint(job, gen, snapshotId);
-    }
-    const page = kwicPage(snapshot, bound, selection, trackOccs, q.request);
-    await this.queryCheckpoint(job, gen, snapshotId);
-    const trackTable = q.tracks.map((t) => ({ seriesId: t.seriesId, groupId: t.group.id }));
-    const rows = materializeKwicPage(snapshot, page, boundTexts, trackTable);
-    await this.queryCheckpoint(job, gen, snapshotId);
-    this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'kwic', total: page.total, rows } });
+    const { total, rows } = await gen.executor.kwic(selection, q.tracks, q.request, checkpoint);
+    this.queryGate(job, gen, snapshotId);
+    this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'kwic', total, rows } });
   }
 
   /**
