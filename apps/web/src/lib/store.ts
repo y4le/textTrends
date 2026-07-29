@@ -13,18 +13,22 @@
  * so components talk only to the store. Query/KWIC/passage stay here: they are
  * request/response operations, not competing listeners.
  *
- * Multi-series intent (owner feedback round 5, Codex-consulted design):
- * the input is a comma-separated comparison of up to MAX_SERIES terms. Each
- * becomes a SeriesIntent with a stable PRESENTATION id — the NFC-normalized
- * display label, deduped only against exact repeats. It is deliberately
- * locale-INDEPENDENT: whether two surfaces match identically is a per-document
- * property (folding is resolved under each shard's locale in the worker), so
- * the store must not guess a corpus locale to collapse them — a fixed `en`
- * fold wrongly unified `I`/`İ`, which resolve differently in Turkish. Matching
- * stays document-local; series identity is purely for labelling/colour/dedup.
- * Trend results key off SeriesIntent.id in an immutably-replaced map; a missing
- * entry is impossible to confuse with pending or failed because every issued
- * series is seeded 'pending'.
+ * Query-notebook intent (slice-1 ruling, docs/design/term-groups-plan.md):
+ * the authoritative query model is an ordered notebook of term GROUPS, each
+ * a stable UUID + display name + authored core members. The comparison is
+ * the ≤MAX_SERIES ACTIVE groups (solo temporarily narrows to one); `series`
+ * is the stored projection the panels consume. TWO identities, never
+ * conflated: the UUID is presentation/selection identity (focus, style,
+ * concordance membership, result keys); `termGroupIdentity` is matching
+ * identity (worker caches, stale-result admission). The comma input is the
+ * transitional quick-add surface; parseSeries stays deliberately
+ * locale-INDEPENDENT (NFC dedup only — whether two surfaces match identically
+ * is per-document, resolved under each shard's locale in the worker; a fixed
+ * `en` fold once wrongly unified `I`/`İ`). Trend results key off group id in
+ * an immutably-replaced map; a missing entry is impossible to confuse with
+ * pending or failed because every issued series is seeded 'pending', and a
+ * result commits only while BOTH its lease and its issued matching identity
+ * hold.
  *
  * Intent discipline (UI review round 1, extended): trend intent and KWIC
  * intent are SEPARATE latest-wins lanes (operation leases over one runtime
@@ -43,12 +47,22 @@ import {
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
   TERM_GROUP_LIMITS_V1,
+  termGroupIdentity,
   type DocumentMetaV1,
+  type GroupMember,
   type NumericTrend,
   type PassageResult,
   type StructureOverrideV1,
   type TermGroupSpec,
 } from '@texttrends/core';
+import {
+  coreGroupOf,
+  groupIdentity,
+  reconcileStyleSlots,
+  replaceWithQuickAdd,
+  validateNotebookGroup,
+  type QueryNotebookV1,
+} from './notebook.ts';
 import { isCancelled } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
@@ -94,8 +108,6 @@ export interface QueryClient {
 export const MAX_SERIES = MAX_KWIC_TRACKS;
 export const BINS = 40;
 
-const MATCH = { case: 'folded' as const, diacritics: 'folded' as const };
-
 /** (generation, snapshot) identity — a query result is written only if the live
  *  snapshot still matches this. Snapshot ids are unique per publication; the
  *  extra generation fence is cheap and matches the session contract. */
@@ -103,12 +115,15 @@ const snapKey = (s: SnapshotInfo | null): string | null =>
   s ? JSON.stringify([s.generation, s.snapshot]) : null;
 
 export interface SeriesIntent {
-  /** Stable PRESENTATION identity: the NFC-normalized label (no locale/case/
-   *  diacritic fold) — a display/colour/dedup key, NOT a semantic match key. */
+  /** Stable PRESENTATION identity. Since the notebook cutover this is the
+   *  owning notebook group's UUID — a display/colour/dedup key, NOT a
+   *  semantic match key (that is `termGroupIdentity`). `parseSeries` output
+   *  still carries the NFC label here (quick-add's pre-reconcile shape). */
   readonly id: string;
-  /** The first-seen user spelling, preserved for display. */
+  /** The group's display name (quick-add: the first-seen user spelling). */
   readonly label: string;
-  /** Fixed visual slot (color + dash) — stable for the life of the intent. */
+  /** Fixed visual slot (color + dash) — owned by the group, preserved
+   *  through rename/edit/reorder/mute, freed on removal. */
   readonly styleSlot: number;
 }
 
@@ -269,6 +284,27 @@ export interface AppState {
   commandError: string | null;
   /** Raw committed input (the draft lives in the form component). */
   input: string;
+  /** The query notebook (slice-1 ruling): the authoritative ordered group
+   *  list. Session-only in this slice — deliberately NOT persisted anywhere
+   *  (a hand-authored notebook is class-1 user data; durability arrives with
+   *  the versioned share/persistence slice, never an ad hoc stash). */
+  notebook: QueryNotebookV1;
+  /** Membership = the group participates in the comparison (trends, passage
+   *  marks, KWIC eligibility). Order is notebook order. Never silently
+   *  truncated: a sixth activation is refused with `notebookError`. */
+  activeGroupIds: ReadonlySet<string>;
+  /** Transient view projection: when set, the effective active set is JUST
+   *  this group; clearing restores the prior state exactly (nothing else is
+   *  mutated). Cleared when the group is removed or deactivated. */
+  soloGroupId: string | null;
+  /** Style-slot ownership (group id → slot). Preserved through rename,
+   *  member edits, reorder, and mute; freed on removal; unique among actives. */
+  styleSlots: ReadonlyMap<string, number>;
+  /** One bounded notebook-authoring refusal (sixth activation, invalid member
+   *  set, over-limit name). Cleared by the next successful notebook action. */
+  notebookError: string | null;
+  /** The EFFECTIVE active comparison, in notebook order (solo-projected) —
+   *  the stored projection every panel and query lane consumes. */
   series: readonly SeriesIntent[];
   inputError: string | null;
   focusedSeries: string | null;
@@ -300,6 +336,16 @@ export interface AppState {
 
   // ── Query/presentation intent (owned here). ──
   setInput(input: string): void;
+  // ── Notebook authoring (slice-1 commit B: model + actions; UI lands in the
+  //    panel commit). Rename/reorder are presentation-only (no reissue);
+  //    member/overlap edits and active-set changes reissue the evidence. ──
+  renameGroup(groupId: string, name: string): void;
+  setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): void;
+  removeGroup(groupId: string): void;
+  reorderGroups(order: readonly string[]): void;
+  setGroupActive(groupId: string, active: boolean): void;
+  setSolo(groupId: string | null): void;
+  clearNotebookError(): void;
   setFocus(seriesId: string): void;
   /** Toggle a term in/out of the merged concordance; reissues ONLY the KWIC
    *  query, immediately, against the latest axis position. */
@@ -406,7 +452,11 @@ class QueryLane {
   }
 }
 
-export function createAppRuntime(client: QueryClient): AppRuntime {
+export function createAppRuntime(
+  client: QueryClient,
+  opts?: { /** Injectable UUID factory (deterministic in tests). */ newId?: () => string },
+): AppRuntime {
+  const newId = opts?.newId ?? (() => crypto.randomUUID());
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
   // epochs + captured keys expressed.
@@ -465,18 +515,54 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         });
     };
 
-    /** Group/member ids derive from the series' STYLE SLOT — pure evidence
-     *  provenance (the worker keys occurrences on `termGroupIdentity`, not
-     *  this), bounded regardless of label length so a long-but-legal term can
-     *  never overflow the wire id bound (review-A finding). Slots are unique
-     *  within one issued series set, which is the only scope these ids serve.
-     *  The actual matched surface is `s.label` under the folded `MATCH` mode,
-     *  resolved per document-locale in the worker. */
-    const groupFor = (s: SeriesIntent): TermGroupSpec => ({
-      id: `g:${s.styleSlot}`,
-      members: [{ id: `m:${s.styleSlot}`, kind: 'token', surface: s.label, match: MATCH }],
-      countOverlaps: false,
-    });
+    /** The EXACT authored core spec for a series (its notebook group) — the
+     *  store passes authored members through verbatim; nothing is rebuilt.
+     *  Null when the group vanished between projection and issue (callers
+     *  treat that as a superseded intent). */
+    const specFor = (id: string): TermGroupSpec | null => {
+      const g = get().notebook.groups.find((x) => x.id === id);
+      return g ? coreGroupOf(g) : null;
+    };
+
+    /** Current MATCHING identity of a group, null if the group is gone. A
+     *  result may commit only while its issued identity is still current
+     *  (ruling invariant 4) — a member edit under the same UUID must reject
+     *  the old semantics' late result even if a reissue was somehow missed. */
+    const identityOf = (id: string): string | null => {
+      const g = get().notebook.groups.find((x) => x.id === id);
+      return g ? groupIdentity(g) : null;
+    };
+
+    /** The stored `series` projection: effective actives in notebook order
+     *  (solo narrows to one), carrying group-owned style slots. */
+    const projectSeries = (
+      nb: QueryNotebookV1,
+      active: ReadonlySet<string>,
+      solo: string | null,
+      slots: ReadonlyMap<string, number>,
+    ): SeriesIntent[] =>
+      nb.groups
+        .filter((g) => active.has(g.id) && (solo === null || g.id === solo))
+        .map((g) => ({ id: g.id, label: g.name, styleSlot: slots.get(g.id) ?? 0 }));
+
+    /** Wire tracks + captured issue-time identities for a series set; null if
+     *  any group vanished (the intent is already superseded). */
+    const trackSpecs = (
+      series: readonly SeriesIntent[],
+    ): { wire: { seriesId: string; group: TermGroupSpec }[]; identities: (readonly [string, string])[] } | null => {
+      const wire: { seriesId: string; group: TermGroupSpec }[] = [];
+      const identities: (readonly [string, string])[] = [];
+      for (const s of series) {
+        const spec = specFor(s.id);
+        if (spec === null) return null;
+        wire.push({ seriesId: s.id, group: spec });
+        identities.push([s.id, termGroupIdentity(spec)] as const);
+      }
+      return { wire, identities };
+    };
+
+    const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
+      pairs.every(([id, ident]) => identityOf(id) === ident);
 
     /** The doc's token extent, if any ready trend result carries it. */
     const docTokenCountOf = (doc: string): number | null => {
@@ -514,15 +600,20 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       passagePending = null;
       const { snapshot, series } = get();
       if (!snapshot || series.length === 0) return;
+      const tracks = trackSpecs(series);
+      if (tracks === null) return; // a group vanished mid-intent: superseded
       const issuedKey = snapKey(snapshot);
-      const lease = scrubOps.begin(() => snapKey(get().snapshot) === issuedKey);
+      const lease = scrubOps.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => identitiesCurrent(tracks.identities),
+      );
       const handle = client.query(snapshot.snapshot, {
         op: 'passage',
         request: {
           doc: target.doc,
           centerToken: target.token,
           maxTokens: PASSAGE_MAX_TOKENS,
-          tracks: series.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
+          tracks: tracks.wire,
         },
       });
       passageActiveCancel = handle.cancel;
@@ -577,8 +668,13 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         set({ kwic: { center, state: { status: 'no-terms' } } });
         return;
       }
+      const tracks = trackSpecs(enabled);
+      if (tracks === null) { set({ kwic: null }); return; }
       const issuedKey = snapKey(snapshot);
-      const lease = kwicLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
+      const lease = kwicLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => identitiesCurrent(tracks.identities),
+      );
       set({ kwic: { center, state: { status: 'pending' } } });
       issueOn(
         kwicLane,
@@ -586,7 +682,7 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         {
           op: 'kwic',
           selection: { docs: [...snapshot.readyDocs] },
-          tracks: enabled.map((s) => ({ seriesId: s.id, group: groupFor(s) })),
+          tracks: tracks.wire,
           request: {
             contextTokens: 6,
             ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
@@ -648,7 +744,61 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       }
     };
 
-    const initialSeries = parseSeries('Holmes, Moriarty').series ?? [];
+    /**
+     * Adopt a notebook mutation: recompute style slots, the series
+     * projection, and the dependent normalizations (focus in projection;
+     * concordance membership per surviving group, newly active groups
+     * enabled; solo only on an active group). ONE authority so every action
+     * leaves the same invariants (ruling invariant 7). Reissue policy is the
+     * CALLER's: rename/reorder are presentation-only.
+     */
+    const adoptNotebook = (
+      next: { notebook?: QueryNotebookV1; activeGroupIds?: ReadonlySet<string>; soloGroupId?: string | null },
+      opts: { reissue: boolean },
+    ): void => {
+      const prev = get();
+      const notebook = next.notebook ?? prev.notebook;
+      const known = new Set(notebook.groups.map((g) => g.id));
+      const active = new Set([...(next.activeGroupIds ?? prev.activeGroupIds)].filter((id) => known.has(id)));
+      let solo = next.soloGroupId === undefined ? prev.soloGroupId : next.soloGroupId;
+      if (solo !== null && !active.has(solo)) solo = null;
+      const activeInOrder = notebook.groups.filter((g) => active.has(g.id)).map((g) => g.id);
+      const styleSlots = reconcileStyleSlots(prev.styleSlots, activeInOrder, known, prev.activeGroupIds);
+      const series = projectSeries(notebook, active, solo, styleSlots);
+      // Concordance membership: preserved for every SURVIVING group (muting
+      // must not destroy the toggle — invariant 6); a newly created group
+      // joins enabled. Effective KWIC stays `series ∩ enabled` at issue
+      // time, always a subset of the actives.
+      const nextEnabled = new Set<string>();
+      for (const g of notebook.groups) {
+        const existedBefore = prev.notebook.groups.some((p) => p.id === g.id);
+        if (existedBefore ? prev.kwicEnabledSeries.has(g.id) : true) nextEnabled.add(g.id);
+      }
+      const stillFocused = series.some((s) => s.id === prev.focusedSeries);
+      set({
+        notebook,
+        activeGroupIds: active,
+        soloGroupId: solo,
+        styleSlots,
+        series,
+        notebookError: null,
+        kwicEnabledSeries: nextEnabled,
+        focusedSeries: stillFocused ? prev.focusedSeries : series[0]?.id ?? null,
+      });
+      if (opts.reissue) get().runQueries();
+    };
+
+    /** Refuse a notebook action with one bounded message (no state change). */
+    const refuseNotebook = (message: string): void => set({ notebookError: message });
+
+    const initialNotebook = replaceWithQuickAdd(
+      { schema: 'texttrends/query-notebook/1', groups: [] },
+      parseSeries('Holmes, Moriarty').series?.map((s) => s.label) ?? [],
+      newId,
+    );
+    const initialActive = new Set(initialNotebook.groups.map((g) => g.id));
+    const initialSlots = reconcileStyleSlots(new Map(), [...initialActive], initialActive, new Set());
+    const initialSeries = projectSeries(initialNotebook, initialActive, null, initialSlots);
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
@@ -657,6 +807,11 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
       loadError: null,
       commandError: null,
       input: 'Holmes, Moriarty',
+      notebook: initialNotebook,
+      activeGroupIds: initialActive,
+      soloGroupId: null,
+      styleSlots: initialSlots,
+      notebookError: null,
       series: initialSeries,
       inputError: null,
       // Canonical from the start: the store, not the panels, decides the
@@ -680,26 +835,117 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         const parsed = parseSeries(input);
         if (parsed.error !== null) {
           // Refused intent still supersedes the old one: cancel and clear so
-          // stale lines are never displayed beside the error.
-          set({ input, inputError: parsed.error, series: [], focusedSeries: null, kwicEnabledSeries: new Set() });
-        } else {
-          const { focusedSeries, series: oldSeries, kwicEnabledSeries: oldEnabled } = get();
-          const stillFocused = parsed.series.some((s) => s.id === focusedSeries);
-          // Preserve on/off for surviving ids; a newly introduced id is enabled.
-          const oldIds = new Set(oldSeries.map((s) => s.id));
-          const nextEnabled = new Set<string>();
-          for (const s of parsed.series) if (!oldIds.has(s.id) || oldEnabled.has(s.id)) nextEnabled.add(s.id);
+          // stale lines are never displayed beside the error. The notebook
+          // empties too (transitional replacement semantics — commit C makes
+          // the input append-only).
           set({
-            input,
-            inputError: null,
-            series: parsed.series,
-            // Surviving focus is preserved even if its position changed;
-            // otherwise the first series becomes the actual (not implied) focus.
-            focusedSeries: stillFocused ? focusedSeries : parsed.series[0]?.id ?? null,
-            kwicEnabledSeries: nextEnabled,
+            input, inputError: parsed.error,
+            notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
+            activeGroupIds: new Set(), soloGroupId: null, styleSlots: new Map(),
+            series: [], focusedSeries: null, kwicEnabledSeries: new Set(),
           });
+          get().runQueries();
+          return;
         }
-        get().runQueries();
+        // Replacement-mode reconcile: a group whose matching identity survives
+        // the edit keeps its UUID (and thus focus/style/concordance ownership);
+        // everything else is dropped, every listed group is active.
+        const notebook = replaceWithQuickAdd(get().notebook, parsed.series.map((s) => s.label), newId);
+        set({ input, inputError: null });
+        adoptNotebook(
+          { notebook, activeGroupIds: new Set(notebook.groups.map((g) => g.id)), soloGroupId: null },
+          { reissue: true },
+        );
+      },
+
+      // ── Notebook authoring actions (commit B: model only; UI lands with
+      //    the panel). Every action leaves invariants via adoptNotebook. ──
+      renameGroup(groupId, name) {
+        const nb = get().notebook;
+        const g = nb.groups.find((x) => x.id === groupId);
+        if (!g) return;
+        const renamed = { ...g, name };
+        try {
+          validateNotebookGroup(renamed);
+        } catch (e) {
+          refuseNotebook(msg(e));
+          return;
+        }
+        const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? renamed : x)) };
+        // Presentation-only: labels update, NO worker request (invariant 2).
+        adoptNotebook({ notebook }, { reissue: false });
+      },
+
+      setGroupMembers(groupId, members, countOverlaps) {
+        const nb = get().notebook;
+        const g = nb.groups.find((x) => x.id === groupId);
+        if (!g) return;
+        const edited = { ...g, members, countOverlaps };
+        try {
+          validateNotebookGroup(edited);
+        } catch (e) {
+          refuseNotebook(msg(e));
+          return;
+        }
+        const changed = groupIdentity(edited) !== groupIdentity(g);
+        const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? edited : x)) };
+        // A semantic edit preserves the UUID but invalidates and reissues the
+        // evidence (invariant 3); an identity-neutral edit reissues nothing.
+        adoptNotebook({ notebook }, { reissue: changed });
+      },
+
+      removeGroup(groupId) {
+        const nb = get().notebook;
+        if (!nb.groups.some((x) => x.id === groupId)) return;
+        const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.filter((x) => x.id !== groupId) };
+        const wasProjected = get().series.some((s) => s.id === groupId);
+        adoptNotebook({ notebook }, { reissue: wasProjected });
+      },
+
+      reorderGroups(order) {
+        const nb = get().notebook;
+        const byId = new Map(nb.groups.map((g) => [g.id, g]));
+        // A total permutation of the CURRENT groups, or the action is refused
+        // (a stale drag must not drop groups).
+        if (order.length !== nb.groups.length || new Set(order).size !== order.length ||
+          order.some((id) => !byId.has(id))) {
+          refuseNotebook('reorder must name every group exactly once');
+          return;
+        }
+        const notebook: QueryNotebookV1 = { ...nb, groups: order.map((id) => byId.get(id)!) };
+        // Presentation-only (invariant 2): order/labels move, slots and
+        // results stay; occurrence work is not reissued.
+        adoptNotebook({ notebook }, { reissue: false });
+      },
+
+      setGroupActive(groupId, active) {
+        const state = get();
+        if (!state.notebook.groups.some((x) => x.id === groupId)) return;
+        const has = state.activeGroupIds.has(groupId);
+        if (active === has) return;
+        if (active && state.activeGroupIds.size >= MAX_SERIES) {
+          // EXPLICIT refusal, never silent truncation (invariant 5).
+          refuseNotebook(`Compare up to ${MAX_SERIES} groups — deactivate one first`);
+          return;
+        }
+        const next = new Set(state.activeGroupIds);
+        if (active) next.add(groupId);
+        else next.delete(groupId);
+        adoptNotebook({ activeGroupIds: next }, { reissue: true });
+      },
+
+      setSolo(groupId) {
+        const state = get();
+        if (groupId !== null && !state.activeGroupIds.has(groupId)) {
+          refuseNotebook('solo is only available for an active group');
+          return;
+        }
+        if (state.soloGroupId === groupId) return;
+        adoptNotebook({ soloGroupId: groupId }, { reissue: true });
+      },
+
+      clearNotebookError() {
+        set({ notebookError: null });
       },
 
       setFocus(seriesId) {
@@ -799,6 +1045,9 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         const lease = trendLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
 
         for (const s of series) {
+          const spec = specFor(s.id);
+          if (spec === null) continue; // vanished mid-burst: superseded intent
+          const issuedIdentity = termGroupIdentity(spec);
           const write = (state: SeriesTrendState) =>
             set((prev) => {
               const next = new Map(prev.trends); // NEVER mutate the resident map
@@ -811,16 +1060,21 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
             {
               op: 'trend',
               selection: { docs: [...snapshot.readyDocs] },
-              group: groupFor(s),
+              group: spec,
               request: { coordinate: 'declared-sequence', binsPerDoc: BINS },
             },
             lease,
             (data) => {
-              if (data.op === 'trend') write({ status: 'ready', trend: data.trend });
+              // Commit only under the ISSUED matching semantics (invariant 4):
+              // a member edit under the same UUID kills the old result even if
+              // a reissue were somehow missed.
+              if (data.op === 'trend' && identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
             },
             // A genuine failure must mark ITS series, not silently vanish —
             // and must not erase successful peers.
-            (message) => write({ status: 'error', message }),
+            (message) => {
+              if (identityOf(s.id) === issuedIdentity) write({ status: 'error', message });
+            },
           );
         }
 

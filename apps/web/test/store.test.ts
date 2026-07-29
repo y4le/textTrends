@@ -256,7 +256,9 @@ function fakePassage(start: number, end: number, center: number, doc = 'a'): Pas
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
 function harness(initial?: SessionState) {
   const q = fakeQueryClient();
-  const runtime = createAppRuntime(q.client);
+  // Deterministic injected UUIDs: u1, u2, … (creation order).
+  let n = 0;
+  const runtime = createAppRuntime(q.client, { newId: () => `u${++n}` });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
   return { ...q, runtime, store: runtime.useApp, port };
@@ -1164,5 +1166,241 @@ describe('real ProjectSession composes with the store bridge', () => {
     // The store issued its default-series trend queries against the new snapshot.
     expect(q.trends().length).toBeGreaterThan(0);
     runtime.dispose();
+  });
+});
+
+// ── Slice-1 commit B: the query-notebook state machine (recorded ruling,
+//    docs/design/term-groups-plan.md). UI lands in later commits; these prove
+//    the model invariants through the store actions alone. ──
+describe('query notebook — identity discipline', () => {
+  const groupsOf = (f: ReturnType<typeof harness>) => f.store.getState().notebook.groups;
+
+  /** Same UUID and member id, different MATCHING semantics. */
+  const semanticEdit = (g: { id: string; name: string; members: readonly { id: string }[]; countOverlaps: boolean }) => ({
+    ...g,
+    members: [{ id: g.members[0]!.id, kind: 'prefix' as const, stem: 'holm', match: { case: 'folded' as const, diacritics: 'folded' as const } }],
+  });
+
+  it('setInput reconcile: a surviving matching identity keeps its UUID, member ids, focus, and concordance selection', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [holmes, moriarty] = groupsOf(f);
+    f.store.getState().setFocus(moriarty!.id);
+    f.store.getState().toggleKwicSeries(holmes!.id); // holmes OFF
+    f.store.getState().setInput('holmes, watson'); // moriarty replaced
+    const after = groupsOf(f);
+    expect(after[0]!.id).toBe(holmes!.id); // reconciled by matching identity
+    expect(after[0]!.members[0]!.id).toBe(holmes!.members[0]!.id); // member id survives too
+    expect(after[1]!.id).not.toBe(moriarty!.id); // fresh group, fresh UUID
+    expect(f.store.getState().kwicEnabledSeries.has(holmes!.id)).toBe(false); // toggle survives
+    expect(f.store.getState().focusedSeries).toBe(after[0]!.id); // focus fell to first (moriarty gone)
+  });
+
+  it('rename preserves the UUID and issues NO worker request; the projection relabels', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    const g = groupsOf(f)[0]!;
+    const issued = f.issued.length;
+    f.store.getState().renameGroup(g.id, 'The Detective');
+    expect(f.issued.length).toBe(issued); // invariant 2: no occurrence work
+    expect(groupsOf(f)[0]!.id).toBe(g.id);
+    expect(f.store.getState().series[0]!.label).toBe('The Detective');
+    expect(f.store.getState().trends.get(g.id)).toBeDefined(); // results retained
+  });
+
+  it('a member edit preserves the UUID, changes semantic identity, and reissues trend+KWIC+passage', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setInput('holmes');
+    const g = groupsOf(f)[0]!;
+    f.store.getState().setScrub({ doc: 'a', token: 5 }); // arm a passage intent
+    await flush();
+    const trendsBefore = f.trends().length;
+    const kwicsBefore = f.kwics().length;
+    const passagesBefore = f.passages().length;
+    f.store.getState().setGroupMembers(g.id, [
+      { id: g.members[0]!.id, kind: 'token', surface: 'holmes', match: { case: 'folded', diacritics: 'folded' } },
+      { id: 'm-alias', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
+    ], false);
+    expect(groupsOf(f)[0]!.id).toBe(g.id); // UUID stable (invariant 3)
+    expect(f.trends().length).toBeGreaterThan(trendsBefore);
+    expect(f.kwics().length).toBeGreaterThan(kwicsBefore);
+    expect(f.passages().length).toBeGreaterThan(passagesBefore);
+    // The EXACT authored spec reaches EVERY operation's wire request — the
+    // COMPLETE group value (ids, kinds, match modes, countOverlaps), deep-equal
+    // against the authored expectation, on trend AND kwic AND passage. A
+    // trackSpecs reconstruction/defaulting regression fails all three.
+    const authored = {
+      id: g.id,
+      members: [
+        { id: g.members[0]!.id, kind: 'token', surface: 'holmes', match: { case: 'folded', diacritics: 'folded' } },
+        { id: 'm-alias', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
+      ],
+      countOverlaps: false,
+    };
+    const trendWire = (f.trends().filter((t) => !t.cancelled).at(-1)!.query as { group: unknown }).group;
+    expect(trendWire).toEqual(authored);
+    const kwicWire = (f.kwics().filter((t) => !t.cancelled).at(-1)!.query as { tracks: { seriesId: string; group: unknown }[] }).tracks;
+    expect(kwicWire).toEqual([{ seriesId: g.id, group: authored }]);
+    const passWire = (f.passages().filter((t) => !t.cancelled).at(-1)!.query as { request: { tracks: { seriesId: string; group: unknown }[] } }).request.tracks;
+    expect(passWire).toEqual([{ seriesId: g.id, group: authored }]);
+  });
+
+  it('an identity-NEUTRAL member apply (same semantics) reissues nothing', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    const g = groupsOf(f)[0]!;
+    const issued = f.issued.length;
+    f.store.getState().setGroupMembers(g.id, [...g.members], g.countOverlaps);
+    expect(f.issued.length).toBe(issued);
+  });
+
+  it('a SEMANTIC-ONLY stale settlement cannot commit — trend and KWIC (no epoch advance, leases still current)', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setInput('holmes');
+    const g = f.store.getState().notebook.groups[0]!;
+    const trend = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    const kwic = f.kwics().filter((t) => !t.cancelled).at(-1)!;
+    // Change the group's SEMANTICS without any action: no lane superseded, no
+    // reissue, no epoch advance — only the issued-identity guard stands
+    // between the old results and the store (review-B round-1 finding).
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEdit(g)] } });
+    expect(trend.cancelled).toBe(false); // the lease is genuinely still alive
+    expect(kwic.cancelled).toBe(false);
+    trend.resolve({ op: 'trend', trend: fakeTrend(3) });
+    kwic.resolve({ op: 'kwic', total: 1, rows: [] }); // rows empty: adoption alone is the probe
+    await flush();
+    expect(f.store.getState().trends.get(g.id)!.status).toBe('pending'); // never adopted
+    expect(f.store.getState().kwic!.state.status).toBe('pending');
+  });
+
+  it('a SEMANTIC-ONLY stale settlement cannot commit — passage', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setInput('holmes');
+    const g = f.store.getState().notebook.groups[0]!;
+    f.store.getState().setScrub({ doc: 'a', token: 5 });
+    await flush();
+    const passage = f.passages().filter((t) => !t.cancelled).at(-1)!;
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEdit(g)] } });
+    expect(passage.cancelled).toBe(false);
+    passage.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
+    await flush();
+    expect(f.store.getState().passage).toBeNull(); // never adopted
+  });
+
+  it('rejects an invalid member set with one bounded notebookError and NO state change or reissue', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes');
+    const g = groupsOf(f)[0]!;
+    const issued = f.issued.length;
+    f.store.getState().setGroupMembers(g.id, [
+      { id: 'm-bad', kind: 'prefix', stem: '', match: { case: 'folded', diacritics: 'folded' } },
+    ], false);
+    expect(f.store.getState().notebookError).toMatch(/code units/);
+    expect(groupsOf(f)[0]!.members).toEqual(g.members);
+    expect(f.issued.length).toBe(issued);
+    f.store.getState().clearNotebookError();
+    expect(f.store.getState().notebookError).toBeNull();
+  });
+});
+
+describe('query notebook — active set, solo, order, and style', () => {
+  const groupsOf = (f: ReturnType<typeof harness>) => f.store.getState().notebook.groups;
+
+  it('mute drops the track globally (trend reissue without it) but PRESERVES the concordance toggle and style slot', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [holmes, moriarty] = groupsOf(f);
+    const slotBefore = f.store.getState().styleSlots.get(moriarty!.id);
+    f.store.getState().toggleKwicSeries(moriarty!.id); // concordance OFF
+    f.store.getState().setGroupActive(moriarty!.id, false); // mute
+    expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id]);
+    const live = f.trends().filter((t) => !t.cancelled);
+    expect(live.map((t) => t.groupId)).toEqual([holmes!.id]);
+    f.store.getState().setGroupActive(moriarty!.id, true); // unmute
+    expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false); // toggle survived the mute
+    expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slotBefore); // style identity survived
+  });
+
+  it('activation within the cap never refuses (the SIXTH-activation refusal needs >5 groups — reachable only via commit C quick-add append, tested there)', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('a, b, c, d, e');
+    const ids = groupsOf(f).map((g) => g.id);
+    f.store.getState().setGroupActive(ids[0]!, false);
+    f.store.getState().setGroupActive(ids[0]!, true);
+    expect(f.store.getState().notebookError).toBeNull();
+    expect(f.store.getState().activeGroupIds.size).toBe(5);
+  });
+
+  it('solo projects the comparison to ONE group and clearing restores the prior projection exactly', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty, watson');
+    const before = f.store.getState().series.map((s) => s.id);
+    const target = before[1]!;
+    f.store.getState().setSolo(target);
+    expect(f.store.getState().series.map((s) => s.id)).toEqual([target]);
+    const live = f.trends().filter((t) => !t.cancelled);
+    expect(live.map((t) => t.groupId)).toEqual([target]);
+    f.store.getState().setSolo(null);
+    expect(f.store.getState().series.map((s) => s.id)).toEqual(before); // exact restore
+    expect(f.store.getState().activeGroupIds.size).toBe(3); // never mutated
+  });
+
+  it('solo is refused for a muted group and cleared when its group deactivates', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [holmes, moriarty] = groupsOf(f);
+    f.store.getState().setGroupActive(moriarty!.id, false);
+    f.store.getState().setSolo(moriarty!.id);
+    expect(f.store.getState().notebookError).toMatch(/active/);
+    expect(f.store.getState().soloGroupId).toBeNull();
+    f.store.getState().setSolo(holmes!.id);
+    expect(f.store.getState().soloGroupId).toBe(holmes!.id);
+    f.store.getState().setGroupActive(holmes!.id, false);
+    expect(f.store.getState().soloGroupId).toBeNull(); // normalized away
+  });
+
+  it('reorder is a refused-unless-total permutation, preserves UUIDs/slots/focus, and reissues nothing', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [holmes, moriarty] = groupsOf(f);
+    const slots = new Map(f.store.getState().styleSlots);
+    const issued = f.issued.length;
+    f.store.getState().reorderGroups([moriarty!.id]); // not total → refused
+    expect(f.store.getState().notebookError).toMatch(/every group/);
+    f.store.getState().reorderGroups([moriarty!.id, holmes!.id]);
+    expect(groupsOf(f).map((g) => g.id)).toEqual([moriarty!.id, holmes!.id]);
+    expect(f.store.getState().series.map((s) => s.id)).toEqual([moriarty!.id, holmes!.id]);
+    expect(f.store.getState().styleSlots.get(holmes!.id)).toBe(slots.get(holmes!.id)); // slots pinned
+    expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slots.get(moriarty!.id));
+    expect(f.issued.length).toBe(issued); // invariant 2: no reissue
+  });
+
+  it('removal cleans results, focus, concordance selection, solo, and style ownership', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setInput('holmes, moriarty');
+    const [holmes, moriarty] = groupsOf(f);
+    f.store.getState().setFocus(moriarty!.id);
+    f.store.getState().setSolo(moriarty!.id);
+    f.store.getState().removeGroup(moriarty!.id);
+    const state = f.store.getState();
+    expect(state.notebook.groups.map((g) => g.id)).toEqual([holmes!.id]);
+    expect(state.focusedSeries).toBe(holmes!.id);
+    expect(state.soloGroupId).toBeNull();
+    expect(state.styleSlots.has(moriarty!.id)).toBe(false);
+    expect(state.kwicEnabledSeries.has(moriarty!.id)).toBe(false);
+    expect(state.activeGroupIds.has(moriarty!.id)).toBe(false);
   });
 });

@@ -31,7 +31,7 @@ export { CapError } from './contract/brands.ts';
 export type { TextHash } from './contract/brands.ts';
 export { canonicalJson, hashSourceBytes, hashText } from './contract/hash.ts';
 export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
-export { exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
+export { exactArray, exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,
@@ -77,6 +77,7 @@ export {
   TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
   validateGroup,
+  type GroupMember,
   type NumericOccurrences,
   type ResolverTable,
   type TermGroupSpec,
