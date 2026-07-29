@@ -393,3 +393,62 @@ near-duplicates, PDF, transformer sentiment slow lane.
 - **Lexos**: its explicit workflow, made non-destructive and reversible.
 - **All of the surveyed tools**: narrative-time alignment across a series — the
   feature none of them offer.
+
+## 11. Addendum — new candidate features (2026-07-29 roadmap audit)
+
+*From the joint Claude + Codex roadmap audit (Codex planner consult
+`req_consult_66f288382ac5b0c6`, recorded in Parley session
+`ses_44293cff245eacef`). The audit's factual half — which of the ratified
+features above remain unbuilt — is not restated here; these are the NEW ideas
+it produced, candidates for the phases in §9, not yet ratified. None displace
+the §3 cuts or the seven killer features.*
+
+1. **Corpus-aware query composer** *(joins killer feature 3)* — vocabulary-backed
+   typeahead over the actual corpus, zero-hit diagnostics (case/tokenization/
+   spelling), "quote to make phrase," affix previews with estimated counts before
+   a group member is committed. Makes the term-group model discoverable and
+   prevents silent mistakes without inventing a query language (which §5 already
+   rejects for v1). Effort M.
+2. **Uncertainty for comparisons** *(extends killer feature 6)* — document-level
+   bootstrap confidence bands and permutation-based null checks for A/B trend
+   deltas, always linked back to contributing documents/passages. Effect size +
+   G² serve word tables; visual curve differences otherwise invite over-reading
+   small or composition-sensitive corpora. Effort L.
+3. **Metadata cohorts & calendar-time analysis** — user-defined cohorts from
+   author/year/tags; frequency, vocabulary, or rhythm plotted over publication/
+   document date as an explicit second axis beside narrative time. Broadens the
+   tool from novels/series to letters, newspapers, journals, and diachronic
+   corpora without weakening narrative time as the default. Effort L.
+4. **Parallel-edition / translation alignment** — align sentences or paragraphs
+   between two related works, show synchronized passages and trend deltas, let
+   the user repair bad alignments. Editions and translations are common
+   humanities corpora; no bag-of-words tool handles them well. Effort L.
+5. **Self-contained research report export** *(extends §5 state & sharing)* — a
+   frozen static HTML package: chosen charts, exact tables, method cards, and
+   explicitly opted-in short evidence excerpts. A share link requires the
+   recipient to hold matching sources; a portable project requires running the
+   app; a frozen report is the practical unit for peer review, teaching, and
+   archival deposit. Effort M.
+6. **Preprocessing impact diff** — before applying a language/tokenizer/chapter/
+   stop-list/grouping change, preview which counts, vocabulary entries, and
+   cached artifacts would change. The architecture already treats preprocessing
+   as result identity (§2.1); this makes the analytical consequence visible
+   before invalidating work. Effort M.
+7. **Watched local-folder workspace** — with explicit permission, remember a
+   directory handle (File System Access API), rescan hashes, incrementally
+   re-ingest only added/changed files. Makes living research corpora viable with
+   no server; gated by browser capability, ordinary file import stays the
+   portable path. Effort M.
+8. **Development-only snapshot/job inspector** — generation and snapshot
+   lineage, active/cancelled jobs, cache hits/misses, resident bytes, operation
+   timing, behind the existing compile-time e2e flag mechanism. The engine's
+   correctness rests on invisible ownership fences; the sanitized e2e trace is
+   built for tests, not for debugging the next QueryOps. Effort M.
+
+*Audit build-order ruling (adopted): after the publication gates (corpus
+rights, Standard Ebooks hermeticity, LICENSE/README/deploy), four product
+slices — (1) term groups + query notebook (+ composer), (2) universal linked
+selection + dispersion barcode + full reader, (3) corpus inventory + book
+dashboard, (4) two-text dueling keyness — establish the interaction and
+aggregation seams; sharing/export, project management, and the broader stats
+suite reuse them.*
