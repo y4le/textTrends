@@ -1027,29 +1027,20 @@ describe('authoring intents (edit-context + line-excerpt)', () => {
 // this only proves the two interfaces compose end to end. ──
 describe('real ProjectSession composes with the store bridge', () => {
   beforeAll(async () => {
-    // Warm the memoized recipe hashing so the first startGeneration settles fast.
-    const { defaultExtractionRecipes } = await import('@texttrends/core');
-    await defaultExtractionRecipes();
+    // Warm the shared memoized canonical hashes so startGeneration settles fast.
+    const { canonicalRecipeHashes } = await import('./support/spec-fixtures.ts');
+    await canonicalRecipeHashes();
   });
 
   it('attaching a real session mirrors its analysis + snapshot into the store', async () => {
     const { ProjectSession } = await import('../src/lib/project-session.ts');
     const { builtinProject } = await import('../src/lib/project.ts');
-    const {
-      DEFAULT_STRUCTURE_RECIPE,
-      defaultExtractionRecipes,
-      hashExtractionRecipe,
-      hashIndexRecipe,
-      hashStructureCandidates,
-      hashStructureRecipe,
-    } = await import('@texttrends/core');
-    const { txt } = await defaultExtractionRecipes();
-    const [erh, srh, cand, irh] = await Promise.all([
-      hashExtractionRecipe(txt),
-      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
-      hashStructureCandidates([]),
-      hashIndexRecipe(DEFAULT_INDEX_RECIPE),
-    ]);
+    const { DEFAULT_STRUCTURE_RECIPE, hashStructureCandidates } = await import('@texttrends/core');
+    const { canonicalRecipeHashes } = await import('./support/spec-fixtures.ts');
+    const canon = await canonicalRecipeHashes();
+    const { txt } = canon.recipes;
+    const [erh, srh, irh] = [canon.txtRecipeHash, canon.structureRecipeHash, canon.indexRecipeHash];
+    const cand = await hashStructureCandidates([]);
     const doc = {
       doc: 'd1',
       sourceName: 'd1',

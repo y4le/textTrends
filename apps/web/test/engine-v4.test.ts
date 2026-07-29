@@ -8,10 +8,11 @@
  * structure query, and the separate user-data lane.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_OCCURRENCE_CACHE_ENTRIES, WorkerEngineV4, type UserDataAccess, type UserDataProvider } from '../src/worker/engine-v4.ts';
-import { InMemoryArtifactStore, type ArtifactStore, type CacheRead } from '../src/worker/store.ts';
-import { InMemoryUserDataStore, UserDataError, type UserDataStore } from '../src/worker/user-data-store.ts';
-import { PROTOCOL_VERSION_V4, type FromWorkerV4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
+import { MAX_OCCURRENCE_CACHE_ENTRIES } from '../src/worker/engine-v4.ts';
+import { PROTOCOL_VERSION_V4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
+import type { UserDataStore } from '../src/worker/user-data-store.ts';
+import { begin, buf, coldIngest, FOLD, harness, utf8, wolfGroup, type Harness } from './support/engine-harness.ts';
+import { buildDocSpec as docSpec, extractLiteral as extractDocument } from './support/spec-fixtures.ts';
 import {
   bindSectionId,
   bindShardsIncremental,
@@ -19,19 +20,14 @@ import {
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
-  decodeDocumentSource,
   defaultExtractionRecipes,
   emptyOverride,
-  finalizeExtraction,
   hashExtractionRecipe,
-  hashIndexRecipe,
   hashSourceBytes,
   hashStructureOverride,
   hashStructureRecipe,
   occurrences,
   termGroupIdentity,
-  type ExtractionRecipeProvisional,
-  type IngestCapsV0,
   type StructureOverrideV1,
 } from '@texttrends/core';
 
@@ -52,156 +48,6 @@ vi.mock('@texttrends/core', async (importOriginal) => {
   };
 });
 
-const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
-const buf = (s: string): ArrayBuffer => utf8(s).buffer as ArrayBuffer;
-
-/** Fixture builder over the supported split-pipeline surface: decode + finalize
- *  for the literal formats this suite ingests. */
-async function extractDocument(bytes: Uint8Array, recipe: ExtractionRecipeProvisional) {
-  return finalizeExtraction({ kind: 'literal', decoded: await decodeDocumentSource(bytes, recipe) }, recipe);
-}
-const FOLD = { case: 'folded', diacritics: 'sensitive' } as const;
-
-/** A store that can hide any artifact class (force a miss) to construct the
- *  warm-path table deterministically, and optionally hook the first read of a
- *  class (to interleave a concurrent ingest). Delegates everything else. */
-class FilterStore implements ArtifactStore {
-  hide = { text: false, shard: false, structure: false, extraction: false };
-  onShardRead: (() => void | Promise<void>) | null = null;
-  /** Called on every text read with the 1-based read count, so a test can
-   *  interleave at a specific point (e.g. the 2nd document's read). */
-  onTextRead: ((count: number) => void | Promise<void>) | null = null;
-  private textReads = 0;
-  resetReads() { this.textReads = 0; }
-  writes = { text: 0, shard: 0, structure: 0, extraction: 0 };
-  /** When set, the NEXT get{Shard,Text} reports envelope corruption, then reverts. */
-  corruptShardOnce = false;
-  corruptTextOnce = false;
-  shardDeletes = 0;
-  textDeletes = 0;
-  constructor(readonly inner: InMemoryArtifactStore) {}
-  async getText(h: string): Promise<CacheRead<string>> {
-    this.textReads++;
-    if (this.onTextRead) await this.onTextRead(this.textReads);
-    if (this.corruptTextOnce) { this.corruptTextOnce = false; return { kind: 'corrupt', reason: 'stored text failed envelope validation' }; }
-    return this.hide.text ? { kind: 'miss' } : this.inner.getText(h);
-  }
-  putText(h: string, t: string) { this.writes.text++; return this.inner.putText(h, t); }
-  deleteText(h: string) { this.textDeletes++; return this.inner.deleteText(h); }
-  async getShard(k: never): Promise<CacheRead<unknown>> {
-    if (this.onShardRead) { const cb = this.onShardRead; this.onShardRead = null; await cb(); }
-    if (this.corruptShardOnce) { this.corruptShardOnce = false; return { kind: 'corrupt', reason: 'stored record failed envelope validation' }; }
-    return this.hide.shard ? { kind: 'miss' } : this.inner.getShard(k);
-  }
-  putShard(k: never, s: never) { this.writes.shard++; return this.inner.putShard(k, s); }
-  deleteShard(k: never) { this.shardDeletes++; return this.inner.deleteShard(k); }
-  async getExtraction(k: never): Promise<CacheRead<unknown>> { return this.hide.extraction ? { kind: 'miss' } : this.inner.getExtraction(k); }
-  putExtraction(k: never, a: unknown) { this.writes.extraction++; return this.inner.putExtraction(k, a); }
-  deleteExtraction(k: never) { return this.inner.deleteExtraction(k); }
-  async getStructure(k: never): Promise<CacheRead<unknown>> { return this.hide.structure ? { kind: 'miss' } : this.inner.getStructure(k); }
-  putStructure(k: never, a: unknown) { this.writes.structure++; return this.inner.putStructure(k, a); }
-  deleteStructure(k: never) { return this.inner.deleteStructure(k); }
-  close() { this.inner.close(); }
-}
-
-interface Harness {
-  engine: WorkerEngineV4;
-  messages: FromWorkerV4[];
-  transferLists: (readonly Transferable[] | undefined)[];
-  store: FilterStore;
-  userStore: InMemoryUserDataStore;
-  setUserData(p: UserDataProvider): void;
-  /** Fires on every emitted message — deliver interleaved messages here. */
-  onEmit(cb: ((m: FromWorkerV4) => void) | null): void;
-  /** Fires on every yieldControl checkpoint (auto mode) — interleave here. */
-  onYield(cb: (() => void | Promise<void>) | null): void;
-  manual(): void;
-  releaseYield(): void;
-  send(m: Record<string, unknown>): Promise<void>;
-  handle(m: Record<string, unknown>): Promise<void>;
-  flush(): Promise<void>;
-  last<T extends FromWorkerV4['t']>(t: T): Extract<FromWorkerV4, { t: T }>;
-  all<T extends FromWorkerV4['t']>(t: T): Extract<FromWorkerV4, { t: T }>[];
-  clear(): void;
-}
-
-function harness(caps: IngestCapsV0 = INGEST_CAPS_V0, sharedStore?: FilterStore): Harness {
-  const messages: FromWorkerV4[] = [];
-  const transferLists: (readonly Transferable[] | undefined)[] = [];
-  const store = sharedStore ?? new FilterStore(new InMemoryArtifactStore());
-  const userStore = new InMemoryUserDataStore();
-  let provider: UserDataProvider = () => Promise.resolve({ kind: 'ok', store: userStore } as UserDataAccess);
-  let auto = true;
-  let emitCb: ((m: FromWorkerV4) => void) | null = null;
-  let yieldCb: (() => void | Promise<void>) | null = null;
-  const pending: (() => void)[] = [];
-  const engine = new WorkerEngineV4(
-    store,
-    () => provider(),
-    (m, transfers) => { messages.push(m); transferLists.push(transfers); emitCb?.(m); },
-    async () => {
-      if (yieldCb) await yieldCb();
-      if (!auto) await new Promise<void>((resolve) => pending.push(resolve));
-    },
-    caps,
-  );
-  return {
-    engine,
-    messages,
-    transferLists,
-    store,
-    userStore,
-    setUserData: (p) => { provider = p; },
-    onEmit: (cb) => { emitCb = cb; },
-    onYield: (cb) => { yieldCb = cb; },
-    manual: () => { auto = false; },
-    releaseYield: () => pending.shift()?.(),
-    send: (m) => engine.handle({ v: PROTOCOL_VERSION_V4, ...m }),
-    handle: (m) => engine.handle(m),
-    flush: () => new Promise<void>((r) => setTimeout(r, 0)),
-    last: (t) => {
-      const found = [...messages].reverse().find((m) => m.t === t);
-      if (!found) throw new Error(`no message of type ${t}`);
-      return found as never;
-    },
-    all: (t) => messages.filter((m) => m.t === t) as never,
-    clear: () => { messages.length = 0; },
-  };
-}
-
-async function docSpec(
-  doc: string,
-  text: string,
-  opts: { format?: 'txt' | 'md'; availability?: 'bundled' | 'persisted' | 'external'; override?: GenerationDocSpecV4['structure']['override'] } = {},
-): Promise<GenerationDocSpecV4> {
-  const recipes = await defaultExtractionRecipes();
-  const format = opts.format ?? 'txt';
-  const recipe = format === 'md' ? recipes.md : recipes.txt;
-  const bytes = utf8(text);
-  const extracted = await extractDocument(bytes, recipe);
-  return {
-    doc,
-    language: 'en',
-    source: { expectedHash: extracted.artifact.source, byteLength: bytes.length, format, availability: opts.availability ?? 'external' },
-    extraction: {
-      recipe,
-      recipeHash: await hashExtractionRecipe(recipe),
-      expectedText: extracted.artifact.text,
-      expectedTextLengthUtf16: extracted.artifact.textLengthUtf16,
-      expectedCandidates: extracted.artifact.candidateHash,
-    },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: opts.override ?? { kind: 'none' } },
-  };
-}
-
-async function begin(h: Harness, docs: GenerationDocSpecV4[], generation = 'g') {
-  await h.send({ t: 'begin-generation', job: 1, generation, docs, indexRecipe: DEFAULT_INDEX_RECIPE });
-}
-async function coldIngest(h: Harness, generation: string, doc: string, text: string, job: number) {
-  await h.send({ t: 'ingest', job, generation, doc, bytes: buf(text) });
-}
-
-const wolfGroup = { id: 'g1', members: [{ id: 'm1', kind: 'token' as const, surface: 'wolf', match: FOLD }], countOverlaps: false };
 
 describe('generation resolution and plan validation', () => {
   it('rejects an active override whose claimed hash does not match its value (before any warm work)', async () => {
@@ -1082,142 +928,6 @@ describe('cancellation', () => {
   });
 });
 
-describe('user-data lane', () => {
-  it('source-persist verifies the claimed hash and acknowledges only a durable write', async () => {
-    const h = harness();
-    const bytes = buf('durable source bytes');
-    const sourceHash = await hashSourceBytes(new Uint8Array(bytes));
-    await h.send({ t: 'source-persist', job: 1, sourceHash, bytes });
-    expect(h.last('source-persisted').sourceHash).toBe(sourceHash);
-    expect((await h.userStore.getSource(sourceHash)).kind).toBe('hit');
-  });
-
-  it('source-persist rejects a claimed-hash mismatch with SOURCE_MISMATCH and writes nothing', async () => {
-    const h = harness();
-    await h.send({ t: 'source-persist', job: 1, sourceHash: 'not-the-hash', bytes: buf('bytes') });
-    expect(h.last('user-data-error').code).toBe('SOURCE_MISMATCH');
-  });
-
-  it('cancellation before the durable write prevents it', async () => {
-    const h = harness();
-    const bytes = buf('durable source bytes');
-    const sourceHash = await hashSourceBytes(new Uint8Array(bytes));
-    // The cancel is delivered while the handler is still hashing/awaiting the
-    // provider — the checkpoint before the durable write catches it.
-    const persistPromise = h.send({ t: 'source-persist', job: 1, sourceHash, bytes });
-    await h.send({ t: 'cancel', job: 1 });
-    await persistPromise;
-    expect(h.all('cancelled').some((m) => m.job === 1)).toBe(true);
-    expect((await h.userStore.getSource(sourceHash)).kind).toBe('miss'); // never written
-  });
-
-  it('project-load deep-validates the durable manifest and maps a corrupt record to DATA_CORRUPT', async () => {
-    const h = harness();
-    // Seed a structurally-plausible but invalid manifest (bad hashes).
-    await h.userStore.putProject({ schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' } as never, 0);
-    await h.send({ t: 'project-load', job: 1, project: 'p' });
-    expect(h.last('user-data-error').code).toBe('DATA_CORRUPT');
-  });
-
-  it('project-save deep-validates BEFORE any durable write: invalid → REQUEST_INVALID, putProject never called', async () => {
-    const h = harness();
-    // The worker is the SOLE save-admission authority (the session posts
-    // without a main-thread deep pass), so this gate is the only one: an
-    // invalid manifest must be refused with a correlated typed error, no ack,
-    // and — critically — no durable write attempt at all.
-    let puts = 0;
-    const store: UserDataStore = {
-      getProject: () => Promise.resolve({ kind: 'miss' }),
-      putProject: () => { puts++; return Promise.reject(new Error('must never be reached')); },
-      getSource: () => Promise.resolve({ kind: 'miss' }),
-      putSource: () => Promise.resolve(),
-      close: () => undefined,
-    };
-    h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
-    // A manifest that satisfies EVERY downstream check (target id matches,
-    // revision === expectedRevision + 1) and fails ONLY deep admission (wrong
-    // indexRecipeHash) — so deleting or delaying validateProjectManifest must
-    // reach putProject and fail this test (mutation-sensitive by construction).
-    await h.send({
-      t: 'project-save', job: 9, project: 'p',
-      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
-      expectedRevision: 0,
-    });
-    const err = h.last('user-data-error');
-    expect(err.code).toBe('REQUEST_INVALID');
-    expect(err.job).toBe(9);
-    expect(h.all('project-saved').length).toBe(0);
-    expect(puts).toBe(0); // validation gated the write, not the other way round
-  });
-
-  it('project-load returns project-missing for an absent project', async () => {
-    const h = harness();
-    await h.send({ t: 'project-load', job: 1, project: 'absent' });
-    expect(h.last('project-missing').project).toBe('absent');
-  });
-
-  it('a cancel delivered DURING deep manifest validation suppresses project-loaded', async () => {
-    const h = harness();
-    // A valid manifest so validation SUCCEEDS — the post-validation cancel check
-    // (not the earlier post-read check) is what must win here.
-    const manifest = {
-      schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [],
-      indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: await hashIndexRecipe(DEFAULT_INDEX_RECIPE),
-    };
-    await h.userStore.putProject(manifest as never, 0);
-    // Fire the cancel from INSIDE the first Web Crypto digest — i.e. once
-    // validateProjectManifest has begun (past the post-read check) — so the
-    // ONLY check that can catch it is the post-validation one.
-    let validationEntered = false;
-    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
-    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
-      if (!validationEntered) { validationEntered = true; void h.send({ t: 'cancel', job: 1 }); }
-      return realDigest(...args);
-    }) as typeof crypto.subtle.digest);
-    await h.send({ t: 'project-load', job: 1, project: 'p' });
-    spy.mockRestore();
-    expect(validationEntered).toBe(true); // validation was actually reached
-    // The result is suppressed; a cancel acknowledgement is emitted instead.
-    expect(h.all('project-loaded').length).toBe(0);
-    expect(h.all('cancelled').some((m) => m.job === 1)).toBe(true);
-  });
-
-  it('a pre-write read failure on a CANCELLED job surfaces as cancelled, not a storage error', async () => {
-    const h = harness();
-    // getProject rejects (a cancellable pre-write await); the job is cancelled
-    // before it settles, so cancellation must win over the storage error.
-    const store: UserDataStore = {
-      getProject: () => {
-        void Promise.resolve().then(() => h.send({ t: 'cancel', job: 1 }));
-        return Promise.reject(new UserDataError('PERSISTENCE_UNAVAILABLE', 'read blew up'));
-      },
-      putProject: () => Promise.reject(new Error('n/a')),
-      getSource: () => Promise.resolve({ kind: 'miss' }),
-      putSource: () => Promise.resolve(),
-      close: () => undefined,
-    };
-    h.setUserData(() => Promise.resolve({ kind: 'ok', store }));
-    await h.send({ t: 'project-load', job: 1, project: 'p' });
-    expect(h.all('cancelled').some((m) => m.job === 1)).toBe(true);
-    expect(h.all('user-data-error').length).toBe(0);
-  });
-
-  it('durable unavailability yields a precise user-data error while analysis queries keep working', async () => {
-    const h = harness();
-    h.setUserData(() => Promise.resolve({ kind: 'unavailable', message: 'no durable storage' }));
-    await h.send({ t: 'project-load', job: 1, project: 'p' });
-    expect(h.last('user-data-error').code).toBe('PERSISTENCE_UNAVAILABLE');
-    // Analysis is entirely independent of the durable lane.
-    const spec = await docSpec('a', 'the wolf ran far');
-    await begin(h, [spec], 'g2');
-    await coldIngest(h, 'g2', 'a', 'the wolf ran far', 10);
-    const snap = h.last('snapshot-published').snapshot;
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 4 } } });
-    const result = h.last('result');
-    expect(result.data.op).toBe('trend');
-  });
-});
-
 // ---------------------------------------------------------------------------
 // Legacy engine invariants translated from the retired v3 suite (6c). The 6b
 // tests own the new pipeline; these preserve query/protocol/locale/corruption/
@@ -1238,6 +948,36 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
 
 const innerShards = (h: Harness) =>
   (h.store.inner as unknown as { shards: Map<string, { lengths8: Uint8Array; startsUtf16: Uint32Array }> }).shards;
+
+describe('user-data lane ROUTING (behavior lives in user-data-handler.test.ts)', () => {
+  // Compact dispatch proofs: each operation reaches its lane through the
+  // engine envelope and answers with that lane's discriminants — the seam
+  // the eventual UserDataHandler extraction must keep (slice-2 ruling §A).
+  it('source-persist dispatches and acknowledges through the user-data lane', async () => {
+    const h = harness();
+    const bytes = buf('routing bytes');
+    const sourceHash = await hashSourceBytes(new Uint8Array(buf('routing bytes')));
+    await h.send({ t: 'source-persist', job: 1, sourceHash, bytes });
+    expect(h.last('source-persisted').sourceHash).toBe(sourceHash);
+  });
+
+  it('project-load dispatches: an absent project answers project-missing', async () => {
+    const h = harness();
+    await h.send({ t: 'project-load', job: 2, project: 'absent' });
+    expect(h.last('project-missing').project).toBe('absent');
+  });
+
+  it('project-save dispatches: a wire-valid but inadmissible manifest answers on the USER-DATA error channel', async () => {
+    const h = harness();
+    await h.send({
+      t: 'project-save', job: 3, project: 'p',
+      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
+      expectedRevision: 0,
+    });
+    const err = h.last('user-data-error');
+    expect(err.job).toBe(3); // the lane answered, on its own channel
+  });
+});
 
 describe('protocol narrowing and dispatch (v4)', () => {
   it('rejects a protocol version mismatch with PROTOCOL_VERSION', async () => {

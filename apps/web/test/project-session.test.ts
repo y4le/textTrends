@@ -12,13 +12,10 @@
  * does not recompute, so they can be synthetic).
  */
 import { beforeAll, describe, expect, it } from 'vitest';
+import { canonicalRecipeHashes } from './support/spec-fixtures.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   DEFAULT_STRUCTURE_RECIPE,
-  defaultExtractionRecipes,
-  hashExtractionRecipe,
-  hashIndexRecipe,
-  hashStructureRecipe,
   INGEST_CAPS_V0,
   type ProjectDocV1,
   type ProjectManifestV1,
@@ -52,13 +49,12 @@ let MD_HASH = '';
 let STRUCTURE_HASH = '';
 let INDEX_HASH = '';
 beforeAll(async () => {
-  const { txt, md } = await defaultExtractionRecipes();
-  [TXT_HASH, MD_HASH, STRUCTURE_HASH, INDEX_HASH] = await Promise.all([
-    hashExtractionRecipe(txt),
-    hashExtractionRecipe(md),
-    hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
-    hashIndexRecipe(DEFAULT_INDEX_RECIPE),
-  ]);
+  // One memoized canonical hash set for every suite (slice-2 ruling §A).
+  const canon = await canonicalRecipeHashes();
+  TXT_HASH = canon.txtRecipeHash;
+  MD_HASH = canon.mdRecipeHash;
+  STRUCTURE_HASH = canon.structureRecipeHash;
+  INDEX_HASH = canon.indexRecipeHash;
 });
 
 // ── Deterministic settle: drain the recipe-hashing + ingest async chains. Each
