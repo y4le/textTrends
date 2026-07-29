@@ -1473,3 +1473,136 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     }
   });
 });
+
+describe('linked token-range selection (slice-2 commit E)', () => {
+  const range = (f: ReturnType<typeof harness>, start: number, end: number) => ({
+    snapshot: f.store.getState().snapshot!.snapshot, doc: 'a', tokens: { start, end },
+  });
+
+  it('committing a range scopes the concordance to EXACTLY that range (docs:[doc] + ranges) and issues overlays on separate lanes', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    const baseTrend = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    f.store.getState().setLinkedSelection(range(f, 10, 20));
+    // The load-bearing wire shape: ONLY the ranged doc, never every ready doc.
+    const kw = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { selection: { docs: string[]; ranges?: unknown[] } };
+    expect(kw.selection.docs).toEqual(['a']);
+    expect(kw.selection.ranges).toEqual([{ doc: 'a', tokens: { start: 10, end: 20 } }]);
+    // Overlays issued; the BASELINE trend job was NOT cancelled.
+    expect(baseTrend.cancelled).toBe(false);
+    expect(f.store.getState().selectedTrends.get(f.store.getState().series[0]!.id)!.status).toBe('pending');
+    expect(f.store.getState().selectedDispersion!.state.status).toBe('pending');
+    const selTrend = f.trends().filter((t) => !t.cancelled).at(-1)!.query as { selection: { docs: string[] } };
+    expect(selTrend.selection.docs).toEqual(['a']);
+  });
+
+  it('clearing drops overlays immediately, reissues the BASELINE concordance, and never recomputes resident baselines', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const baseTrend = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    baseTrend.resolve({ op: 'trend', trend: fakeTrend(5) });
+    await flush();
+    f.store.getState().setLinkedSelection(range(f, 3, 9));
+    const trendCount = f.trends().length;
+    f.store.getState().setLinkedSelection(null);
+    expect(f.store.getState().selectedTrends.size).toBe(0);
+    expect(f.store.getState().selectedDispersion).toBeNull();
+    expect(f.trends().length).toBe(trendCount); // NO baseline trend reissue
+    expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready'); // resident evidence stands
+    const kw = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { selection: { docs: string[]; ranges?: unknown[] } };
+    expect(kw.selection.ranges).toBeUndefined(); // back to the baseline selection
+  });
+
+  it('a snapshot replacement clears the (snapshot-bound) selection with its overlays', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setLinkedSelection(range(f, 1, 4));
+    expect(f.store.getState().linkedSelection).not.toBeNull();
+    f.port.publishSnapshot('g1', 's2', ['a']);
+    expect(f.store.getState().linkedSelection).toBeNull();
+    expect(f.store.getState().selectedTrends.size).toBe(0);
+    expect(f.store.getState().selectedDispersion).toBeNull();
+  });
+
+  it('a STALE range result cannot land after a rapid A→B replacement', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setLinkedSelection(range(f, 0, 5));
+    const staleKwic = f.kwics().filter((x) => !x.cancelled).at(-1)!;
+    f.store.getState().setLinkedSelection(range(f, 50, 60)); // B supersedes A
+    staleKwic.resolve({ op: 'kwic', total: 9, rows: [] }); // A's late result
+    await flush();
+    expect(f.store.getState().kwic!.state.status).toBe('pending'); // B's query owns the panel
+  });
+
+  it('late selected trend/dispersion results cannot land after A→B or after deactivating the last series', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const sid = f.store.getState().series[0]!.id;
+    f.store.getState().setLinkedSelection(range(f, 0, 5));
+    const selectionStart = (q: { query: unknown }) =>
+      (q.query as { selection?: { ranges?: { tokens: { start: number } }[] } })
+        .selection?.ranges?.[0]?.tokens.start;
+    const staleTrend = f.trends().filter((q) => selectionStart(q) === 0).at(-1)!;
+    const staleDispersion = f.issued
+      .filter((q) => q.op === 'dispersion' && selectionStart(q) === 0)
+      .at(-1)!;
+
+    f.store.getState().setLinkedSelection(range(f, 50, 60));
+    staleTrend.resolve({ op: 'trend', trend: fakeTrend(99) });
+    staleDispersion.resolve({
+      op: 'dispersion',
+      dispersion: { method: 'dispersion/1', geometry: null, tracks: [] },
+    });
+    await flush();
+    expect(f.store.getState().selectedTrends.get(sid)!.status).toBe('pending');
+    expect(f.store.getState().selectedDispersion!.state.status).toBe('pending');
+
+    const pendingTrend = f.trends().filter((q) => selectionStart(q) === 50).at(-1)!;
+    const pendingDispersion = f.issued
+      .filter((q) => q.op === 'dispersion' && selectionStart(q) === 50)
+      .at(-1)!;
+    f.store.getState().setGroupActive(sid, false);
+    expect(f.store.getState().notebook.groups.some((group) => group.id === sid)).toBe(true);
+    expect(pendingTrend.cancelled).toBe(true);
+    expect(pendingDispersion.cancelled).toBe(true);
+    expect(f.store.getState().selectedTrends.size).toBe(0);
+    expect(f.store.getState().selectedDispersion).toBeNull();
+    pendingTrend.resolve({ op: 'trend', trend: fakeTrend(101) });
+    pendingDispersion.resolve({
+      op: 'dispersion',
+      dispersion: { method: 'dispersion/1', geometry: null, tracks: [] },
+    });
+    await flush();
+    expect(f.store.getState().selectedTrends.size).toBe(0);
+    expect(f.store.getState().selectedDispersion).toBeNull();
+  });
+
+  it('a deliberate activation OUTSIDE the range clears it (visibly) before centering; inside preserves it', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const sid = f.store.getState().series[0]!.id;
+    f.store.getState().setLinkedSelection(range(f, 10, 20));
+    f.store.getState().centerKwicAt(sid, 'a', 15); // inside
+    expect(f.store.getState().linkedSelection).not.toBeNull();
+    f.store.getState().centerKwicAt(sid, 'a', 42); // outside → cleared first
+    expect(f.store.getState().linkedSelection).toBeNull();
+    expect(f.store.getState().selectedTrends.size).toBe(0);
+  });
+
+  it('refuses a gesture from a superseded snapshot or a departed doc', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setLinkedSelection({ snapshot: 'sX', doc: 'a', tokens: { start: 0, end: 2 } });
+    expect(f.store.getState().linkedSelection).toBeNull();
+    f.store.getState().setLinkedSelection({ snapshot: 's1', doc: 'zz', tokens: { start: 0, end: 2 } });
+    expect(f.store.getState().linkedSelection).toBeNull();
+  });
+});

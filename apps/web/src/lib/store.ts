@@ -58,6 +58,7 @@ import {
   type StructureOverrideV1,
   type TermGroupSpec,
 } from '@texttrends/core';
+import { detailSelection, isValidSelection, type TokenRangeSelectionV1 } from './selection.ts';
 import {
   coreGroupOf,
   groupIdentity,
@@ -311,6 +312,15 @@ export interface AppState {
   kwicEnabledSeries: ReadonlySet<string>;
   /** The barcode's dispersion result (null = no comparison/corpus). */
   dispersion: DispersionState | null;
+  /** The ONE transient linked token-range selection (ruling §2): single-doc,
+   *  half-open, snapshot-bound; NEVER persisted, NEVER a durable Brush.
+   *  Cleared on snapshot replacement or when its document departs. */
+  linkedSelection: TokenRangeSelectionV1 | null;
+  /** Range-scoped trends for the selection — an OVERLAY beside the intact
+   *  whole-corpus baseline (zero-denominator bins are gaps, never zeros). */
+  selectedTrends: ReadonlyMap<string, SeriesTrendState>;
+  /** Range-scoped dispersion layer over the dim whole-corpus strip. */
+  selectedDispersion: DispersionState | null;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
@@ -357,6 +367,10 @@ export interface AppState {
    *  concordance chip for that series is visibly re-enabled first (review-D
    *  HIGH). `origin: 'bucket'` labels a density-midpoint target. */
   centerKwicAt(seriesId: string, doc: string, token: number, origin?: { readonly kind: 'bucket'; readonly count: number }): void;
+  /** Commit a linked range (already clamped to ONE document by the gesture
+   *  layer). Reissues the DETAIL consumers (kwic + selected overlays); the
+   *  baseline evidence is retained untouched. Null clears. */
+  setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
@@ -474,6 +488,10 @@ export function createAppRuntime(
   const structureLane = new QueryLane(scope);
   // The barcode's dispersion intent — reissued with the trend burst.
   const dispersionLane = new QueryLane(scope);
+  // Selected-range overlay lanes — separate latest-wins ownership so a brush
+  // never cancels the resident baseline (ruling §2).
+  const selectedTrendLane = new QueryLane(scope);
+  const selectedDispersionLane = new QueryLane(scope);
   // On-demand authoring intents (edit-context + line-excerpt), each its own
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
@@ -656,6 +674,72 @@ export function createAppRuntime(
         });
     };
 
+    /** (Re)issue the SELECTED-range overlays (trends + dispersion) for the
+     *  active linked selection — separate lanes so a brush never cancels the
+     *  resident whole-corpus baseline (ruling §2). No selection: overlays
+     *  clear; the baseline stands. */
+    const runSelected = () => {
+      selectedTrendLane.supersede();
+      selectedDispersionLane.supersede();
+      const { snapshot, series, linkedSelection } = get();
+      if (!snapshot || series.length === 0 || linkedSelection === null
+        || !isValidSelection(linkedSelection, snapshot.snapshot, snapshot.readyDocs)) {
+        set({ selectedTrends: new Map(), selectedDispersion: null });
+        return;
+      }
+      const issuedKey = snapKey(snapshot);
+      const issuedSelection = linkedSelection;
+      const wireSelection = detailSelection(snapshot.readyDocs, issuedSelection);
+      const guard = () => get().linkedSelection === issuedSelection;
+      set({ selectedTrends: new Map(series.map((s) => [s.id, { status: 'pending' } as const])) });
+      const lease = selectedTrendLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        guard,
+      );
+      for (const s of series) {
+        const spec = specFor(s.id);
+        if (spec === null) continue;
+        const issuedIdentity = termGroupIdentity(spec);
+        const write = (state: SeriesTrendState) =>
+          set((prev) => {
+            const next = new Map(prev.selectedTrends);
+            next.set(s.id, state);
+            return { selectedTrends: next };
+          });
+        issueOn(
+          selectedTrendLane,
+          snapshot.snapshot,
+          { op: 'trend', selection: wireSelection, group: spec, request: { coordinate: 'declared-sequence', binsPerDoc: BINS } },
+          lease,
+          (data) => {
+            if (data.op === 'trend' && identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
+          },
+          (message) => {
+            if (identityOf(s.id) === issuedIdentity) write({ status: 'error', message });
+          },
+        );
+      }
+      const dTracks = trackSpecs(series);
+      if (dTracks !== null) {
+        const dLease = selectedDispersionLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => identitiesCurrent(dTracks.identities),
+          guard,
+        );
+        set({ selectedDispersion: { state: { status: 'pending' } } });
+        issueOn(
+          selectedDispersionLane,
+          snapshot.snapshot,
+          { op: 'dispersion', selection: wireSelection, tracks: dTracks.wire, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
+          dLease,
+          (data) => {
+            if (data.op === 'dispersion') set({ selectedDispersion: { state: { status: 'ready', result: data.dispersion } } });
+          },
+          (message) => set({ selectedDispersion: { state: { status: 'error', message } } }),
+        );
+      }
+    };
+
     /** Issue the merged concordance for the ENABLED terms, centred on the
      *  SETTLED axis position (`kwicCenter`). Independent of `focusedSeries`. */
     const runKwic = () => {
@@ -679,9 +763,14 @@ export function createAppRuntime(
       const tracks = trackSpecs(enabled);
       if (tracks === null) { set({ kwic: null }); return; }
       const issuedKey = snapKey(snapshot);
+      // The concordance is a DETAIL consumer: an active linked range scopes
+      // it to exactly that range via the ONE selection builder (ruling §2 —
+      // the [doc] is load-bearing; every row and total is inside the range).
+      const issuedSelection = get().linkedSelection;
       const lease = kwicLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => identitiesCurrent(tracks.identities),
+        () => get().linkedSelection === issuedSelection,
       );
       set({ kwic: { center, state: { status: 'pending' } } });
       issueOn(
@@ -689,7 +778,7 @@ export function createAppRuntime(
         snapshot.snapshot,
         {
           op: 'kwic',
-          selection: { docs: [...snapshot.readyDocs] },
+          selection: detailSelection(snapshot.readyDocs, issuedSelection),
           tracks: tracks.wire,
           request: {
             contextTokens: 6,
@@ -842,6 +931,9 @@ export function createAppRuntime(
       // Every term appears in the concordance by default.
       kwicEnabledSeries: new Set<string>(),
       dispersion: null,
+      linkedSelection: null,
+      selectedTrends: new Map(),
+      selectedDispersion: null,
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -1043,8 +1135,19 @@ export function createAppRuntime(
         if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         set({ passage: null });
         dispersionLane.supersede();
+        // A published snapshot replacement invalidates the (snapshot-bound)
+        // linked range; runSelected below clears the overlays with it.
+        if (get().linkedSelection !== null
+          && (!snapshot || !isValidSelection(get().linkedSelection!, snapshot.snapshot, snapshot.readyDocs))) {
+          set({ linkedSelection: null });
+        }
         if (!snapshot || series.length === 0) {
-          set({ trends: new Map(), scrub: null, dispersion: null });
+          // Unlike removal, deactivating the final group leaves its notebook
+          // identity valid. Kill selected leases explicitly before this early
+          // return or their late results could repopulate the cleared overlays.
+          selectedTrendLane.supersede();
+          selectedDispersionLane.supersede();
+          set({ trends: new Map(), scrub: null, dispersion: null, selectedTrends: new Map(), selectedDispersion: null });
           resetKwicCenter(); // the axis is gone — no stale center may resurrect
           runKwic(); // clears or re-targets the evidence panel consistently
           return;
@@ -1124,12 +1227,37 @@ export function createAppRuntime(
           );
         }
 
+        // The selected overlays follow the same burst (a snapshot change or
+        // comparison change either revalidates or clears them).
+        runSelected();
+        runKwic();
+      },
+
+      setLinkedSelection(selection) {
+        const { snapshot } = get();
+        if (selection !== null
+          && (!snapshot || !isValidSelection(selection, snapshot.snapshot, snapshot.readyDocs))) {
+          return; // a stale gesture (superseded snapshot / departed doc) commits nothing
+        }
+        if (get().linkedSelection === selection) return;
+        set({ linkedSelection: selection });
+        // Detail consumers reissue; the resident BASELINE trends/dispersion
+        // are untouched (clearing a brush must not recompute them).
+        runSelected();
         runKwic();
       },
 
       centerKwicAt(seriesId, doc, token, origin) {
         const state = get();
         if (!state.snapshot?.readyDocs.includes(doc)) return;
+        // A DELIBERATE click outside the active range clears the range first
+        // (visibly — the shading and overlays drop) so the clicked evidence
+        // can appear in the range-scoped concordance (ruling §2).
+        const sel = state.linkedSelection;
+        if (sel !== null && (doc !== sel.doc || token < sel.tokens.start || token >= sel.tokens.end)) {
+          set({ linkedSelection: null });
+          runSelected();
+        }
         // The activated track must be able to appear in the result: a
         // disabled chip is re-enabled (visible state change, not a silent
         // override) before the reissue (review-D HIGH).
@@ -1331,6 +1459,8 @@ export function createAppRuntime(
       kwicLane.supersede();
       structureLane.supersede();
       dispersionLane.supersede();
+      selectedTrendLane.supersede();
+      selectedDispersionLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
       passageActiveCancel?.();
