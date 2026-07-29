@@ -89,6 +89,20 @@ export {
   type PassageRequest,
   type PassageResult,
 } from './ops/passage.ts';
+export {
+  DISPERSION_BUCKET_BUDGET,
+  DISPERSION_EXACT_MAX,
+  DISPERSION_PACK_CHUNK,
+  dispersionTransferBuffers,
+  packDensityTrack,
+  packExactTrack,
+  planDispersionGeometry,
+  selectionSlotMap,
+  type DispersionGeometryV1,
+  type DispersionResultV1,
+  type DispersionTrackDataV1,
+  type DispersionTrackV1,
+} from './ops/dispersion.ts';
 export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
 export { DecodeError, decodeSource } from './extract/decode.ts';
 export { hashStructureCandidates, type StructureCandidateV1 } from './extract/candidates.ts';

@@ -11,6 +11,7 @@
  */
 
 import type {
+  DispersionResultV1,
   ExtractionRecipeProvisional,
   KwicRequest,
   KwicRow,
@@ -107,7 +108,21 @@ export type QueryOpV4 =
   // `structure` read because it re-derives candidates from resident text.
   | { readonly op: 'structure-edit-context'; readonly request: { readonly doc: string } }
   // The bounded source line around a char anchor (§4) — evidence for a correction.
-  | { readonly op: 'line-excerpt'; readonly request: { readonly doc: string; readonly anchor: number; readonly maxChars: number } };
+  | { readonly op: 'line-excerpt'; readonly request: { readonly doc: string; readonly anchor: number; readonly maxChars: number } }
+  // dispersion/1 (slice-2 ruling): the barcode's bounded numeric result over
+  // the shared occurrence primitive — adaptive exact/density per track. The
+  // request PINS the fixed resolution policy (the exported core constants);
+  // the narrower refuses any other values, so no component-local magic numbers
+  // can drift the contract.
+  | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 };
+
+/** dispersion/1 request: the policy carried explicitly and validated against
+ *  the exported core constants (DISPERSION_EXACT_MAX / DISPERSION_BUCKET_BUDGET). */
+export interface DispersionRequestV1 {
+  readonly method: 'dispersion/1';
+  readonly exactMax: number;
+  readonly bucketBudget: number;
+}
 
 export interface WireSelectionV4 {
   readonly docs: readonly string[];
@@ -176,4 +191,5 @@ export type QueryResultDataV4 =
   | { readonly op: 'passage'; readonly passage: PassageResult }
   | { readonly op: 'structure'; readonly structure: StructureQueryResultV1 }
   | { readonly op: 'structure-edit-context'; readonly context: StructureEditContextV1 }
-  | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 };
+  | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 }
+  | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 };

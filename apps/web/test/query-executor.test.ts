@@ -9,6 +9,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import { MAX_OCCURRENCE_CACHE_ENTRIES } from '../src/worker/query-executor.ts';
+import { DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
 import {
   DEFAULT_INDEX_RECIPE,
   occurrences,
@@ -430,3 +431,98 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
   });
 });
 
+
+describe('dispersion/1 through the executor (slice-2 commit C)', () => {
+  const dispReq = { method: 'dispersion/1' as const, exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET };
+
+  it('EXACT representation: CSR starts/spans per doc, totals equal the source, buffers are fresh (cache survives transfer)', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'the wolf ran. a dire wolf slept.');
+    const b = await docSpec('b', 'no match here');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran. a dire wolf slept.', 10);
+    await coldIngest(h, 'g', 'b', 'no match here', 11);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a', 'b'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
+    const res = h.last('result');
+    if (res.data.op !== 'dispersion') throw new Error('expected dispersion');
+    const track = res.data.dispersion.tracks[0]!;
+    expect(track.seriesId).toBe('s1');
+    expect(track.groupId).toBe(wolfGroup.id);
+    expect(track.total).toBe(2); // wolf@1, wolf@5 in doc a
+    expect(res.data.dispersion.geometry).toBeNull(); // exact-only: no geometry
+    if (track.data.kind !== 'exact') throw new Error('expected exact');
+    expect([...track.data.docOffsets]).toEqual([0, 2, 2]); // both in a, none in b
+    expect([...track.data.starts]).toEqual([1, 5]);
+    expect([...track.data.spanTokens]).toEqual([1, 1]);
+    // The result transferred its buffers; the occurrence CACHE must survive —
+    // an immediate re-query (cache hit) still answers correctly.
+    const transfers = h.transferLists[h.messages.findIndex((m) => m.t === 'result' && m.job === 20)];
+    expect(transfers && transfers.length).toBeGreaterThan(0);
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a', 'b'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
+    const again = h.last('result');
+    if (again.data.op !== 'dispersion') throw new Error('expected dispersion');
+    const t2 = again.data.dispersion.tracks[0]!;
+    expect(t2.total).toBe(2);
+    if (t2.data.kind === 'exact') expect([...t2.data.starts]).toEqual([1, 5]);
+  });
+
+  it('SHARES the occurrence cache with trend/kwic — a dispersion after trend recomputes nothing', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran far. a wolf slept.');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran far. a wolf slept.', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    const occSpy = () => vi.mocked(occurrences);
+    occSpy().mockClear();
+    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    expect(occSpy()).toHaveBeenCalledTimes(1);
+    await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
+    expect(occSpy()).toHaveBeenCalledTimes(1); // served from the shared cache
+  });
+
+  it('the ADAPTIVE boundary through the real dispatcher: exactly DISPERSION_EXACT_MAX stays EXACT', async () => {
+    // Pins the executor's <= decision (a regression to < flips this corpus
+    // to density). Same real-index path as the density test below.
+    const n = DISPERSION_EXACT_MAX;
+    const text = 'wolf '.repeat(n).trim();
+    const h = harness();
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 45, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
+    const res = h.last('result');
+    if (res.data.op !== 'dispersion') throw new Error('expected dispersion');
+    expect(res.data.dispersion.method).toBe('dispersion/1');
+    const track = res.data.dispersion.tracks[0]!;
+    expect(track.total).toBe(n);
+    expect(track.data.kind).toBe('exact'); // AT the boundary: exact, not density
+    expect(res.data.dispersion.geometry).toBeNull();
+  }, 40_000);
+
+  it('DENSITY representation above the exact threshold: labeled, geometry present, bucket sums equal the exact total', async () => {
+    // A single doc whose one term crosses DISPERSION_EXACT_MAX: 50_001
+    // occurrences of 'wolf'. Real index build — the honest path, no stubs.
+    const n = DISPERSION_EXACT_MAX + 1;
+    const text = 'wolf '.repeat(n).trim();
+    const h = harness();
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 40, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
+    const res = h.last('result');
+    if (res.data.op !== 'dispersion') throw new Error('expected dispersion');
+    expect(res.data.dispersion.method).toBe('dispersion/1'); // versioned result discriminator
+    const track = res.data.dispersion.tracks[0]!;
+    expect(track.total).toBe(n); // the EXACT total is echoed even in density
+    if (track.data.kind !== 'density') throw new Error('expected density');
+    const g = res.data.dispersion.geometry!;
+    expect(g).not.toBeNull();
+    expect(g.order).toEqual(['a']);
+    const sum = [...track.data.counts].reduce((s, c) => s + c, 0);
+    expect(sum).toBe(n); // HONEST buckets: nothing sampled, nothing dropped
+    expect(track.data.counts.length).toBeLessThanOrEqual(DISPERSION_BUCKET_BUDGET);
+  }, 30_000);
+});

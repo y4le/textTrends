@@ -15,6 +15,8 @@ import {
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
   TERM_GROUP_LIMITS_V1,
+  DISPERSION_BUCKET_BUDGET,
+  DISPERSION_EXACT_MAX,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -284,6 +286,20 @@ describe('narrowQueryV4', () => {
       members: Array.from({ length: TERM_GROUP_LIMITS_V1.maxMembers }, (_, i) =>
         member({ id: `m${i}`, surface: 'w'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits) })),
     }))).toBe(true);
+  });
+
+  it('dispersion/1 narrows only with the PINNED policy constants and valid tracks', () => {
+    const disp = (over: Record<string, unknown> = {}, tracks: unknown = [{ seriesId: 's1', group: wolfGroup }]) =>
+      narrowQueryV4({ op: 'dispersion', selection: { docs: ['a'] }, tracks, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET, ...over } });
+    expect(disp()).toBe(true);
+    // Policy drift is a MALFORMED message, not a tunable (slice-2 ruling).
+    expect(disp({ exactMax: DISPERSION_EXACT_MAX + 1 })).toBe(false);
+    expect(disp({ bucketBudget: 1024 })).toBe(false);
+    expect(disp({ method: 'dispersion/2' })).toBe(false);
+    // Track discipline is the shared kwic/passage authority.
+    expect(disp({}, [])).toBe(false);
+    expect(disp({}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
+    expect(disp({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
   });
 
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {

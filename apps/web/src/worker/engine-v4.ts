@@ -1,3 +1,4 @@
+import { dispersionTransferBuffers } from '@texttrends/core';
 import { QueryExecutor } from './query-executor.ts';
 /**
  * WorkerEngineV4 — the ingest/structure worker lifecycle (contract §12.8;
@@ -1370,6 +1371,16 @@ export class WorkerEngineV4 {
       const data = await gen.executor.trend(selection, q.group, q.request, checkpoint);
       this.queryGate(job, gen, snapshotId);
       this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'trend', trend: data } }, trendTransferList(data));
+      return;
+    }
+
+    if (q.op === 'dispersion') {
+      const dispersion = await gen.executor.dispersion(selection, q.tracks, checkpoint);
+      this.queryGate(job, gen, snapshotId);
+      this.emit(
+        { v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'dispersion', dispersion } },
+        dispersionTransferBuffers(dispersion),
+      );
       return;
     }
 

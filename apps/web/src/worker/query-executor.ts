@@ -21,6 +21,13 @@
 import {
   buildResolver,
   checkedResolverFor,
+  DISPERSION_EXACT_MAX,
+  packDensityTrack,
+  packExactTrack,
+  planDispersionGeometry,
+  selectionSlotMap,
+  type DispersionResultV1,
+  type DispersionTrackV1,
   kwicPage,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
@@ -209,6 +216,52 @@ export class QueryExecutor {
     // the pre-extraction engine).
     await checkpoint();
     return data;
+  }
+
+  /** dispersion/1 (slice-2 ruling §C): adaptive exact/density per track over
+   *  the SAME cached occurrence primitive as trend/kwic — this method never
+   *  resolves members or interprets overlap semantics itself. Geometry is
+   *  planned once, lazily, only when some track crosses the exact threshold.
+   *  All output arrays are FRESH (packers copy) — transferring them can
+   *  never detach the occurrence cache's buffers. */
+  async dispersion(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    checkpoint: QueryCheckpoint,
+  ): Promise<DispersionResultV1> {
+    const snapshot = this.published().snapshot;
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+
+    // Bridge SNAPSHOT ordinals (NumericOccurrences.docOrdinal) to SELECTED
+    // slots — a subset selection must land in slot 0, never out of bounds.
+    const slotMap = selectionSlotMap(snapshot, selection);
+    let geometry: ReturnType<typeof planDispersionGeometry> | null = null;
+    const out: DispersionTrackV1[] = [];
+    for (const track of tracks) {
+      const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+      await checkpoint(); // per-track gate, as in kwic
+      const total = occ.pos.length;
+      if (total <= DISPERSION_EXACT_MAX) {
+        out.push({ seriesId: track.seriesId, groupId: track.group.id, total, data: packExactTrack(occ, slotMap, selection.spec.docs.length) });
+      } else {
+        geometry ??= planDispersionGeometry(snapshot, selection);
+        out.push({ seriesId: track.seriesId, groupId: track.group.id, total, data: await packDensityTrack(occ, geometry, slotMap, checkpoint) });
+      }
+      await checkpoint();
+    }
+    return { method: 'dispersion/1', geometry, tracks: out };
   }
 
   /** kwic/2: UNION every track's required match modes per doc (never rebuild

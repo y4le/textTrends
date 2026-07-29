@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1 } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -170,6 +170,15 @@ export function narrowQueryV4(q: unknown): boolean {
       // that carries the legacy field so a partially-migrated caller cannot hide
       // contradictory semantics under an ignored `group` (ruling §1).
       return q.group === undefined && narrowSelection(q.selection) && narrowTracks(q.tracks, 1) && narrowKwicRequest(q.request);
+    case 'dispersion': {
+      // dispersion/1 pins its resolution POLICY on the wire: the request must
+      // carry exactly the exported core constants — a drifted or bespoke
+      // value is a malformed message, not a tunable (slice-2 ruling §1).
+      const r = q.request as Record<string, unknown>;
+      return narrowSelection(q.selection) && narrowTracks(q.tracks, 1) &&
+        isRecord(q.request) && r.method === 'dispersion/1' &&
+        r.exactMax === DISPERSION_EXACT_MAX && r.bucketBudget === DISPERSION_BUCKET_BUDGET;
+    }
     case 'passage':
       return narrowPassageRequest(q.request);
     case 'structure':
