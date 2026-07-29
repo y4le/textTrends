@@ -179,6 +179,13 @@ export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void>
   await expect(page.getByText(READY_TEXT)).toBeVisible({ timeout });
 }
 
+/** Remove every notebook group through the UI (the notebook is append-only;
+ *  specs that want a FRESH comparison clear it first). */
+export async function clearNotebook(page: Page): Promise<void> {
+  const removeButtons = page.getByRole('button', { name: /^Remove / });
+  while ((await removeButtons.count()) > 0) await removeButtons.first().click();
+}
+
 /**
  * Submit a comparison and wait for EVERY query posted after the action to
  * deliver its result — an assertion must never pass on pre-action evidence
@@ -190,8 +197,13 @@ export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void>
  * timeout failure.
  */
 export async function submitAndAwaitFreshResults(page: Page, terms: string): Promise<ProtocolTraceEvent[]> {
+  // The notebook is APPEND-ONLY (slice-1 commit C): "submit a comparison"
+  // now means clear the notebook, then quick-add the terms. Removals happen
+  // BEFORE the trace mark so their superseded (cancelled, never-delivering)
+  // bursts can't stall the fresh-results poll.
+  await clearNotebook(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const input = page.getByLabel(/terms to compare/i);
+  const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill(terms);
   await input.press('Enter');
   let fresh: ProtocolTraceEvent[] = [];

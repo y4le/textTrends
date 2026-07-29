@@ -21,9 +21,11 @@
  * conflated: the UUID is presentation/selection identity (focus, style,
  * concordance membership, result keys); `termGroupIdentity` is matching
  * identity (worker caches, stale-result admission). The comma input is the
- * transitional quick-add surface; parseSeries stays deliberately
- * locale-INDEPENDENT (NFC dedup only — whether two surfaces match identically
- * is per-document, resolved under each shard's locale in the worker; a fixed
+ * APPEND-ONLY quick-add surface (`parseQuickAdd`): each term becomes a
+ * single-token folded group, a term already present (same matching identity)
+ * is skipped, and an over-room batch refuses atomically. Dedup is NFC only,
+ * deliberately locale-INDEPENDENT (whether two surfaces match identically is
+ * per-document, resolved under each shard's locale in the worker; a fixed
  * `en` fold once wrongly unified `I`/`İ`). Trend results key off group id in
  * an immutably-replaced map; a missing entry is impossible to confuse with
  * pending or failed because every issued series is seeded 'pending', and a
@@ -46,7 +48,6 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
-  TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
   type DocumentMetaV1,
   type GroupMember,
@@ -58,8 +59,9 @@ import {
 import {
   coreGroupOf,
   groupIdentity,
+  NOTEBOOK_LIMITS_V1,
+  parseQuickAdd,
   reconcileStyleSlots,
-  replaceWithQuickAdd,
   validateNotebookGroup,
   type QueryNotebookV1,
 } from './notebook.ts';
@@ -115,12 +117,11 @@ const snapKey = (s: SnapshotInfo | null): string | null =>
   s ? JSON.stringify([s.generation, s.snapshot]) : null;
 
 export interface SeriesIntent {
-  /** Stable PRESENTATION identity. Since the notebook cutover this is the
-   *  owning notebook group's UUID — a display/colour/dedup key, NOT a
-   *  semantic match key (that is `termGroupIdentity`). `parseSeries` output
-   *  still carries the NFC label here (quick-add's pre-reconcile shape). */
+  /** Stable PRESENTATION identity: the owning notebook group's UUID — a
+   *  display/colour/dedup key, NOT a semantic match key (that is
+   *  `termGroupIdentity`). */
   readonly id: string;
-  /** The group's display name (quick-add: the first-seen user spelling). */
+  /** The group's display name (quick-add: the NFC term). */
   readonly label: string;
   /** Fixed visual slot (color + dash) — owned by the group, preserved
    *  through rename/edit/reorder/mute, freed on removal. */
@@ -232,43 +233,6 @@ export interface SessionPort {
   loadUserProject(): void;
 }
 
-/** Comma-separated comparison → ordered PRESENTATION series (first spelling of
- *  an NFC-equivalent repeat wins). Identity is the NFC-normalized label — a
- *  stable, locale-independent presentation id, NOT a semantic match key — so
- *  distinct spellings stay distinct tracks (matching equivalence is resolved
- *  per-document in the worker). More than MAX_SERIES distinct series is an
- *  explicit refusal, not a silent truncation. Exported for fixtures. */
-export function parseSeries(input: string):
-  | { readonly series: readonly SeriesIntent[]; readonly error: null }
-  | { readonly series: null; readonly error: string } {
-  const series: SeriesIntent[] = [];
-  for (const raw of input.split(',')) {
-    const label = raw.trim();
-    if (label === '') continue;
-    // Stable, locale-independent PRESENTATION id: the NFC-normalized label,
-    // deduped only against exact-after-NFC repeats (canonically equivalent raw
-    // spellings share an id). Whether two DISTINCT spellings match identically
-    // is per-document (folded under each shard's locale in the worker), so the
-    // store never guesses a locale to collapse them.
-    const id = label.normalize('NFC');
-    if (series.some((s) => s.id === id)) continue;
-    // The RAW label (first-seen spelling, pre-NFC) becomes the ONE token
-    // surface of the issued group, and TERM_GROUP_LIMITS_V1 bounds raw UTF-16
-    // code units — so the emitted label is what must fit, not the (possibly
-    // shorter) NFC id. Checked after dedup: a long duplicate spelling that
-    // collapses into an existing series emits nothing and refuses nothing
-    // (review-A rounds 1–2).
-    if (label.length > TERM_GROUP_LIMITS_V1.maxSurfaceUnits) {
-      return { series: null, error: `Each term is at most ${TERM_GROUP_LIMITS_V1.maxSurfaceUnits} UTF-16 code units` };
-    }
-    series.push({ id, label, styleSlot: series.length });
-  }
-  if (series.length > MAX_SERIES) {
-    return { series: null, error: `Compare up to ${MAX_SERIES} terms` };
-  }
-  return { series, error: null };
-}
-
 export interface AppState {
   /** Composition-root lifecycle before/after the one-shot session attach. */
   bootstrap: BootstrapState;
@@ -282,8 +246,7 @@ export interface AppState {
    *  command the UI should have prevented). Async policy failures stay in
    *  `projectSession` (save/sources/reattach). */
   commandError: string | null;
-  /** Raw committed input (the draft lives in the form component). */
-  input: string;
+
   /** The query notebook (slice-1 ruling): the authoritative ordered group
    *  list. Session-only in this slice — deliberately NOT persisted anywhere
    *  (a hand-authored notebook is class-1 user data; durability arrives with
@@ -335,7 +298,11 @@ export interface AppState {
   passage: PassageResult | null;
 
   // ── Query/presentation intent (owned here). ──
-  setInput(input: string): void;
+  /** Append-only quick-add: each comma term becomes a single-token folded
+   *  group, active and concordance-enabled; a term already in the notebook
+   *  (same matching identity) is skipped; a batch that cannot FULLY activate
+   *  is refused atomically via `inputError` (nothing partial, ruling §3). */
+  quickAdd(input: string): void;
   // ── Notebook authoring (slice-1 commit B: model + actions; UI lands in the
   //    panel commit). Rename/reorder are presentation-only (no reissue);
   //    member/overlap edits and active-set changes reissue the evidence. ──
@@ -752,11 +719,27 @@ export function createAppRuntime(
      * leaves the same invariants (ruling invariant 7). Reissue policy is the
      * CALLER's: rename/reorder are presentation-only.
      */
+    /** The EFFECTIVE query intent: for each projected series in order, its
+     *  UUID, matching identity, and concordance membership. Reissue decisions
+     *  compare THIS — a mutation that leaves it unchanged (muting a solo'd-out
+     *  group, editing an unprojected one, appending while soloed) must not
+     *  cancel or recompute live evidence (ruling invariant 2, review-C). */
+    const effectiveIntentKey = (
+      nb: QueryNotebookV1,
+      series: readonly SeriesIntent[],
+      enabled: ReadonlySet<string>,
+    ): string =>
+      JSON.stringify(series.map((s) => {
+        const g = nb.groups.find((x) => x.id === s.id);
+        return [s.id, g ? groupIdentity(g) : null, enabled.has(s.id)];
+      }));
+
     const adoptNotebook = (
       next: { notebook?: QueryNotebookV1; activeGroupIds?: ReadonlySet<string>; soloGroupId?: string | null },
       opts: { reissue: boolean },
     ): void => {
       const prev = get();
+      const prevIntent = effectiveIntentKey(prev.notebook, prev.series, prev.kwicEnabledSeries);
       const notebook = next.notebook ?? prev.notebook;
       const known = new Set(notebook.groups.map((g) => g.id));
       const active = new Set([...(next.activeGroupIds ?? prev.activeGroupIds)].filter((id) => known.has(id)));
@@ -785,20 +768,16 @@ export function createAppRuntime(
         kwicEnabledSeries: nextEnabled,
         focusedSeries: stillFocused ? prev.focusedSeries : series[0]?.id ?? null,
       });
-      if (opts.reissue) get().runQueries();
+      if (opts.reissue && effectiveIntentKey(notebook, series, nextEnabled) !== prevIntent) {
+        get().runQueries();
+      }
     };
 
     /** Refuse a notebook action with one bounded message (no state change). */
     const refuseNotebook = (message: string): void => set({ notebookError: message });
 
-    const initialNotebook = replaceWithQuickAdd(
-      { schema: 'texttrends/query-notebook/1', groups: [] },
-      parseSeries('Holmes, Moriarty').series?.map((s) => s.label) ?? [],
-      newId,
-    );
-    const initialActive = new Set(initialNotebook.groups.map((g) => g.id));
-    const initialSlots = reconcileStyleSlots(new Map(), [...initialActive], initialActive, new Set());
-    const initialSeries = projectSeries(initialNotebook, initialActive, null, initialSlots);
+    // The store starts EMPTY — the demo notebook is the composition root's
+    // seeding decision (store-instance.ts), not baked model state.
     return {
       bootstrap: { phase: 'initializing' },
       projectSession: null,
@@ -806,22 +785,21 @@ export function createAppRuntime(
       loadingPhase: null,
       loadError: null,
       commandError: null,
-      input: 'Holmes, Moriarty',
-      notebook: initialNotebook,
-      activeGroupIds: initialActive,
+      notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
+      activeGroupIds: new Set<string>(),
       soloGroupId: null,
-      styleSlots: initialSlots,
+      styleSlots: new Map<string, number>(),
       notebookError: null,
-      series: initialSeries,
+      series: [],
       inputError: null,
       // Canonical from the start: the store, not the panels, decides the
       // default focus (review round 5 — a derived fallback left the pressed
       // chip and the recorded focus disagreeing).
-      focusedSeries: initialSeries[0]?.id ?? null,
+      focusedSeries: null,
       trends: new Map(),
       kwic: null,
       // Every term appears in the concordance by default.
-      kwicEnabledSeries: new Set(initialSeries.map((s) => s.id)),
+      kwicEnabledSeries: new Set<string>(),
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -831,31 +809,29 @@ export function createAppRuntime(
       scrub: null,
       passage: null,
 
-      setInput(input) {
-        const parsed = parseSeries(input);
+      quickAdd(input) {
+        const state = get();
+        const room = Math.min(
+          NOTEBOOK_LIMITS_V1.maxGroups - state.notebook.groups.length,
+          MAX_SERIES - state.activeGroupIds.size,
+        );
+        const parsed = parseQuickAdd(input, newId, Math.max(0, room), state.notebook.groups);
         if (parsed.error !== null) {
-          // Refused intent still supersedes the old one: cancel and clear so
-          // stale lines are never displayed beside the error. The notebook
-          // empties too (transitional replacement semantics — commit C makes
-          // the input append-only).
-          set({
-            input, inputError: parsed.error,
-            notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
-            activeGroupIds: new Set(), soloGroupId: null, styleSlots: new Map(),
-            series: [], focusedSeries: null, kwicEnabledSeries: new Set(),
-          });
-          get().runQueries();
+          // ATOMIC refusal: the existing notebook and its evidence stand
+          // untouched beside the message (append-only — a refused add never
+          // clears anything).
+          set({ inputError: parsed.error });
           return;
         }
-        // Replacement-mode reconcile: a group whose matching identity survives
-        // the edit keeps its UUID (and thus focus/style/concordance ownership);
-        // everything else is dropped, every listed group is active.
-        const notebook = replaceWithQuickAdd(get().notebook, parsed.series.map((s) => s.label), newId);
-        set({ input, inputError: null });
-        adoptNotebook(
-          { notebook, activeGroupIds: new Set(notebook.groups.map((g) => g.id)), soloGroupId: null },
-          { reissue: true },
-        );
+        set({ inputError: null });
+        if (parsed.groups.length === 0) return; // blank or all-duplicates: no-op
+        const notebook: QueryNotebookV1 = {
+          schema: 'texttrends/query-notebook/1',
+          groups: [...state.notebook.groups, ...parsed.groups],
+        };
+        const active = new Set(state.activeGroupIds);
+        for (const g of parsed.groups) active.add(g.id); // room was preflighted
+        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
       },
 
       // ── Notebook authoring actions (commit B: model only; UI lands with

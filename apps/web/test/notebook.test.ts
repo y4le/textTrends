@@ -12,7 +12,6 @@ import {
   parseQueryNotebook,
   parseQuickAdd,
   reconcileStyleSlots,
-  replaceWithQuickAdd,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
@@ -35,52 +34,60 @@ const tokenGroup = (id: string, name: string, surface = name): NotebookGroupV1 =
 });
 
 describe('parseQuickAdd', () => {
-  it('splits, trims, NFC-normalizes, dedups, and mints ids via the injected factory', () => {
-    const p = parseQuickAdd(' wolf , , Wolf , wolf ', counter(), 10);
+  it('splits, trims, NFC-normalizes, dedups within the batch, and mints ids via the injected factory', () => {
+    const p = parseQuickAdd(' wolf , , Wolf , wolf ', counter(), 10, []);
     expect(p.error).toBeNull();
     expect(p.groups!.map((g) => g.name)).toEqual(['wolf', 'Wolf']);
     expect(p.groups!.map((g) => g.id)).toEqual(['u1', 'u3']); // u2/u4 = member ids
     expect(p.groups![0]!.members[0]!.match).toEqual(FOLDED_MATCH);
   });
 
-  it('refuses ATOMICALLY when the batch exceeds the room — never a partial add', () => {
-    const p = parseQuickAdd('a, b, c', counter(), 2);
+  it('dedups by NFC (composed ≡ decomposed) but keeps I and İ distinct — locale-independent', () => {
+    const composed = '\u00e9t\u00e9';
+    const decomposed = 'e\u0301te\u0301';
+    const p = parseQuickAdd(`${composed}, ${decomposed}`, counter(), 10, []);
+    expect(p.groups!).toHaveLength(1);
+    const only = p.groups![0]!.members[0]!;
+    expect(only.kind === 'token' && only.surface).toBe(composed); // NFC surface emitted
+    const distinct = parseQuickAdd('I, İ', counter(), 10, []);
+    expect(distinct.groups!).toHaveLength(2); // NFC does not unify these
+  });
+
+  it('SKIPS a term whose matching identity already exists in the notebook — skips consume no room and no ids', () => {
+    const existing = [tokenGroup('gA', 'wolf')];
+    const p = parseQuickAdd('wolf, bear', counter(), 1, existing); // room for ONE
+    expect(p.error).toBeNull(); // wolf skipped → only bear needs room
+    expect(p.groups!.map((g) => g.name)).toEqual(['bear']);
+    expect(p.groups![0]!.id).toBe('u1'); // the skip minted nothing
+    // A DIFFERENT spelling is a different identity — not skipped.
+    const p2 = parseQuickAdd('Wolf', counter(), 1, existing);
+    expect(p2.groups!.map((g) => g.name)).toEqual(['Wolf']);
+    // A multi-member group of the same NAME does not block its term.
+    const multi = { ...tokenGroup('gM', 'fox'), members: [
+      { id: 'm1', kind: 'token' as const, surface: 'fox', match: FOLDED_MATCH },
+      { id: 'm2', kind: 'token' as const, surface: 'vulpes', match: FOLDED_MATCH },
+    ] };
+    const p3 = parseQuickAdd('fox', counter(), 1, [multi]);
+    expect(p3.groups!).toHaveLength(1); // identities differ → appended
+  });
+
+  it('refuses ATOMICALLY when the NEW groups exceed the room — never a partial add', () => {
+    const p = parseQuickAdd('a, b, c', counter(), 2, []);
     expect(p.groups).toBeNull();
     expect(p.error).toContain('room for 2');
   });
 
-  it('refuses an over-long term explicitly', () => {
-    const p = parseQuickAdd('x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits + 1), counter(), 10);
+  it('refuses an over-long term explicitly (NFC length — the emitted surface is NFC)', () => {
+    const p = parseQuickAdd('x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits + 1), counter(), 10, []);
     expect(p.groups).toBeNull();
     expect(p.error).toContain('too long');
-  });
-});
-
-describe('replaceWithQuickAdd', () => {
-  it('reuses a group with the SAME matching identity wholesale — UUID and member ids survive', () => {
-    const prev = nb(tokenGroup('gA', 'wolf'));
-    const next = replaceWithQuickAdd(prev, ['wolf', 'fox'], counter());
-    expect(next.groups[0]).toBe(prev.groups[0]); // object identity: reused wholesale
-    expect(next.groups[1]!.id).toBe('u1');
-  });
-
-  it('claims a survivor at most ONCE and drops everything unclaimed', () => {
-    const prev = nb(tokenGroup('gA', 'wolf'), tokenGroup('gB', 'bear'));
-    const next = replaceWithQuickAdd(prev, ['wolf', 'wolf2'], counter());
-    expect(next.groups.map((g) => g.id)).toEqual(['gA', 'u1']);
-    expect(next.groups.some((g) => g.id === 'gB')).toBe(false);
-  });
-
-  it('does NOT reconcile across different raw spellings or a multi-member group of the same name', () => {
-    const multi: NotebookGroupV1 = {
-      ...tokenGroup('gM', 'wolf'),
-      members: [
-        { id: 'm1', kind: 'token', surface: 'wolf', match: FOLDED_MATCH },
-        { id: 'm2', kind: 'token', surface: 'lupus', match: FOLDED_MATCH },
-      ],
-    };
-    const next = replaceWithQuickAdd(nb(multi), ['wolf'], counter());
-    expect(next.groups[0]!.id).toBe('u1'); // fresh — identities differ
+    // A decomposed spelling whose NFC form fits IS accepted — the bound and
+    // the emitted surface are the same (NFC) string.
+    const decomposed = 'e\u0301'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1);
+    const ok = parseQuickAdd(decomposed, counter(), 10, []);
+    expect(ok.error).toBeNull();
+    const m = ok.groups![0]!.members[0]!;
+    expect(m.kind === 'token' ? m.surface.length : -1).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
   });
 });
 
@@ -238,12 +245,10 @@ describe('parseQueryNotebook — structured-clone safety and blank names (review
 });
 
 describe('quick-add name/surface bound alignment (review-B)', () => {
-  it('any term parseSeries accepts builds a VALID notebook group — the 129–256-unit band included', () => {
+  it('any accepted term builds a VALID notebook group — the 129–256-unit band included', () => {
     const label = 'x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits); // longest legal term
-    const p = parseQuickAdd(label, counter(), 10);
+    const p = parseQuickAdd(label, counter(), 10, []);
     expect(p.error).toBeNull();
     expect(() => validateNotebookGroup(p.groups![0]!)).not.toThrow();
-    const r = replaceWithQuickAdd(nb(), [label], counter());
-    expect(() => validateNotebookGroup(r.groups[0]!)).not.toThrow();
   });
 });

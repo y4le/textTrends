@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { KwicPanel } from './components/KwicPanel.tsx';
+import { NotebookPanel } from './components/NotebookPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { StructurePanel } from './components/StructurePanel.tsx';
 import { TrendPanel } from './components/TrendPanel.tsx';
@@ -56,8 +57,7 @@ function ChartFocusChip({
 export function App() {
   const snapshot = useApp((s) => s.snapshot);
   const loadingPhase = useApp((s) => s.loadingPhase);
-  const input = useApp((s) => s.input);
-  const setInput = useApp((s) => s.setInput);
+  const quickAdd = useApp((s) => s.quickAdd);
   const inputError = useApp((s) => s.inputError);
   const series = useApp((s) => s.series);
   const trends = useApp((s) => s.trends);
@@ -68,7 +68,7 @@ export function App() {
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
   const bootstrap = useApp((s) => s.bootstrap);
-  const [draft, setDraft] = useState(input);
+  const [draft, setDraft] = useState('');
 
   const focusedId = focusedSeries;
 
@@ -79,14 +79,17 @@ export function App() {
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            setInput(draft);
+            // Append-only quick-add: the field clears on submission — the
+            // NOTEBOOK below, not this input, is the authoritative group list.
+            quickAdd(draft);
+            setDraft('');
           }}
         >
           <input
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
-            aria-label="Terms to compare through the corpus, comma-separated"
-            placeholder="holmes, moriarty"
+            aria-label="Add terms to the notebook, comma-separated"
+            placeholder="add terms: holmes, moriarty"
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-sm)',
@@ -180,6 +183,7 @@ export function App() {
           ))}
         </div>
       )}
+      <NotebookPanel />
       <div style={{ marginTop: 'var(--space-3)' }}>
         <TrendPanel />
         <KwicPanel />

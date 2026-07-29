@@ -16,7 +16,8 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace } from './helpers.ts';
+import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace, clearNotebook } from './helpers.ts';
+import type { ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 test.describe.configure({ mode: 'serial' });
 
@@ -42,19 +43,30 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   const warmReopenMs = warmBarrierAt - warmBeginAt;
 
   // Query latency samples through the real UI (trend + kwic per input).
-  const input = page.getByLabel(/terms to compare/i);
+  const input = page.getByLabel(/add terms to the notebook/i);
   const queryLatencies: number[] = [];
   for (const terms of ['watson', 'moriarty', 'adler', 'lestrade', 'baskerville']) {
+    // Fresh single-term comparison per sample (append-only notebook): the
+    // measured burst must stay one trend + one KWIC, comparable across runs.
+    await clearNotebook(page);
     const before = ((await trace(page)).events.at(-1)?.seq ?? -1);
     await input.fill(terms);
     await input.press('Enter');
+    // Correlate by JOB id: a late-settling result from a superseded removal
+    // burst (clearNotebook does not await) must never be recorded as this
+    // term's latency (review-C).
+    let post: ProtocolTraceEvent | undefined;
+    let result: ProtocolTraceEvent | undefined;
     await expect
-      .poll(async () => (await trace(page)).events.filter((e) => e.seq > before && e.direction === 'from-worker' && e.t === 'result').length)
-      .toBeGreaterThan(0);
-    const t = await trace(page);
-    const post = t.events.find((e) => e.seq > before && e.direction === 'to-worker' && e.t === 'query');
-    const result = t.events.find((e) => e.seq > before && e.direction === 'from-worker' && e.t === 'result');
-    if (post && result) queryLatencies.push(result.at - post.at);
+      .poll(async () => {
+        const t = await trace(page);
+        post = t.events.find((e) => e.seq > before && e.direction === 'to-worker' && e.t === 'query' && e.op === 'trend');
+        if (!post) return 'no fresh trend query';
+        result = t.events.find((e) => e.seq > before && e.direction === 'from-worker' && e.t === 'result' && e.job === post!.job);
+        return result ? 'correlated result' : 'awaiting the trend result';
+      })
+      .toBe('correlated result');
+    queryLatencies.push(result!.at - post!.at);
   }
 
   // Cancel-ack p95 over >= 20 real acknowledgements (harness page).

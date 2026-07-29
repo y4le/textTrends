@@ -152,53 +152,6 @@ export function reconcileStyleSlots(
   return next;
 }
 
-/**
- * Replacement-mode reconcile for the comma input (transitional: commit B
- * keeps the input's replace-everything semantics; commit C makes it
- * append-only). Each label becomes a single-token folded group; a previous
- * group with the SAME matching identity is reused wholesale (its UUID,
- * member ids, and thus focus/style/concordance ownership survive an
- * ordinary edit), claimed at most once. Everything unclaimed is dropped.
- */
-export function replaceWithQuickAdd(
-  prev: QueryNotebookV1,
-  labels: readonly string[],
-  newId: () => string,
-): QueryNotebookV1 {
-  const claimed = new Set<string>();
-  const groups = labels.map((label): NotebookGroupV1 => {
-    const fresh: NotebookGroupV1 = {
-      id: '',
-      name: label.normalize('NFC'),
-      members: [{ id: 'm', kind: 'token', surface: label, match: FOLDED_MATCH }],
-      countOverlaps: false,
-    };
-    const identity = groupIdentity(fresh);
-    const survivor = prev.groups.find((g) => !claimed.has(g.id) && groupIdentity(g) === identity);
-    if (survivor) {
-      claimed.add(survivor.id);
-      return survivor;
-    }
-    const minted: NotebookGroupV1 = { ...fresh, id: newId(), members: [{ ...fresh.members[0]!, id: newId() }] };
-    // Every CONSTRUCTED group passes the same admission the editor enforces
-    // (review-B): with the name bound aligned to the surface bound this
-    // cannot fire for input parseSeries accepted, but the invariant is
-    // asserted, not assumed.
-    validateNotebookGroup(minted);
-    return minted;
-  });
-  return { schema: 'texttrends/query-notebook/1', groups };
-}
-
-/**
- * The versioned WHOLE-NOTEBOOK runtime validator (ruling §2: the codec is
- * defined in slice 1 even though persistence is deferred — the eventual
- * durable/share serialization starts from this admission, never from a
- * TypeScript-only trust). Narrows `unknown`: schema discriminant, dense
- * bounded groups array, unique group UUIDs, and full per-group admission
- * (shape here, then `validateNotebookGroup` for semantics). Throws
- * RangeError; returns the value TYPED on success.
- */
 export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
   if (!exactRecord(value, ['schema', 'groups'])) throw new RangeError('a notebook must be an exact {schema, groups} record');
   if (value.schema !== 'texttrends/query-notebook/1') throw new RangeError('unknown notebook schema');
@@ -269,16 +222,19 @@ export interface QuickAddRefusal {
   readonly error: string;
 }
 
-/** Parse the quick-add comma input into single-token folded groups (ruling
- *  §3): each distinct term (NFC, first spelling wins) becomes a named group
- *  with one token member. Comparison against existing names/semantics is the
- *  caller's job (the store reconciles); this is the pure text → groups step.
- *  Refusal (over-limit) is explicit and atomic — never a partial batch. */
+/** Parse the quick-add comma input into APPENDED single-token folded groups
+ *  (ruling §3: append-only, subordinate to the notebook). Each distinct term
+ *  (NFC) becomes a named group with one token member; a term whose matching
+ *  identity ALREADY exists in the notebook is skipped (it adds nothing, like
+ *  the input's own dedup). Refusal (a batch larger than `room`) is explicit
+ *  and ATOMIC — never a partial add, never a partial activation. */
 export function parseQuickAdd(
   input: string,
   newId: () => string,
   room: number,
+  existing: readonly NotebookGroupV1[],
 ): { readonly groups: readonly NotebookGroupV1[]; readonly error: null } | QuickAddRefusal {
+  const existingIdentities = new Set(existing.map(groupIdentity));
   const labels: string[] = [];
   for (const raw of input.split(',')) {
     const label = raw.trim().normalize('NFC');
@@ -286,19 +242,26 @@ export function parseQuickAdd(
     if (labels.includes(label)) continue;
     labels.push(label);
   }
-  if (labels.length > room) {
-    return { groups: null, error: `only room for ${room} more group${room === 1 ? '' : 's'}` };
-  }
   const over = labels.find((l) => l.length > TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
   if (over !== undefined) {
     return { groups: null, error: `“${over.slice(0, 24)}…” is too long for one term` };
   }
-  const groups = labels.map((label): NotebookGroupV1 => ({
-    id: newId(),
-    name: label,
-    members: [{ id: newId(), kind: 'token', surface: label, match: FOLDED_MATCH }],
-    countOverlaps: false,
-  }));
+  const groups: NotebookGroupV1[] = [];
+  for (const label of labels) {
+    // Identity excludes the caller-owned ids, so probe BEFORE minting —
+    // skipped duplicates must not consume (deterministic test) ids.
+    const probe: NotebookGroupV1 = {
+      id: 'probe',
+      name: label,
+      members: [{ id: 'm', kind: 'token', surface: label, match: FOLDED_MATCH }],
+      countOverlaps: false,
+    };
+    if (existingIdentities.has(groupIdentity(probe))) continue; // already in the notebook
+    groups.push({ ...probe, id: newId(), members: [{ ...probe.members[0]!, id: newId() }] });
+  }
+  if (groups.length > room) {
+    return { groups: null, error: `only room for ${room} more group${room === 1 ? '' : 's'}` };
+  }
   // Constructed groups pass the same admission the editor enforces; a
   // violation is an explicit refusal, never an invalid adopted notebook.
   try {

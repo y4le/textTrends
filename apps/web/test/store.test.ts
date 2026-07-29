@@ -19,8 +19,6 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
   KWIC_CENTER_DEBOUNCE_MS,
-  parseSeries,
-  MAX_SERIES,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
@@ -254,96 +252,21 @@ function fakePassage(start: number, end: number, center: number, doc = 'a'): Pas
 }
 
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
-function harness(initial?: SessionState) {
+function harness(initial?: SessionState, opts?: { seed?: boolean }) {
   const q = fakeQueryClient();
   // Deterministic injected UUIDs: u1, u2, … (creation order).
   let n = 0;
   const runtime = createAppRuntime(q.client, { newId: () => `u${++n}` });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
+  // The store starts EMPTY (the composition root seeds the demo comparison
+  // in production — store-instance.ts). Bridge tests that need series present
+  // BEFORE a publication opt in with seed:true.
+  if (opts?.seed === true) runtime.useApp.getState().quickAdd('Holmes, Moriarty');
   return { ...q, runtime, store: runtime.useApp, port };
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
-
-describe('parseSeries', () => {
-  it('splits on commas, trims, drops blanks, preserves first spelling and order', () => {
-    const p = parseSeries(' Holmes , , moriarty ,');
-    expect(p.error).toBeNull();
-    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'moriarty']);
-    expect(p.series!.map((s) => s.styleSlot)).toEqual([0, 1]);
-  });
-
-  it('gives distinct spellings distinct PRESENTATION ids (dedup is exact-after-NFC, locale-independent)', () => {
-    // Whether two spellings match identically is per-document (folded under
-    // each shard's locale in the worker), so the store must NOT guess a corpus
-    // locale to collapse them. Distinct labels are distinct series; only
-    // canonically-equivalent (post-NFC) repeats dedup.
-    const p = parseSeries('Holmes, holmes, Hólmes, watson');
-    expect(p.series!.map((s) => s.label)).toEqual(['Holmes', 'holmes', 'Hólmes', 'watson']);
-    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
-    const dup = parseSeries('cat, cat, Cat');
-    expect(dup.series!.map((s) => s.label)).toEqual(['cat', 'Cat']);
-  });
-
-  it('dedups only canonically-equivalent spellings — NFC(composed) === NFC(decomposed)', () => {
-    // Composed 'é' (U+00E9) and decomposed 'e' + U+0301 are the SAME text after
-    // NFC, so they collapse to one series despite differing byte for byte before
-    // normalization.
-    const composed = 'caf\u00e9';
-    const decomposed = 'cafe\u0301';
-    expect(composed).not.toBe(decomposed); // genuinely distinct inputs
-    const p = parseSeries(`${composed}, ${decomposed}`);
-    expect(p.series!).toHaveLength(1);
-    expect(p.series![0]!.id).toBe(composed.normalize('NFC'));
-  })
-
-  it('keeps I and İ distinct — a fixed `en` fold wrongly unified them (they resolve differently in Turkish)', () => {
-    const p = parseSeries('I, İ');
-    expect(p.series).not.toBeNull();
-    expect(p.series!).toHaveLength(2);
-    expect(p.series![0]!.id).not.toBe(p.series![1]!.id);
-  });
-
-  it('refuses more than MAX_SERIES distinct terms instead of truncating', () => {
-    const p = parseSeries('a, b, c, d, e, f');
-    expect(p.series).toBeNull();
-    expect(p.error).toContain(String(MAX_SERIES));
-  });
-
-  it('bounds a term at the shared surface limit — the longest legal label parses, one more refuses (never a downstream query error)', () => {
-    const longest = 'x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
-    const ok = parseSeries(longest);
-    expect(ok.error).toBeNull();
-    expect(ok.series!).toHaveLength(1);
-    const over = parseSeries(`${longest}y`);
-    expect(over.series).toBeNull();
-    expect(over.error).toContain(String(TERM_GROUP_LIMITS_V1.maxSurfaceUnits));
-  });
-
-  it('bounds the RAW label, not the (possibly shorter) NFC id — decomposed spellings count their real code units', () => {
-    // 'e' + U+0301 combining acute (DECOMPOSED): 2 raw units each, 1 after
-    // NFC. The RAW spelling is what groupFor emits as the surface, so the raw
-    // length is what must fit.
-    const raw = 'e\u0301'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1);
-    expect(raw.normalize('NFC').length).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
-    const p = parseSeries(raw);
-    expect(p.series).toBeNull();
-    expect(p.error).toContain('code units');
-    // An OVER-LIMIT decomposed DUPLICATE of a legal composed series emits
-    // nothing and refuses nothing — this pins the check running AFTER
-    // canonical dedup: the duplicate here is 258 raw units (over the bound),
-    // so a check that ran before dedup would refuse the whole input.
-    const composed = '\u00e9'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1); // 129 units, legal
-    const decomposedDup = 'e\u0301'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1); // 258 raw units
-    expect(decomposedDup.length).toBeGreaterThan(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
-    expect(decomposedDup.normalize('NFC')).toBe(composed);
-    const dedup = parseSeries(`${composed}, ${decomposedDup}`);
-    expect(dedup.error).toBeNull();
-    expect(dedup.series!).toHaveLength(1);
-    expect(dedup.series![0]!.label).toBe(composed);
-  });
-});
 
 describe('the session bridge', () => {
   it('seeds the current session state on attach, before any publication', () => {
@@ -367,7 +290,7 @@ describe('the session bridge', () => {
   });
 
   it('a non-snapshot publication updates projection but issues/cancels no query', () => {
-    const { store, port, trends } = harness();
+    const { store, port, trends } = harness(undefined, { seed: true });
     port.publishSnapshot('g1', 's1'); // default series → issues
     const issuedAfterSnapshot = trends().length;
     expect(issuedAfterSnapshot).toBeGreaterThan(0);
@@ -380,7 +303,7 @@ describe('the session bridge', () => {
   });
 
   it('a new snapshot identity issues exactly one refresh; a repeat is a no-op', () => {
-    const { port, trends, kwics } = harness();
+    const { port, trends, kwics } = harness(undefined, { seed: true });
     port.publishSnapshot('g1', 's1');
     const t1 = trends().length;
     const k1 = kwics().length;
@@ -392,7 +315,7 @@ describe('the session bridge', () => {
   });
 
   it('the same snapshot id under a NEW generation is a fresh identity (reissues)', () => {
-    const { port, trends } = harness();
+    const { port, trends } = harness(undefined, { seed: true });
     port.publishSnapshot('g1', 's');
     expect(trends().filter((t) => !t.cancelled).length).toBe(2);
     port.publishSnapshot('g2', 's'); // same snapshot string, new generation
@@ -402,7 +325,7 @@ describe('the session bridge', () => {
   });
 
   it('a snapshot → null transition cancels work and clears evidence once', async () => {
-    const { store, port, trends } = harness();
+    const { store, port, trends } = harness(undefined, { seed: true });
     port.publishSnapshot('g1', 's1');
     const live = trends().filter((t) => !t.cancelled);
     live[0]!.resolve({ op: 'trend', trend: fakeTrend(4) });
@@ -415,7 +338,7 @@ describe('the session bridge', () => {
   });
 
   it('after null→B, a late result from the superseded A snapshot cannot write', async () => {
-    const { store, port, trends } = harness();
+    const { store, port, trends } = harness(undefined, { seed: true });
     port.publishSnapshot('g1', 'A');
     const aQuery = trends().filter((t) => !t.cancelled).at(-1)!;
     port.emit(sessionState(null));
@@ -502,7 +425,7 @@ describe('the session bridge', () => {
   it('dispose cancels in-flight queries AND a late settlement cannot write (even uncancelled)', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const q = f.trends().filter((t) => !t.cancelled).at(-1)!;
     f.runtime.dispose();
     expect(q.cancelled).toBe(true); // best-effort transport cleanup ran
@@ -533,7 +456,7 @@ describe('the session bridge', () => {
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().setInput('holmes');
+      f.store.getState().quickAdd('holmes');
       f.store.getState().setScrub({ doc: 'a', token: 100 }); // arms the debounce timer
       const count = f.kwics().length;
       f.runtime.dispose();
@@ -550,7 +473,7 @@ describe('store query intent discipline', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     const longest = 'x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
-    f.store.getState().setInput(longest);
+    f.store.getState().quickAdd(longest);
     const q = f.trends().filter((t) => !t.cancelled).at(-1)!;
     expect(q.term).toBe(longest); // the label IS the surface, at full length
     expect(q.groupId.length).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxIdUnits);
@@ -561,7 +484,7 @@ describe('store query intent discipline', () => {
   it('issues one trend per series plus one MERGED KWIC over all enabled terms', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const live = f.trends().filter((q) => !q.cancelled);
     expect(live.map((q) => q.term)).toEqual(['holmes', 'moriarty']);
     expect(new Set(live.map((q) => q.groupId)).size).toBe(2);
@@ -574,8 +497,10 @@ describe('store query intent discipline', () => {
   it('cancels superseded queries and a stale term can never win', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('bear');
-    f.store.getState().setInput('hound');
+    f.store.getState().quickAdd('bear');
+    // Replace the comparison: remove bear (supersedes) and add hound.
+    f.store.getState().removeGroup(f.store.getState().series[0]!.id);
+    f.store.getState().quickAdd('hound');
     const trendQueries = f.trends();
     for (const q of trendQueries.slice(0, -1)) expect(q.cancelled).toBe(true);
     const live = trendQueries.at(-1)!;
@@ -597,7 +522,7 @@ describe('store query intent discipline', () => {
   it('per-series results land independently; one failure does not erase peers', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [q1, q2] = f.trends().filter((q) => !q.cancelled);
     q1!.resolve({ op: 'trend', trend: fakeTrend(3) });
     await flush();
@@ -616,7 +541,7 @@ describe('store query intent discipline', () => {
   it('cancellation is discriminated by the TYPED code, never by message text', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [q1, q2] = f.trends().filter((q) => !q.cancelled);
     // A typed CANCELLED rejection is deliberate noise — no error state.
     q1!.reject(new WorkerClientError('CANCELLED', 'cancelled'));
@@ -634,7 +559,7 @@ describe('store query intent discipline', () => {
   it('a focus change does NOT reissue or cancel the concordance (focus independence)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
     const kwicCount = f.kwics().length;
     f.store.getState().setFocus(f.store.getState().series[1]!.id);
@@ -646,7 +571,7 @@ describe('store query intent discipline', () => {
   it('toggling a term off reissues the concordance without that track; on re-adds it', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = f.store.getState().series;
     const tracksOf = () => (f.kwics().filter((q) => !q.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] }).tracks.map((t) => t.seriesId);
     f.store.getState().toggleKwicSeries(moriarty!.id);
@@ -659,7 +584,7 @@ describe('store query intent discipline', () => {
   it('toggling ALL terms off shows the no-terms state and issues no query', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const before = f.kwics().length; // the initial merged query
     for (const s of f.store.getState().series) f.store.getState().toggleKwicSeries(s.id);
     expect(f.store.getState().kwicEnabledSeries.size).toBe(0);
@@ -670,9 +595,9 @@ describe('store query intent discipline', () => {
   it('preserves enabled on/off across an input edit; adds new terms enabled, drops departed', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // moriarty OFF
-    f.store.getState().setInput('holmes, watson, moriarty'); // add watson, keep the others
+    f.store.getState().quickAdd('holmes, watson, moriarty'); // add watson, keep the others
     const series = f.store.getState().series;
     const enabled = f.store.getState().kwicEnabledSeries;
     const id = (label: string) => series.find((s) => s.label === label)!.id;
@@ -686,7 +611,7 @@ describe('store query intent discipline', () => {
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().setInput('holmes');
+      f.store.getState().quickAdd('holmes');
       const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
       const countBefore = f.kwics().length;
       f.store.getState().setScrub({ doc: 'a', token: 100 });
@@ -718,13 +643,14 @@ describe('store query intent discipline', () => {
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().setInput('holmes');
+      f.store.getState().quickAdd('holmes');
       f.store.getState().setScrub({ doc: 'a', token: 100 });
       vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
       expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 100 });
-      // Blank input clears the chart position; a later term must NOT re-center.
-      f.store.getState().setInput('  ,  ');
-      f.store.getState().setInput('holmes');
+      // Emptying the comparison clears the chart position; a later term must
+      // NOT re-center. (Blank quick-add is a no-op — removal empties.)
+      f.store.getState().removeGroup(f.store.getState().series[0]!.id);
+      f.store.getState().quickAdd('holmes');
       const afterBlank = f.kwics().filter((q) => !q.cancelled).at(-1)!;
       expect((afterBlank.query as { request: { center?: unknown } }).request.center).toBeUndefined();
       expect(f.store.getState().kwic!.center).toBeNull();
@@ -746,7 +672,7 @@ describe('store query intent discipline', () => {
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().setInput('holmes, moriarty');
+      f.store.getState().quickAdd('holmes, moriarty');
       for (const s of f.store.getState().series) f.store.getState().toggleKwicSeries(s.id);
       expect(f.store.getState().kwic!.state.status).toBe('no-terms');
       const count = f.kwics().length;
@@ -763,7 +689,7 @@ describe('store query intent discipline', () => {
   it('a late KWIC result from a superseded intent cannot land', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
     f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // reissues, supersedes oldKwic
     oldKwic.resolve({ op: 'kwic', total: 9, rows: [] }); // raced past cancel
@@ -784,18 +710,18 @@ describe('store query intent discipline', () => {
   it('clears results to pending on reissue — old arrays are never relabeled', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const first = f.trends().filter((q) => !q.cancelled).at(-1)!;
     first.resolve({ op: 'trend', trend: fakeTrend(1) });
     await flush();
     expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready');
-    f.store.getState().setInput('other');
+    f.store.getState().quickAdd('other');
     const pending = f.store.getState().trends.get(f.store.getState().series[0]!.id)!;
     expect(pending.status).toBe('pending'); // pending, not stale
   });
 
   it('a result from a superseded snapshot cannot write', async () => {
-    const f = harness();
+    const f = harness(undefined, { seed: true });
     f.port.publishSnapshot('g1', 's1');
     const old = f.trends().filter((q) => !q.cancelled).at(-1)!;
     f.port.publishSnapshot('g1', 's2'); // supersedes s1, reissues
@@ -808,15 +734,19 @@ describe('store query intent discipline', () => {
     expect(fresh.snapshot).toBe('s2');
   });
 
-  it('blank input cancels and clears — old evidence is never relabeled', async () => {
+  it('removing the LAST group cancels and clears — old evidence is never relabeled (blank quick-add is a no-op)', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const q = f.trends().filter((x) => !x.cancelled).at(-1)!;
     q.resolve({ op: 'trend', trend: fakeTrend(3) });
     await flush();
     expect(f.store.getState().trends.size).toBe(1);
-    f.store.getState().setInput('  ,  ');
+    const issued = f.issued.length;
+    f.store.getState().quickAdd('  ,  '); // blank: nothing added, nothing touched
+    expect(f.issued.length).toBe(issued);
+    expect(f.store.getState().trends.size).toBe(1);
+    f.store.getState().removeGroup(f.store.getState().series[0]!.id);
     expect(f.store.getState().trends.size).toBe(0);
     expect(f.store.getState().kwic).toBeNull();
     expect(q.cancelled).toBe(true);
@@ -824,23 +754,27 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().trends.size).toBe(0);
   });
 
-  it('an over-cap input is refused: error surfaced, work cancelled, nothing issued', () => {
+  it('an over-room batch is refused ATOMICALLY: error surfaced, existing evidence and queries stand untouched', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const live = f.trends().filter((q) => !q.cancelled);
     expect(live.length).toBe(1);
-    f.store.getState().setInput('a, b, c, d, e, f');
-    expect(f.store.getState().inputError).toContain('up to');
-    expect(live[0]!.cancelled).toBe(true);
-    expect(f.store.getState().trends.size).toBe(0);
-    expect(f.trends().filter((q) => !q.cancelled).length).toBe(0);
+    const issued = f.issued.length;
+    f.store.getState().quickAdd('a, b, c, d, e, f'); // 6 new, room for 4
+    expect(f.store.getState().inputError).toContain('room');
+    expect(live[0]!.cancelled).toBe(false); // append-only: a refusal clears NOTHING
+    expect(f.store.getState().series.map((s) => s.label)).toEqual(['holmes']);
+    expect(f.issued.length).toBe(issued); // nothing new issued either
+    // A later legal add clears the error.
+    f.store.getState().quickAdd('watson');
+    expect(f.store.getState().inputError).toBeNull();
   });
 
   it('scrub: first target fetches a passage block with one track per series', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     f.store.getState().setScrub({ doc: 'a', token: 500 });
     const issued = f.passages();
     expect(issued.length).toBe(1);
@@ -855,7 +789,7 @@ describe('store query intent discipline', () => {
   it('scrub: moves inside the guard band are purely local; edge moves refetch', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     f.store.getState().setScrub({ doc: 'a', token: 500 });
     f.passages()[0]!.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
     await flush();
@@ -870,7 +804,7 @@ describe('store query intent discipline', () => {
   it('scrub: one active request plus one replaceable pending — motion never queues', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     f.store.getState().setScrub({ doc: 'a', token: 500 });
     expect(f.passages().length).toBe(1);
     f.store.getState().setScrub({ doc: 'a', token: 900 });
@@ -887,10 +821,10 @@ describe('store query intent discipline', () => {
   it('scrub: an input change invalidates the block, refetches for the kept position, and a stale in-flight block cannot land', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     f.store.getState().setScrub({ doc: 'a', token: 500 });
     const first = f.passages()[0]!; // left IN FLIGHT across the input change
-    f.store.getState().setInput('holmes, watson'); // marks are stale — new tracks needed
+    f.store.getState().quickAdd('holmes, watson'); // marks are stale — new tracks needed
     expect(first.cancelled).toBe(true);
     expect(f.store.getState().passage).toBeNull();
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 500 }); // position kept
@@ -909,7 +843,7 @@ describe('store query intent discipline', () => {
   it('scrub: a rejected center clears the scrub instead of showing a mismatched block', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     f.store.getState().setScrub({ doc: 'a', token: 99999 });
     f.passages()[0]!.reject(new Error('REQUEST_INVALID: centerToken 99999 outside [0, 5000)'));
     await flush();
@@ -943,7 +877,7 @@ describe('the outline (structure) intent', () => {
   }
 
   it('defaults the focus to the first READY doc in declared order and queries it', () => {
-    const { store, port, structures, trends } = harness();
+    const { store, port, structures, trends } = harness(undefined, { seed: true });
     // Declared order [a,b,c]; only b and c ready, published completion-first.
     port.emit(withOrder(snap('g1', 's1', ['c', 'b']), ['a', 'b', 'c']));
     expect(store.getState().focusedDoc).toBe('b'); // declared order, not 'c'
@@ -956,7 +890,7 @@ describe('the outline (structure) intent', () => {
 
   it('issues the outline even with an EMPTY term input', () => {
     const { store, port, structures } = harness();
-    store.getState().setInput(''); // no series
+    // The store starts with an EMPTY notebook — no series without a quickAdd.
     port.emit(withOrder(snap('g1', 's1', ['a']), ['a']));
     expect(store.getState().series.length).toBe(0);
     expect(structures().length).toBe(1); // outline is not gated on the series
@@ -1155,6 +1089,8 @@ describe('real ProjectSession composes with the store bridge', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
     runtime.attachSession(session); // proves ProjectSession is assignable to SessionPort
+    // Mirror the composition root's demo seeding (store-instance.ts).
+    runtime.useApp.getState().quickAdd('Holmes, Moriarty');
     expect(runtime.useApp.getState().projectSession!.project.kind).toBe('builtin');
 
     session.start();
@@ -1181,26 +1117,28 @@ describe('query notebook — identity discipline', () => {
     members: [{ id: g.members[0]!.id, kind: 'prefix' as const, stem: 'holm', match: { case: 'folded' as const, diacritics: 'folded' as const } }],
   });
 
-  it('setInput reconcile: a surviving matching identity keeps its UUID, member ids, focus, and concordance selection', () => {
+  it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, focus, and concordance selection untouched)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     f.store.getState().setFocus(moriarty!.id);
     f.store.getState().toggleKwicSeries(holmes!.id); // holmes OFF
-    f.store.getState().setInput('holmes, watson'); // moriarty replaced
+    f.store.getState().quickAdd('holmes, watson'); // holmes skipped, watson appended
     const after = groupsOf(f);
-    expect(after[0]!.id).toBe(holmes!.id); // reconciled by matching identity
-    expect(after[0]!.members[0]!.id).toBe(holmes!.members[0]!.id); // member id survives too
-    expect(after[1]!.id).not.toBe(moriarty!.id); // fresh group, fresh UUID
+    expect(after.map((g) => g.name)).toEqual(['holmes', 'moriarty', 'watson']);
+    expect(after[0]!.id).toBe(holmes!.id); // the duplicate touched nothing
+    expect(after[0]!.members[0]!.id).toBe(holmes!.members[0]!.id);
+    expect(after[1]!.id).toBe(moriarty!.id); // append-only: nothing replaced
     expect(f.store.getState().kwicEnabledSeries.has(holmes!.id)).toBe(false); // toggle survives
-    expect(f.store.getState().focusedSeries).toBe(after[0]!.id); // focus fell to first (moriarty gone)
+    expect(f.store.getState().kwicEnabledSeries.has(after[2]!.id)).toBe(true); // new group enabled
+    expect(f.store.getState().focusedSeries).toBe(moriarty!.id); // focus survives
   });
 
   it('rename preserves the UUID and issues NO worker request; the projection relabels', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
     const issued = f.issued.length;
     f.store.getState().renameGroup(g.id, 'The Detective');
@@ -1213,7 +1151,7 @@ describe('query notebook — identity discipline', () => {
   it('a member edit preserves the UUID, changes semantic identity, and reissues trend+KWIC+passage', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
     f.store.getState().setScrub({ doc: 'a', token: 5 }); // arm a passage intent
     await flush();
@@ -1251,7 +1189,7 @@ describe('query notebook — identity discipline', () => {
   it('an identity-NEUTRAL member apply (same semantics) reissues nothing', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
     const issued = f.issued.length;
     f.store.getState().setGroupMembers(g.id, [...g.members], g.countOverlaps);
@@ -1261,7 +1199,7 @@ describe('query notebook — identity discipline', () => {
   it('a SEMANTIC-ONLY stale settlement cannot commit — trend and KWIC (no epoch advance, leases still current)', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = f.store.getState().notebook.groups[0]!;
     const trend = f.trends().filter((t) => !t.cancelled).at(-1)!;
     const kwic = f.kwics().filter((t) => !t.cancelled).at(-1)!;
@@ -1281,7 +1219,7 @@ describe('query notebook — identity discipline', () => {
   it('a SEMANTIC-ONLY stale settlement cannot commit — passage', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = f.store.getState().notebook.groups[0]!;
     f.store.getState().setScrub({ doc: 'a', token: 5 });
     await flush();
@@ -1296,7 +1234,7 @@ describe('query notebook — identity discipline', () => {
   it('rejects an invalid member set with one bounded notebookError and NO state change or reissue', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes');
+    f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
     const issued = f.issued.length;
     f.store.getState().setGroupMembers(g.id, [
@@ -1316,7 +1254,7 @@ describe('query notebook — active set, solo, order, and style', () => {
   it('mute drops the track globally (trend reissue without it) but PRESERVES the concordance toggle and style slot', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     const slotBefore = f.store.getState().styleSlots.get(moriarty!.id);
     f.store.getState().toggleKwicSeries(moriarty!.id); // concordance OFF
@@ -1329,21 +1267,33 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slotBefore); // style identity survived
   });
 
-  it('activation within the cap never refuses (the SIXTH-activation refusal needs >5 groups — reachable only via commit C quick-add append, tested there)', () => {
+  it('the SIXTH activation and an over-room quick-add are refused explicitly — never silent truncation', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('a, b, c, d, e');
+    f.store.getState().quickAdd('a, b, c, d, e'); // 5 groups, all active
+    expect(f.store.getState().activeGroupIds.size).toBe(5);
+    // Quick-add with zero active room: atomic refusal via inputError.
+    f.store.getState().quickAdd('f');
+    expect(f.store.getState().inputError).toContain('room');
+    expect(groupsOf(f)).toHaveLength(5);
+    // Free a slot, add a sixth GROUP (fits: 4 active + f = 5 active, 6 groups).
     const ids = groupsOf(f).map((g) => g.id);
     f.store.getState().setGroupActive(ids[0]!, false);
-    f.store.getState().setGroupActive(ids[0]!, true);
-    expect(f.store.getState().notebookError).toBeNull();
+    f.store.getState().quickAdd('f');
+    expect(f.store.getState().inputError).toBeNull();
+    expect(groupsOf(f)).toHaveLength(6);
     expect(f.store.getState().activeGroupIds.size).toBe(5);
+    // NOW the sixth ACTIVATION is reachable — and refused loudly.
+    f.store.getState().setGroupActive(ids[0]!, true);
+    expect(f.store.getState().notebookError).toContain('deactivate one first');
+    expect(f.store.getState().activeGroupIds.size).toBe(5); // nothing truncated
+    expect(f.store.getState().activeGroupIds.has(ids[0]!)).toBe(false);
   });
 
   it('solo projects the comparison to ONE group and clearing restores the prior projection exactly', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty, watson');
+    f.store.getState().quickAdd('holmes, moriarty, watson');
     const before = f.store.getState().series.map((s) => s.id);
     const target = before[1]!;
     f.store.getState().setSolo(target);
@@ -1358,7 +1308,7 @@ describe('query notebook — active set, solo, order, and style', () => {
   it('solo is refused for a muted group and cleared when its group deactivates', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     f.store.getState().setGroupActive(moriarty!.id, false);
     f.store.getState().setSolo(moriarty!.id);
@@ -1373,7 +1323,7 @@ describe('query notebook — active set, solo, order, and style', () => {
   it('reorder is a refused-unless-total permutation, preserves UUIDs/slots/focus, and reissues nothing', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     const slots = new Map(f.store.getState().styleSlots);
     const issued = f.issued.length;
@@ -1390,7 +1340,7 @@ describe('query notebook — active set, solo, order, and style', () => {
   it('removal cleans results, focus, concordance selection, solo, and style ownership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().setInput('holmes, moriarty');
+    f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     f.store.getState().setFocus(moriarty!.id);
     f.store.getState().setSolo(moriarty!.id);
@@ -1402,5 +1352,52 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(state.styleSlots.has(moriarty!.id)).toBe(false);
     expect(state.kwicEnabledSeries.has(moriarty!.id)).toBe(false);
     expect(state.activeGroupIds.has(moriarty!.id)).toBe(false);
+  });
+});
+
+describe('query notebook — effective-intent gating (review-C)', () => {
+  it('mutations OUTSIDE the effective comparison reissue nothing: soloed mute, soloed-out semantic edit, soloed append', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const [holmes, moriarty] = f.store.getState().notebook.groups;
+    f.store.getState().setSolo(holmes!.id);
+    // Settle solo's trend so we can prove READY evidence survives untouched.
+    const soloTrend = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    soloTrend.resolve({ op: 'trend', trend: fakeTrend(4) });
+    await flush();
+    expect(f.store.getState().trends.get(holmes!.id)!.status).toBe('ready');
+    const issued = f.issued.length;
+    // 1. Mute the solo'd-out group: the projected series is unchanged.
+    f.store.getState().setGroupActive(moriarty!.id, false);
+    // 2. Semantically edit the muted group (identity changes, projection doesn't).
+    f.store.getState().setGroupMembers(moriarty!.id, [
+      { id: moriarty!.members[0]!.id, kind: 'prefix', stem: 'mor', match: { case: 'folded', diacritics: 'folded' } },
+    ], false);
+    // 3. Append while soloed: the new group is active but not projected.
+    f.store.getState().quickAdd('watson');
+    expect(f.issued.length).toBe(issued); // NOT ONE query issued or cancelled
+    expect(f.store.getState().trends.get(holmes!.id)!.status).toBe('ready'); // evidence intact
+    expect(soloTrend.cancelled).toBe(false); // and its (settled) job was never cancelled
+    // Clearing solo NOW restores the full comparison and reissues once.
+    f.store.getState().setSolo(null);
+    expect(f.issued.length).toBeGreaterThan(issued);
+    // The restored comparison = the projected series (holmes + watson;
+    // moriarty stays muted) — one live trend per projected group.
+    const live = f.trends().filter((t) => !t.cancelled);
+    expect(new Set(live.map((t) => t.groupId)))
+      .toEqual(new Set(f.store.getState().series.map((s) => s.id)));
+    expect(f.store.getState().series.map((s) => s.label)).toEqual(['holmes', 'watson']);
+  });
+
+  it('a rename or reorder inside the projection still reissues nothing (unchanged effective intent)', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes, moriarty');
+    const [holmes, moriarty] = f.store.getState().notebook.groups;
+    const issued = f.issued.length;
+    f.store.getState().renameGroup(holmes!.id, 'Detective');
+    f.store.getState().reorderGroups([moriarty!.id, holmes!.id]);
+    expect(f.issued.length).toBe(issued);
   });
 });

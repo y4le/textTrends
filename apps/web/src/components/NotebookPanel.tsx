@@ -1,0 +1,168 @@
+/**
+ * The query notebook (slice-1 commit C): the authoritative group list behind
+ * the comparison. Rendering rules live in lib/notebook-view.ts (pure,
+ * unit-tested); this component only lays rows out and forwards intents.
+ *
+ * Control semantics (recorded ruling §3 — deliberately DISTINCT controls):
+ * - "Shown in analysis" (active/mute) — membership in the whole comparison:
+ *   trends, passage marks, KWIC eligibility;
+ * - the CONCORDANCE chips stay in KwicPanel (orthogonal: hide one track
+ *   from the table without touching the chart);
+ * - chart FOCUS stays the header chips' job (emphasis only);
+ * - solo — transient projection to one group; clearing restores exactly.
+ * Reorder uses accessible Up/Down buttons (ruling: no drag requirement).
+ * Member editing (aliases/phrases/affixes) arrives with commit D.
+ */
+
+import { useState } from 'react';
+import { useApp } from '../lib/store-instance.ts';
+import { notebookRows, type GroupCountVM } from '../lib/notebook-view.ts';
+import { SeriesLineSample } from './chrome.tsx';
+
+function CountCell({ count }: { count: GroupCountVM }) {
+  const muted = { color: 'var(--fg-muted)' } as const;
+  switch (count.kind) {
+    case 'not-run': return <span style={muted}>not run</span>;
+    case 'pending': return <span style={muted}>…</span>;
+    case 'error': return <span style={{ color: 'var(--accent-text)' }} title={count.message}>error</span>;
+    default:
+      return (
+        <span title={count.partial ? 'total over the READY documents only' : 'total occurrences'}>
+          {count.total}{count.partial ? <span style={muted}> (partial)</span> : null}
+        </span>
+      );
+  }
+}
+
+const rowButton = {
+  font: 'inherit',
+  fontFamily: 'var(--font-mono)',
+  fontSize: 'var(--text-xs)',
+  color: 'var(--fg)',
+  background: 'none',
+  border: '1px solid var(--rule)',
+  cursor: 'pointer',
+  padding: '0 0.5ch',
+} as const;
+
+export function NotebookPanel() {
+  const notebook = useApp((s) => s.notebook);
+  const activeGroupIds = useApp((s) => s.activeGroupIds);
+  const soloGroupId = useApp((s) => s.soloGroupId);
+  const styleSlots = useApp((s) => s.styleSlots);
+  const trends = useApp((s) => s.trends);
+  const snapshot = useApp((s) => s.snapshot);
+  const notebookError = useApp((s) => s.notebookError);
+  const renameGroup = useApp((s) => s.renameGroup);
+  const removeGroup = useApp((s) => s.removeGroup);
+  const reorderGroups = useApp((s) => s.reorderGroups);
+  const setGroupActive = useApp((s) => s.setGroupActive);
+  const setSolo = useApp((s) => s.setSolo);
+  const clearNotebookError = useApp((s) => s.clearNotebookError);
+  // Rename drafts are local until commit (Enter/blur) — keystrokes must not
+  // hit the store (and thus never a worker) per the draft-and-Apply rule.
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+
+  if (notebook.groups.length === 0) return null;
+
+  const rows = notebookRows({
+    groups: notebook.groups,
+    activeGroupIds,
+    soloGroupId,
+    styleSlots,
+    trends,
+    hasSnapshot: snapshot !== null,
+    partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
+  });
+  const order = notebook.groups.map((g) => g.id);
+  const move = (id: string, delta: -1 | 1) => {
+    const i = order.indexOf(id);
+    const j = i + delta;
+    if (i < 0 || j < 0 || j >= order.length) return;
+    const next = [...order];
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    reorderGroups(next);
+  };
+  const commitRename = (id: string) => {
+    const draft = drafts[id];
+    if (draft === undefined) return;
+    setDrafts(({ [id]: _done, ...rest }) => rest);
+    const current = notebook.groups.find((g) => g.id === id);
+    if (!current || draft.normalize('NFC') === current.name) return;
+    renameGroup(id, draft.normalize('NFC'));
+  };
+
+  return (
+    <section aria-label="Query notebook" style={{ marginTop: 'var(--space-2)' }}>
+      {notebookError && (
+        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+          {notebookError}{' '}
+          <button type="button" style={rowButton} onClick={clearNotebookError}>dismiss</button>
+        </p>
+      )}
+      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
+        {rows.map((row, i) => (
+          <li
+            key={row.id}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--space-2)',
+              fontFamily: 'var(--font-mono)',
+              fontSize: 'var(--text-xs)',
+              opacity: row.projected ? 1 : 0.55,
+            }}
+          >
+            <SeriesLineSample slot={row.slot ?? 0} emphasized={row.projected} />
+            <input
+              value={drafts[row.id] ?? row.name}
+              onChange={(e) => setDrafts((d) => ({ ...d, [row.id]: e.target.value }))}
+              onBlur={() => commitRename(row.id)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') { e.preventDefault(); commitRename(row.id); }
+              }}
+              aria-label={`Group name: ${row.name}`}
+              style={{
+                font: 'inherit',
+                background: 'transparent',
+                color: 'var(--fg)',
+                border: 'none',
+                borderBottom: '1px dashed var(--rule)',
+                padding: '1px 0',
+                width: '18ch',
+              }}
+            />
+            <span style={{ minWidth: '8ch', textAlign: 'right' }}><CountCell count={row.count} /></span>
+            <button
+              type="button"
+              style={rowButton}
+              // STABLE group-qualified accessible name (review-C): several
+              // rows carry this control, and the name must say WHICH group it
+              // operates and never vary with the pressed state — aria-pressed
+              // already conveys that; the checkmark is decorative.
+              aria-label={`Shown in analysis: ${row.name}`}
+              aria-pressed={row.active}
+              onClick={() => setGroupActive(row.id, !row.active)}
+              title={row.active ? 'remove from the comparison (keeps results settings)' : 'add to the comparison'}
+            >
+              <span aria-hidden="true">{row.active ? '✓ ' : ''}</span>shown in analysis
+            </button>
+            <button
+              type="button"
+              style={rowButton}
+              aria-label={`Solo: ${row.name}`}
+              aria-pressed={row.solo}
+              onClick={() => setSolo(row.solo ? null : row.id)}
+              title={row.solo ? 'end solo — restore the full comparison' : 'solo — temporarily show only this group'}
+            >
+              solo
+            </button>
+            <button type="button" style={rowButton} aria-label={`Move ${row.name} up`} disabled={i === 0} onClick={() => move(row.id, -1)}>↑</button>
+            <button type="button" style={rowButton} aria-label={`Move ${row.name} down`} disabled={i === rows.length - 1} onClick={() => move(row.id, 1)}>↓</button>
+            <button type="button" style={rowButton} aria-label={`Remove ${row.name}`} onClick={() => removeGroup(row.id)}>remove</button>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

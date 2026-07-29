@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearNotebook } from './helpers.ts';
 
 const MESSY_HTML = `<!DOCTYPE html>
 <html>
@@ -43,7 +43,8 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   await awaitReadyCount(page, 1);
 
   // Body text is analyzable (parse5 recovered the unclosed <p> structure).
-  const input = page.getByLabel(/terms to compare/i);
+  await clearNotebook(page);
+  const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill('barnowl');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
@@ -57,7 +58,8 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   // The <script> content never became analyzable text (inert extraction). Wait
   // for the FINAL settled state (no occurrences), not the transient "finding
   // examples…" — a term absent from the extracted text yields zero rows.
-  const script = page.getByLabel(/terms to compare/i);
+  await clearNotebook(page);
+  const script = page.getByLabel(/add terms to the notebook/i);
   await script.fill('SCRIPTLEAKMARKER');
   await script.press('Enter');
   await expect(page.getByText('No occurrences of the enabled terms.')).toBeVisible({ timeout: 30_000 });

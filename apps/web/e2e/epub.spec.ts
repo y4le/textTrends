@@ -9,7 +9,7 @@
 
 import { expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME, clearNotebook } from './helpers.ts';
 
 /** A two-chapter EPUB 3: body matter carries the distinctive word "zephyrwood";
  *  the title page (front matter) is excluded from body-only extraction. */
@@ -67,7 +67,8 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
 
   // A word that appears ONLY in the epub body matter yields a trend line — proof
   // the container was unzipped and its XHTML extracted to analyzable text.
-  const input = page.getByLabel(/terms to compare/i);
+  await clearNotebook(page);
+  const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
@@ -116,7 +117,8 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   // Re-extracted from persisted source: the body term still analyzes, and the
   // container-derived chapter outline is back (proving source re-extraction,
   // not a text-only candidate rescan).
-  const input = page.getByLabel(/terms to compare/i);
+  await clearNotebook(page);
+  const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
@@ -163,7 +165,8 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
-  const input = page.getByLabel(/terms to compare/i);
+  await clearNotebook(page);
+  const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });

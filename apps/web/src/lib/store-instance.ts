@@ -68,6 +68,12 @@ async function bootstrap(): Promise<void> {
     return;
   }
   runtime.attachSession(session); // subscribe + seed, exactly once
+  // Seed the demo comparison ONCE at bootstrap (the store itself starts with
+  // an empty notebook — demo content is a composition decision, not model
+  // state). Queries issue when the first snapshot publishes.
+  if (runtime.useApp.getState().notebook.groups.length === 0) {
+    runtime.useApp.getState().quickAdd('Holmes, Moriarty');
+  }
   session.start(); // only after the store is observing
 }
 
