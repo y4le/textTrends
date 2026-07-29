@@ -236,7 +236,7 @@ Verification: typecheck and all units, production build plus bundle contract, fu
 7. Baseline context never relabels as selected evidence; selected counts, rates, buckets, and KWIC all use the exact same range.
 8. A deliberate occurrence click always yields a concordance capable of containing that occurrence; an incompatible existing range is visibly cleared first.
 9. Pins and reader pages never outlive their snapshot. Pins capture their query semantics; reader highlights use current semantics.
-10. Reader cursors, text, and marks are bounded and gap-free; page-edge clipping is explicit.
+10. Reader token ranges and marks are bounded and gap-free across servable pages; page-edge clipping is explicit. Text is token-bounded (inter-page separators are not served), and an oversized-token island requires an explicit out-of-band cursor to skip.
 11. Pointer and keyboard users can brush, pin, inspect marks, clear selection, and page the reader; canvas ticks have an HTML evidence path.
 12. The initial entry gzip budget, lazy SE/extractor boundaries, worker split, and catalog-chunk exclusion remain enforced. The reader UI stays lazy.
 

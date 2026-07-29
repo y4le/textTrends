@@ -114,7 +114,54 @@ export type QueryOpV4 =
   // request PINS the fixed resolution policy (the exported core constants);
   // the narrower refuses any other values, so no component-local magic numbers
   // can drift the contract.
-  | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 };
+  | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 }
+  // reader-page/1 (slice-2 ruling §3/§G): bounded cursor-paged reading with
+  // occurrence marks sliced from the SHARED cached BASE occurrences. Like
+  // passage, this context/navigation surface carries NO selection field; the
+  // engine constructs the only valid full-corpus selection, making accidental
+  // range-filtered reader highlights impossible. ZERO tracks is legal.
+  | { readonly op: 'reader-page'; readonly tracks: readonly KwicTrack[]; readonly request: ReaderPageRequestV1 };
+
+export interface ReaderPageRequestV1 {
+  readonly method: 'reader-page/1';
+  readonly doc: string;
+  readonly cursor:
+    | { readonly kind: 'around'; readonly token: number }
+    | { readonly kind: 'from'; readonly token: number }
+    | { readonly kind: 'before'; readonly token: number };
+  readonly maxTokens: number;
+}
+
+/** A reader mark on the wire, bound to the request's series/group identity
+ *  by the core materializer (the KWIC/passage precedent). */
+export interface ReaderPageMarkV1 {
+  readonly seriesId: string;
+  readonly groupId: string;
+  readonly tokens: { readonly start: number; readonly end: number };
+  readonly members: readonly number[];
+  readonly charsUtf16: { readonly start: number; readonly end: number };
+  readonly clippedStart: boolean;
+  readonly clippedEnd: boolean;
+}
+
+export interface ReaderPageResultV1 {
+  readonly method: 'reader-page/1';
+  readonly doc: string;
+  readonly tokens: { readonly start: number; readonly end: number };
+  readonly docCharsUtf16: { readonly start: number; readonly end: number };
+  readonly text: string;
+  readonly tokenStartsUtf16: readonly number[];
+  readonly tokenEndsUtf16: readonly number[];
+  readonly anchor: { readonly token: number; readonly relToken: number; readonly charsUtf16: { readonly start: number; readonly end: number } } | null;
+  readonly previous: { readonly kind: 'before'; readonly token: number } | null;
+  readonly next: { readonly kind: 'from'; readonly token: number } | null;
+  readonly atStart: boolean;
+  readonly atEnd: boolean;
+  readonly docTokenCount: number;
+  readonly cappedBy: 'tokens' | 'text' | null;
+  readonly marks: readonly ReaderPageMarkV1[];
+  readonly marksTruncated: boolean;
+}
 
 /** The dispersion result type re-exported for the app boundary (components
  *  and lib modules import from HERE, never the wire module). */
@@ -196,4 +243,5 @@ export type QueryResultDataV4 =
   | { readonly op: 'structure'; readonly structure: StructureQueryResultV1 }
   | { readonly op: 'structure-edit-context'; readonly context: StructureEditContextV1 }
   | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 }
-  | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 };
+  | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
+  | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 };

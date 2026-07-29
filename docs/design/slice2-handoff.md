@@ -1,7 +1,8 @@
 # Slice-2 handoff — linked selection, dispersion barcode, full reader
 
-*Written 2026-07-29 for a fresh agent picking up mid-slice. Branch
-`feature/product-slices`, tip `2f42c5d`. Read this file, then
+*Written 2026-07-29 for a fresh agent picking up mid-slice; updated later that
+day through the G round-2 review. Branch `feature/product-slices`, tip
+`2f42c5d` plus the staged G candidate. Read this file, then
 `docs/design/linked-selection-plan.md` (the recorded Codex ruling — it is the
 CONTRACT; this file only tracks execution state against it).*
 
@@ -20,8 +21,8 @@ it into commits **A–I**; five are landed, one is mid-review, three are unbuilt
 | B | Generation-bound `QueryExecutor` extraction (the F1 gate) | **landed** `bf058fe` (1 round) |
 | C | `dispersion/1` core + protocol + executor | **landed** `9f1ee54` (3 rounds) |
 | D | Barcode canvas strip + mark-to-KWIC | **landed** `2f42c5d` (3 rounds) |
-| G | `reader-page/1` core + protocol + executor | **STAGED, round-1 changes-requested** — see §3 |
-| E | Linked token selection | **store layer built (unstaged)**, gestures/UI remain — see §4 |
+| G | `reader-page/1` core + protocol + executor | **STAGED, round-3 candidate after round-2 review** — see §3 |
+| E | Linked token selection | **store + gesture/render layers built (unstaged), browser proof in progress** — see §4 |
 | F | Pinned context pane | not started — plan §F |
 | H | Full reader UI and links | not started — plan §H |
 | I | Slice-2 browser acceptance | not started — plan §I |
@@ -33,9 +34,11 @@ can land in any order that respects their file dependencies** (§6).
 ### Verified state as of this writing
 
 ```
-core:  20 files, 415 tests pass          apps/web: 24 files, 505 tests pass
-typecheck: clean (pnpm -w run typecheck)  build+bundle gate: OK
-playwright: 38 functional + benchmark project green (before G's staged edits)
+core:  420 tests passed before round-2 coverage fixes
+apps/web: 506 tests passed during G round-2 review (including unstaged E store tests)
+typecheck: clean (pnpm -w run typecheck)
+playwright: 38 functional + reader benchmark green before the latest review fixes
+build: compilation/Vite green; bundle gate currently reflects unstaged E entry work
 ```
 
 ---
@@ -47,28 +50,25 @@ playwright: 38 functional + benchmark project green (before G's staged edits)
 
 **STAGED — commit G's candidate** (the review in §3 refers to exactly this):
 ```
-A  packages/core/src/ops/reader.ts          (the kernel; 458 lines)
-A  packages/core/test/reader.test.ts        (20 tests)
+A  packages/core/src/ops/reader.ts          (the kernel)
+A  packages/core/test/reader.test.ts        (canonical partition + mark coverage)
 M  packages/core/src/index.ts               (barrel exports for the reader surface)
 M  apps/web/src/shared/analysis-contract.ts (reader-page op + result types)
 M  apps/web/src/worker/protocol-v4-schema.ts(reader-page narrowing)
 M  apps/web/src/worker/query-executor.ts    (executor.readerPage)
-M  apps/web/src/worker/engine-v4.ts         (dispatch + ordinal→seriesId mapping)
+M  apps/web/src/worker/engine-v4.ts         (base-selection dispatch)
 M  apps/web/test/query-executor.test.ts     (engine-level reader tests)
 M  apps/web/test/protocol-v4-schema.test.ts (reader-page narrowing tests)
 ```
 
-**STAGED+UNSTAGED (`MM`)** — `engine-v4.ts` and `query-executor.test.ts` have
-*additional* unstaged edits on top of the staged version: the review-round-1
-fixes for findings 2 and 3 (base-selection enforcement + cancellation tests).
-`git add` them when restaging G.
-
-**UNSTAGED — commit E's store layer** (built during G's review):
+**UNSTAGED — commit E linked-selection implementation** (expanded during G's
+round-2 review):
 ```
- M apps/web/src/lib/store.ts        (linkedSelection + overlay lanes + actions)
- M apps/web/test/store.test.ts      (6 new linked-selection tests)
-?? apps/web/src/lib/selection.ts    (pure model: TokenRangeSelectionV1, detailSelection)
-?? apps/web/test/selection.test.ts  (5 tests)
+ M apps/web/src/lib/store.ts and tests
+ M apps/web/src/components/{TrendPanel,BarcodeStrip,NotebookPanel}.tsx
+ M apps/web/src/lib/{notebook-view,trend-geometry}.ts and tests
+?? apps/web/src/lib/selection.ts and test/selection.test.ts
+?? apps/web/e2e/selection.spec.ts
 ```
 
 **UNSTAGED — G round-1 fix artifact**:
@@ -83,11 +83,22 @@ having done nothing but copy a baseline. Both are safe to delete.
 
 ---
 
-## 3. IMMEDIATE NEXT TASK — commit G round 2
+## 3. IMMEDIATE NEXT TASK — commit G round 3
 
-`parley review-diff` returned **changes-requested** on the staged G candidate.
-Findings 2 and 3 are **already fixed** in the unstaged `MM` edits. Finding 1 is
-**not started** and is the real work.
+Round 2 independently verified the canonical partition under both caps and
+with oversized islands: **no kernel paging-logic change was requested**. Its
+changes-requested verdict is being resolved in the staged round-3 candidate:
+
+- the seeded oracle now actually binds the UTF-16 cap and pins direction-free
+  `cappedBy`;
+- oversized-island and token-vs-character gap promises are explicit;
+- cancellation uses the real per-track/final yield gates;
+- stray legacy reader `selection` is rejected;
+- kernel comments distinguish mutual track-selection consistency from the
+  engine's full-corpus guarantee.
+
+The historical round-1 finding and prescribed canonical-partition resolution
+remain below for provenance.
 
 ### Finding 1 (HIGH, OPEN) — directional pages don't round-trip
 
@@ -156,36 +167,34 @@ stay.
   **exactly the reversed forward ranges** (range identity, not just boundary
   equality — that is what the old test got wrong), and that no token is served
   twice in either direction.
-- **Seeded randomized round-trip**: ~200 tokens of deterministic pseudorandom
-  lengths 1..600 chars, `maxTokens=20`. Forward walk and backward walk must
-  produce identical partitions; a mixed walk (fwd, fwd, back, fwd, back…) must
-  never gap or overlap.
+- **Seeded randomized round-trip**: the initial prescription of ~200 lengths
+  in 1..600 never reached the 32,768-char cap at `maxTokens=20`; round 2 caught
+  that arithmetic hole. The staged test now uses 240 lengths in 1..4000,
+  self-asserts nonuniform page sizes, and pins exhaustive direction-free
+  `cappedBy` as well as forward/backward/mixed walks.
 - Keep every existing test passing, including `around` anchor retention, the
   single-oversized-token `CapError`, and mark clipping at both page edges.
 
 ### Finding 2 (MEDIUM) — FIXED, verify before restaging
 
 The reader is a whole-corpus context surface, so a narrower wire selection
-would silently filter its marks. The engine now enforces exact base-ness
-(`engine-v4.ts`, in the `reader-page` branch: every snapshot doc, no ranges,
-else `REQUEST_INVALID`). Regressions in `query-executor.test.ts` cover subset,
-ranged, and the reviewer's `{docs: []}` silent-zero-marks case, plus a
-both-docs positive control. **Open question the reviewer raised and did not
-settle: whether to keep `selection` on the wire at all** (the alternative is
-removing it and constructing the base selection inside the executor). Current
-choice: keep it + enforce. State that choice in the round-2 scope so the
-reviewer rules on it explicitly.
+would silently filter its marks. Round 2 settled the contract: `selection` is
+absent from the reader wire op, the engine constructs the exact full-corpus
+base selection, and the schema now rejects (rather than ignores) a stray
+legacy selection field. A two-document trend→reader cache-sharing regression
+proves the base selection identity is reused.
 
 ### Finding 3 (LOW) — FIXED, verify before restaging
 
-Phase-tied cancellation tests added (cancel at yield ordinals 2 and 4 → job
-cancelled, no result, no error) plus `apps/web/e2e/reader.bench.spec.ts`: a
+Phase-tied cancellation tests use yield ordinals 3 and 5, the actual per-track
+and final pre-emit gates (round 2 corrected the earlier 2/4 labels), plus
+`apps/web/e2e/reader.bench.spec.ts`: a
 node-side real-engine dense-page benchmark (60k-occurrence document, warmed
 median of 7, `testInfo.attach` JSON to the retained benchmark artifact
 surface, non-gating). Last run: **0.41 ms** median for a 400-token/400-mark
 page. Remember to `git add` this new file.
 
-### Round-2 procedure
+### Round-3 procedure
 
 ```bash
 # after the kernel rework
@@ -209,10 +218,10 @@ one-commit-shaped.
 
 ## 4. Commit E — linked token selection
 
-Plan §E and §2. **The store layer is done and unstaged**; the gesture and
-render layers are not built.
+Plan §E and §2. **The store, gesture, and render layers are done and
+unstaged**; focused units are green and the browser acceptance spec is drafted.
 
-### Done (unstaged, tested — web suite 505 includes these)
+### Done (unstaged, focused tests green)
 
 - `apps/web/src/lib/selection.ts` — pure: `TokenRangeSelectionV1`
   (`{snapshot, doc, tokens:{start,end}}`), `isValidSelection`,
@@ -231,38 +240,21 @@ render layers are not built.
   `runQueries`' revalidation; `centerKwicAt` clears an incompatible range
   before centering (ruling: a deliberate occurrence activation must yield a
   concordance capable of containing it). 6 store tests pin all of this.
+- `TrendPanel` — pointer capture + movement threshold, same-document clamping,
+  component-local preview, explicit S/arrows/Enter/Escape keyboard mode, range
+  shading in both layouts, and selected trend paths that break at every
+  zero-denominator bin.
+- `BarcodeStrip` and `NotebookPanel` — dim baseline/full selected dispersion
+  layers and qualified “N selected / M corpus” counts.
+- `e2e/selection.spec.ts` — a worker-output gate holds A until B settles and
+  covers pointer/keyboard selection, clear while pending, and snapshot
+  replacement.
 
 ### Remaining for E
 
-1. **Brush gestures** in `TrendPanel`'s `ScrubSurface`
-   (`apps/web/src/components/TrendPanel.tsx`):
-   - Pointer: capture on down, begin a brush only after a small movement
-     threshold, clamp the endpoint to the **origin document** (crossing a book
-     boundary must not create a multi-document range), commit once on
-     pointer-up via `commitRange` + `setLinkedSelection`.
-   - Keyboard: an **explicit, announced selection mode** (do not overload the
-     existing Shift+Arrow fast scrub ambiguously) — start at the scrub cursor,
-     arrows move the endpoint, Enter commits, Escape cancels.
-   - **Preview is component-local state and issues NO queries** — pointer
-     motion and keyboard extension must never hit the store. Only the commit
-     does. A click without a drag remains the axis-pin gesture (see F).
-2. **Range shading** in both chart layouts, drawn from the committed range.
-3. **Selected trend overlay**: render `selectedTrends` over the intact
-   baseline, **only where `binTokens > 0`** — zero-denominator bins are gaps,
-   never zero-rate observations. Keep the baseline arrays and shared scale.
-4. **Selected dispersion layer**: the whole-corpus strip stays as dim context;
-   the selection's own dispersion renders over it (`BarcodeStrip` already
-   takes a result — either a second instance/layer or an explicit overlay
-   prop; keep ONE consistent path, because density mode needs a second result
-   and cannot be filtered client-side).
-5. **Notebook counts**: while a range is active show "N selected / M corpus"
-   rather than silently relabelling the corpus total
-   (`apps/web/src/lib/notebook-view.ts` owns count qualification —
-   `GroupCountVM` is where a `selected` variant belongs).
-6. **Browser spec** (job-correlated, per repo rule): rapid brush A→B with a
-   delayed A settlement, clear-while-pending, snapshot replacement, pointer
-   brush, keyboard brush, and exact KWIC containment (every row inside the
-   range).
+1. Run and harden the new browser spec against the production-shaped E2E build.
+2. Restore the entry gzip budget after the E runtime additions.
+3. Exact-stage, Opus-review, and land E as its own commit after G lands.
 
 Ruling invariants to honour: one nonempty half-open single-doc range; no
 queries during preview; the selected wire spec contains only that document;

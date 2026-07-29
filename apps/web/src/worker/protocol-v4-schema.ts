@@ -179,6 +179,23 @@ export function narrowQueryV4(q: unknown): boolean {
         isRecord(q.request) && r.method === 'dispersion/1' &&
         r.exactMax === DISPERSION_EXACT_MAX && r.bucketBudget === DISPERSION_BUCKET_BUDGET;
     }
+    case 'reader-page': {
+      // reader-page/1: zero tracks is LEGAL (reading never depends on the
+      // notebook). Selection is ENGINE-OWNED base corpus state, so reject the
+      // legacy round-1 field rather than silently ignore a caller that thinks
+      // it narrows marks. Cursor kinds are a closed set; `before` needs token
+      // ≥ 1 (before(0) has no page); maxTokens is a positive count — the
+      // kernel CLAMPS above READER_MAX_TOKENS and reports cappedBy (documented
+      // min() semantics), so no upper bound at the wire.
+      const r = q.request as Record<string, unknown>;
+      if (q.selection !== undefined || !narrowTracks(q.tracks, 0)) return false;
+      if (!isRecord(q.request) || r.method !== 'reader-page/1' || !isStr(r.doc)) return false;
+      if (!isCount(r.maxTokens) || r.maxTokens === 0) return false;
+      const c = r.cursor as Record<string, unknown>;
+      if (!isRecord(r.cursor) || !isCount(c.token)) return false;
+      if (c.kind === 'before') return (c.token as number) >= 1;
+      return c.kind === 'around' || c.kind === 'from';
+    }
     case 'passage':
       return narrowPassageRequest(q.request);
     case 'structure':

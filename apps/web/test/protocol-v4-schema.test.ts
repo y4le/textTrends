@@ -302,6 +302,28 @@ describe('narrowQueryV4', () => {
     expect(disp({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
   });
 
+  it('reader-page/1 narrows with zero tracks, closed cursor kinds, and before ≥ 1', () => {
+    const rq = (cursor: Record<string, unknown>, over: Record<string, unknown> = {}, tracks: unknown = []) =>
+      narrowQueryV4({ op: 'reader-page', tracks, request: { method: 'reader-page/1', doc: 'a', cursor, maxTokens: 100, ...over } });
+    expect(rq({ kind: 'around', token: 0 })).toBe(true);
+    expect(rq({ kind: 'from', token: 0 })).toBe(true);
+    expect(rq({ kind: 'before', token: 1 })).toBe(true);
+    expect(rq({ kind: 'before', token: 0 })).toBe(false); // before(0) has no page
+    expect(rq({ kind: 'sideways', token: 1 })).toBe(false);
+    expect(rq({ kind: 'from', token: -1 })).toBe(false);
+    expect(rq({ kind: 'from', token: 0 }, { maxTokens: 0 })).toBe(false);
+    expect(rq({ kind: 'from', token: 0 }, { method: 'reader-page/2' })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'reader-page',
+      selection: { docs: ['a'] },
+      tracks: [],
+      request: { method: 'reader-page/1', doc: 'a', cursor: { kind: 'from', token: 0 }, maxTokens: 100 },
+    })).toBe(false);
+    // Zero tracks legal; the shared track discipline still applies when present.
+    expect(rq({ kind: 'from', token: 0 }, {}, [{ seriesId: 's1', group: wolfGroup }])).toBe(true);
+    expect(rq({ kind: 'from', token: 0 }, {}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
+  });
+
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);

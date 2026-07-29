@@ -1358,6 +1358,40 @@ export class WorkerEngineV4 {
       return;
     }
 
+    if (q.op === 'reader-page') {
+      // Like passage, the reader is a CONTEXT surface rather than an
+      // analytical-detail selection consumer. The wire has no selection
+      // degree of freedom: build the canonical base selection here so a
+      // linked range can never silently filter reader marks.
+      const selection = await resolveSelection(snapshot, {
+        docs: snapshot.docs.map((d) => d.doc),
+      });
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const page = await gen.executor.readerPage(
+        selection,
+        q.tracks,
+        { doc: q.request.doc, cursor: q.request.cursor, maxTokens: q.request.maxTokens },
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id,
+        data: {
+          op: 'reader-page',
+          page: {
+            method: 'reader-page/1',
+            doc: page.doc, tokens: page.tokens, docCharsUtf16: page.docCharsUtf16,
+            text: page.text,
+            tokenStartsUtf16: page.tokenStartsUtf16, tokenEndsUtf16: page.tokenEndsUtf16,
+            anchor: page.anchor, previous: page.previous, next: page.next,
+            atStart: page.atStart, atEnd: page.atEnd, docTokenCount: page.docTokenCount,
+            cappedBy: page.cappedBy, marks: page.marks, marksTruncated: page.marksTruncated,
+          },
+        },
+      });
+      return;
+    }
+
     let selection;
     try {
       selection = await resolveSelection(snapshot, q.selection as Parameters<typeof resolveSelection>[1]);

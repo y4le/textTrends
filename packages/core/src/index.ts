@@ -83,6 +83,20 @@ export {
   type TermGroupSpec,
 } from './ops/occurrences.ts';
 export {
+  materializeReaderPage,
+  planReaderPage,
+  READER_MAX_MARKS,
+  READER_MAX_TEXT_UTF16,
+  READER_MAX_TOKENS,
+  READER_MAX_TRACKS,
+  type NumericReaderPagePlan,
+  type ReaderCappedBy,
+  type ReaderCursor,
+  type ReaderPageMark,
+  type ReaderPageResult,
+  type ReaderTrackIdentity,
+} from './ops/reader.ts';
+export {
   materializePassage,
   PASSAGE_MAX_TOKENS,
   planPassage,

@@ -25,6 +25,8 @@ import {
   packDensityTrack,
   packExactTrack,
   planDispersionGeometry,
+  planReaderPage,
+  materializeReaderPage,
   selectionSlotMap,
   type DispersionResultV1,
   type DispersionTrackV1,
@@ -262,6 +264,50 @@ export class QueryExecutor {
       await checkpoint();
     }
     return { method: 'dispersion/1', geometry, tracks: out };
+  }
+
+  /** reader-page/1 (slice-2 ruling §G): a bounded cursor page over ONE
+   *  document, marks sliced from the SAME cached occurrences as every other
+   *  lane (computed under the BASE selection the engine passes — never a
+   *  page-local matcher, so countOverlaps/merged-span/member semantics and
+   *  cross-page straddlers are preserved). Zero tracks reads plain text. */
+  async readerPage(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    request: { readonly doc: string; readonly cursor: Parameters<typeof planReaderPage>[3]; readonly maxTokens: number },
+    checkpoint: QueryCheckpoint,
+  ): Promise<ReturnType<typeof materializeReaderPage>> {
+    const { snapshot, boundTexts, ready: readyMap } = this.published();
+    const ready = readyMap.get(request.doc);
+    if (!ready) throw new DependencyError('shard', request.doc);
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+    const trackOccs = [];
+    for (const track of tracks) {
+      trackOccs.push(this.occurrencesFor(shards, resolvers, selection, track.group));
+      await checkpoint();
+    }
+    const plan = planReaderPage(snapshot, request.doc, ready.shard, request.cursor, request.maxTokens, trackOccs);
+    await checkpoint();
+    const page = materializeReaderPage(
+      snapshot,
+      plan,
+      boundTexts,
+      tracks.map((track) => ({ seriesId: track.seriesId, groupId: track.group.id })),
+    );
+    await checkpoint(); // final kernel checkpoint (race parity)
+    return page;
   }
 
   /** kwic/2: UNION every track's required match modes per doc (never rebuild

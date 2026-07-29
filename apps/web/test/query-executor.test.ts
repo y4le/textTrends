@@ -526,3 +526,120 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
     expect(track.data.counts.length).toBeLessThanOrEqual(DISPERSION_BUCKET_BUDGET);
   }, 30_000);
 });
+
+describe('reader-page/1 through the executor (slice-2 commit G)', () => {
+  const rp = (doc: string, cursor: Record<string, unknown>, maxTokens = 5, tracks: unknown[] = []) => ({
+    op: 'reader-page', tracks,
+    request: { method: 'reader-page/1', doc, cursor, maxTokens },
+  });
+  const pageOf = (h: Harness) => {
+    const res = h.last('result');
+    if (res.data.op !== 'reader-page') throw new Error('expected reader-page');
+    return res.data.page;
+  };
+
+  it('ZERO-track paging tiles the document with exact cursors (no gap, no client arithmetic)', async () => {
+    const h = harness();
+    const text = 'one two three. four five six. seven eight nine ten eleven twelve.';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: rp('a', { kind: 'from', token: 0 }) });
+    const p1 = pageOf(h);
+    expect(p1.method).toBe('reader-page/1');
+    expect(p1.tokens.start).toBe(0);
+    expect(p1.atStart).toBe(true);
+    expect(p1.marks).toEqual([]);
+    // Next page starts EXACTLY where this one ended.
+    await h.send({ t: 'query', job: 21, snapshot: snap, query: rp('a', p1.next! as unknown as Record<string, unknown>) });
+    const p2 = pageOf(h);
+    expect(p2.tokens.start).toBe(p1.tokens.end); // tiling, no gap
+    // And previous from p2 ends exactly at p2's start.
+    await h.send({ t: 'query', job: 22, snapshot: snap, query: rp('a', p2.previous! as unknown as Record<string, unknown>) });
+    expect(pageOf(h).tokens.end).toBe(p2.tokens.start);
+  });
+
+  it('marks are sliced from the SHARED cached occurrences, mapped to seriesIds, and reuse the cache', async () => {
+    const h = harness();
+    const textA = 'the wolf ran far. a wolf slept.';
+    const textB = 'another wolf watched.';
+    const [a, b] = await Promise.all([docSpec('a', textA), docSpec('b', textB)]);
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', textA, 10);
+    await coldIngest(h, 'g', 'b', textB, 11);
+    const snap = h.last('snapshot-published').snapshot;
+    const occSpy = () => vi.mocked(occurrences);
+    occSpy().mockClear();
+    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['b', 'a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    expect(occSpy()).toHaveBeenCalledTimes(1);
+    await h.send({ t: 'query', job: 31, snapshot: snap, query: rp('a', { kind: 'around', token: 1 }, 400, [{ seriesId: 's-wolf', group: wolfGroup }]) });
+    expect(occSpy()).toHaveBeenCalledTimes(1); // engine-built base selection hashes identically
+    const page = pageOf(h);
+    expect(page.marks.map((m) => m.seriesId)).toEqual(['s-wolf', 's-wolf']);
+    expect(page.marks.map((m) => m.groupId)).toEqual(['g1', 'g1']);
+    expect(page.marks[0]!.tokens).toEqual({ start: 1, end: 2 });
+    // The mark's char span slices the served text to the surface.
+    const m = page.marks[0]!;
+    expect(page.text.slice(m.charsUtf16.start, m.charsUtf16.end).toLowerCase()).toBe('wolf');
+  });
+
+  it('a wire-invalid cursor (before token 0) is PARSE_FAILED; an out-of-range cursor is REQUEST_INVALID from the kernel', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'just five tokens in here');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'just five tokens in here', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({ t: 'query', job: 40, snapshot: snap, query: rp('a', { kind: 'before', token: 0 }) });
+    expect(h.last('error').code).toBe('PARSE_FAILED'); // before(0) has no page
+    await h.send({ t: 'query', job: 41, snapshot: snap, query: rp('a', { kind: 'from', token: 999 }) });
+    expect(h.last('error').code).toBe('REQUEST_INVALID');
+  });
+});
+
+describe('reader-page/1 — engine-owned base selection and phase-tied cancellation (review-G)', () => {
+  const rq = (tracks: unknown[] = [{ seriesId: 's-wolf', group: wolfGroup }]) => ({
+    op: 'reader-page', tracks,
+    request: { method: 'reader-page/1', doc: 'a', cursor: { kind: 'from', token: 0 }, maxTokens: 5 },
+  });
+
+  async function twoDocWorld() {
+    const h = harness();
+    const a = await docSpec('a', 'the wolf ran far ahead');
+    const b = await docSpec('b', 'the wolf slept');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran far ahead', 10);
+    await coldIngest(h, 'g', 'b', 'the wolf slept', 11);
+    return { h, snap: h.last('snapshot-published').snapshot };
+  }
+
+  it('rejects a stray legacy selection key rather than silently ignoring narrowing intent', async () => {
+    const { h, snap } = await twoDocWorld();
+    await h.send({
+      t: 'query',
+      job: 60,
+      snapshot: snap,
+      query: { ...rq(), selection: { docs: [] } } as never,
+    });
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+    expect(h.all('result')).toHaveLength(0);
+  });
+
+  it('a cancel raised at the PER-TRACK checkpoint stops before planning; one at the FINAL checkpoint stops before emission', async () => {
+    for (const cancelAtYield of [3, 5]) {
+      const { h, snap } = await twoDocWorld();
+      h.clear();
+      let yields = 0;
+      h.onYield(async () => {
+        yields++;
+        if (yields === cancelAtYield) await h.send({ t: 'cancel', job: 70 });
+      });
+      await h.send({ t: 'query', job: 70, snapshot: snap, query: rq() });
+      expect(yields, `cancel@${cancelAtYield}`).toBeGreaterThanOrEqual(cancelAtYield);
+      expect(h.all('cancelled').some((m) => m.job === 70), `cancel@${cancelAtYield}`).toBe(true);
+      expect(h.all('result').some((m) => m.job === 70), `cancel@${cancelAtYield}`).toBe(false);
+      expect(h.all('error').some((m) => m.job === 70), `cancel@${cancelAtYield}`).toBe(false);
+      h.onYield(null);
+    }
+  });
+});
