@@ -8,7 +8,7 @@
  */
 
 import { useApp } from '../lib/store-instance.ts';
-import type { KwicRowView } from '../lib/store.ts';
+import { kwicRowKey, type KwicRowView } from '../lib/store.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
 
@@ -54,7 +54,7 @@ export function KwicPanel() {
       </thead>
       <tbody>
         {rows.map((r) => (
-          <tr key={`${r.seriesId}:${r.doc}:${r.pos}`} style={{ borderTop: '1px solid var(--rule)' }}>
+          <tr key={kwicRowKey(r)} style={{ borderTop: '1px solid var(--rule)' }}>
             <td style={{ color: slotColor(slotOf(r.seriesId)), paddingRight: '1ch', whiteSpace: 'nowrap' }}>{labelOf(r.seriesId)}</td>
             <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>{titleOf(r.doc).slice(0, 12)}</td>
             <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>

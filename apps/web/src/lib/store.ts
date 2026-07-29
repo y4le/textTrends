@@ -87,11 +87,27 @@ export interface KwicRowView {
   /** The series (track) that produced this row — the merged concordance tags
    *  each occurrence so the panel can colour and label it. */
   readonly seriesId: string;
+  /** Wire provenance retained for EVIDENCE IDENTITY (commit D): under
+   *  countOverlaps two rows can share (series, doc, pos) and differ only in
+   *  span/members — the panel key must include them (kwicRowKey). */
+  readonly groupId: string;
+  readonly members: readonly number[];
+  readonly node: { readonly start: number; readonly end: number };
   readonly doc: string;
   readonly pos: number;
   readonly left: string;
   readonly nodeText: string;
   readonly right: string;
+}
+
+/** The FULL evidence key of a concordance row — stable and collision-free
+ *  where `${seriesId}:${doc}:${pos}` is not: countOverlaps can emit two rows
+ *  at one start that differ only by node end / contributing members. The
+ *  encoding is an INJECTIVE JSON tuple: string fields have no delimiter-free
+ *  contract, so concatenation could alias (seriesId 'a:b', doc 'c') with
+ *  (seriesId 'a', doc 'b:c') (review-D). */
+export function kwicRowKey(r: KwicRowView): string {
+  return JSON.stringify([r.seriesId, r.groupId, r.doc, r.pos, r.node.start, r.node.end, r.members]);
 }
 
 /** The narrow request/response surface the store consumes — the store can hold

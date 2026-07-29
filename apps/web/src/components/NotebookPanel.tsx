@@ -14,7 +14,8 @@
  * Member editing (aliases/phrases/affixes) arrives with commit D.
  */
 
-import { useState } from 'react';
+import { Fragment, useState } from 'react';
+import { GroupEditor } from './GroupEditor.tsx';
 import { useApp } from '../lib/store-instance.ts';
 import { notebookRows, type GroupCountVM } from '../lib/notebook-view.ts';
 import { SeriesLineSample } from './chrome.tsx';
@@ -62,6 +63,8 @@ export function NotebookPanel() {
   // Rename drafts are local until commit (Enter/blur) — keystrokes must not
   // hit the store (and thus never a worker) per the draft-and-Apply rule.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
+  // At most one member editor open (commit D); closing discards its draft.
+  const [editing, setEditing] = useState<string | null>(null);
 
   if (notebook.groups.length === 0) return null;
 
@@ -102,8 +105,8 @@ export function NotebookPanel() {
       )}
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {rows.map((row, i) => (
+          <Fragment key={row.id}>
           <li
-            key={row.id}
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -159,8 +162,24 @@ export function NotebookPanel() {
             </button>
             <button type="button" style={rowButton} aria-label={`Move ${row.name} up`} disabled={i === 0} onClick={() => move(row.id, -1)}>↑</button>
             <button type="button" style={rowButton} aria-label={`Move ${row.name} down`} disabled={i === rows.length - 1} onClick={() => move(row.id, 1)}>↓</button>
+            <button
+              type="button"
+              style={rowButton}
+              aria-label={`Edit members: ${row.name}`}
+              aria-expanded={editing === row.id}
+              onClick={() => setEditing(editing === row.id ? null : row.id)}
+            >edit</button>
             <button type="button" style={rowButton} aria-label={`Remove ${row.name}`} onClick={() => removeGroup(row.id)}>remove</button>
           </li>
+          {editing === row.id && (
+            <li style={{ listStyle: 'none' }}>
+              <GroupEditor
+                group={notebook.groups.find((g) => g.id === row.id)!}
+                onClose={() => setEditing(null)}
+              />
+            </li>
+          )}
+          </Fragment>
         ))}
       </ul>
     </section>
