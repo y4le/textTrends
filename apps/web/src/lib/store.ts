@@ -42,6 +42,7 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
+  TERM_GROUP_LIMITS_V1,
   type DocumentMetaV1,
   type NumericTrend,
   type PassageResult,
@@ -236,6 +237,15 @@ export function parseSeries(input: string):
     // store never guesses a locale to collapse them.
     const id = label.normalize('NFC');
     if (series.some((s) => s.id === id)) continue;
+    // The RAW label (first-seen spelling, pre-NFC) becomes the ONE token
+    // surface of the issued group, and TERM_GROUP_LIMITS_V1 bounds raw UTF-16
+    // code units — so the emitted label is what must fit, not the (possibly
+    // shorter) NFC id. Checked after dedup: a long duplicate spelling that
+    // collapses into an existing series emits nothing and refuses nothing
+    // (review-A rounds 1–2).
+    if (label.length > TERM_GROUP_LIMITS_V1.maxSurfaceUnits) {
+      return { series: null, error: `Each term is at most ${TERM_GROUP_LIMITS_V1.maxSurfaceUnits} UTF-16 code units` };
+    }
     series.push({ id, label, styleSlot: series.length });
   }
   if (series.length > MAX_SERIES) {
@@ -455,13 +465,16 @@ export function createAppRuntime(client: QueryClient): AppRuntime {
         });
     };
 
-    /** Group/member ids derive from the series' presentation id — pure evidence
-     *  provenance (the worker keys occurrences on `termGroupIdentity`, not this).
+    /** Group/member ids derive from the series' STYLE SLOT — pure evidence
+     *  provenance (the worker keys occurrences on `termGroupIdentity`, not
+     *  this), bounded regardless of label length so a long-but-legal term can
+     *  never overflow the wire id bound (review-A finding). Slots are unique
+     *  within one issued series set, which is the only scope these ids serve.
      *  The actual matched surface is `s.label` under the folded `MATCH` mode,
      *  resolved per document-locale in the worker. */
     const groupFor = (s: SeriesIntent): TermGroupSpec => ({
-      id: `g:${s.id}`,
-      members: [{ id: `m:${s.id}`, kind: 'token', surface: s.label, match: MATCH }],
+      id: `g:${s.styleSlot}`,
+      members: [{ id: `m:${s.styleSlot}`, kind: 'token', surface: s.label, match: MATCH }],
       countOverlaps: false,
     });
 

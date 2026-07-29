@@ -106,6 +106,11 @@ export function resolveAffix(
   stem: string,
 ): readonly LocalTypeId[] {
   const foldedStem = queryKey(resolver, stem);
+  // An EFFECTIVELY empty stem (raw emptiness is rejected by validateGroup;
+  // this catches surfaces that fold/normalize away, e.g. a bare combining
+  // mark under a folded mode) must match NOTHING — `''.startsWith`/`endsWith`
+  // are vacuously true and would union the entire vocabulary.
+  if (foldedStem === '') return [];
   const out: LocalTypeId[] = [];
   for (const [folded, ids] of resolver.map) {
     const hit = kind === 'prefix' ? folded.startsWith(foldedStem) : folded.endsWith(foldedStem);

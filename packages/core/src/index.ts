@@ -74,7 +74,9 @@ export {
 export {
   checkedResolverFor,
   occurrences,
+  TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
+  validateGroup,
   type NumericOccurrences,
   type ResolverTable,
   type TermGroupSpec,

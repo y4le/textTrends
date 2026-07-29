@@ -51,6 +51,21 @@ export interface TermGroupSpec {
   readonly countOverlaps: boolean;
 }
 
+/** V1 admission bounds for a term group — ONE authority shared by the kernel
+ *  validator below, the wire narrower, and (later) the app's authoring UI, so
+ *  a group the app accepts is exactly a group the kernel accepts. Bounds are
+ *  in UTF-16 code units on the raw (pre-fold) strings. */
+export const TERM_GROUP_LIMITS_V1 = {
+  /** Members per group (≥1 — an empty group matches nothing and is a bug). */
+  maxMembers: 32,
+  /** Ordered surfaces per phrase member (≥1). */
+  maxPhraseSurfaces: 16,
+  /** Each token surface / affix stem / phrase surface. */
+  maxSurfaceUnits: 256,
+  /** Caller-owned provenance ids (group id, member id). */
+  maxIdUnits: 128,
+} as const;
+
 /** Resolvers per document, per match mode (key = modeKey(mode)). */
 export type ResolverTable = ReadonlyMap<string, ReadonlyMap<string, Resolver>>;
 
@@ -102,14 +117,60 @@ export function termGroupIdentity(group: TermGroupSpec): string {
   return canonicalJson({ members, countOverlaps: group.countOverlaps });
 }
 
-/** Semantic group validation — every PUBLIC kernel entry (occurrences,
- *  planPassage) must run this exactly once so a malformed group classifies
- *  as RangeError/REQUEST_INVALID, never as an internal fault. Internal to
- *  the kernel modules; deliberately NOT in the public barrel. */
+/** Semantic group validation against `TERM_GROUP_LIMITS_V1` — every PUBLIC
+ *  kernel entry (occurrences, planPassage) must run this exactly once so a
+ *  malformed group classifies as RangeError/REQUEST_INVALID, never as an
+ *  internal fault. Exported through the barrel (slice-1 ruling): the app's
+ *  authoring surface must accept exactly the groups the kernel accepts.
+ *
+ *  Emptiness is judged on the RAW strings; a surface that folds/normalizes to
+ *  nothing (e.g. a bare combining mark under a folded mode) is caught at
+ *  resolution instead, where `resolveAffix` refuses an empty folded stem
+ *  rather than matching the entire vocabulary. */
 export function validateGroup(group: TermGroupSpec): void {
+  const L = TERM_GROUP_LIMITS_V1;
+  // Narrowing guard, not just a check: returns the PROVEN string so no error
+  // label (or later use) can touch an unvalidated id — a template literal
+  // evaluates before the callee runs, so deriving a label from `m.id` at the
+  // call site would throw TypeError for a missing id (review-A round 2).
+  const boundedId = (id: unknown, what: string): string => {
+    if (typeof id !== 'string' || id.length === 0 || id.length > L.maxIdUnits) {
+      throw new RangeError(`${what} id must be 1–${L.maxIdUnits} code units`);
+    }
+    return id;
+  };
+  const boundedSurface = (s: unknown, what: string): void => {
+    // `typeof` guard: a SPARSE surfaces array (holes iterate as undefined)
+    // must classify as the same RangeError family, never a TypeError.
+    if (typeof s !== 'string' || s.length === 0 || s.length > L.maxSurfaceUnits) {
+      throw new RangeError(`${what} must be 1–${L.maxSurfaceUnits} code units`);
+    }
+  };
+  boundedId(group.id, 'group');
+  if (group.members.length === 0 || group.members.length > L.maxMembers) {
+    throw new RangeError(`a group must have 1–${L.maxMembers} members`);
+  }
+  const seenIds = new Set<string>();
   for (const m of group.members) {
-    if (m.kind === 'phrase' && m.surfaces.length === 0) {
-      throw new RangeError(`phrase member '${m.id}' has no surfaces`);
+    // A hole in a sparse members array iterates as undefined — defensive
+    // RangeError so classification stays REQUEST_INVALID, never a fault.
+    if (typeof m !== 'object' || m === null) throw new RangeError('a group member must be a record');
+    const mid = boundedId(m.id, 'a member');
+    if (seenIds.has(mid)) throw new RangeError(`duplicate member id '${mid.slice(0, 32)}'`);
+    seenIds.add(mid);
+    switch (m.kind) {
+      case 'token':
+        boundedSurface(m.surface, `token member '${mid}' surface`);
+        break;
+      case 'phrase':
+        if (m.surfaces.length === 0 || m.surfaces.length > L.maxPhraseSurfaces) {
+          throw new RangeError(`phrase member '${mid}' must have 1–${L.maxPhraseSurfaces} surfaces`);
+        }
+        for (const s of m.surfaces) boundedSurface(s, `phrase member '${mid}' surface`);
+        break;
+      default:
+        boundedSurface(m.stem, `${m.kind} member '${mid}' stem`);
+        break;
     }
   }
 }

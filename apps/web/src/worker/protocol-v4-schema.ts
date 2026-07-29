@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1 } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -75,22 +75,40 @@ function narrowOverrideInput(o: unknown): boolean {
   return false;
 }
 
+// Wire admission enforces the SAME V1 bounds as the kernel validator
+// (TERM_GROUP_LIMITS_V1, one authority) — an empty affix stem or an unbounded
+// member list must be refused at the boundary, not discovered in a kernel.
+const isBoundedId = (v: unknown): boolean =>
+  isStr(v) && v.length >= 1 && v.length <= TERM_GROUP_LIMITS_V1.maxIdUnits;
+const isBoundedSurface = (v: unknown): boolean =>
+  isStr(v) && v.length >= 1 && v.length <= TERM_GROUP_LIMITS_V1.maxSurfaceUnits;
+
+/** Bounded DENSE-array check. `Array.prototype.every` skips holes, so a
+ *  sparse `Array(1)` would narrow and structured-clone its holes into the
+ *  kernel as `undefined` (review-A finding) — an indexed loop visits them. */
+function denseBoundedArray(v: unknown, min: number, max: number, pred: (e: unknown) => boolean): boolean {
+  if (!Array.isArray(v) || v.length < min || v.length > max) return false;
+  for (let i = 0; i < v.length; i++) if (!pred(v[i])) return false;
+  return true;
+}
+
 function narrowMember(m: unknown): boolean {
-  if (!isRecord(m) || !isStr(m.id) || !isRecord(m.match)) return false;
+  if (!isRecord(m) || !isBoundedId(m.id) || !isRecord(m.match)) return false;
   const match = m.match as { case?: unknown; diacritics?: unknown };
   if (!MATCH.has(match.case as string) || !MATCH.has(match.diacritics as string)) return false;
   switch (m.kind) {
-    case 'token': return isStr(m.surface);
-    case 'phrase': return Array.isArray(m.surfaces) && (m.surfaces as unknown[]).every(isStr) && typeof m.crossSentence === 'boolean';
+    case 'token': return isBoundedSurface(m.surface);
+    case 'phrase': return denseBoundedArray(m.surfaces, 1, TERM_GROUP_LIMITS_V1.maxPhraseSurfaces, isBoundedSurface) &&
+      typeof m.crossSentence === 'boolean';
     case 'prefix':
-    case 'suffix': return isStr(m.stem);
+    case 'suffix': return isBoundedSurface(m.stem);
     default: return false;
   }
 }
 
 function narrowGroup(g: unknown): boolean {
-  return isRecord(g) && isStr(g.id) && typeof g.countOverlaps === 'boolean' &&
-    Array.isArray(g.members) && (g.members as unknown[]).every(narrowMember);
+  return isRecord(g) && isBoundedId(g.id) && typeof g.countOverlaps === 'boolean' &&
+    denseBoundedArray(g.members, 1, TERM_GROUP_LIMITS_V1.maxMembers, narrowMember);
 }
 
 function narrowSelection(s: unknown): boolean {

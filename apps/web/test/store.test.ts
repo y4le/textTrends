@@ -37,6 +37,7 @@ import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
+  TERM_GROUP_LIMITS_V1,
   type NumericTrend,
   type PassageResult,
 } from '@texttrends/core';
@@ -46,6 +47,7 @@ interface Issued {
   snapshot: string;
   term: string;
   groupId: string;
+  memberId: string;
   op: string;
   query: unknown;
   resolve: (r: QueryResultDataV4) => void;
@@ -59,8 +61,8 @@ function fakeQueryClient() {
     query: (snapshot, query) => {
       const q = query as {
         op: string;
-        group?: { id: string; members: { surface: string }[] };
-        tracks?: { seriesId: string; group: { id: string; members: { surface: string }[] } }[];
+        group?: { id: string; members: { id: string; surface: string }[] };
+        tracks?: { seriesId: string; group: { id: string; members: { id: string; surface: string }[] } }[];
         request?: { doc: string; centerToken: number; tracks: { seriesId: string }[] };
       };
       // trend carries `group`; kwic/2 carries `tracks` (first track's group here).
@@ -69,6 +71,7 @@ function fakeQueryClient() {
         snapshot,
         term: primaryGroup?.members[0]?.surface ?? q.request?.doc ?? '',
         groupId: primaryGroup?.id ?? '',
+        memberId: primaryGroup?.members[0]?.id ?? '',
         op: q.op,
         query,
         resolve: () => undefined,
@@ -305,6 +308,39 @@ describe('parseSeries', () => {
     expect(p.series).toBeNull();
     expect(p.error).toContain(String(MAX_SERIES));
   });
+
+  it('bounds a term at the shared surface limit — the longest legal label parses, one more refuses (never a downstream query error)', () => {
+    const longest = 'x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
+    const ok = parseSeries(longest);
+    expect(ok.error).toBeNull();
+    expect(ok.series!).toHaveLength(1);
+    const over = parseSeries(`${longest}y`);
+    expect(over.series).toBeNull();
+    expect(over.error).toContain(String(TERM_GROUP_LIMITS_V1.maxSurfaceUnits));
+  });
+
+  it('bounds the RAW label, not the (possibly shorter) NFC id — decomposed spellings count their real code units', () => {
+    // 'e' + U+0301 combining acute (DECOMPOSED): 2 raw units each, 1 after
+    // NFC. The RAW spelling is what groupFor emits as the surface, so the raw
+    // length is what must fit.
+    const raw = 'e\u0301'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1);
+    expect(raw.normalize('NFC').length).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
+    const p = parseSeries(raw);
+    expect(p.series).toBeNull();
+    expect(p.error).toContain('code units');
+    // An OVER-LIMIT decomposed DUPLICATE of a legal composed series emits
+    // nothing and refuses nothing — this pins the check running AFTER
+    // canonical dedup: the duplicate here is 258 raw units (over the bound),
+    // so a check that ran before dedup would refuse the whole input.
+    const composed = '\u00e9'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1); // 129 units, legal
+    const decomposedDup = 'e\u0301'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits / 2 + 1); // 258 raw units
+    expect(decomposedDup.length).toBeGreaterThan(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
+    expect(decomposedDup.normalize('NFC')).toBe(composed);
+    const dedup = parseSeries(`${composed}, ${decomposedDup}`);
+    expect(dedup.error).toBeNull();
+    expect(dedup.series!).toHaveLength(1);
+    expect(dedup.series![0]!.label).toBe(composed);
+  });
 });
 
 describe('the session bridge', () => {
@@ -508,6 +544,18 @@ describe('the session bridge', () => {
 });
 
 describe('store query intent discipline', () => {
+  it('issued group/member ids stay wire-bounded for the LONGEST legal label (ids derive from slots, not labels)', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    const longest = 'x'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
+    f.store.getState().setInput(longest);
+    const q = f.trends().filter((t) => !t.cancelled).at(-1)!;
+    expect(q.term).toBe(longest); // the label IS the surface, at full length
+    expect(q.groupId.length).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxIdUnits);
+    expect(q.memberId.length).toBeGreaterThan(0);
+    expect(q.memberId.length).toBeLessThanOrEqual(TERM_GROUP_LIMITS_V1.maxIdUnits);
+  });
+
   it('issues one trend per series plus one MERGED KWIC over all enabled terms', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');

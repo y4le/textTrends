@@ -3,7 +3,7 @@ import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
 import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
-import { occurrences, termGroupIdentity, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { occurrences, TERM_GROUP_LIMITS_V1, termGroupIdentity, validateGroup, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
@@ -196,7 +196,7 @@ describe('phrases', () => {
     ])))).toEqual([]);
     expect(() =>
       occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([phrase('m1', [])])),
-    ).toThrow(/no surfaces/);
+    ).toThrow(/surfaces/);
   });
 });
 
@@ -330,5 +330,75 @@ describe('termGroupIdentity — the canonical matching key (not group.id)', () =
     const empty = { id: 'g', members: [phrase('p', [])], countOverlaps: false };
     expect(() => termGroupIdentity(empty)).not.toThrow();
     expect(termGroupIdentity(empty)).toBe(termGroupIdentity(empty));
+  });
+
+  it('GOLDEN serialization — member order, per-member fields, and countOverlaps (a change here invalidates every persisted/memoized occurrence key)', () => {
+    const g = group([token('m1', 'wolf', FOLD), phrase('m2', ['dire', 'wolf'])], true);
+    expect(termGroupIdentity(g)).toBe(
+      '{"countOverlaps":true,"members":['
+      + '{"k":"token","mode":"folded|sensitive","surface":"wolf"},'
+      + '{"crossSentence":false,"k":"phrase","mode":"folded|sensitive","surfaces":["dire","wolf"]}'
+      + ']}',
+    );
+  });
+});
+
+describe('validateGroup — TERM_GROUP_LIMITS_V1 admission (one authority with the wire narrower)', () => {
+  const L = TERM_GROUP_LIMITS_V1;
+  const ok = (members: TermGroupSpec['members'], countOverlaps = false): TermGroupSpec =>
+    ({ id: 'g1', members, countOverlaps });
+
+  it('accepts a maximal group at every bound simultaneously', () => {
+    const members = Array.from({ length: L.maxMembers }, (_, i) =>
+      token(`m${i}`.padEnd(L.maxIdUnits, 'x'), 'y'.repeat(L.maxSurfaceUnits)));
+    expect(() => validateGroup(ok(members))).not.toThrow();
+    expect(() => validateGroup(ok([
+      phrase('p1', Array.from({ length: L.maxPhraseSurfaces }, () => 'w')),
+    ]))).not.toThrow();
+  });
+
+  it.each<[string, TermGroupSpec]>([
+    ['empty group id', { id: '', members: [token('m', 'w')], countOverlaps: false }],
+    ['oversized group id', { id: 'g'.repeat(L.maxIdUnits + 1), members: [token('m', 'w')], countOverlaps: false }],
+    ['zero members', ok([])],
+    ['too many members', ok(Array.from({ length: L.maxMembers + 1 }, (_, i) => token(`m${i}`, 'w')))],
+    ['empty member id', ok([token('', 'w')])],
+    ['duplicate member ids', ok([token('m', 'a'), token('m', 'b')])],
+    ['empty token surface', ok([token('m', '')])],
+    ['oversized token surface', ok([token('m', 'w'.repeat(L.maxSurfaceUnits + 1))])],
+    ['empty prefix stem', ok([{ id: 'm', kind: 'prefix', stem: '', match: FOLD }])],
+    ['empty suffix stem', ok([{ id: 'm', kind: 'suffix', stem: '', match: FOLD }])],
+    ['oversized stem', ok([{ id: 'm', kind: 'prefix', stem: 's'.repeat(L.maxSurfaceUnits + 1), match: FOLD }])],
+    ['empty phrase', ok([phrase('m', [])])],
+    ['too many phrase surfaces', ok([phrase('m', Array.from({ length: L.maxPhraseSurfaces + 1 }, () => 'w'))])],
+    ['empty surface inside a phrase', ok([phrase('m', ['dire', ''])])],
+  ])('rejects %s as RangeError', (_name, g) => {
+    expect(() => validateGroup(g)).toThrow(RangeError);
+  });
+
+  it('rejects a MISSING or non-string member id as RangeError — the error label must not touch the id first', () => {
+    const noId = { kind: 'token', surface: 'w', match: FOLD } as unknown as TermGroupSpec['members'][number];
+    expect(() => validateGroup(ok([noId]))).toThrow(RangeError);
+    const numId = { id: 7, kind: 'token', surface: 'w', match: FOLD } as unknown as TermGroupSpec['members'][number];
+    expect(() => validateGroup(ok([numId]))).toThrow(RangeError);
+  });
+
+  it('rejects SPARSE member/surface arrays as RangeError, never a TypeError fault', () => {
+    // Holes iterate as undefined; the wire narrower refuses them upstream, but
+    // the kernel must classify defensively for direct consumers.
+    expect(() => validateGroup(ok(Array(1) as unknown as TermGroupSpec['members']))).toThrow(RangeError);
+    const sparseSurfaces = ['dire']; sparseSurfaces.length = 2;
+    expect(() => validateGroup(ok([phrase('m', sparseSurfaces)]))).toThrow(RangeError);
+    const partiallySparse = [token('m1', 'w')]; partiallySparse.length = 2;
+    expect(() => validateGroup(ok(partiallySparse as TermGroupSpec['members']))).toThrow(RangeError);
+  });
+
+  it('classifies through the public kernel entry — an empty affix stem never reaches resolution', async () => {
+    const w = await world({ a: 'dire wolf' });
+    expect(() =>
+      occurrences(w.snapshot, w.shards, w.resolvers, w.all, ok([
+        { id: 'm', kind: 'prefix', stem: '', match: FOLD },
+      ])),
+    ).toThrow(RangeError);
   });
 });

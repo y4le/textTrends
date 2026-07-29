@@ -14,6 +14,7 @@ import {
   emptyOverride,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
+  TERM_GROUP_LIMITS_V1,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -247,6 +248,42 @@ describe('narrowQueryV4', () => {
     // Exact match-mode enums (a bogus value must not silently mean sensitive).
     const badMatch = { ...wolfGroup, members: [{ id: 'm', kind: 'token', surface: 'w', match: { case: 'x', diacritics: 'folded' } }] };
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: badMatch, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(false);
+  });
+
+  it('enforces TERM_GROUP_LIMITS_V1 at the wire — same authority as the kernel validator', () => {
+    const trend = (group: unknown) =>
+      narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } });
+    const member = (over: Record<string, unknown>) => ({
+      id: 'm', kind: 'token', surface: 'w', match: { case: 'folded', diacritics: 'folded' }, ...over,
+    });
+    const g = (over: Record<string, unknown>) => ({ ...wolfGroup, ...over });
+    // Emptiness at every string position — an empty affix stem would union the
+    // entire vocabulary if it ever reached resolution.
+    expect(trend(g({ id: '' }))).toBe(false);
+    expect(trend(g({ members: [] }))).toBe(false);
+    expect(trend(g({ members: [member({ id: '' })] }))).toBe(false);
+    expect(trend(g({ members: [member({ surface: '' })] }))).toBe(false);
+    expect(trend(g({ members: [{ id: 'm', kind: 'prefix', stem: '', match: { case: 'folded', diacritics: 'folded' } }] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: ['a', ''], crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: [], crossSentence: false })] }))).toBe(false);
+    // Size bounds.
+    expect(trend(g({ id: 'g'.repeat(TERM_GROUP_LIMITS_V1.maxIdUnits + 1) }))).toBe(false);
+    expect(trend(g({ members: [member({ surface: 'w'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits + 1) })] }))).toBe(false);
+    expect(trend(g({ members: Array.from({ length: TERM_GROUP_LIMITS_V1.maxMembers + 1 }, (_, i) => member({ id: `m${i}` })) }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: Array.from({ length: TERM_GROUP_LIMITS_V1.maxPhraseSurfaces + 1 }, () => 'w'), crossSentence: false })] }))).toBe(false);
+    // SPARSE arrays must not narrow: `every` skips holes, and structured
+    // cloning preserves them into the kernel as undefined (review-A finding).
+    expect(trend(g({ members: Array(1) }))).toBe(false);
+    const sparseMembers = [member({})]; sparseMembers.length = 2;
+    expect(trend(g({ members: sparseMembers }))).toBe(false);
+    const sparseSurfaces = ['a']; sparseSurfaces.length = 2;
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: sparseSurfaces, crossSentence: false })] }))).toBe(false);
+    // Maximal-at-every-bound still narrows.
+    expect(trend(g({
+      id: 'g'.repeat(TERM_GROUP_LIMITS_V1.maxIdUnits),
+      members: Array.from({ length: TERM_GROUP_LIMITS_V1.maxMembers }, (_, i) =>
+        member({ id: `m${i}`, surface: 'w'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits) })),
+    }))).toBe(true);
   });
 
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {

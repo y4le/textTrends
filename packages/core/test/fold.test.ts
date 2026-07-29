@@ -84,6 +84,18 @@ describe('resolvers bound to a shard', () => {
     expect(resolveAffix(r, 'suffix', 'er').length).toBe(2); // winter, summer
   });
 
+  it('an EFFECTIVELY empty stem matches nothing, never the whole vocabulary', async () => {
+    // validateGroup rejects raw-empty stems upstream; this is the resolution
+    // guard for surfaces that fold/normalize away — '' would otherwise
+    // vacuously prefix/suffix-match every folded key.
+    const shard = await shardOf('winter summer otter');
+    const r = await buildResolver(shard, R, BOTH);
+    expect(resolveAffix(r, 'prefix', '')).toEqual([]);
+    expect(resolveAffix(r, 'suffix', '')).toEqual([]);
+    // A bare combining acute folds to nothing under diacritics:'folded'.
+    expect(resolveAffix(r, 'prefix', '́')).toEqual([]);
+  });
+
   it('affix output stays in vocabulary order when interleaved entries fold to one key', async () => {
     // 'Cafe' (id 0) and 'café' (id 2) both fold to 'cafe', with 'bar' (id 1)
     // between them — the collided bucket is [0, 2], not adjacent ids.
@@ -102,12 +114,6 @@ describe('resolvers bound to a shard', () => {
     expect(resolveAffix(r, 'suffix', 'er')).toEqual([0, 1, 2, 3]);
   });
 
-  it('an empty stem matches every entry, in vocabulary order', async () => {
-    const shard = await shardOf('beta Alpha ALPHA');
-    const r = await buildResolver(shard, R, CASE_ONLY);
-    expect(resolveAffix(r, 'prefix', '')).toEqual([0, 1, 2]);
-    expect(resolveAffix(r, 'suffix', '')).toEqual([0, 1, 2]);
-  });
 });
 
 describe('package entry point', () => {

@@ -1274,9 +1274,23 @@ describe('protocol narrowing and dispatch (v4)', () => {
       await h.send({ t: 'query', job: 20, snapshot: snap, query: bad });
       expect(h.last('error').code, JSON.stringify(bad)).toBe('PARSE_FAILED');
     }
-    // Narrowing-valid but KERNEL-invalid: mapped deterministically BY TYPE. An
-    // empty-phrase member whose id is 'cap' must be REQUEST_INVALID, never
-    // CAP_EXCEEDED (message-text independence).
+    // The V1 group bounds are enforced AT THE WIRE (TERM_GROUP_LIMITS_V1, one
+    // authority with the kernel): an empty phrase / empty stem / oversized
+    // member list is a malformed message, not a kernel error.
+    for (const badGroup of [
+      { id: 'g', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false },
+      { id: 'g', members: [{ id: 'p', kind: 'prefix', stem: '', match: FOLD }], countOverlaps: false },
+    ]) {
+      await h.send({
+        t: 'query', job: 20, snapshot: snap,
+        query: { op: 'trend', selection: { docs: ['a'] }, group: badGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      });
+      expect(h.last('error').code, JSON.stringify(badGroup)).toBe('PARSE_FAILED');
+    }
+    // Narrowing-valid but KERNEL-invalid: mapped deterministically BY TYPE. A
+    // duplicate member id 'cap' (the one semantic check the narrower leaves to
+    // the kernel) must be REQUEST_INVALID, never CAP_EXCEEDED (message-text
+    // independence).
     await h.send({
       t: 'query', job: 21, snapshot: snap,
       query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 0 } },
@@ -1284,7 +1298,7 @@ describe('protocol narrowing and dispatch (v4)', () => {
     expect(h.last('error').code).toBe('REQUEST_INVALID');
     await h.send({
       t: 'query', job: 22, snapshot: snap,
-      query: { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [{ id: 'cap', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      query: { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [{ id: 'cap', kind: 'token', surface: 'x', match: FOLD }, { id: 'cap', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
     });
     expect(h.last('error').code).toBe('REQUEST_INVALID');
   });
@@ -1443,15 +1457,18 @@ describe('queries and excerpts (v4)', () => {
     const { h, snap } = await ready();
     h.clear();
     // Track A resolves a UNIQUE surface absent from the corpus; track B passes
-    // the wire schema (narrowMember accepts an empty-surfaces phrase) but THROWS
-    // inside `occurrences`. The cancel is raised from inside track A's own
+    // the wire schema (narrowGroup does not check member-id uniqueness) but
+    // THROWS inside `occurrences`. The cancel is raised from inside track A's own
     // `resolveToken` fold (String.toLocaleLowerCase on that unique surface — a
     // call the resolver-prep vocab folding never makes). So the gate that must
     // catch it is the one AFTER track A: move it before the loop (or delete it)
     // and track B computes and throws instead of cancelling cleanly.
     const MARKER = 'zzsentinelalpha';
     const trackA = { seriesId: 'A', group: { id: 'gA', countOverlaps: false, members: [{ id: 'a', kind: 'token', surface: MARKER, match: { case: 'folded', diacritics: 'sensitive' } }] } };
-    const throwingB = { seriesId: 'B', group: { id: 'gThrow', countOverlaps: false, members: [{ id: 'p', kind: 'phrase', surfaces: [], crossSentence: false, match: { case: 'folded', diacritics: 'sensitive' } }] } };
+    const throwingB = { seriesId: 'B', group: { id: 'gThrow', countOverlaps: false, members: [
+      { id: 'p', kind: 'token', surface: 'x', match: { case: 'folded', diacritics: 'sensitive' } },
+      { id: 'p', kind: 'token', surface: 'y', match: { case: 'folded', diacritics: 'sensitive' } },
+    ] } };
     const query = { op: 'kwic', selection: { docs: ['a'] }, tracks: [trackA, throwingB], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } };
     const origLower = String.prototype.toLocaleLowerCase;
     let firedDuringA = false;
@@ -1724,10 +1741,14 @@ describe('queries and excerpts (v4)', () => {
     expect(h.last('error').code).toBe('PARSE_FAILED'); // duplicate seriesId rejected by the narrower
   });
 
-  it('a passage track with an empty phrase is REQUEST_INVALID (kernel), matching the trend path', async () => {
+  it('a passage track with a kernel-invalid group (duplicate member ids) is REQUEST_INVALID, matching the trend path', async () => {
     const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'query', job: 28, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false } }] } } });
+    await h.send({ t: 'query', job: 28, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'token', surface: 'x', match: FOLD }, { id: 'p', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false } }] } } });
     expect(h.last('error').code).toBe('REQUEST_INVALID');
+    // The empty phrase that previously exercised this path is now refused at
+    // the wire (TERM_GROUP_LIMITS_V1).
+    await h.send({ t: 'query', job: 29, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false } }] } } });
+    expect(h.last('error').code).toBe('PARSE_FAILED');
   });
 
   it('rejects queries against a superseded snapshot (SNAPSHOT_UNKNOWN) and invalid selections (SELECTION_INVALID)', async () => {

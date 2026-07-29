@@ -143,7 +143,7 @@ describe('passage', () => {
       countOverlaps: false,
     };
     expect(() => planPassage(w.snapshot, 'a', shard, rf, [emptyPhrase], 1, 3)).toThrow(RangeError);
-    expect(() => planPassage(w.snapshot, 'a', shard, rf, [emptyPhrase], 1, 3)).toThrow(/no surfaces/);
+    expect(() => planPassage(w.snapshot, 'a', shard, rf, [emptyPhrase], 1, 3)).toThrow(/surfaces/);
   });
 
   it('document, maxTokens, center, and cap errors all take precedence over an invalid group', async () => {
