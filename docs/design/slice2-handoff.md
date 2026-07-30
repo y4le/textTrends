@@ -1,8 +1,8 @@
 # Slice-2 handoff — linked selection, dispersion barcode, full reader
 
 *Written 2026-07-29 for a fresh agent picking up mid-slice; updated later that
-day through the F implementation. Branch `feature/product-slices`, tip
-`28e55f3` plus the unstaged F candidate. Read this file, then
+day through the H implementation. Branch `feature/product-slices`, tip
+`8fece64` plus the unstaged H candidate. Read this file, then
 `docs/design/linked-selection-plan.md` (the recorded Codex ruling — it is the
 CONTRACT; this file only tracks execution state against it).*
 
@@ -13,7 +13,7 @@ CONTRACT; this file only tracks execution state against it).*
 Slice 1 (term groups + query notebook) is **complete** — see
 `docs/design/term-groups-plan.md` STATUS. Slice 2 is the second of the four
 adopted product slices (`docs/research/synthesis.md` §11). Its ruling splits
-it into commits **A–I**; seven are landed, F is built, and H/I remain.
+it into commits **A–I**; eight are landed, H is built, and I remains.
 
 | Commit | What | State |
 |---|---|---|
@@ -24,8 +24,8 @@ it into commits **A–I**; seven are landed, F is built, and H/I remain.
 | G | `reader-page/1` core + protocol + executor | **landed** `8ee6a31` (3 rounds) |
 | E1 | Linked-selection model + store lanes | **landed** `1886bae` (2 rounds) |
 | E2 | Linked-selection gestures + rendering | **landed** `28e55f3` (1 round) |
-| F | Pinned context pane | **built and verified, awaiting review** — see §5 |
-| H | Full reader UI and links | not started — plan §H |
+| F | Pinned context pane | **landed** `8fece64` (1 round) |
+| H | Full reader UI and links | **built and verified, awaiting review** — see §5 |
 | I | Slice-2 browser acceptance | not started — plan §I |
 
 Commit order note: the ruling's letters are its own sequence. G was pulled
@@ -36,27 +36,28 @@ can land in any order that respects their file dependencies** (§6).
 
 ```
 core:  420 tests pass
-apps/web: 530 tests pass with F
+apps/web: 539 tests pass with H
 typecheck: clean
-playwright: F's job-correlated pin race passes; prior full functional 39/39
-build: bundle contract passes; F entry remains below the 90 kB gzip cap
+playwright: H reader/open/race specs pass with affected barcode/concordance coverage
+build: bundle contract passes; H entry is 69.6 kB gzip and reader UI is a 2.6 kB lazy chunk
 ```
 
 ---
 
 ## 2. Working-tree contents (nothing is lost — read this before `git` anything)
 
-`git status --short` currently shows the unstaged commit-F candidate. **Do not
+`git status --short` currently shows the unstaged commit-H candidate. **Do not
 run `git checkout --` or `git stash` without reading this.**
 
-**UNSTAGED — commit F pinned context pane**:
+**UNSTAGED — commit H full reader UI**:
 ```
- M apps/web/src/{App,components/{TrendPanel,PassageLine,BarcodeStrip}}.tsx
- M apps/web/src/lib/{store,trend-geometry}.ts and tests
-?? apps/web/src/components/PinnedPane.tsx
-?? apps/web/src/lib/{pins,reader-intent,passage-marks}.ts
-?? apps/web/test/{pins,reader-intent,passage-marks}.test.ts
-?? apps/web/e2e/pins.spec.ts
+ M apps/web/src/{App,components/{TrendPanel,PassageLine,BarcodeStrip,KwicPanel,PinnedPane}}.tsx
+ M apps/web/src/lib/{store,reader-intent}.ts and tests
+ M apps/web/{e2e/pins.spec.ts,test/{pins,store}.test.ts}
+?? apps/web/src/components/ReaderDrawer.tsx
+?? apps/web/src/lib/reader-view.ts
+?? apps/web/test/reader-view.test.ts
+?? apps/web/e2e/reader.spec.ts
 ```
 
 **`?? .claude/`** is agent worktree scratch — ignorable, not part of the work.
@@ -204,7 +205,7 @@ one-commit-shaped.
 Plan §E and §2. **The store/model layer landed in `1886bae`; the gesture and
 render layer landed in `28e55f3`.**
 
-### Done (unstaged, focused tests green)
+### Delivered across E1 and E2
 
 - `apps/web/src/lib/selection.ts` — pure: `TokenRangeSelectionV1`
   (`{snapshot, doc, tokens:{start,end}}`), `isValidSelection`,
@@ -242,7 +243,7 @@ stale selection/track/snapshot results.
 
 ## 5. Commits F, H, I
 
-**F is built and awaiting exact-tree review.** The candidate adds explicit
+**F landed in `8fece64`.** It adds explicit
 snapshot provenance to KWIC/dispersion/passage resident states; immutable
 captured pin contracts; independently keyed pin leases; duplicate/cap/retry/
 remove/snapshot/dispose handling; safe shared passage segmentation; click and
@@ -252,6 +253,16 @@ remove-before-result, duplicate focus, and snapshot clear. The design was
 pre-coordinated with Claude Opus through Parley; in particular, pins capture
 ordered semantic track identities and do not use the live notebook as a
 late-result guard.
+
+**H is built and awaiting exact-tree review.** It adds a separate latest-wins
+reader lane guarded by snapshot, exact place, and ordered matching identities;
+canonical-cursor navigation with the prior served cursors still operable while
+prose is pending; a lazy safe-text drawer with occurrence highlights, clipped
+mark edges, range shading, and current-query legend; open intents from KWIC,
+exact barcode ticks, passage, and pins; and browser gates that deliver stale
+Next/Previous pages out of order. Semantic member/active changes reissue the
+current highlight projection, rename stays presentational, and snapshot
+replacement closes the reader.
 
 Read the plan doc sections; they are precise. Summary of the load-bearing
 requirements:

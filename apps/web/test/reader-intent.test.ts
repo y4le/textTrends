@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { readerPlaceFor } from '../src/lib/reader-intent.ts';
+import {
+  readerPlaceFor,
+  sameReaderCursor,
+  sameReaderPlace,
+} from '../src/lib/reader-intent.ts';
 
 describe('reader open intent', () => {
   it('turns a live served position into an around cursor', () => {
@@ -31,5 +35,20 @@ describe('reader open intent', () => {
       's1',
       ['a'],
     )).toBeNull();
+  });
+
+  it('compares the full snapshot/document/cursor/source identity', () => {
+    const place = {
+      snapshot: 's1',
+      doc: 'a',
+      cursor: { kind: 'around' as const, token: 3 },
+      from: 'kwic' as const,
+    };
+    expect(sameReaderPlace(place, { ...place, cursor: { ...place.cursor } })).toBe(true);
+    expect(sameReaderPlace(place, { ...place, cursor: { kind: 'from', token: 3 } })).toBe(false);
+    expect(sameReaderPlace(place, { ...place, from: 'pin' })).toBe(false);
+    expect(sameReaderPlace(place, null)).toBe(false);
+    expect(sameReaderCursor(place.cursor, { ...place.cursor })).toBe(true);
+    expect(sameReaderCursor(place.cursor, { kind: 'from', token: 3 })).toBe(false);
   });
 });

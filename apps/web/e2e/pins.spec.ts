@@ -163,7 +163,7 @@ test('click pins are independent, removed late evidence stays removed, and snaps
   await expect(pane.locator('article')).toHaveCount(1);
   await gateRelease(worker);
   await expect.poll(() => gateHeld(worker)).toBe(0);
-  await expect(pane.getByRole('button', { name: 'open reader' })).toBeVisible();
+  await expect(pane.getByRole('button', { name: /Open pinned evidence/ })).toBeVisible();
   await expect(pane.locator('article')).toHaveCount(1);
 
   // Job-correlate the proof: at least the held scrub + two independent pin

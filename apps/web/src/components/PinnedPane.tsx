@@ -81,43 +81,6 @@ function EvidenceText({
   );
 }
 
-function ReaderPlaceholder() {
-  const place = useApp((state) => state.readerPlace);
-  const project = useApp((state) => state.projectSession?.project ?? null);
-  const closeReader = useApp((state) => state.closeReader);
-  if (!place) return null;
-  const title =
-    project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
-    ?? place.doc;
-  const token =
-    place.cursor.kind === 'before'
-      ? Math.max(0, place.cursor.token - 1)
-      : place.cursor.token;
-  return (
-    <aside
-      aria-label="Reader"
-      style={{
-        marginTop: 'var(--space-3)',
-        border: '1px solid var(--rule-strong)',
-        padding: 'var(--space-3)',
-      }}
-    >
-      <div style={{ display: 'flex', justifyContent: 'space-between', gap: 'var(--space-2)' }}>
-        <div>
-          <strong>Reader</strong>
-          <div style={{ color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
-            {title} · around token {(token + 1).toLocaleString()}
-          </div>
-        </div>
-        <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>close</button>
-      </div>
-      <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)', marginBottom: 0 }}>
-        Preparing the paged reader…
-      </p>
-    </aside>
-  );
-}
-
 export function PinnedPane() {
   const pins = useApp((state) => state.pins);
   const focusedPinId = useApp((state) => state.focusedPinId);
@@ -131,14 +94,13 @@ export function PinnedPane() {
   const focusPin = useApp((state) => state.focusPin);
   const clearPinError = useApp((state) => state.clearPinError);
   const openReader = useApp((state) => state.openReader);
-  const readerPlace = useApp((state) => state.readerPlace);
   const itemRefs = useRef(new Map<string, HTMLElement>());
 
   useEffect(() => {
     if (focusedPinId) itemRefs.current.get(focusedPinId)?.focus({ preventScroll: true });
   }, [focusedPinId, pinAnnouncement]);
 
-  if (pins.length === 0 && !pinError && !readerPlace) return null;
+  if (pins.length === 0 && !pinError) return null;
 
   const identityById = new Map(
     notebook.groups.map((group) => [group.id, groupIdentity(group)]),
@@ -225,6 +187,7 @@ export function PinnedPane() {
                   {pin.kind === 'ready' && (
                     <button
                       type="button"
+                      aria-label={`Open pinned evidence at token ${pin.anchor.token + 1} in reader`}
                       onClick={() => openReader({
                         snapshot: pin.anchor.snapshot,
                         doc: pin.anchor.doc,
@@ -236,7 +199,21 @@ export function PinnedPane() {
                       open reader
                     </button>
                   )}
-                  <button type="button" onClick={() => removePin(pin.id)} style={SMALL_BUTTON_STYLE}>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const returnsToScrubber = pins.length === 1;
+                      removePin(pin.id);
+                      if (returnsToScrubber) {
+                        requestAnimationFrame(() => {
+                          document
+                            .getElementById('reading-position-scrubber')
+                            ?.focus({ preventScroll: true });
+                        });
+                      }
+                    }}
+                    style={SMALL_BUTTON_STYLE}
+                  >
                     remove
                   </button>
                 </div>
@@ -280,7 +257,6 @@ export function PinnedPane() {
           );
         })}
       </div>
-      <ReaderPlaceholder />
     </section>
   );
 }

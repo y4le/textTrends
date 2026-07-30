@@ -13,6 +13,9 @@ import { PinnedPane } from './components/PinnedPane.tsx';
 const TrendPanel = lazy(() =>
   import('./components/TrendPanel.tsx').then(({ TrendPanel: panel }) => ({ default: panel })),
 );
+const ReaderDrawer = lazy(() =>
+  import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
+);
 
 /** Chart-focus chip: the series' persistent identity (line sample + name) and
  *  the CHART-emphasis control (concordance membership is the KwicPanel
@@ -74,6 +77,7 @@ export function App() {
   const setTrendView = useApp((s) => s.setTrendView);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
+  const readerPlace = useApp((s) => s.readerPlace);
   const bootstrap = useApp((s) => s.bootstrap);
   const [draft, setDraft] = useState('');
 
@@ -208,6 +212,11 @@ export function App() {
       </div>
       <StructurePanel />
       <ProjectPanel />
+      {readerPlace && (
+        <Suspense fallback={null}>
+          <ReaderDrawer />
+        </Suspense>
+      )}
     </main>
   );
 }

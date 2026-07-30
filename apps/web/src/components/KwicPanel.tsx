@@ -24,6 +24,7 @@ export function KwicPanel() {
   const series = useApp((s) => s.series);
   const enabled = useApp((s) => s.kwicEnabledSeries);
   const toggle = useApp((s) => s.toggleKwicSeries);
+  const openReader = useApp((s) => s.openReader);
 
   if (series.length === 0) return null;
   // Map lookups, built once per render — the table does up to 50 rows × 5
@@ -59,7 +60,32 @@ export function KwicPanel() {
             <td style={{ color: slotColor(slotOf(r.seriesId)), paddingRight: '1ch', whiteSpace: 'nowrap' }}>{labelOf(r.seriesId)}</td>
             <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>{titleOf(r.doc).slice(0, 12)}</td>
             <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>
-            <td style={{ color: slotColor(slotOf(r.seriesId)), padding: '0 1ch', fontWeight: 600 }}>{oneLine(r.nodeText)}</td>
+            <td style={{ padding: '0 1ch' }}>
+              <button
+                type="button"
+                onClick={() => {
+                  if (!kwic) return;
+                  openReader({
+                    snapshot: kwic.snapshot,
+                    doc: r.doc,
+                    token: r.pos,
+                    from: 'kwic',
+                  });
+                }}
+                title="Open this occurrence in the reader"
+                style={{
+                  font: 'inherit',
+                  color: slotColor(slotOf(r.seriesId)),
+                  background: 'none',
+                  border: 0,
+                  padding: 0,
+                  cursor: 'pointer',
+                  fontWeight: 600,
+                }}
+              >
+                {oneLine(r.nodeText)}
+              </button>
+            </td>
             <td style={{ color: 'var(--fg-muted)' }}>{oneLine(r.right).slice(0, 38)}</td>
           </tr>
         ))}

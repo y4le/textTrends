@@ -85,7 +85,6 @@ export function TrendPanel() {
   const selectedTrends = useApp((s) => s.selectedTrends);
   const trendView = useApp((s) => s.trendView);
   const focusedSeries = useApp((s) => s.focusedSeries);
-  const setFocus = useApp((s) => s.setFocus);
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
   const sectionMarks = useApp((s) => s.sectionMarks);
@@ -250,7 +249,6 @@ export function TrendPanel() {
             plotW={plotW}
             sectionMarks={seriesMarks}
             strokeFor={strokeFor}
-            onFocus={setFocus}
           />
         ) : (
           <ByBookView
@@ -264,7 +262,6 @@ export function TrendPanel() {
             sectionMarks={byBookMarks}
             sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
-            onFocus={setFocus}
           />
         )}
       </ScrubSurface>
@@ -396,6 +393,7 @@ function ScrubSurface({
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
+  const openReader = useApp((s) => s.openReader);
   const [preview, setPreview] = useState<RangePreview | null>(null);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
@@ -533,6 +531,8 @@ function ScrubSurface({
   const passageServes =
     scrub !== null &&
     passage !== null &&
+    snapshot !== null &&
+    passage.snapshot === snapshot.snapshot &&
     passage.result.doc === scrub.doc &&
     scrub.token >= passage.result.tokens.start &&
     scrub.token < passage.result.tokens.end;
@@ -590,6 +590,7 @@ function ScrubSurface({
     <div ref={containerRef} style={{ width: '100%' }}>
       <div
         role="slider"
+        id="reading-position-scrubber"
         tabIndex={0}
         aria-label="Reading position scrubber"
         aria-valuemin={0}
@@ -704,6 +705,15 @@ function ScrubSurface({
           series={series}
           focusedSeries={focusedSeries}
           caption={scrubCaption}
+          onOpenReader={() => {
+            if (!snapshot) return;
+            openReader({
+              snapshot: passage.snapshot,
+              doc: scrub.doc,
+              token: scrub.token,
+              from: 'passage',
+            });
+          }}
         />
       ) : scrub ? (
         <p
@@ -808,7 +818,6 @@ const SeriesView = memo(function SeriesView({
   plotW,
   sectionMarks,
   strokeFor,
-  onFocus,
 }: {
   ready: readonly ReadySeries[];
   selected: readonly ReadySeries[];
@@ -820,7 +829,6 @@ const SeriesView = memo(function SeriesView({
   plotW: number;
   sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
-  onFocus: (id: string) => void;
 }) {
   const geo = ready[0]!.trend;
   const totalTokens =
@@ -904,8 +912,6 @@ const SeriesView = memo(function SeriesView({
               strokeDasharray={slotDash(r.intent.styleSlot)}
               strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
               opacity={selected.length > 0 ? 0.45 : 1}
-              style={{ cursor: 'pointer' }}
-              onClick={() => onFocus(r.intent.id)}
             />
           );
         }),
@@ -953,8 +959,6 @@ const SeriesView = memo(function SeriesView({
             fill="var(--fg)"
             fontSize="var(--text-xs)"
             fontFamily="var(--font-mono)"
-            style={{ cursor: 'pointer' }}
-            onClick={() => onFocus(r.intent.id)}
           >
             {r.intent.label}
           </text>
@@ -1015,7 +1019,6 @@ const ByBookView = memo(function ByBookView({
   sectionMarks,
   sectionMarkDoc,
   strokeFor,
-  onFocus,
 }: {
   ready: readonly ReadySeries[];
   selected: readonly ReadySeries[];
@@ -1027,7 +1030,6 @@ const ByBookView = memo(function ByBookView({
   sectionMarks: readonly number[];
   sectionMarkDoc: number;
   strokeFor: (id: string) => number;
-  onFocus: (id: string) => void;
 }) {
   const x = linearMap(0, bins, 0, plotW);
   const y = linearMap(0, maxRate, ROW_HEIGHT, 0);
@@ -1061,8 +1063,6 @@ const ByBookView = memo(function ByBookView({
                   strokeDasharray={slotDash(r.intent.styleSlot)}
                   strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
                   opacity={selected.length > 0 ? 0.45 : 1}
-                  style={{ cursor: 'pointer' }}
-                  onClick={() => onFocus(r.intent.id)}
                 />
               );
             })}

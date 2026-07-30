@@ -59,6 +59,7 @@ export function BarcodeStrip({
   const selectedDispersion = useApp((s) => s.selectedDispersion);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
+  const openReader = useApp((s) => s.openReader);
   const kwicCenter = useApp((s) => s.kwic?.center ?? null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
@@ -141,15 +142,30 @@ export function BarcodeStrip({
     if (!track || !at) return;
     const doc = docs[at.d];
     if (doc === undefined) return;
-    activate(track, resolveBarcodeActivation(track, doc, at.token));
+    activate(track, resolveBarcodeActivation(track, doc, at.token), true);
   };
 
-  const activate = (track: BarcodeTrackVM, target: BarcodeActivation | null) => {
+  const activate = (
+    track: BarcodeTrackVM,
+    target: BarcodeActivation | null,
+    openExact = false,
+  ) => {
     if (!target) return;
     centerKwicAt(
       track.seriesId, target.doc, target.token,
       target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
     );
+    // An exact tick is authenticated occurrence evidence and can open
+    // directly. A density cell is only an aggregate midpoint; it centres the
+    // KWIC, whose nearest real row supplies the reader link.
+    if (openExact && target.kind === 'occurrence' && dispersion) {
+      openReader({
+        snapshot: dispersion.snapshot,
+        doc: target.doc,
+        token: target.token,
+        from: 'barcode',
+      });
+    }
   };
 
   /** Keyboard navigation for BOTH representations: exact tracks step

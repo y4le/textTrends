@@ -80,6 +80,8 @@ describe('pin evidence primitives', () => {
     expect(canReusePassage(held, { ...anchor, token: 13 }, 's1', [TRACK])).toBe(false);
     expect(canReusePassage(held, anchor, 's1', [{ ...TRACK, identity: 'changed' }])).toBe(false);
     expect(sameTrackIdentities([TRACK], [TRACK, TRACK])).toBe(false);
+    const second = { ...TRACK, seriesId: 'series:b', identity: 'identity:b' };
+    expect(sameTrackIdentities([TRACK, second], [second, TRACK])).toBe(false);
   });
 
   it('uses live presentation only while matching identity remains current', () => {

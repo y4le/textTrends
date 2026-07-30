@@ -50,6 +50,7 @@ import {
   DISPERSION_EXACT_MAX,
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
+  READER_MAX_TOKENS,
   termGroupIdentity,
   type DocumentMetaV1,
   type GroupMember,
@@ -70,6 +71,8 @@ import {
 } from './pins.ts';
 import {
   readerPlaceFor,
+  sameReaderCursor,
+  sameReaderPlace,
   type ReaderOpenIntent,
   type ReaderPlace,
 } from './reader-intent.ts';
@@ -95,6 +98,7 @@ import type {
   LineExcerptResultV1,
   QueryOpV4,
   QueryResultDataV4,
+  ReaderPageResultV1,
   StructureEditContextV1,
   StructureQueryResultV1,
 } from '../shared/analysis-contract.ts';
@@ -241,6 +245,19 @@ export interface DispersionState {
     | { readonly status: 'error'; readonly message: string };
 }
 
+/** The reader result for one exact issued place + current semantic track
+ * projection. Pending replaces the prior page immediately, so navigation
+ * never presents page A beneath cursor B. */
+export interface ReaderPageState {
+  readonly snapshot: string;
+  readonly place: ReaderPlace;
+  readonly tracks: readonly CapturedTrack[];
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly page: ReaderPageResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
 export type TrendView = 'series' | 'by-book';
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -370,6 +387,14 @@ export interface AppState {
   pinAnnouncement: string | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
+  readerPage: ReaderPageState | null;
+  /** Last served canonical cursors remain operable while the next page is
+   * pending, allowing a rapid opposite-direction action to supersede it
+   * without continuing to display the stale prose. */
+  readerNavigation: {
+    readonly previous: ReaderPlace['cursor'] | null;
+    readonly next: ReaderPlace['cursor'] | null;
+  } | null;
 
   // ── Query/presentation intent (owned here). ──
   /** Append-only quick-add: each comma term becomes a single-token folded
@@ -412,7 +437,10 @@ export interface AppState {
   focusPin(id: string): void;
   clearPinError(): void;
   openReader(intent: ReaderOpenIntent): void;
+  navigateReader(cursor: ReaderPlace['cursor']): void;
+  retryReader(): void;
   closeReader(): void;
+  runReader(): void;
   /** Internal/publicly harmless revalidation invoked only on snapshot change. */
   revalidatePins(): void;
   runQueries(): void;
@@ -536,6 +564,9 @@ export function createAppRuntime(
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
   const lineExcerptLane = new QueryLane(scope);
+  // Full-reader pages are a distinct latest-wins presentation intent. Rapid
+  // Next/Previous cannot race with trends, passage, pins, or one another.
+  const readerLane = new QueryLane(scope);
   // The scrub lane fences the passage pump's RESULTS; the pump's one-active +
   // one-pending slot machinery below stays bespoke (it is a scheduler, not a
   // latest-wins request), so it is a bare lane without tracked cancels.
@@ -1130,6 +1161,8 @@ export function createAppRuntime(
       pinError: null,
       pinAnnouncement: null,
       readerPlace: null,
+      readerPage: null,
+      readerNavigation: null,
 
       quickAdd(input) {
         const state = get();
@@ -1377,12 +1410,20 @@ export function createAppRuntime(
         pinCancels.delete(id);
         pinRequests.delete(id);
         pinOps.invalidate(id);
-        set((state) => ({
-          pins: state.pins.filter((pin) => pin.id !== id),
-          focusedPinId: state.focusedPinId === id ? null : state.focusedPinId,
-          pinError: null,
-          pinAnnouncement: 'Removed pinned evidence.',
-        }));
+        set((state) => {
+          const index = state.pins.findIndex((pin) => pin.id === id);
+          const pins = state.pins.filter((pin) => pin.id !== id);
+          const neighbour =
+            index < 0 || pins.length === 0
+              ? null
+              : pins[Math.min(index, pins.length - 1)]?.id ?? null;
+          return {
+            pins,
+            focusedPinId: state.focusedPinId === id ? neighbour : state.focusedPinId,
+            pinError: null,
+            pinAnnouncement: 'Removed pinned evidence.',
+          };
+        });
       },
 
       retryPin(id) {
@@ -1415,11 +1456,110 @@ export function createAppRuntime(
           snapshot?.snapshot ?? null,
           snapshot?.readyDocs ?? [],
         );
-        if (place) set({ readerPlace: place });
+        if (place) {
+          set({ readerPlace: place, readerNavigation: null });
+          get().runReader();
+        }
+      },
+
+      navigateReader(cursor) {
+        const { readerPlace: place, readerNavigation: navigation } = get();
+        if (
+          !place
+          || !navigation
+          || (
+            !sameReaderCursor(cursor, navigation.previous)
+            && !sameReaderCursor(cursor, navigation.next)
+          )
+        ) return;
+        if (
+          !Number.isSafeInteger(cursor.token)
+          || cursor.token < 0
+          || (cursor.kind === 'before' && cursor.token < 1)
+        ) return;
+        set({ readerPlace: { ...place, cursor: { ...cursor } } });
+        get().runReader();
+      },
+
+      retryReader() {
+        if (get().readerPlace) get().runReader();
       },
 
       closeReader() {
-        set({ readerPlace: null });
+        readerLane.supersede();
+        set({ readerPlace: null, readerPage: null, readerNavigation: null });
+      },
+
+      runReader() {
+        readerLane.supersede();
+        const { snapshot, readerPlace: place, series } = get();
+        if (
+          !snapshot
+          || !place
+          || place.snapshot !== snapshot.snapshot
+          || !snapshot.readyDocs.includes(place.doc)
+        ) {
+          set({ readerPage: null });
+          return;
+        }
+        const tracks = trackSpecs(series);
+        if (tracks === null) {
+          set({ readerPage: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedPlace = place;
+        const lease = readerLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => sameReaderPlace(get().readerPlace, issuedPlace),
+          () => identitiesCurrent(tracks.identities),
+        );
+        set({
+          readerPage: {
+            snapshot: snapshot.snapshot,
+            place: issuedPlace,
+            tracks: tracks.captured,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          readerLane,
+          snapshot.snapshot,
+          {
+            op: 'reader-page',
+            tracks: tracks.wire,
+            request: {
+              method: 'reader-page/1',
+              doc: issuedPlace.doc,
+              cursor: issuedPlace.cursor,
+              maxTokens: READER_MAX_TOKENS,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'reader-page' || data.page.doc !== issuedPlace.doc) return;
+            set({
+              readerPage: {
+                snapshot: snapshot.snapshot,
+                place: issuedPlace,
+                tracks: tracks.captured,
+                state: { status: 'ready', page: data.page },
+              },
+              readerNavigation: {
+                previous: data.page.previous,
+                next: data.page.next,
+              },
+            });
+          },
+          (message) => set({
+            readerPage: {
+              snapshot: snapshot.snapshot,
+              place: issuedPlace,
+              tracks: tracks.captured,
+              state: { status: 'error', message },
+            },
+          }),
+        );
       },
 
       revalidatePins() {
@@ -1453,12 +1593,18 @@ export function createAppRuntime(
             pinError: null,
             pinAnnouncement: dead.length > 0 ? 'Cleared pins from the replaced snapshot.' : state.pinAnnouncement,
             readerPlace: readerLive ? state.readerPlace : null,
+            readerPage: readerLive ? state.readerPage : null,
+            readerNavigation: readerLive ? state.readerNavigation : null,
           });
         }
       },
 
       runQueries() {
         const { snapshot, series } = get();
+        // Reader highlights use the CURRENT semantic active-track projection;
+        // rename-only notebook edits do not call runQueries and remain
+        // presentation-only, while active/member/overlap changes reissue here.
+        get().runReader();
         // Trend intent changed: ALWAYS cancel superseded work, clear to
         // pending, and invalidate the epoch — even when the new intent runs
         // no query (round 2: a blank input must not relabel old evidence).
@@ -1772,6 +1918,7 @@ export function createAppRuntime(
       // artifacts — cancel and clear them before the outline reissues.
       editContextLane.supersede();
       lineExcerptLane.supersede();
+      readerLane.supersede();
       if (store.getState().editContext !== null || store.getState().lineExcerpt !== null) {
         store.setState({ editContext: null, lineExcerpt: null });
       }
@@ -1822,6 +1969,7 @@ export function createAppRuntime(
       selectedDispersionLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
+      readerLane.supersede();
       passageActiveCancel?.();
       passageActiveCancel = null;
       passagePending = null;

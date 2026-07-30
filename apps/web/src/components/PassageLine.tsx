@@ -22,6 +22,7 @@ import {
   segmentPassageMarks,
   type PassageSegment,
 } from '../lib/passage-marks.ts';
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 
 export function PassageLine({
   passage,
@@ -30,6 +31,7 @@ export function PassageLine({
   series,
   focusedSeries,
   caption,
+  onOpenReader,
 }: {
   passage: PassageResult;
   /** Document-local scrubbed token — must lie within passage.tokens. */
@@ -38,6 +40,7 @@ export function PassageLine({
   series: readonly SeriesIntent[];
   focusedSeries: string | null;
   caption: string;
+  onOpenReader: () => void;
 }) {
   const preRef = useRef<HTMLSpanElement | null>(null);
   const centerRef = useRef<HTMLSpanElement | null>(null);
@@ -124,16 +127,27 @@ export function PassageLine({
           <span>{after.map(styled)}</span>
         </div>
       </div>
-      <p
+      <div
         style={{
+          display: 'flex',
+          alignItems: 'baseline',
+          gap: 'var(--space-2)',
           fontFamily: 'var(--font-mono)',
           fontSize: 'var(--text-xs)',
           color: 'var(--fg-muted)',
           margin: 'var(--space-1) 0 0',
         }}
       >
-        {caption}
-      </p>
+        <span>{caption}</span>
+        <button
+          type="button"
+          aria-label="Open passage in reader"
+          onClick={onOpenReader}
+          style={SMALL_BUTTON_STYLE}
+        >
+          open reader
+        </button>
+      </div>
     </div>
   );
 }

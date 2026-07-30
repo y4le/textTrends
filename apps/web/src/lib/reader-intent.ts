@@ -38,3 +38,32 @@ export function readerPlaceFor(
     from: intent.from,
   };
 }
+
+export function sameReaderPlace(
+  left: ReaderPlace | null,
+  right: ReaderPlace | null,
+): boolean {
+  return left === right
+    || (
+      left !== null
+      && right !== null
+      && left.snapshot === right.snapshot
+      && left.doc === right.doc
+      && left.from === right.from
+      && left.cursor.kind === right.cursor.kind
+      && left.cursor.token === right.cursor.token
+  );
+}
+
+export function sameReaderCursor(
+  left: ReaderPlace['cursor'] | null,
+  right: ReaderPlace['cursor'] | null,
+): boolean {
+  return left === right
+    || (
+      left !== null
+      && right !== null
+      && left.kind === right.kind
+      && left.token === right.token
+    );
+}

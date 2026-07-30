@@ -100,6 +100,7 @@ function fakeQueryClient() {
     structures: () => issued.filter((q) => q.op === 'structure'),
     editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
     lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
+    readers: () => issued.filter((q) => q.op === 'reader-page'),
   };
 }
 
@@ -248,6 +249,36 @@ function fakePassage(start: number, end: number, center: number, doc = 'a'): Pas
     centerCharsUtf16: { start: center - start, end: center - start + 1 },
     marks: [],
     truncatedByCharCap: false,
+  };
+}
+
+function fakeReaderPage(
+  start: number,
+  end: number,
+  docTokenCount = 10,
+  doc = 'a',
+): QueryResultDataV4 {
+  const count = end - start;
+  return {
+    op: 'reader-page',
+    page: {
+      method: 'reader-page/1',
+      doc,
+      tokens: { start, end },
+      docCharsUtf16: { start, end },
+      text: 'x'.repeat(count),
+      tokenStartsUtf16: Array.from({ length: count }, (_, index) => index),
+      tokenEndsUtf16: Array.from({ length: count }, (_, index) => index + 1),
+      anchor: null,
+      previous: start === 0 ? null : { kind: 'before', token: start },
+      next: end === docTokenCount ? null : { kind: 'from', token: end },
+      atStart: start === 0,
+      atEnd: end === docTokenCount,
+      docTokenCount,
+      cappedBy: end === docTokenCount ? null : 'tokens',
+      marks: [],
+      marksTruncated: false,
+    },
   };
 }
 
@@ -1717,7 +1748,7 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     expect(f.store.getState().pins).toEqual([]);
   });
 
-  it('retries an error under captured semantics and rejects the old attempt late', async () => {
+  it('retries an error under the pin request’s captured semantics', async () => {
     const f = setup();
     f.store.getState().pinPassage('a', 4);
     const first = f.passages().at(-1)!;
@@ -1725,13 +1756,29 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     await flush();
     const pin = f.store.getState().pins[0]!;
     expect(pin.kind).toBe('error');
+    const group = f.store.getState().notebook.groups[0]!;
+    const member = group.members[0]!;
+    if (member.kind !== 'token') throw new Error('quick-add must create a token');
+    f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
     f.store.getState().retryPin(pin.id);
     const retry = f.passages().at(-1)!;
     expect(retry).not.toBe(first);
+    expect((retry.query as {
+      request: { tracks: { group: { members: { surface: string }[] } }[] };
+    }).request.tracks[0]!.group.members[0]!.surface).toBe('holmes');
     retry.resolve({ op: 'passage', passage: fakePassage(0, 10, 4) });
-    first.resolve({ op: 'passage', passage: fakePassage(0, 10, 4) });
     await flush();
     expect(f.store.getState().pins[0]!.kind).toBe('ready');
+  });
+
+  it('moves focus ownership to the neighbouring pin when the focused one is removed', () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 1);
+    f.store.getState().pinPassage('a', 2);
+    const [first, second] = f.store.getState().pins;
+    f.store.getState().focusPin(first!.id);
+    f.store.getState().removePin(first!.id);
+    expect(f.store.getState().focusedPinId).toBe(second!.id);
   });
 
   it('snapshot replacement cancels/clears pins and the reader place; notebook changes do neither', async () => {
@@ -1781,5 +1828,128 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     }
     await flush();
     expect(f.store.getState().pins.every((pin) => pin.kind === 'pending')).toBe(true);
+  });
+});
+
+describe('latest-wins full reader intent (slice-2 H)', () => {
+  const setup = () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    return f;
+  };
+
+  it('opens one canonical page under the current snapshot and captured track semantics', async () => {
+    const f = setup();
+    f.store.getState().openReader({
+      snapshot: 's1',
+      doc: 'a',
+      token: 3,
+      from: 'kwic',
+    });
+    const request = f.readers().at(-1)!;
+    const query = request.query as {
+      tracks: { seriesId: string; group: { id: string } }[];
+      request: { method: string; doc: string; cursor: unknown; maxTokens: number };
+      selection?: unknown;
+    };
+    expect(query.selection).toBeUndefined();
+    expect(query.request).toEqual({
+      method: 'reader-page/1',
+      doc: 'a',
+      cursor: { kind: 'around', token: 3 },
+      maxTokens: 400,
+    });
+    expect(query.tracks).toHaveLength(1);
+    expect(f.store.getState().readerPage).toEqual(expect.objectContaining({
+      snapshot: 's1',
+      place: expect.objectContaining({ doc: 'a', from: 'kwic' }),
+      state: { status: 'pending' },
+    }));
+    request.resolve(fakeReaderPage(0, 4));
+    await flush();
+    const reader = f.store.getState().readerPage!;
+    expect(reader.state.status).toBe('ready');
+    if (reader.state.status === 'ready') expect(reader.state.page.tokens).toEqual({ start: 0, end: 4 });
+  });
+
+  it('rapid cursor replacements cancel and reject an older page that arrives last', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'pin' });
+    const around = f.readers().at(-1)!;
+    around.resolve(fakeReaderPage(4, 8));
+    await flush();
+
+    f.store.getState().navigateReader({ kind: 'from', token: 8 });
+    const next = f.readers().at(-1)!;
+    f.store.getState().navigateReader({ kind: 'before', token: 4 });
+    const previous = f.readers().at(-1)!;
+    expect(next.cancelled).toBe(true);
+    expect(f.store.getState().readerPage?.state.status).toBe('pending');
+    next.resolve(fakeReaderPage(8, 10));
+    await flush();
+    expect(f.store.getState().readerPage?.state.status).toBe('pending');
+    previous.resolve(fakeReaderPage(0, 4));
+    await flush();
+    const reader = f.store.getState().readerPage!;
+    expect(reader.place.cursor).toEqual({ kind: 'before', token: 4 });
+    if (reader.state.status !== 'ready') throw new Error('reader did not settle');
+    expect(reader.state.page.tokens).toEqual({ start: 0, end: 4 });
+  });
+
+  it('rename is presentation-only; semantic and active-track changes reissue highlights', () => {
+    const f = setup();
+    const group = f.store.getState().notebook.groups[0]!;
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'passage' });
+    const first = f.readers().at(-1)!;
+    const count = f.readers().length;
+
+    f.store.getState().renameGroup(group.id, 'Detective');
+    expect(f.readers()).toHaveLength(count);
+    expect(first.cancelled).toBe(false);
+
+    const member = group.members[0]!;
+    if (member.kind !== 'token') throw new Error('quick-add must create a token member');
+    f.store.getState().setGroupMembers(group.id, [{
+      ...member,
+      surface: 'watson',
+    }], false);
+    const edited = f.readers().at(-1)!;
+    expect(first.cancelled).toBe(true);
+    expect(edited).not.toBe(first);
+    expect((edited.query as { tracks: { group: { members: { surface: string }[] } }[] })
+      .tracks[0]!.group.members[0]!.surface).toBe('watson');
+
+    f.store.getState().setGroupActive(group.id, false);
+    const plain = f.readers().at(-1)!;
+    expect(edited.cancelled).toBe(true);
+    expect((plain.query as { tracks: unknown[] }).tracks).toEqual([]);
+    expect(f.store.getState().readerPlace).not.toBeNull();
+  });
+
+  it('close/snapshot replacement/dispose cancel the lane and late pages cannot reopen it', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'barcode' });
+    const closed = f.readers().at(-1)!;
+    f.store.getState().closeReader();
+    expect(closed.cancelled).toBe(true);
+    closed.resolve(fakeReaderPage(0, 4));
+    await flush();
+    expect(f.store.getState().readerPlace).toBeNull();
+    expect(f.store.getState().readerPage).toBeNull();
+
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 2, from: 'kwic' });
+    const replaced = f.readers().at(-1)!;
+    f.port.publishSnapshot('g1', 's2', ['a']);
+    expect(replaced.cancelled).toBe(true);
+    expect(f.store.getState().readerPlace).toBeNull();
+
+    f.store.getState().openReader({ snapshot: 's2', doc: 'a', token: 2, from: 'kwic' });
+    const disposed = f.readers().at(-1)!;
+    f.runtime.dispose();
+    expect(disposed.cancelled).toBe(true);
+    disposed.resolve(fakeReaderPage(0, 4));
+    await flush();
+    expect(f.store.getState().readerPage?.state.status).toBe('pending');
   });
 });
