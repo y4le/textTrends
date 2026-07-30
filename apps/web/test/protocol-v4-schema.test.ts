@@ -143,6 +143,19 @@ describe('parseToWorkerV4 envelope', () => {
     }
   });
 
+  it('rejects sparse generation document arrays', () => {
+    const docs = [docSpec()];
+    docs.length = 2;
+    expect(parseToWorkerV4({
+      v,
+      t: 'begin-generation',
+      job: 1,
+      generation: 'g',
+      docs,
+      indexRecipe: DEFAULT_INDEX_RECIPE,
+    })).toBeNull();
+  });
+
   const struct = (override: unknown) => ({ recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override });
 
   it('accepts both override forms: none and a well-formed active correction', () => {
@@ -286,6 +299,44 @@ describe('narrowQueryV4', () => {
       members: Array.from({ length: TERM_GROUP_LIMITS_V1.maxMembers }, (_, i) =>
         member({ id: `m${i}`, surface: 'w'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits) })),
     }))).toBe(true);
+  });
+
+  it('rejects sparse selection, range, track, and sort arrays', () => {
+    const docs = ['a'];
+    docs.length = 2;
+    expect(narrowQueryV4({
+      op: 'trend',
+      selection: { docs },
+      group: wolfGroup,
+      request: { coordinate: 'declared-sequence', binsPerDoc: 1 },
+    })).toBe(false);
+
+    const ranges = [{ doc: 'a', tokens: { start: 0, end: 1 } }];
+    ranges.length = 2;
+    expect(narrowQueryV4({
+      op: 'trend',
+      selection: { docs: ['a'], ranges },
+      group: wolfGroup,
+      request: { coordinate: 'declared-sequence', binsPerDoc: 1 },
+    })).toBe(false);
+
+    const tracks = [...kwicTracks];
+    tracks.length = 2;
+    expect(narrowQueryV4({
+      op: 'kwic',
+      selection: { docs: ['a'] },
+      tracks,
+      request: kwicReq,
+    })).toBe(false);
+
+    const sort = [{ at: 'pos', dir: 1 }] as { at: string; dir: number }[];
+    sort.length = 2;
+    expect(narrowQueryV4({
+      op: 'kwic',
+      selection: { docs: ['a'] },
+      tracks: kwicTracks,
+      request: { ...kwicReq, sort },
+    })).toBe(false);
   });
 
   it('dispersion/1 narrows only with the PINNED policy constants and valid tracks', () => {

@@ -92,6 +92,17 @@ function denseBoundedArray(v: unknown, min: number, max: number, pred: (e: unkno
   return true;
 }
 
+/** Dense-only admission where a later authority owns the semantic cap, or
+ * where v4 intentionally carried no cap. A separate name prevents passing an
+ * array's own length as a misleading no-op “bound.” */
+function denseArray(v: unknown, pred: (e: unknown) => boolean): boolean {
+  if (!Array.isArray(v)) return false;
+  for (let i = 0; i < v.length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(v, i) || !pred(v[i])) return false;
+  }
+  return true;
+}
+
 function narrowMember(m: unknown): boolean {
   if (!isRecord(m) || !isBoundedId(m.id) || !isRecord(m.match)) return false;
   const match = m.match as { case?: unknown; diacritics?: unknown };
@@ -112,7 +123,7 @@ function narrowGroup(g: unknown): boolean {
 }
 
 function narrowSelection(s: unknown): boolean {
-  if (!isRecord(s) || !Array.isArray(s.docs) || !(s.docs as unknown[]).every(isStr)) return false;
+  if (!isRecord(s) || !denseArray(s.docs, isStr)) return false;
   // Optional ranges must be a well-formed array of {doc, tokens:{start,end}}
   // — an unchecked `ranges: 7` becomes a TypeError deep in the kernel.
   if (s.ranges !== undefined) {
@@ -138,9 +149,12 @@ function narrowTracks(tracks: unknown, min: number): boolean {
 }
 
 function narrowKwicRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isCount(r.contextTokens) || !Array.isArray(r.sort) || !isRecord(r.page)) return false;
+  if (!isRecord(r) || !isCount(r.contextTokens) || !isRecord(r.page)) return false;
   // sort.at is a CLOSED key set; dir is exactly 1 or -1.
-  if (!(r.sort as unknown[]).every((x) => isRecord(x) && SORT_KEYS.has(x.at as string) && (x.dir === 1 || x.dir === -1))) return false;
+  if (!denseArray(
+    r.sort,
+    (x) => isRecord(x) && SORT_KEYS.has(x.at as string) && (x.dir === 1 || x.dir === -1),
+  )) return false;
   // Optional axis center — a well-formed {doc, token} or absent.
   if (r.center !== undefined) {
     if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isCount((r.center as Record<string, unknown>).token)) return false;
@@ -223,8 +237,11 @@ export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
   if (!isRecord(m) || m.v !== PROTOCOL_VERSION_V4 || !isStr(m.t)) return null;
   switch (m.t) {
     case 'begin-generation':
-      return isCount(m.job) && isStr(m.generation) && Array.isArray(m.docs) &&
-        (m.docs as unknown[]).every(narrowDocSpec) && isIndexRecipeProvisional(m.indexRecipe)
+      return isCount(m.job) && isStr(m.generation) &&
+        // The engine owns maxDocsPerProject so overflow retains the precise
+        // CAP_EXCEEDED contract rather than becoming generic PARSE_FAILED.
+        denseArray(m.docs, narrowDocSpec) &&
+        isIndexRecipeProvisional(m.indexRecipe)
         ? (m as unknown as ToWorkerV4) : null;
     case 'ingest':
       return isCount(m.job) && isStr(m.generation) && isStr(m.doc) && m.bytes instanceof ArrayBuffer
