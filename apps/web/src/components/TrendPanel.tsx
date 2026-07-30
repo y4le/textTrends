@@ -226,7 +226,7 @@ export function TrendPanel() {
 
   return (
     <section>
-      <h2
+      <p
         style={{
           fontSize: 'var(--text-xs)',
           fontFamily: 'var(--font-mono)',
@@ -241,7 +241,7 @@ export function TrendPanel() {
             {' '}· failed: {failed.map((f) => f.intent.label).join(', ')}
           </span>
         )}
-      </h2>
+      </p>
       <ScrubSurface
         containerRef={setContainerEl}
         trendView={trendView}

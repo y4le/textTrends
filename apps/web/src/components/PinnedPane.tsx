@@ -119,7 +119,7 @@ export function PinnedPane() {
   return (
     <section aria-label="Pinned evidence" style={{ marginTop: 'var(--space-3)' }}>
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)' }}>
-        <h2 style={{ fontSize: 'var(--text-md)', margin: 0 }}>Pinned evidence</h2>
+        <h3 style={{ fontSize: 'var(--text-md)', margin: 0 }}>Pinned evidence</h3>
         <span style={{ color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
           {pins.length}/{MAX_PINNED_SNIPPETS}
         </span>

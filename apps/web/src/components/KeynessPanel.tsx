@@ -305,7 +305,7 @@ export function KeynessPanel() {
       style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}
     >
       <h2 id="keyness-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
-        Dueling keyness
+        Compare
       </h2>
       <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
         Compare explicit sides; the linked trend brush does not redefine this analysis.

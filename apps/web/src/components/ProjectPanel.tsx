@@ -82,7 +82,7 @@ export function ProjectPanel() {
 
   return (
     <section
-      aria-label="Project"
+      aria-labelledby="project-heading"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         e.preventDefault();
@@ -98,9 +98,9 @@ export function ProjectPanel() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-sm)' }}>
+        <h2 id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
           {isBuiltin ? 'built-in corpus (read-only)' : 'your project'}
-        </strong>
+        </h2>
         {!isBuiltin && (
           <span role="status" style={{ color: 'var(--fg-muted)' }}>
             {saveLabel(project.save, project.dirty, project.baseRevision)}
@@ -201,4 +201,3 @@ export function ProjectPanel() {
     </section>
   );
 }
-

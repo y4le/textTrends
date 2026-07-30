@@ -62,7 +62,7 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   ]);
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
-  await expect(page.getByRole('heading', { name: 'Dueling keyness' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
 
   await page.getByLabel('combined docs ≥').fill('1');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;

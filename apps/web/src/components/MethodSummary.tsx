@@ -132,9 +132,9 @@ export function MethodSummary({ place }: { readonly place: Place }) {
         </p>
         {provenance.methods.map((method) => (
           <section key={method.method} aria-label={`${method.method} method`}>
-            <h2 style={{ fontSize: 'var(--text-sm)', marginBottom: 'var(--space-1)' }}>
+            <h3 style={{ fontSize: 'var(--text-sm)', marginBottom: 'var(--space-1)' }}>
               {method.method}
-            </h2>
+            </h3>
             <dl className="method-parameters">
               {method.parameters.map((item) => (
                 <div key={item.name}>

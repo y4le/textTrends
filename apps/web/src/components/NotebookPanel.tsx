@@ -110,7 +110,10 @@ export function NotebookPanel() {
   };
 
   return (
-    <section className="query-notebook" aria-label="Query notebook" style={{ marginTop: 'var(--space-2)' }}>
+    <section className="query-notebook" aria-labelledby="query-notebook-heading" style={{ marginTop: 'var(--space-2)' }}>
+      <h3 id="query-notebook-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+        Query notebook
+      </h3>
       {notebookError && (
         <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
           {notebookError}{' '}

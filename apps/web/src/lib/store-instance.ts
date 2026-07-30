@@ -22,6 +22,7 @@ import { RingTrace } from './trace.ts';
 import { builtinProject, sherlockProjectData } from './project.ts';
 import { ProjectSession, type BundledByteProvider } from './project-session.ts';
 import { createAppRuntime } from './store.ts';
+import { createResumeMonitor } from './resume.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
@@ -30,6 +31,45 @@ const runtime = createAppRuntime(client);
 
 /** The single React-facing store. */
 export const useApp = runtime.useApp;
+
+function pendingAnalyses(): number {
+  const state = runtime.useApp.getState();
+  const direct = [
+    state.kwic?.state,
+    state.dispersion?.state,
+    state.selectedDispersion?.state,
+    state.inventory?.state,
+    state.frequency?.state,
+    state.tfidf?.state,
+    state.keynessA?.state,
+    state.keynessB?.state,
+    state.keynessInventoryA?.state,
+    state.keynessInventoryB?.state,
+    state.keynessEvidence?.state,
+    state.structure?.state,
+    state.editContext?.state,
+    state.lineExcerpt?.state,
+    state.readerPage?.state,
+  ];
+  const maps = [
+    ...state.trends.values(),
+    ...state.selectedTrends.values(),
+  ];
+  return direct.filter((item) => item?.status === 'pending').length
+    + maps.filter((item) => item.status === 'pending').length
+    + state.pins.filter((pin) => pin.kind === 'pending').length;
+}
+
+export const resumeMonitor = createResumeMonitor(window, () => {
+  const state = runtime.useApp.getState();
+  return {
+    readyDocuments: state.snapshot?.readyDocs.length ?? 0,
+    missingDocuments: state.snapshot?.missingDocs.length ?? 0,
+    pendingAnalyses: pendingAnalyses(),
+    loadingPhase: state.loadingPhase,
+  };
+});
+const unsubscribeResumeState = runtime.useApp.subscribe(resumeMonitor.refresh);
 
 /** Built-in byte acquisition: fetch a bundled document by its source name under
  *  the deployed base path. The session verifies the returned length against the
@@ -89,6 +129,8 @@ if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     torndown = true;
     try {
+      unsubscribeResumeState();
+      resumeMonitor.dispose();
       runtime.dispose();
     } finally {
       client.close();

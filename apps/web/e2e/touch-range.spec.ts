@@ -77,7 +77,12 @@ test('touch reads by default and commits only through explicit range mode', asyn
   await page.getByRole('button', { name: 'select range' }).click();
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.touchscreen.tap(point(0.7).x, point(0.7).y);
+  const rangeBox = (await scrubber.boundingBox())!;
+  const livePoint = {
+    x: rangeBox.x + (rangeBox.width - TREND_LABEL_SPACE) * 0.7,
+    y: rangeBox.y + 80,
+  };
+  await page.touchscreen.tap(livePoint.x, livePoint.y);
   await expect(page.locator('[data-range-handle="start"]')).toBeVisible();
   await expect(page.locator('[data-range-handle="end"]')).toBeVisible();
   await controls.getByRole('button', { name: 'Move range start forward one token' }).click();

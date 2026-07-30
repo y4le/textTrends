@@ -81,7 +81,7 @@ export function StructurePanel() {
 
   return (
     <section
-      aria-label="Chapter structure"
+      aria-labelledby="chapter-structure-heading"
       style={{
         marginTop: 'var(--space-3)',
         padding: 'var(--space-2)',
@@ -92,7 +92,9 @@ export function StructurePanel() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <strong style={{ fontSize: 'var(--text-sm)' }}>chapters</strong>
+        <h2 id="chapter-structure-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+          Chapter structure
+        </h2>
         <label style={{ color: 'var(--fg-muted)' }}>
           document{' '}
           <select

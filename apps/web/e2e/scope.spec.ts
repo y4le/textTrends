@@ -10,7 +10,7 @@ test('Scope states resident corpus truth and follows the committed range', async
   await expect(scope.getByText('6/6 books ready', { exact: true })).toBeVisible();
 
   const dashboardTokens = await page
-    .getByRole('heading', { name: 'Corpus overview' })
+    .getByRole('heading', { name: 'Corpus' })
     .locator('..')
     .locator('dt', { hasText: /^tokens$/ })
     .locator('..')

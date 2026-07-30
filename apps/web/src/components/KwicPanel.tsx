@@ -176,7 +176,10 @@ export function KwicPanel() {
   }
 
   return (
-    <section style={{ marginTop: 'var(--space-3)' }}>
+    <section aria-labelledby="concordance-heading" style={{ marginTop: 'var(--space-3)' }}>
+      <h2 id="concordance-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
+        Concordance
+      </h2>
       {chips}
       {body}
     </section>

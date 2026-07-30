@@ -136,7 +136,7 @@ function FrequencyTable() {
 
   return (
     <section aria-labelledby="frequency-heading">
-      <h3 id="frequency-heading" style={{ fontSize: 'var(--text-sm)' }}>Vocabulary</h3>
+      <h2 id="frequency-heading" style={{ fontSize: 'var(--text-md)' }}>Vocabulary</h2>
       <form
         onSubmit={(event) => {
           event.preventDefault();
@@ -275,15 +275,16 @@ export function CorpusDashboard() {
 
   if (!inventory) return null;
   return (
-    <section aria-labelledby="corpus-dashboard-heading" style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}>
-      <h2 id="corpus-dashboard-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>Corpus overview</h2>
-      {inventory.selection && <p style={{ color: 'var(--accent-text)' }}>Showing the linked selected range; full-document token totals remain alongside it.</p>}
-      {inventory.state.status === 'pending' && <p>computing corpus inventory…</p>}
-      {inventory.state.status === 'error' && <p style={{ color: 'var(--accent-text)' }}>{inventory.state.message}</p>}
-      {inventory.state.status === 'ready' && (() => {
-        const result = inventory.state.result;
-        return (
-          <>
+    <>
+      <section aria-labelledby="corpus-dashboard-heading" style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}>
+        <h2 id="corpus-dashboard-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>Corpus</h2>
+        {inventory.selection && <p style={{ color: 'var(--accent-text)' }}>Showing the linked selected range; full-document token totals remain alongside it.</p>}
+        {inventory.state.status === 'pending' && <p>computing corpus inventory…</p>}
+        {inventory.state.status === 'error' && <p style={{ color: 'var(--accent-text)' }}>{inventory.state.message}</p>}
+        {inventory.state.status === 'ready' && (() => {
+          const result = inventory.state.result;
+          return (
+            <>
             {result.missingDocs.length > 0 && <p style={{ color: 'var(--accent-text)' }}>Partial corpus: {result.missingDocs.length} expected document{result.missingDocs.length === 1 ? '' : 's'} unavailable.</p>}
             <dl style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-3)' }}>
               {[
@@ -446,10 +447,11 @@ export function CorpusDashboard() {
                 </ol>
               )}
             </div>
-          </>
-        );
-      })()}
+            </>
+          );
+        })()}
+      </section>
       <FrequencyTable />
-    </section>
+    </>
   );
 }

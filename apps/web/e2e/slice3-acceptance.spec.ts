@@ -63,7 +63,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
 
-  await expect(page.getByRole('heading', { name: 'Corpus overview' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Corpus' })).toBeVisible({ timeout: 30_000 });
   const documents = page.getByRole('table', { name: 'Corpus documents' });
   await expect(documents.locator('tbody tr')).toHaveCount(2);
   await expect(page.getByRole('img', { name: /Vocabulary growth to/ })).toBeVisible();
