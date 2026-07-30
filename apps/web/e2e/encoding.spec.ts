@@ -22,7 +22,8 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   // Extraction ran on the decoded text: the heading became a chapter.
-  await expect(page.getByText('Chapter A', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Chapter A', { exact: true })).toBeVisible({ timeout: 30_000 });
   // The durable descriptor reports the BOM-detected encoding, not utf-8.
   await expect(page.getByText(/encoding: utf-16le/)).toBeVisible();
 });

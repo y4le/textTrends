@@ -19,6 +19,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
   KWIC_CENTER_DEBOUNCE_MS,
+  MAX_SERIES,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
@@ -101,6 +102,9 @@ function fakeQueryClient() {
     editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
     lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
+    inventories: () => issued.filter((q) => q.op === 'inventory'),
+    frequencies: () => issued.filter((q) => q.op === 'freq-list'),
+    tfidfs: () => issued.filter((q) => q.op === 'tfidf-sections'),
   };
 }
 
@@ -280,6 +284,50 @@ function fakeReaderPage(
       marksTruncated: false,
     },
   };
+}
+
+function fakeInventoryResult(marker: number): QueryResultDataV4 {
+  return {
+    op: 'inventory',
+    inventory: {
+      method: 'inventory/1',
+      selection: `selection-${marker}`,
+      order: ['a'],
+      totals: {
+        selectedDocs: 1,
+        expectedDocs: 1,
+        missingDocs: 0,
+        tokens: marker,
+        lexicalTokens: marker,
+        numeralTokens: 0,
+        types: 1,
+        hapax: 0,
+        sentences: 1,
+        paragraphs: 1,
+        charsUtf16: marker,
+      },
+      documents: [],
+      rhythm: null,
+      growth: null,
+      sections: null,
+      missingDocs: [],
+      mattrWindow: 500,
+    },
+  } as unknown as QueryResultDataV4;
+}
+
+function fakeFrequencyResult(marker: number): QueryResultDataV4 {
+  return {
+    op: 'freq-list',
+    frequency: {
+      method: 'freq-list/1',
+      selection: `selection-${marker}`,
+      total: marker,
+      totalTokens: marker,
+      parts: 1,
+      rows: [],
+    },
+  } as unknown as QueryResultDataV4;
 }
 
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
@@ -1965,5 +2013,196 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       status: 'error',
       message: 'reader returned the wrong document',
     });
+  });
+});
+
+describe('corpus dashboard query intent (slice-3)', () => {
+  const rangeFor = (
+    f: ReturnType<typeof harness>,
+    start: number,
+    end: number,
+  ) => ({
+    snapshot: f.store.getState().snapshot!.snapshot,
+    doc: 'a',
+    tokens: { start, end },
+  });
+
+  it('issues inventory, frequency, and focused-document TF-IDF on each snapshot identity', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    expect(f.inventories()).toHaveLength(1);
+    expect(f.frequencies()).toHaveLength(1);
+    expect(f.tfidfs()).toHaveLength(1);
+    expect((f.inventories()[0]!.query as { selection: { docs: string[] } }).selection.docs)
+      .toEqual(['a', 'b']);
+    expect((f.tfidfs()[0]!.query as { selection?: unknown }).selection).toBeUndefined();
+    expect((f.tfidfs()[0]!.query as { request: { doc: string; level: number } }).request)
+      .toEqual(expect.objectContaining({ doc: 'a', level: 1 }));
+
+    f.port.publishSnapshot('g1', 's2', ['a', 'b']);
+    expect(f.inventories()).toHaveLength(2);
+    expect(f.frequencies()).toHaveLength(2);
+    expect(f.tfidfs()).toHaveLength(2);
+  });
+
+  it('a linked brush reissues inventory and frequency but leaves TF-IDF independent', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const tfidfCount = f.tfidfs().length;
+    f.store.getState().setLinkedSelection(rangeFor(f, 10, 20));
+    expect(f.inventories()).toHaveLength(2);
+    expect(f.frequencies()).toHaveLength(2);
+    expect(f.tfidfs()).toHaveLength(tfidfCount);
+    for (const request of [f.inventories().at(-1)!, f.frequencies().at(-1)!]) {
+      expect((request.query as {
+        selection: { docs: string[]; ranges: { doc: string; tokens: { start: number; end: number } }[] };
+      }).selection).toEqual({
+        docs: ['a'],
+        ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
+      });
+    }
+  });
+
+  it('notebook rename and member edits never reissue vocabulary-wide work', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const group = f.store.getState().notebook.groups[0]!;
+    const inventoryCount = f.inventories().length;
+    const frequencyCount = f.frequencies().length;
+    const trendCount = f.trends().length;
+
+    f.store.getState().renameGroup(group.id, 'Detective');
+    const member = group.members[0]!;
+    if (member.kind !== 'token') throw new Error('quick-add must create a token member');
+    f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
+
+    expect(f.inventories()).toHaveLength(inventoryCount);
+    expect(f.frequencies()).toHaveLength(frequencyCount);
+    expect(f.trends().length).toBeGreaterThan(trendCount);
+  });
+
+  it('guards selection, sort, and page replacements against late results', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    const initialFrequency = f.frequencies().at(-1)!;
+    f.store.getState().setFrequencySort('key');
+    const sortedFrequency = f.frequencies().at(-1)!;
+    expect(initialFrequency.cancelled).toBe(true);
+    initialFrequency.resolve(fakeFrequencyResult(41));
+    await flush();
+    expect(f.store.getState().frequency?.state.status).toBe('pending');
+
+    f.store.getState().setFrequencyPage(100);
+    expect(sortedFrequency.cancelled).toBe(true);
+    sortedFrequency.resolve(fakeFrequencyResult(42));
+    await flush();
+    expect(f.store.getState().frequency?.state.status).toBe('pending');
+
+    f.store.getState().setLinkedSelection(rangeFor(f, 0, 5));
+    const inventoryA = f.inventories().at(-1)!;
+    const frequencyA = f.frequencies().at(-1)!;
+    f.store.getState().setLinkedSelection(rangeFor(f, 10, 15));
+    expect(inventoryA.cancelled).toBe(true);
+    expect(frequencyA.cancelled).toBe(true);
+    inventoryA.resolve(fakeInventoryResult(43));
+    frequencyA.resolve(fakeFrequencyResult(43));
+    await flush();
+    expect(f.store.getState().inventory?.state.status).toBe('pending');
+    expect(f.store.getState().frequency?.state.status).toBe('pending');
+  });
+
+  it('focus changes only outline and TF-IDF, and add-exact admits sensitive matching', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const inventoryCount = f.inventories().length;
+    const frequencyCount = f.frequencies().length;
+    const tfidfA = f.tfidfs().at(-1)!;
+    f.store.getState().setFocusedDoc('b');
+    expect(tfidfA.cancelled).toBe(true);
+    expect(f.tfidfs()).toHaveLength(2);
+    expect(f.inventories()).toHaveLength(inventoryCount);
+    expect(f.frequencies()).toHaveLength(frequencyCount);
+
+    f.store.getState().addFrequencyTerm('Holmes');
+    const group = f.store.getState().notebook.groups.at(-1)!;
+    expect(group.name).toBe('Holmes');
+    expect(group.members).toEqual([
+      expect.objectContaining({
+        kind: 'token',
+        surface: 'Holmes',
+        match: { case: 'sensitive', diacritics: 'sensitive' },
+      }),
+    ]);
+    expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
+  });
+
+  it('the frequency concordance action adds, reactivates, and re-enables the exact group', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().showFrequencyTermInKwic('Holmes');
+    const group = f.store.getState().notebook.groups.at(-1)!;
+    expect(group.members).toEqual([
+      expect.objectContaining({
+        surface: 'Holmes',
+        match: { case: 'sensitive', diacritics: 'sensitive' },
+      }),
+    ]);
+    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
+
+    f.store.getState().toggleKwicSeries(group.id);
+    f.store.getState().setGroupActive(group.id, false);
+    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(false);
+    f.store.getState().showFrequencyTermInKwic('Holmes');
+    expect(f.store.getState().notebook.groups).toHaveLength(1);
+    expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
+    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
+    expect(f.store.getState().focusedSeries).toBe(group.id);
+  });
+
+  it('reports duplicate and cap refusals for add-exact without partial mutation', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().addFrequencyTerm('Holmes');
+    const count = f.store.getState().notebook.groups.length;
+    f.store.getState().addFrequencyTerm('Holmes');
+    expect(f.store.getState().notebook.groups).toHaveLength(count);
+    expect(f.store.getState().notebookError).toMatch(/already/);
+
+    for (let index = 0; index < MAX_SERIES - 1; index++) {
+      f.store.getState().addFrequencyTerm(`term-${index}`);
+    }
+    const atCap = f.store.getState().notebook.groups.length;
+    f.store.getState().addFrequencyTerm('one-too-many');
+    expect(f.store.getState().notebook.groups).toHaveLength(atCap);
+    expect(f.store.getState().notebookError).toMatch(/deactivate/);
+  });
+
+  it('applies minimums/prefix/page size atomically and refuses out-of-window pages', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    const before = f.frequencies().length;
+    f.store.getState().setFrequencyFilter(3, 2, 'Holmes');
+    expect(f.frequencies()).toHaveLength(before + 1);
+    expect((f.frequencies().at(-1)!.query as {
+      request: {
+        filter: { minCount: number; minDocFreq: number; prefixNfc: string };
+        page: { offset: number; limit: number };
+      };
+    }).request).toEqual(expect.objectContaining({
+      filter: expect.objectContaining({
+        minCount: 3,
+        minDocFreq: 2,
+        prefixNfc: 'Holmes',
+      }),
+      page: { offset: 0, limit: 100 },
+    }));
+
+    f.store.getState().setFrequencyPageSize(200);
+    expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
+    const issued = f.frequencies().length;
+    f.store.getState().setFrequencyPage(5_000);
+    expect(f.frequencies()).toHaveLength(issued);
+    expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
   });
 });

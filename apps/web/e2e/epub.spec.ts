@@ -79,8 +79,9 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
   // structure, not a Markdown/heading text scan). The outline renders each
   // title in its own element (exact match), distinct from concordance cells
   // that merely contain the words.
-  await expect(page.getByText('Chapter One', { exact: true })).toBeVisible();
-  await expect(page.getByText('Chapter Two', { exact: true })).toBeVisible();
+  const chapters = page.getByRole('region', { name: 'Chapter structure' });
+  await expect(chapters.getByText('Chapter One', { exact: true })).toBeVisible();
+  await expect(chapters.getByText('Chapter Two', { exact: true })).toBeVisible();
 
   // Chapter editing is NOT offered for a container source (its structure comes
   // from the spine, not the joined text); the read-only outline still shows.
@@ -122,7 +123,8 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   await input.fill('zephyrwood');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('Chapter Two', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Chapter Two', { exact: true })).toBeVisible();
 });
 
 test('a persisted EPUB re-extracts from source when only its text artifact survives (partial cache)', async ({ page }) => {
@@ -170,5 +172,6 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
   await input.fill('zephyrwood');
   await input.press('Enter');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('Chapter Two', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Chapter Two', { exact: true })).toBeVisible();
 });

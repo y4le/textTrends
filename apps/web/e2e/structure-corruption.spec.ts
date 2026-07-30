@@ -160,7 +160,8 @@ test('a corrupt cached structure warns, recomposes only structure, and re-persis
   // the final snapshot; the detected chapters are populated.
   const mark = await refocusVictim(page);
   await awaitVictimStructureAnswer(page, mark, published.at(-1)!.snapshot);
-  await expect(page.getByText(chapterTitle, { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText(chapterTitle, { exact: true })).toBeVisible({ timeout: 30_000 });
 
   // Third reload: fully warm — no warning, no recomposition, and the victim's
   // structure query still answers freshly (§3 step 5).

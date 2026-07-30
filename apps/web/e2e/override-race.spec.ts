@@ -19,7 +19,8 @@ async function importBook(page: Page): Promise<void> {
   await page.getByLabel('Create project from files').setInputFiles({ name: 'book.md', mimeType: 'text/markdown', buffer: Buffer.from(BOOK_MD, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
-  await expect(page.getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
 }
 
 /** Retitle the first chapter in the editor and Apply. */
@@ -27,7 +28,8 @@ async function retitleAndApply(page: Page, title: string): Promise<void> {
   await page.getByRole('button', { name: 'edit chapters' }).click();
   await expect(page.getByLabel('Editable chapters')).toBeVisible({ timeout: 30_000 });
   await page.locator('input[aria-label^="Title for"]').first().fill(title);
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
 }
 
 /**
@@ -80,8 +82,9 @@ async function assertLateHashChangesNothing(page: Page, stableSnapshot: string, 
   expect(t.dropped).toBe(0);
   expect(t.events.filter((e) => e.seq > releaseMark && e.direction === 'to-worker' && e.t === 'begin-generation')).toEqual([]);
   expect(await latestSnapshot(page)).toBe(stableSnapshot);
-  await expect(page.getByText(expectVisible, { exact: true })).toBeVisible();
-  if (expectAbsent) await expect(page.getByText(expectAbsent, { exact: true })).toHaveCount(0);
+  const chapters = page.getByRole('region', { name: 'Chapter structure' });
+  await expect(chapters.getByText(expectVisible, { exact: true })).toBeVisible();
+  if (expectAbsent) await expect(chapters.getByText(expectAbsent, { exact: true })).toHaveCount(0);
 }
 
 test('Apply A → Apply B: the newer correction supersedes the held one', async ({ page }) => {
@@ -94,7 +97,8 @@ test('Apply A → Apply B: the newer correction supersedes the held one', async 
   await page.locator('input[aria-label^="Title for"]').first().fill('Title-A');
   await installDigestGate(page, 'Title-A'); // hold ONLY A's own override hash
   const markA = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
   await expect.poll(() => digestGateConsumed(page), { timeout: 10_000, message: "A's hash was never held" }).toBe(true);
 
   // Author B while A is still hashing and Apply it (ungated) — it supersedes A.
@@ -103,10 +107,12 @@ test('Apply A → Apply B: the newer correction supersedes the held one', async 
   await assertAStillPending(page, markA); // A is genuinely in-flight when B supersedes
   await page.locator('input[aria-label^="Title for"]').first().fill('Title-B');
   const markB = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
 
   const snapB = await awaitFreshOutline(page, markB, preSnapshot);
-  await expect(page.getByText('Title-B', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Title-B', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('your correction').first()).toBeVisible();
   await expect(page.getByText('Title-A', { exact: true })).toHaveCount(0);
 
@@ -124,7 +130,8 @@ test('Apply A → discard: a zero-change override supersedes the held one to the
   await expect(page.getByText('your chapter correction is applied.')).toBeVisible({ timeout: 30_000 });
   await awaitFreshOutline(page, mark0, preSnapshot);
   const activeSnapshot = await latestSnapshot(page);
-  await expect(page.getByText('Corrected', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Corrected', { exact: true })).toBeVisible();
 
   // Apply A (a further correction) but hold its hash.
   await page.getByRole('button', { name: 'edit chapters' }).click();
@@ -132,7 +139,8 @@ test('Apply A → discard: a zero-change override supersedes the held one to the
   await page.locator('input[aria-label^="Title for"]').first().fill('Corrected-A2');
   await installDigestGate(page, 'Corrected-A2'); // hold ONLY A's own override hash
   const markA = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
   await expect.poll(() => digestGateConsumed(page), { timeout: 10_000, message: "A's hash was never held" }).toBe(true);
 
   // Reopen and RESTORE the detected baseline (revert to the original heading),
@@ -143,12 +151,14 @@ test('Apply A → discard: a zero-change override supersedes the held one to the
   await assertAStillPending(page, markA); // A is genuinely in-flight when the discard supersedes
   await page.locator('input[aria-label^="Title for"]').first().fill('Alpha'); // the detected title
   const markDiscard = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
 
   const baselineSnapshot = await awaitFreshOutline(page, markDiscard, activeSnapshot);
   // The outline is the detected baseline: the original heading, no active
   // correction, and no "your correction" provenance.
-  await expect(page.getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText('your chapter correction is applied.')).toHaveCount(0);
   await expect(page.getByText('your correction')).toHaveCount(0);
   await expect(page.getByText('Corrected', { exact: true })).toHaveCount(0);

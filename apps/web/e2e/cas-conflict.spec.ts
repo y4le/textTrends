@@ -38,7 +38,8 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
   await expect(page.getByLabel('Editable chapters')).toBeVisible({ timeout: 30_000 });
   const firstTitle = page.locator('input[aria-label^="Title for"]').first();
   await firstTitle.fill('Renamed Alpha');
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('region', { name: 'Chapter structure' })
+    .getByRole('button', { name: 'apply', exact: true }).click();
   await expect(page.getByText('your chapter correction is applied.')).toBeVisible({ timeout: 30_000 });
 
   // Save from base 1: the worker's CAS sees stored revision 2 → REVISION_CONFLICT.
@@ -59,7 +60,8 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
 
   // The UI names the conflicting revision; the local correction survives.
   await expect(page.getByText('conflict: the saved project moved to rev 2')).toBeVisible();
-  await expect(page.getByText('Renamed Alpha', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Renamed Alpha', { exact: true })).toBeVisible();
 
   // The durable record is untouched: still revision 2 with its original payload.
   const after = await readUserProject(page);

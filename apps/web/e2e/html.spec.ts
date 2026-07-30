@@ -52,8 +52,9 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   expect(rows).toBeGreaterThanOrEqual(2); // "barnowl" appears in body + migration list
 
   // Headings became a chapter outline.
-  await expect(page.getByText('Owl Field Notes', { exact: true })).toBeVisible();
-  await expect(page.getByText('Migration', { exact: true })).toBeVisible();
+  const chapters = page.getByRole('region', { name: 'Chapter structure' });
+  await expect(chapters.getByText('Owl Field Notes', { exact: true })).toBeVisible();
+  await expect(chapters.getByText('Migration', { exact: true })).toBeVisible();
 
   // The <script> content never became analyzable text (inert extraction). Wait
   // for the FINAL settled state (no occurrences), not the transient "finding

@@ -185,6 +185,7 @@ export type {
   InventoryRequestV1,
   InventoryResultV1,
   InventoryRhythmV1,
+  InventorySectionsV1,
 } from '@texttrends/core';
 export type {
   FrequencyListRequestV1,

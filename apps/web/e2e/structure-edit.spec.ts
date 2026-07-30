@@ -25,8 +25,9 @@ test('import md → edit a chapter title → apply → correction round-trips', 
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
 
   // The chapter panel shows the two detected headings.
-  await expect(page.getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('Beta', { exact: true })).toBeVisible();
+  const chapters = page.getByRole('region', { name: 'Chapter structure' });
+  await expect(chapters.getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(chapters.getByText('Beta', { exact: true })).toBeVisible();
 
   // ── Open the editor and retitle the first chapter. ──
   await page.getByRole('button', { name: 'edit chapters' }).click();
@@ -36,22 +37,23 @@ test('import md → edit a chapter title → apply → correction round-trips', 
   await firstTitle.fill('Renamed Alpha');
 
   // ── Apply: the fenced async command hashes, installs the override, reopens. ──
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await chapters.getByRole('button', { name: 'apply', exact: true }).click();
 
   // A new generation composes the corrected structure: the panel reports the
   // correction active and the outline shows the user's title + provenance.
   await expect(page.getByText('your chapter correction is applied.')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('Renamed Alpha', { exact: true })).toBeVisible();
+  await expect(chapters.getByText('Renamed Alpha', { exact: true })).toBeVisible();
   await expect(page.getByText('your correction').first()).toBeVisible();
   // The untouched chapter survives.
-  await expect(page.getByText('Beta', { exact: true })).toBeVisible();
+  await expect(chapters.getByText('Beta', { exact: true })).toBeVisible();
 });
 
 test('the editor can add a fresh chapter row', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await page.getByLabel('Create project from files').setInputFiles(mdFile());
-  await expect(page.getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Chapter structure' })
+    .getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole('button', { name: 'edit chapters' }).click();
   await expect(page.getByLabel('Editable chapters')).toBeVisible({ timeout: 30_000 });

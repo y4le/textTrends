@@ -8,7 +8,7 @@ The relevant decisions are recorded below; `docs/design/keyness-plan.md` and
 `docs/design/research-state-plan.md` carry the dependent Slice 4 and research
 state rulings.*
 
-**STATUS: IN PROGRESS (2026-07-30).** The preliminary protocol-admission
+**STATUS: COMPLETE (2026-07-30).** The preliminary protocol-admission
 sweep landed in `e716d2b`: non-group arrays now use `denseArray`, while the
 bounded group path retains `denseBoundedArray`. Every new array narrower
 starts from that same hostile-input discipline.

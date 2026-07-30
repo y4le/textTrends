@@ -48,6 +48,9 @@ import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
+  FREQUENCY_PAGE_MAX,
+  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_WINDOW_MAX,
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
   READER_MAX_TOKENS,
@@ -101,6 +104,11 @@ import type {
   ReaderPageResultV1,
   StructureEditContextV1,
   StructureQueryResultV1,
+  InventoryResultV1,
+  FrequencyListResultV1,
+  FrequencySortFieldV1,
+  FrequencyTokenClassV1,
+  TfidfSectionsResultV1,
 } from '../shared/analysis-contract.ts';
 import {
   SessionCommandError,
@@ -152,6 +160,11 @@ export interface QueryClient {
  *  track cap so a series set can always be sent as concordance tracks. */
 export const MAX_SERIES = MAX_KWIC_TRACKS;
 export const BINS = 40;
+export const INVENTORY_RHYTHM_BINS = 24;
+export const INVENTORY_GROWTH_POINTS = 128;
+export const INVENTORY_MATTR_WINDOW = 500;
+export const TFIDF_SECTION_MIN_TOKENS = 50;
+export const TFIDF_TOP_K = 5;
 
 /** (generation, snapshot) identity — a query result is written only if the live
  *  snapshot still matches this. Snapshot ids are unique per publication; the
@@ -258,6 +271,44 @@ export interface ReaderPageState {
     | { readonly status: 'error'; readonly message: string };
 }
 
+export interface InventoryState {
+  readonly snapshot: string;
+  readonly selection: TokenRangeSelectionV1 | null;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: InventoryResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export interface FrequencyViewV1 {
+  readonly schema: 'texttrends/frequency-view/1';
+  readonly minCount: number;
+  readonly minDocFreq: number;
+  readonly classes: readonly FrequencyTokenClassV1[];
+  readonly prefixNfc?: string;
+  readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
+  readonly page: { readonly offset: number; readonly limit: number };
+}
+
+export interface FrequencyState {
+  readonly snapshot: string;
+  readonly selection: TokenRangeSelectionV1 | null;
+  readonly view: FrequencyViewV1;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: FrequencyListResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export interface TfidfState {
+  readonly snapshot: string;
+  readonly doc: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: TfidfSectionsResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
 export type TrendView = 'series' | 'by-book';
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -361,6 +412,12 @@ export interface AppState {
   selectedTrends: ReadonlyMap<string, SeriesTrendState>;
   /** Range-scoped dispersion layer over the dim whole-corpus strip. */
   selectedDispersion: DispersionState | null;
+  /** Vocabulary-wide analytics are notebook-independent. */
+  inventory: InventoryState | null;
+  frequencyView: FrequencyViewV1;
+  frequency: FrequencyState | null;
+  /** Full-document chapter labels for the focused book. */
+  tfidf: TfidfState | null;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
@@ -427,6 +484,17 @@ export interface AppState {
    *  layer). Reissues the DETAIL consumers (kwic + selected overlays); the
    *  baseline evidence is retained untouched. Null clears. */
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
+  runInventory(): void;
+  runFrequency(): void;
+  runTfidf(): void;
+  setFrequencySort(by: FrequencySortFieldV1): void;
+  setFrequencyPrefix(prefix: string): void;
+  setFrequencyFilter(minCount: number, minDocFreq: number, prefix: string): void;
+  setFrequencyClasses(classes: readonly FrequencyTokenClassV1[]): void;
+  setFrequencyPage(offset: number): void;
+  setFrequencyPageSize(limit: number): void;
+  addFrequencyTerm(key: string): void;
+  showFrequencyTermInKwic(key: string): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
@@ -560,6 +628,10 @@ export function createAppRuntime(
   // never cancels the resident baseline (ruling §2).
   const selectedTrendLane = new QueryLane(scope);
   const selectedDispersionLane = new QueryLane(scope);
+  // Vocabulary-wide analytics are independent of notebook query lanes.
+  const inventoryLane = new QueryLane(scope);
+  const frequencyLane = new QueryLane(scope);
+  const tfidfLane = new QueryLane(scope);
   // On-demand authoring intents (edit-context + line-excerpt), each its own
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
@@ -1148,6 +1220,17 @@ export function createAppRuntime(
       linkedSelection: null,
       selectedTrends: new Map(),
       selectedDispersion: null,
+      inventory: null,
+      frequencyView: {
+        schema: 'texttrends/frequency-view/1',
+        minCount: 1,
+        minDocFreq: 1,
+        classes: ['lexical'],
+        sort: { by: 'count', dir: -1 },
+        page: { offset: 0, limit: 100 },
+      },
+      frequency: null,
+      tfidf: null,
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -1310,6 +1393,7 @@ export function createAppRuntime(
         if (!get().snapshot?.readyDocs.includes(doc)) return; // only a ready doc
         set({ focusedDoc: doc });
         get().runStructure(); // outline intent only — trend lines are unaffected
+        get().runTfidf(); // full-document chapter labels, independent of brush/notebook
       },
 
       setSectionMarks(on) {
@@ -1749,6 +1833,367 @@ export function createAppRuntime(
         runKwic();
       },
 
+      runInventory() {
+        inventoryLane.supersede();
+        const { snapshot, linkedSelection } = get();
+        if (!snapshot) {
+          set({ inventory: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedSelection = linkedSelection;
+        const lease = inventoryLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().linkedSelection === issuedSelection,
+        );
+        set({
+          inventory: {
+            snapshot: snapshot.snapshot,
+            selection: issuedSelection,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          inventoryLane,
+          snapshot.snapshot,
+          {
+            op: 'inventory',
+            selection: detailSelection(snapshot.readyDocs, issuedSelection),
+            request: {
+              method: 'inventory/1',
+              rhythmBinsPerDoc: INVENTORY_RHYTHM_BINS,
+              growthPoints: INVENTORY_GROWTH_POINTS,
+              sections: true,
+              mattrWindow: INVENTORY_MATTR_WINDOW,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'inventory') return;
+            set({
+              inventory: {
+                snapshot: snapshot.snapshot,
+                selection: issuedSelection,
+                state: { status: 'ready', result: data.inventory },
+              },
+            });
+          },
+          (message) => set({
+            inventory: {
+              snapshot: snapshot.snapshot,
+              selection: issuedSelection,
+              state: { status: 'error', message },
+            },
+          }),
+        );
+      },
+
+      runFrequency() {
+        frequencyLane.supersede();
+        const { snapshot, linkedSelection, frequencyView } = get();
+        if (!snapshot) {
+          set({ frequency: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedSelection = linkedSelection;
+        const issuedView = frequencyView;
+        const lease = frequencyLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().linkedSelection === issuedSelection,
+          () => get().frequencyView === issuedView,
+        );
+        set({
+          frequency: {
+            snapshot: snapshot.snapshot,
+            selection: issuedSelection,
+            view: issuedView,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          frequencyLane,
+          snapshot.snapshot,
+          {
+            op: 'freq-list',
+            selection: detailSelection(snapshot.readyDocs, issuedSelection),
+            request: {
+              method: 'freq-list/1',
+              filter: {
+                minCount: issuedView.minCount,
+                minDocFreq: issuedView.minDocFreq,
+                classes: issuedView.classes,
+                ...(issuedView.prefixNfc === undefined
+                  ? {}
+                  : { prefixNfc: issuedView.prefixNfc }),
+              },
+              sort: issuedView.sort,
+              page: issuedView.page,
+              dispersion: true,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'freq-list') return;
+            set({
+              frequency: {
+                snapshot: snapshot.snapshot,
+                selection: issuedSelection,
+                view: issuedView,
+                state: { status: 'ready', result: data.frequency },
+              },
+            });
+          },
+          (message) => set({
+            frequency: {
+              snapshot: snapshot.snapshot,
+              selection: issuedSelection,
+              view: issuedView,
+              state: { status: 'error', message },
+            },
+          }),
+        );
+      },
+
+      runTfidf() {
+        tfidfLane.supersede();
+        const { snapshot, focusedDoc } = get();
+        if (!snapshot || !focusedDoc || !snapshot.readyDocs.includes(focusedDoc)) {
+          set({ tfidf: null });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedDoc = focusedDoc;
+        const lease = tfidfLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().focusedDoc === issuedDoc,
+        );
+        set({
+          tfidf: {
+            snapshot: snapshot.snapshot,
+            doc: issuedDoc,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          tfidfLane,
+          snapshot.snapshot,
+          {
+            op: 'tfidf-sections',
+            request: {
+              method: 'tfidf-sections/1',
+              doc: issuedDoc,
+              level: 1,
+              minSectionTokens: TFIDF_SECTION_MIN_TOKENS,
+              topK: TFIDF_TOP_K,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'tfidf-sections') return;
+            set({
+              tfidf: {
+                snapshot: snapshot.snapshot,
+                doc: issuedDoc,
+                state: { status: 'ready', result: data.tfidf },
+              },
+            });
+          },
+          (message) => set({
+            tfidf: {
+              snapshot: snapshot.snapshot,
+              doc: issuedDoc,
+              state: { status: 'error', message },
+            },
+          }),
+        );
+      },
+
+      setFrequencySort(by) {
+        const current = get().frequencyView;
+        const dir = current.sort.by === by
+          ? (current.sort.dir === 1 ? -1 : 1)
+          : (by === 'key' ? 1 : -1);
+        set({
+          frequencyView: {
+            ...current,
+            sort: { by, dir },
+            page: { ...current.page, offset: 0 },
+          },
+        });
+        get().runFrequency();
+      },
+
+      setFrequencyPrefix(prefix) {
+        get().setFrequencyFilter(
+          get().frequencyView.minCount,
+          get().frequencyView.minDocFreq,
+          prefix,
+        );
+      },
+
+      setFrequencyFilter(minCount, minDocFreq, prefix) {
+        const normalized = prefix.trim().normalize('NFC');
+        const current = get().frequencyView;
+        if (
+          !Number.isSafeInteger(minCount) ||
+          minCount < 1 ||
+          !Number.isSafeInteger(minDocFreq) ||
+          minDocFreq < 1 ||
+          normalized.length > FREQUENCY_PREFIX_MAX_UNITS
+        ) {
+          return;
+        }
+        const { prefixNfc: _oldPrefix, ...withoutPrefix } = current;
+        set({
+          frequencyView: normalized === ''
+            ? {
+                ...withoutPrefix,
+                minCount,
+                minDocFreq,
+                page: { ...current.page, offset: 0 },
+              }
+            : {
+                ...current,
+                minCount,
+                minDocFreq,
+                prefixNfc: normalized,
+                page: { ...current.page, offset: 0 },
+              },
+        });
+        get().runFrequency();
+      },
+
+      setFrequencyClasses(classes) {
+        const unique = [...new Set(classes)].filter(
+          (value): value is FrequencyTokenClassV1 =>
+            value === 'lexical' || value === 'numeral',
+        );
+        if (unique.length === 0) return;
+        const current = get().frequencyView;
+        set({
+          frequencyView: {
+            ...current,
+            classes: unique,
+            page: { ...current.page, offset: 0 },
+          },
+        });
+        get().runFrequency();
+      },
+
+      setFrequencyPage(offset) {
+        const current = get().frequencyView;
+        if (
+          !Number.isSafeInteger(offset) ||
+          offset < 0 ||
+          offset + current.page.limit > FREQUENCY_WINDOW_MAX
+        ) {
+          return;
+        }
+        set({
+          frequencyView: {
+            ...current,
+            page: { ...current.page, offset },
+          },
+        });
+        get().runFrequency();
+      },
+
+      setFrequencyPageSize(limit) {
+        if (
+          !Number.isSafeInteger(limit) ||
+          limit < 1 ||
+          limit > FREQUENCY_PAGE_MAX
+        ) {
+          return;
+        }
+        const current = get().frequencyView;
+        set({
+          frequencyView: {
+            ...current,
+            page: { offset: 0, limit },
+          },
+        });
+        get().runFrequency();
+      },
+
+      addFrequencyTerm(key) {
+        const label = key.normalize('NFC');
+        const state = get();
+        if (
+          state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups ||
+          state.activeGroupIds.size >= MAX_SERIES
+        ) {
+          refuseNotebook('deactivate a group before adding this frequency-table term');
+          return;
+        }
+        const probe = {
+          id: 'probe',
+          name: label,
+          members: [{
+            id: 'member',
+            kind: 'token' as const,
+            surface: label,
+            match: { case: 'sensitive' as const, diacritics: 'sensitive' as const },
+          }],
+          countOverlaps: false,
+        };
+        if (state.notebook.groups.some((group) => groupIdentity(group) === groupIdentity(probe))) {
+          refuseNotebook('that exact term is already in the notebook');
+          return;
+        }
+        const group = {
+          ...probe,
+          id: newId(),
+          members: [{ ...probe.members[0]!, id: newId() }],
+        };
+        try {
+          validateNotebookGroup(group);
+        } catch (e) {
+          refuseNotebook(msg(e));
+          return;
+        }
+        const notebook: QueryNotebookV1 = {
+          schema: 'texttrends/query-notebook/1',
+          groups: [...state.notebook.groups, group],
+        };
+        const active = new Set(state.activeGroupIds);
+        active.add(group.id);
+        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
+      },
+
+      showFrequencyTermInKwic(key) {
+        const label = key.normalize('NFC');
+        const probe = {
+          id: 'probe',
+          name: label,
+          members: [{
+            id: 'member',
+            kind: 'token' as const,
+            surface: label,
+            match: { case: 'sensitive' as const, diacritics: 'sensitive' as const },
+          }],
+          countOverlaps: false,
+        };
+        const state = get();
+        const group = state.notebook.groups.find(
+          (candidate) => groupIdentity(candidate) === groupIdentity(probe),
+        );
+        if (!group) {
+          get().addFrequencyTerm(key);
+          return;
+        }
+        if (!state.activeGroupIds.has(group.id) && state.activeGroupIds.size >= MAX_SERIES) {
+          refuseNotebook('deactivate a group before showing this term in the concordance');
+          return;
+        }
+        const active = new Set(state.activeGroupIds);
+        active.add(group.id);
+        adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
+        if (!get().kwicEnabledSeries.has(group.id)) get().toggleKwicSeries(group.id);
+        get().setFocus(group.id);
+      },
+
       setLinkedSelection(selection) {
         const { snapshot } = get();
         if (selection !== null
@@ -1761,6 +2206,8 @@ export function createAppRuntime(
         // are untouched (clearing a brush must not recompute them).
         runSelected();
         runKwic();
+        get().runInventory();
+        get().runFrequency();
       },
 
       centerKwicAt(seriesId, doc, token, origin) {
@@ -1937,6 +2384,9 @@ export function createAppRuntime(
       store.getState().revalidatePins();
       store.getState().runQueries();
       store.getState().runStructure();
+      store.getState().runInventory();
+      store.getState().runFrequency();
+      store.getState().runTfidf();
     }
   };
 
@@ -1979,6 +2429,9 @@ export function createAppRuntime(
       dispersionLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
+      inventoryLane.supersede();
+      frequencyLane.supersede();
+      tfidfLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
