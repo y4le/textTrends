@@ -7,6 +7,7 @@ import { useApp } from './lib/store-instance.ts';
 import { SeriesLineSample } from './components/chrome.tsx';
 import { PinnedPane } from './components/PinnedPane.tsx';
 import { ResearchPanel } from './components/ResearchPanel.tsx';
+import { ScopeBar } from './components/ScopeBar.tsx';
 
 // The chart/interaction surface is the largest main-thread feature module and
 // is irrelevant until the notebook has an active series. Keep the initial
@@ -72,8 +73,6 @@ function ChartFocusChip({
 }
 
 export function App() {
-  const snapshot = useApp((s) => s.snapshot);
-  const loadingPhase = useApp((s) => s.loadingPhase);
   const quickAdd = useApp((s) => s.quickAdd);
   const inputError = useApp((s) => s.inputError);
   const series = useApp((s) => s.series);
@@ -120,14 +119,8 @@ export function App() {
             }}
           />
         </form>
-        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
-          {snapshot
-            ? `${snapshot.readyDocs.length}/${snapshot.readyDocs.length + snapshot.missingDocs.length} books ready`
-            : bootstrap.phase === 'initializing'
-              ? 'preparing the built-in project…'
-              : loadingPhase ?? 'loading…'}
-        </span>
       </header>
+      <ScopeBar />
       <div role="status" aria-live="polite">
         {inputError && (
           <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>
