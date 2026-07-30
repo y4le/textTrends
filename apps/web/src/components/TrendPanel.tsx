@@ -33,10 +33,12 @@ import {
   binSpan,
   bookXFromToken,
   bookXFromTokenEdge,
+  clampRangeHeadToOrigin,
   clampToSpan,
   linearMap,
   pointerTargetByBook,
   pointerTargetSeries,
+  selectedTrendPathData,
   seriesXFromToken,
   seriesTokenFromX,
   seriesXFromTokenEdge,
@@ -48,6 +50,7 @@ import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
+import { commitRange } from '../lib/selection.ts';
 
 const SERIES_HEIGHT = 180;
 const TOP_PAD = 14; // room for the y-max direct label above the plot
@@ -63,6 +66,12 @@ interface ReadySeries {
   readonly trend: NumericTrend;
 }
 
+interface RangePreview {
+  readonly mode: 'pointer' | 'keyboard';
+  readonly origin: ScrubTarget;
+  readonly head: ScrubTarget;
+}
+
 export function TrendPanel() {
   // Deliberately NO `scrub`/`passage` subscription here: those update once per
   // pointer animation frame, and this component's render rebuilds every path,
@@ -72,6 +81,7 @@ export function TrendPanel() {
   const series = useApp((s) => s.series);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const trends = useApp((s) => s.trends);
+  const selectedTrends = useApp((s) => s.selectedTrends);
   const trendView = useApp((s) => s.trendView);
   const focusedSeries = useApp((s) => s.focusedSeries);
   const setFocus = useApp((s) => s.setFocus);
@@ -105,6 +115,10 @@ export function TrendPanel() {
   const ready: ReadySeries[] = states.flatMap(({ intent, state }) =>
     state?.status === 'ready' ? [{ intent, trend: state.trend }] : [],
   );
+  const selectedReady: ReadySeries[] = series.flatMap((intent) => {
+    const state = selectedTrends.get(intent.id);
+    return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
+  });
 
   // Hold the comparison until the current set settles: a shared y-scale that
   // re-fits as each line lands reads as data changing when it isn't.
@@ -147,6 +161,15 @@ export function TrendPanel() {
   const maxRate = Math.max(
     1e-9,
     ...ready.map((r) => Math.max(...Array.from(r.trend.ratePer10k))),
+    ...selectedReady.map((r) => {
+      let max = 0;
+      for (let i = 0; i < r.trend.ratePer10k.length; i++) {
+        if ((r.trend.binTokens[i] as number) > 0) {
+          max = Math.max(max, r.trend.ratePer10k[i] as number);
+        }
+      }
+      return max;
+    }),
   );
   const strokeFor = (id: string) => (id === focusedSeries ? 2.5 : 1.5);
 
@@ -217,6 +240,7 @@ export function TrendPanel() {
         {trendView === 'series' ? (
           <SeriesView
             ready={ready}
+            selected={selectedReady}
             docs={docs}
             titles={titles}
             bins={bins}
@@ -230,6 +254,7 @@ export function TrendPanel() {
         ) : (
           <ByBookView
             ready={ready}
+            selected={selectedReady}
             docs={docs}
             titles={titles}
             bins={bins}
@@ -366,6 +391,10 @@ function ScrubSurface({
   const scrub = useApp((s) => s.scrub);
   const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
+  const snapshot = useApp((s) => s.snapshot);
+  const linkedSelection = useApp((s) => s.linkedSelection);
+  const setLinkedSelection = useApp((s) => s.setLinkedSelection);
+  const [preview, setPreview] = useState<RangePreview | null>(null);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -402,7 +431,64 @@ function ScrubSurface({
     return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
   };
 
+  const commitPreview = (range: RangePreview) => {
+    const d = docs.indexOf(range.origin.doc);
+    const selection = snapshot
+      ? commitRange(
+          snapshot.snapshot,
+          range.origin.doc,
+          range.origin.token,
+          range.head.token,
+          docTokenCount[d] ?? 0,
+        )
+      : null;
+    if (selection) setLinkedSelection(selection);
+    setPreview(null);
+  };
+
+  const pointerDrag = useRef<{
+    pointerId: number;
+    x: number;
+    y: number;
+    origin: ScrubTarget;
+    head: ScrubTarget;
+    active: boolean;
+  } | null>(null);
+
   const onKeyDown = (e: React.KeyboardEvent) => {
+    if ((e.key === 's' || e.key === 'S') && preview === null) {
+      if (scrub && scrubDocOrdinal >= 0) {
+        e.preventDefault();
+        setPreview({ mode: 'keyboard', origin: scrub, head: scrub });
+      }
+      return;
+    }
+    if (preview?.mode === 'keyboard') {
+      const d = docs.indexOf(preview.origin.doc);
+      const count = docTokenCount[d] ?? 0;
+      let head = preview.head.token;
+      switch (e.key) {
+        case 'ArrowLeft': head--; break;
+        case 'ArrowRight': head++; break;
+        case 'Home': head = 0; break;
+        case 'End': head = count - 1; break;
+        case 'Enter':
+          e.preventDefault();
+          commitPreview(preview);
+          return;
+        case 'Escape':
+          e.preventDefault();
+          setPreview(null);
+          return;
+        default: return;
+      }
+      e.preventDefault();
+      setPreview({
+        ...preview,
+        head: { doc: preview.origin.doc, token: Math.max(0, Math.min(count - 1, head)) },
+      });
+      return;
+    }
     const current: ScrubTarget =
       scrub && scrubDocOrdinal >= 0
         ? scrub
@@ -449,48 +535,143 @@ function ScrubSurface({
   const cursorTop = trendView === 'series' ? TOP_PAD : scrubDocOrdinal * (ROW_HEIGHT + ROW_GAP);
   const cursorHeight = trendView === 'series' ? SERIES_HEIGHT - TOP_PAD : ROW_HEIGHT;
 
-  return (
-    <div
-      ref={containerRef}
-      role="slider"
-      tabIndex={0}
-      aria-label="Reading position scrubber"
-      aria-valuemin={0}
-      aria-valuemax={Math.max(0, layout.totalTokens - 1)}
-      aria-valuenow={
-        scrub && scrubDocOrdinal >= 0 ? (layout.bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
+  const shownRange = preview
+    ? {
+        doc: preview.origin.doc,
+        tokens: {
+          start: Math.min(preview.origin.token, preview.head.token),
+          end: Math.max(preview.origin.token, preview.head.token) + 1,
+        },
       }
-      aria-valuetext={scrubCaption || 'no position'}
-      onKeyDown={onKeyDown}
-      style={{ width: '100%', outline: 'none', position: 'relative' }}
-      onPointerMove={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
-      }}
-      onPointerDown={(e) => {
-        const rect = e.currentTarget.getBoundingClientRect();
-        scheduleScrub(targetFromPointer(e.clientX - rect.left, e.clientY - rect.top));
-      }}
-    >
-      {children}
-      {scrubX !== null && (
-        <div
-          aria-hidden="true"
-          data-testid="chart-cursor"
-          style={{
-            position: 'absolute',
-            left: 0,
-            top: 0,
-            width: 1,
-            height: cursorHeight,
-            transform: `translate3d(${scrubX}px, ${cursorTop}px, 0)`,
-            willChange: 'transform',
-            background: 'var(--fg-muted)',
-            pointerEvents: 'none',
-            zIndex: 1,
-          }}
-        />
-      )}
+    : linkedSelection;
+  const rangeDocOrdinal = shownRange ? docs.indexOf(shownRange.doc) : -1;
+  const rangeBox = shownRange && rangeDocOrdinal >= 0
+    ? trendView === 'series'
+      ? {
+          left: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.start, plotW, layout),
+          right: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.end, plotW, layout),
+          top: TOP_PAD,
+          height: SERIES_HEIGHT - TOP_PAD,
+        }
+      : {
+          left: bookXFromTokenEdge(
+            shownRange.tokens.start,
+            plotW,
+            docTokenCount[rangeDocOrdinal] ?? 0,
+          ),
+          right: bookXFromTokenEdge(
+            shownRange.tokens.end,
+            plotW,
+            docTokenCount[rangeDocOrdinal] ?? 0,
+          ),
+          top: rangeDocOrdinal * (ROW_HEIGHT + ROW_GAP),
+          height: ROW_HEIGHT,
+        }
+    : null;
+  const rangeStatus = preview
+    ? `Selecting ${preview.origin.doc}, tokens ${Math.min(preview.origin.token, preview.head.token) + 1}–${Math.max(preview.origin.token, preview.head.token) + 1}`
+    : linkedSelection
+      ? `Selected ${(linkedSelection.tokens.end - linkedSelection.tokens.start).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.doc) ?? linkedSelection.doc}`
+      : 'Press S at the reading cursor to select a range';
+
+  return (
+    <div ref={containerRef} style={{ width: '100%' }}>
+      <div
+        role="slider"
+        tabIndex={0}
+        aria-label="Reading position scrubber"
+        aria-valuemin={0}
+        aria-valuemax={Math.max(0, layout.totalTokens - 1)}
+        aria-valuenow={
+          scrub && scrubDocOrdinal >= 0 ? (layout.bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
+        }
+        aria-valuetext={scrubCaption || 'no position'}
+        onKeyDown={onKeyDown}
+        style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'none' }}
+        onPointerMove={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const target = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+          const drag = pointerDrag.current;
+          if (drag?.pointerId === e.pointerId) {
+            if (!target) return;
+            const distance = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
+            if (!drag.active && distance >= 4) drag.active = true;
+            if (drag.active) {
+              drag.head = clampRangeHeadToOrigin(drag.origin, target, docs, docTokenCount);
+              setPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
+            }
+            return;
+          }
+          scheduleScrub(target);
+        }}
+        onPointerDown={(e) => {
+          const rect = e.currentTarget.getBoundingClientRect();
+          const origin = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+          if (!origin) return;
+          e.currentTarget.setPointerCapture(e.pointerId);
+          pointerDrag.current = {
+            pointerId: e.pointerId,
+            x: e.clientX,
+            y: e.clientY,
+            origin,
+            head: origin,
+            active: false,
+          };
+          setPreview(null);
+        }}
+        onPointerUp={(e) => {
+          const drag = pointerDrag.current;
+          if (!drag || drag.pointerId !== e.pointerId) return;
+          pointerDrag.current = null;
+          if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+            e.currentTarget.releasePointerCapture(e.pointerId);
+          }
+          if (drag.active) commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
+          else setScrub(drag.origin); // click stays the axis point gesture; F turns it into a pin
+        }}
+        onPointerCancel={(e) => {
+          if (pointerDrag.current?.pointerId !== e.pointerId) return;
+          pointerDrag.current = null;
+          setPreview(null);
+        }}
+      >
+        {children}
+        {rangeBox && (
+          <div
+            aria-hidden="true"
+            data-testid={preview ? 'selection-preview' : 'linked-selection'}
+            style={{
+              position: 'absolute',
+              left: rangeBox.left,
+              top: rangeBox.top,
+              width: Math.max(1, rangeBox.right - rangeBox.left),
+              height: rangeBox.height,
+              background: 'color-mix(in srgb, var(--accent) 18%, transparent)',
+              borderInline: '1px solid color-mix(in srgb, var(--accent) 70%, transparent)',
+              pointerEvents: 'none',
+              zIndex: 1,
+            }}
+          />
+        )}
+        {scrubX !== null && (
+          <div
+            aria-hidden="true"
+            data-testid="chart-cursor"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: 0,
+              width: 1,
+              height: cursorHeight,
+              transform: `translate3d(${scrubX}px, ${cursorTop}px, 0)`,
+              willChange: 'transform',
+              background: 'var(--fg-muted)',
+              pointerEvents: 'none',
+              zIndex: 2,
+            }}
+          />
+        )}
+      </div>
       {scrub && passageServes && scrubX !== null ? (
         <PassageLine
           passage={passage}
@@ -523,9 +704,42 @@ function ScrubSurface({
           }}
         >
           hover or focus the chart to read the text at any position — arrows step by
-          token, shift+arrows by 5, PageUp/Down by bin
+          token, shift+arrows by 5, PageUp/Down by bin · press S to select a range
         </p>
       )}
+      <p
+        role="status"
+        aria-live="polite"
+        style={{
+          margin: 'var(--space-1) 0 0',
+          minHeight: '1.5em',
+          color: 'var(--fg-muted)',
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+        }}
+      >
+        {rangeStatus}
+        {preview?.mode === 'keyboard' ? ' · arrows extend · Enter commits · Escape cancels' : ''}
+        {linkedSelection && preview === null ? (
+          <>
+            {' · '}
+            <button
+              type="button"
+              onClick={() => setLinkedSelection(null)}
+              style={{
+                font: 'inherit',
+                color: 'var(--fg)',
+                background: 'none',
+                border: '1px solid var(--rule)',
+                cursor: 'pointer',
+                padding: '0 0.5ch',
+              }}
+            >
+              clear selection
+            </button>
+          </>
+        ) : null}
+      </p>
     </div>
   );
 }
@@ -561,6 +775,7 @@ function ChartCommitProbe({ view }: { view: 'series' | 'by-book' }) {
 
 const SeriesView = memo(function SeriesView({
   ready,
+  selected,
   docs,
   titles,
   bins,
@@ -572,6 +787,7 @@ const SeriesView = memo(function SeriesView({
   onFocus,
 }: {
   ready: readonly ReadySeries[];
+  selected: readonly ReadySeries[];
   docs: readonly string[];
   titles: readonly string[];
   bins: number;
@@ -663,10 +879,36 @@ const SeriesView = memo(function SeriesView({
               strokeWidth={strokeFor(r.intent.id)}
               strokeDasharray={slotDash(r.intent.styleSlot)}
               strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+              opacity={selected.length > 0 ? 0.45 : 1}
               style={{ cursor: 'pointer' }}
               onClick={() => onFocus(r.intent.id)}
             />
           );
+        }),
+      )}
+      {selected.flatMap((r) =>
+        docs.flatMap((doc, d) => {
+          const x0 = x(bases[d] ?? 0);
+          const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+          return selectedTrendPathData(
+            r.trend,
+            doc,
+            bins,
+            (b) => clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP),
+            y,
+          ).map((path, i) => (
+            <path
+              key={`selected:${r.intent.id}:${doc}:${i}`}
+              data-selected-overlay={r.intent.id}
+              d={path}
+              fill="none"
+              stroke={slotColor(r.intent.styleSlot)}
+              strokeWidth={strokeFor(r.intent.id) + 1.5}
+              strokeDasharray={slotDash(r.intent.styleSlot)}
+              strokeLinecap="round"
+              pointerEvents="none"
+            />
+          ));
         }),
       )}
       {/* Direct end labels, collision-spread, foreground text + colored leader */}
@@ -740,6 +982,7 @@ const SeriesView = memo(function SeriesView({
 
 const ByBookView = memo(function ByBookView({
   ready,
+  selected,
   docs,
   titles,
   bins,
@@ -751,6 +994,7 @@ const ByBookView = memo(function ByBookView({
   onFocus,
 }: {
   ready: readonly ReadySeries[];
+  selected: readonly ReadySeries[];
   docs: readonly string[];
   titles: readonly string[];
   bins: number;
@@ -792,11 +1036,33 @@ const ByBookView = memo(function ByBookView({
                   strokeWidth={strokeFor(r.intent.id)}
                   strokeDasharray={slotDash(r.intent.styleSlot)}
                   strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+                  opacity={selected.length > 0 ? 0.45 : 1}
                   style={{ cursor: 'pointer' }}
                   onClick={() => onFocus(r.intent.id)}
                 />
               );
             })}
+            {selected.flatMap((r) =>
+              selectedTrendPathData(
+                r.trend,
+                doc,
+                bins,
+                (b) => x(b + 0.5),
+                (rate) => rowY + y(rate),
+              ).map((path, i) => (
+                <path
+                  key={`selected:${r.intent.id}:${i}`}
+                  data-selected-overlay={r.intent.id}
+                  d={path}
+                  fill="none"
+                  stroke={slotColor(r.intent.styleSlot)}
+                  strokeWidth={strokeFor(r.intent.id) + 1.5}
+                  strokeDasharray={slotDash(r.intent.styleSlot)}
+                  strokeLinecap="round"
+                  pointerEvents="none"
+                />
+              )),
+            )}
             {sectionMarkDoc === d &&
               sectionMarks.map((mx, i) => (
                 <line

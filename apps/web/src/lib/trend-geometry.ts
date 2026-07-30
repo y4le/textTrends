@@ -4,6 +4,40 @@
  * without rendering.
  */
 
+import type { NumericTrend } from '@texttrends/core';
+
+/** Selected trends retain the full document bin geometry, but bins with no
+ * selected denominator are GAPS rather than fabricated zero observations.
+ * A one-bin run receives a near-zero horizontal tail so SVG paints the mark. */
+export function selectedTrendPathData(
+  trend: NumericTrend,
+  doc: string,
+  bins: number,
+  xAt: (bin: number) => number,
+  yAt: (rate: number) => number,
+): string[] {
+  const d = trend.order.indexOf(doc);
+  if (d < 0) return [];
+  const paths: string[] = [];
+  let points: string[] = [];
+  const flush = () => {
+    if (points.length === 0) return;
+    const [first, ...rest] = points;
+    paths.push(`M${first}${rest.map((p) => ` L${p}`).join('')}${rest.length === 0 ? ' l0.01,0' : ''}`);
+    points = [];
+  };
+  for (let b = 0; b < bins; b++) {
+    const i = d * bins + b;
+    if ((trend.binTokens[i] as number) === 0) {
+      flush();
+      continue;
+    }
+    points.push(`${xAt(b).toFixed(1)},${yAt(trend.ratePer10k[i] as number).toFixed(1)}`);
+  }
+  flush();
+  return paths;
+}
+
 /** Two-point linear map [d0,d1] → [r0,r1] — the only thing the charts ever
  *  asked of d3-scale. Matches d3's degenerate-domain behavior: when d0 === d1
  *  every input maps to the range midpoint (returning r0 instead would be a
@@ -56,6 +90,32 @@ export interface SequenceLayout {
   readonly bases: readonly number[];
   readonly tokenCounts: readonly number[];
   readonly totalTokens: number;
+}
+
+export interface DocumentTokenTarget {
+  readonly doc: string;
+  readonly token: number;
+}
+
+/** A range is authored in one document. If pointer motion crosses a declared
+ * document boundary, clamp the preview head to the corresponding edge of the
+ * origin document rather than manufacturing a multi-document selection. */
+export function clampRangeHeadToOrigin(
+  origin: DocumentTokenTarget,
+  target: DocumentTokenTarget,
+  docs: readonly string[],
+  tokenCounts: readonly number[],
+): DocumentTokenTarget {
+  if (target.doc === origin.doc) return target;
+  const originOrdinal = docs.indexOf(origin.doc);
+  const targetOrdinal = docs.indexOf(target.doc);
+  if (originOrdinal < 0 || targetOrdinal < 0) return origin;
+  return {
+    doc: origin.doc,
+    token: targetOrdinal < originOrdinal
+      ? 0
+      : Math.max(0, (tokenCounts[originOrdinal] ?? 0) - 1),
+  };
 }
 
 /** Resolve a global sequence token to (doc ordinal, document-local token).

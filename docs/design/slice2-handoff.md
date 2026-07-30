@@ -21,8 +21,9 @@ it into commits **A–I**; five are landed, one is mid-review, three are unbuilt
 | B | Generation-bound `QueryExecutor` extraction (the F1 gate) | **landed** `bf058fe` (1 round) |
 | C | `dispersion/1` core + protocol + executor | **landed** `9f1ee54` (3 rounds) |
 | D | Barcode canvas strip + mark-to-KWIC | **landed** `2f42c5d` (3 rounds) |
-| G | `reader-page/1` core + protocol + executor | **STAGED, round-3 candidate after round-2 review** — see §3 |
-| E | Linked token selection | **store + gesture/render layers built (unstaged), browser proof in progress** — see §4 |
+| G | `reader-page/1` core + protocol + executor | **landed** `8ee6a31` (3 rounds) |
+| E1 | Linked-selection model + store lanes | **landed** `1886bae` (2 rounds) |
+| E2 | Linked-selection gestures + rendering | **built, verified, awaiting review** — see §4 |
 | F | Pinned context pane | not started — plan §F |
 | H | Full reader UI and links | not started — plan §H |
 | I | Slice-2 browser acceptance | not started — plan §I |
@@ -34,46 +35,26 @@ can land in any order that respects their file dependencies** (§6).
 ### Verified state as of this writing
 
 ```
-core:  420 tests passed before round-2 coverage fixes
-apps/web: 506 tests passed during G round-2 review (including unstaged E store tests)
-typecheck: clean (pnpm -w run typecheck)
-playwright: 38 functional + reader benchmark green before the latest review fixes
-build: compilation/Vite green; bundle gate currently reflects unstaged E entry work
+core:  420 tests pass
+apps/web: 511 tests pass with E2
+typecheck: clean
+playwright: 39 functional tests pass, including the linked-selection race proof
+build: bundle contract passes; lazy TrendPanel leaves entry at 67.1 kB gzip
 ```
 
 ---
 
 ## 2. Working-tree contents (nothing is lost — read this before `git` anything)
 
-`git status --short` currently shows three groups. **Do not run `git checkout
+`git status --short` currently shows two groups. **Do not run `git checkout
 --` or `git stash` without reading this.**
 
-**STAGED — commit G's candidate** (the review in §3 refers to exactly this):
+**UNSTAGED — commit E2 linked-selection UI**:
 ```
-A  packages/core/src/ops/reader.ts          (the kernel)
-A  packages/core/test/reader.test.ts        (canonical partition + mark coverage)
-M  packages/core/src/index.ts               (barrel exports for the reader surface)
-M  apps/web/src/shared/analysis-contract.ts (reader-page op + result types)
-M  apps/web/src/worker/protocol-v4-schema.ts(reader-page narrowing)
-M  apps/web/src/worker/query-executor.ts    (executor.readerPage)
-M  apps/web/src/worker/engine-v4.ts         (base-selection dispatch)
-M  apps/web/test/query-executor.test.ts     (engine-level reader tests)
-M  apps/web/test/protocol-v4-schema.test.ts (reader-page narrowing tests)
-```
-
-**UNSTAGED — commit E linked-selection implementation** (expanded during G's
-round-2 review):
-```
- M apps/web/src/lib/store.ts and tests
+ M apps/web/src/App.tsx
  M apps/web/src/components/{TrendPanel,BarcodeStrip,NotebookPanel}.tsx
  M apps/web/src/lib/{notebook-view,trend-geometry}.ts and tests
-?? apps/web/src/lib/selection.ts and test/selection.test.ts
 ?? apps/web/e2e/selection.spec.ts
-```
-
-**UNSTAGED — G round-1 fix artifact**:
-```
-?? apps/web/e2e/reader.bench.spec.ts  (dense-page benchmark, non-gating)
 ```
 
 **`?? .claude/`** is agent worktree scratch — ignorable, not part of the work.
@@ -83,11 +64,11 @@ having done nothing but copy a baseline. Both are safe to delete.
 
 ---
 
-## 3. IMMEDIATE NEXT TASK — commit G round 3
+## 3. Commit G — landed
 
 Round 2 independently verified the canonical partition under both caps and
-with oversized islands: **no kernel paging-logic change was requested**. Its
-changes-requested verdict is being resolved in the staged round-3 candidate:
+with oversized islands: **no kernel paging-logic change was requested**. Round
+3 landed the following review resolutions in `8ee6a31`:
 
 - the seeded oracle now actually binds the UTF-16 cap and pins direction-free
   `cappedBy`;
@@ -100,7 +81,7 @@ changes-requested verdict is being resolved in the staged round-3 candidate:
 The historical round-1 finding and prescribed canonical-partition resolution
 remain below for provenance.
 
-### Finding 1 (HIGH, OPEN) — directional pages don't round-trip
+### Historical finding 1 (HIGH, RESOLVED) — directional pages didn't round-trip
 
 Verbatim from the reviewer:
 
@@ -218,8 +199,8 @@ one-commit-shaped.
 
 ## 4. Commit E — linked token selection
 
-Plan §E and §2. **The store, gesture, and render layers are done and
-unstaged**; focused units are green and the browser acceptance spec is drafted.
+Plan §E and §2. **The store/model layer landed in `1886bae`; the gesture and
+render layer is implemented and verified.**
 
 ### Done (unstaged, focused tests green)
 
@@ -252,9 +233,7 @@ unstaged**; focused units are green and the browser acceptance spec is drafted.
 
 ### Remaining for E
 
-1. Run and harden the new browser spec against the production-shaped E2E build.
-2. Restore the entry gzip budget after the E runtime additions.
-3. Exact-stage, Opus-review, and land E as its own commit after G lands.
+1. Exact-stage, Opus-review, and land E2.
 
 Ruling invariants to honour: one nonempty half-open single-doc range; no
 queries during preview; the selected wire spec contains only that document;

@@ -21,7 +21,16 @@ export type GroupCountVM =
   | { readonly kind: 'not-run' }
   | { readonly kind: 'pending' }
   | { readonly kind: 'error'; readonly message: string }
-  | { readonly kind: 'ready'; readonly total: number; readonly partial: boolean };
+  | { readonly kind: 'ready'; readonly total: number; readonly partial: boolean }
+  | {
+      readonly kind: 'selected';
+      readonly total: number;
+      readonly partial: boolean;
+      readonly selected:
+        | { readonly kind: 'pending' }
+        | { readonly kind: 'error'; readonly message: string }
+        | { readonly kind: 'ready'; readonly total: number };
+    };
 
 export interface NotebookRowVM {
   readonly id: string;
@@ -48,12 +57,34 @@ export function countFor(
   hasSnapshot: boolean,
   trendState: SeriesTrendState | undefined,
   partialCorpus: boolean,
+  selectedTrendState?: SeriesTrendState,
+  hasSelection = false,
 ): GroupCountVM {
   if (!projected || !hasSnapshot || trendState === undefined) return { kind: 'not-run' };
   switch (trendState.status) {
     case 'pending': return { kind: 'pending' };
     case 'error': return { kind: 'error', message: trendState.message };
-    default: return { kind: 'ready', total: trendTotal(trendState.trend), partial: partialCorpus };
+    default: {
+      const total = trendTotal(trendState.trend);
+      if (!hasSelection) return { kind: 'ready', total, partial: partialCorpus };
+      if (!selectedTrendState || selectedTrendState.status === 'pending') {
+        return { kind: 'selected', total, partial: partialCorpus, selected: { kind: 'pending' } };
+      }
+      if (selectedTrendState.status === 'error') {
+        return {
+          kind: 'selected',
+          total,
+          partial: partialCorpus,
+          selected: { kind: 'error', message: selectedTrendState.message },
+        };
+      }
+      return {
+        kind: 'selected',
+        total,
+        partial: partialCorpus,
+        selected: { kind: 'ready', total: trendTotal(selectedTrendState.trend) },
+      };
+    }
   }
 }
 
@@ -63,6 +94,8 @@ export function notebookRows(args: {
   readonly soloGroupId: string | null;
   readonly styleSlots: ReadonlyMap<string, number>;
   readonly trends: ReadonlyMap<string, SeriesTrendState>;
+  readonly selectedTrends?: ReadonlyMap<string, SeriesTrendState>;
+  readonly hasSelection?: boolean;
   readonly hasSnapshot: boolean;
   readonly partialCorpus: boolean;
 }): NotebookRowVM[] {
@@ -76,7 +109,14 @@ export function notebookRows(args: {
       solo: args.soloGroupId === g.id,
       slot: args.styleSlots.get(g.id) ?? null,
       projected,
-      count: countFor(projected, args.hasSnapshot, args.trends.get(g.id), args.partialCorpus),
+      count: countFor(
+        projected,
+        args.hasSnapshot,
+        args.trends.get(g.id),
+        args.partialCorpus,
+        args.selectedTrends?.get(g.id),
+        args.hasSelection ?? false,
+      ),
     };
   });
 }

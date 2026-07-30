@@ -1,11 +1,17 @@
-import { useState } from 'react';
+import { lazy, Suspense, useState } from 'react';
 import { KwicPanel } from './components/KwicPanel.tsx';
 import { NotebookPanel } from './components/NotebookPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { StructurePanel } from './components/StructurePanel.tsx';
-import { TrendPanel } from './components/TrendPanel.tsx';
 import { useApp } from './lib/store-instance.ts';
 import { SeriesLineSample } from './components/chrome.tsx';
+
+// The chart/interaction surface is the largest main-thread feature module and
+// is irrelevant until the notebook has an active series. Keep the initial
+// entry within its enforced budget; Vite preloads this chunk on first render.
+const TrendPanel = lazy(() =>
+  import('./components/TrendPanel.tsx').then(({ TrendPanel: panel }) => ({ default: panel })),
+);
 
 /** Chart-focus chip: the series' persistent identity (line sample + name) and
  *  the CHART-emphasis control (concordance membership is the KwicPanel
@@ -185,7 +191,17 @@ export function App() {
       )}
       <NotebookPanel />
       <div style={{ marginTop: 'var(--space-3)' }}>
-        <TrendPanel />
+        {series.length > 0 && (
+          <Suspense
+            fallback={(
+              <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
+                loading analysis view…
+              </p>
+            )}
+          >
+            <TrendPanel />
+          </Suspense>
+        )}
         <KwicPanel />
       </div>
       <StructurePanel />

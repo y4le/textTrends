@@ -52,6 +52,24 @@ describe('countFor — explicit, never-ambiguous count states', () => {
     expect(countFor(true, true, ready, true)).toEqual({ kind: 'ready', total: 5, partial: true });
   });
 
+  it('qualifies a range count as selected over the intact corpus total', () => {
+    expect(countFor(
+      true,
+      true,
+      ready,
+      false,
+      { status: 'ready', trend: fakeTrend([1, 2]) },
+      true,
+    )).toEqual({
+      kind: 'selected',
+      total: 5,
+      partial: false,
+      selected: { kind: 'ready', total: 3 },
+    });
+    expect(countFor(true, true, ready, false, { status: 'pending' }, true))
+      .toEqual({ kind: 'selected', total: 5, partial: false, selected: { kind: 'pending' } });
+  });
+
   it('trendTotal sums the count array exactly', () => {
     expect(trendTotal(fakeTrend([1, 2, 3, 4]))).toBe(10);
     expect(trendTotal(fakeTrend([]))).toBe(0);

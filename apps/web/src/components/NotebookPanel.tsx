@@ -26,6 +26,16 @@ function CountCell({ count }: { count: GroupCountVM }) {
     case 'not-run': return <span style={muted}>not run</span>;
     case 'pending': return <span style={muted}>…</span>;
     case 'error': return <span style={{ color: 'var(--accent-text)' }} title={count.message}>error</span>;
+    case 'selected': {
+      const suffix = count.partial ? <span style={muted}> (partial)</span> : null;
+      if (count.selected.kind === 'pending') {
+        return <span><span style={muted}>… selected</span> / {count.total} corpus{suffix}</span>;
+      }
+      if (count.selected.kind === 'error') {
+        return <span title={count.selected.message}><span style={{ color: 'var(--accent-text)' }}>error</span> / {count.total} corpus{suffix}</span>;
+      }
+      return <span>{count.selected.total} selected / {count.total} corpus{suffix}</span>;
+    }
     default:
       return (
         <span title={count.partial ? 'total over the READY documents only' : 'total occurrences'}>
@@ -52,6 +62,8 @@ export function NotebookPanel() {
   const soloGroupId = useApp((s) => s.soloGroupId);
   const styleSlots = useApp((s) => s.styleSlots);
   const trends = useApp((s) => s.trends);
+  const selectedTrends = useApp((s) => s.selectedTrends);
+  const linkedSelection = useApp((s) => s.linkedSelection);
   const snapshot = useApp((s) => s.snapshot);
   const notebookError = useApp((s) => s.notebookError);
   const renameGroup = useApp((s) => s.renameGroup);
@@ -74,6 +86,8 @@ export function NotebookPanel() {
     soloGroupId,
     styleSlots,
     trends,
+    selectedTrends,
+    hasSelection: linkedSelection !== null,
     hasSnapshot: snapshot !== null,
     partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
   });

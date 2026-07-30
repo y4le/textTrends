@@ -3,10 +3,12 @@ import {
   binSpan,
   bookTokenFromX,
   bookXFromTokenEdge,
+  clampRangeHeadToOrigin,
   clampToSpan,
   linearMap,
   pointerTargetByBook,
   pointerTargetSeries,
+  selectedTrendPathData,
   seriesDocFromGlobal,
   seriesTokenFromX,
   seriesXFromToken,
@@ -15,6 +17,67 @@ import {
   stepAlongSequence,
   type SequenceLayout,
 } from '../src/lib/trend-geometry.ts';
+import type { NumericTrend } from '@texttrends/core';
+
+const trendWithDenominators = (
+  binTokens: readonly number[],
+  rates: readonly number[],
+): NumericTrend => ({
+  coordinate: 'declared-sequence',
+  order: ['doc'],
+  docOrdinal: Uint32Array.from(binTokens.map(() => 0)),
+  binIndex: Uint32Array.from(binTokens.map((_, i) => i)),
+  binStartToken: Uint32Array.from(binTokens.map((_, i) => i)),
+  binTokens: Uint32Array.from(binTokens),
+  count: Uint32Array.from(binTokens.map(() => 0)),
+  ratePer10k: Float64Array.from(rates),
+  docTokenCount: [binTokens.reduce((sum, n) => sum + n, 0)],
+  sequenceBases: [0],
+});
+
+describe('selected trend paths', () => {
+  it('breaks at zero-denominator bins instead of drawing a fabricated zero', () => {
+    const trend = trendWithDenominators([2, 0, 3, 4, 0, 5], [10, 999, 20, 30, 999, 40]);
+    expect(selectedTrendPathData(trend, 'doc', 6, (b) => b * 10, (rate) => 100 - rate)).toEqual([
+      'M0.0,90.0 l0.01,0',
+      'M20.0,80.0 L30.0,70.0',
+      'M50.0,60.0 l0.01,0',
+    ]);
+  });
+
+  it('returns no geometry for a document absent from the result', () => {
+    expect(selectedTrendPathData(trendWithDenominators([1], [5]), 'other', 1, (b) => b, (r) => r)).toEqual([]);
+  });
+});
+
+describe('single-document range clamping', () => {
+  const docs = ['a', 'empty', 'b'];
+  const counts = [10, 0, 6];
+
+  it('preserves a head inside the origin document', () => {
+    expect(clampRangeHeadToOrigin(
+      { doc: 'a', token: 3 },
+      { doc: 'a', token: 8 },
+      docs,
+      counts,
+    )).toEqual({ doc: 'a', token: 8 });
+  });
+
+  it('clamps cross-document motion to the appropriate origin edge', () => {
+    expect(clampRangeHeadToOrigin(
+      { doc: 'a', token: 3 },
+      { doc: 'b', token: 2 },
+      docs,
+      counts,
+    )).toEqual({ doc: 'a', token: 9 });
+    expect(clampRangeHeadToOrigin(
+      { doc: 'b', token: 3 },
+      { doc: 'a', token: 2 },
+      docs,
+      counts,
+    )).toEqual({ doc: 'b', token: 0 });
+  });
+});
 
 describe('linearMap', () => {
   it('maps a normal domain linearly, without clamping', () => {

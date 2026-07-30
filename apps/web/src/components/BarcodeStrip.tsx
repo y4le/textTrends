@@ -56,6 +56,8 @@ export function BarcodeStrip({
   seriesOrder: readonly string[];
 }) {
   const dispersion = useApp((s) => s.dispersion);
+  const selectedDispersion = useApp((s) => s.selectedDispersion);
+  const linkedSelection = useApp((s) => s.linkedSelection);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const kwicCenter = useApp((s) => s.kwic?.center ?? null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -65,6 +67,18 @@ export function BarcodeStrip({
     // Resident result, CURRENT presentation order (review-D round 2).
     return orderTracks(barcodeTracks(dispersion.state.result, docs), seriesOrder);
   }, [dispersion, docs, seriesOrder]);
+  const selectedTracks: readonly BarcodeTrackVM[] = useMemo(() => {
+    if (
+      !linkedSelection ||
+      !selectedDispersion ||
+      selectedDispersion.state.status !== 'ready'
+    ) return [];
+    return orderTracks(
+      barcodeTracks(selectedDispersion.state.result, [linkedSelection.doc]),
+      seriesOrder,
+    );
+  }, [linkedSelection, selectedDispersion, seriesOrder]);
+  const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
 
   const height = tracks.length === 0 ? 0 : tracks.length * (TRACK_H + TRACK_GAP);
 
@@ -85,22 +99,29 @@ export function BarcodeStrip({
     for (let d = 1; d < docs.length; d++) {
       ctx.fillRect(Math.round(edgeX(d, 0)), 0, 1, height);
     }
-    tracks.forEach((track, row) => {
-      const y = row * (TRACK_H + TRACK_GAP);
-      ctx.fillStyle = colorOf(slotOf(track.seriesId));
-      // §D focus styling: the focused track paints fully; others dim.
-      const focusDim = focusedSeries !== null && track.seriesId !== focusedSeries ? 0.45 : 1;
-      for (const seg of track.segments) {
-        const d = docOrdinal.get(seg.doc);
-        if (d === undefined) continue;
-        const x0 = edgeX(d, seg.t0);
-        const x1 = edgeX(d, seg.t1);
-        ctx.globalAlpha = (seg.kind === 'tick' ? 1 : 0.15 + 0.85 * seg.intensity) * focusDim;
-        ctx.fillRect(x0, y, Math.max(1, x1 - x0), TRACK_H);
-      }
-      ctx.globalAlpha = 1;
-    });
-  }, [tracks, docs, edgeX, width, height, slotOf]);
+    const rowBySeries = new Map(tracks.map((track, row) => [track.seriesId, row]));
+    const paint = (paintTracks: readonly BarcodeTrackVM[], context: boolean) => {
+      paintTracks.forEach((track) => {
+        const row = rowBySeries.get(track.seriesId);
+        if (row === undefined) return;
+        const y = row * (TRACK_H + TRACK_GAP);
+        ctx.fillStyle = colorOf(slotOf(track.seriesId));
+        const focusDim = focusedSeries !== null && track.seriesId !== focusedSeries ? 0.45 : 1;
+        for (const seg of track.segments) {
+          const d = docOrdinal.get(seg.doc);
+          if (d === undefined) continue;
+          const x0 = edgeX(d, seg.t0);
+          const x1 = edgeX(d, seg.t1);
+          const evidenceAlpha = seg.kind === 'tick' ? 1 : 0.15 + 0.85 * seg.intensity;
+          ctx.globalAlpha = evidenceAlpha * focusDim * (context ? 0.25 : 1);
+          ctx.fillRect(x0, y, Math.max(1, x1 - x0), TRACK_H);
+        }
+        ctx.globalAlpha = 1;
+      });
+    };
+    paint(tracks, linkedSelection !== null);
+    paint(selectedTracks, false);
+  }, [tracks, selectedTracks, linkedSelection, docs, edgeX, width, height, slotOf, focusedSeries]);
 
   if (tracks.length === 0) return null;
 
@@ -139,6 +160,7 @@ export function BarcodeStrip({
         ref={canvasRef}
         style={{ width, height, display: 'block' }}
         onClick={onClick}
+        data-selected-layer={selectedTracks.length > 0 ? 'ready' : undefined}
         aria-hidden="true"
       />
       <div style={{ display: 'flex', gap: 'var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
@@ -148,7 +170,12 @@ export function BarcodeStrip({
             <span aria-hidden="true" style={{ width: '1.5ch', height: 3, background: colorOf(slotOf(track.seriesId)), display: 'inline-block' }} />
             {/* The accessible per-track summary: representation is NAMED —
                 density counts are bucket totals, never occurrences. */}
-            <span>{trackSummaryText(track, labelOf(track.seriesId))}</span>
+            <span>
+              {trackSummaryText(track, labelOf(track.seriesId))}
+              {linkedSelection ? (
+                <> · {selectedBySeries.get(track.seriesId)?.total.toLocaleString() ?? '…'} selected</>
+              ) : null}
+            </span>
             {track.total > 0 && (
               <>
                 <button
