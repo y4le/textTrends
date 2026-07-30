@@ -38,10 +38,16 @@ export function KwicPanel() {
   const titleOf = (doc: string) => titleByDoc.get(doc) ?? doc;
 
   const table = (total: number, rows: readonly KwicRowView[]) => (
-    <table
-      aria-label="Concordance"
-      style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', borderCollapse: 'collapse', whiteSpace: 'pre' }}
+    <div
+      className="horizontal-data-port"
+      role="region"
+      tabIndex={0}
+      aria-label="Scrollable concordance table"
     >
+      <table
+        aria-label="Concordance"
+        style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', borderCollapse: 'collapse', whiteSpace: 'pre' }}
+      >
       <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
         Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences
       </caption>
@@ -90,7 +96,8 @@ export function KwicPanel() {
           </tr>
         ))}
       </tbody>
-    </table>
+      </table>
+    </div>
   );
 
   // Every pending load: reserve a few rows of height so the result lands into

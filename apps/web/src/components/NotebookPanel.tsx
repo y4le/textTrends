@@ -110,7 +110,7 @@ export function NotebookPanel() {
   };
 
   return (
-    <section aria-label="Query notebook" style={{ marginTop: 'var(--space-2)' }}>
+    <section className="query-notebook" aria-label="Query notebook" style={{ marginTop: 'var(--space-2)' }}>
       {notebookError && (
         <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
           {notebookError}{' '}
@@ -121,6 +121,7 @@ export function NotebookPanel() {
         {rows.map((row, i) => (
           <Fragment key={row.id}>
           <li
+            className="query-notebook-row"
             style={{
               display: 'flex',
               alignItems: 'center',
@@ -132,6 +133,7 @@ export function NotebookPanel() {
           >
             <SeriesLineSample slot={row.slot ?? 0} emphasized={row.projected} />
             <input
+              className="exact-input"
               value={drafts[row.id] ?? row.name}
               onChange={(e) => setDrafts((d) => ({ ...d, [row.id]: e.target.value }))}
               onBlur={() => commitRename(row.id)}
@@ -139,6 +141,9 @@ export function NotebookPanel() {
                 if (e.key === 'Enter') { e.preventDefault(); commitRename(row.id); }
               }}
               aria-label={`Group name: ${row.name}`}
+              autoCapitalize="none"
+              autoCorrect="off"
+              spellCheck={false}
               style={{
                 font: 'inherit',
                 background: 'transparent',

@@ -60,7 +60,6 @@ const ROW_GAP = 22;
 const LABEL_SPACE = TREND_LABEL_SPACE;
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
-const MIN_PLOT_WIDTH = 320;
 
 interface ReadySeries {
   readonly intent: SeriesIntent;
@@ -100,7 +99,10 @@ export function TrendPanel() {
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
       if (!width) return; // ignore zero/unavailable observations
-      const next = Math.max(MIN_PLOT_WIDTH, Math.round(width) - LABEL_SPACE);
+      // The plot and its direct-label rail must fit their measured owner.
+      // Compact geometry gets richer in Stage 3, but the foundation must not
+      // impose a desktop minimum that makes the page itself pan horizontally.
+      const next = Math.max(1, Math.round(width) - LABEL_SPACE);
       setPlotW((prev) => (prev === next ? prev : next));
     });
     observer.observe(containerEl);
@@ -280,14 +282,20 @@ export function TrendPanel() {
         axisLabel="occurrences · corpus reading order"
         seriesOrder={series.map((s) => s.id)}
       />
-      <table
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs)',
-          borderCollapse: 'collapse',
-          marginTop: 'var(--space-3)',
-        }}
+      <div
+        className="horizontal-data-port"
+        role="region"
+        tabIndex={0}
+        aria-label="Scrollable exact totals table"
       >
+        <table
+          style={{
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
+            borderCollapse: 'collapse',
+            marginTop: 'var(--space-3)',
+          }}
+        >
         <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
           Exact totals by book (count · rate per 10k tokens)
         </caption>
@@ -343,7 +351,8 @@ export function TrendPanel() {
             })}
           </tr>
         </tbody>
-      </table>
+        </table>
+      </div>
     </section>
   );
 }

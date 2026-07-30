@@ -171,7 +171,7 @@ export function StructurePanel() {
         </p>
       )}
       {!editing && st?.status === 'ready' && chapters.length > 0 && (
-        <ol aria-label="Detected chapters" style={{ listStyle: 'none', margin: 'var(--space-2) 0 0', padding: 0, display: 'grid', gap: '2px' }}>
+        <ol className="structure-list" aria-label="Detected chapters" style={{ listStyle: 'none', margin: 'var(--space-2) 0 0', padding: 0, display: 'grid', gap: '2px' }}>
           {rows.map((r) => {
             if (r.section.origin === 'fixed') return null; // the whole-document root
             const d = depth.get(r.section.id) ?? 1;
@@ -194,4 +194,3 @@ export function StructurePanel() {
     </section>
   );
 }
-

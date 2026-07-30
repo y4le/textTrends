@@ -90,10 +90,11 @@ export function App() {
   const focusedId = focusedSeries;
 
   return (
-    <main style={{ padding: 'var(--space-4)', width: '100%' }}>
-      <header style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
+    <main className="app-shell">
+      <header className="app-header" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
         <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
         <form
+          className="quick-add-form"
           onSubmit={(e) => {
             e.preventDefault();
             // Append-only quick-add: the field clears on submission — the
@@ -103,10 +104,14 @@ export function App() {
           }}
         >
           <input
+            className="exact-input quick-add-input"
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             aria-label="Add terms to the notebook, comma-separated"
             placeholder="add terms: holmes, moriarty"
+            autoCapitalize="none"
+            autoCorrect="off"
+            spellCheck={false}
             style={{
               fontFamily: 'var(--font-mono)',
               fontSize: 'var(--text-sm)',
@@ -115,7 +120,6 @@ export function App() {
               border: 'none',
               borderBottom: '1px solid var(--rule-strong)',
               padding: '2px 0',
-              width: '32ch',
             }}
           />
         </form>
@@ -196,7 +200,7 @@ export function App() {
       )}
       <NotebookPanel />
       <ResearchPanel />
-      <div style={{ marginTop: 'var(--space-3)' }}>
+      <div className="analysis-stack" style={{ marginTop: 'var(--space-3)' }}>
         {series.length > 0 && (
           <Suspense
             fallback={(

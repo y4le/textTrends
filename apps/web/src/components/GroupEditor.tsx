@@ -126,6 +126,7 @@ export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClos
         })}
       </ul>
       <form
+        className="exact-authoring-form"
         onSubmit={(e) => {
           e.preventDefault();
           if (push(compileMemberInput(addText, addMatch, newId))) setAddText('');
@@ -133,16 +134,21 @@ export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClos
         style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}
       >
         <input
+          className="exact-input"
           value={addText}
           onChange={(e) => setAddText(e.target.value)}
           aria-label={`Add member to ${group.name} — wolf, wolf* (prefix) or *wolf (suffix)`}
           placeholder="alias, wolf* or *wolf"
-          style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: 'none', borderBottom: '1px solid var(--rule)', width: '22ch' }}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: 'none', borderBottom: '1px solid var(--rule)', width: 'min(22ch, 100%)' }}
         />
         <MatchToggles match={addMatch} name="new member" onChange={setAddMatch} />
         <button type="submit" style={btn}>add</button>
       </form>
       <form
+        className="exact-authoring-form"
         onSubmit={(e) => {
           e.preventDefault();
           const word = chipText.trim();
@@ -165,11 +171,15 @@ export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClos
           </span>
         ))}
         <input
+          className="exact-input"
           value={chipText}
           onChange={(e) => setChipText(e.target.value)}
           aria-label={`Add phrase word to ${group.name} (ordered)`}
           placeholder="phrase word…"
-          style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: 'none', borderBottom: '1px solid var(--rule)', width: '14ch' }}
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+          style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: 'none', borderBottom: '1px solid var(--rule)', width: 'min(14ch, 100%)' }}
         />
         <button type="submit" style={btn}>add word</button>
         <button

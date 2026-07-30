@@ -176,7 +176,7 @@ export function BarcodeStrip({
   };
 
   return (
-    <div style={{ position: 'relative', width }}>
+    <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <canvas
         ref={canvasRef}
         style={{ width, height, display: 'block' }}
@@ -184,7 +184,7 @@ export function BarcodeStrip({
         data-selected-layer={selectedTracks.length > 0 ? 'ready' : undefined}
         aria-hidden="true"
       />
-      <div style={{ display: 'flex', gap: 'var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
         <span>{axisLabel}</span>
         {tracks.map((track) => (
           <span key={track.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
