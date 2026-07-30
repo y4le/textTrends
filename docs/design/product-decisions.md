@@ -4,6 +4,43 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-07-30 — Cross-device workbench UX
+
+The owner approved replacing the implementation-order long page with a
+cross-device research workbench and required mobile to be a first-class
+interaction target. The governing design is
+`docs/design/workbench-ux.md`.
+
+The design incorporates two exact-pinned Claude Opus consultations through
+Parley:
+
+- information architecture: request `req_consult_26725b1a96acef6b`, artifact
+  `art_sha256_60dcab231a2d73dbf5e54c1016c0166b6f40b4a581e50522a331bb905697236a`;
+- mobile-first correction: request `req_consult_9624a6ff56e2dec2`, artifact
+  `art_sha256_d56cad3e874ec5c8c2527d65ce56732d2c206ea2283db3c0dc24bb9257fa1ee2`.
+
+The controlling product decisions are:
+
+1. Keep six canonical places—Corpus, Trends, Concordance, Vocabulary,
+   Compare, and Findings—but expose them through a Scope organ
+   (Corpus/Findings) and a four-item Lens organ, not six equal tabs.
+2. Preserve the explicit Scope/Focus/Evidence distinction; linked evidence
+   does not mean every analysis consumes every selection.
+3. Use one Evidence component as in-flow line, compact sheet, regular strip,
+   or wide margin; Reader alone may take the full viewport.
+4. Make tap read/focus but never create a durable pin. Pinning is always an
+   explicit action. The chart retains vertical page pan, and touch range
+   selection uses explicit mode, handles, steppers, and Apply.
+5. Transform compact single-measure ranking tables into
+   identity-plus-current-sort row lines with exact row detail; preserve KWIC
+   alignment through one shared context port.
+6. Present A/B keyness on one signed zero-centered axis at every width, with
+   exact numeric tables additionally available when space permits.
+7. Use one component/state tree across presentation classes; viewport changes
+   never alter analytical/share state or issue analysis work.
+8. Preserve the 90 kB entry budget and add no router, sheet, gesture, or UI-kit
+   dependency for the shell.
+
 ## 2026-07-30 — Slices 3, 4, and durable research state
 
 The owner approved proceeding with ROI-ranked phases 2, 3, and 4 and ratified
