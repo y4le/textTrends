@@ -54,6 +54,18 @@ import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
 import { PinButton } from './PinButton.tsx';
 import { commitRange } from '../lib/selection.ts';
+import {
+  armRange,
+  cancelRange,
+  commitRangeDraft,
+  draftRangeTokens,
+  moveRangeHandle,
+  setRangeEnd,
+  stepRangeHandle,
+  type RangeDraft,
+  type RangeHandle,
+} from '../lib/range-mode.ts';
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 
 const SERIES_HEIGHT = 180;
 const TOP_PAD = 14; // room for the y-max direct label above the plot
@@ -407,7 +419,9 @@ function ScrubSurface({
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
   const openReader = useApp((s) => s.openReader);
   const [preview, setPreview] = useState<RangePreview | null>(null);
+  const [rangeDraft, setRangeDraft] = useState<RangeDraft | null>(null);
   const capacity = pinCapacity(pinsUsed);
+  const sliderRef = useRef<HTMLDivElement | null>(null);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -472,6 +486,11 @@ function ScrubSurface({
     // Keep browser/application shortcuts (notably Cmd/Ctrl+S) intact. Shift
     // remains unguarded because it deliberately changes the scrub step.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if (e.key === 'Escape' && rangeDraft !== null) {
+      e.preventDefault();
+      setRangeDraft(cancelRange());
+      return;
+    }
     if ((e.key === 'p' || e.key === 'P') && preview === null) {
       if (scrub && scrubDocOrdinal >= 0) {
         e.preventDefault();
@@ -479,7 +498,11 @@ function ScrubSurface({
       }
       return;
     }
-    if ((e.key === 's' || e.key === 'S') && preview === null) {
+    if (
+      (e.key === 's' || e.key === 'S')
+      && preview === null
+      && rangeDraft === null
+    ) {
       if (scrub && scrubDocOrdinal >= 0) {
         e.preventDefault();
         setPreview({ mode: 'keyboard', origin: scrub, head: scrub });
@@ -568,6 +591,8 @@ function ScrubSurface({
           end: Math.max(preview.origin.token, preview.head.token) + 1,
         },
       }
+    : rangeDraft
+      ? { doc: rangeDraft.doc, tokens: draftRangeTokens(rangeDraft) }
     : linkedSelection;
   const rangeDocOrdinal = shownRange ? docs.indexOf(shownRange.doc) : -1;
   const rangeBox = shownRange && rangeDocOrdinal >= 0
@@ -595,13 +620,70 @@ function ScrubSurface({
     : null;
   const rangeStatus = preview
     ? `Selecting ${titleByDoc.get(preview.origin.doc) ?? preview.origin.doc}, tokens ${Math.min(preview.origin.token, preview.head.token) + 1}–${Math.max(preview.origin.token, preview.head.token) + 1}`
+    : rangeDraft
+      ? `Range draft in ${titleByDoc.get(rangeDraft.doc) ?? rangeDraft.doc}, tokens ${Math.min(rangeDraft.start, rangeDraft.end) + 1}–${Math.max(rangeDraft.start, rangeDraft.end) + 1}${rangeDraft.message ? ` · ${rangeDraft.message}` : ''}`
     : linkedSelection
       ? `Selected ${(linkedSelection.tokens.end - linkedSelection.tokens.start).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.doc) ?? linkedSelection.doc}`
       : 'Press S at the reading cursor to select a range';
 
+  const pointX = (point: ScrubTarget): number | null => {
+    const d = docs.indexOf(point.doc);
+    if (d < 0) return null;
+    return trendView === 'series'
+      ? seriesXFromToken(d, point.token, plotW, layout)
+      : bookXFromToken(point.token, plotW, docTokenCount[d] ?? 0);
+  };
+
+  const rangeHandleX = rangeDraft
+    ? {
+        start: pointX({ doc: rangeDraft.doc, token: rangeDraft.start }),
+        end: pointX({ doc: rangeDraft.doc, token: rangeDraft.end }),
+      }
+    : null;
+
+  const useRangeDraft = () => {
+    if (!rangeDraft || !snapshot) return;
+    const d = docs.indexOf(rangeDraft.doc);
+    const selection = commitRangeDraft(
+      snapshot.snapshot,
+      rangeDraft,
+      docTokenCount[d] ?? 0,
+    );
+    if (selection) setLinkedSelection(selection);
+    setRangeDraft(null);
+  };
+
+  const pointerTap = useRef<{
+    readonly pointerId: number;
+    readonly x: number;
+    readonly y: number;
+    readonly origin: ScrubTarget;
+    moved: boolean;
+  } | null>(null);
+  const rangeHandleDrag = useRef<{
+    readonly pointerId: number;
+    readonly handle: RangeHandle;
+  } | null>(null);
+
+  const moveDraftHandleFromPointer = (
+    handle: RangeHandle,
+    clientX: number,
+    clientY: number,
+  ) => {
+    const slider = sliderRef.current;
+    if (!slider) return;
+    const rect = slider.getBoundingClientRect();
+    const target = targetFromPointer(clientX - rect.left, clientY - rect.top);
+    if (!target) return;
+    setRangeDraft((draft) => draft
+      ? moveRangeHandle(draft, handle, target)
+      : draft);
+  };
+
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
       <div
+        ref={sliderRef}
         role="slider"
         id="reading-position-scrubber"
         tabIndex={0}
@@ -621,10 +703,18 @@ function ScrubSurface({
             : scrubCaption || 'no position'
         }
         onKeyDown={onKeyDown}
-        style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'none' }}
+        style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'pan-y' }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const target = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+          const tap = pointerTap.current;
+          if (tap?.pointerId === e.pointerId) {
+            if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= 4) {
+              tap.moved = true;
+            }
+            scheduleScrub(target);
+            return;
+          }
           const drag = pointerDrag.current;
           if (drag?.pointerId === e.pointerId) {
             if (!target) return;
@@ -642,6 +732,16 @@ function ScrubSurface({
           const rect = e.currentTarget.getBoundingClientRect();
           const origin = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
           if (!origin) return;
+          if (e.pointerType !== 'mouse' || rangeDraft !== null) {
+            pointerTap.current = {
+              pointerId: e.pointerId,
+              x: e.clientX,
+              y: e.clientY,
+              origin,
+              moved: false,
+            };
+            return;
+          }
           e.currentTarget.setPointerCapture(e.pointerId);
           pointerDrag.current = {
             pointerId: e.pointerId,
@@ -654,6 +754,17 @@ function ScrubSurface({
           setPreview(null);
         }}
         onPointerUp={(e) => {
+          const tap = pointerTap.current;
+          if (tap?.pointerId === e.pointerId) {
+            pointerTap.current = null;
+            if (!tap.moved) {
+              setScrub(tap.origin);
+              setRangeDraft((draft) => draft
+                ? setRangeEnd(draft, tap.origin)
+                : draft);
+            }
+            return;
+          }
           const drag = pointerDrag.current;
           if (!drag || drag.pointerId !== e.pointerId) return;
           pointerDrag.current = null;
@@ -667,16 +778,85 @@ function ScrubSurface({
           }
         }}
         onPointerCancel={(e) => {
+          if (pointerTap.current?.pointerId === e.pointerId) {
+            pointerTap.current = null;
+          }
           if (pointerDrag.current?.pointerId !== e.pointerId) return;
           pointerDrag.current = null;
           setPreview(null);
         }}
       >
         {children}
+        {rangeDraft && rangeBox && rangeHandleX && (
+          <>
+            {(['start', 'end'] as const).map((handle) => {
+              if (rangeDraft.start === rangeDraft.end && handle === 'start') {
+                return null;
+              }
+              const x = rangeHandleX[handle];
+              if (x === null) return null;
+              return (
+                <span
+                  key={handle}
+                  className="range-handle"
+                  data-range-handle={handle}
+                  aria-hidden="true"
+                  onPointerDown={(event) => {
+                    event.stopPropagation();
+                    event.currentTarget.setPointerCapture(event.pointerId);
+                    rangeHandleDrag.current = {
+                      pointerId: event.pointerId,
+                      handle,
+                    };
+                  }}
+                  onPointerMove={(event) => {
+                    if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
+                    event.stopPropagation();
+                    moveDraftHandleFromPointer(handle, event.clientX, event.clientY);
+                  }}
+                  onPointerUp={(event) => {
+                    if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
+                    event.stopPropagation();
+                    rangeHandleDrag.current = null;
+                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                      event.currentTarget.releasePointerCapture(event.pointerId);
+                    }
+                  }}
+                  onPointerCancel={(event) => {
+                    if (rangeHandleDrag.current?.pointerId === event.pointerId) {
+                      rangeHandleDrag.current = null;
+                    }
+                  }}
+                  style={{
+                    position: 'absolute',
+                    left: Math.max(0, Math.min(plotW - 44, x - 22)),
+                    top: Math.max(0, rangeBox.top + rangeBox.height / 2 - 22),
+                    zIndex: 4,
+                    inlineSize: 44,
+                    blockSize: 44,
+                    border: '1px solid var(--accent-text)',
+                    background: 'color-mix(in srgb, var(--bg) 82%, transparent)',
+                    color: 'var(--fg)',
+                    cursor: 'ew-resize',
+                    touchAction: 'none',
+                  }}
+                >
+                  {handle === 'start' ? '◀' : '▶'}
+                </span>
+              );
+            })}
+          </>
+        )}
         {rangeBox && (
           <div
             aria-hidden="true"
-            data-testid={preview ? 'selection-preview' : 'linked-selection'}
+            data-testid={
+              preview
+                ? 'selection-preview'
+                : rangeDraft
+                  ? 'range-draft'
+                  : 'linked-selection'
+            }
             style={{
               position: 'absolute',
               left: rangeBox.left,
@@ -797,6 +977,67 @@ function ScrubSurface({
           </>
         ) : null}
       </p>
+      {scrub && preview === null && rangeDraft === null && (
+        <button
+          className="coarse-target"
+          type="button"
+          onClick={() => setRangeDraft(armRange(scrub))}
+          style={SMALL_BUTTON_STYLE}
+        >
+          select range
+        </button>
+      )}
+      {rangeDraft && (
+        <div
+          role="group"
+          aria-label="Range selection controls"
+          style={{
+            display: 'flex',
+            flexWrap: 'wrap',
+            alignItems: 'center',
+            gap: 'var(--space-2)',
+            marginTop: 'var(--space-1)',
+          }}
+        >
+          {(['start', 'end'] as const).flatMap((handle) =>
+            ([-1, 1] as const).map((delta) => (
+              <button
+                key={`${handle}:${delta}`}
+                className="coarse-target"
+                type="button"
+                aria-label={`Move range ${handle} ${delta < 0 ? 'back' : 'forward'} one token`}
+                onClick={() => {
+                  const d = docs.indexOf(rangeDraft.doc);
+                  setRangeDraft(stepRangeHandle(
+                    rangeDraft,
+                    handle,
+                    delta,
+                    docTokenCount[d] ?? 0,
+                  ));
+                }}
+                style={SMALL_BUTTON_STYLE}
+              >
+                {handle} {delta < 0 ? '−' : '+'}
+              </button>
+            )))}
+          <button
+            className="coarse-target"
+            type="button"
+            onClick={() => setRangeDraft(cancelRange())}
+            style={SMALL_BUTTON_STYLE}
+          >
+            cancel
+          </button>
+          <button
+            className="coarse-target"
+            type="button"
+            onClick={useRangeDraft}
+            style={SMALL_BUTTON_STYLE}
+          >
+            use range
+          </button>
+        </div>
+      )}
     </div>
   );
 }
