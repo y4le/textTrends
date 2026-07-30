@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -21,6 +21,8 @@ const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);
 // an unsupported coordinate/sort key through as a "trusted" request.
 const COORDINATES = new Set(['document-relative', 'declared-sequence']);
 const SORT_KEYS = new Set(['L3', 'L2', 'L1', 'R1', 'R2', 'R3', 'doc', 'pos']);
+const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
+const FREQUENCY_SORT_KEYS = new Set(['count', 'docFreq', 'dp', 'dpNorm', 'key']);
 
 /** The extraction recipe value carried in a doc spec — structural shape only;
  *  the worker's async core validator (validateExtractionRecipe, which also
@@ -88,7 +90,9 @@ const isBoundedSurface = (v: unknown): boolean =>
  *  kernel as `undefined` (review-A finding) — an indexed loop visits them. */
 function denseBoundedArray(v: unknown, min: number, max: number, pred: (e: unknown) => boolean): boolean {
   if (!Array.isArray(v) || v.length < min || v.length > max) return false;
-  for (let i = 0; i < v.length; i++) if (!pred(v[i])) return false;
+  for (let i = 0; i < v.length; i++) {
+    if (!Object.prototype.hasOwnProperty.call(v, i) || !pred(v[i])) return false;
+  }
   return true;
 }
 
@@ -192,6 +196,119 @@ export function narrowQueryV4(q: unknown): boolean {
       return narrowSelection(q.selection) && narrowTracks(q.tracks, 1) &&
         isRecord(q.request) && r.method === 'dispersion/1' &&
         r.exactMax === DISPERSION_EXACT_MAX && r.bucketBudget === DISPERSION_BUCKET_BUDGET;
+    }
+    case 'inventory': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'selection', 'request']) ||
+        !narrowSelection(q.selection) ||
+        !exactRecord(q.request, [
+          'method',
+          'rhythmBinsPerDoc',
+          'growthPoints',
+          'sections',
+          'mattrWindow',
+        ])
+      ) {
+        return false;
+      }
+      if (
+        r.method !== 'inventory/1' ||
+        !isCount(r.rhythmBinsPerDoc) ||
+        !isCount(r.growthPoints) ||
+        typeof r.sections !== 'boolean' ||
+        !isCount(r.mattrWindow)
+      ) {
+        return false;
+      }
+      const rhythm = r.rhythmBinsPerDoc as number;
+      const growth = r.growthPoints as number;
+      const mattrWindow = r.mattrWindow as number;
+      return (
+        rhythm <= INVENTORY_MAX_RHYTHM_BINS_PER_DOC &&
+        (
+          growth === 0 ||
+          (
+            growth >= INVENTORY_MIN_GROWTH_POINTS &&
+            growth <= INVENTORY_MAX_GROWTH_POINTS
+          )
+        ) &&
+        mattrWindow >= 1 &&
+        mattrWindow <= INVENTORY_MAX_MATTR_WINDOW
+      );
+    }
+    case 'freq-list': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'selection', 'request']) ||
+        !narrowSelection(q.selection) ||
+        !exactRecord(q.request, ['method', 'filter', 'sort', 'page', 'dispersion'])
+      ) {
+        return false;
+      }
+      const filter = r.filter as Record<string, unknown>;
+      const sort = r.sort as Record<string, unknown>;
+      const page = r.page as Record<string, unknown>;
+      const filterKeys = isRecord(r.filter) &&
+        Object.prototype.hasOwnProperty.call(r.filter, 'prefixNfc')
+        ? ['minCount', 'minDocFreq', 'classes', 'prefixNfc']
+        : ['minCount', 'minDocFreq', 'classes'];
+      if (
+        r.method !== 'freq-list/1' ||
+        !exactRecord(r.filter, filterKeys) ||
+        !exactRecord(r.sort, ['by', 'dir']) ||
+        !exactRecord(r.page, ['offset', 'limit']) ||
+        typeof r.dispersion !== 'boolean' ||
+        !isCount(filter.minCount) ||
+        (filter.minCount as number) < 1 ||
+        !isCount(filter.minDocFreq) ||
+        (filter.minDocFreq as number) < 1 ||
+        !denseBoundedArray(filter.classes, 1, 2, (value) => FREQUENCY_CLASSES.has(value as string)) ||
+        new Set(filter.classes as unknown[]).size !== (filter.classes as unknown[]).length ||
+        !FREQUENCY_SORT_KEYS.has(sort.by as string) ||
+        (sort.dir !== 1 && sort.dir !== -1) ||
+        (
+          r.dispersion === false &&
+          (sort.by === 'dp' || sort.by === 'dpNorm')
+        ) ||
+        !isCount(page.offset) ||
+        !isCount(page.limit)
+      ) {
+        return false;
+      }
+      if (filter.prefixNfc !== undefined) {
+        if (
+          !isStr(filter.prefixNfc) ||
+          filter.prefixNfc.length < 1 ||
+          filter.prefixNfc.length > FREQUENCY_PREFIX_MAX_UNITS ||
+          filter.prefixNfc.normalize('NFC') !== filter.prefixNfc
+        ) {
+          return false;
+        }
+      }
+      return (
+        (page.limit as number) >= 1 &&
+        (page.limit as number) <= FREQUENCY_PAGE_MAX &&
+        (page.offset as number) + (page.limit as number) <= FREQUENCY_WINDOW_MAX
+      );
+    }
+    case 'tfidf-sections': {
+      const r = q.request as Record<string, unknown>;
+      return (
+        exactRecord(q, ['op', 'request']) &&
+        exactRecord(q.request, ['method', 'doc', 'level', 'minSectionTokens', 'topK']) &&
+        r.method === 'tfidf-sections/1' &&
+        isStr(r.doc) &&
+        r.doc !== '' &&
+        isCount(r.minSectionTokens) &&
+        (r.minSectionTokens as number) >= 1 &&
+        (r.minSectionTokens as number) <= TFIDF_MAX_MIN_SECTION_TOKENS &&
+        isCount(r.topK) &&
+        (r.topK as number) >= 1 &&
+        (r.topK as number) <= TFIDF_MAX_TOP_K &&
+        isCount(r.level) &&
+        (r.level as number) >= 0
+      );
     }
     case 'reader-page': {
       // reader-page/1: zero tracks is LEGAL (reading never depends on the

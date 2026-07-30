@@ -393,12 +393,28 @@ export function validateShardStructure(shard: DocumentIndexV1): void {
   for (let t = 0; t < vocabSize; t++) {
     const from = offsets[t] as number;
     const to = offsets[t + 1] as number;
-    if (to < from) throw new RangeError(`postings offsets decrease at type ${t}`);
+    if (to <= from) {
+      throw new RangeError(
+        to < from
+          ? `postings offsets decrease at type ${t}`
+          : `token type ${t} has an empty posting run`,
+      );
+    }
+    let typeClass = 0;
     for (let i = from; i < to; i++) {
       const p = positions[i] as number;
       if (p >= n) throw new RangeError(`posting position ${p} out of range`);
       if ((tokens[p] as number) !== t) {
         throw new RangeError(`posting for type ${t} points at a different token type`);
+      }
+      const cls = classes[p] as number;
+      if (i === from) typeClass = cls;
+      else if (cls !== typeClass) {
+        // The canonical builder classifies before interning. Consequently one
+        // normalized vocabulary key has one class. Inventory relies on that
+        // admitted invariant to derive whole-document class totals in
+        // O(vocabulary) from each posting run's first position.
+        throw new RangeError(`token type ${t} mixes token classes`);
       }
       if (i > from && p <= (positions[i - 1] as number)) {
         throw new RangeError(`postings for type ${t} must be strictly increasing`);

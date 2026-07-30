@@ -8,12 +8,20 @@
  * in engine-v4.test.ts.
  */
 import { describe, expect, it, vi } from 'vitest';
-import { MAX_OCCURRENCE_CACHE_ENTRIES } from '../src/worker/query-executor.ts';
+import {
+  MAX_OCCURRENCE_CACHE_ENTRIES,
+  QueryExecutor,
+  type PublishedView,
+} from '../src/worker/query-executor.ts';
 import { DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
 import {
+  buildResolver,
   DEFAULT_INDEX_RECIPE,
+  documentTermCounts,
   occurrences,
+  resolveSelection,
   termGroupIdentity,
+  type CorpusSnapshotV1,
 } from '@texttrends/core';
 import { begin, coldIngest, FOLD, harness, wolfGroup, type Harness } from './support/engine-harness.ts';
 import { buildDocSpec as docSpec } from './support/spec-fixtures.ts';
@@ -27,6 +35,7 @@ vi.mock('@texttrends/core', async (importOriginal) => {
     ...actual,
     bindShardsIncremental: vi.fn(actual.bindShardsIncremental),
     createBindingSession: vi.fn(actual.createBindingSession),
+    documentTermCounts: vi.fn(actual.documentTermCounts),
     occurrences: vi.fn(actual.occurrences),
   };
 });
@@ -428,6 +437,313 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
     expect(internals.activeJobs.size).toBe(0);
     expect(internals.cancelledJobs.size).toBe(0);
+  });
+});
+
+
+describe('Slice-3 document-term-count cache', () => {
+  async function publishedTwoDocs(): Promise<{
+    view: PublishedView;
+    snapshot: CorpusSnapshotV1;
+  }> {
+    const h = harness();
+    const a = await docSpec('a', 'alpha beta alpha');
+    const b = await docSpec('b', 'beta gamma beta');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'alpha beta alpha', 10);
+    await coldIngest(h, 'g', 'b', 'beta gamma beta', 11);
+    const generation = (h.engine as unknown as {
+      generation: (PublishedView & { readonly snapshot: CorpusSnapshotV1 }) | null;
+    }).generation;
+    if (!generation) throw new Error('expected published generation');
+    return {
+      snapshot: generation.snapshot,
+      view: {
+        snapshot: generation.snapshot,
+        ready: generation.ready,
+        bound: generation.bound,
+        boundTexts: generation.boundTexts,
+      },
+    };
+  }
+
+  const cacheOf = (executor: QueryExecutor) => (
+    executor as unknown as {
+      termCountCache: Map<string, unknown>;
+      termCountCacheBytes: number;
+    }
+  );
+
+  it('hits by [snapshot, doc, rangeKey] and checkpoints between documents', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    const executor = new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 8, maxBytes: 1024 },
+    );
+    executor.publish(view, []);
+    const all = await resolveSelection(snapshot, { docs: ['a', 'b'] as never });
+    const checkpoint = vi.fn(async () => {});
+    vi.mocked(documentTermCounts).mockClear();
+
+    const first = await executor.termCounts(all, checkpoint);
+    const second = await executor.termCounts(all, checkpoint);
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(2);
+    expect(checkpoint).toHaveBeenCalledTimes(4);
+    expect(second[0]).toBe(first[0]);
+    expect(second[1]).toBe(first[1]);
+    expect(cacheOf(executor).termCountCache.size).toBe(2);
+  });
+
+  it('distinguishes canonical ranges and evicts least-recently-used entries', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    const executor = new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 2, maxBytes: 1024 },
+    );
+    executor.publish(view, []);
+    const fullA = await resolveSelection(snapshot, { docs: ['a'] as never });
+    const rangeA = await resolveSelection(snapshot, {
+      docs: ['a'] as never,
+      ranges: [{ doc: 'a' as never, tokens: { start: 0 as never, end: 1 as never } }],
+    });
+    const fullB = await resolveSelection(snapshot, { docs: ['b'] as never });
+    const checkpoint = async () => {};
+    vi.mocked(documentTermCounts).mockClear();
+
+    await executor.termCounts(fullA, checkpoint); // A full
+    await executor.termCounts(rangeA, checkpoint); // A range
+    await executor.termCounts(fullA, checkpoint); // touch A full
+    await executor.termCounts(fullB, checkpoint); // evict A range
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(3);
+    expect(cacheOf(executor).termCountCache.size).toBe(2);
+    await executor.termCounts(rangeA, checkpoint);
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(4);
+  });
+
+  it('enforces the byte budget and drops replaced-document entries on publish', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    // Each fixture result carries two Uint32Array entries = 16 payload bytes.
+    const executor = new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 8, maxBytes: 16 },
+    );
+    executor.publish(view, []);
+    const fullA = await resolveSelection(snapshot, { docs: ['a'] as never });
+    const fullB = await resolveSelection(snapshot, { docs: ['b'] as never });
+    const checkpoint = async () => {};
+
+    await executor.termCounts(fullA, checkpoint);
+    expect(cacheOf(executor).termCountCacheBytes).toBe(16);
+    await executor.termCounts(fullB, checkpoint);
+    expect(cacheOf(executor).termCountCache.size).toBe(1);
+    expect(cacheOf(executor).termCountCacheBytes).toBe(16);
+
+    executor.publish(view, ['b']);
+    expect(cacheOf(executor).termCountCache.size).toBe(0);
+    expect(cacheOf(executor).termCountCacheBytes).toBe(0);
+  });
+
+  it('only permits fixture policies that reduce the exported hard bounds', () => {
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 0, maxBytes: 1 },
+    )).toThrow(RangeError);
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: Number.MAX_SAFE_INTEGER },
+    )).toThrow(RangeError);
+  });
+});
+
+
+describe('inventory/1 through the executor and engine', () => {
+  const request = {
+    method: 'inventory/1' as const,
+    rhythmBinsPerDoc: 2,
+    growthPoints: 16,
+    sections: true,
+    mattrWindow: 3,
+  };
+
+  it('returns selected totals, structure-backed sections, and fresh transfer buffers', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'one two three. four five six.');
+    const b = await docSpec('b', 'missing until later');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'one two three. four five six.', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    vi.mocked(documentTermCounts).mockClear();
+
+    await h.send({
+      t: 'query',
+      job: 20,
+      snapshot: snap,
+      query: {
+        op: 'inventory',
+        selection: {
+          docs: ['a'],
+          ranges: [{ doc: 'a', tokens: { start: 1, end: 5 } }],
+        },
+        request,
+      },
+    });
+    const result = h.last('result');
+    if (result.data.op !== 'inventory') throw new Error('expected inventory');
+    expect(result.data.inventory.selection).toMatch(/^[0-9a-f]{64}$/);
+    expect(result.data.inventory.totals).toMatchObject({
+      selectedDocs: 1,
+      expectedDocs: 2,
+      missingDocs: 1,
+      tokens: 4,
+      lexicalTokens: 4,
+    });
+    expect(result.data.inventory.documents[0]).toMatchObject({
+      doc: 'a',
+      selectedTokens: 4,
+      fullTokens: 6,
+    });
+    expect(result.data.inventory.sections).not.toBeNull();
+    expect(result.data.inventory.sections!.rows.length).toBeGreaterThan(0);
+    expect(result.data.inventory.sections!.truncated).toBe(false);
+    const transferIndex = h.messages.findIndex(
+      (message) => message.t === 'result' && message.job === 20,
+    );
+    expect(h.transferLists[transferIndex]?.length).toBeGreaterThan(0);
+
+    // Same canonical request reuses the sparse document vector. The result
+    // arrays are freshly materialized, so the first transfer cannot detach it.
+    await h.send({
+      t: 'query',
+      job: 21,
+      snapshot: snap,
+      query: {
+        op: 'inventory',
+        selection: {
+          docs: ['a'],
+          ranges: [{ doc: 'a', tokens: { start: 1, end: 5 } }],
+        },
+        request,
+      },
+    });
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(1);
+    const again = h.last('result');
+    expect(
+      again.data.op === 'inventory' && again.data.inventory.totals.tokens,
+    ).toBe(4);
+  });
+
+  it('rejects malformed caps at the wire before the inventory kernel runs', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'one two');
+    await begin(h, [a]);
+    await coldIngest(h, 'g', 'a', 'one two', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query',
+      job: 30,
+      snapshot: snap,
+      query: {
+        op: 'inventory',
+        selection: { docs: ['a'] },
+        request: { ...request, rhythmBinsPerDoc: 257 },
+      } as never,
+    });
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+    expect(h.all('result').some((message) => message.job === 30)).toBe(false);
+  });
+});
+
+
+describe('frequency and TF-IDF through the executor and engine', () => {
+  it('freq-list/1 shares the Slice-3 document vector with inventory', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'x x y z');
+    await begin(h, [a]);
+    await coldIngest(h, 'g', 'a', 'x x y z', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    const selection = {
+      docs: ['a'],
+      ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
+    };
+    vi.mocked(documentTermCounts).mockClear();
+    await h.send({
+      t: 'query',
+      job: 40,
+      snapshot: snap,
+      query: {
+        op: 'inventory',
+        selection,
+        request: {
+          method: 'inventory/1',
+          rhythmBinsPerDoc: 0,
+          growthPoints: 0,
+          sections: false,
+          mattrWindow: 3,
+        },
+      },
+    });
+    await h.send({
+      t: 'query',
+      job: 41,
+      snapshot: snap,
+      query: {
+        op: 'freq-list',
+        selection,
+        request: {
+          method: 'freq-list/1',
+          filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'] },
+          sort: { by: 'count', dir: -1 },
+          page: { offset: 0, limit: 200 },
+          dispersion: true,
+        },
+      },
+    });
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(1);
+    const result = h.last('result');
+    if (result.data.op !== 'freq-list') throw new Error('expected frequency');
+    expect(result.data.frequency.totalTokens).toBe(3);
+    expect(result.data.frequency.rows.map((row) => [row.key, row.count])).toEqual([
+      ['x', 2],
+      ['y', 1],
+    ]);
+    expect(result.data.frequency.rows.every((row) => row.dp === 0 && row.dpNorm === null)).toBe(true);
+  });
+
+  it('tfidf-sections/1 labels eligible Markdown chapters without a selection field', async () => {
+    const h = harness();
+    const text = '# One\napple apple common\n\n# Two\nbanana banana common';
+    const a = await docSpec('a', text, { format: 'md' });
+    await begin(h, [a]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query',
+      job: 50,
+      snapshot: snap,
+      query: {
+        op: 'tfidf-sections',
+        request: {
+          method: 'tfidf-sections/1',
+          doc: 'a',
+          level: 1,
+          minSectionTokens: 1,
+          topK: 5,
+        },
+      },
+    });
+    const result = h.last('result');
+    if (result.data.op !== 'tfidf-sections') throw new Error('expected TF-IDF');
+    expect(result.data.tfidf.eligibleSections).toBeGreaterThanOrEqual(2);
+    const labels = result.data.tfidf.sections.flatMap((section) =>
+      section.labels.map((label) => label.key));
+    expect(labels).toContain('apple');
+    expect(labels).toContain('banana');
+    expect(labels).not.toContain('common');
   });
 });
 

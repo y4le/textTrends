@@ -24,7 +24,7 @@
 export { g2Keyness, logRatio } from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
-export { mattr, mtld } from './stats/diversity.ts';
+export { MATTR_MAX_TYPES, mattr, mattrIds, mtld } from './stats/diversity.ts';
 export { CapError } from './contract/brands.ts';
 // The explicit retained brand list (the wildcard export is gone): TextHash is
 // the one brand production code names through the package surface.
@@ -117,6 +117,63 @@ export {
   type DispersionTrackDataV1,
   type DispersionTrackV1,
 } from './ops/dispersion.ts';
+export {
+  documentTermCounts,
+  termCountPayloadBytes,
+  termCountRangeKey,
+  TERM_COUNT_CACHE_MAX_BYTES,
+  TERM_COUNT_CACHE_MAX_ENTRIES,
+  type DocTermCountsV1,
+} from './ops/term-counts.ts';
+export {
+  inventory,
+  inventoryTransferBuffers,
+  INVENTORY_MAX_GROWTH_POINTS,
+  INVENTORY_MAX_MATTR_WINDOW,
+  INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
+  INVENTORY_MAX_SECTIONS,
+  INVENTORY_MAX_VOCAB_TYPES,
+  INVENTORY_MIN_GROWTH_POINTS,
+  INVENTORY_SCAN_CHUNK,
+  type InventoryCheckpoint,
+  type InventoryDocumentInputV1,
+  type InventoryDocumentRowV1,
+  type InventoryGrowthV1,
+  type InventoryRequestV1,
+  type InventoryResultV1,
+  type InventoryRhythmV1,
+  type InventorySectionInputV1,
+  type InventorySectionRowV1,
+  type InventorySectionsV1,
+  type InventoryTotalsV1,
+} from './ops/inventory.ts';
+export {
+  frequencyList,
+  FREQUENCY_PAGE_MAX,
+  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_SCAN_CHUNK,
+  FREQUENCY_WINDOW_MAX,
+  type FrequencyCheckpoint,
+  type FrequencyListRequestV1,
+  type FrequencyListResultV1,
+  type FrequencyListRowV1,
+  type FrequencySortFieldV1,
+  type FrequencyTokenClassV1,
+} from './ops/frequency.ts';
+export {
+  tfidfSections,
+  TFIDF_MAX_MIN_SECTION_TOKENS,
+  TFIDF_MAX_SECTIONS,
+  TFIDF_MAX_TOP_K,
+  TFIDF_MAX_VOCAB_TYPES,
+  TFIDF_SCAN_CHUNK,
+  type TfidfCheckpoint,
+  type TfidfLabelV1,
+  type TfidfSectionInputV1,
+  type TfidfSectionResultRowV1,
+  type TfidfSectionsRequestV1,
+  type TfidfSectionsResultV1,
+} from './ops/tfidf-sections.ts';
 export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
 export { DecodeError, decodeSource } from './extract/decode.ts';
 export { hashStructureCandidates, type StructureCandidateV1 } from './extract/candidates.ts';

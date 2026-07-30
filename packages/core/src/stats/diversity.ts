@@ -4,46 +4,90 @@
  * the index vocabulary uses), not raw surfaces.
  */
 
-/**
- * Moving-average type/token ratio over every sliding window of size `window`
- * (step 1). Sequences shorter than `window` return plain TTR — callers label it.
- */
-export function mattr(tokens: readonly string[], window: number): number {
+/** Numeric diversity uses a dense count table; this is its explicit memory
+ * ceiling (2,000,000 Uint32 counters ≈ 8 MiB). */
+export const MATTR_MAX_TYPES = 2_000_000;
+
+function validateWindow(window: number): void {
   if (!Number.isInteger(window) || window <= 0) {
     throw new RangeError('window must be a positive integer');
   }
+}
+
+/**
+ * Numeric moving-average type/token ratio. Inventory already holds integer
+ * type ids; this path avoids materializing vocabulary strings merely to call
+ * MATTR. Public inputs are admitted completely before allocation.
+ */
+export function mattrIds(tokens: ArrayLike<number>, window: number): number {
+  validateWindow(window);
   const n = tokens.length;
   if (n === 0) return 0;
-  if (n <= window) return new Set(tokens).size / n;
-
-  // Incremental multiset over the sliding window.
-  const counts = new Map<string, number>();
-  let types = 0;
-  for (let i = 0; i < window; i++) {
-    const t = tokens[i] as string;
-    const c = counts.get(t) ?? 0;
-    if (c === 0) types++;
-    counts.set(t, c + 1);
+  let max = -1;
+  for (let i = 0; i < n; i++) {
+    const id = tokens[i];
+    if (
+      !Number.isSafeInteger(id) ||
+      (id as number) < 0 ||
+      (id as number) >= MATTR_MAX_TYPES
+    ) {
+      throw new RangeError(
+        `tokens[${i}] must be an integer in [0, ${MATTR_MAX_TYPES})`,
+      );
+    }
+    if ((id as number) > max) max = id as number;
   }
+
+  const counts = new Uint32Array(max + 1);
+  let types = 0;
+  const initial = Math.min(window, n);
+  for (let i = 0; i < initial; i++) {
+    const id = tokens[i] as number;
+    if (counts[id] === 0) types++;
+    counts[id] = (counts[id] as number) + 1;
+  }
+  if (n <= window) return types / n;
+
   let sum = types / window;
   let windows = 1;
   for (let i = window; i < n; i++) {
-    const incoming = tokens[i] as string;
-    const outgoing = tokens[i - window] as string;
-    const inC = counts.get(incoming) ?? 0;
-    if (inC === 0) types++;
-    counts.set(incoming, inC + 1);
-    const outC = counts.get(outgoing) as number;
+    const incoming = tokens[i] as number;
+    const outgoing = tokens[i - window] as number;
+    if (counts[incoming] === 0) types++;
+    counts[incoming] = (counts[incoming] as number) + 1;
+    const outC = counts[outgoing] as number;
     if (outC === 1) {
       types--;
-      counts.delete(outgoing);
+      counts[outgoing] = 0;
     } else {
-      counts.set(outgoing, outC - 1);
+      counts[outgoing] = outC - 1;
     }
     sum += types / window;
     windows++;
   }
   return sum / windows;
+}
+
+/**
+ * Moving-average type/token ratio over every sliding window of size `window`
+ * (step 1). Sequences shorter than `window` return plain TTR — callers label it.
+ * The string surface delegates to the numeric kernel so there is one window
+ * implementation.
+ */
+export function mattr(tokens: readonly string[], window: number): number {
+  validateWindow(window);
+  const ids = new Uint32Array(tokens.length);
+  const byKey = new Map<string, number>();
+  for (let i = 0; i < tokens.length; i++) {
+    const key = tokens[i] as string;
+    let id = byKey.get(key);
+    if (id === undefined) {
+      id = byKey.size;
+      byKey.set(key, id);
+    }
+    ids[i] = id;
+  }
+  return mattrIds(ids, window);
 }
 
 /** One directional MTLD pass (McCarthy & Jarvis 2010), threshold default 0.72. */

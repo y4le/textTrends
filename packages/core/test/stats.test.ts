@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dp, dpNorm, g2Keyness, logDice, logRatio, mattr, mtld, pmi, tScore } from '../src/index.ts';
+import { dp, dpNorm, g2Keyness, logDice, logRatio, MATTR_MAX_TYPES, mattr, mattrIds, mtld, pmi, tScore } from '../src/index.ts';
 
 // Published-value fixtures from docs/design/statistics.md — each vector is
 // hand-computed there and verified numerically; these tests pin the formulas.
@@ -76,6 +76,19 @@ describe('diversity', () => {
 
   it('MATTR falls back to plain TTR for short sequences', () => {
     expect(mattr(['a', 'b', 'a'], 500)).toBeCloseTo(2 / 3, 9);
+  });
+
+  it('numeric MATTR shares the string semantics without materializing keys', () => {
+    expect(mattrIds(Uint32Array.from([7, 9, 7, 9]), 3)).toBeCloseTo(2 / 3, 9);
+    expect(mattrIds(Uint32Array.from([100, 100, 200]), 10)).toBeCloseTo(2 / 3, 9);
+    expect(mattrIds(new Uint32Array(), 3)).toBe(0);
+  });
+
+  it('numeric MATTR rejects invalid ids and sparse ArrayLikes', () => {
+    expect(() => mattrIds([0, -1], 2)).toThrow(RangeError);
+    expect(() => mattrIds([0, 1.5], 2)).toThrow(RangeError);
+    expect(() => mattrIds({ 0: 0, length: 2 }, 2)).toThrow(RangeError);
+    expect(() => mattrIds([MATTR_MAX_TYPES], 1)).toThrow(RangeError);
   });
 
   it('MATTR of an all-distinct sequence is 1', () => {

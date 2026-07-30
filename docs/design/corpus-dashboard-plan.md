@@ -87,9 +87,12 @@ older snapshot entries otherwise age out. Cached arrays are never transferred.
 Every operation materializes fresh output arrays through an explicit,
 enumerated transfer-list helper. There is no operation-result cache.
 
-Per-call folding may use one bounded dense count accumulator and a bitset, but
-neither is retained. Every new limit is an exported core constant and the
-wire narrower validates it; there are no component-local cap numbers.
+Per-call folding uses only bounded, unretained transients. At the 2,000,000
+type ceiling the largest path (`freq-list/1` with dispersion) uses about
+34 MiB across count, document-frequency, class, and DP-correction arrays;
+TF-IDF uses about 24 MiB and vocabulary growth adds a 2 MiB seen table. Every
+new limit is an exported core constant and the wire narrower validates it;
+there are no component-local cap numbers.
 
 Numeric MATTR is a blocking prerequisite. Add `mattrIds` over
 `ArrayLike<number>` and a numeric count table; keep `mattr` as a delegating
@@ -153,17 +156,19 @@ Vocabulary growth walks declared document order and samples monotonically at
 bounded points plus document boundaries. It terminates at the exact selected
 token and type totals.
 
-Sections are bounded to 2,048 rows and include title, token range, selected
-tokens, owned sentences, mean sentence length, and selected types. A request
-that would exceed the cap fails with `CAP_EXCEEDED`; the result never silently
-truncates and therefore has no `truncated` flag. This explicit refusal replaces
-the planner ruling's proposed `{ rows, truncated }` shape. Structure and index
-identities remain available wherever a section-derived result could otherwise
-be paired with the wrong artifact.
+Sections are bounded to 2,048 rows in declared document/structure order and
+include title, token range, selected tokens, owned sentences, mean sentence
+length, and selected types. The optional result is `{ rows, truncated }`; the
+engine gathers at most the cap plus one sentinel and stops binding later
+documents once truncation is known. Truncation is therefore explicit and
+bounded, never silent. Structure and index identities remain available
+wherever a section-derived result could otherwise be paired with the wrong
+artifact.
 
 Cancellation checkpoints occur between documents, every 65,536 scanned types
 or growth tokens, after section materialization, and at the engine's final
-gate.
+gate. The synchronous per-document term-count pass is intentionally
+uninterruptible; cancellation is observed immediately after each document.
 
 ## `freq-list/1`
 

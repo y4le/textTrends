@@ -17,6 +17,15 @@ import {
   TERM_GROUP_LIMITS_V1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
+  INVENTORY_MAX_GROWTH_POINTS,
+  INVENTORY_MAX_MATTR_WINDOW,
+  INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
+  INVENTORY_MIN_GROWTH_POINTS,
+  FREQUENCY_PAGE_MAX,
+  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_WINDOW_MAX,
+  TFIDF_MAX_MIN_SECTION_TOKENS,
+  TFIDF_MAX_TOP_K,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -375,6 +384,108 @@ describe('narrowQueryV4', () => {
     expect(rq({ kind: 'from', token: 0 }, {}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
   });
 
+  it('inventory/1 narrows only within every exported request bound', () => {
+    const query = (request: Record<string, unknown>) => narrowQueryV4({
+      op: 'inventory',
+      selection: { docs: ['a'] },
+      request: {
+        method: 'inventory/1',
+        rhythmBinsPerDoc: 0,
+        growthPoints: 0,
+        sections: false,
+        mattrWindow: 500,
+        ...request,
+      },
+    });
+    expect(query({})).toBe(true);
+    expect(query({
+      rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
+      growthPoints: INVENTORY_MAX_GROWTH_POINTS,
+      mattrWindow: INVENTORY_MAX_MATTR_WINDOW,
+      sections: true,
+    })).toBe(true);
+    expect(query({ rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC + 1 })).toBe(false);
+    expect(query({ growthPoints: INVENTORY_MIN_GROWTH_POINTS - 1 })).toBe(false);
+    expect(query({ growthPoints: INVENTORY_MAX_GROWTH_POINTS + 1 })).toBe(false);
+    expect(query({ mattrWindow: 0 })).toBe(false);
+    expect(query({ mattrWindow: INVENTORY_MAX_MATTR_WINDOW + 1 })).toBe(false);
+    expect(query({ sections: 'yes' })).toBe(false);
+    expect(query({ method: 'inventory/2' })).toBe(false);
+    expect(query({ extra: true })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'inventory',
+      selection: { docs: ['a'] },
+      request: {
+        method: 'inventory/1',
+        rhythmBinsPerDoc: 0,
+        growthPoints: 0,
+        sections: false,
+        mattrWindow: 500,
+      },
+      extra: true,
+    })).toBe(false);
+  });
+
+  it('freq-list/1 pins dense classes, NFC prefix, sort, and page-window bounds', () => {
+    const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
+      op: 'freq-list',
+      selection: { docs: ['a'] },
+      request: {
+        method: 'freq-list/1',
+        filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'] },
+        sort: { by: 'count', dir: -1 },
+        page: { offset: 0, limit: FREQUENCY_PAGE_MAX },
+        dispersion: true,
+        ...over,
+      },
+    });
+    expect(query()).toBe(true);
+    expect(query({ page: { offset: FREQUENCY_WINDOW_MAX - 1, limit: 1 } })).toBe(true);
+    expect(query({ page: { offset: FREQUENCY_WINDOW_MAX, limit: 1 } })).toBe(false);
+    expect(query({ page: { offset: 0, limit: FREQUENCY_PAGE_MAX + 1 } })).toBe(false);
+    expect(query({ filter: { minCount: 0, minDocFreq: 1, classes: ['lexical'] } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: [] } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical', 'lexical'] } })).toBe(false);
+    const sparse = ['lexical'];
+    sparse.length = 2;
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: sparse } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], prefixNfc: 'e\u0301' } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], prefixNfc: 'x'.repeat(FREQUENCY_PREFIX_MAX_UNITS + 1) } })).toBe(false);
+    expect(query({ sort: { by: 'bogus', dir: -1 } })).toBe(false);
+    expect(query({ sort: { by: 'count', dir: 0 } })).toBe(false);
+    expect(query({ page: { offset: 0, limit: 1, extra: true } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], extra: true } })).toBe(false);
+    expect(query({ dispersion: 'yes' })).toBe(false);
+    expect(query({ sort: { by: 'dp', dir: -1 }, dispersion: false })).toBe(false);
+    expect(query({ sort: { by: 'dpNorm', dir: -1 }, dispersion: false })).toBe(false);
+  });
+
+  it('tfidf-sections/1 has no selection degree of freedom and pins topK', () => {
+    const query = (over: Record<string, unknown> = {}, selection?: unknown) => narrowQueryV4({
+      op: 'tfidf-sections',
+      ...(selection === undefined ? {} : { selection }),
+      request: {
+        method: 'tfidf-sections/1',
+        doc: 'a',
+        level: 1,
+        minSectionTokens: 50,
+        topK: 5,
+        ...over,
+      },
+    });
+    expect(query()).toBe(true);
+    expect(query({ level: 1, topK: TFIDF_MAX_TOP_K })).toBe(true);
+    expect(query({}, { docs: ['a'] })).toBe(false);
+    expect(query({ doc: '' })).toBe(false);
+    expect(query({ minSectionTokens: 0 })).toBe(false);
+    expect(query({ minSectionTokens: TFIDF_MAX_MIN_SECTION_TOKENS + 1 })).toBe(false);
+    expect(query({ topK: 0 })).toBe(false);
+    expect(query({ topK: TFIDF_MAX_TOP_K + 1 })).toBe(false);
+    expect(query({ level: undefined })).toBe(false);
+    expect(query({ level: -1 })).toBe(false);
+    expect(query({ extra: true })).toBe(false);
+  });
+
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
@@ -391,6 +502,17 @@ describe('narrowQueryV4', () => {
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: n } } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, centerToken: n } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, maxTokens: n } }), why).toBe(false);
+      expect(narrowQueryV4({
+        op: 'inventory',
+        selection: { docs: ['a'] },
+        request: {
+          method: 'inventory/1',
+          rhythmBinsPerDoc: n,
+          growthPoints: 0,
+          sections: false,
+          mattrWindow: 500,
+        },
+      }), why).toBe(false);
     }
   });
 });

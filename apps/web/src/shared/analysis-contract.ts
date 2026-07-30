@@ -25,6 +25,12 @@ import type {
   TermGroupSpec,
   TokenRange,
   TrendRequest,
+  InventoryRequestV1,
+  InventoryResultV1,
+  FrequencyListRequestV1,
+  FrequencyListResultV1,
+  TfidfSectionsRequestV1,
+  TfidfSectionsResultV1,
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
@@ -115,6 +121,14 @@ export type QueryOpV4 =
   // the narrower refuses any other values, so no component-local magic numbers
   // can drift the contract.
   | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 }
+  // inventory/1: vocabulary-wide overview over the shared per-document
+  // term-count cache. It consumes the same linked detail selection as the
+  // frequency table; notebook groups are deliberately absent.
+  | { readonly op: 'inventory'; readonly selection: WireSelectionV4; readonly request: InventoryRequestV1 }
+  | { readonly op: 'freq-list'; readonly selection: WireSelectionV4; readonly request: FrequencyListRequestV1 }
+  // Section labels are a full-document structural comparison. There is no
+  // selection degree of freedom, so a linked trend brush cannot redefine N.
+  | { readonly op: 'tfidf-sections'; readonly request: TfidfSectionsRequestV1 }
   // reader-page/1 (slice-2 ruling §3/§G): bounded cursor-paged reading with
   // occurrence marks sliced from the SHARED cached BASE occurrences. Like
   // passage, this context/navigation surface carries NO selection field; the
@@ -166,6 +180,20 @@ export interface ReaderPageResultV1 {
 /** The dispersion result type re-exported for the app boundary (components
  *  and lib modules import from HERE, never the wire module). */
 export type { DispersionResultV1 } from '@texttrends/core';
+export type {
+  InventoryGrowthV1,
+  InventoryRequestV1,
+  InventoryResultV1,
+  InventoryRhythmV1,
+} from '@texttrends/core';
+export type {
+  FrequencyListRequestV1,
+  FrequencyListResultV1,
+  FrequencySortFieldV1,
+  FrequencyTokenClassV1,
+  TfidfSectionsRequestV1,
+  TfidfSectionsResultV1,
+} from '@texttrends/core';
 
 /** dispersion/1 request: the policy carried explicitly and validated against
  *  the exported core constants (DISPERSION_EXACT_MAX / DISPERSION_BUCKET_BUDGET). */
@@ -244,4 +272,7 @@ export type QueryResultDataV4 =
   | { readonly op: 'structure-edit-context'; readonly context: StructureEditContextV1 }
   | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
+  | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
+  | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }
+  | { readonly op: 'tfidf-sections'; readonly tfidf: TfidfSectionsResultV1 }
   | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 };

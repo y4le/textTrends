@@ -70,6 +70,19 @@ describe('generation resolution and plan validation', () => {
     expect(h.last('error').code).toBe('CAP_EXCEEDED');
   });
 
+  it('keeps the engine authoritative for the generation document cap', async () => {
+    const h = harness();
+    const base = await docSpec('d0', 'same admitted source');
+    const docs = Array.from(
+      { length: INGEST_CAPS_V0.maxDocsPerProject + 1 },
+      (_, i) => ({ ...base, doc: `d${i}` }),
+    );
+    await begin(h, docs);
+    expect(h.last('error').code).toBe('CAP_EXCEEDED');
+    expect(h.last('error').message).toMatch(/65 documents.*64 cap/);
+    expect(h.all('generation-ready')).toHaveLength(0);
+  });
+
   it('enforces the project caps for FRESH imports that carry no text assertion (byteLength bounds text)', async () => {
     const recipes = await defaultExtractionRecipes();
     // A fresh import: source only, no extraction/expectedText/expectedCandidates.

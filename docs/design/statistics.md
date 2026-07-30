@@ -4,9 +4,9 @@
 (a pure function in `packages/core/src/stats/` with these worked examples as
 executable fixtures) or **specified-only** (marked below; no export exists yet).
 Nothing is exported without fixtures. Currently implemented: keyness (G², log-ratio),
-logDice, PMI, t-score, DP/DPnorm, MATTR, MTLD. Specified-only: readability,
-Delta/Cosine Delta, TF-IDF sections, bursts, trend, smoothing overlay. Every fixture
-is hand-computed and numerically verified, so it is inspectable, not trusted from
+logDice, PMI, t-score, DP/DPnorm, MATTR, MTLD, and TF-IDF sections. Specified-only:
+readability, Delta/Cosine Delta, bursts, trend, smoothing overlay. Every fixture is
+hand-computed and numerically verified, so it is inspectable, not trusted from
 memory; these numbers are the product's meaning, and any change is a contract change.
 Each method carries an id + version (e.g. `keyness-g2-2x2/1`) referenced by QueryOps
 and provenance.*
@@ -106,10 +106,18 @@ DP     = 0.5 · Σ |v_i − s_i|                 // 0 = perfectly even, →1 clu
 DPnorm = DP / (1 − min(s_i))
 ```
 
+Parts are the selected documents, including a document whose class-filtered
+token share is zero. Such a part therefore contributes `s_i = 0` to the
+published `min(s_i)` denominator even though it cannot contain an occurrence.
+Below two positive-token parts, `DP = 0` and `DPnorm = null`.
+
 **Test vector**: 3 equal parts, occurrences (9,0,0) → `DP = 0.5·(2/3+1/3+1/3) = 2/3`;
 `DPnorm = (2/3)/(2/3) = 1.0` exactly.
 
 **Test vector (even)**: 3 equal parts, occurrences (3,3,3) → `DP = 0`, `DPnorm = 0`.
+
+**Zero-token-part vector**: selected part sizes `(2,1,0)`, occurrences for one
+term `(2,0,0)` → `DP = 1/3`; because `min(s_i)=0`, `DPnorm = 1/3`.
 
 ## Lexical diversity
 
@@ -171,7 +179,10 @@ Plain counts, natural log, no sublinear scaling — the variant is named in prov
 Eligibility: sections with ≥ `minSectionTokens` (default 50) participate; `N_sections`
 counts eligible sections only; `df_t` = eligible sections containing the term. Top-k
 per section (default 5), ties broken by higher raw `f_{t,s}` then vocabulary key
-order. Stop-list filtering applies (view layer) before ranking.
+order. “Vocabulary key order” means ascending corpus type ID, which is the
+snapshot's declared merge order. V1 has no stop list: terms with `df_t = N_sections`
+have exactly zero weight and are excluded, while all positive-weight terms remain
+eligible.
 
 ## Burst detection (Poisson surprise, `bursts-poisson/1`)
 

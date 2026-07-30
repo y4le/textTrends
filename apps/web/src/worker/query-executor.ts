@@ -21,6 +21,7 @@
 import {
   buildResolver,
   checkedResolverFor,
+  documentTermCounts,
   DISPERSION_EXACT_MAX,
   packDensityTrack,
   packExactTrack,
@@ -54,6 +55,23 @@ import {
   type BoundShards,
   type BoundTexts,
   type IndexRecipeProvisional,
+  type DocTermCountsV1,
+  inventory as computeInventory,
+  type InventoryRequestV1,
+  type InventoryResultV1,
+  type InventorySectionInputV1,
+  type InventoryDocumentInputV1,
+  frequencyList as computeFrequencyList,
+  type FrequencyListRequestV1,
+  type FrequencyListResultV1,
+  tfidfSections as computeTfidfSections,
+  type TfidfSectionInputV1,
+  type TfidfSectionsRequestV1,
+  type TfidfSectionsResultV1,
+  termCountPayloadBytes,
+  termCountRangeKey,
+  TERM_COUNT_CACHE_MAX_BYTES,
+  TERM_COUNT_CACHE_MAX_ENTRIES,
 } from '@texttrends/core';
 import { DependencyError, termGroupIdentity } from '@texttrends/core';
 
@@ -65,6 +83,15 @@ export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
 const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelection, group: TermGroupSpec): string =>
   JSON.stringify([snapshot.id, selection.hash, termGroupIdentity(group)]);
 
+/** [SnapshotId, DocId, canonical per-doc range key]. `snapshot.id`
+ * transitively pins the document's IndexArtifactHash; `rangeKey` comes only
+ * from an already-canonicalized ResolvedSelection. */
+const termCountsCacheKey = (
+  snapshot: CorpusSnapshotV1,
+  doc: string,
+  rangeKey: string,
+): string => JSON.stringify([snapshot.id, doc, rangeKey]);
+
 /** An async checkpoint injected per call: yields control, then gates on the
  *  caller's cancellation/supersession state (throwing to unwind). */
 export type QueryCheckpoint = () => Promise<void>;
@@ -75,6 +102,22 @@ export interface PublishedView {
   readonly ready: ReadonlyMap<string, ReadyDocument>;
   readonly bound: BoundShards;
   readonly boundTexts: BoundTexts;
+}
+
+/** Test seam may only REDUCE the production hard bounds. */
+export interface TermCountCachePolicy {
+  readonly maxEntries: number;
+  readonly maxBytes: number;
+}
+const DEFAULT_TERM_COUNT_CACHE_POLICY: TermCountCachePolicy = {
+  maxEntries: TERM_COUNT_CACHE_MAX_ENTRIES,
+  maxBytes: TERM_COUNT_CACHE_MAX_BYTES,
+};
+
+interface TermCountCacheEntry {
+  readonly doc: string;
+  readonly bytes: number;
+  readonly value: DocTermCountsV1;
 }
 
 export interface PassageQuery {
@@ -99,12 +142,30 @@ export class QueryExecutor {
    *  already holds its own reference. Generation-scoped: this executor dies
    *  with its generation. */
   private readonly occurrenceCache = new Map<string, NumericOccurrences>();
+  /** Sparse per-document selection counts shared by inventory, frequency, and
+   * keyness. Insertion order is LRU recency. The entry and byte bounds are
+   * simultaneous hard ceilings; output materializers must never transfer or
+   * mutate these cached buffers. */
+  private readonly termCountCache = new Map<string, TermCountCacheEntry>();
+  private termCountCacheBytes = 0;
   private view: PublishedView | null = null;
 
   constructor(
     private readonly indexRecipe: IndexRecipeProvisional,
     private readonly loadResolver: typeof buildResolver = buildResolver,
-  ) {}
+    private readonly termCountCachePolicy: TermCountCachePolicy = DEFAULT_TERM_COUNT_CACHE_POLICY,
+  ) {
+    if (
+      !Number.isSafeInteger(termCountCachePolicy.maxEntries) ||
+      termCountCachePolicy.maxEntries <= 0 ||
+      termCountCachePolicy.maxEntries > TERM_COUNT_CACHE_MAX_ENTRIES ||
+      !Number.isSafeInteger(termCountCachePolicy.maxBytes) ||
+      termCountCachePolicy.maxBytes <= 0 ||
+      termCountCachePolicy.maxBytes > TERM_COUNT_CACHE_MAX_BYTES
+    ) {
+      throw new RangeError('term-count cache policy may only reduce the exported hard bounds');
+    }
+  }
 
   /** Adopt a newly published snapshot view. Replaced documents drop their
    *  resolver maps — a retained map would hold resolvers bound to a replaced
@@ -112,7 +173,15 @@ export class QueryExecutor {
    *  distinctly and age out of the bounded LRU. */
   publish(view: PublishedView, replacedDocs: Iterable<string>): void {
     this.view = view;
-    for (const doc of replacedDocs) this.resolvers.set(doc, new Map());
+    const replaced = new Set(replacedDocs);
+    for (const doc of replaced) this.resolvers.set(doc, new Map());
+    if (replaced.size > 0) {
+      for (const [key, entry] of this.termCountCache) {
+        if (!replaced.has(entry.doc)) continue;
+        this.termCountCache.delete(key);
+        this.termCountCacheBytes -= entry.bytes;
+      }
+    }
   }
 
   /** The published view, asserted — the engine validates snapshot identity
@@ -176,6 +245,137 @@ export class QueryExecutor {
       shards.set(id, r.shard);
     }
     return shards;
+  }
+
+  /** Lookup/touch/compute/prune for the ONE aggregation cache. The key is
+   * immutable because snapshot.id hashes the ref's IndexArtifactHash and the
+   * per-doc range key is derived from canonical ResolvedSelection ranges.
+   * Replaced docs are also dropped eagerly by publish. */
+  private termCountsFor(
+    selection: ResolvedSelection,
+    doc: string,
+  ): DocTermCountsV1 {
+    const { snapshot, ready } = this.published();
+    if (selection.snapshot !== snapshot.id) {
+      throw new RangeError('selection is bound to a different snapshot');
+    }
+    const ref = snapshot.docs.find((candidate) => candidate.doc === doc);
+    const resident = ready.get(doc);
+    if (!ref || !selection.docSet.has(ref.doc)) {
+      throw new RangeError(`document '${doc}' is outside the selection`);
+    }
+    if (!resident) throw new DependencyError('shard', doc);
+    const ranges = selection.rangesByDoc.get(ref.doc) ?? null;
+    const rangeKey = termCountRangeKey(ranges, ref.tokenCount);
+    const key = termCountsCacheKey(snapshot, doc, rangeKey);
+    const hit = this.termCountCache.get(key);
+    if (hit) {
+      this.termCountCache.delete(key);
+      this.termCountCache.set(key, hit);
+      return hit.value;
+    }
+
+    const value = documentTermCounts(snapshot, ref, resident.shard, ranges);
+    const entry: TermCountCacheEntry = {
+      doc,
+      bytes: termCountPayloadBytes(value),
+      value,
+    };
+    this.termCountCache.set(key, entry);
+    this.termCountCacheBytes += entry.bytes;
+    while (
+      this.termCountCache.size > this.termCountCachePolicy.maxEntries ||
+      this.termCountCacheBytes > this.termCountCachePolicy.maxBytes
+    ) {
+      const oldest = this.termCountCache.entries().next().value as
+        | [string, TermCountCacheEntry]
+        | undefined;
+      if (!oldest) break;
+      this.termCountCache.delete(oldest[0]);
+      this.termCountCacheBytes -= oldest[1].bytes;
+    }
+    return value;
+  }
+
+  /** Materialize the selected documents' cached vectors in canonical
+   * selection order. This is an executor-internal operation seam, not a wire
+   * QueryOp; inventory/frequency/keyness fold it and copy anything they emit. */
+  async termCounts(
+    selection: ResolvedSelection,
+    checkpoint: QueryCheckpoint,
+  ): Promise<readonly DocTermCountsV1[]> {
+    const values: DocTermCountsV1[] = [];
+    for (const doc of selection.spec.docs) {
+      values.push(this.termCountsFor(selection, doc));
+      await checkpoint();
+    }
+    return values;
+  }
+
+  async inventory(
+    selection: ResolvedSelection,
+    request: InventoryRequestV1,
+    sections: readonly InventorySectionInputV1[],
+    checkpoint: QueryCheckpoint,
+  ): Promise<InventoryResultV1> {
+    const { snapshot } = this.published();
+    const inputs = await this.aggregationInputs(selection, checkpoint);
+    return computeInventory(
+      snapshot,
+      selection,
+      inputs,
+      request,
+      sections,
+      checkpoint,
+    );
+  }
+
+  private async aggregationInputs(
+    selection: ResolvedSelection,
+    checkpoint: QueryCheckpoint,
+  ): Promise<readonly InventoryDocumentInputV1[]> {
+    const { snapshot, ready } = this.published();
+    const counts = await this.termCounts(selection, checkpoint);
+    return counts.map((value, index) => {
+      const doc = selection.spec.docs[index] as string;
+      const ref = snapshot.docs.find((candidate) => candidate.doc === doc);
+      const resident = ready.get(doc);
+      if (!ref) throw new RangeError(`document '${doc}' is outside the snapshot`);
+      if (!resident) throw new DependencyError('shard', doc);
+      return { ref, shard: resident.shard, counts: value };
+    });
+  }
+
+  async frequencyList(
+    selection: ResolvedSelection,
+    request: FrequencyListRequestV1,
+    checkpoint: QueryCheckpoint,
+  ): Promise<FrequencyListResultV1> {
+    const { snapshot } = this.published();
+    const inputs = await this.aggregationInputs(selection, checkpoint);
+    return computeFrequencyList(snapshot, selection, inputs, request, checkpoint);
+  }
+
+  async tfidfSections(
+    request: TfidfSectionsRequestV1,
+    sections: readonly TfidfSectionInputV1[],
+    checkpoint: QueryCheckpoint,
+  ): Promise<TfidfSectionsResultV1> {
+    const { snapshot, ready } = this.published();
+    const ref = snapshot.docs.find((candidate) => candidate.doc === request.doc);
+    const resident = ready.get(request.doc);
+    if (!ref) throw new RangeError(`document '${request.doc}' is outside the snapshot`);
+    if (!resident) throw new DependencyError('shard', request.doc);
+    const result = await computeTfidfSections(
+      snapshot,
+      ref,
+      resident.shard,
+      sections,
+      request,
+      checkpoint,
+    );
+    await checkpoint();
+    return result;
   }
 
   async passage(q: PassageQuery, checkpoint: QueryCheckpoint): Promise<PassageResult> {

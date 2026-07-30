@@ -1,4 +1,9 @@
-import { dispersionTransferBuffers } from '@texttrends/core';
+import {
+  dispersionTransferBuffers,
+  inventoryTransferBuffers,
+  INVENTORY_MAX_SECTIONS,
+  type InventorySectionInputV1,
+} from '@texttrends/core';
 import { QueryExecutor } from './query-executor.ts';
 /**
  * WorkerEngineV4 — the ingest/structure worker lifecycle (contract §12.8;
@@ -1392,6 +1397,32 @@ export class WorkerEngineV4 {
       return;
     }
 
+    if (q.op === 'tfidf-sections') {
+      const sections = await this.analysisSectionInputs(
+        job,
+        gen,
+        snapshot,
+        q.request.doc,
+        'TF-IDF query',
+      );
+      if (!sections) return;
+      await checkpoint();
+      const tfidf = await gen.executor.tfidfSections(
+        q.request,
+        sections,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'tfidf-sections', tfidf },
+      });
+      return;
+    }
+
     let selection;
     try {
       selection = await resolveSelection(snapshot, q.selection as Parameters<typeof resolveSelection>[1]);
@@ -1415,6 +1446,63 @@ export class WorkerEngineV4 {
         { v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'dispersion', dispersion } },
         dispersionTransferBuffers(dispersion),
       );
+      return;
+    }
+
+    if (q.op === 'inventory') {
+      const sections: InventorySectionInputV1[] = [];
+      if (q.request.sections) {
+        for (const doc of selection.spec.docs) {
+          const rows = await this.analysisSectionInputs(
+            job,
+            gen,
+            snapshot,
+            doc,
+            'inventory query',
+          );
+          if (!rows) return;
+          // Keep at most cap+1 inputs: core uses the sentinel row to disclose
+          // truncation, while the engine stops hashing/binding later docs.
+          const remaining = INVENTORY_MAX_SECTIONS + 1 - sections.length;
+          sections.push(...rows.slice(0, remaining));
+          await checkpoint();
+          if (sections.length > INVENTORY_MAX_SECTIONS) break;
+        }
+      }
+      const data = await gen.executor.inventory(
+        selection,
+        q.request,
+        sections,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit(
+        {
+          v: PROTOCOL_VERSION_V4,
+          t: 'result',
+          job,
+          snapshot: snapshot.id,
+          data: { op: 'inventory', inventory: data },
+        },
+        inventoryTransferBuffers(data),
+      );
+      return;
+    }
+
+    if (q.op === 'freq-list') {
+      const frequency = await gen.executor.frequencyList(
+        selection,
+        q.request,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'freq-list', frequency },
+      });
       return;
     }
 
@@ -1524,6 +1612,36 @@ export class WorkerEngineV4 {
         chars: { start: s.chars.start, end: s.chars.end },
       },
       tokens: ranges[i]!,
+    }));
+  }
+
+  /** Project a structure into the shared section-input shape consumed by the
+   * vocabulary-wide inventory and selection-independent TF-IDF operations. */
+  private async analysisSectionInputs(
+    job: number,
+    gen: GenerationStateV4,
+    snapshot: CorpusSnapshotV1,
+    doc: string,
+    what: string,
+  ): Promise<InventorySectionInputV1[] | null> {
+    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, what);
+    if (!resolved) return null;
+    const { ref, ready, artifact } = resolved;
+    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
+    const rows = await this.bindSectionRows(
+      job,
+      gen,
+      snapshot.id,
+      doc,
+      artifact,
+      ranges,
+    );
+    return rows.map((row) => ({
+      id: row.section.id,
+      doc,
+      level: row.section.level,
+      ...(row.section.title === undefined ? {} : { title: row.section.title }),
+      tokens: row.tokens,
     }));
   }
 
