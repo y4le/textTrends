@@ -27,6 +27,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { pinCapacity } from '../lib/pin-capacity.ts';
 import { BarcodeStrip } from './BarcodeStrip.tsx';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
@@ -51,6 +52,7 @@ import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
+import { PinButton } from './PinButton.tsx';
 import { commitRange } from '../lib/selection.ts';
 
 const SERIES_HEIGHT = 180;
@@ -399,11 +401,13 @@ function ScrubSurface({
   const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
   const pinPassage = useApp((s) => s.pinPassage);
+  const pinsUsed = useApp((s) => s.pins.length);
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
   const openReader = useApp((s) => s.openReader);
   const [preview, setPreview] = useState<RangePreview | null>(null);
+  const capacity = pinCapacity(pinsUsed);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -660,7 +664,6 @@ function ScrubSurface({
             commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
           } else {
             setScrub(drag.origin);
-            pinPassage(drag.origin.doc, drag.origin.token);
           }
         }}
         onPointerCancel={(e) => {
@@ -714,6 +717,8 @@ function ScrubSurface({
           series={series}
           focusedSeries={focusedSeries}
           caption={scrubCaption}
+          pinCapacity={capacity}
+          onPin={() => pinPassage(scrub.doc, scrub.token)}
           onOpenReader={() => {
             if (!snapshot) return;
             openReader({
@@ -725,8 +730,12 @@ function ScrubSurface({
           }}
         />
       ) : scrub ? (
-        <p
+        <div
           style={{
+            display: 'flex',
+            alignItems: 'baseline',
+            flexWrap: 'wrap',
+            gap: 'var(--space-2)',
             fontFamily: 'var(--font-mono)',
             fontSize: 'var(--text-xs)',
             color: 'var(--fg-muted)',
@@ -734,8 +743,13 @@ function ScrubSurface({
             margin: 'var(--space-2) 0 0',
           }}
         >
-          {scrubCaption} · loading text…
-        </p>
+          <span>{scrubCaption} · loading text…</span>
+          <PinButton
+            capacity={capacity}
+            label={`Pin passage at token ${(scrub.token + 1).toLocaleString()}`}
+            onPin={() => pinPassage(scrub.doc, scrub.token)}
+          />
+        </div>
       ) : (
         <p
           style={{

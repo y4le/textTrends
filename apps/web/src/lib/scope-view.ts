@@ -1,6 +1,7 @@
 import type { InventoryState } from './store.ts';
 import type { TokenRangeSelectionV1 } from './selection.ts';
 import type { Place } from './places.ts';
+import { pinCapacity } from './pin-capacity.ts';
 
 const number = new Intl.NumberFormat();
 
@@ -116,7 +117,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   if (tokensInScope !== null) segments.push(`${number.format(tokensInScope)} tokens`);
   if (range) segments.push(range.label);
   segments.push(readyText);
-  segments.push(`${input.pins.used} of ${input.pins.cap} pinned`);
+  segments.push(pinCapacity(input.pins.used, input.pins.cap).label);
   if (input.pins.needingReview > 0) {
     segments.push(
       `${input.pins.needingReview} ${input.pins.needingReview === 1 ? 'anchor needs' : 'anchors need'} review`,

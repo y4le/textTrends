@@ -96,9 +96,9 @@ export function ScopeBar() {
             {index > 0 && <span aria-hidden="true">·</span>}
             <span>{segment}</span>
             {segment === vm.range?.label && (
-          <button
-            className="coarse-target"
-            type="button"
+              <button
+                className="coarse-target"
+                type="button"
                 aria-label="Clear linked range"
                 onClick={() => setLinkedSelection(null)}
                 style={{

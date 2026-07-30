@@ -121,7 +121,7 @@ const gateRelease = (worker: Worker) =>
     gate.release();
   });
 
-test('click pins are independent, removed late evidence stays removed, and snapshots clear pins', async ({ page }) => {
+test('explicit pins are independent, removed late evidence stays removed, and snapshots clear pins', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await importCorpus(page, 'pins.txt', CORPUS, 1);
@@ -141,19 +141,22 @@ test('click pins are independent, removed late evidence stays removed, and snaps
   });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
-  // Hover starts the shared scrub request, then each no-drag click starts its
-  // own pin request. With all passage results held, both cards must coexist.
+  // Hover starts the shared scrub request. Chart activation only reads; the
+  // explicit Evidence-line Pin action starts each independently owned request.
+  // With all passage results held, both cards must coexist.
   await page.mouse.move(point(1).x, point(1).y);
   await expect.poll(() => gateHeld(worker)).toBeGreaterThanOrEqual(1);
   await page.mouse.click(point(1).x, point(1).y);
+  await page.getByRole('button', { name: 'Pin passage at token 2' }).click();
   await page.mouse.click(point(9).x, point(9).y);
+  await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
   const pane = page.getByRole('region', { name: 'Pinned evidence' });
   await expect(pane.locator('article')).toHaveCount(2);
   await expect(pane.getByText('capturing passage…')).toHaveCount(2);
   await expect.poll(() => gateHeld(worker)).toBeGreaterThanOrEqual(3);
 
   // Duplicate location focuses rather than appending, even while pending.
-  await page.mouse.click(point(9).x, point(9).y);
+  await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
   await expect(pane.locator('article')).toHaveCount(2);
   await expect(pane.getByText(/already pinned; focused the existing evidence/i)).toBeVisible();
 
@@ -199,4 +202,78 @@ test('click pins are independent, removed late evidence stays removed, and snaps
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
   await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(1);
   await expect(page.getByText('pins · token 10')).toBeVisible();
+});
+
+test('repeated chart activation reads without creating durable evidence', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  const box = (await scrubber.boundingBox())!;
+  const plotWidth = box.width - TREND_LABEL_SPACE;
+  const visited = new Set<string>();
+  for (let index = 0; index < 10; index++) {
+    await page.mouse.click(
+      box.x + 4 + ((plotWidth - 8) * index) / 9,
+      box.y + 80,
+    );
+    const label = await page
+      .getByRole('button', { name: /Pin passage at token/ })
+      .getAttribute('aria-label');
+    if (label) visited.add(label);
+  }
+  expect(visited.size).toBeGreaterThan(1);
+
+  const scope = page.getByRole('region', { name: 'Scope' });
+  await expect(scope.getByText('0 of 8 pinned', { exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(0);
+
+  // Retention is now an explicit verb on the Evidence line. Reader exposes
+  // the same verb; repeating it at the same anchor focuses rather than adds.
+  const pin = page.getByRole('button', { name: /Pin passage at token/ });
+  await expect(pin).toBeVisible();
+  await pin.click();
+  await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Open passage in reader' }).click();
+  const reader = page.getByRole('dialog', { name: /Reader:/ });
+  const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
+  await expect(readerPin).toBeVisible();
+  await readerPin.click();
+  await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
+});
+
+test('at capacity Pin stays reachable and announces the refusal', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  for (let index = 0; index < 8; index++) {
+    await scrubber.press('p');
+    await scrubber.press('ArrowRight');
+  }
+
+  const scope = page.getByRole('region', { name: 'Scope' });
+  await expect(scope.getByText('8 of 8 pinned', { exact: true })).toBeVisible();
+  const pin = page.getByRole('button', { name: /Pin passage at token/ });
+  await expect(pin).toHaveAttribute('aria-disabled', 'true');
+  await pin.focus();
+  await expect(pin).toBeFocused();
+  await pin.press('Enter');
+  await expect(page.getByRole('alert')).toContainText(
+    'Pinned evidence is limited to 8 — remove one first.',
+  );
+  await expect(scope.getByText('8 of 8 pinned', { exact: true })).toBeVisible();
+
+  await page.getByRole('button', { name: 'Open passage in reader' }).click();
+  const reader = page.getByRole('dialog', { name: /Reader:/ });
+  const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
+  await expect(readerPin).toHaveAttribute('aria-disabled', 'true');
+  await readerPin.focus();
+  await expect(readerPin).toBeFocused();
+  await readerPin.press('Enter');
+  await expect(page.getByRole('alert')).toContainText(
+    'Pinned evidence is limited to 8 — remove one first.',
+  );
 });

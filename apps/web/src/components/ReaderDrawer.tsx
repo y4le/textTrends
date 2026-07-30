@@ -8,11 +8,13 @@ import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-co
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
 import { pinTrackLegend, type PinLegendEntry } from '../lib/pins.ts';
+import { pinCapacity } from '../lib/pin-capacity.ts';
 import { segmentPassageMarks, type PassageSegment } from '../lib/passage-marks.ts';
 import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
+import { PinButton } from './PinButton.tsx';
 
 function ReaderProse({
   page,
@@ -143,6 +145,8 @@ export function ReaderDrawer() {
   const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
+  const pinPassage = useApp((state) => state.pinPassage);
+  const pinsUsed = useApp((state) => state.pins.length);
   const drawerRef = useRef<HTMLElement | null>(null);
   const openerRef = useRef<HTMLElement | null>(null);
 
@@ -177,6 +181,7 @@ export function ReaderDrawer() {
     liveSeries,
   );
   const ready = current?.state.status === 'ready' ? current.state.page : null;
+  const capacity = pinCapacity(pinsUsed);
 
   return (
     <aside
@@ -221,9 +226,16 @@ export function ReaderDrawer() {
             {ready ? readerRangeLabel(ready) : 'loading canonical page…'}
           </p>
         </div>
-        <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
-          close
-        </button>
+        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          <PinButton
+            capacity={capacity}
+            label={`Pin reader passage at token ${(place.cursor.token + 1).toLocaleString()}`}
+            onPin={() => pinPassage(place.doc, place.cursor.token)}
+          />
+          <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
+            close
+          </button>
+        </div>
       </header>
 
       <div
