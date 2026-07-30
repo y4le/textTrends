@@ -1471,6 +1471,7 @@ export function createAppRuntime(
             !sameReaderCursor(cursor, navigation.previous)
             && !sameReaderCursor(cursor, navigation.next)
           )
+          || sameReaderCursor(cursor, place.cursor)
         ) return;
         if (
           !Number.isSafeInteger(cursor.token)
@@ -1537,7 +1538,18 @@ export function createAppRuntime(
           },
           lease,
           (data) => {
-            if (data.op !== 'reader-page' || data.page.doc !== issuedPlace.doc) return;
+            if (data.op !== 'reader-page') return;
+            if (data.page.doc !== issuedPlace.doc) {
+              set({
+                readerPage: {
+                  snapshot: snapshot.snapshot,
+                  place: issuedPlace,
+                  tracks: tracks.captured,
+                  state: { status: 'error', message: 'reader returned the wrong document' },
+                },
+              });
+              return;
+            }
             set({
               readerPage: {
                 snapshot: snapshot.snapshot,

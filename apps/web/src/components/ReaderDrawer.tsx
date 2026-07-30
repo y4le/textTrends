@@ -144,9 +144,18 @@ export function ReaderDrawer() {
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
   const drawerRef = useRef<HTMLElement | null>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
+    openerRef.current =
+      document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
     drawerRef.current?.focus({ preventScroll: true });
+    return () => {
+      const opener = openerRef.current;
+      if (opener?.isConnected) opener.focus({ preventScroll: true });
+    };
   }, []);
 
   if (!place) return null;

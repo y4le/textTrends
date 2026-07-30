@@ -83,6 +83,7 @@ async function installReaderResultGate(worker: Worker): Promise<void> {
       held: Held[];
       arm(): void;
       heldCount(): number;
+      releaseNewest(): void;
       release(): void;
     }
     interface Scope {
@@ -105,6 +106,10 @@ async function installReaderResultGate(worker: Worker): Promise<void> {
       },
       heldCount() {
         return this.held.length;
+      },
+      releaseNewest() {
+        const item = this.held.pop();
+        if (item) send(item);
       },
       release() {
         this.armed = false;
@@ -149,6 +154,15 @@ const gateRelease = (worker: Worker) =>
     gate.release();
   });
 
+const gateReleaseNewest = (worker: Worker) =>
+  worker.evaluate(() => {
+    const gate = (globalThis as unknown as {
+      __ttReaderGate?: { releaseNewest(): void };
+    }).__ttReaderGate;
+    if (!gate) throw new Error('reader gate is not installed');
+    gate.releaseNewest();
+  });
+
 test.beforeEach(async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
@@ -159,7 +173,8 @@ test.beforeEach(async ({ page }) => {
 test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot replacement stay fenced', async ({ page }) => {
   const table = page.getByRole('table', { name: 'Concordance' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await table.getByRole('button', { name: 'wolf', exact: true }).click();
+  const kwicOpen = table.getByRole('button', { name: 'wolf', exact: true });
+  await kwicOpen.click();
   await awaitFreshReader(page, mark);
 
   const drawer = page.getByRole('dialog', { name: /Reader: reader/ });
@@ -179,6 +194,11 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   await expect.poll(() => gateHeld(worker)).toBe(1);
   await drawer.getByRole('button', { name: 'previous' }).click();
   await expect.poll(() => gateHeld(worker)).toBe(2);
+  // Deliver the CURRENT Previous page first, then the stale Next page after
+  // it has rendered. The final assertion now fails without store-side guards.
+  await gateReleaseNewest(worker);
+  await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
+  await expect.poll(() => gateHeld(worker)).toBe(1);
   await gateRelease(worker);
   await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
   await expect(drawer.getByText('tokens 1–400 of 900')).toBeVisible();
@@ -228,6 +248,7 @@ test('exact barcode, passage, and pin evidence all open the reader', async ({ pa
   drawer = page.getByRole('dialog', { name: /Reader: reader/ });
   await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
   await drawer.getByRole('button', { name: 'close' }).click();
+  await expect(passageOpen).toBeFocused();
 
   // P at the same cursor captures the resident passage synchronously; its
   // immutable anchor opens under the current track set.

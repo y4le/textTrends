@@ -1,8 +1,8 @@
 # Slice-2 handoff — linked selection, dispersion barcode, full reader
 
 *Written 2026-07-29 for a fresh agent picking up mid-slice; updated later that
-day through the H implementation. Branch `feature/product-slices`, tip
-`8fece64` plus the unstaged H candidate. Read this file, then
+day through the I acceptance candidate. Branch `feature/product-slices`, tip
+`a95def5` plus the unstaged I candidate. Read this file, then
 `docs/design/linked-selection-plan.md` (the recorded Codex ruling — it is the
 CONTRACT; this file only tracks execution state against it).*
 
@@ -13,7 +13,8 @@ CONTRACT; this file only tracks execution state against it).*
 Slice 1 (term groups + query notebook) is **complete** — see
 `docs/design/term-groups-plan.md` STATUS. Slice 2 is the second of the four
 adopted product slices (`docs/research/synthesis.md` §11). Its ruling splits
-it into commits **A–I**; eight are landed, H is built, and I remains.
+it into commits **A–I**; all implementation commits through H are landed and
+I is built.
 
 | Commit | What | State |
 |---|---|---|
@@ -25,8 +26,8 @@ it into commits **A–I**; eight are landed, H is built, and I remains.
 | E1 | Linked-selection model + store lanes | **landed** `1886bae` (2 rounds) |
 | E2 | Linked-selection gestures + rendering | **landed** `28e55f3` (1 round) |
 | F | Pinned context pane | **landed** `8fece64` (1 round) |
-| H | Full reader UI and links | **built and verified, awaiting review** — see §5 |
-| I | Slice-2 browser acceptance | not started — plan §I |
+| H | Full reader UI and links | **landed** `a95def5` (1 round) |
+| I | Slice-2 browser acceptance | **built and verified, awaiting review** — see §5 |
 
 Commit order note: the ruling's letters are its own sequence. G was pulled
 forward of E/F because its core kernel was draftable in parallel; **E, F, H, I
@@ -36,9 +37,9 @@ can land in any order that respects their file dependencies** (§6).
 
 ```
 core:  420 tests pass
-apps/web: 539 tests pass with H
+apps/web: 540 tests pass with I followups
 typecheck: clean
-playwright: H reader/open/race specs pass with affected barcode/concordance coverage
+playwright: full functional 43/43; serial benchmark 3/3
 build: bundle contract passes; H entry is 69.6 kB gzip and reader UI is a 2.6 kB lazy chunk
 ```
 
@@ -46,18 +47,16 @@ build: bundle contract passes; H entry is 69.6 kB gzip and reader UI is a 2.6 kB
 
 ## 2. Working-tree contents (nothing is lost — read this before `git` anything)
 
-`git status --short` currently shows the unstaged commit-H candidate. **Do not
+`git status --short` currently shows the unstaged commit-I candidate. **Do not
 run `git checkout --` or `git stash` without reading this.**
 
-**UNSTAGED — commit H full reader UI**:
+**UNSTAGED — commit I acceptance + reviewed-H followups**:
 ```
- M apps/web/src/{App,components/{TrendPanel,PassageLine,BarcodeStrip,KwicPanel,PinnedPane}}.tsx
- M apps/web/src/lib/{store,reader-intent}.ts and tests
- M apps/web/{e2e/pins.spec.ts,test/{pins,store}.test.ts}
-?? apps/web/src/components/ReaderDrawer.tsx
-?? apps/web/src/lib/reader-view.ts
-?? apps/web/test/reader-view.test.ts
-?? apps/web/e2e/reader.spec.ts
+ M apps/web/src/components/ReaderDrawer.tsx
+ M apps/web/src/lib/store.ts
+ M apps/web/test/store.test.ts
+ M apps/web/e2e/reader.spec.ts
+?? apps/web/e2e/slice2-acceptance.spec.ts
 ```
 
 **`?? .claude/`** is agent worktree scratch — ignorable, not part of the work.
@@ -254,7 +253,7 @@ pre-coordinated with Claude Opus through Parley; in particular, pins capture
 ordered semantic track identities and do not use the live notebook as a
 late-result guard.
 
-**H is built and awaiting exact-tree review.** It adds a separate latest-wins
+**H landed in `a95def5`.** It adds a separate latest-wins
 reader lane guarded by snapshot, exact place, and ordered matching identities;
 canonical-cursor navigation with the prior served cursors still operable while
 prose is pending; a lazy safe-text drawer with occurrence highlights, clipped
@@ -263,6 +262,15 @@ exact barcode ticks, passage, and pins; and browser gates that deliver stale
 Next/Previous pages out of order. Semantic member/active changes reissue the
 current highlight projection, rename stays presentational, and snapshot
 replacement closes the reader.
+
+**I is built and awaiting exact-tree review.** Its deterministic local journey
+authors a wolf-or-hound group, activates an exact tick, creates a keyboard-only
+range and proves all selected consumers share its four-of-six evidence, pins
+the anchor, opens the canonical reader, pages forward/back with exact
+boundaries, then clears back to six-row baseline evidence. It also resolves
+H review lows by restoring drawer focus, delivering the stale browser page
+after the current page, surfacing impossible doc mismatches, and refusing a
+duplicate same-cursor navigation request.
 
 Read the plan doc sections; they are precise. Summary of the load-bearing
 requirements:

@@ -1952,4 +1952,15 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     await flush();
     expect(f.store.getState().readerPage?.state.status).toBe('pending');
   });
+
+  it('surfaces an impossible doc mismatch as an error instead of a permanent skeleton', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'kwic' });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 4, 10, 'wrong'));
+    await flush();
+    expect(f.store.getState().readerPage?.state).toEqual({
+      status: 'error',
+      message: 'reader returned the wrong document',
+    });
+  });
 });
