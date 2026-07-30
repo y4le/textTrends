@@ -6,6 +6,10 @@
 
 import type { NumericTrend } from '@texttrends/core';
 
+/** Horizontal space reserved for direct labels beside the plot. Shared with
+ * pointer-driven browser tests so gesture coordinates cannot drift silently. */
+export const TREND_LABEL_SPACE = 130;
+
 /** Selected trends retain the full document bin geometry, but bins with no
  * selected denominator are GAPS rather than fabricated zero observations.
  * A one-bin run receives a near-zero horizontal tail so SVG paints the mark. */

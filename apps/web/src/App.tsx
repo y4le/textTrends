@@ -5,6 +5,7 @@ import { ProjectPanel } from './components/ProjectPanel.tsx';
 import { StructurePanel } from './components/StructurePanel.tsx';
 import { useApp } from './lib/store-instance.ts';
 import { SeriesLineSample } from './components/chrome.tsx';
+import { PinnedPane } from './components/PinnedPane.tsx';
 
 // The chart/interaction surface is the largest main-thread feature module and
 // is irrelevant until the notebook has an active series. Keep the initial
@@ -202,6 +203,7 @@ export function App() {
             <TrendPanel />
           </Suspense>
         )}
+        <PinnedPane />
         <KwicPanel />
       </div>
       <StructurePanel />

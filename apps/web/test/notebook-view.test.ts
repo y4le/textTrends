@@ -68,6 +68,19 @@ describe('countFor — explicit, never-ambiguous count states', () => {
     });
     expect(countFor(true, true, ready, false, { status: 'pending' }, true))
       .toEqual({ kind: 'selected', total: 5, partial: false, selected: { kind: 'pending' } });
+    expect(countFor(
+      true,
+      true,
+      ready,
+      false,
+      { status: 'error', message: 'selected query failed' },
+      true,
+    )).toEqual({
+      kind: 'selected',
+      total: 5,
+      partial: false,
+      selected: { kind: 'error', message: 'selected query failed' },
+    });
   });
 
   it('trendTotal sums the count array exactly', () => {

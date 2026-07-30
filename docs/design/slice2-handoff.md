@@ -1,8 +1,8 @@
 # Slice-2 handoff — linked selection, dispersion barcode, full reader
 
 *Written 2026-07-29 for a fresh agent picking up mid-slice; updated later that
-day through the G round-2 review. Branch `feature/product-slices`, tip
-`2f42c5d` plus the staged G candidate. Read this file, then
+day through the F implementation. Branch `feature/product-slices`, tip
+`28e55f3` plus the unstaged F candidate. Read this file, then
 `docs/design/linked-selection-plan.md` (the recorded Codex ruling — it is the
 CONTRACT; this file only tracks execution state against it).*
 
@@ -13,7 +13,7 @@ CONTRACT; this file only tracks execution state against it).*
 Slice 1 (term groups + query notebook) is **complete** — see
 `docs/design/term-groups-plan.md` STATUS. Slice 2 is the second of the four
 adopted product slices (`docs/research/synthesis.md` §11). Its ruling splits
-it into commits **A–I**; five are landed, one is mid-review, three are unbuilt.
+it into commits **A–I**; seven are landed, F is built, and H/I remain.
 
 | Commit | What | State |
 |---|---|---|
@@ -23,8 +23,8 @@ it into commits **A–I**; five are landed, one is mid-review, three are unbuilt
 | D | Barcode canvas strip + mark-to-KWIC | **landed** `2f42c5d` (3 rounds) |
 | G | `reader-page/1` core + protocol + executor | **landed** `8ee6a31` (3 rounds) |
 | E1 | Linked-selection model + store lanes | **landed** `1886bae` (2 rounds) |
-| E2 | Linked-selection gestures + rendering | **built, verified, awaiting review** — see §4 |
-| F | Pinned context pane | not started — plan §F |
+| E2 | Linked-selection gestures + rendering | **landed** `28e55f3` (1 round) |
+| F | Pinned context pane | **built and verified, awaiting review** — see §5 |
 | H | Full reader UI and links | not started — plan §H |
 | I | Slice-2 browser acceptance | not started — plan §I |
 
@@ -36,25 +36,27 @@ can land in any order that respects their file dependencies** (§6).
 
 ```
 core:  420 tests pass
-apps/web: 511 tests pass with E2
+apps/web: 530 tests pass with F
 typecheck: clean
-playwright: 39 functional tests pass, including the linked-selection race proof
-build: bundle contract passes; lazy TrendPanel leaves entry at 67.1 kB gzip
+playwright: F's job-correlated pin race passes; prior full functional 39/39
+build: bundle contract passes; F entry remains below the 90 kB gzip cap
 ```
 
 ---
 
 ## 2. Working-tree contents (nothing is lost — read this before `git` anything)
 
-`git status --short` currently shows two groups. **Do not run `git checkout
---` or `git stash` without reading this.**
+`git status --short` currently shows the unstaged commit-F candidate. **Do not
+run `git checkout --` or `git stash` without reading this.**
 
-**UNSTAGED — commit E2 linked-selection UI**:
+**UNSTAGED — commit F pinned context pane**:
 ```
- M apps/web/src/App.tsx
- M apps/web/src/components/{TrendPanel,BarcodeStrip,NotebookPanel}.tsx
- M apps/web/src/lib/{notebook-view,trend-geometry}.ts and tests
-?? apps/web/e2e/selection.spec.ts
+ M apps/web/src/{App,components/{TrendPanel,PassageLine,BarcodeStrip}}.tsx
+ M apps/web/src/lib/{store,trend-geometry}.ts and tests
+?? apps/web/src/components/PinnedPane.tsx
+?? apps/web/src/lib/{pins,reader-intent,passage-marks}.ts
+?? apps/web/test/{pins,reader-intent,passage-marks}.test.ts
+?? apps/web/e2e/pins.spec.ts
 ```
 
 **`?? .claude/`** is agent worktree scratch — ignorable, not part of the work.
@@ -197,10 +199,10 @@ one-commit-shaped.
 
 ---
 
-## 4. Commit E — linked token selection
+## 4. Commit E — linked token selection (landed)
 
 Plan §E and §2. **The store/model layer landed in `1886bae`; the gesture and
-render layer is implemented and verified.**
+render layer landed in `28e55f3`.**
 
 ### Done (unstaged, focused tests green)
 
@@ -231,10 +233,6 @@ render layer is implemented and verified.**
   covers pointer/keyboard selection, clear while pending, and snapshot
   replacement.
 
-### Remaining for E
-
-1. Exact-stage, Opus-review, and land E2.
-
 Ruling invariants to honour: one nonempty half-open single-doc range; no
 queries during preview; the selected wire spec contains only that document;
 baseline evidence retained; zero-denominator bins are gaps; all lanes reject
@@ -242,7 +240,18 @@ stale selection/track/snapshot results.
 
 ---
 
-## 5. Commits F, H, I — not started
+## 5. Commits F, H, I
+
+**F is built and awaiting exact-tree review.** The candidate adds explicit
+snapshot provenance to KWIC/dispersion/passage resident states; immutable
+captured pin contracts; independently keyed pin leases; duplicate/cap/retry/
+remove/snapshot/dispose handling; safe shared passage segmentation; click and
+keyboard pin gestures; captured-query legends; a fenced reader place; and a
+worker-output-gated Playwright race covering two concurrent pending pins,
+remove-before-result, duplicate focus, and snapshot clear. The design was
+pre-coordinated with Claude Opus through Parley; in particular, pins capture
+ordered semantic track identities and do not use the live notebook as a
+late-result guard.
 
 Read the plan doc sections; they are precise. Summary of the load-bearing
 requirements:

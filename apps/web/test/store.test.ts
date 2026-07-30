@@ -1606,3 +1606,180 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().linkedSelection).toBeNull();
   });
 });
+
+describe('served evidence provenance (slice-2 F foundation)', () => {
+  it('records the issuing snapshot and ordered track identities on every resident evidence slice', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const series = f.store.getState().series[0]!;
+    expect(f.store.getState().kwic?.snapshot).toBe('s1');
+    expect(f.store.getState().dispersion?.snapshot).toBe('s1');
+
+    f.store.getState().setScrub({ doc: 'a', token: 5 });
+    const passage = f.passages().at(-1)!;
+    passage.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
+    await flush();
+    const held = f.store.getState().passage!;
+    expect(held.snapshot).toBe('s1');
+    expect(held.result.doc).toBe('a');
+    expect(held.tracks).toEqual([expect.objectContaining({
+      seriesId: series.id,
+      groupId: series.id,
+      label: 'holmes',
+      styleSlot: series.styleSlot,
+    })]);
+    expect(held.tracks[0]!.identity).toEqual(expect.any(String));
+
+    f.port.publishSnapshot('g1', 's2', ['a']);
+    expect(f.store.getState().passage).toBeNull();
+    expect(f.store.getState().kwic?.snapshot).toBe('s2');
+    expect(f.store.getState().dispersion?.snapshot).toBe('s2');
+  });
+});
+
+describe('independent pinned passage intents (slice-2 F)', () => {
+  const setup = () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    return f;
+  };
+  const centerOf = (issued: Issued) =>
+    (issued.query as { request: { centerToken: number } }).request.centerToken;
+
+  it('captures issue-time semantics and resolves a bounded passage without cancelling peers', async () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 2);
+    f.store.getState().pinPassage('a', 7);
+    expect(f.store.getState().pins.map((pin) => pin.kind)).toEqual(['pending', 'pending']);
+    const [a, b] = f.passages().slice(-2);
+    expect(a!.cancelled).toBe(false);
+    expect(b!.cancelled).toBe(false);
+    expect(centerOf(a!)).toBe(2);
+    expect(centerOf(b!)).toBe(7);
+    expect((a!.query as { request: { maxTokens: number } }).request.maxTokens).toBe(200);
+
+    b!.resolve({ op: 'passage', passage: fakePassage(0, 10, 7) });
+    a!.resolve({ op: 'passage', passage: fakePassage(0, 10, 2) });
+    await flush();
+    const pins = f.store.getState().pins;
+    expect(pins.map((pin) => pin.anchor.token)).toEqual([2, 7]); // insertion order
+    expect(pins.map((pin) => pin.kind)).toEqual(['ready', 'ready']);
+    expect(pins[0]!.tracks[0]).toEqual(expect.objectContaining({
+      label: 'holmes',
+      seriesId: f.store.getState().notebook.groups[0]!.id,
+    }));
+  });
+
+  it('reuses only a containing resident passage and treats end as exclusive', async () => {
+    const f = setup();
+    f.store.getState().setScrub({ doc: 'a', token: 5 });
+    f.passages().at(-1)!.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
+    await flush();
+    const before = f.passages().length;
+    f.store.getState().pinPassage('a', 9);
+    expect(f.passages()).toHaveLength(before);
+    expect(f.store.getState().pins[0]!.kind).toBe('ready');
+    f.store.getState().pinPassage('a', 10);
+    expect(f.passages()).toHaveLength(before + 1);
+  });
+
+  it('focuses duplicates, visibly refuses a ninth item, and counts pending pins toward the cap', () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 0);
+    const first = f.store.getState().pins[0]!;
+    const afterFirst = f.passages().length;
+    f.store.getState().pinPassage('a', 0);
+    expect(f.passages()).toHaveLength(afterFirst);
+    expect(f.store.getState().pins).toHaveLength(1);
+    expect(f.store.getState().focusedPinId).toBe(first.id);
+    expect(f.store.getState().pinAnnouncement).toMatch(/already pinned/);
+    for (let token = 1; token < 8; token++) f.store.getState().pinPassage('a', token);
+    const eight = f.store.getState().pins;
+    const requests = f.passages().length;
+    f.store.getState().pinPassage('a', 8);
+    expect(f.store.getState().pins).toBe(eight);
+    expect(f.passages()).toHaveLength(requests);
+    expect(f.store.getState().pinError).toMatch(/limited to 8/);
+  });
+
+  it('removing a pending pin cancels it and a raced late result cannot resurrect it', async () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 3);
+    const pin = f.store.getState().pins[0]!;
+    const request = f.passages().at(-1)!;
+    f.store.getState().removePin(pin.id);
+    expect(request.cancelled).toBe(true);
+    expect(f.store.getState().pins).toEqual([]);
+    request.resolve({ op: 'passage', passage: fakePassage(0, 10, 3) });
+    await flush();
+    expect(f.store.getState().pins).toEqual([]);
+  });
+
+  it('retries an error under captured semantics and rejects the old attempt late', async () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 4);
+    const first = f.passages().at(-1)!;
+    first.reject(new Error('temporary failure'));
+    await flush();
+    const pin = f.store.getState().pins[0]!;
+    expect(pin.kind).toBe('error');
+    f.store.getState().retryPin(pin.id);
+    const retry = f.passages().at(-1)!;
+    expect(retry).not.toBe(first);
+    retry.resolve({ op: 'passage', passage: fakePassage(0, 10, 4) });
+    first.resolve({ op: 'passage', passage: fakePassage(0, 10, 4) });
+    await flush();
+    expect(f.store.getState().pins[0]!.kind).toBe('ready');
+  });
+
+  it('snapshot replacement cancels/clears pins and the reader place; notebook changes do neither', async () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 1);
+    const pending = f.passages().at(-1)!;
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
+    expect(f.store.getState().readerPlace).not.toBeNull();
+    f.store.getState().renameGroup(f.store.getState().notebook.groups[0]!.id, 'Detective');
+    expect(f.store.getState().pins).toHaveLength(1);
+    expect(pending.cancelled).toBe(false);
+    f.port.publishSnapshot('g1', 's2', ['a']);
+    expect(pending.cancelled).toBe(true);
+    expect(f.store.getState().pins).toEqual([]);
+    expect(f.store.getState().readerPlace).toBeNull();
+    pending.resolve({ op: 'passage', passage: fakePassage(0, 10, 1) });
+    await flush();
+    expect(f.store.getState().pins).toEqual([]);
+  });
+
+  it('fences reader opens by served snapshot and pins without clearing linked selection', () => {
+    const f = setup();
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      doc: 'a',
+      tokens: { start: 0, end: 3 },
+    });
+    f.store.getState().pinPassage('a', 1);
+    expect(f.store.getState().linkedSelection).not.toBeNull();
+    f.store.getState().openReader({ snapshot: 'old', doc: 'a', token: 1, from: 'pin' });
+    expect(f.store.getState().readerPlace).toBeNull();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
+    expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'around', token: 1 });
+    f.store.getState().closeReader();
+    expect(f.store.getState().readerPlace).toBeNull();
+  });
+
+  it('dispose cancels every pending pin and fences late settlements', async () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 1);
+    f.store.getState().pinPassage('a', 2);
+    const requests = f.passages().slice(-2);
+    f.runtime.dispose();
+    expect(requests.every((request) => request.cancelled)).toBe(true);
+    for (const [i, request] of requests.entries()) {
+      request.resolve({ op: 'passage', passage: fakePassage(0, 10, i + 1) });
+    }
+    await flush();
+    expect(f.store.getState().pins.every((pin) => pin.kind === 'pending')).toBe(true);
+  });
+});

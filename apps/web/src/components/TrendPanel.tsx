@@ -44,6 +44,7 @@ import {
   seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
+  TREND_LABEL_SPACE,
   type SequenceLayout,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
@@ -56,7 +57,7 @@ const SERIES_HEIGHT = 180;
 const TOP_PAD = 14; // room for the y-max direct label above the plot
 const ROW_HEIGHT = 44;
 const ROW_GAP = 22;
-const LABEL_SPACE = 130;
+const LABEL_SPACE = TREND_LABEL_SPACE;
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
 const MIN_PLOT_WIDTH = 320;
@@ -391,6 +392,7 @@ function ScrubSurface({
   const scrub = useApp((s) => s.scrub);
   const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
+  const pinPassage = useApp((s) => s.pinPassage);
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
@@ -456,6 +458,16 @@ function ScrubSurface({
   } | null>(null);
 
   const onKeyDown = (e: React.KeyboardEvent) => {
+    // Keep browser/application shortcuts (notably Cmd/Ctrl+S) intact. Shift
+    // remains unguarded because it deliberately changes the scrub step.
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    if ((e.key === 'p' || e.key === 'P') && preview === null) {
+      if (scrub && scrubDocOrdinal >= 0) {
+        e.preventDefault();
+        pinPassage(scrub.doc, scrub.token);
+      }
+      return;
+    }
     if ((e.key === 's' || e.key === 'S') && preview === null) {
       if (scrub && scrubDocOrdinal >= 0) {
         e.preventDefault();
@@ -521,9 +533,9 @@ function ScrubSurface({
   const passageServes =
     scrub !== null &&
     passage !== null &&
-    passage.doc === scrub.doc &&
-    scrub.token >= passage.tokens.start &&
-    scrub.token < passage.tokens.end;
+    passage.result.doc === scrub.doc &&
+    scrub.token >= passage.result.tokens.start &&
+    scrub.token < passage.result.tokens.end;
   const scrubTitle = scrub ? titleByDoc.get(scrub.doc) ?? scrub.doc : '';
   const scrubCaption = scrub && scrubDocOrdinal >= 0
     ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
@@ -569,7 +581,7 @@ function ScrubSurface({
         }
     : null;
   const rangeStatus = preview
-    ? `Selecting ${preview.origin.doc}, tokens ${Math.min(preview.origin.token, preview.head.token) + 1}–${Math.max(preview.origin.token, preview.head.token) + 1}`
+    ? `Selecting ${titleByDoc.get(preview.origin.doc) ?? preview.origin.doc}, tokens ${Math.min(preview.origin.token, preview.head.token) + 1}–${Math.max(preview.origin.token, preview.head.token) + 1}`
     : linkedSelection
       ? `Selected ${(linkedSelection.tokens.end - linkedSelection.tokens.start).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.doc) ?? linkedSelection.doc}`
       : 'Press S at the reading cursor to select a range';
@@ -583,9 +595,17 @@ function ScrubSurface({
         aria-valuemin={0}
         aria-valuemax={Math.max(0, layout.totalTokens - 1)}
         aria-valuenow={
-          scrub && scrubDocOrdinal >= 0 ? (layout.bases[scrubDocOrdinal] ?? 0) + scrub.token : 0
+          preview?.mode === 'keyboard'
+            ? (layout.bases[docs.indexOf(preview.head.doc)] ?? 0) + preview.head.token
+            : scrub && scrubDocOrdinal >= 0
+              ? (layout.bases[scrubDocOrdinal] ?? 0) + scrub.token
+              : 0
         }
-        aria-valuetext={scrubCaption || 'no position'}
+        aria-valuetext={
+          preview?.mode === 'keyboard'
+            ? `${titleByDoc.get(preview.head.doc) ?? preview.head.doc} · selection head token ${(preview.head.token + 1).toLocaleString()}`
+            : scrubCaption || 'no position'
+        }
         onKeyDown={onKeyDown}
         style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'none' }}
         onPointerMove={(e) => {
@@ -626,8 +646,12 @@ function ScrubSurface({
           if (e.currentTarget.hasPointerCapture(e.pointerId)) {
             e.currentTarget.releasePointerCapture(e.pointerId);
           }
-          if (drag.active) commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
-          else setScrub(drag.origin); // click stays the axis point gesture; F turns it into a pin
+          if (drag.active) {
+            commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
+          } else {
+            setScrub(drag.origin);
+            pinPassage(drag.origin.doc, drag.origin.token);
+          }
         }}
         onPointerCancel={(e) => {
           if (pointerDrag.current?.pointerId !== e.pointerId) return;
@@ -674,7 +698,7 @@ function ScrubSurface({
       </div>
       {scrub && passageServes && scrubX !== null ? (
         <PassageLine
-          passage={passage}
+          passage={passage.result}
           token={scrub.token}
           crosshairX={scrubX}
           series={series}
@@ -704,7 +728,7 @@ function ScrubSurface({
           }}
         >
           hover or focus the chart to read the text at any position — arrows step by
-          token, shift+arrows by 5, PageUp/Down by bin · press S to select a range
+          token, shift+arrows by 5, PageUp/Down by bin · press P to pin · press S to select a range
         </p>
       )}
       <p

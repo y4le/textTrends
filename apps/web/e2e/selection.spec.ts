@@ -8,6 +8,7 @@
 
 import { expect, test, type Page, type Worker } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
 
 // 12 tokens; wolf at 1, 6, and 9.
 const CORPUS = 'alpha wolf beta gamma fox delta wolf eta theta wolf iota omega\n';
@@ -188,7 +189,7 @@ test('pointer and keyboard selections share detail evidence and stale results ca
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const box = (await scrubber.boundingBox())!;
-  const plotWidth = box.width - 130;
+  const plotWidth = box.width - TREND_LABEL_SPACE;
 
   // Pointer selection A: drag token 5 → token 10, committing [5,11). Until
   // pointer-up, the preview is local and no selected query is posted.
@@ -263,7 +264,7 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await gateRelease(worker);
   await awaitFreshKwic(page, clearMark);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
-  await expect(page.getByText('wolf: 3 occurrences')).toBeVisible();
+  await expect(page.getByText('wolf: 3 occurrences', { exact: true })).toBeVisible();
 
   // A snapshot replacement invalidates the committed range as an identity,
   // not by clamping its old tokens into the new document.

@@ -79,6 +79,11 @@ export function BarcodeStrip({
     );
   }, [linkedSelection, selectedDispersion, seriesOrder]);
   const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
+  const selectedLabel = (seriesId: string): string => {
+    if (!selectedDispersion || selectedDispersion.state.status === 'pending') return '…';
+    if (selectedDispersion.state.status === 'error') return 'error';
+    return selectedBySeries.get(seriesId)?.total.toLocaleString() ?? '0';
+  };
 
   const height = tracks.length === 0 ? 0 : tracks.length * (TRACK_H + TRACK_GAP);
 
@@ -173,7 +178,7 @@ export function BarcodeStrip({
             <span>
               {trackSummaryText(track, labelOf(track.seriesId))}
               {linkedSelection ? (
-                <> · {selectedBySeries.get(track.seriesId)?.total.toLocaleString() ?? '…'} selected</>
+                <> · {selectedLabel(track.seriesId)} selected</>
               ) : null}
             </span>
             {track.total > 0 && (

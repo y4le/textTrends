@@ -54,11 +54,25 @@ import {
   type DocumentMetaV1,
   type GroupMember,
   type NumericTrend,
-  type PassageResult,
   type StructureOverrideV1,
   type TermGroupSpec,
 } from '@texttrends/core';
 import { detailSelection, isValidSelection, type TokenRangeSelectionV1 } from './selection.ts';
+import {
+  MAX_PINNED_SNIPPETS,
+  canReusePassage,
+  evidenceFrom,
+  samePinAnchor,
+  type CapturedTrack,
+  type PassageBlockState,
+  type PinAnchor,
+  type PinnedSnippet,
+} from './pins.ts';
+import {
+  readerPlaceFor,
+  type ReaderOpenIntent,
+  type ReaderPlace,
+} from './reader-intent.ts';
 import {
   coreGroupOf,
   groupIdentity,
@@ -70,7 +84,12 @@ import {
 } from './notebook.ts';
 import { isCancelled } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
-import { LatestOperation, OperationScope, type OperationLease } from './operation-lease.ts';
+import {
+  KeyedLatestOperation,
+  LatestOperation,
+  OperationScope,
+  type OperationLease,
+} from './operation-lease.ts';
 import type {
   DispersionResultV1,
   LineExcerptResultV1,
@@ -157,6 +176,8 @@ export type SeriesTrendState =
  *  served `center` (null = reading order). The center is carried so the panel's
  *  caption describes the result that actually landed, not the live cursor. */
 export interface KwicState {
+  /** Snapshot under which every row/state in this arm was issued. */
+  readonly snapshot: string;
   /** The served center; `origin: 'bucket'` marks a density-bucket midpoint
    *  target so the caption says "nearest occurrence to this bucket" and can
    *  report the first row's distance (never implying an exact occurrence). */
@@ -212,6 +233,8 @@ export interface LineExcerptState {
 /** The dispersion barcode result for the CURRENT effective comparison —
  *  issued with the trend burst, same guards (slice-2 commit D). */
 export interface DispersionState {
+  /** Snapshot under which this resident result/state was issued. */
+  readonly snapshot: string;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly result: DispersionResultV1 }
@@ -338,7 +361,15 @@ export interface AppState {
   scrub: ScrubTarget | null;
   /** The loaded passage block — may lag the scrub target while a fetch is in
    *  flight; the panel renders the block that CONTAINS the target only. */
-  passage: PassageResult | null;
+  passage: PassageBlockState | null;
+  /** Bounded, insertion-ordered captured evidence. Pending/error items count
+   *  toward the cap; snapshot replacement clears the whole collection. */
+  pins: readonly PinnedSnippet[];
+  focusedPinId: string | null;
+  pinError: string | null;
+  pinAnnouncement: string | null;
+  /** F owns only the fenced place/placeholder; H attaches reader-page state. */
+  readerPlace: ReaderPlace | null;
 
   // ── Query/presentation intent (owned here). ──
   /** Append-only quick-add: each comma term becomes a single-token folded
@@ -375,6 +406,15 @@ export interface AppState {
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
+  pinPassage(doc: string, token: number): void;
+  removePin(id: string): void;
+  retryPin(id: string): void;
+  focusPin(id: string): void;
+  clearPinError(): void;
+  openReader(intent: ReaderOpenIntent): void;
+  closeReader(): void;
+  /** Internal/publicly harmless revalidation invoked only on snapshot change. */
+  revalidatePins(): void;
   runQueries(): void;
   /** (Re)issue the focused doc's outline query. Called on snapshot change and
    *  when the focused doc changes; independent of the term-series flow. */
@@ -500,6 +540,17 @@ export function createAppRuntime(
   // one-pending slot machinery below stays bespoke (it is a scheduler, not a
   // latest-wins request), so it is a bare lane without tracked cancels.
   const scrubOps = new LatestOperation(scope);
+  // Pins are independent intents: keyed ownership prevents pin B from
+  // superseding pin A, while the shared scope still fences runtime teardown.
+  const pinOps = new KeyedLatestOperation<string>(scope);
+  const pinCancels = new Map<string, () => void>();
+  const pinRequests = new Map<
+    string,
+    {
+      readonly wire: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[];
+      readonly tracks: readonly CapturedTrack[];
+    }
+  >();
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
   let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
@@ -575,20 +626,105 @@ export function createAppRuntime(
      *  any group vanished (the intent is already superseded). */
     const trackSpecs = (
       series: readonly SeriesIntent[],
-    ): { wire: { seriesId: string; group: TermGroupSpec }[]; identities: (readonly [string, string])[] } | null => {
+    ): {
+      wire: { seriesId: string; group: TermGroupSpec }[];
+      identities: (readonly [string, string])[];
+      captured: readonly CapturedTrack[];
+    } | null => {
       const wire: { seriesId: string; group: TermGroupSpec }[] = [];
       const identities: (readonly [string, string])[] = [];
+      const captured: CapturedTrack[] = [];
       for (const s of series) {
         const spec = specFor(s.id);
         if (spec === null) return null;
+        const identity = termGroupIdentity(spec);
         wire.push({ seriesId: s.id, group: spec });
-        identities.push([s.id, termGroupIdentity(spec)] as const);
+        identities.push([s.id, identity] as const);
+        captured.push(Object.freeze({
+          seriesId: s.id,
+          groupId: spec.id,
+          identity,
+          label: s.label,
+          styleSlot: s.styleSlot,
+        }));
       }
-      return { wire, identities };
+      return { wire, identities, captured: Object.freeze(captured) };
     };
 
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
       pairs.every(([id, ident]) => identityOf(id) === ident);
+
+    const replacePin = (
+      id: string,
+      replace: (pin: PinnedSnippet) => PinnedSnippet,
+    ): void => {
+      set((state) => ({
+        pins: state.pins.map((pin) => pin.id === id ? replace(pin) : pin),
+      }));
+    };
+
+    /** Issue one independently-owned pin passage request. Deliberately no
+     * live semantic-identity guard: the pending arm already captured the
+     * semantics this result truthfully describes. */
+    const issuePin = (
+      id: string,
+      anchor: PinAnchor,
+      tracks: readonly CapturedTrack[],
+      wire: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    ): void => {
+      const issuedKey = snapKey(get().snapshot);
+      const lease = pinOps.begin(
+        id,
+        () => snapKey(get().snapshot) === issuedKey,
+        () => get().pins.some((pin) => pin.id === id),
+      );
+      pinRequests.set(id, { wire, tracks });
+      const handle = client.query(anchor.snapshot, {
+        op: 'passage',
+        request: {
+          doc: anchor.doc,
+          centerToken: anchor.token,
+          maxTokens: PASSAGE_MAX_TOKENS,
+          tracks: wire,
+        },
+      });
+      pinCancels.set(id, handle.cancel);
+      const releaseCancel = () => {
+        if (pinCancels.get(id) === handle.cancel) pinCancels.delete(id);
+      };
+      void handle.result
+        .then((data) => {
+          releaseCancel();
+          if (!lease.isCurrent()) return;
+          if (data.op !== 'passage') {
+            replacePin(id, (pin) => ({ ...pin, kind: 'error', message: 'unexpected pin result' }));
+            return;
+          }
+          const evidence = evidenceFrom(data.passage, anchor.token);
+          if (evidence === null) {
+            replacePin(id, (pin) => ({ ...pin, kind: 'error', message: 'passage did not contain the pinned token' }));
+            return;
+          }
+          replacePin(id, (pin) => ({
+            kind: 'ready',
+            id: pin.id,
+            anchor: pin.anchor,
+            tracks: pin.tracks,
+            evidence,
+          }));
+        })
+        .catch((e: unknown) => {
+          releaseCancel();
+          if (isCancelled(e) || !lease.isCurrent()) return;
+          replacePin(id, (pin) => ({
+            kind: 'error',
+            id: pin.id,
+            anchor: pin.anchor,
+            tracks: pin.tracks,
+            message: e instanceof Error ? e.message : String(e),
+          }));
+        });
+    };
 
     /** The doc's token extent, if any ready trend result carries it. */
     const docTokenCountOf = (doc: string): number | null => {
@@ -601,12 +737,12 @@ export function createAppRuntime(
     };
 
     /** Would a fetch centered at `token` produce the block we already hold? */
-    const blockServes = (passage: PassageResult, target: ScrubTarget): boolean => {
-      if (passage.doc !== target.doc) return false;
-      const { start, end } = passage.tokens;
+    const blockServes = (passage: PassageBlockState, target: ScrubTarget): boolean => {
+      if (passage.result.doc !== target.doc) return false;
+      const { start, end } = passage.result.tokens;
       if (target.token < start || target.token >= end) return false;
       const tc = docTokenCountOf(target.doc);
-      if (tc !== null && !passage.truncatedByCharCap) {
+      if (tc !== null && !passage.result.truncatedByCharCap) {
         // Exact: the block a refetch would serve (same construction as the
         // kernel) — identical block means the fetch is pure waste.
         const es = Math.max(0, Math.min(target.token - (PASSAGE_MAX_TOKENS >> 1), tc - PASSAGE_MAX_TOKENS));
@@ -655,7 +791,15 @@ export function createAppRuntime(
       void handle.result
         .then((data) => {
           if (!settleOwnership()) return;
-          if (data.op === 'passage' && current()) set({ passage: data.passage });
+          if (data.op === 'passage' && current()) {
+            set({
+              passage: {
+                snapshot: snapshot.snapshot,
+                tracks: tracks.captured,
+                result: data.passage,
+              },
+            });
+          }
           pumpPassage(); // a newer target may be parked in the pending slot
         })
         .catch((e: unknown) => {
@@ -726,16 +870,33 @@ export function createAppRuntime(
           () => identitiesCurrent(dTracks.identities),
           guard,
         );
-        set({ selectedDispersion: { state: { status: 'pending' } } });
+        set({
+          selectedDispersion: {
+            snapshot: snapshot.snapshot,
+            state: { status: 'pending' },
+          },
+        });
         issueOn(
           selectedDispersionLane,
           snapshot.snapshot,
           { op: 'dispersion', selection: wireSelection, tracks: dTracks.wire, request: { method: 'dispersion/1', exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET } },
           dLease,
           (data) => {
-            if (data.op === 'dispersion') set({ selectedDispersion: { state: { status: 'ready', result: data.dispersion } } });
+            if (data.op === 'dispersion') {
+              set({
+                selectedDispersion: {
+                  snapshot: snapshot.snapshot,
+                  state: { status: 'ready', result: data.dispersion },
+                },
+              });
+            }
           },
-          (message) => set({ selectedDispersion: { state: { status: 'error', message } } }),
+          (message) => set({
+            selectedDispersion: {
+              snapshot: snapshot.snapshot,
+              state: { status: 'error', message },
+            },
+          }),
         );
       }
     };
@@ -757,7 +918,7 @@ export function createAppRuntime(
       const enabled = series.filter((s) => kwicEnabledSeries.has(s.id));
       if (enabled.length === 0) {
         // Zero enabled terms: clear rows, issue no query, keep the panel + chips.
-        set({ kwic: { center, state: { status: 'no-terms' } } });
+        set({ kwic: { snapshot: snapshot.snapshot, center, state: { status: 'no-terms' } } });
         return;
       }
       const tracks = trackSpecs(enabled);
@@ -772,7 +933,7 @@ export function createAppRuntime(
         () => identitiesCurrent(tracks.identities),
         () => get().linkedSelection === issuedSelection,
       );
-      set({ kwic: { center, state: { status: 'pending' } } });
+      set({ kwic: { snapshot: snapshot.snapshot, center, state: { status: 'pending' } } });
       issueOn(
         kwicLane,
         snapshot.snapshot,
@@ -789,9 +950,23 @@ export function createAppRuntime(
         },
         lease,
         (data) => {
-          if (data.op === 'kwic') set({ kwic: { center, state: { status: 'ready', total: data.total, rows: data.rows } } });
+          if (data.op === 'kwic') {
+            set({
+              kwic: {
+                snapshot: snapshot.snapshot,
+                center,
+                state: { status: 'ready', total: data.total, rows: data.rows },
+              },
+            });
+          }
         },
-        (message) => set({ kwic: { center, state: { status: 'error', message } } }),
+        (message) => set({
+          kwic: {
+            snapshot: snapshot.snapshot,
+            center,
+            state: { status: 'error', message },
+          },
+        }),
       );
     };
 
@@ -813,7 +988,15 @@ export function createAppRuntime(
       if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
       kwicLane.supersede(); // any in-flight KWIC result was under the old center — drop it
       const held = get().kwic;
-      if (held && held.state.status !== 'pending') set({ kwic: { center: held.center, state: { status: 'pending' } } });
+      if (held && held.state.status !== 'pending') {
+        set({
+          kwic: {
+            snapshot: held.snapshot,
+            center: held.center,
+            state: { status: 'pending' },
+          },
+        });
+      }
       if (kwicCenterTimer !== null) clearTimeout(kwicCenterTimer);
       kwicCenterTimer = setTimeout(() => {
         kwicCenterTimer = null;
@@ -942,6 +1125,11 @@ export function createAppRuntime(
       sectionMarks: false,
       scrub: null,
       passage: null,
+      pins: [],
+      focusedPinId: null,
+      pinError: null,
+      pinAnnouncement: null,
+      readerPlace: null,
 
       quickAdd(input) {
         const state = get();
@@ -1116,6 +1304,159 @@ export function createAppRuntime(
         runKwic();
       },
 
+      pinPassage(doc, token) {
+        const { snapshot, pins, passage, series } = get();
+        if (
+          !snapshot
+          || !snapshot.readyDocs.includes(doc)
+          || !Number.isSafeInteger(token)
+          || token < 0
+        ) return;
+        const tokenCount = docTokenCountOf(doc);
+        if (tokenCount !== null && token >= tokenCount) return;
+        const anchor: PinAnchor = { snapshot: snapshot.snapshot, doc, token };
+        const duplicate = pins.find((pin) => samePinAnchor(pin.anchor, anchor));
+        if (duplicate) {
+          set({
+            focusedPinId: duplicate.id,
+            pinError: null,
+            pinAnnouncement: 'That position is already pinned; focused the existing evidence.',
+          });
+          return;
+        }
+        if (pins.length >= MAX_PINNED_SNIPPETS) {
+          set({
+            pinError: `Pinned evidence is limited to ${MAX_PINNED_SNIPPETS} — remove one first.`,
+            pinAnnouncement: null,
+          });
+          return;
+        }
+        const request = trackSpecs(series);
+        if (request === null) return;
+        const id = newId();
+        if (canReusePassage(passage, anchor, snapshot.snapshot, request.captured)) {
+          const evidence = evidenceFrom(passage.result, token);
+          if (evidence !== null) {
+            const ready: PinnedSnippet = Object.freeze({
+              kind: 'ready',
+              id,
+              anchor: Object.freeze(anchor),
+              tracks: request.captured,
+              evidence,
+            });
+            set({
+              pins: [...pins, ready],
+              focusedPinId: id,
+              pinError: null,
+              pinAnnouncement: 'Pinned the loaded passage.',
+            });
+            return;
+          }
+        }
+        const pending: PinnedSnippet = Object.freeze({
+          kind: 'pending',
+          id,
+          anchor: Object.freeze(anchor),
+          tracks: request.captured,
+        });
+        set({
+          pins: [...pins, pending],
+          focusedPinId: id,
+          pinError: null,
+          pinAnnouncement: 'Capturing pinned evidence.',
+        });
+        issuePin(id, anchor, request.captured, request.wire);
+      },
+
+      removePin(id) {
+        try {
+          pinCancels.get(id)?.();
+        } catch {
+          // Best-effort transport cleanup; ownership invalidation is authority.
+        }
+        pinCancels.delete(id);
+        pinRequests.delete(id);
+        pinOps.invalidate(id);
+        set((state) => ({
+          pins: state.pins.filter((pin) => pin.id !== id),
+          focusedPinId: state.focusedPinId === id ? null : state.focusedPinId,
+          pinError: null,
+          pinAnnouncement: 'Removed pinned evidence.',
+        }));
+      },
+
+      retryPin(id) {
+        const pin = get().pins.find((candidate) => candidate.id === id);
+        const request = pinRequests.get(id);
+        if (!pin || pin.kind !== 'error' || !request) return;
+        replacePin(id, () => ({
+          kind: 'pending',
+          id: pin.id,
+          anchor: pin.anchor,
+          tracks: pin.tracks,
+        }));
+        set({ focusedPinId: id, pinError: null, pinAnnouncement: 'Retrying pinned evidence.' });
+        issuePin(id, pin.anchor, request.tracks, request.wire);
+      },
+
+      focusPin(id) {
+        if (!get().pins.some((pin) => pin.id === id)) return;
+        set({ focusedPinId: id, pinAnnouncement: 'Focused pinned evidence.' });
+      },
+
+      clearPinError() {
+        set({ pinError: null });
+      },
+
+      openReader(intent) {
+        const snapshot = get().snapshot;
+        const place = readerPlaceFor(
+          intent,
+          snapshot?.snapshot ?? null,
+          snapshot?.readyDocs ?? [],
+        );
+        if (place) set({ readerPlace: place });
+      },
+
+      closeReader() {
+        set({ readerPlace: null });
+      },
+
+      revalidatePins() {
+        const state = get();
+        const liveSnapshot = state.snapshot?.snapshot ?? null;
+        const readyDocs = state.snapshot?.readyDocs ?? [];
+        const dead = state.pins.filter(
+          (pin) =>
+            pin.anchor.snapshot !== liveSnapshot
+            || !readyDocs.includes(pin.anchor.doc),
+        );
+        for (const pin of dead) {
+          try {
+            pinCancels.get(pin.id)?.();
+          } catch {
+            // Lease invalidation below remains authoritative.
+          }
+          pinCancels.delete(pin.id);
+          pinRequests.delete(pin.id);
+          pinOps.invalidate(pin.id);
+        }
+        const readerLive =
+          state.readerPlace !== null
+          && state.readerPlace.snapshot === liveSnapshot
+          && readyDocs.includes(state.readerPlace.doc);
+        if (dead.length > 0 || (!readerLive && state.readerPlace !== null)) {
+          const deadIds = new Set(dead.map((pin) => pin.id));
+          set({
+            pins: state.pins.filter((pin) => !deadIds.has(pin.id)),
+            focusedPinId: deadIds.has(state.focusedPinId ?? '') ? null : state.focusedPinId,
+            pinError: null,
+            pinAnnouncement: dead.length > 0 ? 'Cleared pins from the replaced snapshot.' : state.pinAnnouncement,
+            readerPlace: readerLive ? state.readerPlace : null,
+          });
+        }
+      },
+
       runQueries() {
         const { snapshot, series } = get();
         // Trend intent changed: ALWAYS cancel superseded work, clear to
@@ -1209,7 +1550,12 @@ export function createAppRuntime(
             () => snapKey(get().snapshot) === issuedKey,
             () => identitiesCurrent(dTracks.identities),
           );
-          set({ dispersion: { state: { status: 'pending' } } });
+          set({
+            dispersion: {
+              snapshot: issuedSnapshot,
+              state: { status: 'pending' },
+            },
+          });
           issueOn(
             dispersionLane,
             issuedSnapshot,
@@ -1221,9 +1567,21 @@ export function createAppRuntime(
             },
             dLease,
             (data) => {
-              if (data.op === 'dispersion') set({ dispersion: { state: { status: 'ready', result: data.dispersion } } });
+              if (data.op === 'dispersion') {
+                set({
+                  dispersion: {
+                    snapshot: issuedSnapshot,
+                    state: { status: 'ready', result: data.dispersion },
+                  },
+                });
+              }
             },
-            (message) => set({ dispersion: { state: { status: 'error', message } } }),
+            (message) => set({
+              dispersion: {
+                snapshot: issuedSnapshot,
+                state: { status: 'error', message },
+              },
+            }),
           );
         }
 
@@ -1417,6 +1775,7 @@ export function createAppRuntime(
       if (store.getState().editContext !== null || store.getState().lineExcerpt !== null) {
         store.setState({ editContext: null, lineExcerpt: null });
       }
+      store.getState().revalidatePins();
       store.getState().runQueries();
       store.getState().runStructure();
     }
@@ -1466,6 +1825,15 @@ export function createAppRuntime(
       passageActiveCancel?.();
       passageActiveCancel = null;
       passagePending = null;
+      for (const cancel of pinCancels.values()) {
+        try {
+          cancel();
+        } catch {
+          // Scope closure already killed ownership; transport is best effort.
+        }
+      }
+      pinCancels.clear();
+      pinRequests.clear();
       if (kwicCenterTimer !== null) {
         clearTimeout(kwicCenterTimer);
         kwicCenterTimer = null;

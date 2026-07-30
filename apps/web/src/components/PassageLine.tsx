@@ -17,40 +17,11 @@ import { useLayoutEffect, useRef, useState } from 'react';
 import type { PassageResult } from '@texttrends/core';
 import { slotColor } from '../lib/series-style.ts';
 import type { SeriesIntent } from '../lib/store.ts';
-
-interface Segment {
-  readonly start: number;
-  readonly end: number;
-  readonly seriesIds: readonly string[];
-}
-
-/** Non-overlapping segments from (possibly overlapping) mark spans. */
-function segmentMarks(
-  length: number,
-  marks: readonly { readonly seriesId: string; readonly start: number; readonly end: number }[],
-  extraBoundaries: readonly number[],
-): Segment[] {
-  const bounds = new Set<number>([0, length, ...extraBoundaries]);
-  for (const m of marks) {
-    bounds.add(Math.max(0, Math.min(length, m.start)));
-    bounds.add(Math.max(0, Math.min(length, m.end)));
-  }
-  const sorted = [...bounds].filter((b) => b >= 0 && b <= length).sort((a, b) => a - b);
-  const out: Segment[] = [];
-  for (let i = 0; i + 1 < sorted.length; i++) {
-    const start = sorted[i]!;
-    const end = sorted[i + 1]!;
-    if (start === end) continue;
-    const covering = marks.filter((m) => m.start <= start && m.end >= end);
-    // Deterministic order: first-marked wins the tint.
-    out.push({ start, end, seriesIds: covering.map((m) => m.seriesId) });
-  }
-  return out;
-}
-
-/** Single code-unit substitutions only (offsets must survive): every
- *  Unicode line break the segmenter recognizes, plus tabs. */
-const DISPLAY_WS = /[\n\r\t\u0085\u2028\u2029]/g;
+import {
+  displayPassageText,
+  segmentPassageMarks,
+  type PassageSegment,
+} from '../lib/passage-marks.ts';
 
 export function PassageLine({
   passage,
@@ -83,15 +54,15 @@ export function PassageLine({
     setCenterOffset(pre.getBoundingClientRect().width + center.getBoundingClientRect().width / 2);
   }, [passage, token]);
 
-  const display = passage.text.replace(DISPLAY_WS, ' ');
+  const display = displayPassageText(passage.text);
   const slotOf = new Map(series.map((s) => [s.id, s.styleSlot]));
-  const segments = segmentMarks(
+  const segments = segmentPassageMarks(
     display.length,
     passage.marks.map((m) => ({ seriesId: m.seriesId, start: m.charsUtf16.start, end: m.charsUtf16.end })),
     [centerStart, centerEnd],
   );
 
-  const styled = (seg: Segment, key: number) => {
+  const styled = (seg: PassageSegment, key: number) => {
     if (seg.seriesIds.length === 0) {
       return <span key={key}>{display.slice(seg.start, seg.end)}</span>;
     }
