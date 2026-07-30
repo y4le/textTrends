@@ -194,7 +194,9 @@ test('click pins are independent, removed late evidence stays removed, and snaps
     }, { timeout: 30_000 })
     .toBe('correlated');
 
-  // Any newly published snapshot invalidates every token-coordinate pin.
+  // A new snapshot clears transient token coordinates, then durable character
+  // anchors restore evidence whose document TextHash is unchanged.
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
-  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(1);
+  await expect(page.getByText('pins · token 10')).toBeVisible();
 });

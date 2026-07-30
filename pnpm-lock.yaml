@@ -42,6 +42,9 @@ importers:
       '@texttrends/standard-ebooks':
         specifier: workspace:*
         version: link:../../../standard_ebooks
+      fflate:
+        specifier: 0.8.3
+        version: 0.8.3
       idb:
         specifier: ^8.0.3
         version: 8.0.3
@@ -70,9 +73,6 @@ importers:
       fake-indexeddb:
         specifier: ^6.2.5
         version: 6.2.5
-      fflate:
-        specifier: 0.8.3
-        version: 0.8.3
       typescript:
         specifier: ^5.9.0
         version: 5.9.3

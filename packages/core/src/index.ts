@@ -47,7 +47,11 @@ export {
 export {
   RESEARCH_MAX_PINS,
   RESEARCH_MAX_SELECTIONS,
+  parseCharAnchor,
+  parseInventoryResearchView,
+  parseKeynessResearchView,
   parseResearchState,
+  parseTrendResearchView,
   reconcileResearchState,
   upgradeStoredResearchState,
   type CharAnchorV1,
@@ -59,6 +63,14 @@ export {
   type SavedSelectionV1,
   type TrendResearchViewV1,
 } from './project/research-state.ts';
+export {
+  SHARE_MAX_ANCHORS,
+  SHARE_MAX_DOCUMENTS,
+  SHARE_MAX_TITLE_UNITS,
+  parseShareLink,
+  type ShareDocumentV1,
+  type ShareLinkV1,
+} from './project/share.ts';
 export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,

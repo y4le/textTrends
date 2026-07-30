@@ -127,5 +127,10 @@ describe('durable character anchors', () => {
       new Map([[world.doc, world.shard]]),
       Array.from({ length: COMPILE_ANCHOR_MAX_ITEMS + 1 }, () => empty),
     )).toThrow(/at most 64/);
+    expect(() => compileAnchors(
+      world.snapshot,
+      new Map([[world.doc, world.shard]]),
+      [{ ...empty, chars: { start: 2, end: 1 } }],
+    )).toThrow(/nondecreasing safe-integer/);
   });
 });

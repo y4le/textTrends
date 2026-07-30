@@ -157,7 +157,10 @@ function uniqueStrings(
   return out;
 }
 
-function parseAnchor(value: unknown, what: string): CharAnchorV1 {
+export function parseCharAnchor(
+  value: unknown,
+  what = 'character anchor',
+): CharAnchorV1 {
   if (!exactRecord(value, ['doc', 'text', 'chars'])) {
     throw new RangeError(`${what} must be an exact character anchor`);
   }
@@ -197,7 +200,7 @@ function parseSelections(value: unknown): readonly SavedSelectionV1[] {
     return {
       id: item.id,
       name: item.name,
-      anchor: parseAnchor(item.anchor, `selection ${index}.anchor`),
+      anchor: parseCharAnchor(item.anchor, `selection ${index}.anchor`),
     };
   });
 }
@@ -242,7 +245,7 @@ function parsePins(value: unknown): readonly SavedPinV1[] {
     return {
       id: item.id,
       note: item.note,
-      anchor: parseAnchor(item.anchor, `pin ${index}.anchor`),
+      anchor: parseCharAnchor(item.anchor, `pin ${index}.anchor`),
       captured: parseCaptured(item.captured, index),
     };
   });
@@ -260,7 +263,7 @@ function parseClasses(value: unknown, what: string): readonly ('lexical' | 'nume
   return rows as readonly ('lexical' | 'numeral')[];
 }
 
-function parseTrendView(value: unknown): TrendResearchViewV1 {
+export function parseTrendResearchView(value: unknown): TrendResearchViewV1 {
   if (!exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc'])) {
     throw new RangeError('trend view must be exact');
   }
@@ -277,7 +280,7 @@ function parseTrendView(value: unknown): TrendResearchViewV1 {
   return value as unknown as TrendResearchViewV1;
 }
 
-function parseInventoryView(value: unknown): InventoryViewV1 {
+export function parseInventoryResearchView(value: unknown): InventoryViewV1 {
   const hasPrefix = exactRecord(value, [
     'schema',
     'minCount',
@@ -325,7 +328,7 @@ function parseInventoryView(value: unknown): InventoryViewV1 {
   return value as unknown as InventoryViewV1;
 }
 
-function parseKeynessView(value: unknown): KeynessViewV1 {
+export function parseKeynessResearchView(value: unknown): KeynessViewV1 {
   if (
     !exactRecord(value, [
       'schema',
@@ -379,9 +382,9 @@ function parseViews(value: unknown): ResearchStateV1['views'] {
     throw new RangeError('research views must be exact');
   }
   return {
-    trend: parseTrendView(value.trend),
-    inventory: parseInventoryView(value.inventory),
-    keyness: parseKeynessView(value.keyness),
+    trend: parseTrendResearchView(value.trend),
+    inventory: parseInventoryResearchView(value.inventory),
+    keyness: parseKeynessResearchView(value.keyness),
   };
 }
 

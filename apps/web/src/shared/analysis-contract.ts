@@ -33,6 +33,9 @@ import type {
   TfidfSectionsResultV1,
   KeynessResultV1,
   KeynessTableRequestV1,
+  AnchorTokensResultV1,
+  CharAnchorV1,
+  CompileAnchorsResultV1,
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
@@ -117,6 +120,15 @@ export type QueryOpV4 =
   | { readonly op: 'structure-edit-context'; readonly request: { readonly doc: string } }
   // The bounded source line around a char anchor (§4) — evidence for a correction.
   | { readonly op: 'line-excerpt'; readonly request: { readonly doc: string; readonly anchor: number; readonly maxChars: number } }
+  | { readonly op: 'anchor-tokens'; readonly request: {
+      readonly method: 'anchor-tokens/1';
+      readonly doc: string;
+      readonly tokens: { readonly start: number; readonly end: number };
+    } }
+  | { readonly op: 'compile-anchor'; readonly request: {
+      readonly method: 'compile-anchor/1';
+      readonly anchors: readonly CharAnchorV1[];
+    } }
   // dispersion/1 (slice-2 ruling): the barcode's bounded numeric result over
   // the shared occurrence primitive — adaptive exact/density per track. The
   // request PINS the fixed resolution policy (the exported core constants);
@@ -291,6 +303,8 @@ export type QueryResultDataV4 =
   | { readonly op: 'structure'; readonly structure: StructureQueryResultV1 }
   | { readonly op: 'structure-edit-context'; readonly context: StructureEditContextV1 }
   | { readonly op: 'line-excerpt'; readonly excerpt: LineExcerptResultV1 }
+  | { readonly op: 'anchor-tokens'; readonly result: AnchorTokensResultV1 }
+  | { readonly op: 'compile-anchor'; readonly result: CompileAnchorsResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }

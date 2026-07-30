@@ -159,6 +159,46 @@ describe('parseToWorkerV4 envelope', () => {
     })).toBeNull();
   });
 
+  it('admits exact character-anchor operations and rejects reversed or sparse ranges', () => {
+    const anchor = {
+      doc: 'a',
+      text: 'a'.repeat(64),
+      chars: { start: 2, end: 7 },
+    };
+    const wrap = (query: unknown) => ({
+      v,
+      t: 'query',
+      job: 10,
+      snapshot: 's',
+      query,
+    });
+    expect(parseToWorkerV4(wrap({
+      op: 'anchor-tokens',
+      request: {
+        method: 'anchor-tokens/1',
+        doc: 'a',
+        tokens: { start: 1, end: 2 },
+      },
+    }))).not.toBeNull();
+    expect(parseToWorkerV4(wrap({
+      op: 'compile-anchor',
+      request: { method: 'compile-anchor/1', anchors: [anchor] },
+    }))).not.toBeNull();
+    expect(parseToWorkerV4(wrap({
+      op: 'compile-anchor',
+      request: {
+        method: 'compile-anchor/1',
+        anchors: [{ ...anchor, chars: { start: 7, end: 2 } }],
+      },
+    }))).toBeNull();
+    const sparse = [anchor];
+    sparse.length = 2;
+    expect(parseToWorkerV4(wrap({
+      op: 'compile-anchor',
+      request: { method: 'compile-anchor/1', anchors: sparse },
+    }))).toBeNull();
+  });
+
   it('rejects invalid CAS revisions (only a positive safe integer or the 0 create sentinel)', () => {
     const ok = { v, t: 'project-save', job: 6, project: 'p', manifest: {} };
     expect(parseToWorkerV4({ ...ok, expectedRevision: 0 })).not.toBeNull();

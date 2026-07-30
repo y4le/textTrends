@@ -1,4 +1,6 @@
 import {
+  anchorTokens,
+  compileAnchors,
   dispersionTransferBuffers,
   inventoryTransferBuffers,
   INVENTORY_MAX_SECTIONS,
@@ -1351,6 +1353,50 @@ export class WorkerEngineV4 {
 
     if (q.op === 'line-excerpt') {
       this.queryLineExcerpt(job, gen, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
+      return;
+    }
+
+    if (q.op === 'anchor-tokens') {
+      const ref = snapshot.docs.find((candidate) => candidate.doc === q.request.doc);
+      const resident = gen.ready.get(q.request.doc);
+      if (!ref || !resident) {
+        this.emitError('DEPENDENCY_MISSING', {
+          job,
+          message: `document '${q.request.doc}' is not resident`,
+          recoverable: true,
+        });
+        return;
+      }
+      const result = anchorTokens(
+        snapshot,
+        ref,
+        resident.shard,
+        q.request.tokens,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'anchor-tokens', result },
+      });
+      return;
+    }
+
+    if (q.op === 'compile-anchor') {
+      const shards = new Map(
+        [...gen.ready].map(([doc, ready]) => [doc, ready.shard]),
+      ) as unknown as Parameters<typeof compileAnchors>[1];
+      const result = compileAnchors(snapshot, shards, q.request.anchors);
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'compile-anchor', result },
+      });
       return;
     }
 

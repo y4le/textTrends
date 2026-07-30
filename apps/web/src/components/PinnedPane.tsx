@@ -86,10 +86,12 @@ export function PinnedPane() {
   const focusedPinId = useApp((state) => state.focusedPinId);
   const pinError = useApp((state) => state.pinError);
   const pinAnnouncement = useApp((state) => state.pinAnnouncement);
+  const durablePins = useApp((state) => state.durablePins);
   const notebook = useApp((state) => state.notebook);
   const styleSlots = useApp((state) => state.styleSlots);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const removePin = useApp((state) => state.removePin);
+  const setPinNote = useApp((state) => state.setPinNote);
   const retryPin = useApp((state) => state.retryPin);
   const focusPin = useApp((state) => state.focusPin);
   const clearPinError = useApp((state) => state.clearPinError);
@@ -149,6 +151,18 @@ export function PinnedPane() {
             liveSeries,
           );
           const title = titleByDoc.get(pin.anchor.doc) ?? pin.anchor.doc;
+          const docHash = project?.data.docs.find(
+            (entry) => entry.doc === pin.anchor.doc,
+          )?.extraction.text;
+          const durable = pin.kind === 'ready'
+            ? durablePins.find((candidate) =>
+                candidate.anchor.doc === pin.anchor.doc &&
+                candidate.anchor.text === docHash &&
+                candidate.anchor.chars.start ===
+                  pin.evidence.docCharsUtf16.start + pin.evidence.anchorCharsUtf16.start &&
+                candidate.anchor.chars.end ===
+                  pin.evidence.docCharsUtf16.start + pin.evidence.anchorCharsUtf16.end)
+            : undefined;
           return (
             <article
               key={pin.id}
@@ -253,6 +267,17 @@ export function PinnedPane() {
                 </p>
               )}
               {pin.kind === 'ready' && <EvidenceText pin={pin} legend={legend} />}
+              {pin.kind === 'ready' && (
+                <label style={{ display: 'grid', gap: 'var(--space-1)', fontSize: 'var(--text-xs)' }}>
+                  research note
+                  <input
+                    value={durable?.note ?? ''}
+                    maxLength={2_000}
+                    onChange={(event) => setPinNote(pin.id, event.target.value)}
+                    placeholder="optional note for this evidence"
+                  />
+                </label>
+              )}
             </article>
           );
         })}

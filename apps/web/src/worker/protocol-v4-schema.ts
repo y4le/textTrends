@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K } from '@texttrends/core';
+import { COMPILE_ANCHOR_MAX_ITEMS, exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -390,6 +390,40 @@ export function narrowQueryV4(q: unknown): boolean {
       // (a NaN budget defeats every stopping comparison and returns an unbounded
       // slice of a pathological line).
       return isRecord(q.request) && isStr(r.doc) && isFiniteNum(r.anchor) && isFiniteNum(r.maxChars);
+    }
+    case 'anchor-tokens': {
+      const r = q.request as Record<string, unknown>;
+      const tokens = r.tokens as Record<string, unknown>;
+      return exactRecord(q, ['op', 'request']) &&
+        exactRecord(q.request, ['method', 'doc', 'tokens']) &&
+        r.method === 'anchor-tokens/1' &&
+        isStr(r.doc) &&
+        exactRecord(r.tokens, ['start', 'end']) &&
+        isCount(tokens.start) &&
+        isCount(tokens.end) &&
+        (tokens.start as number) < (tokens.end as number);
+    }
+    case 'compile-anchor': {
+      const r = q.request as Record<string, unknown>;
+      return exactRecord(q, ['op', 'request']) &&
+        exactRecord(q.request, ['method', 'anchors']) &&
+        r.method === 'compile-anchor/1' &&
+        denseBoundedArray(
+          r.anchors,
+          0,
+          COMPILE_ANCHOR_MAX_ITEMS,
+          (value) => {
+            if (!exactRecord(value, ['doc', 'text', 'chars'])) return false;
+            const chars = value.chars as Record<string, unknown>;
+            return isStr(value.doc) &&
+              isStr(value.text) &&
+              /^[0-9a-f]{64}$/.test(value.text) &&
+              exactRecord(value.chars, ['start', 'end']) &&
+              isCount(chars.start) &&
+              isCount(chars.end) &&
+              (chars.start as number) <= (chars.end as number);
+          },
+        );
     }
     default:
       return false;

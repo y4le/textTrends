@@ -120,6 +120,17 @@ export function compileAnchors(
   }
   const rows: CompileAnchorRowV1[] = [];
   for (const anchor of anchors) {
+    const { start: charStart, end: charEnd } = anchor.chars;
+    if (
+      !Number.isSafeInteger(charStart) ||
+      !Number.isSafeInteger(charEnd) ||
+      charStart < 0 ||
+      charStart > charEnd
+    ) {
+      throw new RangeError(
+        `anchor range for '${anchor.doc}' must be a nondecreasing safe-integer range`,
+      );
+    }
     const ref = residentRef(snapshot, anchor.doc);
     const shard = shards.get(anchor.doc as ProjectDocId);
     if (!ref || !shard) {
@@ -142,9 +153,9 @@ export function compileAnchors(
     // so coordinates beyond the current final token are compiled via
     // lowerBound rather than aborting the whole batch. That yields the
     // surviving intersecting range, or `empty` when no emitted token remains.
-    const start = lowerBound(shard.startsUtf16, anchor.chars.start);
-    const end = lowerBound(shard.startsUtf16, anchor.chars.end);
-    if (anchor.chars.start === anchor.chars.end || start === end) {
+    const start = lowerBound(shard.startsUtf16, charStart);
+    const end = lowerBound(shard.startsUtf16, charEnd);
+    if (charStart === charEnd || start === end) {
       rows.push({ status: 'empty', anchor });
     } else {
       rows.push({ status: 'ok', anchor, tokens: { start, end } });

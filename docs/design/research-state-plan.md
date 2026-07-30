@@ -5,7 +5,13 @@ Claude Opus planner ruling: Parley request
 `req_consult_a2002d56c2327772`, session `ses_cad54a4d184a8c0d`, artifact
 `art_sha256_c27b4b4a264a71518248b3c59162d88624c4852049b44c9f631cd550c4d0c842`.*
 
-**STATUS: PLANNED (2026-07-30).**
+**STATUS: COMPLETE (2026-07-30).**
+
+Implemented as an independently revisioned IndexedDB v3 record with exact core
+admission, worker-routed CAS, semantic-only autosave, explicit reload/overwrite
+conflict handling, durable character-anchored selections and pins, and
+source-free compressed fragment sharing. Browser acceptance covers reload,
+pin/selection restoration, matching share import, and a real two-tab conflict.
 
 ## Storage boundary
 
@@ -203,9 +209,11 @@ interface ShareLinkV1 {
 }
 ```
 
-Encoding is `canonicalJson` → UTF-8 →
-`CompressionStream("deflate-raw")` → unpadded base64url in the URL fragment
-`#s=<payload>`.
+Encoding is `canonicalJson` → UTF-8 → raw DEFLATE via fflate →
+unpadded base64url in the URL fragment `#s=<payload>`. The implementation uses
+the already-audited archive dependency rather than `CompressionStream` so the
+store/UI codec stays synchronous; the bytes remain interoperable with
+`deflate-raw`, and the production bundle contract includes the dependency.
 
 A fragment is a privacy requirement: it is not sent in an HTTP request, does
 not reach static-host logs, and does not ride in a `Referer` header. The owner

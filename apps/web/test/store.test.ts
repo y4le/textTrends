@@ -31,15 +31,17 @@ import type {
   SessionState,
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
-import { SHERLOCK } from '../src/lib/project.ts';
-import { WorkerClientError } from '../src/lib/client.ts';
-import type { SnapshotInfo } from '../src/lib/client.ts';
+import { BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
+import { UserDataClientError, WorkerClientError } from '../src/lib/client.ts';
+import type { ResearchLoadResult, SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   TERM_GROUP_LIMITS_V1,
   type NumericTrend,
   type PassageResult,
+  type ResearchStateV1,
 } from '@texttrends/core';
+import { researchState } from './support/research-fixtures.ts';
 
 // ── A fake QueryClient that records issued trend/KWIC/passage queries. ──
 interface Issued {
@@ -192,6 +194,12 @@ class FakeSessionPort implements SessionPort {
   readonly calls: Call[] = [];
   /** Per-method thrower — set to make a command throw (SessionCommandError). */
   errors: Record<string, SessionCommandError | undefined> = {};
+  researchLoadValue: ResearchLoadResult = { kind: 'missing' };
+  researchSaveError: Error | null = null;
+  readonly researchSaves: {
+    state: ResearchStateV1;
+    expectedRevision: number;
+  }[] = [];
   disposed = false;
 
   constructor(initial: SessionState = sessionState(null)) {
@@ -220,13 +228,22 @@ class FakeSessionPort implements SessionPort {
     if (e) throw e;
   }
   start(): void { this.record('start', []); }
-  loadResearch(): { result: Promise<{ kind: 'missing' }>; cancel: () => void } {
+  loadResearch(): { result: Promise<ResearchLoadResult>; cancel: () => void } {
     this.record('loadResearch', []);
-    return { result: Promise.resolve({ kind: 'missing' }), cancel: () => undefined };
+    return { result: Promise.resolve(this.researchLoadValue), cancel: () => undefined };
   }
-  saveResearch(): { result: Promise<{ revision: number }>; cancel: () => void } {
-    this.record('saveResearch', []);
-    return { result: Promise.resolve({ revision: 1 }), cancel: () => undefined };
+  saveResearch(
+    state: ResearchStateV1,
+    expectedRevision: number,
+  ): { result: Promise<{ revision: number }>; cancel: () => void } {
+    this.record('saveResearch', [state, expectedRevision]);
+    this.researchSaves.push({ state, expectedRevision });
+    return {
+      result: this.researchSaveError
+        ? Promise.reject(this.researchSaveError)
+        : Promise.resolve({ revision: expectedRevision + 1 }),
+      cancel: () => undefined,
+    };
   }
   createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
   appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
@@ -380,6 +397,115 @@ function harness(initial?: SessionState, opts?: { seed?: boolean }) {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('the session bridge', () => {
+  it('hydrates durable research and autosaves semantic changes after 1.5 seconds', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runtime, store, port } = harness();
+      await Promise.resolve();
+      await Promise.resolve();
+      store.getState().quickAdd('Watson');
+      expect(store.getState().researchPersistence.phase).toBe('dirty');
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(port.researchSaves).toHaveLength(1);
+      expect(port.researchSaves[0]).toMatchObject({
+        expectedRevision: 0,
+        state: {
+          project: BUILTIN_SHERLOCK_ID,
+          revision: 1,
+          notebook: { groups: [{ name: 'Watson' }] },
+        },
+      });
+      await Promise.resolve();
+      await Promise.resolve();
+      const group = store.getState().notebook.groups[0]!;
+      store.getState().setSolo(group.id);
+      store.getState().setFrequencyPage(10);
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(port.researchSaves).toHaveLength(1);
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces a research CAS conflict and overwrites only on explicit action', async () => {
+    vi.useFakeTimers();
+    try {
+      const { runtime, store, port } = harness();
+      await Promise.resolve();
+      await Promise.resolve();
+      port.researchSaveError = new UserDataClientError(
+        'REVISION_CONFLICT',
+        'stale',
+        5,
+      );
+      store.getState().quickAdd('Lestrade');
+      await vi.advanceTimersByTimeAsync(1_500);
+      await Promise.resolve();
+      expect(store.getState().researchPersistence).toMatchObject({
+        phase: 'conflict',
+        currentRevision: 5,
+      });
+      expect(port.researchSaves).toHaveLength(1);
+      port.researchSaveError = null;
+      store.getState().overwriteResearch();
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(port.researchSaves).toHaveLength(2);
+      expect(port.researchSaves[1]?.expectedRevision).toBe(5);
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('restores a loaded notebook and semantic views before analysis continues', async () => {
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client, { newId: () => 'new' });
+    const port = new FakeSessionPort();
+    port.researchLoadValue = {
+      kind: 'loaded',
+      state: {
+        ...researchState(BUILTIN_SHERLOCK_ID, 3),
+        notebook: {
+          schema: 'texttrends/query-notebook/1',
+          groups: [{
+            id: 'durable',
+            name: 'Irene',
+            members: [{
+              id: 'member',
+              kind: 'token',
+              surface: 'Irene',
+              match: { case: 'folded', diacritics: 'folded' },
+            }],
+            countOverlaps: false,
+          }],
+        },
+        active: ['durable'],
+        kwicEnabled: ['durable'],
+        views: {
+          ...researchState(BUILTIN_SHERLOCK_ID, 3).views,
+          trend: {
+            schema: 'texttrends/trend-view/1',
+            mode: 'by-book',
+            sectionMarks: false,
+            focusedDoc: null,
+          },
+        },
+      },
+    };
+    runtime.attachSession(port);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(runtime.useApp.getState()).toMatchObject({
+      trendView: 'by-book',
+      notebook: { groups: [{ id: 'durable', name: 'Irene' }] },
+      researchPersistence: { phase: 'saved' },
+    });
+    expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
+    runtime.dispose();
+  });
+
   it('seeds the current session state on attach, before any publication', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
@@ -482,7 +608,7 @@ describe('the session bridge', () => {
     s.reattach('d', { name: 'f.txt', size: 1, arrayBuffer: async () => new ArrayBuffer(1) });
     s.retryAnalysis();
     expect(port.calls.map((c) => c.method)).toEqual([
-      'removeImport', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
+      'loadResearch', 'removeImport', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
     ]);
   });
 
