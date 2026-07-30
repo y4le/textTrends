@@ -31,6 +31,8 @@ import type {
   FrequencyListResultV1,
   TfidfSectionsRequestV1,
   TfidfSectionsResultV1,
+  KeynessResultV1,
+  KeynessTableRequestV1,
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
@@ -129,6 +131,9 @@ export type QueryOpV4 =
   // Section labels are a full-document structural comparison. There is no
   // selection degree of freedom, so a linked trend brush cannot redefine N.
   | { readonly op: 'tfidf-sections'; readonly request: TfidfSectionsRequestV1 }
+  // keyness/1 owns both sides. The global linked trend brush is deliberately
+  // absent: a comparison can only change through its explicit side records.
+  | { readonly op: 'keyness'; readonly request: KeynessRequestV1 }
   // reader-page/1 (slice-2 ruling §3/§G): bounded cursor-paged reading with
   // occurrence marks sliced from the SHARED cached BASE occurrences. Like
   // passage, this context/navigation surface carries NO selection field; the
@@ -209,6 +214,20 @@ export interface WireSelectionV4 {
   readonly ranges?: readonly { readonly doc: string; readonly tokens: { readonly start: number; readonly end: number } }[];
 }
 
+export interface KeynessRequestV1 extends KeynessTableRequestV1 {
+  readonly a: WireSelectionV4;
+  readonly b: WireSelectionV4;
+}
+
+export type {
+  KeynessResultV1,
+  KeynessRowV1,
+  KeynessSideTotalsV1,
+  KeynessSideV1,
+  KeynessSortFieldV1,
+  KeynessTableRequestV1,
+} from '@texttrends/core';
+
 /** The project-bound section view (§12.2 Section): the persisted record's
  *  lineage key becomes a project-scoped SectionId at bind time. */
 export interface WireSection {
@@ -276,4 +295,5 @@ export type QueryResultDataV4 =
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }
   | { readonly op: 'tfidf-sections'; readonly tfidf: TfidfSectionsResultV1 }
+  | { readonly op: 'keyness'; readonly keyness: KeynessResultV1 }
   | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 };

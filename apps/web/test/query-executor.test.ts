@@ -747,6 +747,132 @@ describe('frequency and TF-IDF through the executor and engine', () => {
   });
 });
 
+describe('keyness/1 through the executor and engine', () => {
+  const request = {
+    method: 'keyness-g2-2x2/1' as const,
+    effect: 'log-ratio-halves/1' as const,
+    filter: {
+      minCountTotal: 1,
+      minDocFreqTotal: 1,
+      classes: ['lexical' as const],
+    },
+    sort: { by: 'logRatio' as const, dir: -1 as const },
+    page: { offset: 0, limit: 200 },
+    side: 'both' as const,
+  };
+
+  it('resolves two sides, reuses cached document vectors, and inverts on swap', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'apple apple apple common');
+    const b = await docSpec('b', 'banana banana banana common');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'apple apple apple common', 10);
+    await coldIngest(h, 'g', 'b', 'banana banana banana common', 11);
+    const snap = h.last('snapshot-published').snapshot;
+    vi.mocked(documentTermCounts).mockClear();
+
+    await h.send({
+      t: 'query',
+      job: 60,
+      snapshot: snap,
+      query: {
+        op: 'keyness',
+        request: {
+          ...request,
+          a: { docs: ['a'] },
+          b: { docs: ['b'] },
+        },
+      },
+    });
+    const ab = h.last('result');
+    if (ab.data.op !== 'keyness') throw new Error('expected keyness');
+    expect(ab.data.keyness.totalsA).toEqual({ tokens: 4, documents: 1 });
+    expect(ab.data.keyness.totalsB).toEqual({ tokens: 4, documents: 1 });
+    expect(ab.data.keyness.rows.map((row) => row.key)).toEqual([
+      'apple',
+      'common',
+      'banana',
+    ]);
+    expect(ab.data.keyness.rows.find((row) => row.key === 'apple')).toMatchObject({
+      countA: 3,
+      countB: 0,
+      rangeA: 1,
+      rangeB: 0,
+    });
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(2);
+
+    await h.send({
+      t: 'query',
+      job: 61,
+      snapshot: snap,
+      query: {
+        op: 'keyness',
+        request: {
+          ...request,
+          a: { docs: ['b'] },
+          b: { docs: ['a'] },
+        },
+      },
+    });
+    const ba = h.last('result');
+    if (ba.data.op !== 'keyness') throw new Error('expected keyness');
+    expect(vi.mocked(documentTermCounts)).toHaveBeenCalledTimes(2);
+    const abApple = ab.data.keyness.rows.find((row) => row.key === 'apple')!;
+    const baApple = ba.data.keyness.rows.find((row) => row.key === 'apple')!;
+    expect(baApple.logRatio).toBeCloseTo(-abApple.logRatio, 12);
+    expect(baApple.g2).toBeCloseTo(-abApple.g2, 12);
+  });
+
+  it('maps overlap and malformed side membership to SELECTION_INVALID', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'one two three four');
+    const b = await docSpec('b', 'five six seven eight');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'one two three four', 10);
+    await coldIngest(h, 'g', 'b', 'five six seven eight', 11);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query',
+      job: 62,
+      snapshot: snap,
+      query: {
+        op: 'keyness',
+        request: {
+          ...request,
+          a: { docs: ['a'] },
+          b: {
+            docs: ['a'],
+            ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+          },
+        },
+      },
+    });
+    expect(h.last('error')).toMatchObject({
+      job: 62,
+      code: 'SELECTION_INVALID',
+    });
+    expect(h.last('error').message).toMatch(/overlap.*'a'/);
+
+    await h.send({
+      t: 'query',
+      job: 63,
+      snapshot: snap,
+      query: {
+        op: 'keyness',
+        request: {
+          ...request,
+          a: { docs: ['missing'] },
+          b: { docs: ['b'] },
+        },
+      },
+    });
+    expect(h.last('error')).toMatchObject({
+      job: 63,
+      code: 'SELECTION_INVALID',
+    });
+  });
+});
+
 
 describe('dispersion/1 through the executor (slice-2 commit C)', () => {
   const dispReq = { method: 'dispersion/1' as const, exactMax: DISPERSION_EXACT_MAX, bucketBudget: DISPERSION_BUCKET_BUDGET };

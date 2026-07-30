@@ -25,6 +25,21 @@ describe('keyness', () => {
     expect(Number.isFinite(logRatio(0, 1000, 5, 1000))).toBe(true);
     expect(logRatio(0, 1000, 5, 1000)).toBeLessThan(0);
   });
+
+  it('rejects malformed 2×2 scalar inputs before calculating either method', () => {
+    for (const args of [
+      [1.5, 10, 1, 10],
+      [1, 0, 1, 10],
+      [1, 10, 1, 0],
+      [-1, 10, 1, 10],
+      [11, 10, 1, 10],
+      [1, 10, 11, 10],
+      [1, Number.POSITIVE_INFINITY, 1, 10],
+    ] as readonly (readonly [number, number, number, number])[]) {
+      expect(() => g2Keyness(...args)).toThrow(RangeError);
+      expect(() => logRatio(...args)).toThrow(RangeError);
+    }
+  });
 });
 
 describe('collocation (unit event space)', () => {

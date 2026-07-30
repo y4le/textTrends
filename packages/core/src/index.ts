@@ -174,6 +174,18 @@ export {
   type TfidfSectionsRequestV1,
   type TfidfSectionsResultV1,
 } from './ops/tfidf-sections.ts';
+export {
+  firstSelectionOverlap,
+  keyness,
+  KEYNESS_SCAN_CHUNK,
+  type KeynessCheckpoint,
+  type KeynessResultV1,
+  type KeynessRowV1,
+  type KeynessSideTotalsV1,
+  type KeynessSideV1,
+  type KeynessSortFieldV1,
+  type KeynessTableRequestV1,
+} from './ops/keyness.ts';
 export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
 export { DecodeError, decodeSource } from './extract/decode.ts';
 export { hashStructureCandidates, type StructureCandidateV1 } from './extract/candidates.ts';

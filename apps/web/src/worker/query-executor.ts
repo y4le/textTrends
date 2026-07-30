@@ -68,6 +68,9 @@ import {
   type TfidfSectionInputV1,
   type TfidfSectionsRequestV1,
   type TfidfSectionsResultV1,
+  keyness as computeKeyness,
+  type KeynessResultV1,
+  type KeynessTableRequestV1,
   termCountPayloadBytes,
   termCountRangeKey,
   TERM_COUNT_CACHE_MAX_BYTES,
@@ -376,6 +379,26 @@ export class QueryExecutor {
     );
     await checkpoint();
     return result;
+  }
+
+  async keyness(
+    selectionA: ResolvedSelection,
+    selectionB: ResolvedSelection,
+    request: KeynessTableRequestV1,
+    checkpoint: QueryCheckpoint,
+  ): Promise<KeynessResultV1> {
+    const { snapshot } = this.published();
+    const inputsA = await this.aggregationInputs(selectionA, checkpoint);
+    const inputsB = await this.aggregationInputs(selectionB, checkpoint);
+    return computeKeyness(
+      snapshot,
+      selectionA,
+      selectionB,
+      inputsA,
+      inputsB,
+      request,
+      checkpoint,
+    );
   }
 
   async passage(q: PassageQuery, checkpoint: QueryCheckpoint): Promise<PassageResult> {

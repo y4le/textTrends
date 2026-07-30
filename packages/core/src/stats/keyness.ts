@@ -9,6 +9,25 @@ function cell(observed: number, expected: number): number {
   return observed === 0 ? 0 : observed * Math.log(observed / expected);
 }
 
+function validateTable(a: number, n1: number, b: number, n2: number): void {
+  if (
+    !Number.isSafeInteger(a) ||
+    !Number.isSafeInteger(n1) ||
+    !Number.isSafeInteger(b) ||
+    !Number.isSafeInteger(n2) ||
+    n1 <= 0 ||
+    n2 <= 0 ||
+    a < 0 ||
+    b < 0 ||
+    a > n1 ||
+    b > n2
+  ) {
+    throw new RangeError(
+      'keyness counts must be safe integers with 0 <= a <= n1, 0 <= b <= n2, and positive totals',
+    );
+  }
+}
+
 /**
  * Signed log-likelihood G² over the full 2×2 table (term/non-term × corpus).
  * Positive when the term is relatively more frequent in corpus A.
@@ -19,6 +38,7 @@ function cell(observed: number, expected: number): number {
  * @param n2 corpus B token total
  */
 export function g2Keyness(a: number, n1: number, b: number, n2: number): number {
+  validateTable(a, n1, b, n2);
   const e1 = (n1 * (a + b)) / (n1 + n2);
   const e2 = (n2 * (a + b)) / (n1 + n2);
   const g2 =
@@ -35,5 +55,6 @@ export function g2Keyness(a: number, n1: number, b: number, n2: number): number 
  * so each corpus's adjusted total is N+1.
  */
 export function logRatio(a: number, n1: number, b: number, n2: number): number {
+  validateTable(a, n1, b, n2);
   return Math.log2((a + 0.5) / (n1 + 1) / ((b + 0.5) / (n2 + 1)));
 }

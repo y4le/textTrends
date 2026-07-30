@@ -23,6 +23,8 @@ const COORDINATES = new Set(['document-relative', 'declared-sequence']);
 const SORT_KEYS = new Set(['L3', 'L2', 'L1', 'R1', 'R2', 'R3', 'doc', 'pos']);
 const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
 const FREQUENCY_SORT_KEYS = new Set(['count', 'docFreq', 'dp', 'dpNorm', 'key']);
+const KEYNESS_SORT_KEYS = new Set(['logRatio', 'g2', 'countA', 'countB']);
+const KEYNESS_SIDES = new Set(['a', 'b', 'both']);
 
 /** The extraction recipe value carried in a doc spec — structural shape only;
  *  the worker's async core validator (validateExtractionRecipe, which also
@@ -309,6 +311,56 @@ export function narrowQueryV4(q: unknown): boolean {
         isCount(r.level) &&
         (r.level as number) >= 0
       );
+    }
+    case 'keyness': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'request']) ||
+        !exactRecord(q.request, [
+          'method',
+          'effect',
+          'a',
+          'b',
+          'filter',
+          'sort',
+          'page',
+          'side',
+        ]) ||
+        r.method !== 'keyness-g2-2x2/1' ||
+        r.effect !== 'log-ratio-halves/1' ||
+        !narrowSelection(r.a) ||
+        !narrowSelection(r.b)
+      ) {
+        return false;
+      }
+      const filter = r.filter as Record<string, unknown>;
+      const sort = r.sort as Record<string, unknown>;
+      const page = r.page as Record<string, unknown>;
+      if (
+        !exactRecord(r.filter, ['minCountTotal', 'minDocFreqTotal', 'classes']) ||
+        !exactRecord(r.sort, ['by', 'dir']) ||
+        !exactRecord(r.page, ['offset', 'limit']) ||
+        !isCount(filter.minCountTotal) ||
+        (filter.minCountTotal as number) < 1 ||
+        !isCount(filter.minDocFreqTotal) ||
+        (filter.minDocFreqTotal as number) < 1 ||
+        !denseBoundedArray(filter.classes, 1, 2, (value) =>
+          FREQUENCY_CLASSES.has(value as string)) ||
+        new Set(filter.classes as unknown[]).size !==
+          (filter.classes as unknown[]).length ||
+        !KEYNESS_SORT_KEYS.has(sort.by as string) ||
+        (sort.dir !== 1 && sort.dir !== -1) ||
+        !isCount(page.offset) ||
+        !isCount(page.limit) ||
+        (page.limit as number) < 1 ||
+        (page.limit as number) > FREQUENCY_PAGE_MAX ||
+        (page.offset as number) + (page.limit as number) >
+          FREQUENCY_WINDOW_MAX ||
+        !KEYNESS_SIDES.has(r.side as string)
+      ) {
+        return false;
+      }
+      return true;
     }
     case 'reader-page': {
       // reader-page/1: zero tracks is LEGAL (reading never depends on the

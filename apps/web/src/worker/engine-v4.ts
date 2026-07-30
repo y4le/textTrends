@@ -52,6 +52,7 @@ import {
   emptyOverride,
   lineWindowAround,
   fingerprint,
+  firstSelectionOverlap,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashSegmenterFingerprint,
@@ -1419,6 +1420,54 @@ export class WorkerEngineV4 {
         job,
         snapshot: snapshot.id,
         data: { op: 'tfidf-sections', tfidf },
+      });
+      return;
+    }
+
+    if (q.op === 'keyness') {
+      let selectionA;
+      let selectionB;
+      try {
+        selectionA = await resolveSelection(
+          snapshot,
+          q.request.a as Parameters<typeof resolveSelection>[1],
+        );
+        selectionB = await resolveSelection(
+          snapshot,
+          q.request.b as Parameters<typeof resolveSelection>[1],
+        );
+      } catch (e) {
+        this.emitError('SELECTION_INVALID', {
+          job,
+          message: e instanceof Error ? e.message : String(e),
+          recoverable: true,
+        });
+        return;
+      }
+      const overlap = firstSelectionOverlap(snapshot, selectionA, selectionB);
+      if (overlap !== null) {
+        this.emitError('SELECTION_INVALID', {
+          job,
+          message: `keyness sides overlap in document '${overlap}'`,
+          recoverable: true,
+        });
+        return;
+      }
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const { a: _a, b: _b, ...request } = q.request;
+      const keyness = await gen.executor.keyness(
+        selectionA,
+        selectionB,
+        request,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'keyness', keyness },
       });
       return;
     }

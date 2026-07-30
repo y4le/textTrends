@@ -42,6 +42,7 @@ export type {
   BuildPhaseV4,
   EditSectionRow,
   GenerationDocSpecV4,
+  KeynessRequestV1,
   KwicTrack,
   LineExcerptResultV1,
   MissingWarmDocV4,

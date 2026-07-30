@@ -486,6 +486,79 @@ describe('narrowQueryV4', () => {
     expect(query({ extra: true })).toBe(false);
   });
 
+  it('keyness/1 pins two selections, methods, filters, sort, side, and page window', () => {
+    const request = (over: Record<string, unknown> = {}) => ({
+      method: 'keyness-g2-2x2/1',
+      effect: 'log-ratio-halves/1',
+      a: { docs: ['a'] },
+      b: { docs: ['b'] },
+      filter: {
+        minCountTotal: 5,
+        minDocFreqTotal: 2,
+        classes: ['lexical'],
+      },
+      sort: { by: 'logRatio', dir: -1 },
+      page: { offset: 0, limit: FREQUENCY_PAGE_MAX },
+      side: 'a',
+      ...over,
+    });
+    const query = (over: Record<string, unknown> = {}) =>
+      narrowQueryV4({ op: 'keyness', request: request(over) });
+    expect(query()).toBe(true);
+    expect(query({
+      a: {
+        docs: ['a'],
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }],
+      },
+      b: { docs: ['b'] },
+      side: 'both',
+      sort: { by: 'countB', dir: 1 },
+      page: { offset: FREQUENCY_WINDOW_MAX - 1, limit: 1 },
+    })).toBe(true);
+    expect(query({ method: 'keyness-g2-2x2/2' })).toBe(false);
+    expect(query({ effect: 'log-ratio/2' })).toBe(false);
+    expect(query({ a: { docs: new Array(1) } })).toBe(false);
+    expect(query({ b: { docs: ['b'], ranges: 7 } })).toBe(false);
+    expect(query({
+      filter: { minCountTotal: 0, minDocFreqTotal: 1, classes: ['lexical'] },
+    })).toBe(false);
+    expect(query({
+      filter: {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical', 'lexical'],
+      },
+    })).toBe(false);
+    const sparseClasses = ['lexical'];
+    sparseClasses.length = 2;
+    expect(query({
+      filter: {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: sparseClasses,
+      },
+    })).toBe(false);
+    expect(query({ sort: { by: 'dp', dir: -1 } })).toBe(false);
+    expect(query({ sort: { by: 'g2', dir: 0 } })).toBe(false);
+    expect(query({ side: 'left' })).toBe(false);
+    expect(query({
+      page: { offset: FREQUENCY_WINDOW_MAX, limit: 1 },
+    })).toBe(false);
+    expect(query({
+      filter: {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical'],
+        extra: true,
+      },
+    })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'keyness',
+      request: request(),
+      selection: { docs: ['a'] },
+    })).toBe(false);
+  });
+
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
