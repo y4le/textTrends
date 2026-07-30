@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { MAX_PINNED_SNIPPETS } from '../lib/pins.ts';
 import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
+import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 
 export function ScopeBar() {
   const snapshot = useApp((state) => state.snapshot);
@@ -13,6 +14,7 @@ export function ScopeBar() {
   const loadingPhase = useApp((state) => state.loadingPhase);
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
   const setLinkedSelection = useApp((state) => state.setLinkedSelection);
+  const trends = useApp((state) => state.trends);
 
   const project = projectSession?.project ?? null;
   const titleByDoc = useMemo(
@@ -58,6 +60,12 @@ export function ScopeBar() {
       titleByDoc,
     ],
   );
+  const selectionFullTokens = linkedSelection === null
+    ? null
+    : fullTokensByDoc(linkedSelection.doc, { inventory, trends });
+  const isOnlyThisBook = linkedSelection !== null
+    && linkedSelection.tokens.start === 0
+    && linkedSelection.tokens.end === selectionFullTokens;
 
   return (
     <section
@@ -99,7 +107,7 @@ export function ScopeBar() {
               <button
                 className="coarse-target"
                 type="button"
-                aria-label="Clear linked range"
+                aria-label={isOnlyThisBook ? 'All books' : 'Clear linked range'}
                 onClick={() => setLinkedSelection(null)}
                 style={{
                   font: 'inherit',
@@ -111,7 +119,7 @@ export function ScopeBar() {
                   padding: 0,
                 }}
               >
-                × clear
+                {isOnlyThisBook ? 'all books' : '× clear'}
               </button>
             )}
           </span>
