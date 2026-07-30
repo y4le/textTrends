@@ -25,25 +25,27 @@
 
 import { isNonNegSafeInt, isRecord } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ProjectManifestV1 } from '@texttrends/core';
+import type { ProjectManifestV1, ResearchStateV1 } from '@texttrends/core';
 import type { CacheRead } from '../shared/storage-contract.ts';
 import type { UserDataAccess } from './user-data-handler.ts';
 import {
   UserDataError,
   assertRevisionContract,
   projectEnvelopeReason,
+  researchEnvelopeReason,
   type StoredSourceV1,
   type UserDataStore,
 } from './user-data-store.ts';
 
 export const USER_DATA_DB_NAME = 'texttrends-user-data';
-/** v2: the project record became the canonical manifest (single revision
- *  authority). The version-1 wrapper is migrated in place, not abandoned. */
-export const USER_DATA_DB_VERSION = 2;
+/** v3 adds independently-revisioned research state without rewriting project
+ *  manifests or abandoning the same-name durable database. */
+export const USER_DATA_DB_VERSION = 3;
 
 interface UserDataDb extends DBSchema {
   projects: { key: string; value: ProjectManifestV1 };
   sources: { key: string; value: StoredSourceV1 };
+  research: { key: string; value: ResearchStateV1 };
 }
 
 function isQuota(e: unknown): boolean {
@@ -119,6 +121,69 @@ export class IdbUserDataStore implements UserDataStore {
       throw new UserDataError(
         isQuota(e) ? 'QUOTA_EXCEEDED' : 'PERSISTENCE_UNAVAILABLE',
         `project write failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+  }
+
+  async getResearch(project: string): Promise<CacheRead<unknown>> {
+    const db = this.requireOpen();
+    let record: unknown;
+    try {
+      record = await db.get('research', project);
+    } catch (e) {
+      throw new UserDataError(
+        'PERSISTENCE_UNAVAILABLE',
+        `research read failed: ${e instanceof Error ? e.message : String(e)}`,
+      );
+    }
+    if (record === undefined) return { kind: 'miss' };
+    const reason = researchEnvelopeReason(record, project);
+    return reason === null
+      ? { kind: 'hit', value: record }
+      : { kind: 'corrupt', reason };
+  }
+
+  async putResearch(
+    next: ResearchStateV1,
+    expectedRevision: number,
+  ): Promise<{ readonly committed: ResearchStateV1 }> {
+    assertRevisionContract(next.revision, expectedRevision);
+    const db = this.requireOpen();
+    try {
+      const tx = db.transaction('research', 'readwrite');
+      const store = tx.objectStore('research');
+      const current = await store.get(next.project);
+      const abortAndThrow = async (error: UserDataError): Promise<never> => {
+        tx.abort();
+        await tx.done.catch(() => undefined);
+        throw error;
+      };
+      let currentRevision = 0;
+      if (current !== undefined) {
+        const reason = researchEnvelopeReason(current, next.project);
+        if (reason !== null) {
+          await abortAndThrow(new UserDataError(
+            'DATA_CORRUPT',
+            `existing durable research state is corrupt: ${reason}`,
+          ));
+        }
+        currentRevision = (current as { revision: number }).revision;
+      }
+      if (currentRevision !== expectedRevision) {
+        await abortAndThrow(new UserDataError(
+          'REVISION_CONFLICT',
+          `expected research revision ${expectedRevision}, stored ${currentRevision}`,
+          currentRevision,
+        ));
+      }
+      await store.put(next);
+      await tx.done;
+      return { committed: next };
+    } catch (e) {
+      if (e instanceof UserDataError) throw e;
+      throw new UserDataError(
+        isQuota(e) ? 'QUOTA_EXCEEDED' : 'PERSISTENCE_UNAVAILABLE',
+        `research write failed: ${e instanceof Error ? e.message : String(e)}`,
       );
     }
   }
@@ -246,6 +311,9 @@ const defaultUserDataOpen: UserDataOpener = (onBlocked) =>
       if (oldVersion < 1) {
         database.createObjectStore('projects', { keyPath: 'id' });
         database.createObjectStore('sources', { keyPath: 'hash' });
+      }
+      if (oldVersion < 3) {
+        database.createObjectStore('research', { keyPath: 'project' });
       }
       // v1 → v2: unwrap the old { schema, id, revision, manifest } wrapper into
       // its canonical inner manifest — but ONLY when BOTH the outer wrapper is

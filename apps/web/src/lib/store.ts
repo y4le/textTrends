@@ -481,6 +481,14 @@ export interface SessionPort {
   subscribe(listener: (state: SessionState) => void): () => void;
   dispose(): void;
   start(): void;
+  loadResearch(): {
+    result: Promise<import('./client.ts').ResearchLoadResult>;
+    cancel: () => void;
+  };
+  saveResearch(
+    state: import('@texttrends/core').ResearchStateV1,
+    expectedRevision: number,
+  ): { result: Promise<{ revision: number }>; cancel: () => void };
   createUserProject(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   appendFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   removeImport(doc: string): void;

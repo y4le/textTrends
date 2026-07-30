@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { WorkerClient, UserDataClientError, type GenerationReady, type ProjectLoadResult, type SourceReadyInfo } from '../src/lib/client.ts';
 import { PROTOCOL_VERSION_V4 } from '../src/worker/protocol-v4.ts';
 import { DEFAULT_INDEX_RECIPE } from '@texttrends/core';
+import { researchState } from './support/research-fixtures.ts';
 
 class FakeWorker {
   static instances: FakeWorker[] = [];
@@ -396,6 +397,58 @@ describe('WorkerClient user-data seam (v4)', () => {
     const job2 = (worker.posted.at(-1) as { job: number }).job;
     worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'user-data-error', job: job2, code: 'REVISION_CONFLICT', message: 'stale', currentRevision: 5 } });
     await expect(conflict.result).rejects.toMatchObject({ code: 'REVISION_CONFLICT', currentRevision: 5 });
+  });
+
+  it('loads and saves correlated research-state acknowledgements', async () => {
+    const client = new WorkerClient();
+    const worker = FakeWorker.instances[0]!;
+    const state = researchState('builtin/sherlock', 1);
+
+    const load = client.researchLoad(state.project);
+    const loadPost = worker.posted.at(-1) as {
+      t: string;
+      job: number;
+      project: string;
+    };
+    expect(loadPost).toMatchObject({
+      t: 'research-load',
+      project: state.project,
+    });
+    worker.onmessage?.({
+      data: {
+        v: PROTOCOL_VERSION_V4,
+        t: 'research-loaded',
+        job: loadPost.job,
+        project: state.project,
+        state,
+      },
+    });
+    await expect(load.result).resolves.toEqual({ kind: 'loaded', state });
+
+    const save = client.researchSave(state, 0);
+    const savePost = worker.posted.at(-1) as {
+      t: string;
+      job: number;
+      project: string;
+      expectedRevision: number;
+      state: unknown;
+    };
+    expect(savePost).toMatchObject({
+      t: 'research-save',
+      project: state.project,
+      expectedRevision: 0,
+      state,
+    });
+    worker.onmessage?.({
+      data: {
+        v: PROTOCOL_VERSION_V4,
+        t: 'research-saved',
+        job: savePost.job,
+        project: state.project,
+        revision: 1,
+      },
+    });
+    await expect(save.result).resolves.toEqual({ revision: 1 });
   });
 
   it('sourcePersist TRANSFERS the bytes and resolves only on the durable ack', async () => {

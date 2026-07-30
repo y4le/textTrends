@@ -23,7 +23,7 @@
  *   miss — "no durable connection" is not "no project".
  */
 
-import type { ProjectManifestV1 } from '@texttrends/core';
+import type { ProjectManifestV1, ResearchStateV1 } from '@texttrends/core';
 import type { CacheRead } from '../shared/storage-contract.ts';
 
 export type UserDataErrorCode =
@@ -75,6 +75,13 @@ export interface UserDataStore {
    */
   putProject(next: ProjectManifestV1, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV1 }>;
 
+  /** Research state is an independent class-1 record and conflict domain. */
+  getResearch(project: string): Promise<CacheRead<unknown>>;
+  putResearch(
+    next: ResearchStateV1,
+    expectedRevision: number,
+  ): Promise<{ readonly committed: ResearchStateV1 }>;
+
   getSource(hash: string): Promise<CacheRead<StoredSourceV1>>;
   putSource(source: StoredSourceV1): Promise<void>;
   // Deliberately NO deleteSource: there is no unpersist/delete product command,
@@ -112,12 +119,37 @@ export function projectEnvelopeReason(record: unknown, id: string): string | nul
   return null;
 }
 
+/** Shallow identity/CAS gate for a research record. Deep admission stays in
+ *  core and runs in UserDataHandler before records enter or leave storage. */
+export function researchEnvelopeReason(
+  record: unknown,
+  project: string,
+): string | null {
+  if (record === null || typeof record !== 'object') {
+    return 'stored research state is not an object';
+  }
+  const value = record as Record<string, unknown>;
+  if (value.schema !== 'texttrends/research-state/1') {
+    return `unknown stored research schema '${String(value.schema)}'`;
+  }
+  if (value.project !== project) return 'stored research project disagreement';
+  if (
+    typeof value.revision !== 'number' ||
+    !Number.isSafeInteger(value.revision) ||
+    value.revision < 1
+  ) {
+    return 'stored research revision is not a positive safe integer';
+  }
+  return null;
+}
+
 /** In-memory UserDataStore for tests and the persistence-unavailable
  *  fallback path. Enforces the SAME CAS and closed-store semantics as the
  *  durable store so conflict/unavailability handling is exercised without
  *  IndexedDB. */
 export class InMemoryUserDataStore implements UserDataStore {
   private readonly projects = new Map<string, ProjectManifestV1>();
+  private readonly research = new Map<string, ResearchStateV1>();
   private readonly sources = new Map<string, StoredSourceV1>();
   private closed = false;
 
@@ -152,6 +184,42 @@ export class InMemoryUserDataStore implements UserDataStore {
       throw new UserDataError('REVISION_CONFLICT', `expected revision ${expectedRevision}, stored ${currentRevision}`, currentRevision);
     }
     this.projects.set(next.id, next);
+    return { committed: next };
+  }
+
+  async getResearch(project: string): Promise<CacheRead<unknown>> {
+    this.assertOpen();
+    const value = this.research.get(project);
+    if (value === undefined) return { kind: 'miss' };
+    const reason = researchEnvelopeReason(value, project);
+    return reason === null ? { kind: 'hit', value } : { kind: 'corrupt', reason };
+  }
+
+  async putResearch(
+    next: ResearchStateV1,
+    expectedRevision: number,
+  ): Promise<{ readonly committed: ResearchStateV1 }> {
+    assertRevisionContract(next.revision, expectedRevision);
+    this.assertOpen();
+    const current = this.research.get(next.project);
+    if (current !== undefined) {
+      const reason = researchEnvelopeReason(current, next.project);
+      if (reason !== null) {
+        throw new UserDataError(
+          'DATA_CORRUPT',
+          `existing durable research state is corrupt: ${reason}`,
+        );
+      }
+    }
+    const currentRevision = current?.revision ?? 0;
+    if (currentRevision !== expectedRevision) {
+      throw new UserDataError(
+        'REVISION_CONFLICT',
+        `expected research revision ${expectedRevision}, stored ${currentRevision}`,
+        currentRevision,
+      );
+    }
+    this.research.set(next.project, next);
     return { committed: next };
   }
 

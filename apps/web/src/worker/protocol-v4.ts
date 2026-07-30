@@ -22,7 +22,12 @@
  *   progress.
  */
 
-import type { IndexRecipeProvisional, ProjectManifestV1, SourceDescriptorV1 } from '@texttrends/core';
+import type {
+  IndexRecipeProvisional,
+  ProjectManifestV1,
+  ResearchStateV1,
+  SourceDescriptorV1,
+} from '@texttrends/core';
 import type {
   BuildPhaseV4,
   GenerationDocSpecV4,
@@ -86,6 +91,9 @@ export type UserDataOpV4 =
   | { readonly t: 'project-load'; readonly job: number; readonly project: string }
   | { readonly t: 'project-save'; readonly job: number; readonly project: string;
       readonly manifest: unknown; readonly expectedRevision: number }
+  | { readonly t: 'research-load'; readonly job: number; readonly project: string }
+  | { readonly t: 'research-save'; readonly job: number; readonly project: string;
+      readonly state: unknown; readonly expectedRevision: number }
   | { readonly t: 'source-persist'; readonly job: number; readonly sourceHash: string; readonly bytes: ArrayBuffer };
 
 export type UserDataErrorCodeV4 =
@@ -142,6 +150,10 @@ export type FromWorkerV4 = VersionedV4 &
         readonly manifest: ProjectManifestV1 }
     | { readonly t: 'project-missing'; readonly job: number; readonly project: string }
     | { readonly t: 'project-saved'; readonly job: number; readonly project: string; readonly revision: number }
+    | { readonly t: 'research-loaded'; readonly job: number; readonly project: string;
+        readonly state: ResearchStateV1 }
+    | { readonly t: 'research-missing'; readonly job: number; readonly project: string }
+    | { readonly t: 'research-saved'; readonly job: number; readonly project: string; readonly revision: number }
     | { readonly t: 'source-persisted'; readonly job: number; readonly sourceHash: string }
     | { readonly t: 'user-data-error'; readonly job: number; readonly code: UserDataErrorCodeV4;
         readonly message: string; readonly currentRevision?: number }

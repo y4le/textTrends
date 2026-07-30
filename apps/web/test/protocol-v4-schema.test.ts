@@ -141,6 +141,22 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ v, t: 'project-save', job: 6, project: 'p', expectedRevision: 0 })).toBeNull(); // no manifest
     expect(parseToWorkerV4({ v, t: 'source-persist', job: 7, sourceHash: 'h', bytes: new ArrayBuffer(2) })).not.toBeNull();
     expect(parseToWorkerV4({ v, t: 'source-persist', job: 7, sourceHash: 'h', bytes: 'nope' })).toBeNull();
+    expect(parseToWorkerV4({ v, t: 'research-load', job: 8, project: 'p' })).not.toBeNull();
+    expect(parseToWorkerV4({
+      v,
+      t: 'research-save',
+      job: 9,
+      project: 'p',
+      state: {},
+      expectedRevision: 0,
+    })).not.toBeNull();
+    expect(parseToWorkerV4({
+      v,
+      t: 'research-save',
+      job: 9,
+      project: 'p',
+      expectedRevision: 0,
+    })).toBeNull();
   });
 
   it('rejects invalid CAS revisions (only a positive safe integer or the 0 create sentinel)', () => {

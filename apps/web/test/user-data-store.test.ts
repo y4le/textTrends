@@ -22,6 +22,7 @@ import {
   USER_DATA_DB_VERSION,
   openUserDataStore,
 } from '../src/worker/idb-user-data-store.ts';
+import { researchState } from './support/research-fixtures.ts';
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory() as unknown as typeof indexedDB;
@@ -89,6 +90,7 @@ function contractSuite(name: string, make: () => Promise<UserDataStore>) {
       store.close();
       await expect(store.getProject('p')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
       await expect(store.getSource('h')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
+      await expect(store.getResearch('p')).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
       await expect(store.putProject(pm('p', 1), 0)).rejects.toMatchObject({ code: 'PERSISTENCE_UNAVAILABLE' });
     });
 
@@ -99,6 +101,24 @@ function contractSuite(name: string, make: () => Promise<UserDataStore>) {
       const read = await store.getSource('h');
       expect(read.kind).toBe('hit');
       if (read.kind === 'hit') expect(read.value.byteLength).toBe(8);
+      store.close();
+    });
+
+    it('round-trips independently-revisioned research state with CAS', async () => {
+      const store = await make();
+      expect((await store.getResearch('builtin/sherlock')).kind).toBe('miss');
+      await store.putResearch(researchState('builtin/sherlock', 1), 0);
+      await store.putResearch(researchState('builtin/sherlock', 2), 1);
+      await expect(
+        store.putResearch(researchState('builtin/sherlock', 2), 1),
+      ).rejects.toMatchObject({
+        code: 'REVISION_CONFLICT',
+        currentRevision: 2,
+      });
+      expect(await store.getResearch('builtin/sherlock')).toMatchObject({
+        kind: 'hit',
+        value: { revision: 2 },
+      });
       store.close();
     });
   });

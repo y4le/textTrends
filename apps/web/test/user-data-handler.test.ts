@@ -10,6 +10,7 @@ import { DEFAULT_INDEX_RECIPE, hashIndexRecipe, hashSourceBytes } from '@texttre
 import { UserDataError, type UserDataStore } from '../src/worker/user-data-store.ts';
 import { begin, buf, coldIngest, harness, wolfGroup } from './support/engine-harness.ts';
 import { buildDocSpec as docSpec } from './support/spec-fixtures.ts';
+import { researchState } from './support/research-fixtures.ts';
 
 describe('user-data lane', () => {
   it('source-persist verifies the claimed hash and acknowledges only a durable write', async () => {
@@ -58,6 +59,8 @@ describe('user-data lane', () => {
     const store: UserDataStore = {
       getProject: () => Promise.resolve({ kind: 'miss' }),
       putProject: () => { puts++; return Promise.reject(new Error('must never be reached')); },
+      getResearch: () => Promise.resolve({ kind: 'miss' }),
+      putResearch: () => Promise.reject(new Error('must never be reached')),
       getSource: () => Promise.resolve({ kind: 'miss' }),
       putSource: () => Promise.resolve(),
       close: () => undefined,
@@ -83,6 +86,44 @@ describe('user-data lane', () => {
     const h = harness();
     await h.send({ t: 'project-load', job: 1, project: 'absent' });
     expect(h.last('project-missing').project).toBe('absent');
+  });
+
+  it('research state saves and loads through its independent CAS lane', async () => {
+    const h = harness();
+    const state = researchState('builtin/sherlock', 1);
+    await h.send({
+      t: 'research-save',
+      job: 20,
+      project: state.project,
+      state,
+      expectedRevision: 0,
+    });
+    expect(h.last('research-saved')).toMatchObject({
+      project: state.project,
+      revision: 1,
+    });
+    await h.send({
+      t: 'research-load',
+      job: 21,
+      project: state.project,
+    });
+    expect(h.last('research-loaded').state).toEqual(state);
+  });
+
+  it('rejects malformed research before any durable write', async () => {
+    const h = harness();
+    await h.send({
+      t: 'research-save',
+      job: 22,
+      project: 'p',
+      state: { ...researchState('p', 1), pins: Array(9).fill({}) },
+      expectedRevision: 0,
+    });
+    expect(h.last('user-data-error')).toMatchObject({
+      job: 22,
+      code: 'REQUEST_INVALID',
+    });
+    expect((await h.userStore.getResearch('p')).kind).toBe('miss');
   });
 
   it('a cancel delivered DURING deep manifest validation suppresses project-loaded', async () => {
@@ -121,6 +162,8 @@ describe('user-data lane', () => {
         return Promise.reject(new UserDataError('PERSISTENCE_UNAVAILABLE', 'read blew up'));
       },
       putProject: () => Promise.reject(new Error('n/a')),
+      getResearch: () => Promise.resolve({ kind: 'miss' }),
+      putResearch: () => Promise.reject(new Error('n/a')),
       getSource: () => Promise.resolve({ kind: 'miss' }),
       putSource: () => Promise.resolve(),
       close: () => undefined,

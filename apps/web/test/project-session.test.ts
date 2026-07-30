@@ -19,6 +19,7 @@ import {
   INGEST_CAPS_V0,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type ResearchStateV1,
   type StructureOverrideV1,
 } from '@texttrends/core';
 import type {
@@ -28,6 +29,7 @@ import type {
   GenerationReady,
   IngestProgress,
   ProjectLoadResult,
+  ResearchLoadResult,
   SnapshotInfo,
   SourceReadyInfo,
 } from '../src/lib/client.ts';
@@ -154,6 +156,20 @@ class FakeClient implements ProjectSessionClient {
     const result = new Promise<void>((res, rej) => { resolve = res; reject = rej; });
     this.persists.push({ sourceHash, bytes, resolve, reject });
     return { result, cancel: () => undefined };
+  }
+  researchLoad(): { result: Promise<ResearchLoadResult>; cancel: () => void } {
+    return {
+      result: Promise.resolve({ kind: 'missing' }),
+      cancel: () => undefined,
+    };
+  }
+  researchSave(
+    state: ResearchStateV1,
+  ): { result: Promise<{ revision: number }>; cancel: () => void } {
+    return {
+      result: Promise.resolve({ revision: state.revision }),
+      cancel: () => undefined,
+    };
   }
 
   // Drivers.

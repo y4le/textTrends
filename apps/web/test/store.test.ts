@@ -220,6 +220,14 @@ class FakeSessionPort implements SessionPort {
     if (e) throw e;
   }
   start(): void { this.record('start', []); }
+  loadResearch(): { result: Promise<{ kind: 'missing' }>; cancel: () => void } {
+    this.record('loadResearch', []);
+    return { result: Promise.resolve({ kind: 'missing' }), cancel: () => undefined };
+  }
+  saveResearch(): { result: Promise<{ revision: number }>; cancel: () => void } {
+    this.record('saveResearch', []);
+    return { result: Promise.resolve({ revision: 1 }), cancel: () => undefined };
+  }
   createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
   appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
@@ -1171,6 +1179,8 @@ describe('real ProjectSession composes with the store bridge', () => {
       ingest: () => ({ job: 1 }),
       projectLoad: () => ({ result: Promise.resolve({ kind: 'missing' as const }), cancel: () => undefined }),
       projectSave: () => ({ result: Promise.resolve({ revision: 1 }), cancel: () => undefined }),
+      researchLoad: () => ({ result: Promise.resolve({ kind: 'missing' as const }), cancel: () => undefined }),
+      researchSave: () => ({ result: Promise.resolve({ revision: 1 }), cancel: () => undefined }),
       sourcePersist: () => ({ result: Promise.resolve(), cancel: () => undefined }),
     };
     const session = new ProjectSession(builtinProject(data), {

@@ -48,6 +48,7 @@ import {
   type IndexRecipeProvisional,
   type ProjectDocV1,
   type ProjectManifestV1,
+  type ResearchStateV1,
   type StructureOverrideV1,
   type StructureRecipeProvisional,
 } from '@texttrends/core';
@@ -61,6 +62,7 @@ import type {
   GenerationReady,
   IngestProgress,
   ProjectLoadResult,
+  ResearchLoadResult,
   SnapshotInfo,
   SourceReadyInfo,
 } from './client.ts';
@@ -96,6 +98,8 @@ export interface ProjectSessionClient {
   ingest(generation: string, doc: string, bytes: ArrayBuffer): { job: number };
   projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void };
   projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void };
+  researchLoad(project: string): { result: Promise<ResearchLoadResult>; cancel: () => void };
+  researchSave(state: ResearchStateV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void };
   sourcePersist(sourceHash: string, bytes: ArrayBuffer): { result: Promise<void>; cancel: () => void };
 }
 
@@ -505,6 +509,25 @@ export class ProjectSession {
   start(): void {
     this.assertLive();
     this.startGeneration();
+  }
+
+  /** Research state is independently durable even for the read-only built-in
+   *  corpus. These narrow delegates keep worker ownership inside the session
+   *  while the analysis store owns semantic autosave policy. */
+  loadResearch(): { result: Promise<ResearchLoadResult>; cancel: () => void } {
+    this.assertLive();
+    return this.deps.client.researchLoad(this.id);
+  }
+
+  saveResearch(
+    state: ResearchStateV1,
+    expectedRevision: number,
+  ): { result: Promise<{ revision: number }>; cancel: () => void } {
+    this.assertLive();
+    if (state.project !== this.id) {
+      throw new SessionCommandError('research state targets a different project');
+    }
+    return this.deps.client.researchSave(state, expectedRevision);
   }
 
   // ── Commands: import ────────────────────────────────────────────────────────
@@ -1676,4 +1699,3 @@ export class ProjectSession {
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
-

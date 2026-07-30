@@ -33,6 +33,33 @@ export { canonicalJson, hashSourceBytes, hashText } from './contract/hash.ts';
 export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
 export { exactArray, exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
+  EMPTY_NOTEBOOK,
+  FOLDED_MATCH,
+  NOTEBOOK_LIMITS_V1,
+  coreGroupOf,
+  groupIdentity,
+  memberSemanticKey,
+  parseQueryNotebook,
+  validateNotebookGroup,
+  type NotebookGroupV1,
+  type QueryNotebookV1,
+} from './project/notebook.ts';
+export {
+  RESEARCH_MAX_PINS,
+  RESEARCH_MAX_SELECTIONS,
+  parseResearchState,
+  reconcileResearchState,
+  upgradeStoredResearchState,
+  type CharAnchorV1,
+  type InventoryViewV1,
+  type KeynessViewV1,
+  type ResearchStateV1,
+  type SavedPinTrackV1,
+  type SavedPinV1,
+  type SavedSelectionV1,
+  type TrendResearchViewV1,
+} from './project/research-state.ts';
+export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,
   isIndexRecipeProvisional,
@@ -103,6 +130,14 @@ export {
   type PassageRequest,
   type PassageResult,
 } from './ops/passage.ts';
+export {
+  anchorTokens,
+  compileAnchors,
+  COMPILE_ANCHOR_MAX_ITEMS,
+  type AnchorTokensResultV1,
+  type CompileAnchorRowV1,
+  type CompileAnchorsResultV1,
+} from './ops/anchors.ts';
 export {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,

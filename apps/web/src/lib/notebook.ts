@@ -20,88 +20,27 @@
  */
 
 import {
-  exactArray,
-  exactRecord,
+  FOLDED_MATCH,
+  groupIdentity,
   TERM_GROUP_LIMITS_V1,
-  termGroupIdentity,
-  validateGroup,
-  type GroupMember,
-  type MatchMode,
-  type TermGroupSpec,
+  validateNotebookGroup,
+  type NotebookGroupV1,
 } from '@texttrends/core';
 
-export interface NotebookGroupV1 {
-  /** Stable UUID; never a match key (see module doc). */
-  readonly id: string;
-  /** Presentation text only — normalized NFC, rendered as text, never markup. */
-  readonly name: string;
-  readonly members: readonly GroupMember[];
-  readonly countOverlaps: boolean;
-}
-
-export interface QueryNotebookV1 {
-  readonly schema: 'texttrends/query-notebook/1';
-  readonly groups: readonly NotebookGroupV1[];
-}
-
-/** App-level bounds beyond the core group limits. */
-export const NOTEBOOK_LIMITS_V1 = {
-  /** Groups the notebook may hold (distinct from the 5-active-track cap). */
-  maxGroups: 64,
-  /** Group display name, UTF-16 code units, after NFC normalization.
-   *  DELIBERATELY equal to the core surface bound: quick-add names a group
-   *  after its one term, so any legal term must be a legal name (review-B). */
-  maxNameUnits: TERM_GROUP_LIMITS_V1.maxSurfaceUnits,
-} as const;
-
-/** The one quick-add / default match mode: folded case and diacritics. */
-export const FOLDED_MATCH: MatchMode = { case: 'folded', diacritics: 'folded' };
-
-export const EMPTY_NOTEBOOK: QueryNotebookV1 = {
-  schema: 'texttrends/query-notebook/1',
-  groups: [],
-};
-
-/** The core query spec for a notebook group — exactly the authored members;
- *  name/activation/solo are presentation and never reach the wire. */
-export function coreGroupOf(g: NotebookGroupV1): TermGroupSpec {
-  return { id: g.id, members: g.members, countOverlaps: g.countOverlaps };
-}
-
-/** App-side admission (ruling invariant 8): a group the app accepts must be
- *  EXACTLY a group the kernel accepts — core `validateGroup` plus the
- *  app-only rules (bounded NFC name, no duplicate semantic members). Throws
- *  RangeError with a user-presentable message. */
-export function validateNotebookGroup(g: NotebookGroupV1): void {
-  if (g.name.trim().length === 0 || g.name !== g.name.normalize('NFC')) {
-    throw new RangeError('a group needs a nonblank NFC-normalized name');
-  }
-  if (g.name.length > NOTEBOOK_LIMITS_V1.maxNameUnits) {
-    throw new RangeError(`a group name is at most ${NOTEBOOK_LIMITS_V1.maxNameUnits} characters`);
-  }
-  validateGroup(coreGroupOf(g));
-  // No duplicate semantic members within one authored group: two members that
-  // differ only by id would double-report every occurrence under
-  // countOverlaps and confuse the editor's member list.
-  const seen = new Set<string>();
-  for (const m of g.members) {
-    const key = memberSemanticKey(m);
-    if (seen.has(key)) throw new RangeError('two members of this group match identically');
-    seen.add(key);
-  }
-}
-
-/** Semantic key for ONE member — the core matching identity of a synthetic
- *  single-member group, so this can never drift from `termGroupIdentity`
- *  (member order is a GROUP concern, absent from a single member's key). */
-export function memberSemanticKey(m: GroupMember): string {
-  return termGroupIdentity({ id: 'm', members: [m], countOverlaps: false });
-}
-
-/** The canonical MATCHING identity of a notebook group (core authority). */
-export function groupIdentity(g: NotebookGroupV1): string {
-  return termGroupIdentity(coreGroupOf(g));
-}
+// Durable/share admission lives in core. Keep this app module as the stable
+// import boundary for UI code while retaining only app editing/style helpers.
+export {
+  EMPTY_NOTEBOOK,
+  FOLDED_MATCH,
+  NOTEBOOK_LIMITS_V1,
+  coreGroupOf,
+  groupIdentity,
+  memberSemanticKey,
+  parseQueryNotebook,
+  validateNotebookGroup,
+  type NotebookGroupV1,
+  type QueryNotebookV1,
+} from '@texttrends/core';
 
 /**
  * Style-slot ownership for a new ACTIVE order (ruling invariants 2/5/6).
@@ -150,71 +89,6 @@ export function reconcileStyleSlots(
     next.set(id, slot);
   }
   return next;
-}
-
-export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
-  if (!exactRecord(value, ['schema', 'groups'])) throw new RangeError('a notebook must be an exact {schema, groups} record');
-  if (value.schema !== 'texttrends/query-notebook/1') throw new RangeError('unknown notebook schema');
-  const groups = value.groups;
-  // Cap BEFORE any per-element scan (an untrusted persisted/shared value must
-  // not buy unbounded work with a huge array), then exact-own-element density.
-  if (!Array.isArray(groups) || groups.length > NOTEBOOK_LIMITS_V1.maxGroups) {
-    throw new RangeError(`a notebook holds at most ${NOTEBOOK_LIMITS_V1.maxGroups} groups`);
-  }
-  if (!exactArray(groups, groups.length)) throw new RangeError('notebook groups must be a dense plain array');
-  const ids = new Set<string>();
-  for (let i = 0; i < groups.length; i++) {
-    const g: unknown = groups[i];
-    if (!exactRecord(g, ['id', 'name', 'members', 'countOverlaps'])) {
-      throw new RangeError(`group ${i} must be an exact {id, name, members, countOverlaps} record`);
-    }
-    if (typeof g.id !== 'string' || typeof g.name !== 'string' || typeof g.countOverlaps !== 'boolean') {
-      throw new RangeError(`group ${i} has a malformed id/name/countOverlaps`);
-    }
-    if (ids.has(g.id)) throw new RangeError(`duplicate group id '${g.id.slice(0, 32)}'`);
-    ids.add(g.id);
-    const members = g.members;
-    if (!Array.isArray(members) || members.length > TERM_GROUP_LIMITS_V1.maxMembers) {
-      throw new RangeError(`group ${i} must have at most ${TERM_GROUP_LIMITS_V1.maxMembers} members`);
-    }
-    if (!exactArray(members, members.length)) throw new RangeError(`group ${i} members must be a dense plain array`);
-    for (let j = 0; j < members.length; j++) {
-      if (!isGroupMemberShape(members[j])) throw new RangeError(`group ${i} member ${j} is malformed`);
-    }
-    // Shape proven — EXACT own-data plain records throughout, so the value
-    // survives structured clone verbatim (review-B round 2). Semantic
-    // admission is the SAME authority the editor uses.
-    validateNotebookGroup(g as unknown as NotebookGroupV1);
-  }
-  return value as unknown as QueryNotebookV1;
-}
-
-const MEMBER_MODES = new Set<unknown>(['sensitive', 'folded']);
-
-function isGroupMemberShape(m: unknown): boolean {
-  if (!exactRecord(m, ['id', 'kind', 'surface', 'match'])
-    && !exactRecord(m, ['id', 'kind', 'surfaces', 'match', 'crossSentence'])
-    && !exactRecord(m, ['id', 'kind', 'stem', 'match'])) return false;
-  const r = m as { id?: unknown; kind?: unknown; match?: unknown; surface?: unknown; surfaces?: unknown; stem?: unknown; crossSentence?: unknown };
-  if (typeof r.id !== 'string') return false;
-  if (!exactRecord(r.match, ['case', 'diacritics'])) return false;
-  const match = r.match as { case?: unknown; diacritics?: unknown };
-  if (!MEMBER_MODES.has(match.case) || !MEMBER_MODES.has(match.diacritics)) return false;
-  switch (r.kind) {
-    case 'token': return typeof r.surface === 'string' && r.surfaces === undefined && r.stem === undefined;
-    case 'phrase': {
-      if (typeof r.crossSentence !== 'boolean') return false;
-      const s = r.surfaces;
-      // Cap BEFORE the per-element scan, then exact dense elements.
-      if (!Array.isArray(s) || s.length > TERM_GROUP_LIMITS_V1.maxPhraseSurfaces) return false;
-      if (!exactArray(s, s.length)) return false;
-      for (let i = 0; i < s.length; i++) if (typeof s[i] !== 'string') return false;
-      return true;
-    }
-    case 'prefix':
-    case 'suffix': return typeof r.stem === 'string' && r.surface === undefined && r.surfaces === undefined;
-    default: return false;
-  }
 }
 
 export interface QuickAddRefusal {

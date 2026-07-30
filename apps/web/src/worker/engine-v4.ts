@@ -367,6 +367,8 @@ export class WorkerEngineV4 {
           return;
         case 'project-load':
         case 'project-save':
+        case 'research-load':
+        case 'research-save':
         case 'source-persist':
           await this.userDataHandler.handle(message);
           return;

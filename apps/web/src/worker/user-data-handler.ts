@@ -8,7 +8,14 @@
  * while the engine keeps job bookkeeping and dispatch.
  */
 
-import { hashSourceBytes, upgradeStoredManifest, validateProjectManifest } from '@texttrends/core';
+import {
+  hashSourceBytes,
+  parseResearchState,
+  reconcileResearchState,
+  upgradeStoredManifest,
+  upgradeStoredResearchState,
+  validateProjectManifest,
+} from '@texttrends/core';
 import type { FromWorkerV4, ToWorkerV4, UserDataErrorCodeV4 } from './protocol-v4.ts';
 import { PROTOCOL_VERSION_V4 } from './protocol-v4.ts';
 import { UserDataError, type StoredSourceV1, type UserDataStore } from './user-data-store.ts';
@@ -23,7 +30,17 @@ import type { StorageOpen } from '../shared/storage-contract.ts';
 export type UserDataAccess = StorageOpen<UserDataStore>;
 export type UserDataProvider = () => Promise<UserDataAccess>;
 
-export type UserDataMessage = Extract<ToWorkerV4, { t: 'project-load' | 'project-save' | 'source-persist' }>;
+export type UserDataMessage = Extract<
+  ToWorkerV4,
+  {
+    t:
+      | 'project-load'
+      | 'project-save'
+      | 'research-load'
+      | 'research-save'
+      | 'source-persist';
+  }
+>;
 
 /** Map a caught user-data failure to its precise code (storage faults keep
  *  their UserDataError code; anything else is a request/persistence fault). */
@@ -115,6 +132,99 @@ export class UserDataHandler {
         writeStarted = true;
         const { committed } = await access.putProject(next, message.expectedRevision);
         this.deps.emit({ v: PROTOCOL_VERSION_V4, t: 'project-saved', job, project: message.project, revision: committed.revision });
+        return;
+      }
+
+      if (message.t === 'research-load') {
+        const access = await this.access(job);
+        if (!access) return;
+        if (this.checkCancelled(job)) return;
+        const read = await access.getResearch(message.project);
+        if (this.checkCancelled(job)) return;
+        if (read.kind === 'miss') {
+          this.deps.emit({
+            v: PROTOCOL_VERSION_V4,
+            t: 'research-missing',
+            job,
+            project: message.project,
+          });
+          return;
+        }
+        if (read.kind === 'corrupt') {
+          this.emitUserDataError(
+            job,
+            'DATA_CORRUPT',
+            `stored research state is corrupt: ${read.reason}`,
+          );
+          return;
+        }
+        let state;
+        try {
+          state = reconcileResearchState(
+            parseResearchState(upgradeStoredResearchState(read.value)),
+          );
+        } catch (e) {
+          this.emitUserDataError(
+            job,
+            'DATA_CORRUPT',
+            `stored research state failed validation: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return;
+        }
+        if (this.checkCancelled(job)) return;
+        this.deps.emit({
+          v: PROTOCOL_VERSION_V4,
+          t: 'research-loaded',
+          job,
+          project: message.project,
+          state,
+        });
+        return;
+      }
+
+      if (message.t === 'research-save') {
+        let next;
+        try {
+          next = parseResearchState(message.state);
+        } catch (e) {
+          this.emitUserDataError(
+            job,
+            'REQUEST_INVALID',
+            `research state failed validation: ${e instanceof Error ? e.message : String(e)}`,
+          );
+          return;
+        }
+        if (next.project !== message.project) {
+          this.emitUserDataError(
+            job,
+            'REQUEST_INVALID',
+            'research project does not match the save target',
+          );
+          return;
+        }
+        if (next.revision !== message.expectedRevision + 1) {
+          this.emitUserDataError(
+            job,
+            'REQUEST_INVALID',
+            `research revision ${next.revision} must be expectedRevision + 1 (${message.expectedRevision + 1})`,
+          );
+          return;
+        }
+        const access = await this.access(job);
+        if (!access) return;
+        if (this.checkCancelled(job)) return;
+        writeStarted = true;
+        const { committed } = await access.putResearch(
+          next,
+          message.expectedRevision,
+        );
+        this.deps.emit({
+          v: PROTOCOL_VERSION_V4,
+          t: 'research-saved',
+          job,
+          project: message.project,
+          revision: committed.revision,
+        });
         return;
       }
 

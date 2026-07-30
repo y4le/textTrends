@@ -13,7 +13,12 @@
  * worker-instance epoch so a stale instance can never publish.
  */
 
-import type { IndexRecipeProvisional, ProjectManifestV1, SourceDescriptorV1 } from '@texttrends/core';
+import type {
+  IndexRecipeProvisional,
+  ProjectManifestV1,
+  ResearchStateV1,
+  SourceDescriptorV1,
+} from '@texttrends/core';
 import type {
   FromWorkerV4,
   GenerationDocSpecV4,
@@ -79,6 +84,10 @@ export type ProjectLoadResult =
   | { readonly kind: 'loaded'; readonly manifest: ProjectManifestV1 }
   | { readonly kind: 'missing' };
 
+export type ResearchLoadResult =
+  | { readonly kind: 'loaded'; readonly state: ResearchStateV1 }
+  | { readonly kind: 'missing' };
+
 /** The correlated extraction event: the source/text/candidate identities a
  *  manifest needs, retaining job + generation + doc so a superseded or retried
  *  import can never assemble the wrong document. NOTE: source-ready is an
@@ -133,6 +142,8 @@ type Pending =
   | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void }
   | { kind: 'project-load'; resolve: (r: ProjectLoadResult) => void; reject: (e: Error) => void }
   | { kind: 'project-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
+  | { kind: 'research-load'; resolve: (r: ResearchLoadResult) => void; reject: (e: Error) => void }
+  | { kind: 'research-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
   | { kind: 'source-persist'; resolve: () => void; reject: (e: Error) => void };
 
 export class WorkerClient {
@@ -363,6 +374,30 @@ export class WorkerClient {
         if (p?.kind === 'project-save') { this.pending.delete(m.job); p.resolve({ revision: m.revision }); }
         return;
       }
+      case 'research-loaded': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'research-load') {
+          this.pending.delete(m.job);
+          p.resolve({ kind: 'loaded', state: m.state });
+        }
+        return;
+      }
+      case 'research-missing': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'research-load') {
+          this.pending.delete(m.job);
+          p.resolve({ kind: 'missing' });
+        }
+        return;
+      }
+      case 'research-saved': {
+        const p = this.pending.get(m.job);
+        if (p?.kind === 'research-save') {
+          this.pending.delete(m.job);
+          p.resolve({ revision: m.revision });
+        }
+        return;
+      }
       case 'source-persisted': {
         const p = this.pending.get(m.job);
         if (p?.kind === 'source-persist') { this.pending.delete(m.job); p.resolve(); }
@@ -497,6 +532,38 @@ export class WorkerClient {
         this.post({ v: PROTOCOL_VERSION_V4, t: 'project-save', job, project: manifest.id, manifest, expectedRevision });
       },
     );
+  }
+
+  researchLoad(project: string): {
+    result: Promise<ResearchLoadResult>;
+    cancel: () => void;
+  } {
+    return this.request<ResearchLoadResult>((job, resolve, reject) => {
+      this.pending.set(job, { kind: 'research-load', resolve, reject });
+      this.post({
+        v: PROTOCOL_VERSION_V4,
+        t: 'research-load',
+        job,
+        project,
+      });
+    });
+  }
+
+  researchSave(
+    state: ResearchStateV1,
+    expectedRevision: number,
+  ): { result: Promise<{ revision: number }>; cancel: () => void } {
+    return this.request<{ revision: number }>((job, resolve, reject) => {
+      this.pending.set(job, { kind: 'research-save', resolve, reject });
+      this.post({
+        v: PROTOCOL_VERSION_V4,
+        t: 'research-save',
+        job,
+        project: state.project,
+        state,
+        expectedRevision,
+      });
+    });
   }
 
   /** Persist opted-in source bytes durably (content-addressed). The bytes are

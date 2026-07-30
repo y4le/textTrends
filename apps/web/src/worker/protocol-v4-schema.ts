@@ -428,6 +428,15 @@ export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
       return isCount(m.job) && isStr(m.project) &&
         Number.isSafeInteger(m.expectedRevision) && (m.expectedRevision as number) >= 0 && 'manifest' in m
         ? (m as unknown as ToWorkerV4) : null;
+    case 'research-load':
+      return isCount(m.job) && isStr(m.project)
+        ? (m as unknown as ToWorkerV4) : null;
+    case 'research-save':
+      return isCount(m.job) && isStr(m.project) &&
+        Number.isSafeInteger(m.expectedRevision) &&
+        (m.expectedRevision as number) >= 0 &&
+        'state' in m
+        ? (m as unknown as ToWorkerV4) : null;
     case 'source-persist':
       return isCount(m.job) && isStr(m.sourceHash) && m.bytes instanceof ArrayBuffer
         ? (m as unknown as ToWorkerV4) : null;
