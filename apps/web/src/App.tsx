@@ -8,6 +8,7 @@ import { SeriesLineSample } from './components/chrome.tsx';
 import { PinnedPane } from './components/PinnedPane.tsx';
 import { ResearchPanel } from './components/ResearchPanel.tsx';
 import { ScopeBar } from './components/ScopeBar.tsx';
+import { MethodSummary } from './components/MethodSummary.tsx';
 
 // The chart/interaction surface is the largest main-thread feature module and
 // is irrelevant until the notebook has an active series. Keep the initial
@@ -125,6 +126,7 @@ export function App() {
         </form>
       </header>
       <ScopeBar />
+      <MethodSummary place="trends" />
       <div role="status" aria-live="polite">
         {inputError && (
           <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>

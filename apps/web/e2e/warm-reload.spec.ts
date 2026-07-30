@@ -17,6 +17,19 @@ test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready b
   const corpusRequests = trackCorpusRequests(page);
   await page.reload();
   await awaitAllReady(page);
+  // The DOM readiness summary can render a few milliseconds before the
+  // worker's ordered generation-ready barrier reaches the passive trace.
+  // Poll the trace rather than racing one immediate observation against that
+  // delivery; this is synchronization, not a retry of the generation.
+  await expect
+    .poll(
+      async () => events(
+        await trace(page),
+        { direction: 'from-worker', t: 'generation-ready' },
+      ).length,
+      { timeout: 10_000 },
+    )
+    .toBe(1);
 
   expect(corpusRequests).toEqual([]);
 
