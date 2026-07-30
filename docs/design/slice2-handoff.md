@@ -1,8 +1,8 @@
 # Slice-2 handoff — linked selection, dispersion barcode, full reader
 
 *Written 2026-07-29 for a fresh agent picking up mid-slice; updated later that
-day through the I acceptance candidate. Branch `feature/product-slices`, tip
-`a95def5` plus the unstaged I candidate. Read this file, then
+day through slice completion. Branch `feature/product-slices`, tip `6798768`
+plus the final status/test-strength closeout. Read this file, then
 `docs/design/linked-selection-plan.md` (the recorded Codex ruling — it is the
 CONTRACT; this file only tracks execution state against it).*
 
@@ -13,8 +13,7 @@ CONTRACT; this file only tracks execution state against it).*
 Slice 1 (term groups + query notebook) is **complete** — see
 `docs/design/term-groups-plan.md` STATUS. Slice 2 is the second of the four
 adopted product slices (`docs/research/synthesis.md` §11). Its ruling splits
-it into commits **A–I**; all implementation commits through H are landed and
-I is built.
+it into commits **A–I**; the slice is complete.
 
 | Commit | What | State |
 |---|---|---|
@@ -27,7 +26,7 @@ I is built.
 | E2 | Linked-selection gestures + rendering | **landed** `28e55f3` (1 round) |
 | F | Pinned context pane | **landed** `8fece64` (1 round) |
 | H | Full reader UI and links | **landed** `a95def5` (1 round) |
-| I | Slice-2 browser acceptance | **built and verified, awaiting review** — see §5 |
+| I | Slice-2 browser acceptance | **landed** `6798768` (1 round) |
 
 Commit order note: the ruling's letters are its own sequence. G was pulled
 forward of E/F because its core kernel was draftable in parallel; **E, F, H, I
@@ -47,16 +46,12 @@ build: bundle contract passes; H entry is 69.6 kB gzip and reader UI is a 2.6 kB
 
 ## 2. Working-tree contents (nothing is lost — read this before `git` anything)
 
-`git status --short` currently shows the unstaged commit-I candidate. **Do not
-run `git checkout --` or `git stash` without reading this.**
-
-**UNSTAGED — commit I acceptance + reviewed-H followups**:
+`git status --short` currently shows only the final status/test-strength
+closeout (plus ignored agent scratch):
 ```
- M apps/web/src/components/ReaderDrawer.tsx
- M apps/web/src/lib/store.ts
+ M apps/web/e2e/{reader,slice2-acceptance}.spec.ts
  M apps/web/test/store.test.ts
- M apps/web/e2e/reader.spec.ts
-?? apps/web/e2e/slice2-acceptance.spec.ts
+ M docs/design/{linked-selection-plan,slice2-handoff}.md
 ```
 
 **`?? .claude/`** is agent worktree scratch — ignorable, not part of the work.
@@ -263,7 +258,7 @@ Next/Previous pages out of order. Semantic member/active changes reissue the
 current highlight projection, rename stays presentational, and snapshot
 replacement closes the reader.
 
-**I is built and awaiting exact-tree review.** Its deterministic local journey
+**I landed in `6798768`.** Its deterministic local journey
 authors a wolf-or-hound group, activates an exact tick, creates a keyboard-only
 range and proves all selected consumers share its four-of-six evidence, pins
 the anchor, opens the canonical reader, pages forward/back with exact

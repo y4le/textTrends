@@ -9,6 +9,23 @@ backlog checkpoint — slice 2 (not 3) is the first new QueryOp and triggers
 the simplification-plan F1 QueryExecutor gate plus the staged G2 fixture
 support, before either new operation lands.*
 
+**STATUS: COMPLETE (2026-07-29).** The full slice landed on
+`feature/product-slices`, with every implementation tree reviewed by Claude
+Opus through Parley and ending `looks-good`: A `c9fe8c1` (shared real-hash
+fixtures, 2 rounds), B `bf058fe` (generation-bound QueryExecutor, 1), C
+`9f1ee54` (`dispersion/1`, 3), D `2f42c5d` (barcode/KWIC, 3), G `8ee6a31`
+(canonical `reader-page/1`, 3), E1 `1886bae` + E2 `28e55f3` (linked-selection
+store/UI, 2 + 1), F `8fece64` (captured pins, 1), H `a95def5` (lazy full
+reader, 1), and I `6798768` (browser acceptance, 1). Phase-end matrix:
+typecheck clean; core 420 + web 540 unit tests; Chromium functional 43/43;
+serial benchmark 3/3; bundle contract OK with entry 69,555 B gzip and the
+reader UI in a 2.63 kB lazy chunk. The deterministic acceptance journey
+proves multi-member semantics → exact dispersion/KWIC → one linked range
+across trend/barcode/counts/KWIC → captured pin → canonical reader
+forward/back → baseline restoration. Durable pins/selections, notebook
+persistence, and char-anchor migration remain deliberately deferred to the
+versioned share/persistence slice.
+
 ---
 
 Ruling: approve Slice 2, and treat it as the trigger for the deferred F1 gate now. The slice is not complete without all four product outcomes: a bounded dispersion barcode, one linked range selection propagated to analytical detail, pinnable passage evidence, and a genuinely page-through-the-document reader. It is acceptable to land pins and click-through before the reader as intermediate commits; it is not acceptable to defer the reader to another slice while calling Slice 2 complete.

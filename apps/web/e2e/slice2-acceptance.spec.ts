@@ -157,6 +157,14 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['kwic']);
+  const clearQueries = (await trace(page)).events.filter(
+    (event) =>
+      event.seq > mark
+      && event.direction === 'to-worker'
+      && event.t === 'query',
+  );
+  expect(clearQueries.filter((event) => event.op === 'trend' || event.op === 'dispersion'))
+    .toHaveLength(0);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(page.locator('canvas[data-selected-layer]')).toHaveCount(0);

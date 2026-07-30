@@ -1882,6 +1882,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
     f.store.getState().navigateReader({ kind: 'from', token: 8 });
     const next = f.readers().at(-1)!;
+    const countAfterNext = f.readers().length;
+    f.store.getState().navigateReader({ kind: 'from', token: 8 });
+    expect(f.readers()).toHaveLength(countAfterNext); // same pending cursor is inert
     f.store.getState().navigateReader({ kind: 'before', token: 4 });
     const previous = f.readers().at(-1)!;
     expect(next.cancelled).toBe(true);

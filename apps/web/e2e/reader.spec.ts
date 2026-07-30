@@ -72,6 +72,32 @@ async function awaitFreshReader(page: Page, mark: number): Promise<void> {
     .toBe('answered');
 }
 
+async function awaitReaderBurst(page: Page, mark: number, expected: number): Promise<void> {
+  await expect
+    .poll(async () => {
+      const snapshot = await trace(page);
+      const queries = snapshot.events.filter(
+        (event) =>
+          event.seq > mark
+          && event.direction === 'to-worker'
+          && event.t === 'query'
+          && event.op === 'reader-page',
+      );
+      const jobs = new Set(queries.map((event) => event.job));
+      const results = snapshot.events.filter(
+        (event) =>
+          event.seq > mark
+          && event.direction === 'from-worker'
+          && event.t === 'result'
+          && jobs.has(event.job),
+      );
+      return jobs.size >= expected && results.length === jobs.size
+        ? 'answered'
+        : `${results.length}/${jobs.size}`;
+    }, { timeout: 30_000 })
+    .toBe('answered');
+}
+
 async function installReaderResultGate(worker: Worker): Promise<void> {
   await worker.evaluate(() => {
     interface Held {
@@ -186,6 +212,7 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   const worker = page.workers()[0]!;
   await installReaderResultGate(worker);
   await gateArm(worker);
+  const navigationMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   // The middle page exposes both directions. Hold the completed Next page,
   // then supersede it with Previous while no old prose is mounted.
@@ -200,6 +227,7 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
   await expect.poll(() => gateHeld(worker)).toBe(1);
   await gateRelease(worker);
+  await awaitReaderBurst(page, navigationMark, 2);
   await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
   await expect(drawer.getByText('tokens 1–400 of 900')).toBeVisible();
 
