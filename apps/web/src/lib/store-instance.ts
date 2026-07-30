@@ -23,11 +23,14 @@ import { builtinProject, sherlockProjectData } from './project.ts';
 import { ProjectSession, type BundledByteProvider } from './project-session.ts';
 import { createAppRuntime } from './store.ts';
 import { createResumeMonitor } from './resume.ts';
+import { browserHistoryPort } from './history-port.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
 const client = new WorkerClient(trace);
-const runtime = createAppRuntime(client);
+const runtime = createAppRuntime(client, {
+  history: browserHistoryPort(window),
+});
 
 /** The single React-facing store. */
 export const useApp = runtime.useApp;

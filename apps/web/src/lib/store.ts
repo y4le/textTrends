@@ -131,6 +131,26 @@ import {
   matchShareDocuments,
   shareUrlFor,
 } from './share-state.ts';
+import {
+  historyStateFor,
+  parseLayerHistory,
+  pushLayer as pushLayerStack,
+  reconcileLayerRefs,
+  replaceTopLayer,
+  updateLayerUI,
+  type Layer,
+  type LayerKind,
+  type LayerUI,
+} from './layers.ts';
+import {
+  DEFAULT_ROUTE,
+  EVIDENCE_TIERS,
+  parseRoute,
+  routeSearch,
+  type EvidenceTier,
+} from './route.ts';
+import type { HistoryPort } from './history-port.ts';
+import { PLACES, type Place } from './places.ts';
 
 
 export interface KwicRowView {
@@ -549,6 +569,28 @@ export interface AppState {
   selectionError: string | null;
   shareNotice: string | null;
 
+  // ── Route/layer state: session presentation, never research data. ──
+  place: Place;
+  evidenceTier: EvidenceTier;
+  layers: readonly Layer[];
+  setPlace(place: Place): void;
+  setEvidenceTier(tier: EvidenceTier, returnFocusTo?: string): void;
+  pushLayer(
+    kind: Exclude<LayerKind, 'place'>,
+    target: unknown,
+    returnFocusTo: string,
+    ui?: LayerUI,
+  ): void;
+  replaceLayer(
+    kind: Exclude<LayerKind, 'place'>,
+    target: unknown,
+    returnFocusTo: string,
+    ui?: LayerUI,
+  ): void;
+  setLayerUI(id: string, ui: LayerUI): void;
+  /** Close and Escape delegate to Back; popstate performs the mutation. */
+  popLayer(): void;
+
   /** The query notebook (slice-1 ruling): the authoritative ordered group
    *  list. Session-only in this slice — deliberately NOT persisted anywhere
    *  (a hand-authored notebook is class-1 user data; durability arrives with
@@ -869,7 +911,7 @@ function researchStateFromApp(
   };
 }
 
-function researchSemanticKey(state: AppState): string | null {
+export function researchSemanticKey(state: AppState): string | null {
   if (!state.projectSession) return null;
   const research = researchStateFromApp(state, 1);
   return canonicalJson({ ...research, revision: 1 });
@@ -930,11 +972,73 @@ class QueryLane {
   }
 }
 
+function routeFromUrl(url: string): { readonly place: Place; readonly evidence: EvidenceTier } {
+  try {
+    return parseRoute(new URL(url, 'https://texttrends.invalid/').search);
+  } catch {
+    return DEFAULT_ROUTE;
+  }
+}
+
+function urlWithRoute(
+  url: string,
+  route: { readonly place: Place; readonly evidence: EvidenceTier },
+): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(url, 'https://texttrends.invalid/');
+  } catch {
+    parsed = new URL('https://texttrends.invalid/');
+  }
+  return `${parsed.pathname}${routeSearch(parsed.search, route)}${parsed.hash}`;
+}
+
+function relativeHistoryUrl(url: string): string {
+  try {
+    const parsed = new URL(url, 'https://texttrends.invalid/');
+    return `${parsed.pathname}${parsed.search}${parsed.hash}`;
+  } catch {
+    return '/';
+  }
+}
+
+function historyHash(url: string): string {
+  try {
+    return new URL(url, 'https://texttrends.invalid/').hash;
+  } catch {
+    return '';
+  }
+}
+
+function withoutHistoryHash(url: string): string {
+  try {
+    const parsed = new URL(url, 'https://texttrends.invalid/');
+    return `${parsed.pathname}${parsed.search}`;
+  } catch {
+    return '/';
+  }
+}
+
+function evidenceForLayers(layers: readonly Layer[]): EvidenceTier {
+  if (layers.some((layer) => layer.kind === 'reader')) return 'reader';
+  if (layers.some((layer) => layer.kind === 'sheet')) return 'sheet';
+  return 'none';
+}
+
 export function createAppRuntime(
   client: QueryClient,
-  opts?: { /** Injectable UUID factory (deterministic in tests). */ newId?: () => string },
+  opts?: {
+    /** Injectable semantic UUID factory (deterministic in tests). */
+    newId?: () => string;
+    /** Separate strict-v4 identity lane for browser-history layers. */
+    newLayerId?: () => string;
+    /** Browser history is an injected side-effect boundary, absent in pure tests. */
+    history?: HistoryPort;
+  },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
+  const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
+  const historyPort = opts?.history ?? null;
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
   // epochs + captured keys expressed.
@@ -1016,8 +1120,99 @@ export function createAppRuntime(
   let loadResearchForProject = (_project: string): void => undefined;
   let saveResearchNow = (_overwrite = false): void => undefined;
   let restoreDurablePins = (): void => undefined;
+  let historyTraversalPending = false;
+
+  // Route and layer state is initialized before the store so the first React
+  // snapshot and the current history entry cannot disagree. A deep evidence
+  // route first installs a zero-layer base entry, then pushes its layer: Back
+  // remains inside the workbench.
+  const MAX_LAYER_REGISTRY_ENTRIES = 128;
+  const layerRegistry = new Map<string, Layer>();
+  const rememberLayer = (layer: Layer, retain: readonly Layer[] = []): void => {
+    layerRegistry.delete(layer.id);
+    layerRegistry.set(layer.id, layer);
+    if (layerRegistry.size <= MAX_LAYER_REGISTRY_ENTRIES) return;
+    const protectedIds = new Set(retain.map((item) => item.id));
+    for (const id of layerRegistry.keys()) {
+      if (layerRegistry.size <= MAX_LAYER_REGISTRY_ENTRIES) break;
+      if (!protectedIds.has(id)) layerRegistry.delete(id);
+    }
+  };
+  const resolveLayer = (id: string): Layer | undefined => {
+    const layer = layerRegistry.get(id);
+    if (layer === undefined) return undefined;
+    // A resolved Back/Forward identity becomes most-recently used.
+    layerRegistry.delete(id);
+    layerRegistry.set(id, layer);
+    return layer;
+  };
+  const bootRoute = historyPort === null
+    ? DEFAULT_ROUTE
+    : routeFromUrl(historyPort.url);
+  let initialLayers: readonly Layer[] = [];
+  let initialEvidence: EvidenceTier = 'none';
+  if (historyPort !== null) {
+    historyPort.replace(
+      historyStateFor([]),
+      urlWithRoute(historyPort.url, { place: bootRoute.place, evidence: 'none' }),
+    );
+    if (bootRoute.evidence !== 'none') {
+      const deepLayer: Layer = {
+        kind: bootRoute.evidence,
+        id: newLayerId(),
+        target: Object.freeze({ source: 'route', evidence: bootRoute.evidence }),
+        returnFocusTo: `place-${bootRoute.place}-heading`,
+        ...(bootRoute.evidence === 'sheet' ? { ui: { detent: 'peek' as const } } : {}),
+      };
+      initialLayers = pushLayerStack([], deepLayer);
+      initialEvidence = bootRoute.evidence;
+      rememberLayer(deepLayer, initialLayers);
+      historyPort.push(
+        historyStateFor(initialLayers),
+        urlWithRoute(historyPort.url, bootRoute),
+      );
+    }
+  }
 
   const store = create<AppState>((set, get) => {
+    const requestBack = (): void => {
+      if (
+        historyPort === null
+        || historyTraversalPending
+        || get().layers.length === 0
+      ) return;
+      historyTraversalPending = true;
+      historyPort.back();
+    };
+
+    const writeNavigation = (
+      mode: 'push' | 'replace',
+      place: Place,
+      layers: readonly Layer[],
+    ): void => {
+      const evidenceTier = evidenceForLayers(layers);
+      if (historyPort !== null) {
+        historyPort[mode](
+          historyStateFor(layers),
+          urlWithRoute(historyPort.url, { place, evidence: evidenceTier }),
+        );
+      }
+      set({ place, evidenceTier, layers });
+    };
+
+    const freshLayer = (
+      kind: Exclude<LayerKind, 'place'>,
+      target: unknown,
+      returnFocusTo: string,
+      ui?: LayerUI,
+    ): Layer => ({
+      kind,
+      id: newLayerId(),
+      target,
+      returnFocusTo,
+      ...(ui === undefined ? {} : { ui }),
+    });
+
     /** Issue ONE guarded query on a lane: track its cancel, deliver only while
      *  the lease holds, swallow typed cancellation, surface real failures. The
      *  caller's onReady narrows the op discriminant and writes its own state. */
@@ -1761,6 +1956,79 @@ export function createAppRuntime(
       pinRestoreIssues: [],
       selectionError: null,
       shareNotice: null,
+      place: bootRoute.place,
+      evidenceTier: initialEvidence,
+      layers: initialLayers,
+      setPlace(place) {
+        if (!PLACES.includes(place) || place === get().place) return;
+        const next: Layer = {
+          kind: 'place',
+          id: newLayerId(),
+          target: Object.freeze({ place }),
+          returnFocusTo: `place-${get().place}-heading`,
+        };
+        const layers = pushLayerStack(get().layers, next);
+        rememberLayer(next, layers);
+        writeNavigation('push', place, layers);
+      },
+      setEvidenceTier(tier, returnFocusTo = `place-${get().place}-heading`) {
+        if (!EVIDENCE_TIERS.includes(tier) || tier === get().evidenceTier) return;
+        if (tier === 'none') {
+          // Closing and demotion share the browser's one stack. popstate is
+          // the only code path that mutates the visible layer state.
+          requestBack();
+          return;
+        }
+        if (get().evidenceTier === 'reader') {
+          if (get().layers.at(-2)?.kind === 'sheet') {
+            requestBack();
+            return;
+          }
+          // A hand-authored/deep bare reader has no prior sheet to reveal.
+          // Demotion replaces its active depth with the requested sheet.
+          const sheet = freshLayer(
+            'sheet',
+            Object.freeze({ source: 'route', evidence: 'sheet' }),
+            returnFocusTo,
+            { detent: 'peek' },
+          );
+          const layers = replaceTopLayer(get().layers, sheet);
+          rememberLayer(sheet, layers);
+          writeNavigation('replace', get().place, layers);
+          return;
+        }
+        const next = freshLayer(
+          tier,
+          Object.freeze({ source: 'route', evidence: tier }),
+          returnFocusTo,
+          tier === 'sheet' ? { detent: 'peek' } : undefined,
+        );
+        const layers = pushLayerStack(get().layers, next);
+        rememberLayer(next, layers);
+        writeNavigation('push', get().place, layers);
+      },
+      pushLayer(kind, target, returnFocusTo, ui) {
+        const next = freshLayer(kind, target, returnFocusTo, ui);
+        const layers = pushLayerStack(get().layers, next);
+        rememberLayer(next, layers);
+        writeNavigation('push', get().place, layers);
+      },
+      replaceLayer(kind, target, returnFocusTo, ui) {
+        const next = freshLayer(kind, target, returnFocusTo, ui);
+        const layers = replaceTopLayer(get().layers, next);
+        rememberLayer(next, layers);
+        writeNavigation('replace', get().place, layers);
+      },
+      setLayerUI(id, ui) {
+        const layers = updateLayerUI(get().layers, id, ui);
+        if (layers === get().layers) return;
+        const changed = layers.find((layer) => layer.id === id);
+        if (changed !== undefined) rememberLayer(changed, layers);
+        writeNavigation('replace', get().place, layers);
+      },
+      popLayer() {
+        requestBack();
+      },
       notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
       activeGroupIds: new Set<string>(),
       soloGroupId: null,
@@ -3386,9 +3654,7 @@ export function createAppRuntime(
             ? {}
             : { r: research.selections.map((selection) => selection.anchor) }),
         };
-        const fallback = typeof location === 'undefined'
-          ? 'https://texttrends.invalid/'
-          : location.href;
+        const fallback = historyPort?.url ?? 'https://texttrends.invalid/';
         return shareUrlFor(share, baseUrl ?? fallback);
       },
       importShareLink(value) {
@@ -3432,16 +3698,12 @@ export function createAppRuntime(
             },
           };
           get().restoreResearch(imported);
-          if (
-            typeof history !== 'undefined' &&
-            typeof location !== 'undefined' &&
-            location.hash.startsWith('#s=')
-          ) {
-            history.replaceState(
-              history.state,
-              '',
-              `${location.pathname}${location.search}`,
-            );
+          if (historyPort !== null && historyHash(historyPort.url).startsWith('#s=')) {
+            const routed = urlWithRoute(historyPort.url, {
+              place: get().place,
+              evidence: get().evidenceTier,
+            });
+            historyPort.replace(historyPort.state, withoutHistoryHash(routed));
           }
           set({
             shareNotice: matched.unmatchedDocuments.length === 0
@@ -3529,6 +3791,33 @@ export function createAppRuntime(
       },
     };
   });
+
+  const reconcileHistory = (): void => {
+    if (historyPort === null || disposed) return;
+    historyTraversalPending = false;
+    const route = routeFromUrl(historyPort.url);
+    const parsed = parseLayerHistory(historyPort.state);
+    const reconciled = reconcileLayerRefs(parsed.refs, resolveLayer);
+    const evidenceTier = evidenceForLayers(reconciled.layers);
+    store.setState({
+      place: route.place,
+      evidenceTier,
+      layers: reconciled.layers,
+    });
+    const normalizedUrl = urlWithRoute(historyPort.url, {
+      place: route.place,
+      evidence: evidenceTier,
+    });
+    if (
+      !parsed.valid
+      || reconciled.truncated
+      || route.evidence !== evidenceTier
+      || relativeHistoryUrl(historyPort.url) !== normalizedUrl
+    ) {
+      historyPort.replace(historyStateFor(reconciled.layers), normalizedUrl);
+    }
+  };
+  const unsubscribeHistory = historyPort?.subscribe(reconcileHistory) ?? (() => undefined);
 
   const clearResearchTimer = (): void => {
     if (researchSaveTimer !== null) {
@@ -3899,6 +4188,7 @@ export function createAppRuntime(
       researchSaveCancel?.();
       researchLoadCancel = null;
       researchSaveCancel = null;
+      unsubscribeHistory();
       unsubscribeResearch();
       if (typeof document !== 'undefined') {
         document.removeEventListener('visibilitychange', flushResearch);

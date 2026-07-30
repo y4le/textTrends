@@ -20,10 +20,12 @@ import {
   createAppRuntime,
   KWIC_CENTER_DEBOUNCE_MS,
   MAX_SERIES,
+  researchSemanticKey,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
 } from '../src/lib/store.ts';
+import type { HistoryPort } from '../src/lib/history-port.ts';
 import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';
 import type {
   AnalysisPhase,
@@ -116,6 +118,91 @@ function fakeQueryClient() {
     tfidfs: () => issued.filter((q) => q.op === 'tfidf-sections'),
     keynesses: () => issued.filter((q) => q.op === 'keyness'),
   };
+}
+
+class FakeHistoryPort implements HistoryPort {
+  readonly entries: Array<{ state: unknown; url: string }>;
+  private index = 0;
+  private readonly listeners = new Set<() => void>();
+  pushes = 0;
+  replaces = 0;
+  backs = 0;
+  leftApp = 0;
+  deferBack = false;
+  private queuedBack = false;
+
+  constructor(url = '/textTrends/?p=trends') {
+    this.entries = [{ state: null, url }];
+  }
+
+  get state() {
+    return this.entries[this.index]!.state;
+  }
+
+  get url() {
+    return this.entries[this.index]!.url;
+  }
+
+  push(state: unknown, url: string) {
+    this.entries.splice(this.index + 1, Infinity, { state, url });
+    this.index += 1;
+    this.pushes += 1;
+  }
+
+  replace(state: unknown, url: string) {
+    this.entries[this.index] = { state, url };
+    this.replaces += 1;
+  }
+
+  back() {
+    this.backs += 1;
+    if (this.deferBack) {
+      this.queuedBack = true;
+      return;
+    }
+    this.commitBack();
+  }
+
+  flushBack() {
+    if (!this.queuedBack) return;
+    this.queuedBack = false;
+    this.commitBack();
+  }
+
+  private commitBack() {
+    if (this.index === 0) {
+      this.leftApp += 1;
+      return;
+    }
+    this.index -= 1;
+    this.emit();
+  }
+
+  forward() {
+    if (this.index >= this.entries.length - 1) return;
+    this.index += 1;
+    this.emit();
+  }
+
+  restore(state: unknown, url: string) {
+    this.entries[this.index] = { state, url };
+    this.emit();
+  }
+
+  subscribe(listener: () => void) {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  private emit() {
+    for (const listener of this.listeners) listener();
+  }
+}
+
+function layerIds() {
+  let next = 0;
+  return () =>
+    `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
 }
 
 /** A structure query result echoing the two artifact identities (§12.7). */
@@ -395,6 +482,233 @@ function harness(initial?: SessionState, opts?: { seed?: boolean }) {
 }
 
 const flush = () => new Promise((r) => setTimeout(r, 0));
+
+describe('workbench route and history authority', () => {
+  it('does not leave the app or double-traverse when there is no layer to unwind', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    runtime.useApp.getState().popLayer();
+    runtime.useApp.getState().popLayer();
+    expect(history.backs).toBe(0);
+    expect(history.leftApp).toBe(0);
+
+    runtime.useApp.getState().setEvidenceTier('sheet');
+    history.deferBack = true;
+    runtime.useApp.getState().popLayer();
+    runtime.useApp.getState().popLayer();
+    expect(history.backs).toBe(1);
+    expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
+    history.flushBack();
+    expect(runtime.useApp.getState().evidenceTier).toBe('none');
+    runtime.dispose();
+  });
+
+  it('installs a Back-safe base for deep evidence routes and restores forward by id', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort(
+      '/textTrends/?foreign=a+b&p=corpus&e=reader#s=kept',
+    );
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'reader',
+      layers: [{ kind: 'reader' }],
+    });
+    expect(history.entries).toHaveLength(2);
+    expect(history.entries[0]?.url)
+      .toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
+    expect(history.entries[1]?.url)
+      .toBe('/textTrends/?foreign=a+b&p=corpus&e=reader#s=kept');
+
+    history.back();
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'none',
+      layers: [],
+    });
+    history.forward();
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'reader',
+      layers: [{ kind: 'reader' }],
+    });
+    expect(q.issued).toHaveLength(0);
+
+    runtime.dispose();
+    history.back();
+    expect(runtime.useApp.getState().evidenceTier).toBe('reader');
+  });
+
+  it('keeps route/layer changes outside research, queries, and serialized targets', async () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?foreign=%2f&p=trends');
+    const runtime = createAppRuntime(q.client, {
+      newId: () => 'semantic-id',
+      newLayerId: layerIds(),
+      history,
+    });
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const store = runtime.useApp;
+    const before = researchSemanticKey(store.getState());
+    const issuedBefore = q.issued.length;
+    const assertFenced = () => {
+      expect(researchSemanticKey(store.getState())).toBe(before);
+      expect(q.issued).toHaveLength(issuedBefore);
+      expect(store.getState().researchPersistence.phase).toBe('saved');
+    };
+
+    store.getState().setPlace('corpus');
+    assertFenced();
+    store.getState().setEvidenceTier('sheet', 'open-evidence');
+    assertFenced();
+    store.getState().pushLayer(
+      'row-detail',
+      { term: 'Holmes', note: 'private target' },
+      'vocabulary-row',
+    );
+    assertFenced();
+    const sheet = store.getState().layers.find((layer) => layer.kind === 'sheet')!;
+    store.getState().setLayerUI(sheet.id, { detent: 'half', scrollKey: 'local-scroll' });
+    assertFenced();
+    store.getState().replaceLayer(
+      'row-detail',
+      { term: 'Moriarty', token: 42 },
+      'other-row',
+    );
+    assertFenced();
+
+    expect(history.pushes).toBe(3);
+    expect(history.url).toBe('/textTrends/?foreign=%2f&p=corpus&e=sheet');
+    expect(JSON.stringify(history.state)).not.toMatch(
+      /Holmes|Moriarty|private|token|vocabulary-row|local-scroll/,
+    );
+
+    store.getState().popLayer();
+    expect(store.getState().layers.at(-1)?.kind).toBe('sheet');
+    store.getState().setEvidenceTier('none');
+    expect(store.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'none',
+      layers: [{ kind: 'place' }],
+    });
+    assertFenced();
+
+    const navigation = {
+      place: store.getState().place,
+      evidenceTier: store.getState().evidenceTier,
+      layers: store.getState().layers,
+    };
+    store.getState().restoreResearch(researchState(BUILTIN_SHERLOCK_ID, 4));
+    expect(store.getState()).toMatchObject(navigation);
+
+    const shared = store.getState().createShareUrl(
+      'https://example.test/textTrends/?p=corpus',
+    );
+    const layerState = history.state;
+    history.restore(layerState, `${history.url}${new URL(shared).hash}`);
+    store.getState().importShareLink(shared);
+    expect(history.url).not.toContain('#s=');
+    expect(history.state).toBe(layerState);
+    runtime.dispose();
+  });
+
+  it('truncates an unresolvable forward stack and normalizes its URL and state', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+    store.getState().setPlace('corpus');
+    store.getState().setEvidenceTier('sheet');
+    const live = store.getState().layers;
+    history.restore({
+      tt: {
+        v: 1,
+        layers: [
+          ...live.map(({ kind, id }) => ({ kind, id })),
+          { kind: 'reader', id: '00000000-0000-4000-8000-999999999999' },
+        ],
+      },
+    }, '/textTrends/?p=corpus&e=reader');
+
+    expect(store.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'sheet',
+      layers: live,
+    });
+    expect(history.url).toBe('/textTrends/?p=corpus&e=sheet');
+    expect(history.state).toEqual({
+      tt: {
+        v: 1,
+        layers: live.map(({ kind, id }) => ({ kind, id })),
+      },
+    });
+    runtime.dispose();
+  });
+
+  it('demotes a bare reader to a real sheet at the same history depth', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+    store.getState().setEvidenceTier('reader');
+    const entries = history.entries.length;
+    const backs = history.backs;
+    store.getState().setEvidenceTier('sheet');
+    expect(store.getState()).toMatchObject({
+      evidenceTier: 'sheet',
+      layers: [{ kind: 'sheet' }],
+    });
+    expect(history.entries).toHaveLength(entries);
+    expect(history.backs).toBe(backs);
+    expect(history.url).toBe('/textTrends/?p=trends&e=sheet');
+    runtime.dispose();
+  });
+
+  it('bounds forward targets and normalizes entries whose layer was evicted', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+    store.getState().setEvidenceTier('sheet');
+    const oldest = history.state as {
+      readonly tt: { readonly v: 1; readonly layers: readonly unknown[] };
+    };
+    for (let index = 0; index < 200; index += 1) {
+      store.getState().setPlace(index % 2 === 0 ? 'corpus' : 'trends');
+    }
+
+    history.restore(oldest, '/textTrends/?p=trends&e=sheet');
+    expect(store.getState()).toMatchObject({
+      place: 'trends',
+      evidenceTier: 'none',
+      layers: [],
+    });
+    expect(history.url).toBe('/textTrends/?p=trends');
+    expect(history.state).toEqual({ tt: { v: 1, layers: [] } });
+    runtime.dispose();
+  });
+});
 
 describe('the session bridge', () => {
   it('hydrates durable research and autosaves semantic changes after 1.5 seconds', async () => {
