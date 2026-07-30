@@ -19,6 +19,9 @@ const ReaderDrawer = lazy(() =>
 const CorpusDashboard = lazy(() =>
   import('./components/CorpusDashboard.tsx').then(({ CorpusDashboard: panel }) => ({ default: panel })),
 );
+const KeynessPanel = lazy(() =>
+  import('./components/KeynessPanel.tsx').then(({ KeynessPanel: panel }) => ({ default: panel })),
+);
 
 /** Chart-focus chip: the series' persistent identity (line sample + name) and
  *  the CHART-emphasis control (concordance membership is the KwicPanel
@@ -216,6 +219,9 @@ export function App() {
       <StructurePanel />
       <Suspense fallback={<p style={{ color: 'var(--fg-muted)' }}>loading corpus dashboard…</p>}>
         <CorpusDashboard />
+      </Suspense>
+      <Suspense fallback={<p style={{ color: 'var(--fg-muted)' }}>loading keyness comparison…</p>}>
+        <KeynessPanel />
       </Suspense>
       <ProjectPanel />
       {readerPlace && (

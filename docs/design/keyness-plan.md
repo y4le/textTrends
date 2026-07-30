@@ -7,7 +7,7 @@ Parley request `req_consult_a2002d56c2327772`, session
 This plan depends on the term-count primitive and cache specified in
 `docs/design/corpus-dashboard-plan.md`.*
 
-**STATUS: PLANNED (2026-07-30).**
+**STATUS: COMPLETE (2026-07-30).**
 
 ## Architectural ruling
 

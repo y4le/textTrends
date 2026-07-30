@@ -102,9 +102,17 @@ function fakeQueryClient() {
     editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
     lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
-    inventories: () => issued.filter((q) => q.op === 'inventory'),
+    inventories: () => issued.filter(
+      (q) => q.op === 'inventory'
+        && (q.query as { request?: { sections?: boolean } }).request?.sections === true,
+    ),
+    keynessInventories: () => issued.filter(
+      (q) => q.op === 'inventory'
+        && (q.query as { request?: { sections?: boolean } }).request?.sections === false,
+    ),
     frequencies: () => issued.filter((q) => q.op === 'freq-list'),
     tfidfs: () => issued.filter((q) => q.op === 'tfidf-sections'),
+    keynesses: () => issued.filter((q) => q.op === 'keyness'),
   };
 }
 
@@ -328,6 +336,22 @@ function fakeFrequencyResult(marker: number): QueryResultDataV4 {
       rows: [],
     },
   } as unknown as QueryResultDataV4;
+}
+
+function fakeKeynessResult(marker: number): QueryResultDataV4 {
+  return {
+    op: 'keyness',
+    keyness: {
+      method: 'keyness-g2-2x2/1',
+      effect: 'log-ratio-halves/1',
+      selectionA: `a-${marker}` as never,
+      selectionB: `b-${marker}` as never,
+      totalsA: { tokens: marker, documents: 1 },
+      totalsB: { tokens: marker, documents: 1 },
+      total: marker,
+      rows: [],
+    },
+  };
 }
 
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
@@ -2204,5 +2228,161 @@ describe('corpus dashboard query intent (slice-3)', () => {
     f.store.getState().setFrequencyPage(5_000);
     expect(f.frequencies()).toHaveLength(issued);
     expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
+  });
+});
+
+describe('dueling keyness query intent (slice-4)', () => {
+  it('defaults to log-ratio projections and reuses inventory on explicit sides', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    expect(f.keynesses()).toHaveLength(2);
+    const [a, b] = f.keynesses().map((issued) => issued.query as {
+      request: {
+        a: { docs: string[] };
+        b: { docs: string[] };
+        side: string;
+        sort: { by: string; dir: number };
+      };
+    });
+    expect(a!.request).toMatchObject({
+      a: { docs: ['a'] },
+      b: { docs: ['b'] },
+      side: 'a',
+      sort: { by: 'logRatio', dir: -1 },
+    });
+    expect(b!.request).toMatchObject({
+      a: { docs: ['a'] },
+      b: { docs: ['b'] },
+      side: 'b',
+      sort: { by: 'logRatio', dir: 1 },
+    });
+    expect(f.keynessInventories()).toHaveLength(2);
+    expect(f.keynessInventories().map((issued) =>
+      (issued.query as { selection: { docs: string[] } }).selection.docs,
+    )).toEqual([['a'], ['b']]);
+  });
+
+  it('is independent of the linked trend brush', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const keynessCount = f.keynesses().length;
+    const inventoryCount = f.keynessInventories().length;
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      doc: 'a',
+      tokens: { start: 1, end: 4 },
+    });
+    expect(f.keynesses()).toHaveLength(keynessCount);
+    expect(f.keynessInventories()).toHaveLength(inventoryCount);
+  });
+
+  it('pages each table independently and drops a superseded result', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const initialA = f.keynesses().find((issued) =>
+      (issued.query as { request: { side: string } }).request.side === 'a')!;
+    const initialB = f.keynesses().find((issued) =>
+      (issued.query as { request: { side: string } }).request.side === 'b')!;
+    f.store.getState().setKeynessPage('a', 100);
+    expect(initialA.cancelled).toBe(true);
+    expect(initialB.cancelled).toBe(false);
+    expect(f.keynesses()).toHaveLength(3);
+    initialA.resolve(fakeKeynessResult(99));
+    initialB.resolve(fakeKeynessResult(7));
+    await flush();
+    expect(f.store.getState().keynessA?.state.status).toBe('pending');
+    expect(f.store.getState().keynessB?.state).toMatchObject({
+      status: 'ready',
+      result: { total: 7 },
+    });
+  });
+
+  it('table-only view changes do not strand inventory headers or evidence', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const inventories = f.keynessInventories();
+    f.store.getState().openKeynessEvidence('Wolf', 'b');
+    const evidence = f.kwics().at(-1)!;
+    f.store.getState().setKeynessSort('a', 'countA');
+    expect(inventories.every((issued) => !issued.cancelled)).toBe(true);
+    expect(evidence.cancelled).toBe(false);
+
+    inventories[0]!.resolve(fakeInventoryResult(4));
+    inventories[1]!.resolve(fakeInventoryResult(5));
+    evidence.resolve({ op: 'kwic', total: 0, rows: [] });
+    await flush();
+    expect(f.store.getState().keynessInventoryA?.state.status).toBe('ready');
+    expect(f.store.getState().keynessInventoryB?.state.status).toBe('ready');
+    expect(f.store.getState().keynessEvidence?.state.status).toBe('ready');
+  });
+
+  it('swaps sides and constructs document-v-rest without overlapping membership', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().swapKeynessSides();
+    let requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({ a: { docs: ['b'] }, b: { docs: ['a'] } });
+
+    f.store.getState().setKeynessMode('document-rest');
+    requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({
+      a: { docs: ['b'] },
+      b: { docs: ['a', 'c'] },
+    });
+    f.store.getState().swapKeynessSides();
+    requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({
+      a: { docs: ['a', 'c'] },
+      b: { docs: ['b'] },
+    });
+  });
+
+  it('opens exact concordance evidence on one side without changing the brush', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().openKeynessEvidence('Wolf', 'b');
+    const request = f.kwics().at(-1)!;
+    const query = request.query as {
+      selection: { docs: string[] };
+      tracks: { group: { members: { surface: string; match: unknown }[] } }[];
+    };
+    expect(query.selection.docs).toEqual(['b']);
+    expect(query.tracks[0]!.group.members[0]).toMatchObject({
+      surface: 'Wolf',
+      match: { case: 'sensitive', diacritics: 'sensitive' },
+    });
+    expect(f.store.getState().linkedSelection).toBeNull();
+    request.resolve({ op: 'kwic', total: 0, rows: [] });
+    await flush();
+    expect(f.store.getState().keynessEvidence).toMatchObject({
+      side: 'b',
+      key: 'Wolf',
+      state: { status: 'ready', total: 0, rows: [] },
+    });
+  });
+
+  it('reconciles departed documents on the next snapshot', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().setKeynessDocument('a', 'c');
+    f.port.publishSnapshot('g1', 's2', ['a', 'b']);
+    expect(f.store.getState().keynessView).toMatchObject({
+      documentA: 'a',
+      documentB: 'b',
+    });
+    const latest = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(latest[0]).toMatchObject({ a: { docs: ['a'] }, b: { docs: ['b'] } });
   });
 });

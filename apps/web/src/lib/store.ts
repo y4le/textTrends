@@ -109,6 +109,9 @@ import type {
   FrequencySortFieldV1,
   FrequencyTokenClassV1,
   TfidfSectionsResultV1,
+  KeynessResultV1,
+  KeynessSortFieldV1,
+  WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 import {
   SessionCommandError,
@@ -309,6 +312,141 @@ export interface TfidfState {
     | { readonly status: 'error'; readonly message: string };
 }
 
+export interface KeynessViewV1 {
+  readonly schema: 'texttrends/keyness-view/1';
+  readonly mode: 'documents' | 'document-rest';
+  readonly documentA: string | null;
+  readonly documentB: string | null;
+  /** In document-rest mode, which table contains the complement corpus. */
+  readonly restOn: 'a' | 'b';
+  readonly minCountTotal: number;
+  readonly minDocFreqTotal: number;
+  readonly classes: readonly FrequencyTokenClassV1[];
+  readonly sortA: { readonly by: KeynessSortFieldV1; readonly dir: 1 | -1 };
+  readonly sortB: { readonly by: KeynessSortFieldV1; readonly dir: 1 | -1 };
+  readonly pageA: { readonly offset: number; readonly limit: number };
+  readonly pageB: { readonly offset: number; readonly limit: number };
+}
+
+export interface KeynessTableState {
+  readonly snapshot: string;
+  readonly side: 'a' | 'b';
+  readonly view: KeynessViewV1;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: KeynessResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export interface KeynessInventoryState {
+  readonly snapshot: string;
+  readonly side: 'a' | 'b';
+  readonly view: KeynessViewV1;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: InventoryResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export interface KeynessEvidenceState {
+  readonly snapshot: string;
+  readonly side: 'a' | 'b';
+  readonly key: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
+  schema: 'texttrends/keyness-view/1',
+  mode: 'documents',
+  documentA: null,
+  documentB: null,
+  restOn: 'b',
+  minCountTotal: 5,
+  minDocFreqTotal: 2,
+  classes: Object.freeze(['lexical'] as const),
+  sortA: Object.freeze({ by: 'logRatio' as const, dir: -1 as const }),
+  sortB: Object.freeze({ by: 'logRatio' as const, dir: 1 as const }),
+  pageA: Object.freeze({ offset: 0, limit: 100 }),
+  pageB: Object.freeze({ offset: 0, limit: 100 }),
+});
+
+export function reconcileKeynessView(
+  view: KeynessViewV1,
+  readyDocs: readonly string[],
+): KeynessViewV1 {
+  const documentA = view.documentA !== null && readyDocs.includes(view.documentA)
+    ? view.documentA
+    : readyDocs[0] ?? null;
+  const documentB = view.documentB !== null
+    && readyDocs.includes(view.documentB)
+    && view.documentB !== documentA
+    ? view.documentB
+    : readyDocs.find((doc) => doc !== documentA) ?? null;
+  if (documentA === view.documentA && documentB === view.documentB) return view;
+  return { ...view, documentA, documentB };
+}
+
+export function keynessSelections(
+  view: KeynessViewV1,
+  readyDocs: readonly string[],
+): { readonly a: WireSelectionV4; readonly b: WireSelectionV4 } | null {
+  if (
+    view.documentA === null ||
+    view.documentB === null ||
+    !readyDocs.includes(view.documentA) ||
+    !readyDocs.includes(view.documentB) ||
+    view.documentA === view.documentB
+  ) {
+    return null;
+  }
+  if (view.mode === 'documents') {
+    return {
+      a: { docs: [view.documentA] },
+      b: { docs: [view.documentB] },
+    };
+  }
+  if (view.restOn === 'b') {
+    const rest = readyDocs.filter((doc) => doc !== view.documentA);
+    return rest.length === 0
+      ? null
+      : { a: { docs: [view.documentA] }, b: { docs: rest } };
+  }
+  const rest = readyDocs.filter((doc) => doc !== view.documentB);
+  return rest.length === 0
+    ? null
+    : { a: { docs: rest }, b: { docs: [view.documentB] } };
+}
+
+function keynessSideSelectionKey(
+  view: KeynessViewV1,
+  readyDocs: readonly string[],
+  side: 'a' | 'b',
+): string | null {
+  const pair = keynessSelections(view, readyDocs);
+  return pair ? JSON.stringify(pair[side]) : null;
+}
+
+function keynessTableIntentKey(
+  view: KeynessViewV1,
+  readyDocs: readonly string[],
+  side: 'a' | 'b',
+): string | null {
+  const pair = keynessSelections(view, readyDocs);
+  if (!pair) return null;
+  return JSON.stringify([
+    pair,
+    view.minCountTotal,
+    view.minDocFreqTotal,
+    view.classes,
+    side === 'a' ? view.sortA : view.sortB,
+    side === 'a' ? view.pageA : view.pageB,
+    side,
+  ]);
+}
+
 export type TrendView = 'series' | 'by-book';
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -418,6 +556,13 @@ export interface AppState {
   frequency: FrequencyState | null;
   /** Full-document chapter labels for the focused book. */
   tfidf: TfidfState | null;
+  /** Comparison-owned, brush-independent two-side keyness research intent. */
+  keynessView: KeynessViewV1;
+  keynessA: KeynessTableState | null;
+  keynessB: KeynessTableState | null;
+  keynessInventoryA: KeynessInventoryState | null;
+  keynessInventoryB: KeynessInventoryState | null;
+  keynessEvidence: KeynessEvidenceState | null;
   trendView: TrendView;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
@@ -495,6 +640,20 @@ export interface AppState {
   setFrequencyPageSize(limit: number): void;
   addFrequencyTerm(key: string): void;
   showFrequencyTermInKwic(key: string): void;
+  runKeyness(): void;
+  setKeynessMode(mode: KeynessViewV1['mode']): void;
+  setKeynessDocument(side: 'a' | 'b', doc: string): void;
+  swapKeynessSides(): void;
+  setKeynessFilter(
+    minCountTotal: number,
+    minDocFreqTotal: number,
+    classes: readonly FrequencyTokenClassV1[],
+  ): void;
+  setKeynessSort(side: 'a' | 'b', by: KeynessSortFieldV1): void;
+  setKeynessPage(side: 'a' | 'b', offset: number): void;
+  setKeynessPageSize(side: 'a' | 'b', limit: number): void;
+  openKeynessEvidence(key: string, side: 'a' | 'b'): void;
+  closeKeynessEvidence(): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
@@ -632,6 +791,13 @@ export function createAppRuntime(
   const inventoryLane = new QueryLane(scope);
   const frequencyLane = new QueryLane(scope);
   const tfidfLane = new QueryLane(scope);
+  // Each visible keyness table and comparison-header inventory owns its lane:
+  // paging A cannot supersede B, and neither depends on the global brush.
+  const keynessALane = new QueryLane(scope);
+  const keynessBLane = new QueryLane(scope);
+  const keynessInventoryALane = new QueryLane(scope);
+  const keynessInventoryBLane = new QueryLane(scope);
+  const keynessEvidenceLane = new QueryLane(scope);
   // On-demand authoring intents (edit-context + line-excerpt), each its own
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
@@ -693,6 +859,170 @@ export function createAppRuntime(
           if (isCancelled(e) || !lease.isCurrent()) return;
           onError(e instanceof Error ? e.message : String(e));
         });
+    };
+
+    const writeKeynessTable = (
+      side: 'a' | 'b',
+      value: KeynessTableState | null,
+    ): void => {
+      if (side === 'a') set({ keynessA: value });
+      else set({ keynessB: value });
+    };
+
+    const writeKeynessInventory = (
+      side: 'a' | 'b',
+      value: KeynessInventoryState | null,
+    ): void => {
+      if (side === 'a') set({ keynessInventoryA: value });
+      else set({ keynessInventoryB: value });
+    };
+
+    const runKeynessTable = (side: 'a' | 'b'): void => {
+      const lane = side === 'a' ? keynessALane : keynessBLane;
+      lane.supersede();
+      const { snapshot, keynessView } = get();
+      const pair = snapshot
+        ? keynessSelections(keynessView, snapshot.readyDocs)
+        : null;
+      if (!snapshot || !pair) {
+        writeKeynessTable(side, null);
+        return;
+      }
+      const issuedKey = snapKey(snapshot);
+      const issuedView = keynessView;
+      const issuedIntent = keynessTableIntentKey(
+        issuedView,
+        snapshot.readyDocs,
+        side,
+      );
+      const sort = side === 'a' ? issuedView.sortA : issuedView.sortB;
+      const page = side === 'a' ? issuedView.pageA : issuedView.pageB;
+      const lease = lane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => {
+          const live = get();
+          return live.snapshot !== null
+            && keynessTableIntentKey(
+              live.keynessView,
+              live.snapshot.readyDocs,
+              side,
+            ) === issuedIntent;
+        },
+      );
+      writeKeynessTable(side, {
+        snapshot: snapshot.snapshot,
+        side,
+        view: issuedView,
+        state: { status: 'pending' },
+      });
+      issueOn(
+        lane,
+        snapshot.snapshot,
+        {
+          op: 'keyness',
+          request: {
+            method: 'keyness-g2-2x2/1',
+            effect: 'log-ratio-halves/1',
+            a: pair.a,
+            b: pair.b,
+            filter: {
+              minCountTotal: issuedView.minCountTotal,
+              minDocFreqTotal: issuedView.minDocFreqTotal,
+              classes: issuedView.classes,
+            },
+            sort,
+            page,
+            side,
+          },
+        },
+        lease,
+        (data) => {
+          if (data.op !== 'keyness') return;
+          writeKeynessTable(side, {
+            snapshot: snapshot.snapshot,
+            side,
+            view: issuedView,
+            state: { status: 'ready', result: data.keyness },
+          });
+        },
+        (message) => writeKeynessTable(side, {
+          snapshot: snapshot.snapshot,
+          side,
+          view: issuedView,
+          state: { status: 'error', message },
+        }),
+      );
+    };
+
+    const runKeynessInventory = (side: 'a' | 'b'): void => {
+      const lane = side === 'a'
+        ? keynessInventoryALane
+        : keynessInventoryBLane;
+      lane.supersede();
+      const { snapshot, keynessView } = get();
+      const pair = snapshot
+        ? keynessSelections(keynessView, snapshot.readyDocs)
+        : null;
+      if (!snapshot || !pair) {
+        writeKeynessInventory(side, null);
+        return;
+      }
+      const issuedKey = snapKey(snapshot);
+      const issuedView = keynessView;
+      const issuedSelection = keynessSideSelectionKey(
+        issuedView,
+        snapshot.readyDocs,
+        side,
+      );
+      const lease = lane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => {
+          const live = get();
+          return live.snapshot !== null
+            && keynessSideSelectionKey(
+              live.keynessView,
+              live.snapshot.readyDocs,
+              side,
+            ) === issuedSelection;
+        },
+      );
+      writeKeynessInventory(side, {
+        snapshot: snapshot.snapshot,
+        side,
+        view: issuedView,
+        state: { status: 'pending' },
+      });
+      issueOn(
+        lane,
+        snapshot.snapshot,
+        {
+          op: 'inventory',
+          selection: pair[side],
+          request: {
+            method: 'inventory/1',
+            rhythmBinsPerDoc: 0,
+            growthPoints: 0,
+            sections: false,
+            mattrWindow: INVENTORY_MATTR_WINDOW,
+          },
+        },
+        lease,
+        (data) => {
+          if (data.op !== 'inventory') return;
+          writeKeynessInventory(side, {
+            snapshot: snapshot.snapshot,
+            side,
+            view: issuedView,
+            state: { status: 'ready', result: data.inventory },
+          });
+        },
+        (message) => writeKeynessInventory(side, {
+          snapshot: snapshot.snapshot,
+          side,
+          view: issuedView,
+          state: { status: 'error', message },
+        }),
+      );
     };
 
     /** The EXACT authored core spec for a series (its notebook group) — the
@@ -1231,6 +1561,12 @@ export function createAppRuntime(
       },
       frequency: null,
       tfidf: null,
+      keynessView: DEFAULT_KEYNESS_VIEW,
+      keynessA: null,
+      keynessB: null,
+      keynessInventoryA: null,
+      keynessInventoryB: null,
+      keynessEvidence: null,
       trendView: 'series',
       focusedDoc: null,
       structure: null,
@@ -2009,6 +2345,298 @@ export function createAppRuntime(
         );
       },
 
+      runKeyness() {
+        runKeynessTable('a');
+        runKeynessTable('b');
+        runKeynessInventory('a');
+        runKeynessInventory('b');
+      },
+
+      setKeynessMode(mode) {
+        if (mode !== 'documents' && mode !== 'document-rest') return;
+        const state = get();
+        if (state.keynessView.mode === mode) return;
+        const ready = state.snapshot?.readyDocs ?? [];
+        const focus = state.keynessView.restOn === 'b'
+          ? state.keynessView.documentA
+          : state.keynessView.documentB;
+        const documentA = focus && ready.includes(focus)
+          ? focus
+          : ready[0] ?? null;
+        const documentB = ready.find((doc) => doc !== documentA) ?? null;
+        set({
+          keynessView: {
+            ...state.keynessView,
+            mode,
+            documentA,
+            documentB,
+            restOn: 'b',
+            pageA: { ...state.keynessView.pageA, offset: 0 },
+            pageB: { ...state.keynessView.pageB, offset: 0 },
+          },
+          keynessEvidence: null,
+        });
+        keynessEvidenceLane.supersede();
+        get().runKeyness();
+      },
+
+      setKeynessDocument(side, doc) {
+        const state = get();
+        const ready = state.snapshot?.readyDocs ?? [];
+        if (!ready.includes(doc)) return;
+        const view = state.keynessView;
+        if (view.mode === 'document-rest') {
+          const documentSide = view.restOn === 'b' ? 'a' : 'b';
+          if (side !== documentSide) return;
+        }
+        if (
+          (side === 'a' && doc === view.documentB) ||
+          (side === 'b' && doc === view.documentA)
+        ) {
+          return;
+        }
+        set({
+          keynessView: {
+            ...view,
+            ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
+            pageA: { ...view.pageA, offset: 0 },
+            pageB: { ...view.pageB, offset: 0 },
+          },
+          keynessEvidence: null,
+        });
+        keynessEvidenceLane.supersede();
+        get().runKeyness();
+      },
+
+      swapKeynessSides() {
+        const view = get().keynessView;
+        const ready = get().snapshot?.readyDocs ?? [];
+        let next: KeynessViewV1;
+        if (view.mode === 'documents') {
+          next = {
+            ...view,
+            documentA: view.documentB,
+            documentB: view.documentA,
+            pageA: { ...view.pageA, offset: 0 },
+            pageB: { ...view.pageB, offset: 0 },
+          };
+        } else if (view.restOn === 'b') {
+          const focus = view.documentA;
+          next = {
+            ...view,
+            restOn: 'a',
+            documentB: focus,
+            documentA: ready.find((doc) => doc !== focus) ?? null,
+            pageA: { ...view.pageA, offset: 0 },
+            pageB: { ...view.pageB, offset: 0 },
+          };
+        } else {
+          const focus = view.documentB;
+          next = {
+            ...view,
+            restOn: 'b',
+            documentA: focus,
+            documentB: ready.find((doc) => doc !== focus) ?? null,
+            pageA: { ...view.pageA, offset: 0 },
+            pageB: { ...view.pageB, offset: 0 },
+          };
+        }
+        set({ keynessView: next, keynessEvidence: null });
+        keynessEvidenceLane.supersede();
+        get().runKeyness();
+      },
+
+      setKeynessFilter(minCountTotal, minDocFreqTotal, classes) {
+        const unique = [...new Set(classes)].filter(
+          (value): value is FrequencyTokenClassV1 =>
+            value === 'lexical' || value === 'numeral',
+        );
+        if (
+          !Number.isSafeInteger(minCountTotal) ||
+          minCountTotal < 1 ||
+          !Number.isSafeInteger(minDocFreqTotal) ||
+          minDocFreqTotal < 1 ||
+          unique.length === 0
+        ) {
+          return;
+        }
+        const view = get().keynessView;
+        set({
+          keynessView: {
+            ...view,
+            minCountTotal,
+            minDocFreqTotal,
+            classes: unique,
+            pageA: { ...view.pageA, offset: 0 },
+            pageB: { ...view.pageB, offset: 0 },
+          },
+        });
+        runKeynessTable('a');
+        runKeynessTable('b');
+      },
+
+      setKeynessSort(side, by) {
+        if (!['logRatio', 'g2', 'countA', 'countB'].includes(by)) return;
+        const view = get().keynessView;
+        const current = side === 'a' ? view.sortA : view.sortB;
+        const dir = current.by === by
+          ? (current.dir === 1 ? -1 : 1)
+          : (by === 'logRatio' && side === 'b' ? 1 : -1);
+        const next: KeynessViewV1 = side === 'a'
+          ? {
+              ...view,
+              sortA: { by, dir },
+              pageA: { ...view.pageA, offset: 0 },
+            }
+          : {
+              ...view,
+              sortB: { by, dir },
+              pageB: { ...view.pageB, offset: 0 },
+            };
+        set({ keynessView: next });
+        runKeynessTable(side);
+      },
+
+      setKeynessPage(side, offset) {
+        const view = get().keynessView;
+        const page = side === 'a' ? view.pageA : view.pageB;
+        if (
+          !Number.isSafeInteger(offset) ||
+          offset < 0 ||
+          offset + page.limit > FREQUENCY_WINDOW_MAX
+        ) {
+          return;
+        }
+        set({
+          keynessView: side === 'a'
+            ? { ...view, pageA: { ...page, offset } }
+            : { ...view, pageB: { ...page, offset } },
+        });
+        runKeynessTable(side);
+      },
+
+      setKeynessPageSize(side, limit) {
+        if (
+          !Number.isSafeInteger(limit) ||
+          limit < 1 ||
+          limit > FREQUENCY_PAGE_MAX
+        ) {
+          return;
+        }
+        const view = get().keynessView;
+        set({
+          keynessView: side === 'a'
+            ? { ...view, pageA: { offset: 0, limit } }
+            : { ...view, pageB: { offset: 0, limit } },
+        });
+        runKeynessTable(side);
+      },
+
+      openKeynessEvidence(key, side) {
+        keynessEvidenceLane.supersede();
+        const { snapshot, keynessView } = get();
+        const pair = snapshot
+          ? keynessSelections(keynessView, snapshot.readyDocs)
+          : null;
+        if (!snapshot || !pair) {
+          set({ keynessEvidence: null });
+          return;
+        }
+        const label = key.normalize('NFC');
+        const group = {
+          id: 'keyness-evidence',
+          name: label,
+          members: [{
+            id: 'keyness-evidence-member',
+            kind: 'token' as const,
+            surface: label,
+            match: {
+              case: 'sensitive' as const,
+              diacritics: 'sensitive' as const,
+            },
+          }],
+          countOverlaps: false,
+        };
+        try {
+          validateNotebookGroup(group);
+        } catch {
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedView = keynessView;
+        const issuedSelection = keynessSideSelectionKey(
+          issuedView,
+          snapshot.readyDocs,
+          side,
+        );
+        const lease = keynessEvidenceLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => {
+            const live = get();
+            return live.snapshot !== null
+              && keynessSideSelectionKey(
+                live.keynessView,
+                live.snapshot.readyDocs,
+                side,
+              ) === issuedSelection;
+          },
+        );
+        set({
+          keynessEvidence: {
+            snapshot: snapshot.snapshot,
+            side,
+            key: label,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          keynessEvidenceLane,
+          snapshot.snapshot,
+          {
+            op: 'kwic',
+            selection: pair[side],
+            tracks: [{
+              seriesId: `keyness-${side}`,
+              group: coreGroupOf(group),
+            }],
+            request: {
+              contextTokens: 6,
+              sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
+              page: { offset: 0, limit: 50 },
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'kwic') return;
+            set({
+              keynessEvidence: {
+                snapshot: snapshot.snapshot,
+                side,
+                key: label,
+                state: {
+                  status: 'ready',
+                  total: data.total,
+                  rows: data.rows,
+                },
+              },
+            });
+          },
+          (message) => set({
+            keynessEvidence: {
+              snapshot: snapshot.snapshot,
+              side,
+              key: label,
+              state: { status: 'error', message },
+            },
+          }),
+        );
+      },
+
+      closeKeynessEvidence() {
+        keynessEvidenceLane.supersede();
+        set({ keynessEvidence: null });
+      },
+
       setFrequencySort(by) {
         const current = get().frequencyView;
         const dir = current.sort.by === by
@@ -2364,6 +2992,10 @@ export function createAppRuntime(
     // ready set (and thus the focus) is stable — the outline never churns on an
     // unrelated (sources/save) publication.
     const focusedDoc = resolveFocusedDoc(store.getState().focusedDoc, next);
+    const keynessView = reconcileKeynessView(
+      store.getState().keynessView,
+      next.snapshot?.readyDocs ?? [],
+    );
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
@@ -2371,6 +3003,7 @@ export function createAppRuntime(
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
       focusedDoc,
+      keynessView,
     });
     if (prevKey !== nextKey) {
       // The on-demand authoring intents are bound to the old snapshot's
@@ -2387,6 +3020,7 @@ export function createAppRuntime(
       store.getState().runInventory();
       store.getState().runFrequency();
       store.getState().runTfidf();
+      store.getState().runKeyness();
     }
   };
 
@@ -2432,6 +3066,11 @@ export function createAppRuntime(
       inventoryLane.supersede();
       frequencyLane.supersede();
       tfidfLane.supersede();
+      keynessALane.supersede();
+      keynessBLane.supersede();
+      keynessInventoryALane.supersede();
+      keynessInventoryBLane.supersede();
+      keynessEvidenceLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
