@@ -12,6 +12,8 @@ describe('row detail presentation', () => {
     expect(rowDetailSurface({ surface: 'query-editor' })).toBe('query-editor');
     expect(rowDetailSurface({ surface: 'compare-settings' })).toBe('compare-settings');
     expect(rowDetailSurface({ surface: 'compare-row' })).toBe('compare-row');
+    expect(rowDetailSurface({ surface: 'share-review' })).toBe('share-review');
+    expect(rowDetailSurface({ surface: 'findings-row' })).toBe('findings-row');
     expect(rowDetailSurface({ surface: 'foreign' })).toBeNull();
     expect(rowDetailSurface(null)).toBeNull();
     expect(rowDetailSurface([])).toBeNull();
@@ -26,6 +28,8 @@ describe('row detail presentation', () => {
       'vocab-row',
       'compare-settings',
       'compare-row',
+      'share-review',
+      'findings-row',
     ];
     for (const next of surfaces) expect(rowDetailWrite(null, next)).toBe('push');
     for (const top of surfaces) {

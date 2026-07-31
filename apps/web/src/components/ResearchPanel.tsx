@@ -6,6 +6,7 @@ import { decodeShareLink } from '../lib/share-state.ts';
 export function ResearchPanel() {
   const persistence = useApp((state) => state.researchPersistence);
   const selections = useApp((state) => state.savedSelections);
+  const selectionChecks = useApp((state) => state.selectionChecks);
   const selectionError = useApp((state) => state.selectionError);
   const restoreIssues = useApp((state) => state.pinRestoreIssues);
   const shareNotice = useApp((state) => state.shareNotice);
@@ -120,7 +121,9 @@ export function ResearchPanel() {
         )}
         {selections.length > 0 && (
           <ul aria-label="Saved selections" style={{ margin: 0, paddingLeft: '1.25rem' }}>
-            {selections.map((selection) => (
+            {selections.map((selection) => {
+              const check = selectionChecks.get(selection.id);
+              return (
               <li key={selection.id}>
                 {selection.name}{' '}
                 <button type="button" onClick={() => applySelection(selection.id)} style={SMALL_BUTTON_STYLE}>
@@ -129,8 +132,25 @@ export function ResearchPanel() {
                 <button type="button" onClick={() => removeSelection(selection.id)} style={SMALL_BUTTON_STYLE}>
                   remove
                 </button>
+                {check && (
+                  <p
+                    role={check.status === 'ok' ? 'status' : 'alert'}
+                    style={{
+                      margin: 'var(--space-1) 0',
+                      color: check.status === 'ok'
+                        ? 'var(--fg-muted)'
+                        : 'var(--accent-text)',
+                      fontSize: 'var(--text-xs)',
+                    }}
+                  >
+                    {check.status === 'ok'
+                      ? 'Checked in this session; ready to use as the linked range.'
+                      : check.message}
+                  </p>
+                )}
               </li>
-            ))}
+              );
+            })}
           </ul>
         )}
         {restoreIssues.length > 0 && (

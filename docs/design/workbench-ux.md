@@ -279,11 +279,10 @@ method and the parameters necessary to interpret the visible display:
 - uncertainty or known limitations.
 
 Activating it opens one complete provenance view containing recipe and
-content identities. The designed copy/export actions for charts and tables
-reuse the same provenance object and are delivered in the migration below;
-until then, Method remains readable in-app rather than implying an export
-capability that does not exist. Method information must not be implemented as
-unrelated notes scattered across panels.
+content identities. Governed copy actions for resident result tables reuse the
+same provenance object. A file-download export remains deferred and must not
+be implied by copy UI. Method information must not be implemented as unrelated
+notes scattered across panels.
 
 ## Selection law
 
@@ -675,15 +674,18 @@ Findings is a research log, not a card feed. It groups:
 - named ranges;
 - pins and notes;
 - anchors needing review;
-- share and designed result-copy/export actions;
+- share and governed Method copy actions;
 - incoming share preview;
-- research/project save and export status;
+- research/project save status;
 - research save/conflict state; and
-- a method/provenance log.
+- a current-state method/provenance register.
 
 Rows use citation-like document/position labels and retained query identity.
-Activating a row previews evidence. **Return to this** is separate and
-restores recorded place/scope/focus only after preview.
+Activating a row opens additive detail. Saved ranges offer **preview passage**
+and the explicit scope action **use as linked range**. Pins offer **show current
+passage** and **open in Reader**. General **Return to this** remains deferred:
+the current durable contract does not record place, focus, reader cursor, or
+live selection, so claiming to restore them would be false.
 
 Share import remains a two-step preview/replace action. On compact screens the
 preview is a full-height review surface with sticky Cancel/Replace actions.
@@ -1012,9 +1014,9 @@ Every viewport asserts:
    classes and prove the complete persisted trend view, focus return, query
    counts, Method text, private durable state, and the share fragment remain
    truthful; the fragment itself remains byte-identical.
-9. **Audit and restore:** open the complete Method/provenance view, copy/export
-   a result with that provenance, follow **return to this** from a pin, create
-   an anchor mismatch through source replacement, and resolve it from
+9. **Audit and restore:** open the complete Method/provenance view, copy a
+   governed result with that provenance, show the current passage from a pin,
+   create an anchor mismatch through source replacement, and resolve it from
    Findings without losing the current project.
 
 ## Migration plan
@@ -1026,7 +1028,7 @@ contracts.
 
 - Derive one Scope view model.
 - Add Scope bar and unified Method summary to the current page.
-- Add reusable result copy/export actions backed by the same provenance
+- Add reusable governed result-copy actions backed by the same provenance
   object as Method.
 - Split book focus from explicit document scope.
 - Give each future place a proper heading.
@@ -1087,9 +1089,9 @@ contracts.
   per-side direction and page offset, and verify save/reload round-tripping.
 - Route side evidence to the governed Evidence surface.
 - Split ResearchPanel into margin/sheet evidence actions and Findings; put
-  research/project save and export status, rather than project opening, in
+  research/project save status, rather than project opening, in
   Findings.
-- Add the method/provenance log and visible `n of 8 pinned` capacity state,
+- Add the current-state method/provenance register and visible `n of 8 pinned` capacity state,
   including **manage pins** routing from every at-cap entry point.
 - Add full share-preview and conflict compact flows.
 

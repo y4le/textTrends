@@ -58,6 +58,7 @@ import {
   termGroupIdentity,
   RESEARCH_MAX_SELECTIONS,
   type CharAnchorV1,
+  type CompileAnchorRowV1,
   type DocumentMetaV1,
   type GroupMember,
   type NumericTrend,
@@ -561,6 +562,20 @@ export interface PinRestoreIssue {
   readonly message: string;
 }
 
+/** Session-only validation of one durable character range against the current
+ * snapshot. It is deliberately excluded from research-state/1: a new snapshot
+ * invalidates every check, while the durable anchor itself remains unchanged. */
+export type SelectionCheck =
+  | {
+      readonly status: 'ok';
+      readonly doc: string;
+      readonly tokens: { readonly start: number; readonly end: number };
+    }
+  | {
+      readonly status: 'text-mismatch' | 'missing-doc' | 'empty' | 'error';
+      readonly message: string;
+    };
+
 /** Descriptive metadata a component may patch (title/author/year/tags). */
 export type MetaPatch = Partial<Pick<DocumentMetaV1, 'title' | 'author' | 'year' | 'tags'>>;
 
@@ -610,6 +625,7 @@ export interface AppState {
   commandError: string | null;
   researchPersistence: ResearchPersistenceState;
   savedSelections: readonly SavedSelectionV1[];
+  selectionChecks: ReadonlyMap<string, SelectionCheck>;
   durablePins: readonly SavedPinV1[];
   pinRestoreIssues: readonly PinRestoreIssue[];
   selectionError: string | null;
@@ -836,6 +852,9 @@ export interface AppState {
   retryAnalysis(): void;
   clearCommandError(): void;
   saveNamedSelection(name: string): void;
+  /** Validate and show a saved range as evidence without changing analysis
+   * scope or durable research state. */
+  previewNamedSelection(id: string): void;
   applyNamedSelection(id: string): void;
   removeNamedSelection(id: string): void;
   reloadResearch(): void;
@@ -871,6 +890,35 @@ function describeAnalysis(analysis: AnalysisPhase): string | null {
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function selectionCheckFor(
+  row: CompileAnchorRowV1 | undefined,
+): SelectionCheck {
+  switch (row?.status) {
+    case 'ok':
+      return { status: 'ok', doc: row.anchor.doc, tokens: row.tokens };
+    case 'text-mismatch':
+      return {
+        status: 'text-mismatch',
+        message: 'The document text changed; this saved range needs review.',
+      };
+    case 'missing-doc':
+      return {
+        status: 'missing-doc',
+        message: 'This saved range’s document is unavailable.',
+      };
+    case 'empty':
+      return {
+        status: 'empty',
+        message: 'No current token overlaps this saved character range.',
+      };
+    default:
+      return {
+        status: 'error',
+        message: 'The saved range could not be checked.',
+      };
+  }
 }
 
 /** The focused doc for the incoming session state: preserve the current focus
@@ -1133,6 +1181,10 @@ export function createAppRuntime(
   // Next/Previous cannot race with trends, passage, pins, or one another.
   const readerLane = new QueryLane(scope);
   const selectionLane = new QueryLane(scope);
+  // Preview is evidence navigation, not selection authoring. Keeping it on an
+  // independent lane prevents a preview from cancelling a save/apply action
+  // or adopting the linked analysis scope.
+  const previewSelectionLane = new QueryLane(scope);
   const pinRestoreLane = new QueryLane(scope);
   // The scrub lane fences the passage pump's RESULTS; the pump's one-active +
   // one-pending slot machinery below stays bespoke (it is a scheduler, not a
@@ -1210,9 +1262,13 @@ export function createAppRuntime(
     layerRegistry.set(id, layer);
     return layer;
   };
+  const incomingShare = historyPort !== null
+    && historyHash(historyPort.url).startsWith('#s=');
   const bootRoute = historyPort === null
     ? DEFAULT_ROUTE
-    : routeFromUrl(historyPort.url);
+    : incomingShare
+      ? { place: 'findings' as const, evidence: 'none' as const }
+      : routeFromUrl(historyPort.url);
   let initialLayers: readonly Layer[] = [];
   let initialEvidence: EvidenceTier = 'none';
   if (historyPort !== null) {
@@ -1714,7 +1770,10 @@ export function createAppRuntime(
       passagePending = null;
       const { target } = intent;
       const { snapshot, series } = get();
-      if (!snapshot || series.length === 0) return;
+      // Passage is reading evidence and the wire contract explicitly admits
+      // zero tracks. An empty notebook removes marks; it must not make a saved
+      // range or other reading target impossible to inspect.
+      if (!snapshot) return;
       const tracks = trackSpecs(series);
       if (tracks === null) return; // a group vanished mid-intent: superseded
       const issuedKey = snapKey(snapshot);
@@ -2113,6 +2172,7 @@ export function createAppRuntime(
       commandError: null,
       researchPersistence: { phase: 'idle' },
       savedSelections: [],
+      selectionChecks: new Map(),
       durablePins: [],
       pinRestoreIssues: [],
       selectionError: null,
@@ -2558,6 +2618,9 @@ export function createAppRuntime(
                 candidate.anchor.chars.start === durable.anchor.chars.start &&
                 candidate.anchor.chars.end === durable.anchor.chars.end
               )),
+            pinRestoreIssues: state.pinRestoreIssues.filter(
+              (issue) => issue.pin.id !== id,
+            ),
             focusedPinId: state.focusedPinId === id ? neighbour : state.focusedPinId,
             pinError: null,
             pinAnnouncement: 'Removed pinned evidence.',
@@ -3788,6 +3851,44 @@ export function createAppRuntime(
           (message) => set({ selectionError: message }),
         );
       },
+      previewNamedSelection(id) {
+        previewSelectionLane.supersede();
+        const state = get();
+        const saved = state.savedSelections.find((candidate) => candidate.id === id);
+        const snapshot = state.snapshot;
+        if (!saved || !snapshot) return;
+        const issuedKey = snapKey(snapshot);
+        const lease = previewSelectionLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().savedSelections.some((candidate) => candidate.id === id),
+        );
+        issueOn(
+          previewSelectionLane,
+          snapshot.snapshot,
+          {
+            op: 'compile-anchor',
+            request: { method: 'compile-anchor/1', anchors: [saved.anchor] },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'compile-anchor') return;
+            const row = data.result.rows[0];
+            const check = selectionCheckFor(row);
+            set((live) => ({
+              selectionChecks: new Map(live.selectionChecks).set(id, check),
+            }));
+            if (check.status === 'ok') {
+              get().showEvidenceAt(check.doc, check.tokens.start);
+            }
+          },
+          (message) => set((live) => ({
+            selectionChecks: new Map(live.selectionChecks).set(id, {
+              status: 'error',
+              message,
+            }),
+          })),
+        );
+      },
       applyNamedSelection(id) {
         selectionLane.supersede();
         const state = get();
@@ -3810,24 +3911,23 @@ export function createAppRuntime(
           (data) => {
             if (data.op !== 'compile-anchor') return;
             const row = data.result.rows[0];
-            if (row?.status !== 'ok') {
-              set({
-                selectionError: row?.status === 'text-mismatch'
-                  ? 'The document text changed; this selection needs review.'
-                  : row?.status === 'missing-doc'
-                    ? 'This selection’s document is unavailable.'
-                    : 'This saved selection is empty under the current index recipe.',
-              });
-              return;
-            }
+            const check = selectionCheckFor(row);
+            set((live) => ({
+              selectionChecks: new Map(live.selectionChecks).set(id, check),
+            }));
+            if (check.status !== 'ok') return;
             get().setLinkedSelection({
               snapshot: snapshot.snapshot,
-              doc: row.anchor.doc,
-              tokens: row.tokens,
+              doc: check.doc,
+              tokens: check.tokens,
             });
-            set({ selectionError: null });
           },
-          (message) => set({ selectionError: message }),
+          (message) => set((live) => ({
+            selectionChecks: new Map(live.selectionChecks).set(id, {
+              status: 'error',
+              message,
+            }),
+          })),
         );
       },
       removeNamedSelection(id) {
@@ -3835,7 +3935,9 @@ export function createAppRuntime(
           savedSelections: state.savedSelections.filter(
             (selection) => selection.id !== id,
           ),
-          selectionError: null,
+          selectionChecks: new Map(
+            [...state.selectionChecks].filter(([selectionId]) => selectionId !== id),
+          ),
         }));
       },
       reloadResearch() {
@@ -3938,6 +4040,8 @@ export function createAppRuntime(
         set({ selectionError: null, shareNotice: null });
       },
       restoreResearch(research) {
+        selectionLane.supersede();
+        previewSelectionLane.supersede();
         const state = get();
         const rows = projectTextRows(state);
         const docsByHash = new Map(rows.map((row) => [row.text, row.doc]));
@@ -3993,6 +4097,7 @@ export function createAppRuntime(
             offsetB: 0,
           },
           savedSelections: research.selections,
+          selectionChecks: new Map(),
           durablePins: research.pins,
           pinRestoreIssues: [],
           pins: [],
@@ -4187,6 +4292,7 @@ export function createAppRuntime(
     if (replacingProject) {
       store.setState({
         savedSelections: [],
+        selectionChecks: new Map(),
         durablePins: [],
         pinRestoreIssues: [],
       });
@@ -4350,6 +4456,9 @@ export function createAppRuntime(
       keynessView,
     });
     if (prevProject !== next.project.id) {
+      if (store.getState().selectionChecks.size > 0) {
+        store.setState({ selectionChecks: new Map() });
+      }
       loadResearchForProject(next.project.id);
     }
     if (prevKey !== nextKey) {
@@ -4359,6 +4468,7 @@ export function createAppRuntime(
       lineExcerptLane.supersede();
       readerLane.supersede();
       selectionLane.supersede();
+      previewSelectionLane.supersede();
       pinRestoreLane.supersede();
       keynessEvidenceLane.supersede();
       if (
@@ -4370,7 +4480,10 @@ export function createAppRuntime(
           editContext: null,
           lineExcerpt: null,
           keynessEvidence: null,
+          selectionChecks: new Map(),
         });
+      } else if (store.getState().selectionChecks.size > 0) {
+        store.setState({ selectionChecks: new Map() });
       }
       store.getState().revalidatePins();
       store.getState().runQueries();
@@ -4435,6 +4548,9 @@ export function createAppRuntime(
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
+      selectionLane.supersede();
+      previewSelectionLane.supersede();
+      pinRestoreLane.supersede();
       const state = store.getState();
       const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
       if (readerIndex >= 0 || state.readerPlace !== null) {

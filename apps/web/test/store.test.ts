@@ -107,6 +107,7 @@ function fakeQueryClient() {
     editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
     lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
+    compiles: () => issued.filter((q) => q.op === 'compile-anchor'),
     inventories: () => issued.filter(
       (q) => q.op === 'inventory'
         && (q.query as { request?: { sections?: boolean } }).request?.sections === true,
@@ -570,7 +571,7 @@ describe('workbench route and history authority', () => {
   it('installs a Back-safe base for deep sheet routes and restores forward by id', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=corpus&e=sheet#s=kept',
+      '/textTrends/?foreign=a+b&p=corpus&e=sheet#kept',
     );
     const runtime = createAppRuntime(q.client, {
       history,
@@ -584,9 +585,9 @@ describe('workbench route and history authority', () => {
     });
     expect(history.entries).toHaveLength(2);
     expect(history.entries[0]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
+      .toBe('/textTrends/?foreign=a+b&p=corpus#kept');
     expect(history.entries[1]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus&e=sheet#s=kept');
+      .toBe('/textTrends/?foreign=a+b&p=corpus&e=sheet#kept');
 
     history.back();
     expect(runtime.useApp.getState()).toMatchObject({
@@ -610,7 +611,7 @@ describe('workbench route and history authority', () => {
   it('normalizes an unresolvable deep reader route to the place base', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=corpus&e=reader#s=kept',
+      '/textTrends/?foreign=a+b&p=corpus&e=reader#kept',
     );
     const runtime = createAppRuntime(q.client, {
       history,
@@ -624,7 +625,29 @@ describe('workbench route and history authority', () => {
       readerPlace: null,
     });
     expect(history.entries).toHaveLength(1);
-    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
+    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#kept');
+    expect(q.issued).toHaveLength(0);
+    runtime.dispose();
+  });
+
+  it('routes an incoming share fragment to the Findings base without opening evidence', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort(
+      '/textTrends/?foreign=a+b&p=compare&e=sheet#s=payload',
+    );
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'findings',
+      evidenceTier: 'none',
+      layers: [],
+    });
+    expect(history.url).toBe(
+      '/textTrends/?foreign=a+b&p=findings#s=payload',
+    );
+    expect(history.entries).toHaveLength(1);
     expect(q.issued).toHaveLength(0);
     runtime.dispose();
   });
@@ -908,6 +931,166 @@ describe('the session bridge', () => {
     });
     expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
     runtime.dispose();
+  });
+
+  it('previews a saved range as evidence without changing linked or durable scope', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().restoreResearch({
+      ...researchState(BUILTIN_SHERLOCK_ID, 1),
+      selections: [{
+        id: 'range-a',
+        name: 'Opening',
+        anchor: {
+          doc: 'a',
+          text: 'sha256:text' as never,
+          chars: { start: 0, end: 12 },
+        },
+      }],
+    });
+    const durable = researchSemanticKey(f.store.getState());
+    const passageCount = f.passages().length;
+    expect(f.store.getState().series).toEqual([]);
+
+    f.store.getState().previewNamedSelection('range-a');
+    expect(f.compiles()).toHaveLength(1);
+    f.compiles()[0]!.resolve({
+      op: 'compile-anchor',
+      result: {
+        method: 'compile-anchor/1',
+        rows: [{
+          status: 'ok',
+          anchor: {
+            doc: 'a',
+            text: 'sha256:text' as never,
+            chars: { start: 0, end: 12 },
+          },
+          tokens: { start: 2, end: 5 },
+        }],
+      },
+    });
+    await flush();
+
+    expect(f.store.getState().selectionChecks.get('range-a')).toEqual({
+      status: 'ok',
+      doc: 'a',
+      tokens: { start: 2, end: 5 },
+    });
+    expect(f.store.getState().linkedSelection).toBeNull();
+    expect(researchSemanticKey(f.store.getState())).toBe(durable);
+    expect(f.passages()).toHaveLength(passageCount + 1);
+    expect((f.passages().at(-1)!.query as {
+      request: { doc: string; centerToken: number; tracks: readonly unknown[] };
+    }).request).toMatchObject({ doc: 'a', centerToken: 2, tracks: [] });
+    f.runtime.dispose();
+  });
+
+  it('applies saved ranges explicitly and keeps compile failures on their row', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().restoreResearch({
+      ...researchState(BUILTIN_SHERLOCK_ID, 1),
+      selections: [{
+        id: 'range-a',
+        name: 'Opening',
+        anchor: {
+          doc: 'a',
+          text: 'sha256:text' as never,
+          chars: { start: 0, end: 12 },
+        },
+      }],
+    });
+
+    f.store.getState().previewNamedSelection('range-a');
+    f.compiles().at(-1)!.resolve({
+      op: 'compile-anchor',
+      result: {
+        method: 'compile-anchor/1',
+        rows: [{
+          status: 'text-mismatch',
+          anchor: {
+            doc: 'a',
+            text: 'sha256:text' as never,
+            chars: { start: 0, end: 12 },
+          },
+          expected: 'sha256:text',
+          actual: 'sha256:changed',
+        }],
+      },
+    });
+    await flush();
+    expect(f.store.getState().selectionChecks.get('range-a')).toMatchObject({
+      status: 'text-mismatch',
+    });
+    expect(f.store.getState().selectionError).toBeNull();
+    expect(f.passages()).toHaveLength(0);
+
+    f.store.getState().applyNamedSelection('range-a');
+    f.compiles().at(-1)!.resolve({
+      op: 'compile-anchor',
+      result: {
+        method: 'compile-anchor/1',
+        rows: [{
+          status: 'ok',
+          anchor: {
+            doc: 'a',
+            text: 'sha256:text' as never,
+            chars: { start: 0, end: 12 },
+          },
+          tokens: { start: 1, end: 4 },
+        }],
+      },
+    });
+    await flush();
+    expect(f.store.getState().linkedSelection).toEqual({
+      snapshot: 's1',
+      doc: 'a',
+      tokens: { start: 1, end: 4 },
+    });
+    expect(f.store.getState().selectionChecks.get('range-a')?.status).toBe('ok');
+
+    f.port.publishSnapshot('g2', 's2', ['a']);
+    expect(f.store.getState().selectionChecks.size).toBe(0);
+    f.runtime.dispose();
+  });
+
+  it('fences a saved-range preview when its row is removed', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().restoreResearch({
+      ...researchState(BUILTIN_SHERLOCK_ID, 1),
+      selections: [{
+        id: 'range-a',
+        name: 'Opening',
+        anchor: {
+          doc: 'a',
+          text: 'sha256:text' as never,
+          chars: { start: 0, end: 12 },
+        },
+      }],
+    });
+    f.store.getState().previewNamedSelection('range-a');
+    const compile = f.compiles().at(-1)!;
+    f.store.getState().removeNamedSelection('range-a');
+    compile.resolve({
+      op: 'compile-anchor',
+      result: {
+        method: 'compile-anchor/1',
+        rows: [{
+          status: 'ok',
+          anchor: {
+            doc: 'a',
+            text: 'sha256:text' as never,
+            chars: { start: 0, end: 12 },
+          },
+          tokens: { start: 1, end: 4 },
+        }],
+      },
+    });
+    await flush();
+    expect(f.store.getState().selectionChecks.size).toBe(0);
+    expect(f.passages()).toHaveLength(0);
+    f.runtime.dispose();
   });
 
   it('seeds the current session state on attach, before any publication', () => {
@@ -2505,6 +2688,31 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     request.resolve({ op: 'passage', passage: fakePassage(0, 10, 3) });
     await flush();
     expect(f.store.getState().pins).toEqual([]);
+  });
+
+  it('removes a quarantined durable pin and its restore issue without a live pin', () => {
+    const f = setup();
+    const pin = {
+      id: 'quarantined',
+      note: 'Needs repair',
+      anchor: {
+        doc: 'a',
+        text: 'a'.repeat(64) as never,
+        chars: { start: 2, end: 8 },
+      },
+      captured: [],
+    };
+    f.store.setState({
+      durablePins: [pin],
+      pinRestoreIssues: [{
+        pin,
+        reason: 'text-mismatch',
+        message: 'document text changed',
+      }],
+    });
+    f.store.getState().removePin(pin.id);
+    expect(f.store.getState().durablePins).toEqual([]);
+    expect(f.store.getState().pinRestoreIssues).toEqual([]);
   });
 
   it('retries an error under the pin request’s captured semantics', async () => {

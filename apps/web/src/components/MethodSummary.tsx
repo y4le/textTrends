@@ -7,6 +7,8 @@ import {
   resultTableFor,
   type ProvenanceInput,
 } from '../lib/provenance.ts';
+import { groupIdentity } from '../lib/notebook.ts';
+import { projectSaveView } from '../lib/project-save-view.ts';
 import { keynessSelections } from '../lib/store.ts';
 import { useApp } from '../lib/store-instance.ts';
 
@@ -30,6 +32,14 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const keynessView = useApp((state) => state.keynessView);
   const keynessA = useApp((state) => state.keynessA);
   const keynessB = useApp((state) => state.keynessB);
+  const savedSelections = useApp((state) => state.savedSelections);
+  const selectionChecks = useApp((state) => state.selectionChecks);
+  const pins = useApp((state) => state.pins);
+  const durablePins = useApp((state) => state.durablePins);
+  const pinRestoreIssues = useApp((state) => state.pinRestoreIssues);
+  const researchPersistence = useApp((state) => state.researchPersistence);
+  const project = useApp((state) => state.projectSession?.project ?? null);
+  const notebook = useApp((state) => state.notebook);
   const [prepared, setPrepared] = useState<'provenance' | 'result' | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
@@ -40,6 +50,25 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     const trendLane = linkedSelection === null ? trends : selectedTrends;
     const allTrendsReady = series.length > 0
       && series.every((item) => trendLane.get(item.id)?.status === 'ready');
+    const currentGroupIdentities = new Map(
+      notebook.groups.map((group) => [group.id, groupIdentity(group)]),
+    );
+    const durableForPin = (pin: (typeof pins)[number]) => {
+      if (pin.kind !== 'ready') return undefined;
+      const start = pin.evidence.docCharsUtf16.start
+        + pin.evidence.anchorCharsUtf16.start;
+      const end = pin.evidence.docCharsUtf16.start
+        + pin.evidence.anchorCharsUtf16.end;
+      return durablePins.find((candidate) =>
+        candidate.anchor.doc === pin.anchor.doc
+        && candidate.anchor.chars.start === start
+        && candidate.anchor.chars.end === end);
+    };
+    const researchStatus = researchPersistence.phase === 'conflict'
+      ? `conflict at revision ${researchPersistence.currentRevision}`
+      : researchPersistence.phase === 'error'
+        ? `error: ${researchPersistence.message}`
+        : researchPersistence.phase;
     return {
       snapshot,
       linkedSelection,
@@ -71,8 +100,64 @@ export function MethodSummary({ place }: { readonly place: Place }) {
         resultA: keynessA?.state.status === 'ready' ? keynessA.state.result : null,
         resultB: keynessB?.state.status === 'ready' ? keynessB.state.result : null,
       },
+      findings: {
+        ranges: savedSelections.map((selection) => {
+          const check = selectionChecks.get(selection.id);
+          return {
+            id: selection.id,
+            name: selection.name,
+            document: selection.anchor.doc,
+            charStart: selection.anchor.chars.start,
+            charEnd: selection.anchor.chars.end,
+            textHash: selection.anchor.text,
+            status: check === undefined
+              ? 'not checked in this session'
+              : check.status === 'ok'
+                ? `checked in this session: tokens ${check.tokens.start + 1}–${check.tokens.end}`
+                : `${check.status}: ${check.message}`,
+          };
+        }),
+        pins: pins.map((pin) => {
+          const durable = durableForPin(pin);
+          const charStart = pin.kind === 'ready'
+            ? pin.evidence.docCharsUtf16.start + pin.evidence.anchorCharsUtf16.start
+            : null;
+          const charEnd = pin.kind === 'ready'
+            ? pin.evidence.docCharsUtf16.start + pin.evidence.anchorCharsUtf16.end
+            : null;
+          return {
+            id: pin.id,
+            note: durable?.note ?? '',
+            document: pin.anchor.doc,
+            charStart,
+            charEnd,
+            textHash: durable?.anchor.text ?? null,
+            token: pin.anchor.token,
+            capturedTracks: pin.tracks.map((track) =>
+              currentGroupIdentities.get(track.groupId) === track.identity
+                ? track.label
+                : `${track.label} (captured; query changed)`),
+            status: pin.kind === 'error'
+              ? `error: ${pin.message}`
+              : pin.kind,
+          };
+        }),
+        issues: pinRestoreIssues.map((issue) => ({
+          id: issue.pin.id,
+          note: issue.pin.note,
+          document: issue.pin.anchor.doc,
+          charStart: issue.pin.anchor.chars.start,
+          charEnd: issue.pin.anchor.chars.end,
+          textHash: issue.pin.anchor.text,
+          status: `${issue.reason}: ${issue.message}`,
+        })),
+        sharePolicy: 'Share links include the notebook, active tracks, saved ranges, and view settings; pins and source text stay on this device.',
+        researchStatus,
+        projectStatus: projectSaveView(project).label,
+      },
     };
   }, [
+    durablePins,
     frequency,
     frequencyView,
     inventory,
@@ -82,6 +167,13 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     kwic,
     kwicEnabledSeries,
     linkedSelection,
+    notebook,
+    pinRestoreIssues,
+    pins,
+    project,
+    researchPersistence,
+    savedSelections,
+    selectionChecks,
     series,
     selectedTrends,
     snapshot,
