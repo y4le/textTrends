@@ -10,6 +10,7 @@ import { FormLayer } from '../FormLayer.tsx';
 import { usePresentation } from '../PresentationProvider.tsx';
 import { boundedPageView } from '../../lib/bounded-page-view.ts';
 import {
+  renderedRowDetailLayer,
   rowDetailSurface,
   rowDetailWrite,
 } from '../../lib/row-detail.ts';
@@ -249,11 +250,15 @@ export function FrequencyTable({
   const [draft, setDraft] = useState<FrequencyViewInputV1>(() => frequencyViewInput(view));
   const [filterMessage, setFilterMessage] = useState<string | null>(null);
   const topLayer = layers.at(-1);
+  const renderedLayer = useMemo(
+    () => renderedRowDetailLayer(layers),
+    [layers],
+  );
   const target = useMemo(
-    () => topLayer?.kind === 'row-detail'
-      ? vocabularyTarget(topLayer.target)
+    () => renderedLayer
+      ? vocabularyTarget(renderedLayer.target)
       : null,
-    [topLayer],
+    [renderedLayer],
   );
   const filterOpen = target?.surface === 'vocab-filter';
   const rowTarget = target?.surface === 'vocab-row' ? target : null;
@@ -274,21 +279,33 @@ export function FrequencyTable({
 
   useEffect(() => {
     stalePopRequested.current = false;
-  }, [topLayer?.id]);
+  }, [renderedLayer?.id]);
 
   useEffect(() => {
     if (target === null || stalePopRequested.current) return;
     if (!vocabularyTargetIsStale(target, snapshot !== null, state)) return;
-    stalePopRequested.current = popLayer(1, 'place-vocabulary-heading');
-  }, [popLayer, snapshot, state, target]);
+    const index = renderedLayer ? layers.indexOf(renderedLayer) : -1;
+    stalePopRequested.current = popLayer(
+      index < 0 ? 1 : layers.length - index,
+      'place-vocabulary-heading',
+    );
+  }, [layers, popLayer, renderedLayer, snapshot, state, target]);
 
-  const writeTarget = (next: VocabularyTarget, returnFocusTo: string) => {
+  const writeTarget = (next: VocabularyTarget, returnFocusTo: string): boolean => {
+    if (
+      (renderedLayer && topLayer?.id !== renderedLayer.id)
+      || topLayer?.kind === 'sheet'
+      || topLayer?.kind === 'reader'
+    ) {
+      return false;
+    }
     const write = rowDetailWrite(
       topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
       next.surface,
     );
     if (write === 'replace') replaceLayer('row-detail', Object.freeze(next), returnFocusTo);
     else pushLayer('row-detail', Object.freeze(next), returnFocusTo);
+    return true;
   };
   const openFilter = () => writeTarget(
     { surface: 'vocab-filter' },
@@ -315,7 +332,7 @@ export function FrequencyTable({
   };
   const openRow = (row: FrequencyListRowV1) => {
     if (rowTarget?.typeId === row.typeId && rowTarget.key === row.key) {
-      popLayer();
+      if (topLayer?.id === renderedLayer?.id) popLayer();
       return;
     }
     writeTarget(
@@ -386,7 +403,7 @@ export function FrequencyTable({
       {filterOpen && compact && (
         <FormLayer
           label="Vocabulary sort and filter"
-          focusKey={topLayer?.id ?? 'vocabulary-filter'}
+          focusKey={renderedLayer?.id ?? 'vocabulary-filter'}
           onClose={() => closeFilter(false)}
         >
           {filter}

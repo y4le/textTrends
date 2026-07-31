@@ -191,6 +191,43 @@ test('successful exact Concordance routing restores the open Vocabulary detail o
   await expect(page.getByRole('heading', { name: 'Vocabulary', exact: true })).toBeFocused();
 });
 
+test('Vocabulary detail remains mounted beneath governed Evidence and restores sheet-invoker focus', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'vocabulary');
+
+  const row = page.locator('tr[data-frequency-row]').first();
+  await row.getByRole('button').click();
+  const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
+  await expect(detail).toBeVisible();
+
+  const more = page.getByRole('button', { name: 'More evidence' });
+  await more.click();
+  const sheet = page.getByRole('dialog', { name: 'Evidence sheet' });
+  await expect(sheet).toHaveAttribute('data-detent', 'peek');
+  await expect(sheet).toHaveAttribute('aria-modal', 'false');
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(detail).toBeVisible();
+
+  await row.getByRole('button').click();
+  await expect(sheet).toBeVisible();
+  await expect(detail).toBeVisible();
+  await expect(row.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+
+  await sheet.getByRole('button', { name: 'half', exact: true }).click();
+  await expect(sheet).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
+  await expect(detail).toHaveCount(1);
+
+  await page.goBack();
+  await expect(sheet).toHaveCount(0);
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(detail).toBeVisible();
+  await expect(more).toBeFocused();
+  await expect(row.getByRole('button')).toHaveAttribute('aria-expanded', 'true');
+});
+
 test('a ready page that omits an open row stale-pops once to a surviving focus target', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

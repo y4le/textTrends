@@ -1,9 +1,13 @@
+import type { Layer } from './layers.ts';
+
 export type RowDetailSurface =
   | 'query-editor'
   | 'book-sheet'
   | 'structure-editor'
   | 'vocab-filter'
-  | 'vocab-row';
+  | 'vocab-row'
+  | 'compare-settings'
+  | 'compare-row';
 
 export type RowDetailWrite = 'push' | 'replace';
 
@@ -17,10 +21,21 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
     case 'structure-editor':
     case 'vocab-filter':
     case 'vocab-row':
+    case 'compare-settings':
+    case 'compare-row':
       return surface;
     default:
       return null;
   }
+}
+
+/** A governed sheet may sit above an additive detail. Render the last
+ * row-detail in the stack while permitting writes only through the actual
+ * top layer. */
+export function renderedRowDetailLayer(
+  layers: readonly Layer[],
+): Layer | undefined {
+  return layers.findLast((layer) => layer.kind === 'row-detail');
 }
 
 /**

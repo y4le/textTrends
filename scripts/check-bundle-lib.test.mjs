@@ -41,7 +41,11 @@ function syntheticDist() {
   put('assets/MethodSummary-MMMM.js', 'export const Method=1;');
   put('assets/MethodSurface-UUUU.js', 'const summary="assets/MethodSummary-MMMM.js";export const MethodSurface=1;');
   put('assets/QuerySurface-QQQQ.js', 'export const QuerySurface=1;');
-  put('assets/EvidenceSurface-VVVV.js', 'export const EvidenceSurface=1;');
+  put(
+    'assets/EvidenceSurface-VVVV.js',
+    'const occurrences="assets/ComparisonOccurrences-OOOO.js";export const EvidenceSurface=1;',
+  );
+  put('assets/ComparisonOccurrences-OOOO.js', 'export const ComparisonOccurrences=1;');
   put('assets/standard-ebooks-cache-CCCC.js', 'const lazy=()=>import("./archive-RRRR.js");export{lazy};');
   put('assets/archive-RRRR.js', 'export const archive=1;');
   put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./extract-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
@@ -226,6 +230,36 @@ describe('bundle contract', () => {
         + ';import"./EvidenceSurface-VVVV.js";',
     );
     assert.ok(run(d3.files).failures.some((f) => f.includes('Evidence region must stay lazy')));
+  });
+
+  it('comparison occurrences stay lazy and owned by Evidence', () => {
+    const missing = syntheticDist();
+    missing.files.delete('assets/ComparisonOccurrences-OOOO.js');
+    assert.ok(run(missing.files).failures.some((f) => f.includes('comparison occurrences')));
+
+    const unreferenced = syntheticDist();
+    unreferenced.put(
+      'assets/EvidenceSurface-VVVV.js',
+      'export const EvidenceSurface=1;',
+    );
+    assert.ok(run(unreferenced.files).failures.some((f) =>
+      f.includes('lazy comparison-occurrences edge is gone')));
+
+    const eager = syntheticDist();
+    eager.put(
+      'assets/EvidenceSurface-VVVV.js',
+      'import"./ComparisonOccurrences-OOOO.js";export const EvidenceSurface=1;',
+    );
+    assert.ok(run(eager.files).failures.some((f) =>
+      f.includes('comparison occurrences must stay on-demand')));
+
+    const misplaced = syntheticDist();
+    misplaced.put(
+      'assets/ComparePlace-5555.js',
+      'const occurrences="ComparisonOccurrences-OOOO.js";export const Compare=1;',
+    );
+    assert.ok(run(misplaced.files).failures.some((f) =>
+      f.includes('comparison occurrences belong to Evidence')));
   });
 
   it('a cache chunk without the lazy archive edge fails', () => {

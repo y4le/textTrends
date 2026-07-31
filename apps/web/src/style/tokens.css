@@ -791,6 +791,400 @@ canvas {
   margin-block-start: var(--space-2);
 }
 
+.compare-scope-note,
+.compare-view-bar p,
+.compare-settings-note,
+.compare-settings-message,
+.compare-row-note,
+.compare-window-message,
+.comparison-occurrences-status,
+.comparison-occurrences-heading p {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-definition {
+  display: flex;
+  align-items: end;
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+  flex-wrap: wrap;
+}
+
+.compare-definition label {
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-rest-label {
+  display: flex;
+  min-block-size: 2rem;
+  align-items: center;
+  color: var(--fg);
+  font-size: var(--text-sm);
+}
+
+.compare-swap {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+}
+
+.compare-side-summaries {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+  margin-block: var(--space-3);
+}
+
+.compare-side-summary {
+  min-inline-size: 0;
+  padding-block: var(--space-2);
+  border-block: 1px solid var(--rule);
+}
+
+.compare-side-summary p {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-warnings {
+  margin-block: var(--space-2);
+}
+
+.compare-warnings p {
+  margin: var(--space-1) 0;
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+}
+
+.compare-view-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block: var(--space-3) var(--space-2);
+}
+
+.compare-view-bar button {
+  flex: 0 0 auto;
+}
+
+.compare-direction-controls {
+  display: flex;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.compare-settings-inline {
+  margin-block: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+}
+
+.compare-settings-form {
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.compare-settings-form h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.compare-settings-fields {
+  display: flex;
+  align-items: end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.compare-settings-fields > label {
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-settings-fields fieldset {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule);
+}
+
+.compare-settings-fields fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.compare-settings-message {
+  color: var(--accent-text);
+}
+
+.compare-settings-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.compare-axis-section {
+  margin-block-start: var(--space-3);
+}
+
+.compare-axis-section h3 {
+  margin-block: 0 var(--space-1);
+  font-size: var(--text-sm);
+}
+
+.compare-table-port {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.compare-axis-table {
+  inline-size: 100%;
+  table-layout: fixed;
+}
+
+.compare-axis-table caption {
+  margin-block-end: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: start;
+}
+
+.compare-col-term {
+  inline-size: min(30%, 28ch);
+}
+
+.compare-col-effect {
+  inline-size: auto;
+}
+
+.compare-col-side {
+  inline-size: 4rem;
+}
+
+.compare-axis-table th,
+.compare-axis-table td {
+  vertical-align: middle;
+}
+
+.compare-axis-table tbody + tbody tr:first-child > * {
+  border-block-start: 2px solid var(--rule-strong);
+}
+
+.compare-term {
+  min-inline-size: 0;
+  text-align: start;
+}
+
+.compare-term button {
+  display: flex;
+  inline-size: 100%;
+  min-inline-size: 0;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-1);
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-block-end: 1px solid var(--rule-strong);
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  text-align: start;
+}
+
+.compare-term button span:first-child {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.compare-effect {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) 7ch;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.compare-axis-plot {
+  position: relative;
+  display: block;
+  block-size: 1rem;
+}
+
+.compare-axis-zero {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: calc(50% - 0.5px);
+  inline-size: 1px;
+  background: var(--rule-strong);
+}
+
+.compare-axis-bar {
+  position: absolute;
+  inset-block: 0.28rem;
+  inline-size: var(--compare-bar-width);
+  background: var(--accent-text);
+}
+
+.compare-axis-bar[data-side='a'] {
+  inset-inline-start: 50%;
+}
+
+.compare-axis-bar[data-side='b'] {
+  inset-inline-end: 50%;
+  background: var(--fg-muted);
+}
+
+.compare-effect-value,
+.compare-side {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
+}
+
+.compare-side {
+  text-align: center;
+}
+
+.compare-side-cue {
+  display: none;
+}
+
+.compare-axis-status td {
+  padding-block: var(--space-3);
+  color: var(--fg-muted);
+}
+
+.compare-axis-status[data-error] td {
+  color: var(--accent-text);
+}
+
+.compare-row-detail {
+  padding: var(--space-2);
+  border-inline-start: 2px solid var(--accent-text);
+}
+
+.compare-row-detail dl {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.compare-row-detail dl div {
+  min-inline-size: 0;
+}
+
+.compare-row-detail dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-row-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.compare-row-actions,
+.compare-pagination,
+.compare-pagers {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.compare-row-actions {
+  margin-block-start: var(--space-2);
+}
+
+.compare-pagers {
+  align-items: flex-start;
+  margin-block-start: var(--space-2);
+}
+
+.compare-pagination {
+  min-inline-size: 0;
+  flex: 1 1 0;
+  flex-wrap: wrap;
+}
+
+.compare-window-message {
+  flex-basis: 100%;
+}
+
+.comparison-occurrences {
+  margin-block-end: var(--space-3);
+  padding-block-end: var(--space-3);
+  border-block-end: 1px solid var(--rule-strong);
+}
+
+.comparison-occurrences-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.comparison-occurrences-dismiss {
+  min-block-size: 44px;
+}
+
+.comparison-occurrences-port {
+  max-inline-size: 100%;
+  margin-block-start: var(--space-2);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.comparison-occurrences table {
+  inline-size: 100%;
+  min-inline-size: 42rem;
+}
+
+.comparison-occurrences th,
+.comparison-occurrences td {
+  vertical-align: top;
+}
+
+.comparison-occurrences-left {
+  text-align: end;
+}
+
+.comparison-occurrences-node {
+  font-weight: 600;
+}
+
+.comparison-occurrence-actions {
+  display: flex;
+  gap: var(--space-1);
+}
+
+.comparison-occurrences-status[data-error] {
+  color: var(--accent-text);
+}
+
 .section-vocabulary-strip {
   inline-size: 100%;
   max-inline-size: 560px;
@@ -1333,6 +1727,206 @@ canvas {
   .frequency-filter-actions button {
     min-block-size: 44px;
     flex: 1 1 0;
+  }
+
+  .compare-definition {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compare-definition select {
+    inline-size: 100%;
+    min-block-size: 44px;
+  }
+
+  .compare-rest-label {
+    min-block-size: 44px;
+  }
+
+  .compare-swap {
+    inline-size: 100%;
+  }
+
+  .compare-side-summaries {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-2);
+  }
+
+  .compare-view-bar {
+    align-items: flex-start;
+  }
+
+  .compare-view-bar p {
+    min-inline-size: 0;
+  }
+
+  .compare-view-bar button,
+  .compare-direction-controls button,
+  .compare-pagination button,
+  .compare-row-actions button {
+    min-block-size: 44px;
+  }
+
+  .compare-direction-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compare-table-port {
+    overflow: visible;
+  }
+
+  .compare-axis-table,
+  .compare-axis-table tbody {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .compare-axis-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .compare-axis-table colgroup {
+    display: none;
+  }
+
+  .compare-axis-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto auto;
+    align-items: center;
+    gap: var(--space-2);
+    inline-size: 100%;
+    min-block-size: 48px;
+    padding-block: var(--space-1);
+    border-block-end: 1px solid var(--rule);
+  }
+
+  .compare-axis-table tbody + tbody tr:first-child > * {
+    border-block-start: 0;
+  }
+
+  .compare-axis-table tbody + tbody {
+    display: block;
+    margin-block-start: var(--space-2);
+    border-block-start: 2px solid var(--rule-strong);
+  }
+
+  .compare-term,
+  .compare-effect,
+  .compare-side {
+    display: block;
+    min-inline-size: 0;
+    padding: 0;
+  }
+
+  .compare-term button {
+    min-block-size: 44px;
+  }
+
+  .compare-term-cue {
+    display: none;
+  }
+
+  .compare-effect-value,
+  .compare-side {
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .compare-side {
+    display: flex;
+    align-items: center;
+    gap: var(--space-1);
+  }
+
+  .compare-side-cue {
+    display: inline;
+  }
+
+  .compare-detail-row,
+  .compare-detail-row > td,
+  .compare-axis-status,
+  .compare-axis-status > td {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .compare-row-detail {
+    padding-inline: var(--space-2) 0;
+  }
+
+  .compare-row-detail dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .compare-row-actions button {
+    inline-size: 100%;
+  }
+
+  .compare-pagers {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .compare-pagination {
+    inline-size: 100%;
+    justify-content: space-between;
+  }
+
+  .compare-settings-form {
+    min-block-size:
+      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-block-size:
+      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
+  }
+
+  .compare-settings-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .compare-settings-fields fieldset {
+    grid-column: 1 / -1;
+  }
+
+  .compare-settings-fields input,
+  .compare-settings-fields select {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    min-block-size: 44px;
+  }
+
+  .compare-settings-fields fieldset {
+    min-inline-size: 0;
+    justify-content: space-around;
+  }
+
+  .compare-settings-fields fieldset label {
+    min-block-size: 44px;
+  }
+
+  .compare-settings-actions button {
+    min-block-size: 44px;
+    flex: 1 1 0;
+  }
+
+  .comparison-occurrences table {
+    min-inline-size: 36rem;
+  }
+
+  /* Dense KWIC rows deliberately keep compact actions below the general
+   * touch floor; region dismiss and sheet chrome remain coarse targets. */
+  .comparison-occurrence-actions button {
+    min-block-size: 0;
   }
 
   .corpus-inventory-port {

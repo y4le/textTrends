@@ -71,8 +71,10 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
     .getByRole('link', { name: 'Compare', exact: true })
     .click();
   await expectOnlyCanonicalPlace(page, 'compare');
-  await expect(page.getByRole('table', { name: 'A-key terms' })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'B-key terms' })).toBeVisible();
+  const signedAxis = page.getByRole('table', { name: 'Compare signed axis' });
+  await expect(signedAxis).toBeVisible();
+  await expect(signedAxis.getByRole('rowgroup', { name: /^Side A ·/ })).toBeVisible();
+  await expect(signedAxis.getByRole('rowgroup', { name: /^Side B ·/ })).toBeVisible();
 
   const queryOps = (await trace(page)).events.filter((event) =>
     event.seq > mark

@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { lazy, Suspense, useEffect, useRef } from 'react';
 import { PinButton } from './PinButton.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 import { SheetFrame } from './SheetFrame.tsx';
@@ -11,6 +11,12 @@ import {
 import { pinCapacity } from '../lib/pin-capacity.ts';
 import { sheetDetent, sheetSurface, type SheetSurface } from '../lib/sheet.ts';
 import { useApp } from '../lib/store-instance.ts';
+
+const ComparisonOccurrences = lazy(() =>
+  import('./evidence/ComparisonOccurrences.tsx').then(
+    ({ ComparisonOccurrences: occurrences }) => ({ default: occurrences }),
+  ),
+);
 
 function CurrentPassage({ view }: { readonly view: EvidenceSurfaceVM }) {
   if (view.kind === 'empty') {
@@ -43,6 +49,7 @@ export function EvidenceSurface() {
   const scrub = useApp((state) => state.scrub);
   const passage = useApp((state) => state.passage);
   const snapshot = useApp((state) => state.snapshot);
+  const comparisonEvidence = useApp((state) => state.keynessEvidence);
   const inventory = useApp((state) => state.inventory);
   const trends = useApp((state) => state.trends);
   const pins = useApp((state) => state.pins);
@@ -98,6 +105,14 @@ export function EvidenceSurface() {
 
   const body = (
     <>
+      {comparisonEvidence !== null
+        && snapshot !== null
+        && comparisonEvidence.snapshot === snapshot.snapshot
+        && (
+          <Suspense fallback={<p className="evidence-empty">loading comparison evidence…</p>}>
+            <ComparisonOccurrences />
+          </Suspense>
+        )}
       <CurrentPassage view={view} />
       {view.kind !== 'empty' && snapshot !== null && (
         <div className="evidence-actions">
