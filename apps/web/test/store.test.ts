@@ -18,6 +18,7 @@
 import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
+  DEFAULT_KEYNESS_VIEW,
   KWIC_CENTER_DEBOUNCE_MS,
   MAX_SERIES,
   researchSemanticKey,
@@ -3104,6 +3105,9 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('defaults to log-ratio projections and reuses inventory on explicit sides', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    expect(Object.isFrozen(DEFAULT_KEYNESS_VIEW)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_KEYNESS_VIEW.sort)).toBe(true);
+    expect(Object.isFrozen(DEFAULT_KEYNESS_VIEW.classes)).toBe(true);
     expect(f.keynesses()).toHaveLength(2);
     const [a, b] = f.keynesses().map((issued) => issued.query as {
       request: {
@@ -3170,9 +3174,33 @@ describe('dueling keyness query intent (slice-4)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const inventories = f.keynessInventories();
-    f.store.getState().openKeynessEvidence('Wolf', 'b');
+    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
     const evidence = f.kwics().at(-1)!;
-    f.store.getState().setKeynessSort('a', 'countA');
+    const semantic = researchSemanticKey(f.store.getState());
+    const before = f.store.getState().keynessView;
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: 8,
+      minDocFreqTotal: 3,
+      classes: ['lexical', 'numeral'],
+      sortBy: 'countA',
+      pageLimit: 50,
+    });
+    expect(f.keynesses()).toHaveLength(4);
+    expect(f.keynessInventories()).toHaveLength(2);
+    expect(f.store.getState().keynessView).toMatchObject({
+      minCountTotal: 8,
+      minDocFreqTotal: 3,
+      classes: ['lexical', 'numeral'],
+      sort: {
+        by: 'countA',
+        dirA: before.sort.dirA,
+        dirB: before.sort.dirB,
+      },
+      pageLimit: 50,
+      offsetA: 0,
+      offsetB: 0,
+    });
+    expect(researchSemanticKey(f.store.getState())).not.toBe(semantic);
     expect(inventories.every((issued) => !issued.cancelled)).toBe(true);
     expect(evidence.cancelled).toBe(false);
 
@@ -3185,17 +3213,146 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(f.store.getState().keynessEvidence?.state.status).toBe('ready');
   });
 
+  it('toggles only one durable direction and refuses invalid shared settings', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const semantic = researchSemanticKey(f.store.getState());
+    const issued = f.keynesses().length;
+    f.store.getState().setKeynessDirection('a');
+    expect(f.keynesses()).toHaveLength(issued + 1);
+    expect((f.keynesses().at(-1)!.query as {
+      request: { side: string; sort: { by: string; dir: number } };
+    }).request).toMatchObject({
+      side: 'a',
+      sort: { by: 'logRatio', dir: 1 },
+    });
+    expect(f.store.getState().keynessView.sort).toEqual({
+      by: 'logRatio',
+      dirA: 1,
+      dirB: 1,
+    });
+    expect(researchSemanticKey(f.store.getState())).not.toBe(semantic);
+
+    const view = f.store.getState().keynessView;
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: 0,
+      minDocFreqTotal: 1,
+      classes: ['lexical'],
+      sortBy: 'g2',
+      pageLimit: 100,
+    });
+    expect(f.keynesses()).toHaveLength(issued + 1);
+    expect(f.store.getState().keynessView).toBe(view);
+    const invalidSettings = [
+      {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical', 'lexical'],
+        sortBy: 'g2',
+        pageLimit: 100,
+      },
+      {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: [],
+        sortBy: 'g2',
+        pageLimit: 100,
+      },
+      {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['foreign'],
+        sortBy: 'g2',
+        pageLimit: 100,
+      },
+      {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical'],
+        sortBy: 'foreign',
+        pageLimit: 100,
+      },
+      {
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical'],
+        sortBy: 'g2',
+        pageLimit: 201,
+      },
+    ] as const;
+    for (const settings of invalidSettings) {
+      f.store.getState().applyKeynessSettings(settings as never);
+      expect(f.keynesses()).toHaveLength(issued + 1);
+      expect(f.store.getState().keynessView).toBe(view);
+    }
+  });
+
+  it('keeps paging transient while shared settings round-trip through research', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: 9,
+      minDocFreqTotal: 4,
+      classes: ['numeral'],
+      sortBy: 'g2',
+      pageLimit: 50,
+    });
+    const durable = researchSemanticKey(f.store.getState());
+    expect(durable).not.toBeNull();
+    f.store.getState().setKeynessPage('a', 50);
+    f.store.getState().setKeynessPage('b', 100);
+    expect(researchSemanticKey(f.store.getState())).toBe(durable);
+    expect(f.store.getState().keynessView).toMatchObject({
+      offsetA: 50,
+      offsetB: 100,
+    });
+
+    const research = JSON.parse(durable!) as ResearchStateV1;
+    f.store.getState().restoreResearch(research);
+    expect(f.store.getState().keynessView).toMatchObject({
+      minCountTotal: 9,
+      minDocFreqTotal: 4,
+      classes: ['numeral'],
+      sort: { by: 'g2', dirA: -1, dirB: 1 },
+      pageLimit: 50,
+      offsetA: 0,
+      offsetB: 0,
+    });
+    expect(researchSemanticKey(f.store.getState())).toBe(durable);
+  });
+
   it('swaps sides and constructs document-v-rest without overlapping membership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().setKeynessPage('a', 100);
+    f.store.getState().setKeynessPage('b', 200);
+    f.store.getState().setKeynessDocument('a', 'c');
+    expect(f.store.getState().keynessView).toMatchObject({
+      documentA: 'c',
+      offsetA: 0,
+      offsetB: 0,
+    });
+    f.store.getState().setKeynessDocument('a', 'a');
+    f.store.getState().setKeynessPage('a', 100);
+    f.store.getState().setKeynessPage('b', 200);
     f.store.getState().swapKeynessSides();
+    expect(f.store.getState().keynessView).toMatchObject({
+      offsetA: 0,
+      offsetB: 0,
+    });
     let requests = f.keynesses().slice(-2).map((issued) =>
       (issued.query as {
         request: { a: { docs: string[] }; b: { docs: string[] } };
       }).request);
     expect(requests[0]).toMatchObject({ a: { docs: ['b'] }, b: { docs: ['a'] } });
 
+    f.store.getState().setKeynessPage('a', 100);
+    f.store.getState().setKeynessPage('b', 200);
     f.store.getState().setKeynessMode('document-rest');
+    expect(f.store.getState().keynessView).toMatchObject({
+      offsetA: 0,
+      offsetB: 0,
+    });
     requests = f.keynesses().slice(-2).map((issued) =>
       (issued.query as {
         request: { a: { docs: string[] }; b: { docs: string[] } };
@@ -3218,7 +3375,7 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('opens exact concordance evidence on one side without changing the brush', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    f.store.getState().openKeynessEvidence('Wolf', 'b');
+    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
     const request = f.kwics().at(-1)!;
     const query = request.query as {
       selection: { docs: string[] };
@@ -3237,6 +3394,23 @@ describe('dueling keyness query intent (slice-4)', () => {
       key: 'Wolf',
       state: { status: 'ready', total: 0, rows: [] },
     });
+  });
+
+  it('reports evidence admission and fences it on snapshot replacement', () => {
+    const f = harness();
+    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(false);
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
+    const request = f.kwics().at(-1)!;
+    expect(f.store.getState().openKeynessEvidence('', 'b')).toBe(false);
+    expect(request.cancelled).toBe(true);
+    expect(f.store.getState().keynessEvidence).toBeNull();
+
+    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
+    const replacement = f.kwics().at(-1)!;
+    f.port.publishSnapshot('g2', 's2', ['a', 'b']);
+    expect(replacement.cancelled).toBe(true);
+    expect(f.store.getState().keynessEvidence).toBeNull();
   });
 
   it('reconciles departed documents on the next snapshot', () => {

@@ -77,12 +77,17 @@ function KeynessTable({
   view: KeynessViewV1;
   maxEffect: number;
 }) {
-  const setSort = useApp((store) => store.setKeynessSort);
+  const setDirection = useApp((store) => store.setKeynessDirection);
   const setPage = useApp((store) => store.setKeynessPage);
-  const setPageSize = useApp((store) => store.setKeynessPageSize);
   const openEvidence = useApp((store) => store.openKeynessEvidence);
-  const sort = side === 'a' ? view.sortA : view.sortB;
-  const requestedPage = side === 'a' ? view.pageA : view.pageB;
+  const sort = {
+    by: view.sort.by,
+    dir: side === 'a' ? view.sort.dirA : view.sort.dirB,
+  };
+  const requestedPage = {
+    offset: side === 'a' ? view.offsetA : view.offsetB,
+    limit: view.pageLimit,
+  };
   if (!state || state.state.status === 'pending') {
     return <p>ranking {side.toUpperCase()}-key terms…</p>;
   }
@@ -109,11 +114,18 @@ function KeynessTable({
                   scope="col"
                   aria-sort={sort.by === by
                     ? (sort.dir === 1 ? 'ascending' : 'descending')
-                    : 'none'}
+                    : undefined}
                 >
-                  <button type="button" onClick={() => setSort(side, by)}>
-                    {label}
-                  </button>
+                  {label}
+                  {sort.by === by && (
+                    <button
+                      type="button"
+                      onClick={() => setDirection(side)}
+                      aria-label={`Reverse side ${side.toUpperCase()} direction`}
+                    >
+                      {sort.dir === 1 ? '↑' : '↓'}
+                    </button>
+                  )}
                 </th>
               ))}
               <th scope="col">A/B rate per 10k</th>
@@ -177,17 +189,6 @@ function KeynessTable({
         >
           next
         </button>
-        <label>
-          rows/page{' '}
-          <select
-            value={requestedPage.limit}
-            onChange={(event) => setPageSize(side, Number(event.currentTarget.value))}
-          >
-            {[50, 100, 200].map((limit) => (
-              <option key={limit} value={limit}>{limit}</option>
-            ))}
-          </select>
-        </label>
       </div>
       {page.atWindow && (
         <p role="status" style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
@@ -240,13 +241,19 @@ export function KeynessPanel({
   const setMode = useApp((state) => state.setKeynessMode);
   const setDocument = useApp((state) => state.setKeynessDocument);
   const swap = useApp((state) => state.swapKeynessSides);
-  const setFilter = useApp((state) => state.setKeynessFilter);
+  const applySettings = useApp((state) => state.applyKeynessSettings);
   const closeEvidence = useApp((state) => state.closeKeynessEvidence);
   const [minCount, setMinCount] = useState(view.minCountTotal);
   const [minDocs, setMinDocs] = useState(view.minDocFreqTotal);
+  const [classes, setClasses] = useState(view.classes);
+  const [sortBy, setSortBy] = useState(view.sort.by);
+  const [pageLimit, setPageLimit] = useState(view.pageLimit);
   const [message, setMessage] = useState<string | null>(null);
   useEffect(() => setMinCount(view.minCountTotal), [view.minCountTotal]);
   useEffect(() => setMinDocs(view.minDocFreqTotal), [view.minDocFreqTotal]);
+  useEffect(() => setClasses(view.classes), [view.classes]);
+  useEffect(() => setSortBy(view.sort.by), [view.sort.by]);
+  useEffect(() => setPageLimit(view.pageLimit), [view.pageLimit]);
 
   const titleByDoc = useMemo(
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
@@ -264,15 +271,15 @@ export function KeynessPanel({
       : []),
   );
   const toggleClass = (tokenClass: FrequencyTokenClassV1) => {
-    const classes = view.classes.includes(tokenClass)
-      ? view.classes.filter((value) => value !== tokenClass)
-      : [...view.classes, tokenClass];
-    if (classes.length === 0) {
+    const next = classes.includes(tokenClass)
+      ? classes.filter((value) => value !== tokenClass)
+      : [...classes, tokenClass];
+    if (next.length === 0) {
       setMessage('Select at least one token class.');
       return;
     }
     setMessage(null);
-    setFilter(view.minCountTotal, view.minDocFreqTotal, classes);
+    setClasses(next);
   };
   const sideControl = (side: 'a' | 'b') => {
     const isRest = view.mode === 'document-rest' && view.restOn === side;
@@ -349,7 +356,13 @@ export function KeynessPanel({
                   return;
                 }
                 setMessage(null);
-                setFilter(minCount, minDocs, view.classes);
+                applySettings({
+                  minCountTotal: minCount,
+                  minDocFreqTotal: minDocs,
+                  classes,
+                  sortBy,
+                  pageLimit,
+                });
               }}
               style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginTop: 'var(--space-2)' }}
             >
@@ -363,9 +376,31 @@ export function KeynessPanel({
               </label>
               {(['lexical', 'numeral'] as const).map((tokenClass) => (
                 <label key={tokenClass}>
-                  <input type="checkbox" checked={view.classes.includes(tokenClass)} onChange={() => toggleClass(tokenClass)} /> {tokenClass}
+                  <input type="checkbox" checked={classes.includes(tokenClass)} onChange={() => toggleClass(tokenClass)} /> {tokenClass}
                 </label>
               ))}
+              <label>
+                sort{' '}
+                <select
+                  value={sortBy}
+                  onChange={(event) => setSortBy(event.currentTarget.value as KeynessSortFieldV1)}
+                >
+                  {SORTS.map((sort) => (
+                    <option key={sort.by} value={sort.by}>{sort.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                rows/page{' '}
+                <select
+                  value={pageLimit}
+                  onChange={(event) => setPageLimit(Number(event.currentTarget.value))}
+                >
+                  {[50, 100, 200].map((limit) => (
+                    <option key={limit} value={limit}>{limit}</option>
+                  ))}
+                </select>
+              </label>
               <button type="submit">apply keyness filters</button>
             </form>
             {message && <p role="status" style={{ color: 'var(--accent-text)' }}>{message}</p>}

@@ -369,10 +369,22 @@ export interface KeynessViewV1 {
   readonly minCountTotal: number;
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
-  readonly sortA: { readonly by: KeynessSortFieldV1; readonly dir: 1 | -1 };
-  readonly sortB: { readonly by: KeynessSortFieldV1; readonly dir: 1 | -1 };
-  readonly pageA: { readonly offset: number; readonly limit: number };
-  readonly pageB: { readonly offset: number; readonly limit: number };
+  readonly sort: {
+    readonly by: KeynessSortFieldV1;
+    readonly dirA: 1 | -1;
+    readonly dirB: 1 | -1;
+  };
+  readonly pageLimit: number;
+  readonly offsetA: number;
+  readonly offsetB: number;
+}
+
+export interface KeynessSettingsInputV1 {
+  readonly minCountTotal: number;
+  readonly minDocFreqTotal: number;
+  readonly classes: readonly FrequencyTokenClassV1[];
+  readonly sortBy: KeynessSortFieldV1;
+  readonly pageLimit: number;
 }
 
 export interface KeynessTableState {
@@ -414,10 +426,14 @@ export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
   minCountTotal: 5,
   minDocFreqTotal: 2,
   classes: Object.freeze(['lexical'] as const),
-  sortA: Object.freeze({ by: 'logRatio' as const, dir: -1 as const }),
-  sortB: Object.freeze({ by: 'logRatio' as const, dir: 1 as const }),
-  pageA: Object.freeze({ offset: 0, limit: 100 }),
-  pageB: Object.freeze({ offset: 0, limit: 100 }),
+  sort: Object.freeze({
+    by: 'logRatio' as const,
+    dirA: -1 as const,
+    dirB: 1 as const,
+  }),
+  pageLimit: 100,
+  offsetA: 0,
+  offsetB: 0,
 });
 
 export function reconcileKeynessView(
@@ -488,8 +504,11 @@ function keynessTableIntentKey(
     view.minCountTotal,
     view.minDocFreqTotal,
     view.classes,
-    side === 'a' ? view.sortA : view.sortB,
-    side === 'a' ? view.pageA : view.pageB,
+    { by: view.sort.by, dir: side === 'a' ? view.sort.dirA : view.sort.dirB },
+    {
+      offset: side === 'a' ? view.offsetA : view.offsetB,
+      limit: view.pageLimit,
+    },
     side,
   ]);
 }
@@ -762,15 +781,10 @@ export interface AppState {
   setKeynessMode(mode: KeynessViewV1['mode']): void;
   setKeynessDocument(side: 'a' | 'b', doc: string): void;
   swapKeynessSides(): void;
-  setKeynessFilter(
-    minCountTotal: number,
-    minDocFreqTotal: number,
-    classes: readonly FrequencyTokenClassV1[],
-  ): void;
-  setKeynessSort(side: 'a' | 'b', by: KeynessSortFieldV1): void;
+  applyKeynessSettings(input: KeynessSettingsInputV1): void;
+  setKeynessDirection(side: 'a' | 'b'): void;
   setKeynessPage(side: 'a' | 'b', offset: number): void;
-  setKeynessPageSize(side: 'a' | 'b', limit: number): void;
-  openKeynessEvidence(key: string, side: 'a' | 'b'): void;
+  openKeynessEvidence(key: string, side: 'a' | 'b'): boolean;
   closeKeynessEvidence(): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
@@ -940,11 +954,11 @@ function researchStateFromApp(
           classes: state.keynessView.classes,
         },
         sort: {
-          by: state.keynessView.sortA.by,
-          dirA: state.keynessView.sortA.dir,
-          dirB: state.keynessView.sortB.dir,
+          by: state.keynessView.sort.by,
+          dirA: state.keynessView.sort.dirA,
+          dirB: state.keynessView.sort.dirB,
         },
-        pageSize: state.keynessView.pageA.limit,
+        pageSize: state.keynessView.pageLimit,
       },
     },
   };
@@ -1363,8 +1377,14 @@ export function createAppRuntime(
         snapshot.readyDocs,
         side,
       );
-      const sort = side === 'a' ? issuedView.sortA : issuedView.sortB;
-      const page = side === 'a' ? issuedView.pageA : issuedView.pageB;
+      const sort = {
+        by: issuedView.sort.by,
+        dir: side === 'a' ? issuedView.sort.dirA : issuedView.sort.dirB,
+      };
+      const page = {
+        offset: side === 'a' ? issuedView.offsetA : issuedView.offsetB,
+        limit: issuedView.pageLimit,
+      };
       const lease = lane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => {
@@ -3132,8 +3152,8 @@ export function createAppRuntime(
             documentA,
             documentB,
             restOn: 'b',
-            pageA: { ...state.keynessView.pageA, offset: 0 },
-            pageB: { ...state.keynessView.pageB, offset: 0 },
+            offsetA: 0,
+            offsetB: 0,
           },
           keynessEvidence: null,
         });
@@ -3160,8 +3180,8 @@ export function createAppRuntime(
           keynessView: {
             ...view,
             ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
-            pageA: { ...view.pageA, offset: 0 },
-            pageB: { ...view.pageB, offset: 0 },
+            offsetA: 0,
+            offsetB: 0,
           },
           keynessEvidence: null,
         });
@@ -3178,8 +3198,8 @@ export function createAppRuntime(
             ...view,
             documentA: view.documentB,
             documentB: view.documentA,
-            pageA: { ...view.pageA, offset: 0 },
-            pageB: { ...view.pageB, offset: 0 },
+            offsetA: 0,
+            offsetB: 0,
           };
         } else if (view.restOn === 'b') {
           const focus = view.documentA;
@@ -3188,8 +3208,8 @@ export function createAppRuntime(
             restOn: 'a',
             documentB: focus,
             documentA: ready.find((doc) => doc !== focus) ?? null,
-            pageA: { ...view.pageA, offset: 0 },
-            pageB: { ...view.pageB, offset: 0 },
+            offsetA: 0,
+            offsetB: 0,
           };
         } else {
           const focus = view.documentB;
@@ -3198,8 +3218,8 @@ export function createAppRuntime(
             restOn: 'b',
             documentA: focus,
             documentB: ready.find((doc) => doc !== focus) ?? null,
-            pageA: { ...view.pageA, offset: 0 },
-            pageB: { ...view.pageB, offset: 0 },
+            offsetA: 0,
+            offsetB: 0,
           };
         }
         set({ keynessView: next, keynessEvidence: null });
@@ -3207,17 +3227,23 @@ export function createAppRuntime(
         get().runKeyness();
       },
 
-      setKeynessFilter(minCountTotal, minDocFreqTotal, classes) {
-        const unique = [...new Set(classes)].filter(
-          (value): value is FrequencyTokenClassV1 =>
-            value === 'lexical' || value === 'numeral',
-        );
+      applyKeynessSettings(input) {
         if (
-          !Number.isSafeInteger(minCountTotal) ||
-          minCountTotal < 1 ||
-          !Number.isSafeInteger(minDocFreqTotal) ||
-          minDocFreqTotal < 1 ||
-          unique.length === 0
+          !Number.isSafeInteger(input.minCountTotal) ||
+          input.minCountTotal < 1 ||
+          !Number.isSafeInteger(input.minDocFreqTotal) ||
+          input.minDocFreqTotal < 1 ||
+          !Array.isArray(input.classes) ||
+          input.classes.length < 1 ||
+          input.classes.length > 2 ||
+          new Set(input.classes).size !== input.classes.length ||
+          input.classes.some(
+            (value) => value !== 'lexical' && value !== 'numeral',
+          ) ||
+          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy) ||
+          !Number.isSafeInteger(input.pageLimit) ||
+          input.pageLimit < 1 ||
+          input.pageLimit > FREQUENCY_PAGE_MAX
         ) {
           return;
         }
@@ -3225,83 +3251,74 @@ export function createAppRuntime(
         set({
           keynessView: {
             ...view,
-            minCountTotal,
-            minDocFreqTotal,
-            classes: unique,
-            pageA: { ...view.pageA, offset: 0 },
-            pageB: { ...view.pageB, offset: 0 },
+            minCountTotal: input.minCountTotal,
+            minDocFreqTotal: input.minDocFreqTotal,
+            classes: [...input.classes],
+            sort: { ...view.sort, by: input.sortBy },
+            pageLimit: input.pageLimit,
+            offsetA: 0,
+            offsetB: 0,
           },
         });
         runKeynessTable('a');
         runKeynessTable('b');
       },
 
-      setKeynessSort(side, by) {
-        if (!['logRatio', 'g2', 'countA', 'countB'].includes(by)) return;
+      setKeynessDirection(side) {
+        if (side !== 'a' && side !== 'b') return;
         const view = get().keynessView;
-        const current = side === 'a' ? view.sortA : view.sortB;
-        const dir = current.by === by
-          ? (current.dir === 1 ? -1 : 1)
-          : (by === 'logRatio' && side === 'b' ? 1 : -1);
         const next: KeynessViewV1 = side === 'a'
           ? {
               ...view,
-              sortA: { by, dir },
-              pageA: { ...view.pageA, offset: 0 },
+              sort: {
+                ...view.sort,
+                dirA: view.sort.dirA === 1 ? -1 : 1,
+              },
+              offsetA: 0,
             }
           : {
               ...view,
-              sortB: { by, dir },
-              pageB: { ...view.pageB, offset: 0 },
+              sort: {
+                ...view.sort,
+                dirB: view.sort.dirB === 1 ? -1 : 1,
+              },
+              offsetB: 0,
             };
         set({ keynessView: next });
         runKeynessTable(side);
       },
 
       setKeynessPage(side, offset) {
+        if (side !== 'a' && side !== 'b') return;
         const view = get().keynessView;
-        const page = side === 'a' ? view.pageA : view.pageB;
         if (
           !Number.isSafeInteger(offset) ||
           offset < 0 ||
-          offset + page.limit > FREQUENCY_WINDOW_MAX
+          offset + view.pageLimit > FREQUENCY_WINDOW_MAX
         ) {
           return;
         }
         set({
           keynessView: side === 'a'
-            ? { ...view, pageA: { ...page, offset } }
-            : { ...view, pageB: { ...page, offset } },
-        });
-        runKeynessTable(side);
-      },
-
-      setKeynessPageSize(side, limit) {
-        if (
-          !Number.isSafeInteger(limit) ||
-          limit < 1 ||
-          limit > FREQUENCY_PAGE_MAX
-        ) {
-          return;
-        }
-        const view = get().keynessView;
-        set({
-          keynessView: side === 'a'
-            ? { ...view, pageA: { offset: 0, limit } }
-            : { ...view, pageB: { offset: 0, limit } },
+            ? { ...view, offsetA: offset }
+            : { ...view, offsetB: offset },
         });
         runKeynessTable(side);
       },
 
       openKeynessEvidence(key, side) {
         keynessEvidenceLane.supersede();
+        if (side !== 'a' && side !== 'b') {
+          set({ keynessEvidence: null });
+          return false;
+        }
         const { snapshot, keynessView } = get();
         const pair = snapshot
           ? keynessSelections(keynessView, snapshot.readyDocs)
           : null;
         if (!snapshot || !pair) {
           set({ keynessEvidence: null });
-          return;
+          return false;
         }
         const label = key.normalize('NFC');
         const group = {
@@ -3321,7 +3338,8 @@ export function createAppRuntime(
         try {
           validateNotebookGroup(group);
         } catch {
-          return;
+          set({ keynessEvidence: null });
+          return false;
         }
         const issuedKey = snapKey(snapshot);
         const issuedView = keynessView;
@@ -3391,6 +3409,7 @@ export function createAppRuntime(
             },
           }),
         );
+        return true;
       },
 
       closeKeynessEvidence() {
@@ -3964,10 +3983,14 @@ export function createAppRuntime(
             minCountTotal: keyness.filter.minCountTotal,
             minDocFreqTotal: keyness.filter.minDocFreqTotal,
             classes: keyness.filter.classes,
-            sortA: { by: keyness.sort.by, dir: keyness.sort.dirA },
-            sortB: { by: keyness.sort.by, dir: keyness.sort.dirB },
-            pageA: { offset: 0, limit: keyness.pageSize },
-            pageB: { offset: 0, limit: keyness.pageSize },
+            sort: {
+              by: keyness.sort.by,
+              dirA: keyness.sort.dirA,
+              dirB: keyness.sort.dirB,
+            },
+            pageLimit: keyness.pageSize,
+            offsetA: 0,
+            offsetB: 0,
           },
           savedSelections: research.selections,
           durablePins: research.pins,
@@ -4337,8 +4360,17 @@ export function createAppRuntime(
       readerLane.supersede();
       selectionLane.supersede();
       pinRestoreLane.supersede();
-      if (store.getState().editContext !== null || store.getState().lineExcerpt !== null) {
-        store.setState({ editContext: null, lineExcerpt: null });
+      keynessEvidenceLane.supersede();
+      if (
+        store.getState().editContext !== null ||
+        store.getState().lineExcerpt !== null ||
+        store.getState().keynessEvidence !== null
+      ) {
+        store.setState({
+          editContext: null,
+          lineExcerpt: null,
+          keynessEvidence: null,
+        });
       }
       store.getState().revalidatePins();
       store.getState().runQueries();

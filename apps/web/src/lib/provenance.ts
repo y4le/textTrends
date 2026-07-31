@@ -211,12 +211,16 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('minimum combined count', String(view.minCountTotal)),
       parameter('minimum combined document range', String(view.minDocFreqTotal)),
       parameter('token classes', view.classes.join(', ')),
-      parameter('A sort', `${view.sortA.by} ${view.sortA.dir === 1 ? 'ascending' : 'descending'}`),
-      parameter('B sort', `${view.sortB.by} ${view.sortB.dir === 1 ? 'ascending' : 'descending'}`),
+      parameter('shared sort field', view.sort.by),
+      parameter('A direction', view.sort.dirA === 1 ? 'ascending' : 'descending'),
+      parameter('B direction', view.sort.dirB === 1 ? 'ascending' : 'descending'),
+      parameter('page size', String(view.pageLimit)),
     ],
     limitations: [
       'Log ratio uses a 0.5 four-cell correction.',
       'No confidence intervals are calculated; small sides can yield unstable ranks.',
+      'Terms with exactly zero log ratio are in neither ranked projection.',
+      'Display bars use a page-local scale over the ready current pages.',
       'A linked Trends range does not redefine either comparison side.',
     ],
   };

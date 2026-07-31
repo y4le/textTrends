@@ -629,15 +629,15 @@ after that bounded contract exists. It never replaces exact rows.
 ### Compare
 
 The comparison definition and both side summaries remain visible before any
-ranking. A and B are rendered on one signed, zero-centered log-ratio axis:
+ranking. A and B are rendered as two independently ranked and paged rowgroups
+on one signed, zero-centered log-ratio axis:
 
 ```text
-            B ◀────────┼────────▶ A
-moor                    ┼──────▉  +3.1 ▸
-hound                   ┼─────▉   +2.9 ▸
-…
-Mrs.                ▉───┼          −1.4 ▸
-Watson           ▉──────┼          −1.8 ▸
+               B ◀─────┼─────▶ A
+moor               ┼────▉  +3.1  A ▸
+hound              ┼───▉   +2.9  A ▸
+Watson        ▉────┼         −1.8 B ▸
+Mrs.           ▉──┼         −1.4 B ▸
 ```
 
 Compare adopts the contract that `keyness-view/1` can round-trip: one shared
@@ -645,14 +645,24 @@ filter, one shared sort field, and one shared page size, with independent
 per-side sort directions, ranking projections, and page offsets. This
 replaces the delivered panel’s per-side sort-field and page-size controls,
 whose side-B values are not durable today; it does not change the persistence
-schema. The Method summary says that the display merges the two projections
-on one axis. The signed plot always encodes log-ratio, even when the shared
-ordering field is G²; the current sort is stated above the plot, and row
-detail exposes both counts/rates, both document ranges, G², filters, and
-**show evidence**. Thus the plot is not governed by the single-measure ranking
-law. Evidence carries a persistent `side A only` or `side B only` label. The
-axis is adopted on wide layouts too, where exact numeric tables may sit
-beside it.
+schema. The display preserves each projection's own rank order and page
+window; it does not interleave them into a false global rank. Both rowgroups
+share one page-local scale, stated in the caption. The signed axis always
+encodes log-ratio, even when the shared ordering field is G² or a count; the
+current field and both directions are stated above it. Exact row detail
+exposes both counts/rates, both document frequencies, G², filters, and
+**show evidence**. Terms with exactly zero log-ratio are in neither delivered
+projection. Thus the plot is not governed by the single-measure ranking law.
+Each side's pager follows the shared table as a separately named control
+group. At compact width, the same table retains term, exact signed value,
+side, and disclosure but omits decorative bar geometry; the shared
+zero-centred bars begin where regular width can render them legibly.
+
+Compare's side-restricted KWIC is a deliberate occurrence-list responsibility
+inside the governed Evidence surface, alongside rather than replacing the
+current-passage pipeline. Its accessible name carries a persistent
+`side A only` or `side B only` scope label, and its rows can inspect the
+governed passage or open Reader.
 
 Swap A/B is a visible 44-pixel action, never a swipe gesture. The Scope bar
 states that a linked trend range is not used. Small-side and uncertainty

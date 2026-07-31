@@ -152,7 +152,14 @@ describe('provenanceFor', () => {
     const compare = formatProvenanceText(provenanceFor(input(), 'compare'));
     expect(compare).toContain('side A: a');
     expect(compare).toContain('side B: b');
+    expect(compare).toContain('shared sort field: logRatio');
+    expect(compare).toContain('A direction: descending');
+    expect(compare).toContain('B direction: ascending');
+    expect(compare).toContain('page size: 100');
+    expect(compare).toContain('exactly zero log ratio');
+    expect(compare).toContain('page-local scale');
     expect(compare).toContain('No confidence intervals');
+    expect(compare).toContain('linked Trends range');
     expect(formatProvenanceText(provenanceFor(input(), 'findings'))).toContain('Method: research log');
   });
 
