@@ -96,7 +96,11 @@ const SORTS: readonly { by: FrequencySortFieldV1; label: string }[] = [
   { by: 'dpNorm', label: 'DPnorm' },
 ];
 
-export function FrequencyTable() {
+export function FrequencyTable({
+  showHeading = true,
+}: {
+  readonly showHeading?: boolean;
+}) {
   const state = useApp((s) => s.frequency);
   const view = useApp((s) => s.frequencyView);
   const setSort = useApp((s) => s.setFrequencySort);
@@ -135,8 +139,15 @@ export function FrequencyTable() {
     : null;
 
   return (
-    <section aria-labelledby="frequency-heading">
-      <h2 id="frequency-heading" style={{ fontSize: 'var(--text-md)' }}>Vocabulary</h2>
+    <section
+      aria-labelledby={showHeading ? 'frequency-heading' : undefined}
+      aria-label={showHeading ? undefined : 'Vocabulary frequency'}
+    >
+      {showHeading && (
+        <h2 id="frequency-heading" style={{ fontSize: 'var(--text-md)' }}>
+          Vocabulary
+        </h2>
+      )}
       <form
         onSubmit={(event) => {
           event.preventDefault();

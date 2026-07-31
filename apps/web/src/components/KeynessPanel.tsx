@@ -224,7 +224,11 @@ function EvidenceTable({
   );
 }
 
-export function KeynessPanel() {
+export function KeynessPanel({
+  showHeading = true,
+}: {
+  readonly showHeading?: boolean;
+}) {
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const view = useApp((state) => state.keynessView);
@@ -301,12 +305,15 @@ export function KeynessPanel() {
 
   return (
     <section
-      aria-labelledby="keyness-heading"
+      aria-labelledby={showHeading ? 'keyness-heading' : undefined}
+      aria-label={showHeading ? undefined : 'Keyness comparison'}
       style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}
     >
-      <h2 id="keyness-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
-        Compare
-      </h2>
+      {showHeading && (
+        <h2 id="keyness-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
+          Compare
+        </h2>
+      )}
       <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
         Compare explicit sides; the linked trend brush does not redefine this analysis.
       </p>

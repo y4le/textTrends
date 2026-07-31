@@ -1,6 +1,13 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Page } from '@playwright/test';
 import { awaitAllReady, trace } from './helpers.ts';
-import { PLACE_HEADING } from '../src/lib/places.ts';
+import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
+
+async function expectOnlyCanonicalPlace(page: Page, active: Place): Promise<void> {
+  for (const [place, heading] of Object.entries(PLACE_HEADING) as [Place, string][]) {
+    await expect(page.getByRole('region', { name: heading, exact: true }))
+      .toHaveCount(place === active ? 1 : 0);
+  }
+}
 
 test('Scope and Lens round-trip canonical places without issuing analysis', async ({ page }) => {
   await page.goto('./?foreign=%2f&p=compare');
@@ -36,10 +43,7 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
   const scope = page.getByRole('region', { name: 'Scope' });
   await scope.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
-  await expect(page.getByRole('region', { name: 'Corpus', exact: true })).toBeVisible();
-  for (const peer of Object.values(PLACE_HEADING).filter((heading) => heading !== 'Corpus')) {
-    await expect(page.getByRole('region', { name: peer, exact: true })).toHaveCount(0);
-  }
+  await expectOnlyCanonicalPlace(page, 'corpus');
   await scope.getByRole('button', { name: '0 of 8 pinned', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=findings$/);
   await page.goBack();
@@ -49,6 +53,29 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
 
   const queryOps = (await trace(page)).events.filter((event) =>
     event.seq > reloadMark
+    && event.direction === 'to-worker'
+    && event.t === 'query');
+  expect(queryOps).toEqual([]);
+});
+
+test('Vocabulary and Compare each mount as a closed canonical place', async ({ page }) => {
+  await page.goto('./?p=vocabulary');
+  await awaitAllReady(page);
+  await expectOnlyCanonicalPlace(page, 'vocabulary');
+  await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Corpus documents' })).toHaveCount(0);
+
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page
+    .getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Compare', exact: true })
+    .click();
+  await expectOnlyCanonicalPlace(page, 'compare');
+  await expect(page.getByRole('table', { name: 'A-key terms' })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'B-key terms' })).toBeVisible();
+
+  const queryOps = (await trace(page)).events.filter((event) =>
+    event.seq > mark
     && event.direction === 'to-worker'
     && event.t === 'query');
   expect(queryOps).toEqual([]);

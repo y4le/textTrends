@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState } from 'react';
+import { lazy, Suspense, useState, type ReactNode } from 'react';
 import { KwicPanel } from './components/KwicPanel.tsx';
 import { NotebookPanel } from './components/NotebookPanel.tsx';
 import { ProjectPanel } from './components/ProjectPanel.tsx';
@@ -11,6 +11,7 @@ import { ScopeBar } from './components/ScopeBar.tsx';
 import { MethodSummary } from './components/MethodSummary.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { LensOrgan } from './components/LensOrgan.tsx';
+import { PLACE_HEADING, type Place } from './lib/places.ts';
 
 // The chart/interaction surface is the largest main-thread feature module and
 // is irrelevant until the notebook has an active series. Keep the initial
@@ -30,6 +31,41 @@ const KeynessPanel = lazy(() =>
 const CorpusPlace = lazy(() =>
   import('./places/CorpusPlace.tsx').then(({ CorpusPlace: placeBody }) => ({ default: placeBody })),
 );
+const VocabularyPlace = lazy(() =>
+  import('./places/VocabularyPlace.tsx').then(({ VocabularyPlace: placeBody }) => ({ default: placeBody })),
+);
+const ComparePlace = lazy(() =>
+  import('./places/ComparePlace.tsx').then(({ ComparePlace: placeBody }) => ({ default: placeBody })),
+);
+
+function PlaceSurface({
+  place,
+  children,
+}: {
+  readonly place: Place;
+  readonly children: ReactNode;
+}) {
+  const headingId = `${place}-place-heading`;
+  return (
+    <section className="place-surface" aria-labelledby={headingId}>
+      <h2
+        id={headingId}
+        style={{ fontSize: 'var(--text-md)', margin: 'var(--space-3) 0 var(--space-1)' }}
+      >
+        {PLACE_HEADING[place]}
+      </h2>
+      <Suspense
+        fallback={(
+          <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
+            loading {PLACE_HEADING[place].toLocaleLowerCase()}…
+          </p>
+        )}
+      >
+        {children}
+      </Suspense>
+    </section>
+  );
+}
 
 /** Chart-focus chip: the series' persistent identity (line sample + name) and
  *  the CHART-emphasis control (concordance membership is the KwicPanel
@@ -166,23 +202,11 @@ export function App() {
         )}
       </div>
       {place === 'corpus' ? (
-        <section className="place-surface" aria-labelledby="corpus-place-heading">
-          <h2
-            id="corpus-place-heading"
-            style={{ fontSize: 'var(--text-md)', margin: 'var(--space-3) 0 var(--space-1)' }}
-          >
-            Corpus
-          </h2>
-          <Suspense
-            fallback={(
-              <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-                loading corpus…
-              </p>
-            )}
-          >
-            <CorpusPlace />
-          </Suspense>
-        </section>
+        <PlaceSurface place="corpus"><CorpusPlace /></PlaceSurface>
+      ) : place === 'vocabulary' ? (
+        <PlaceSurface place="vocabulary"><VocabularyPlace /></PlaceSurface>
+      ) : place === 'compare' ? (
+        <PlaceSurface place="compare"><ComparePlace /></PlaceSurface>
       ) : (
         <>
       <section aria-labelledby="trends-heading">
