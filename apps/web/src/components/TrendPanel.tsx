@@ -44,7 +44,6 @@ import {
   seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
-  TREND_LABEL_SPACE,
   type SequenceLayout,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
@@ -64,12 +63,9 @@ import {
   type RangeHandle,
 } from '../lib/range-mode.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
+import { usePresentation } from './PresentationProvider.tsx';
+import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
 
-const SERIES_HEIGHT = 180;
-const TOP_PAD = 14; // room for the y-max direct label above the plot
-const ROW_HEIGHT = 44;
-const ROW_GAP = 22;
-const LABEL_SPACE = TREND_LABEL_SPACE;
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
 
@@ -99,6 +95,9 @@ export function TrendPanel() {
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
   const sectionMarks = useApp((s) => s.sectionMarks);
+  const presentation = usePresentation();
+  const geometry = trendGeometryFor(presentation.width);
+  const [showAllTotals, setShowAllTotals] = useState(false);
 
   // Callback ref, not a RefObject: the container mounts only after the trend
   // results settle, so a mount-time effect would observe nothing. The ref is
@@ -114,12 +113,12 @@ export function TrendPanel() {
       // The plot and its direct-label rail must fit their measured owner.
       // Compact geometry gets richer in Stage 3, but the foundation must not
       // impose a desktop minimum that makes the page itself pan horizontally.
-      const next = Math.max(1, Math.round(width) - LABEL_SPACE);
+      const next = Math.max(1, Math.round(width) - geometry.labelSpace);
       setPlotW((prev) => (prev === next ? prev : next));
     });
     observer.observe(containerEl);
     return () => observer.disconnect();
-  }, [containerEl]);
+  }, [containerEl, geometry]);
 
   if (series.length === 0) return null;
 
@@ -185,7 +184,8 @@ export function TrendPanel() {
       return max;
     }),
   );
-  const strokeFor = (id: string) => (id === focusedSeries ? 2.5 : 1.5);
+  const strokeFor = (id: string) =>
+    id === focusedSeries ? geometry.strokeFocused : geometry.strokeOther;
 
   // Chapter boundary rules (opt-in): the top-level chapter starts of the ONE
   // focused document, marked within its span only — parent-root topology, no
@@ -219,6 +219,11 @@ export function TrendPanel() {
     return n;
   };
   const totalTokens = docs.reduce((s, _, d) => s + bookTokens(d), 0);
+  const compactTotals = presentation.width === 'compact';
+  const totalsSeries = compactTotals && !showAllTotals
+    ? [ready.find((item) => item.intent.id === focusedSeries) ?? ready[0]!]
+    : ready;
+  const compactTotalsLabel = totalsSeries[0]?.intent.label ?? '';
 
   const methodLine = `rate per 10k tokens · ${bins} equal-token bins per book · unsmoothed · books token-proportional in declared order`;
 
@@ -226,7 +231,7 @@ export function TrendPanel() {
     <section>
       <p
         style={{
-          fontSize: 'var(--text-xs)',
+          fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
           fontFamily: 'var(--font-mono)',
           fontWeight: 400,
           color: 'var(--fg-muted)',
@@ -250,6 +255,7 @@ export function TrendPanel() {
         plotW={plotW}
         series={series}
         focusedSeries={focusedSeries}
+        geometry={geometry}
       >
         {trendView === 'series' ? (
           <SeriesView
@@ -263,6 +269,7 @@ export function TrendPanel() {
             plotW={plotW}
             sectionMarks={seriesMarks}
             strokeFor={strokeFor}
+            geometry={geometry}
           />
         ) : (
           <ByBookView
@@ -276,6 +283,7 @@ export function TrendPanel() {
             sectionMarks={byBookMarks}
             sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
+            geometry={geometry}
           />
         )}
       </ScrubSurface>
@@ -294,6 +302,33 @@ export function TrendPanel() {
         axisLabel="occurrences · corpus reading order"
         seriesOrder={series.map((s) => s.id)}
       />
+      {compactTotals && ready.length > 1 && (
+        <div
+          role="group"
+          aria-label="Exact totals columns"
+          style={{
+            alignItems: 'center',
+            display: 'flex',
+            gap: 'var(--space-2)',
+            marginTop: 'var(--space-2)',
+          }}
+        >
+          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
+            {showAllTotals ? `${ready.length} query columns` : `${compactTotalsLabel} column`}
+          </span>
+          <button
+            type="button"
+            aria-pressed={showAllTotals}
+            onClick={() => setShowAllTotals((current) => !current)}
+            style={{
+              ...SMALL_BUTTON_STYLE,
+              minHeight: 44,
+            }}
+          >
+            {showAllTotals ? 'show focused query totals' : 'show all query totals'}
+          </button>
+        </div>
+      )}
       <div
         className="horizontal-data-port"
         role="region"
@@ -303,19 +338,23 @@ export function TrendPanel() {
         <table
           style={{
             fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--text-xs)',
+            fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
             borderCollapse: 'collapse',
             marginTop: 'var(--space-3)',
           }}
         >
         <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
-          Exact totals by book (count · rate per 10k tokens)
+          {compactTotals
+            ? showAllTotals
+              ? 'Exact totals by book — all query columns (count · rate per 10k tokens).'
+              : `Exact totals by book — ${compactTotalsLabel} (count · rate per 10k tokens). Focus another term to show its column.`
+            : 'Exact totals by book (count · rate per 10k tokens)'}
         </caption>
         <thead>
           <tr style={{ color: 'var(--fg-muted)' }}>
             <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>book</th>
             <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>tokens</th>
-            {ready.map((r) => (
+            {totalsSeries.map((r) => (
               <th key={r.intent.id} scope="col" colSpan={2} style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>
                 {r.intent.label}
               </th>
@@ -324,7 +363,7 @@ export function TrendPanel() {
           <tr style={{ color: 'var(--fg-muted)' }}>
             <th aria-hidden="true" />
             <th aria-hidden="true" />
-            {ready.map((r) => (
+            {totalsSeries.map((r) => (
               <SubHeads key={r.intent.id} />
             ))}
           </tr>
@@ -341,7 +380,7 @@ export function TrendPanel() {
                 <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
                   {tokens.toLocaleString()}
                 </td>
-                {ready.map((r) => {
+                {totalsSeries.map((r) => {
                   const c = bookCount(r.trend, d);
                   return (
                     <Cells key={r.intent.id} count={c} rate={tokens === 0 ? 0 : (c / tokens) * 10_000} />
@@ -355,7 +394,7 @@ export function TrendPanel() {
             <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
               {totalTokens.toLocaleString()}
             </td>
-            {ready.map((r) => {
+            {totalsSeries.map((r) => {
               const c = docs.reduce((s, _, d) => s + bookCount(r.trend, d), 0);
               return (
                 <Cells key={r.intent.id} count={c} rate={totalTokens === 0 ? 0 : (c / totalTokens) * 10_000} />
@@ -394,6 +433,7 @@ function ScrubSurface({
   plotW,
   series,
   focusedSeries,
+  geometry,
   children,
 }: {
   containerRef: (el: HTMLDivElement | null) => void;
@@ -405,6 +445,7 @@ function ScrubSurface({
   plotW: number;
   series: readonly SeriesIntent[];
   focusedSeries: string | null;
+  geometry: TrendGeometry;
   children: React.ReactNode;
 }) {
   const scrub = useApp((s) => s.scrub);
@@ -448,8 +489,15 @@ function ScrubSurface({
   const targetFromPointer = (px: number, py: number): ScrubTarget | null => {
     const hit =
       trendView === 'series'
-        ? pointerTargetSeries(px, py, plotW, SERIES_HEIGHT, layout)
-        : pointerTargetByBook(px, py, plotW, ROW_HEIGHT, ROW_GAP, docTokenCount);
+        ? pointerTargetSeries(px, py, plotW, geometry.seriesHeight, layout)
+        : pointerTargetByBook(
+            px,
+            py,
+            plotW,
+            geometry.rowHeight,
+            geometry.rowGap,
+            docTokenCount,
+          );
     return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
   };
 
@@ -572,11 +620,15 @@ function ScrubSurface({
     ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
     : '';
 
-  // Cursor geometry per the Phase B ruling: series spans TOP_PAD..SERIES_HEIGHT;
+  // Cursor geometry per the Phase B ruling: series spans topPad..seriesHeight;
   // by-book covers only the scrubbed row. transform (not left/top mutation)
   // so frame-to-frame motion is a compositor-friendly update.
-  const cursorTop = trendView === 'series' ? TOP_PAD : scrubDocOrdinal * (ROW_HEIGHT + ROW_GAP);
-  const cursorHeight = trendView === 'series' ? SERIES_HEIGHT - TOP_PAD : ROW_HEIGHT;
+  const cursorTop = trendView === 'series'
+    ? geometry.topPad
+    : scrubDocOrdinal * (geometry.rowHeight + geometry.rowGap);
+  const cursorHeight = trendView === 'series'
+    ? geometry.seriesHeight - geometry.topPad
+    : geometry.rowHeight;
 
   const shownRange = preview
     ? {
@@ -595,8 +647,8 @@ function ScrubSurface({
       ? {
           left: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.start, plotW, layout),
           right: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.end, plotW, layout),
-          top: TOP_PAD,
-          height: SERIES_HEIGHT - TOP_PAD,
+          top: geometry.topPad,
+          height: geometry.seriesHeight - geometry.topPad,
         }
       : {
           left: bookXFromTokenEdge(
@@ -609,8 +661,8 @@ function ScrubSurface({
             plotW,
             docTokenCount[rangeDocOrdinal] ?? 0,
           ),
-          top: rangeDocOrdinal * (ROW_HEIGHT + ROW_GAP),
-          height: ROW_HEIGHT,
+          top: rangeDocOrdinal * (geometry.rowHeight + geometry.rowGap),
+          height: geometry.rowHeight,
         }
     : null;
   const rangeStatus = preview
@@ -1061,6 +1113,7 @@ const SeriesView = memo(function SeriesView({
   plotW,
   sectionMarks,
   strokeFor,
+  geometry,
 }: {
   ready: readonly ReadySeries[];
   selected: readonly ReadySeries[];
@@ -1072,14 +1125,15 @@ const SeriesView = memo(function SeriesView({
   plotW: number;
   sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
+  geometry: TrendGeometry;
 }) {
   const geo = ready[0]!.trend;
   const totalTokens =
     docs.length === 0 ? 0 : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0);
   const x = linearMap(0, Math.max(1, totalTokens), 0, plotW);
-  const y = linearMap(0, maxRate, SERIES_HEIGHT, TOP_PAD);
-  const axisY = SERIES_HEIGHT;
-  const height = SERIES_HEIGHT + 34;
+  const y = linearMap(0, maxRate, geometry.seriesHeight, geometry.topPad);
+  const axisY = geometry.seriesHeight;
+  const height = geometry.seriesHeight + (geometry.bookMarks === 'ticks' ? 34 : 8);
 
   // One path segment per (series, doc) — the break at every boundary is
   // mandatory; connecting them would invent data.
@@ -1094,11 +1148,17 @@ const SeriesView = memo(function SeriesView({
     const lastRate = d < 0 ? 0 : (r.trend.ratePer10k[d * bins + (bins - 1)] as number);
     return y(lastRate);
   });
-  const labelY = spreadLabels(endPoints, TOP_PAD + 4, SERIES_HEIGHT - 2, MIN_LABEL_GAP);
+  const labelY = spreadLabels(
+    endPoints,
+    geometry.topPad + 4,
+    geometry.seriesHeight - 2,
+    MIN_LABEL_GAP,
+  );
 
   return (
     <svg
-      width={plotW + LABEL_SPACE}
+      data-trend-view="series"
+      width={plotW + geometry.labelSpace}
       height={height}
       role="img"
       aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} across ${docs.length} books in reading order`}
@@ -1115,17 +1175,19 @@ const SeriesView = memo(function SeriesView({
             {d > 0 && (
               <line x1={x0} y1={0} x2={x0} y2={axisY} stroke="var(--rule)" strokeWidth={1} />
             )}
-            <text
-              x={(x0 + x1) / 2}
-              y={axisY + 14}
-              textAnchor="middle"
-              fill="var(--fg-muted)"
-              fontSize="var(--text-xs)"
-              fontFamily="var(--font-mono)"
-            >
-              {label}
-              <title>{title}</title>
-            </text>
+            {geometry.bookMarks === 'ticks' && (
+              <text
+                x={(x0 + x1) / 2}
+                y={axisY + 14}
+                textAnchor="middle"
+                fill="var(--fg-muted)"
+                fontSize="var(--text-xs)"
+                fontFamily="var(--font-mono)"
+              >
+                {label}
+                <title>{title}</title>
+              </text>
+            )}
           </g>
         );
       })}
@@ -1148,6 +1210,7 @@ const SeriesView = memo(function SeriesView({
           return (
             <path
               key={`${r.intent.id}:${doc}`}
+              data-series-path={r.intent.id}
               d={path}
               fill="none"
               stroke={slotColor(r.intent.styleSlot)}
@@ -1185,7 +1248,7 @@ const SeriesView = memo(function SeriesView({
         }),
       )}
       {/* Direct end labels, collision-spread, foreground text + colored leader */}
-      {ready.map((r, i) => (
+      {geometry.directLabels && ready.map((r, i) => (
         <g key={`label-${r.intent.id}`}>
           <line
             x1={plotW + 2}
@@ -1214,7 +1277,7 @@ const SeriesView = memo(function SeriesView({
         <line
           key={`chapter-${i}`}
           x1={mx}
-          y1={TOP_PAD}
+          y1={geometry.topPad}
           x2={mx}
           y2={axisY}
           stroke="var(--rule-strong)"
@@ -1262,6 +1325,7 @@ const ByBookView = memo(function ByBookView({
   sectionMarks,
   sectionMarkDoc,
   strokeFor,
+  geometry,
 }: {
   ready: readonly ReadySeries[];
   selected: readonly ReadySeries[];
@@ -1273,24 +1337,26 @@ const ByBookView = memo(function ByBookView({
   sectionMarks: readonly number[];
   sectionMarkDoc: number;
   strokeFor: (id: string) => number;
+  geometry: TrendGeometry;
 }) {
   const x = linearMap(0, bins, 0, plotW);
-  const y = linearMap(0, maxRate, ROW_HEIGHT, 0);
-  const height = docs.length * (ROW_HEIGHT + ROW_GAP) + 4;
+  const y = linearMap(0, maxRate, geometry.rowHeight, 0);
+  const height = docs.length * (geometry.rowHeight + geometry.rowGap) + 4;
 
   return (
     <svg
-      width={plotW + LABEL_SPACE}
+      data-trend-view="by-book"
+      width={plotW + geometry.labelSpace}
       height={height}
       role="img"
       aria-label={`Rates of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
     >
       {docs.map((doc, d) => {
-        const rowY = d * (ROW_HEIGHT + ROW_GAP);
+        const rowY = d * (geometry.rowHeight + geometry.rowGap);
         const title = titles[d] ?? doc;
         return (
           <g key={doc}>
-            <line x1={0} y1={rowY + ROW_HEIGHT} x2={plotW} y2={rowY + ROW_HEIGHT} stroke="var(--rule)" strokeWidth={1} />
+            <line x1={0} y1={rowY + geometry.rowHeight} x2={plotW} y2={rowY + geometry.rowHeight} stroke="var(--rule)" strokeWidth={1} />
             {ready.map((r) => {
               const path = Array.from({ length: bins }, (_, b) => {
                 const rate = r.trend.ratePer10k[d * bins + b] as number;
@@ -1299,6 +1365,7 @@ const ByBookView = memo(function ByBookView({
               return (
                 <path
                   key={r.intent.id}
+                  data-series-path={r.intent.id}
                   d={path}
                   fill="none"
                   stroke={slotColor(r.intent.styleSlot)}
@@ -1337,23 +1404,25 @@ const ByBookView = memo(function ByBookView({
                   x1={mx}
                   y1={rowY}
                   x2={mx}
-                  y2={rowY + ROW_HEIGHT}
+                  y2={rowY + geometry.rowHeight}
                   stroke="var(--rule-strong)"
                   strokeWidth={1}
                   strokeDasharray="2 3"
                   pointerEvents="none"
                 />
               ))}
-            <text
-              x={plotW + 6}
-              y={rowY + ROW_HEIGHT - 2}
-              fill="var(--fg)"
-              fontSize="var(--text-xs)"
-              fontFamily="var(--font-mono)"
-            >
-              {`${d + 1} · `}{title.slice(0, 16)}
-              <title>{title}</title>
-            </text>
+            {geometry.directLabels && (
+              <text
+                x={plotW + 6}
+                y={rowY + geometry.rowHeight - 2}
+                fill="var(--fg)"
+                fontSize="var(--text-xs)"
+                fontFamily="var(--font-mono)"
+              >
+                {`${d + 1} · `}{title.slice(0, 16)}
+                <title>{title}</title>
+              </text>
+            )}
             {Array.from({ length: bins }, (_, b) => {
               const lines = ready
                 .map((r) => {
@@ -1364,10 +1433,11 @@ const ByBookView = memo(function ByBookView({
               return (
                 <rect
                   key={b}
+                  data-trend-hit-row={d}
                   x={x(b)}
                   y={rowY}
                   width={Math.max(1, x(1) - x(0))}
-                  height={ROW_HEIGHT}
+                  height={geometry.rowHeight}
                   fill="transparent"
                 >
                   <title>{`${title}, bin ${b + 1}/${bins}\n${lines}`}</title>

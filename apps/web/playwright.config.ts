@@ -6,7 +6,8 @@
  *
  * Three projects, deliberately separated:
  * - functional: semantic gates; may retry once in CI (traces on retry);
- * - WebKit compact: one viewport/keyboard contract spec, not the full suite;
+ * - WebKit compact: bounded viewport/keyboard and compact-place contract
+ *   specs, not the full suite;
  * - benchmark:  timing specs — never retried, so a failed timing sample is
  *   a visible failure, not noise a retry can hide. ISOLATION is enforced
  *   by the config, not by convention: the benchmark project DEPENDS on the
@@ -35,7 +36,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-compact',
-      testMatch: /viewport\.spec\.ts/,
+      testMatch: /(viewport|compact-trends)\.spec\.ts/,
       use: { ...devices['iPhone 14'] },
       retries: process.env.CI ? 1 : 0,
     },

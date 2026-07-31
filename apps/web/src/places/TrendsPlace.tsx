@@ -1,6 +1,7 @@
 import { lazy, Suspense } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { chapterMarkView } from '../lib/trend-controls.ts';
+import { usePresentation } from '../components/PresentationProvider.tsx';
 
 const TrendPanel = lazy(() =>
   import('../components/TrendPanel.tsx').then(({ TrendPanel: panel }) => ({ default: panel })),
@@ -17,6 +18,7 @@ export function TrendsPlace() {
   const setTrendView = useApp((state) => state.setTrendView);
   const setSectionMarks = useApp((state) => state.setSectionMarks);
   const setPlace = useApp((state) => state.setPlace);
+  const presentation = usePresentation();
 
   const markView = chapterMarkView({
     sectionMarks,
@@ -51,7 +53,9 @@ export function TrendsPlace() {
               style={{
                 font: 'inherit',
                 fontFamily: 'var(--font-mono)',
-                fontSize: 'var(--text-xs)',
+                fontSize: presentation.width === 'compact'
+                  ? 'var(--text-sm)'
+                  : 'var(--text-xs)',
                 color: trendView === view ? 'var(--fg)' : 'var(--fg-muted)',
                 background: 'none',
                 border: 'none',
