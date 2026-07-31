@@ -32,6 +32,9 @@ const MethodSummary = lazy(() =>
 const QuerySurface = lazy(() =>
   import('./components/QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
 );
+const EvidenceSurface = lazy(() =>
+  import('./components/EvidenceSurface.tsx').then(({ EvidenceSurface: surface }) => ({ default: surface })),
+);
 
 function PlaceSurface({
   place,
@@ -182,13 +185,15 @@ export function App() {
             <ActivePlace place={place} />
           </PlaceSurface>
         </div>
-        <aside className="evidence-region" aria-label="Evidence">
-          <strong className="region-label">Evidence</strong>
-          <p className="region-placeholder">
-            Passage evidence and actions remain with the active analysis while
-            this governed region is completed.
-          </p>
-        </aside>
+        <Suspense
+          fallback={(
+            <aside className="evidence-region" aria-label="Evidence">
+              <p className="region-placeholder">loading Evidence…</p>
+            </aside>
+          )}
+        >
+          <EvidenceSurface />
+        </Suspense>
       </div>
       <section className="method-region" aria-label="Method">
         <Suspense

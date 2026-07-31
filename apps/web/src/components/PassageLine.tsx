@@ -22,9 +22,6 @@ import {
   segmentPassageMarks,
   type PassageSegment,
 } from '../lib/passage-marks.ts';
-import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import type { PinCapacityVM } from '../lib/pin-capacity.ts';
-import { PinButton } from './PinButton.tsx';
 
 export function PassageLine({
   passage,
@@ -33,9 +30,6 @@ export function PassageLine({
   series,
   focusedSeries,
   caption,
-  pinCapacity,
-  onPin,
-  onOpenReader,
 }: {
   passage: PassageResult;
   /** Document-local scrubbed token — must lie within passage.tokens. */
@@ -44,9 +38,6 @@ export function PassageLine({
   series: readonly SeriesIntent[];
   focusedSeries: string | null;
   caption: string;
-  pinCapacity: PinCapacityVM;
-  onPin: () => void;
-  onOpenReader: () => void;
 }) {
   const preRef = useRef<HTMLSpanElement | null>(null);
   const centerRef = useRef<HTMLSpanElement | null>(null);
@@ -145,20 +136,6 @@ export function PassageLine({
         }}
       >
         <span>{caption}</span>
-        <PinButton
-          capacity={pinCapacity}
-          label={`Pin passage at token ${(token + 1).toLocaleString()}`}
-          onPin={onPin}
-        />
-        <button
-          id="evidence-read"
-          type="button"
-          aria-label="Open passage in reader"
-          onClick={onOpenReader}
-          style={SMALL_BUTTON_STYLE}
-        >
-          open reader
-        </button>
       </div>
     </div>
   );

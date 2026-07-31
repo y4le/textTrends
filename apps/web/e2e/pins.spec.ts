@@ -207,8 +207,9 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   // anchors restore evidence whose document TextHash is unchanged.
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
   await gotoPlace(page, 'findings');
-  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(1);
-  await expect(page.getByText('pins · token 10')).toBeVisible();
+  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  await expect(pinnedEvidence).toHaveCount(1);
+  await expect(pinnedEvidence.getByText('pins · token 10')).toBeVisible();
 });
 
 test('repeated chart activation reads without creating durable evidence', async ({ page }) => {

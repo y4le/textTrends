@@ -148,7 +148,7 @@ test('compact Terms key belongs only to places with query-encoded marks', async 
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
 });
 
-test('shell Evidence placeholder never contradicts live passage evidence', async ({ page }) => {
+test('shell Evidence owns the one live passage action set', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
@@ -169,7 +169,14 @@ test('shell Evidence placeholder never contradicts live passage evidence', async
   });
   const evidence = page.getByRole('complementary', { name: 'Evidence' });
   await expect(evidence).not.toContainText('No passage selected');
-  await expect(evidence).toContainText('Passage evidence');
+  await expect(evidence).toContainText('evidence · token 1');
+  await expect(page.getByRole('button', { name: /Pin passage at token/ })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(1);
+  await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
+  const reader = page.getByRole('dialog', { name: /Reader: evidence/ });
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(evidence.getByRole('button', { name: 'Open passage in reader' })).toBeFocused();
 });
 
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {

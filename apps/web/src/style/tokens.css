@@ -45,7 +45,7 @@
   /* Workbench chrome metrics — shared by layout, safe-area reservation, and
    * the governed evidence detents introduced in Stage 2. */
   --lens-block-size: 4.5rem;
-  --evidence-line-block-size: 0rem;
+  --evidence-line-block-size: 9.5rem;
   --evidence-peek: 28dvh;
   --evidence-half: 58dvh;
   --evidence-tall: 88dvh;
@@ -186,6 +186,67 @@ canvas {
 .evidence-region {
   padding-block: var(--space-2);
   border-bottom: 1px solid var(--rule);
+}
+
+.evidence-heading,
+.evidence-actions {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.evidence-heading {
+  justify-content: space-between;
+}
+
+.evidence-heading > span,
+.evidence-caption,
+.evidence-empty,
+.evidence-recent {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.evidence-caption {
+  margin: var(--space-1) 0 0;
+}
+
+.evidence-empty {
+  margin: var(--space-1) 0;
+}
+
+.evidence-excerpt {
+  max-block-size: 4.4em;
+  margin: var(--space-1) 0;
+  overflow: hidden;
+  font-family: var(--font-ui);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.evidence-excerpt strong {
+  padding-inline: 0.08em;
+  background: color-mix(in srgb, var(--accent) 24%, transparent);
+  color: var(--fg);
+}
+
+.evidence-actions {
+  margin-block-start: var(--space-1);
+}
+
+.evidence-recent {
+  display: none;
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+
+.evidence-recent ol {
+  margin: var(--space-1) 0 0;
+  padding-inline-start: 2ch;
 }
 
 .query-focus-key {
@@ -355,6 +416,26 @@ canvas {
     padding-block: 0;
     overflow: hidden;
     border-bottom-color: var(--rule-strong);
+  }
+
+  .evidence-region {
+    position: fixed;
+    z-index: 30;
+    inset-inline: 0;
+    inset-block-end:
+      calc(var(--lens-block-size) + env(safe-area-inset-bottom, 0px));
+    block-size: var(--evidence-line-block-size);
+    padding-inline:
+      calc(var(--space-3) + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
+    overflow: hidden;
+    background: var(--bg);
+    border-top: 1px solid var(--rule-strong);
+  }
+
+  .evidence-excerpt {
+    max-block-size: 2.9em;
+    font-size: var(--text-md);
   }
 
   .compact-query-label {
@@ -572,11 +653,20 @@ canvas {
     border-left: 1px solid var(--rule);
     padding-inline-start: var(--space-3);
   }
+
+  .evidence-recent {
+    display: block;
+  }
 }
 
 @media (max-width: 599.98px) and (orientation: landscape) {
   .app-shell {
-    padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    padding-block-end:
+      calc(
+        var(--evidence-line-block-size)
+        + var(--space-3)
+        + env(safe-area-inset-bottom, 0px)
+      );
     padding-inline-start: calc(8.5rem + env(safe-area-inset-left, 0px));
   }
 
@@ -594,6 +684,12 @@ canvas {
       calc(var(--space-2) + env(safe-area-inset-left, 0px));
     border-top: 0;
     border-right: 1px solid var(--rule-strong);
+  }
+
+  .evidence-region {
+    inset-inline-start: 8rem;
+    inset-block-end: 0;
+    padding-inline-start: var(--space-3);
   }
 
   .lens-organ a {

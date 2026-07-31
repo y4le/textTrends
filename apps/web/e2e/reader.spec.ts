@@ -224,6 +224,7 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   const drawer = page.getByRole('dialog', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
   await expect(lens).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(0);
   await page.goBack();
   await expect(drawer).toHaveCount(0);
   const row = page

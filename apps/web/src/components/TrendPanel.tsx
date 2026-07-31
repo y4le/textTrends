@@ -27,7 +27,6 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
-import { pinCapacity } from '../lib/pin-capacity.ts';
 import { BarcodeStrip } from './BarcodeStrip.tsx';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
@@ -52,7 +51,6 @@ import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
-import { PinButton } from './PinButton.tsx';
 import { commitRange } from '../lib/selection.ts';
 import {
   armRange,
@@ -413,14 +411,11 @@ function ScrubSurface({
   const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
   const pinPassage = useApp((s) => s.pinPassage);
-  const pinsUsed = useApp((s) => s.pins.length);
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
-  const openReader = useApp((s) => s.openReader);
   const [preview, setPreview] = useState<RangePreview | null>(null);
   const [rangeDraft, setRangeDraft] = useState<RangeDraft | null>(null);
-  const capacity = pinCapacity(pinsUsed);
   const sliderRef = useRef<HTMLDivElement | null>(null);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
@@ -897,20 +892,6 @@ function ScrubSurface({
           series={series}
           focusedSeries={focusedSeries}
           caption={scrubCaption}
-          pinCapacity={capacity}
-          onPin={() => pinPassage(scrub.doc, scrub.token)}
-          onOpenReader={() => {
-            if (!snapshot) return;
-            openReader(
-              {
-                snapshot: passage.snapshot,
-                doc: scrub.doc,
-                token: scrub.token,
-                from: 'passage',
-              },
-              'evidence-read',
-            );
-          }}
         />
       ) : scrub ? (
         <div
@@ -927,11 +908,6 @@ function ScrubSurface({
           }}
         >
           <span>{scrubCaption} · loading text…</span>
-          <PinButton
-            capacity={capacity}
-            label={`Pin passage at token ${(scrub.token + 1).toLocaleString()}`}
-            onPin={() => pinPassage(scrub.doc, scrub.token)}
-          />
         </div>
       ) : (
         <p

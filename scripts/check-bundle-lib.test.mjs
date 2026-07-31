@@ -29,7 +29,7 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CorpusPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js","assets/FindingsPlace-6666.js"];const method="assets/MethodSummary-MMMM.js";const queries="assets/QuerySurface-QQQQ.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CorpusPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js","assets/FindingsPlace-6666.js"];const method="assets/MethodSummary-MMMM.js";const queries="assets/QuerySurface-QQQQ.js";const evidence="assets/EvidenceSurface-VVVV.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
   put('assets/CorpusPlace-1111.js', 'const cache=()=>import("./standard-ebooks-cache-CCCC.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
@@ -40,6 +40,7 @@ function syntheticDist() {
   put('assets/FindingsPlace-6666.js', 'export const Findings=1;');
   put('assets/MethodSummary-MMMM.js', 'export const Method=1;');
   put('assets/QuerySurface-QQQQ.js', 'export const QuerySurface=1;');
+  put('assets/EvidenceSurface-VVVV.js', 'export const EvidenceSurface=1;');
   put('assets/standard-ebooks-cache-CCCC.js', 'const lazy=()=>import("./archive-RRRR.js");export{lazy};');
   put('assets/archive-RRRR.js', 'export const archive=1;');
   put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./extract-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
@@ -185,6 +186,28 @@ describe('bundle contract', () => {
         + ';import"./QuerySurface-QQQQ.js";',
     );
     assert.ok(run(d3.files).failures.some((f) => f.includes('Query region must stay lazy')));
+  });
+
+  it('a missing, unreferenced, or statically imported Evidence region fails', () => {
+    const d = syntheticDist();
+    d.files.delete('assets/EvidenceSurface-VVVV.js');
+    assert.ok(run(d.files).failures.some((f) => f.includes('Evidence region')));
+
+    const d2 = syntheticDist();
+    d2.put(
+      'assets/index-AAAA.js',
+      d2.files.get('assets/index-AAAA.js').toString()
+        .replace('const evidence="assets/EvidenceSurface-VVVV.js";', ''),
+    );
+    assert.ok(run(d2.files).failures.some((f) => f.includes('lazy Evidence region edge is gone')));
+
+    const d3 = syntheticDist();
+    d3.put(
+      'assets/index-AAAA.js',
+      d3.files.get('assets/index-AAAA.js').toString()
+        + ';import"./EvidenceSurface-VVVV.js";',
+    );
+    assert.ok(run(d3.files).failures.some((f) => f.includes('Evidence region must stay lazy')));
   });
 
   it('a cache chunk without the lazy archive edge fails', () => {

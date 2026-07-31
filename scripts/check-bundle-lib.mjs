@@ -103,6 +103,7 @@ export function checkBundle(files, catalogSource) {
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
   const methodPath = unique(files, /^assets\/MethodSummary-[^/]+\.js$/, 'Method region', failures);
   const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
+  const evidenceSurfacePath = unique(files, /^assets\/EvidenceSurface-[^/]+\.js$/, 'Evidence region', failures);
   const placePaths = new Map(
     PLACE_CHUNKS.map(([place, re]) => [
       place,
@@ -129,6 +130,7 @@ export function checkBundle(files, catalogSource) {
     for (const [path, role] of [
       [methodPath, 'Method'],
       [querySurfacePath, 'Query'],
+      [evidenceSurfacePath, 'Evidence'],
     ]) {
       if (!path) continue;
       const name = path.replace('assets/', '');
