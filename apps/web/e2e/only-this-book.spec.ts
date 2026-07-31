@@ -12,22 +12,16 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await expect(rows).toHaveCount(6);
   const baselineTokens = await scope.locator('span').filter({ hasText: /^[\d,]+ tokens$/ }).first().innerText();
 
-  let targetIndex = -1;
-  for (let index = 0; index < await rows.count(); index += 1) {
-    const candidate = rows.nth(index).getByRole('rowheader').getByRole('button');
-    if (await candidate.getAttribute('aria-pressed') === 'false') {
-      targetIndex = index;
-      break;
-    }
-  }
+  const targetIndex = await rows.evaluateAll((elements) =>
+    elements.findIndex((element) => !element.hasAttribute('data-focused')));
   expect(targetIndex).toBeGreaterThanOrEqual(0);
   const secondRow = rows.nth(targetIndex);
   const titleButton = secondRow.getByRole('rowheader').getByRole('button');
-  await expect(titleButton).toHaveAttribute('aria-pressed', 'false');
+  await expect(titleButton).toHaveAttribute('aria-expanded', 'false');
   const title = await titleButton.innerText();
   const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
   await titleButton.click();
-  await expect(titleButton).toHaveAttribute('aria-pressed', 'true');
+  await expect(titleButton).toHaveAttribute('aria-expanded', 'true');
   const controlledDetail = await titleButton.getAttribute('aria-controls');
   expect(controlledDetail).not.toBeNull();
   expect(controlledDetail).not.toMatch(/\s/u);

@@ -123,10 +123,25 @@ export function CorpusInventory({
                 {scopeMessage}
               </p>
             )}
-            <div style={{ overflowX: 'auto' }}>
-              <table aria-label="Corpus documents">
-                <thead><tr><th scope="col">book</th><th scope="col">selected/full tokens</th><th scope="col">types</th><th scope="col">hapax</th><th scope="col">sentences</th><th scope="col">mean / median / p90</th><th scope="col">paragraph mean</th><th scope="col">TTR</th><th scope="col">MATTR</th><th scope="col">rhythm</th><th scope="col">scope</th></tr></thead>
-                <tbody>
+            <div className="corpus-inventory-port">
+              <table className="corpus-inventory" role="table" aria-label="Corpus documents">
+                <thead role="rowgroup">
+                  <tr role="row">
+                    <th role="columnheader" scope="col">book</th>
+                    <th role="columnheader" scope="col">readiness</th>
+                    <th role="columnheader" scope="col">selected/full tokens</th>
+                    <th role="columnheader" scope="col">types</th>
+                    <th role="columnheader" scope="col">hapax</th>
+                    <th role="columnheader" scope="col">sentences</th>
+                    <th role="columnheader" scope="col">mean / median / p90</th>
+                    <th role="columnheader" scope="col">paragraph mean</th>
+                    <th role="columnheader" scope="col">TTR</th>
+                    <th role="columnheader" scope="col">MATTR</th>
+                    <th role="columnheader" scope="col">rhythm</th>
+                    <th role="columnheader" scope="col">scope</th>
+                  </tr>
+                </thead>
+                <tbody role="rowgroup">
                   {result.documents.map((row) => {
                     const expanded = bookTarget?.doc === row.doc;
                     const detail = bookTarget !== null && bookTarget.doc === row.doc
@@ -140,33 +155,49 @@ export function CorpusInventory({
                       : null;
                     return (
                     <Fragment key={row.doc}>
-                    <tr data-focused={focusedDoc === row.doc ? true : undefined}>
-                      <th scope="row">
+                    <tr
+                      className="corpus-document-row"
+                      role="row"
+                      data-corpus-document
+                      data-focused={focusedDoc === row.doc ? true : undefined}
+                    >
+                      <th className="corpus-title" role="rowheader" aria-colindex={1} scope="row">
                         <button
                           id={bookTitleControlId(row.doc)}
                           type="button"
                           onClick={() => openBook(row.doc)}
-                          aria-pressed={focusedDoc === row.doc}
                           aria-expanded={expanded}
-                          aria-controls={bookDetailRegionId(row.doc)}
+                          aria-current={focusedDoc === row.doc ? 'true' : undefined}
+                          aria-controls={expanded ? bookDetailRegionId(row.doc) : undefined}
                           title="Focus this book and show its detail without changing analysis scope"
                         >
                           {titleByDoc.get(row.doc) ?? row.doc}
                         </button>
                       </th>
-                      <td>{number.format(row.selectedTokens)} / {number.format(row.fullTokens)}</td>
-                      <td>{number.format(row.types)}</td><td>{number.format(row.hapax)}</td><td>{number.format(row.sentences)}</td>
-                      <td>{value(row.sentenceMean)} / {value(row.sentenceMedian)} / {value(row.sentenceP90)}</td>
-                      <td>{value(row.paragraphMean)}</td><td title="Descriptive and length-dependent">{value(row.ttr)}</td>
-                      <td>{value(row.mattr)}{row.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}</td>
-                      <td><RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} /></td>
-                      <td>
+                      <td className="corpus-readiness" role="cell" aria-colindex={2}>
+                        {readyDocs.includes(row.doc) ? 'ready' : 'unavailable'}
+                      </td>
+                      <td className="corpus-tokens" role="cell" aria-colindex={3}>
+                        <span className="corpus-selected-tokens">{number.format(row.selectedTokens)}</span>
+                        <span className="corpus-token-separator"> / </span>
+                        <span>{number.format(row.fullTokens)}</span>
+                        <span className="corpus-compact-token-label"> tokens</span>
+                      </td>
+                      <td role="cell" aria-colindex={4} data-detail-only>{number.format(row.types)}</td>
+                      <td role="cell" aria-colindex={5} data-detail-only>{number.format(row.hapax)}</td>
+                      <td role="cell" aria-colindex={6} data-detail-only>{number.format(row.sentences)}</td>
+                      <td role="cell" aria-colindex={7} data-detail-only>{value(row.sentenceMean)} / {value(row.sentenceMedian)} / {value(row.sentenceP90)}</td>
+                      <td role="cell" aria-colindex={8} data-detail-only>{value(row.paragraphMean)}</td>
+                      <td role="cell" aria-colindex={9} data-detail-only title="Descriptive and length-dependent">{value(row.ttr)}</td>
+                      <td role="cell" aria-colindex={10} data-detail-only>{value(row.mattr)}{row.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}</td>
+                      <td className="corpus-rhythm" role="cell" aria-colindex={11}><RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} /></td>
+                      <td className="corpus-scope" role="cell" aria-colindex={12}>
                         <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />
                       </td>
                     </tr>
                     {detail && (
-                      <tr data-book-detail>
-                        <td colSpan={11}>
+                      <tr role="row" data-book-detail>
+                        <td role="cell" colSpan={12}>
                           <BookDetail
                             view={detail}
                             growth={result.growth}

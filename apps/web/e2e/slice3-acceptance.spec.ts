@@ -70,7 +70,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await expect(page.getByRole('img', { name: /Vocabulary growth to/ })).toBeVisible();
 
   const betaRow = documents.getByRole('row', { name: /beta/ });
-  const baselineTokens = await betaRow.locator('td').first().innerText();
+  const baselineTokens = await betaRow.locator('.corpus-selected-tokens').innerText();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Focused-book section profile' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toHaveCount(0);
@@ -114,7 +114,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   expect(selectionEvents.some((event) => event.op === 'tfidf-sections')).toBe(false);
   await gotoPlace(page, 'corpus');
   await expect(page.getByText(/Showing the linked selected range/)).toBeVisible();
-  await expect(betaRow.locator('td').first()).not.toHaveText(baselineTokens);
+  await expect(betaRow.locator('.corpus-selected-tokens')).not.toHaveText(baselineTokens);
   await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
 
@@ -123,6 +123,6 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['inventory', 'freq-list']);
   await gotoPlace(page, 'corpus');
-  await expect(betaRow.locator('td').first()).toHaveText(baselineTokens);
+  await expect(betaRow.locator('.corpus-selected-tokens')).toHaveText(baselineTokens);
   await expect(page.getByText(/Showing the linked selected range/)).toHaveCount(0);
 });
