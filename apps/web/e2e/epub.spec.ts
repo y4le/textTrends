@@ -108,10 +108,12 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   // source bytes (a text rescan cannot rebuild epub structure).
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await gotoPlace(page, 'findings');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByText('rev 1 · saved')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Findings', exact: true })
+    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   await clearArtifactStores(page);
   await page.reload();
@@ -148,10 +150,12 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
 
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
+  await gotoPlace(page, 'findings');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByText('rev 1 · saved')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Findings', exact: true })
+    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   // Clear ONLY the extraction/structure/shard artifacts, KEEPING the stored text.
   // A source recipe cannot rebuild its spine candidates from the joined text, so

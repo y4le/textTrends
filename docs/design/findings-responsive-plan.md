@@ -1,6 +1,6 @@
 # Findings responsive implementation plan
 
-Status: implementation decision, 2026-07-30
+Status: implemented and accepted on `master`, 2026-07-30
 
 Architecture consultation: Claude Opus through Parley, artifact
 `art_sha256_0c48ef8b891cd8ce58bd37181c01c4b65ae1c58cb3d63290c6c35da2c58403af`

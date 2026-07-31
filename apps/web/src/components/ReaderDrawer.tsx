@@ -151,6 +151,7 @@ export function ReaderDrawer({
   const styleSlots = useApp((state) => state.styleSlots);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
+  const setPlace = useApp((state) => state.setPlace);
   const setReaderMode = useApp((state) => state.setReaderMode);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
@@ -245,6 +246,15 @@ export function ReaderDrawer({
             label={`Pin reader passage at token ${(place.cursor.token + 1).toLocaleString()}`}
             onPin={pinAtReaderCursor}
           />
+          {!capacity.enabled && (
+            <button
+              type="button"
+              onClick={() => setPlace('findings')}
+              style={SMALL_BUTTON_STYLE}
+            >
+              manage pins
+            </button>
+          )}
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
             {composition.slot === 'viewport' ? 'back' : 'close'}
           </button>

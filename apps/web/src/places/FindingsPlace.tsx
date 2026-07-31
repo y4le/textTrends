@@ -1,11 +1,5 @@
-import { PinnedPane } from '../components/PinnedPane.tsx';
-import { ResearchPanel } from '../components/ResearchPanel.tsx';
+import { FindingsLog } from '../components/findings/FindingsLog.tsx';
 
 export function FindingsPlace() {
-  return (
-    <>
-      <ResearchPanel />
-      <PinnedPane />
-    </>
-  );
+  return <FindingsLog />;
 }

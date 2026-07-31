@@ -3,9 +3,9 @@
 *Final product-design authority for organizing the textTrends corpus,
 analysis, evidence, catalog, and research-state surfaces. Developed from the
 owner-approved workbench direction and two Claude Opus consultations through
-Parley. Implementation is pending.*
+Parley. The staged implementation and cross-device acceptance are complete.*
 
-**STATUS: ADOPTED DESIGN (2026-07-30).**
+**STATUS: IMPLEMENTED (2026-07-30).**
 
 ## Authority and scope
 
@@ -1021,8 +1021,10 @@ Every viewport asserts:
 
 ## Migration plan
 
-Every stage ships independently and preserves the current evidence and query
-contracts.
+Stages 0–6 are complete on `master`. Each stage shipped independently and
+preserved the evidence and query contracts. Place-specific decision records
+in `docs/design/` contain the narrower implementation rulings and review
+artifacts.
 
 ### Stage 0 — semantic context before layout
 
@@ -1105,6 +1107,11 @@ contracts.
   canonical place and cross-device journey.
 
 ## Completion criteria
+
+The browser acceptance binds these criteria in Chromium and compact WebKit,
+including direct place routing, responsive transforms, focus return,
+virtual-keyboard and zoom geometry, source repair, sharing/conflicts, and
+query-silent presentation changes.
 
 The workbench redesign is complete only when:
 

@@ -359,7 +359,11 @@ test('exact barcode, passage, and pin evidence all open the reader', async ({ pa
   await scrubber.focus();
   await scrubber.press('p');
   await gotoPlace(page, 'findings');
-  const pinOpen = page.getByRole('button', { name: /Open pinned evidence at token 1 in reader/ });
+  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  await pinnedEvidence.locator('.findings-record-trigger').click();
+  const pinOpen = pinnedEvidence.getByRole('button', {
+    name: /Open pinned evidence at token 1 in reader/,
+  });
   await expect(pinOpen).toBeVisible();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await pinOpen.click();

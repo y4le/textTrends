@@ -80,8 +80,12 @@ describe('Findings view contracts', () => {
       id: 'r',
       controlId: 'findings-range-sr',
       name: 'Opening',
+      documentId: 'a',
       document: 'A Study in Scarlet',
+      charStart: 0,
+      charEnd: 12,
       charSpan: '1–12',
+      textHash: 'sha256:text',
       check: {
         status: 'ok',
         doc: 'a',

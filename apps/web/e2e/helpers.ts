@@ -45,7 +45,7 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
       .getByRole('link', { name: PLACE_HEADING[place], exact: true })
       .click();
   }
-  await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|$)`));
+  await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
 }
 
 /** Wait for the header to report `n/n books ready` (a user project's count). */

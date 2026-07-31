@@ -15,8 +15,9 @@ import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { SOURCE_FILE_ACCEPT } from '../lib/project.ts';
+import { projectSaveView } from '../lib/project-save-view.ts';
 import { CatalogPanel } from './CatalogPanel.tsx';
-import type { SourceStatus, UserSaveState } from '../lib/project-session.ts';
+import type { SourceStatus } from '../lib/project-session.ts';
 
 function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
@@ -38,22 +39,6 @@ function sourceLabel(status: SourceStatus | undefined): string {
   }
 }
 
-function saveLabel(save: UserSaveState, dirty: boolean, baseRevision: number | null): string {
-  switch (save.phase) {
-    case 'saving': return `saving → rev ${save.targetRevision}…`;
-    case 'conflict': return `conflict: the saved project moved to rev ${save.currentRevision}`;
-    case 'error': return `save failed (${save.code}): ${save.message}`;
-    case 'reconcile-required': return 'reconciling after a worker restart…';
-    case 'idle':
-    default:
-      // baseRevision 0 (and the dead built-in null) is a never-saved working
-      // copy; a positive revision is a durable CAS record.
-      return !baseRevision
-        ? 'unsaved import'
-        : `rev ${baseRevision}${dirty ? ' · unsaved changes' : ' · saved'}`;
-  }
-}
-
 export function ProjectPanel({
   headingAs: Heading = 'h2',
 }: {
@@ -68,14 +53,15 @@ export function ProjectPanel({
   const importFiles = useApp((s) => s.importFiles);
   const doReattach = useApp((s) => s.reattach);
   const setPersistIntent = useApp((s) => s.setPersistIntent);
-  const saveProject = useApp((s) => s.saveProject);
   const loadSavedProject = useApp((s) => s.loadSavedProject);
+  const setPlace = useApp((s) => s.setPlace);
   const clearCommandError = useApp((s) => s.clearCommandError);
 
   const importRef = useRef<HTMLInputElement>(null);
 
   if (!project) return null; // bootstrap not yet attached
   const isBuiltin = project.kind === 'builtin';
+  const saveView = projectSaveView(project);
   const importLabel = isBuiltin ? 'Create project from files' : 'Add files';
 
   const onImport = (fileList: FileList | null) => {
@@ -105,11 +91,6 @@ export function ProjectPanel({
         <Heading id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
           {isBuiltin ? 'built-in corpus (read-only)' : 'your project'}
         </Heading>
-        {!isBuiltin && (
-          <span role="status" style={{ color: 'var(--fg-muted)' }}>
-            {saveLabel(project.save, project.dirty, project.baseRevision)}
-          </span>
-        )}
         <span style={{ flex: 1 }} />
         <label style={{ cursor: 'pointer' }}>
           {importLabel}
@@ -130,16 +111,22 @@ export function ProjectPanel({
         >
           Load saved project
         </button>
-        <button
-          type="button"
-          onClick={() => saveProject()}
-          disabled={!project.saveable}
-          aria-disabled={!project.saveable}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: project.saveable ? 1 : 0.5, cursor: project.saveable ? 'pointer' : 'default' }}
-        >
-          Save project
-        </button>
       </div>
+      {saveView.showCorpusPointer && (
+        <p
+          role={saveView.attention ? 'alert' : 'status'}
+          style={{ margin: 'var(--space-1) 0 0', color: saveView.attention ? 'var(--accent-text)' : 'var(--fg-muted)' }}
+        >
+          {saveView.label}{' '}
+          <button
+            type="button"
+            onClick={() => setPlace('findings')}
+            style={SMALL_BUTTON_STYLE}
+          >
+            Save and status in Findings
+          </button>
+        </p>
+      )}
 
       {commandError && (
         <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>

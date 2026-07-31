@@ -9,8 +9,10 @@ import {
   awaitAllReady,
   awaitReadyCount,
   gotoPlace,
+  SHERLOCK,
   submitAndAwaitFreshResults,
   trace,
+  USER_DATA_DB,
 } from './helpers.ts';
 import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
 
@@ -44,6 +46,63 @@ async function importCorpus(
     }, { timeout: 30_000 })
     .toBe(true);
   await awaitReadyCount(page, expectedReady);
+}
+
+async function quarantineFirstDurablePin(page: Page): Promise<void> {
+  await page.evaluate(async ({ dbName, project }) => {
+    interface StoredPin {
+      readonly id: string;
+      readonly note: string;
+      readonly anchor: {
+        readonly doc: string;
+        readonly text: string;
+        readonly chars: { readonly start: number; readonly end: number };
+      };
+      readonly captured: readonly unknown[];
+    }
+    interface StoredResearch {
+      readonly pins: readonly StoredPin[];
+      readonly [key: string]: unknown;
+    }
+    const db = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(dbName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const tx = db.transaction('research', 'readwrite');
+      const store = tx.objectStore('research');
+      await new Promise<void>((resolve, reject) => {
+        const request = store.get(project);
+        request.onsuccess = () => {
+          const research = request.result as StoredResearch | undefined;
+          const pin = research?.pins[0];
+          if (!research || !pin) {
+            tx.abort();
+            reject(new Error('a durable pin was not saved before quarantine'));
+            return;
+          }
+          const replacement = pin.anchor.text === '0'.repeat(64)
+            ? '1'.repeat(64)
+            : '0'.repeat(64);
+          store.put({
+            ...research,
+            pins: [{
+              ...pin,
+              note: 'Marginal note, not a document title',
+              anchor: { ...pin.anchor, text: replacement },
+            }, ...research.pins.slice(1)],
+          });
+        };
+        request.onerror = () => reject(request.error);
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => reject(tx.error);
+        tx.onabort = () => reject(tx.error ?? new Error('research mutation aborted'));
+      });
+    } finally {
+      db.close();
+    }
+  }, { dbName: USER_DATA_DB, project: 'builtin/sherlock' });
 }
 
 async function installPassageResultGate(worker: Worker): Promise<void> {
@@ -168,10 +227,12 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
 
   // Remove A while its completed worker result is still withheld. Releasing
   // that result cannot resurrect the card; B independently becomes ready.
+  await pane.locator('.findings-record-trigger').first().click();
   await pane.locator('article').first().getByRole('button', { name: 'remove' }).click();
   await expect(pane.locator('article')).toHaveCount(1);
   await gateRelease(worker);
   await expect.poll(() => gateHeld(worker)).toBe(0);
+  await pane.locator('.findings-record-trigger').click();
   await expect(pane.getByRole('button', { name: /Open pinned evidence/ })).toBeVisible();
   await expect(pane.locator('article')).toHaveCount(1);
 
@@ -291,4 +352,48 @@ test('at capacity Pin stays reachable and announces the refusal', async ({ page 
     'Pinned evidence is limited to 8 — remove one first.',
   );
   await expect(reader.getByRole('button', { name: 'dismiss', exact: true })).toBeVisible();
+  await reader.getByRole('button', { name: 'manage pins', exact: true }).click();
+  await expect(reader).toHaveCount(0);
+  await expect(page).toHaveURL(/[?&]p=findings(?:&|$)/);
+  await expect(page.getByRole('region', { name: 'Pinned evidence' }))
+    .toContainText('8 of 8 pinned');
+});
+
+test('a quarantined anchor keeps note and document facts distinct and routes repair', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  await scrubber.press('p');
+  await gotoPlace(page, 'findings');
+  await expect(page.getByText('research changes waiting to save')).toBeVisible();
+  await expect(page.getByText('research state saved locally')).toBeVisible({
+    timeout: 30_000,
+  });
+
+  await quarantineFirstDurablePin(page);
+  await page.reload();
+  await awaitAllReady(page);
+
+  const anchors = page.getByRole('region', { name: 'Anchors needing review' });
+  const row = anchors.locator('.findings-record-trigger');
+  await expect(row).toContainText('Marginal note, not a document title');
+  await expect(row).toContainText(SHERLOCK[0]!.doc);
+  await row.click();
+  const detail = page.getByRole('region', {
+    name: `Anchor needing review: ${SHERLOCK[0]!.doc}`,
+  });
+  await expect(detail.locator('dl > div').first().locator('dt')).toHaveText('document');
+  await expect(detail.locator('dl > div').first().locator('dd')).toHaveText(SHERLOCK[0]!.doc);
+  await expect(detail.locator('dl > div').first().locator('dd'))
+    .not.toHaveText('Marginal note, not a document title');
+
+  await detail.getByRole('button', { name: 'repair sources in Corpus' }).click();
+  await expect(page).toHaveURL(/[?&]p=corpus(?:&|$)/);
+  await page.goBack();
+  await expect(detail).toBeVisible();
+  await detail.getByRole('button', { name: 'remove record' }).click();
+  await expect(anchors).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Pinned evidence' })).toBeFocused();
 });

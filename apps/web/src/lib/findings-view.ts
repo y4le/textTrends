@@ -115,8 +115,12 @@ export interface SavedRangeRowView {
   readonly id: string;
   readonly controlId: string;
   readonly name: string;
+  readonly documentId: string;
   readonly document: string;
+  readonly charStart: number;
+  readonly charEnd: number;
   readonly charSpan: string;
+  readonly textHash: string;
   readonly check: SelectionCheck | null;
 }
 
@@ -129,8 +133,12 @@ export function savedRangeRows(
     id: selection.id,
     controlId: findingsRowControlId('range', selection.id),
     name: selection.name,
+    documentId: selection.anchor.doc,
     document: documentTitles.get(selection.anchor.doc) ?? selection.anchor.doc,
+    charStart: selection.anchor.chars.start,
+    charEnd: selection.anchor.chars.end,
     charSpan: `${selection.anchor.chars.start + 1}–${selection.anchor.chars.end}`,
+    textHash: selection.anchor.text,
     check: checks.get(selection.id) ?? null,
   }));
 }

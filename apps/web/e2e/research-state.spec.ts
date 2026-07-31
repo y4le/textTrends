@@ -3,9 +3,8 @@ import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 async function openResearch(page: Page): Promise<void> {
   await gotoPlace(page, 'findings');
-  const summary = page.locator('summary').filter({ hasText: 'Research state & sharing' });
-  const details = summary.locator('xpath=..');
-  if ((await details.getAttribute('open')) === null) await summary.click();
+  await expect(page.getByRole('heading', { name: 'Research and project record' }))
+    .toBeVisible();
 }
 
 async function addTerm(page: Page, term: string): Promise<void> {
@@ -47,9 +46,9 @@ test('research state survives reload and a source-free link previews before repl
   await scrubber.press('Enter');
   await expect(page.getByText(/Selected 3 tokens in/)).toBeVisible();
   await openResearch(page);
-  await page.getByLabel('Saved selection name').fill('Opening');
-  await page.getByRole('button', { name: 'save selection' }).click();
-  await expect(page.getByRole('list', { name: 'Saved selections' }).getByText('Opening')).toBeVisible();
+  await page.getByLabel('Saved range name').fill('Opening');
+  await page.getByRole('button', { name: 'save range' }).click();
+  await expect(page.getByRole('list', { name: 'Saved ranges' }).getByText('Opening')).toBeVisible();
   await gotoPlace(page, 'trends');
   const liveScrubber = page.getByRole('slider', { name: /reading position/i });
   await liveScrubber.press('p');
@@ -65,7 +64,7 @@ test('research state survives reload and a source-free link previews before repl
   await page.reload();
   await awaitAllReady(page);
   await openResearch(page);
-  await expect(page.getByRole('list', { name: 'Saved selections' }).getByText('Opening')).toBeVisible({
+  await expect(page.getByRole('list', { name: 'Saved ranges' }).getByText('Opening')).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByRole('region', { name: 'Pinned evidence' })).toBeVisible({
@@ -80,10 +79,25 @@ test('research state survives reload and a source-free link previews before repl
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Remove Watson' }).click();
   await expect(page.getByLabel('Group name: Watson')).toHaveCount(0);
+  await awaitResearchSaved(page);
+
+  // A source-free URL boots into Findings and only prefills review. It does
+  // not import or open Evidence until the user explicitly reviews/replaces.
+  await page.goto(share);
+  await awaitAllReady(page);
+  await expect(page).toHaveURL(/[?&]p=findings[^#]*#s=/);
+  await expect(page.getByRole('region', { name: 'Findings', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Evidence' })).toHaveCount(0);
+  await gotoPlace(page, 'trends');
+  await expect(page.getByLabel('Group name: Watson')).toHaveCount(0);
   await openResearch(page);
-  await page.getByLabel('Share link to import').fill(share);
-  await page.getByRole('button', { name: 'preview shared state' }).click();
-  await expect(page.getByText(/3 notebook groups/)).toBeVisible();
+  await expect(page.getByLabel('Share link to import')).toHaveValue(share);
+  await page.getByRole('button', { name: 'review shared state' }).click();
+  const review = page.getByRole('form', { name: 'Review shared state' });
+  await expect(review.getByText('3', { exact: true }).first()).toBeVisible();
+  await expect(review).toContainText('notebook groups');
+  await expect(review).toContainText('referenced documents');
+  await expect(review).toContainText('Replacing keeps your pinned evidence');
   await page.getByRole('button', { name: 'replace with this shared state' }).click();
   await gotoPlace(page, 'trends');
   await expect(page.getByLabel('Group name: Watson')).toBeVisible();

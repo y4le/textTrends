@@ -135,7 +135,9 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await scrubber.focus();
   await scrubber.press('p');
   await gotoPlace(page, 'findings');
-  const pinOpen = page.getByRole('button', {
+  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  await pinnedEvidence.locator('.findings-record-trigger').click();
+  const pinOpen = pinnedEvidence.getByRole('button', {
     name: /Open pinned evidence at token 421 in reader/,
   });
   await expect(pinOpen).toBeVisible();
