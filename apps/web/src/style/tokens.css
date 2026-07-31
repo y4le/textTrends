@@ -45,6 +45,7 @@
   /* Workbench chrome metrics — shared by layout, safe-area reservation, and
    * the governed evidence detents introduced in Stage 2. */
   --lens-block-size: 4.5rem;
+  --organs-block-size: 3.5rem;
   --evidence-line-block-size: 9.5rem;
   --evidence-peek: 28dvh;
   --evidence-half: 58dvh;
@@ -180,6 +181,127 @@ canvas {
 
 .evidence-region {
   grid-area: evidence;
+}
+
+.reader-region {
+  grid-area: reader;
+  display: grid;
+  min-width: 0;
+  grid-template-areas:
+    'reader-header'
+    'reader-feedback'
+    'reader-prose'
+    'reader-pages';
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+  color: var(--fg);
+}
+
+.reader-region[data-slot='viewport'] {
+  position: fixed;
+  z-index: 70;
+  inset: 0;
+  inline-size: 100%;
+  max-inline-size: none;
+  block-size: 100vh;
+  block-size: 100dvh;
+  padding:
+    calc(var(--space-3) + env(safe-area-inset-top, 0px))
+    calc(var(--space-3) + env(safe-area-inset-right, 0px))
+    0
+    calc(var(--space-3) + env(safe-area-inset-left, 0px));
+  border: 0;
+}
+
+.reader-header {
+  grid-area: reader-header;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block-end: var(--space-2);
+  border-bottom: 1px solid var(--rule-strong);
+}
+
+.reader-pin-feedback {
+  grid-area: reader-feedback;
+}
+
+.reader-pin-feedback p {
+  margin: var(--space-1) 0 0;
+  color: var(--accent-text);
+  font-size: var(--text-sm);
+}
+
+.reader-position {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-header-actions,
+.reader-mode-controls,
+.reader-highlights,
+.reader-pages {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.reader-header-actions {
+  justify-content: flex-end;
+}
+
+.reader-mode-controls {
+  gap: var(--space-1);
+}
+
+.reader-mode-controls button {
+  border: 1px solid var(--rule-strong);
+  color: var(--fg);
+  background: none;
+  cursor: pointer;
+}
+
+.reader-mode-controls button[aria-pressed='true'] {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--bg);
+}
+
+.reader-prose-scroll {
+  grid-area: reader-prose;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-block: var(--space-2);
+}
+
+.reader-highlights {
+  margin-block-end: var(--space-2);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-pages {
+  grid-area: reader-pages;
+  justify-content: space-between;
+  padding-block-start: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+
+.reader-region[data-slot='viewport'] .reader-pages {
+  padding-block-end:
+    calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
+}
+
+.reader-region button {
+  min-block-size: 44px;
 }
 
 .query-region,
@@ -748,6 +870,27 @@ canvas {
   .evidence-region {
     border-top: 1px solid var(--rule);
   }
+
+  .workbench[data-reader='study'] {
+    grid-template-areas:
+      'queries reader'
+      'evidence evidence';
+  }
+
+  .workbench[data-reader='full'] {
+    grid-template-areas: 'queries reader';
+  }
+
+  .reader-region {
+    position: sticky;
+    inset-block-start: var(--organs-block-size);
+    align-self: start;
+    block-size:
+      calc(100vh - var(--organs-block-size) - var(--space-4));
+    block-size:
+      calc(100dvh - var(--organs-block-size) - var(--space-4));
+    padding: var(--space-3);
+  }
 }
 
 @media (min-width: 1024px) {
@@ -767,6 +910,21 @@ canvas {
 
   .evidence-recent {
     display: block;
+  }
+
+  .workbench[data-reader='peek'] {
+    grid-template-areas: 'queries place reader';
+  }
+
+  .workbench[data-reader='study'] {
+    grid-template-areas: 'queries reader evidence';
+  }
+
+  .workbench[data-reader='full'] {
+    grid-template-columns:
+      minmax(17rem, 20rem)
+      minmax(0, 1fr);
+    grid-template-areas: 'queries reader';
   }
 }
 
@@ -822,6 +980,10 @@ canvas {
 }
 
 @media (pointer: coarse) {
+  .reader-region button {
+    min-inline-size: 44px;
+  }
+
   .coarse-target,
   .quick-add-input {
     min-inline-size: 44px;

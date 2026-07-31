@@ -1,3 +1,5 @@
+import type { ReaderMode } from './reader-presentation.ts';
+
 export const LAYER_KINDS = [
   'place',
   'row-detail',
@@ -11,6 +13,7 @@ export type SheetDetent = 'peek' | 'half' | 'tall';
 
 export interface LayerUI {
   readonly detent?: SheetDetent;
+  readonly reader?: ReaderMode;
   readonly scrollKey?: string;
 }
 

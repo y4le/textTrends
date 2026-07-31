@@ -242,11 +242,16 @@ test('repeated chart activation reads without creating durable evidence', async 
   await expect(pin).toBeVisible();
   await pin.click();
   await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Open passage in reader' }).click();
   const reader = page.getByRole('dialog', { name: /Reader:/ });
   const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
   await expect(readerPin).toBeVisible();
   await readerPin.click();
+  await expect(reader.getByRole('status')).toContainText(
+    'That position is already pinned; focused the existing evidence.',
+  );
+  await reader.getByRole('button', { name: 'back', exact: true }).click();
   await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
 });
 
@@ -274,6 +279,7 @@ test('at capacity Pin stays reachable and announces the refusal', async ({ page 
   );
   await expect(scope.getByText('8 of 8 pinned', { exact: true })).toBeVisible();
 
+  await page.setViewportSize({ width: 390, height: 844 });
   await page.getByRole('button', { name: 'Open passage in reader' }).click();
   const reader = page.getByRole('dialog', { name: /Reader:/ });
   const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
@@ -281,7 +287,8 @@ test('at capacity Pin stays reachable and announces the refusal', async ({ page 
   await readerPin.focus();
   await expect(readerPin).toBeFocused();
   await readerPin.press('Enter');
-  await expect(page.getByRole('alert')).toContainText(
+  await expect(reader.getByRole('alert')).toContainText(
     'Pinned evidence is limited to 8 — remove one first.',
   );
+  await expect(reader.getByRole('button', { name: 'dismiss', exact: true })).toBeVisible();
 });

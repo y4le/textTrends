@@ -3,7 +3,7 @@
  * from authenticated worker text; source HTML is never interpreted.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
@@ -12,6 +12,10 @@ import { pinCapacity } from '../lib/pin-capacity.ts';
 import { segmentPassageMarks, type PassageSegment } from '../lib/passage-marks.ts';
 import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
+import {
+  READER_MODES,
+  type ReaderComposition,
+} from '../lib/reader-presentation.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
 import { PinButton } from './PinButton.tsx';
@@ -135,7 +139,11 @@ function ReaderProse({
   );
 }
 
-export function ReaderDrawer() {
+export function ReaderDrawer({
+  composition,
+}: {
+  readonly composition: ReaderComposition;
+}) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
@@ -143,17 +151,30 @@ export function ReaderDrawer() {
   const styleSlots = useApp((state) => state.styleSlots);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
+  const setReaderMode = useApp((state) => state.setReaderMode);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
   const pinPassage = useApp((state) => state.pinPassage);
+  const pinError = useApp((state) => state.pinError);
+  const pinAnnouncement = useApp((state) => state.pinAnnouncement);
+  const clearPinError = useApp((state) => state.clearPinError);
   const pinsUsed = useApp((state) => state.pins.length);
   const drawerRef = useRef<HTMLElement | null>(null);
+  const [ownsPinFeedback, setOwnsPinFeedback] = useState(false);
 
   useEffect(() => {
     drawerRef.current?.focus({ preventScroll: true });
   }, []);
 
+  useEffect(() => {
+    setOwnsPinFeedback(false);
+  }, [place?.snapshot, place?.doc, place?.cursor.token]);
+
   if (!place) return null;
+  const pinAtReaderCursor = () => {
+    pinPassage(place.doc, place.cursor.token);
+    setOwnsPinFeedback(true);
+  };
   const current = result && sameReaderPlace(result.place, place) ? result : null;
   const title =
     project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
@@ -177,6 +198,11 @@ export function ReaderDrawer() {
   return (
     <aside
       ref={drawerRef}
+      id="reader-region"
+      className="reader-region"
+      data-mode={composition.mode}
+      data-requested={composition.requested}
+      data-slot={composition.slot}
       role="dialog"
       aria-modal="false"
       aria-label={`Reader: ${title}`}
@@ -187,113 +213,120 @@ export function ReaderDrawer() {
           closeReader();
         }
       }}
-      style={{
-        position: 'fixed',
-        inset: '0 0 0 auto',
-        zIndex: 20,
-        width: 'min(48rem, 94vw)',
-        height: '100dvh',
-        overflow: 'auto',
-        background: 'var(--bg)',
-        color: 'var(--fg)',
-        borderLeft: '1px solid var(--rule-strong)',
-        boxShadow: '-12px 0 36px color-mix(in srgb, var(--fg) 16%, transparent)',
-        padding: 'var(--space-4)',
-      }}
     >
-      <header
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'flex-start',
-          gap: 'var(--space-3)',
-          borderBottom: '1px solid var(--rule-strong)',
-          paddingBottom: 'var(--space-2)',
-        }}
-      >
+      <header className="reader-header">
         <div>
           <h2 style={{ margin: 0, fontSize: 'var(--text-lg)' }}>{title}</h2>
-          <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)' }}>
+          <p className="reader-position">
             {ready ? readerRangeLabel(ready) : 'loading canonical page…'}
           </p>
         </div>
-        <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+        <div className="reader-header-actions">
+          {composition.modeControls && (
+            <div
+              className="reader-mode-controls"
+              role="group"
+              aria-label="Reader width"
+            >
+              {READER_MODES.map((mode) => (
+                <button
+                  key={mode}
+                  type="button"
+                  aria-pressed={composition.requested === mode}
+                  onClick={() => setReaderMode(mode)}
+                >
+                  {mode}
+                </button>
+              ))}
+            </div>
+          )}
           <PinButton
             capacity={capacity}
             label={`Pin reader passage at token ${(place.cursor.token + 1).toLocaleString()}`}
-            onPin={() => pinPassage(place.doc, place.cursor.token)}
+            onPin={pinAtReaderCursor}
           />
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
-            close
+            {composition.slot === 'viewport' ? 'back' : 'close'}
           </button>
         </div>
       </header>
 
-      <div
-        aria-label="Reader query highlights"
-        style={{
-          display: 'flex',
-          gap: 'var(--space-2)',
-          flexWrap: 'wrap',
-          margin: 'var(--space-2) 0',
-          color: 'var(--fg-muted)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs)',
-        }}
-      >
-        <span>highlights</span>
-        {legend.length === 0 && <span>none</span>}
-        {legend.map((entry) => (
-          <span key={entry.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
-            <SeriesLineSample slot={entry.styleSlot} emphasized />
-            {entry.label}{entry.stale ? ' (query changed)' : ''}
-          </span>
-        ))}
-      </div>
-
-      <div aria-live="polite" aria-busy={current?.state.status === 'pending' || undefined}>
-        {!current || current.state.status === 'pending' ? (
-          <div aria-label="Loading reader page" style={{ minHeight: '12em', opacity: 0.45 }}>
-            {Array.from({ length: 7 }, (_, index) => (
-              <div
-                key={index}
-                style={{
-                  height: '1em',
-                  margin: '0.65em 0',
-                  width: `${92 - (index % 3) * 8}%`,
-                  background: 'var(--rule)',
-                }}
-              />
-            ))}
-          </div>
-        ) : current.state.status === 'error' ? (
-          <p role="alert" style={{ color: 'var(--accent-text)' }}>
-            reader failed: {current.state.message}{' '}
-            <button type="button" onClick={retryReader} style={SMALL_BUTTON_STYLE}>retry</button>
+      <div className="reader-pin-feedback">
+        {composition.slot === 'viewport' && ownsPinFeedback && pinError && (
+          <p role="alert">
+            {pinError}{' '}
+            <button
+              type="button"
+              onClick={() => {
+                clearPinError();
+                setOwnsPinFeedback(false);
+              }}
+              style={SMALL_BUTTON_STYLE}
+            >
+              dismiss
+            </button>
           </p>
-        ) : (
-          <>
-            <ReaderProse page={current.state.page} snapshot={current.snapshot} legend={legend} />
-            {(current.state.page.marksTruncated || current.state.page.cappedBy === 'text') && (
-              <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
-                {current.state.page.marksTruncated ? 'Highlight cap reached on this page. ' : ''}
-                {current.state.page.cappedBy === 'text' ? 'Page shortened by the text-size cap.' : ''}
-              </p>
-            )}
-          </>
+        )}
+        {composition.slot === 'viewport'
+          && ownsPinFeedback
+          && !pinError
+          && pinAnnouncement && (
+            <p role="status" aria-live="polite" aria-atomic="true">
+              {pinAnnouncement}
+            </p>
         )}
       </div>
 
+      <div className="reader-prose-scroll">
+        <div className="reader-highlights" aria-label="Reader query highlights">
+          <span>highlights</span>
+          {legend.length === 0 && <span>none</span>}
+          {legend.map((entry) => (
+            <span key={entry.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
+              <SeriesLineSample slot={entry.styleSlot} emphasized />
+              {entry.label}{entry.stale ? ' (query changed)' : ''}
+            </span>
+          ))}
+        </div>
+
+        <div aria-live="polite" aria-busy={current?.state.status === 'pending' || undefined}>
+          {!current || current.state.status === 'pending' ? (
+            <div aria-label="Loading reader page" style={{ minHeight: '12em', opacity: 0.45 }}>
+              {Array.from({ length: 7 }, (_, index) => (
+                <div
+                  key={index}
+                  style={{
+                    height: '1em',
+                    margin: '0.65em 0',
+                    width: `${92 - (index % 3) * 8}%`,
+                    background: 'var(--rule)',
+                  }}
+                />
+              ))}
+            </div>
+          ) : current.state.status === 'error' ? (
+            <p role="alert" style={{ color: 'var(--accent-text)' }}>
+              reader failed: {current.state.message}{' '}
+              <button type="button" onClick={retryReader} style={SMALL_BUTTON_STYLE}>retry</button>
+            </p>
+          ) : (
+            <>
+              <ReaderProse page={current.state.page} snapshot={current.snapshot} legend={legend} />
+              {(current.state.page.marksTruncated || current.state.page.cappedBy === 'text') && (
+                <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
+                  {current.state.page.marksTruncated ? 'Highlight cap reached on this page. ' : ''}
+                  {current.state.page.cappedBy === 'text' ? 'Page shortened by the text-size cap.' : ''}
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      </div>
+
       <nav
+        className="reader-pages"
+        data-dock={composition.dockPages || undefined}
         aria-label="Reader pages"
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          gap: 'var(--space-2)',
-          marginTop: 'var(--space-3)',
-          borderTop: '1px solid var(--rule)',
-          paddingTop: 'var(--space-2)',
-        }}
       >
         <button
           type="button"

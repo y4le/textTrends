@@ -1,9 +1,14 @@
-import { lazy, Suspense, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, type ReactNode } from 'react';
 import { useApp } from './lib/store-instance.ts';
 import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { LensOrgan } from './components/LensOrgan.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
+import {
+  readerComposition,
+  readerMode,
+} from './lib/reader-presentation.ts';
+import { usePresentation } from './components/PresentationProvider.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -90,117 +95,152 @@ export function App() {
   const notebookError = useApp((s) => s.notebookError);
   const clearNotebookError = useApp((s) => s.clearNotebookError);
   const readerPlace = useApp((s) => s.readerPlace);
+  const requestedReaderMode = useApp((s) => s.layers.at(-1)?.ui?.reader);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
+  const presentation = usePresentation();
+  const reader = readerComposition(
+    presentation.width,
+    readerPlace !== null,
+    readerMode(requestedReaderMode),
+  );
+  const showWorkbenchChrome = reader.slot !== 'viewport';
+
+  useEffect(() => {
+    if (!reader.open) return undefined;
+    const frame = requestAnimationFrame(() => {
+      if (document.activeElement === document.body || document.activeElement === null) {
+        document.getElementById('reader-region')?.focus({ preventScroll: true });
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [presentation.width, reader.mode, reader.open]);
 
   return (
     <main className="app-shell">
-      <header className="app-header" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
-        <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
-      </header>
-      <div className="workbench-organs">
-        <ScopeBar />
-        <LensOrgan />
-      </div>
-      <ResumeStatus />
-      {pinError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {pinError}{' '}
-          <button
-            type="button"
-            onClick={clearPinError}
-            style={{
-              font: 'inherit',
-              color: 'inherit',
-              background: 'none',
-              border: '1px solid var(--rule-strong)',
-              cursor: 'pointer',
-              padding: '0 0.5ch',
-            }}
-          >
-            dismiss
-          </button>
-        </p>
-      )}
-      {notebookError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {notebookError}{' '}
-          <button
-            type="button"
-            onClick={clearNotebookError}
-            style={{
-              font: 'inherit',
-              color: 'inherit',
-              background: 'none',
-              border: '1px solid var(--rule-strong)',
-              cursor: 'pointer',
-              padding: '0 0.5ch',
-            }}
-          >
-            dismiss
-          </button>
-        </p>
-      )}
-      <div role="status" aria-live="polite">
-        {inputError && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>
-        )}
-        {bootstrap.phase === 'error' && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-            failed to prepare the app: {bootstrap.message} — reload the page to retry
-          </p>
-        )}
-        {loadError && (
-          <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-            {loadError}{' '}
-            <button
-              type="button"
-              onClick={() => retryAnalysis()}
-              style={{
-                font: 'inherit',
-                color: 'inherit',
-                background: 'none',
-                border: '1px solid var(--rule-strong)',
-                cursor: 'pointer',
-                padding: '0 0.5ch',
-              }}
-            >
-              retry
-            </button>
-          </p>
-        )}
-      </div>
-      <div className="workbench">
-        <Suspense
-          fallback={(
-            <aside className="query-region" aria-label="Queries">
-              <p className="region-placeholder">loading Queries…</p>
-            </aside>
+      {showWorkbenchChrome && (
+        <>
+          <header className="app-header" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
+            <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
+          </header>
+          {(reader.showScope || reader.showLens) && (
+            <div className="workbench-organs">
+              {reader.showScope && <ScopeBar />}
+              {reader.showLens && <LensOrgan />}
+            </div>
           )}
-        >
-          <QuerySurface />
-        </Suspense>
-        <div className="place-region">
-          <PlaceSurface place={place}>
-            <ActivePlace place={place} />
-          </PlaceSurface>
-        </div>
-        <Suspense
-          fallback={(
-            <aside className="evidence-region" aria-label="Evidence">
-              <p className="region-placeholder">loading Evidence…</p>
-            </aside>
+          <ResumeStatus />
+          {pinError && (
+            <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+              {pinError}{' '}
+              <button
+                type="button"
+                onClick={clearPinError}
+                style={{
+                  font: 'inherit',
+                  color: 'inherit',
+                  background: 'none',
+                  border: '1px solid var(--rule-strong)',
+                  cursor: 'pointer',
+                  padding: '0 0.5ch',
+                }}
+              >
+                dismiss
+              </button>
+            </p>
           )}
-        >
-          <EvidenceSurface />
-        </Suspense>
+          {notebookError && (
+            <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+              {notebookError}{' '}
+              <button
+                type="button"
+                onClick={clearNotebookError}
+                style={{
+                  font: 'inherit',
+                  color: 'inherit',
+                  background: 'none',
+                  border: '1px solid var(--rule-strong)',
+                  cursor: 'pointer',
+                  padding: '0 0.5ch',
+                }}
+              >
+                dismiss
+              </button>
+            </p>
+          )}
+          <div role="status" aria-live="polite">
+            {inputError && (
+              <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>{inputError}</p>
+            )}
+            {bootstrap.phase === 'error' && (
+              <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+                failed to prepare the app: {bootstrap.message} — reload the page to retry
+              </p>
+            )}
+            {loadError && (
+              <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+                {loadError}{' '}
+                <button
+                  type="button"
+                  onClick={() => retryAnalysis()}
+                  style={{
+                    font: 'inherit',
+                    color: 'inherit',
+                    background: 'none',
+                    border: '1px solid var(--rule-strong)',
+                    cursor: 'pointer',
+                    padding: '0 0.5ch',
+                  }}
+                >
+                  retry
+                </button>
+              </p>
+            )}
+          </div>
+        </>
+      )}
+      <div
+        className="workbench"
+        data-reader={reader.open ? reader.mode : undefined}
+      >
+        {reader.showQuery && (
+          <Suspense
+            fallback={(
+              <aside className="query-region" aria-label="Queries">
+                <p className="region-placeholder">loading Queries…</p>
+              </aside>
+            )}
+          >
+            <QuerySurface />
+          </Suspense>
+        )}
+        {reader.showPlace && (
+          <div className="place-region">
+            <PlaceSurface place={place}>
+              <ActivePlace place={place} />
+            </PlaceSurface>
+          </div>
+        )}
+        {reader.showEvidence && (
+          <Suspense
+            fallback={(
+              <aside className="evidence-region" aria-label="Evidence">
+                <p className="region-placeholder">loading Evidence…</p>
+              </aside>
+            )}
+          >
+            <EvidenceSurface />
+          </Suspense>
+        )}
+        {readerPlace && (
+          <Suspense fallback={null}>
+            <ReaderDrawer composition={reader} />
+          </Suspense>
+        )}
       </div>
-      <Suspense fallback={null}>
-        <MethodSurface place={place} />
-      </Suspense>
-      {readerPlace && (
+      {reader.showMethod && (
         <Suspense fallback={null}>
-          <ReaderDrawer />
+          <MethodSurface place={place} />
         </Suspense>
       )}
     </main>

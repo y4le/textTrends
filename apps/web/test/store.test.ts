@@ -2420,6 +2420,67 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     return f;
   };
 
+  it('keeps reader width ephemeral, query-free, and bound to one restorable layer', async () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    port.publishSnapshot('g1', 's1', ['a']);
+    runtime.useApp.getState().quickAdd('holmes');
+    runtime.useApp.getState().openReader({
+      snapshot: 's1',
+      doc: 'a',
+      token: 1,
+      from: 'passage',
+    });
+    const request = q.readers().at(-1)!;
+    request.resolve(fakeReaderPage(0, 4));
+    await flush();
+
+    const store = runtime.useApp;
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('study');
+    const semantic = researchSemanticKey(store.getState());
+    const serialized = structuredClone(history.state);
+    const url = history.url;
+    const issued = q.issued.length;
+    const page = store.getState().readerPage;
+    const navigation = store.getState().readerNavigation;
+    const pushes = history.pushes;
+
+    store.getState().setReaderMode('peek');
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('peek');
+    expect(store.getState()).toMatchObject({
+      evidenceTier: 'reader',
+      readerPage: page,
+      readerNavigation: navigation,
+    });
+    expect(store.getState().readerPlace).not.toBeNull();
+    expect(researchSemanticKey(store.getState())).toBe(semantic);
+    expect(q.issued).toHaveLength(issued);
+    expect(history.pushes).toBe(pushes);
+    expect(history.state).toEqual(serialized);
+    expect(history.url).toBe(url);
+
+    store.getState().closeReader();
+    expect(store.getState().readerPlace).toBeNull();
+    history.forward();
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('peek');
+
+    store.getState().closeReader();
+    store.getState().openReader({
+      snapshot: 's1',
+      doc: 'a',
+      token: 2,
+      from: 'passage',
+    });
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('study');
+    runtime.dispose();
+  });
+
   it('governs open, replace, Back, Forward, and place departure with one reader layer', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');

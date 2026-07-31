@@ -129,6 +129,20 @@ describe('layer stack transitions', () => {
     });
     expect(historyStateFor(changed)).toEqual(historyStateFor(stack));
     expect(updateLayerUI(changed, ids.other, { detent: 'tall' })).toBe(changed);
+
+    const readerStack = [place, layer('reader', ids.reader)];
+    const reading = updateLayerUI(readerStack, ids.reader, { reader: 'peek' });
+    expect(reading[1]).toMatchObject({ id: ids.reader, ui: { reader: 'peek' } });
+    expect(historyStateFor(reading)).toEqual(historyStateFor(readerStack));
+    expect(parseLayerHistory({
+      tt: {
+        v: 1,
+        layers: [{ kind: 'reader', id: ids.reader, ui: { reader: 'full' } }],
+      },
+    })).toEqual({
+      valid: true,
+      refs: [{ kind: 'reader', id: ids.reader }],
+    });
   });
 
   it('reconciles backward and forward, truncating at the first dead identity', () => {

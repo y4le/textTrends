@@ -50,7 +50,6 @@ export function EvidenceSurface() {
   const pinPassage = useApp((state) => state.pinPassage);
   const openReader = useApp((state) => state.openReader);
   const setPlace = useApp((state) => state.setPlace);
-  const readerOpen = useApp((state) => state.readerPlace !== null);
   const layers = useApp((state) => state.layers);
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
@@ -69,10 +68,6 @@ export function EvidenceSurface() {
     });
     return () => cancelAnimationFrame(frame);
   }, [activeSheet, presentation.width]);
-
-  // Compact Reader is the one full-viewport evidence owner. Keeping the
-  // fixed Evidence line mounted would cover its prose and duplicate actions.
-  if (readerOpen && presentation.width === 'compact') return null;
 
   const titleByDoc = new Map(
     (project?.data.docs ?? []).map((entry) => [entry.doc, entry.meta.title]),

@@ -88,6 +88,11 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
+  DEFAULT_READER_MODE,
+  READER_MODES,
+  type ReaderMode,
+} from './reader-presentation.ts';
+import {
   coreGroupOf,
   groupIdentity,
   NOTEBOOK_LIMITS_V1,
@@ -749,6 +754,7 @@ export interface AppState {
   focusPin(id: string): void;
   clearPinError(): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
+  setReaderMode(mode: ReaderMode): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -2463,7 +2469,12 @@ export function createAppRuntime(
           snapshot?.readyDocs ?? [],
         );
         if (place) {
-          const next = freshLayer('reader', Object.freeze(place), returnFocusTo);
+          const next = freshLayer(
+            'reader',
+            Object.freeze(place),
+            returnFocusTo,
+            { reader: DEFAULT_READER_MODE },
+          );
           const replacing = get().layers.at(-1)?.kind === 'reader';
           const layers = replacing
             ? replaceTopLayer(get().layers, next)
@@ -2472,6 +2483,13 @@ export function createAppRuntime(
           writeNavigation(replacing ? 'replace' : 'push', get().place, layers);
           get().runReader();
         }
+      },
+
+      setReaderMode(mode) {
+        if (!READER_MODES.includes(mode)) return;
+        const layer = get().layers.at(-1);
+        if (layer?.kind !== 'reader' || layer.ui?.reader === mode) return;
+        get().setLayerUI(layer.id, { reader: mode });
       },
 
       navigateReader(cursor) {
