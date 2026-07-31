@@ -27,6 +27,9 @@ const CorpusDashboard = lazy(() =>
 const KeynessPanel = lazy(() =>
   import('./components/KeynessPanel.tsx').then(({ KeynessPanel: panel }) => ({ default: panel })),
 );
+const CorpusPlace = lazy(() =>
+  import('./places/CorpusPlace.tsx').then(({ CorpusPlace: placeBody }) => ({ default: placeBody })),
+);
 
 /** Chart-focus chip: the series' persistent identity (line sample + name) and
  *  the CHART-emphasis control (concordance membership is the KwicPanel
@@ -162,6 +165,26 @@ export function App() {
           </p>
         )}
       </div>
+      {place === 'corpus' ? (
+        <section className="place-surface" aria-labelledby="corpus-place-heading">
+          <h2
+            id="corpus-place-heading"
+            style={{ fontSize: 'var(--text-md)', margin: 'var(--space-3) 0 var(--space-1)' }}
+          >
+            Corpus
+          </h2>
+          <Suspense
+            fallback={(
+              <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
+                loading corpus…
+              </p>
+            )}
+          >
+            <CorpusPlace />
+          </Suspense>
+        </section>
+      ) : (
+        <>
       <section aria-labelledby="trends-heading">
         <h2
           id="trends-heading"
@@ -248,6 +271,8 @@ export function App() {
         <KeynessPanel />
       </Suspense>
       <ProjectPanel />
+        </>
+      )}
       {readerPlace && (
         <Suspense fallback={null}>
           <ReaderDrawer />

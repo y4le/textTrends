@@ -1,5 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, trace } from './helpers.ts';
+import { PLACE_HEADING } from '../src/lib/places.ts';
 
 test('Scope and Lens round-trip canonical places without issuing analysis', async ({ page }) => {
   await page.goto('./?foreign=%2f&p=compare');
@@ -35,6 +36,10 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
   const scope = page.getByRole('region', { name: 'Scope' });
   await scope.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
+  await expect(page.getByRole('region', { name: 'Corpus', exact: true })).toBeVisible();
+  for (const peer of Object.values(PLACE_HEADING).filter((heading) => heading !== 'Corpus')) {
+    await expect(page.getByRole('region', { name: peer, exact: true })).toHaveCount(0);
+  }
   await scope.getByRole('button', { name: '0 of 8 pinned', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=findings$/);
   await page.goBack();

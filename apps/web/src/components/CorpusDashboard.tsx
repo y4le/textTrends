@@ -96,7 +96,7 @@ const SORTS: readonly { by: FrequencySortFieldV1; label: string }[] = [
   { by: 'dpNorm', label: 'DPnorm' },
 ];
 
-function FrequencyTable() {
+export function FrequencyTable() {
   const state = useApp((s) => s.frequency);
   const view = useApp((s) => s.frequencyView);
   const setSort = useApp((s) => s.setFrequencySort);
@@ -256,7 +256,13 @@ function FrequencyTable() {
   );
 }
 
-export function CorpusDashboard() {
+export function CorpusDashboard({
+  showHeading = true,
+  showVocabulary = true,
+}: {
+  readonly showHeading?: boolean;
+  readonly showVocabulary?: boolean;
+}) {
   const inventory = useApp((s) => s.inventory);
   const tfidf = useApp((s) => s.tfidf);
   const focusedDoc = useApp((s) => s.focusedDoc);
@@ -276,8 +282,16 @@ export function CorpusDashboard() {
   if (!inventory) return null;
   return (
     <>
-      <section aria-labelledby="corpus-dashboard-heading" style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}>
-        <h2 id="corpus-dashboard-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>Corpus</h2>
+      <section
+        aria-labelledby={showHeading ? 'corpus-dashboard-heading' : undefined}
+        aria-label={showHeading ? undefined : 'Corpus overview'}
+        style={{ marginTop: 'var(--space-4)', borderTop: '1px solid var(--rule-strong)', paddingTop: 'var(--space-3)' }}
+      >
+        {showHeading && (
+          <h2 id="corpus-dashboard-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
+            Corpus
+          </h2>
+        )}
         {inventory.selection && <p style={{ color: 'var(--accent-text)' }}>Showing the linked selected range; full-document token totals remain alongside it.</p>}
         {inventory.state.status === 'pending' && <p>computing corpus inventory…</p>}
         {inventory.state.status === 'error' && <p style={{ color: 'var(--accent-text)' }}>{inventory.state.message}</p>}
@@ -451,7 +465,7 @@ export function CorpusDashboard() {
           );
         })()}
       </section>
-      <FrequencyTable />
+      {showVocabulary && <FrequencyTable />}
     </>
   );
 }

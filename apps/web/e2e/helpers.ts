@@ -8,6 +8,7 @@ import type { Page } from '@playwright/test';
 import { expect } from '@playwright/test';
 import { SHERLOCK } from '../src/lib/project.ts';
 import { USER_PROJECT_ID } from '../src/lib/project.ts';
+import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
 import { ARTIFACT_DB_NAME } from '../src/worker/idb-store.ts';
 import { USER_DATA_DB_NAME } from '../src/worker/idb-user-data-store.ts';
 import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
@@ -20,6 +21,32 @@ export const DB_NAME = ARTIFACT_DB_NAME;
 export const USER_DATA_DB = USER_DATA_DB_NAME;
 
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
+
+/**
+ * Change place through the rendered workbench organs, preserving the running
+ * worker/session. Corpus and Findings live in Scope; the four analyses live
+ * in Lens.
+ */
+export async function gotoPlace(page: Page, place: Place): Promise<void> {
+  if (place === 'corpus') {
+    await page
+      .getByRole('region', { name: 'Scope' })
+      .getByRole('button')
+      .first()
+      .click();
+  } else if (place === 'findings') {
+    await page
+      .getByRole('region', { name: 'Scope' })
+      .getByRole('button', { name: /\d+ of 8 pinned/ })
+      .click();
+  } else {
+    await page
+      .getByRole('navigation', { name: 'Analysis lenses' })
+      .getByRole('link', { name: PLACE_HEADING[place], exact: true })
+      .click();
+  }
+  await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|$)`));
+}
 
 /** Wait for the header to report `n/n books ready` (a user project's count). */
 export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {

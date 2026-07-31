@@ -34,7 +34,11 @@ function depthByRow(rows: readonly StructureRow[]): Map<string, number> {
   return depth;
 }
 
-export function StructurePanel() {
+export function StructurePanel({
+  headingAs: Heading = 'h2',
+}: {
+  readonly headingAs?: 'h2' | 'h3';
+}) {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const snapshot = useApp((s) => s.snapshot);
   const focusedDoc = useApp((s) => s.focusedDoc);
@@ -92,9 +96,9 @@ export function StructurePanel() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <h2 id="chapter-structure-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+        <Heading id="chapter-structure-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
           Chapter structure
-        </h2>
+        </Heading>
         <label style={{ color: 'var(--fg-muted)' }}>
           document{' '}
           <select

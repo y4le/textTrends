@@ -54,7 +54,11 @@ function saveLabel(save: UserSaveState, dirty: boolean, baseRevision: number | n
   }
 }
 
-export function ProjectPanel() {
+export function ProjectPanel({
+  headingAs: Heading = 'h2',
+}: {
+  readonly headingAs?: 'h2' | 'h3';
+}) {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const docs = useApp((s) => s.projectSession?.project.data.docs ?? null);
   const imports = useApp((s) => s.projectSession?.imports ?? null);
@@ -98,9 +102,9 @@ export function ProjectPanel() {
       }}
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <h2 id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+        <Heading id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
           {isBuiltin ? 'built-in corpus (read-only)' : 'your project'}
-        </h2>
+        </Heading>
         {!isBuiltin && (
           <span role="status" style={{ color: 'var(--fg-muted)' }}>
             {saveLabel(project.save, project.dirty, project.baseRevision)}
