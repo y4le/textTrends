@@ -69,8 +69,9 @@ export function CorpusInventory({
 
   const openBook = (doc: string) => {
     setFocusedDoc(doc);
-    if (bookTarget?.doc === doc && topLayer?.id === bookLayer?.id) {
-      popLayer();
+    if (bookTarget?.doc === doc && bookLayer !== null) {
+      const bookIndex = layers.findIndex((layer) => layer.id === bookLayer.id);
+      popLayer(bookIndex < 0 ? 1 : layers.length - bookIndex);
       return;
     }
     const target = Object.freeze({ surface: 'book-sheet' as const, doc });

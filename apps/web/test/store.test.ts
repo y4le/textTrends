@@ -129,7 +129,7 @@ class FakeHistoryPort implements HistoryPort {
   backs = 0;
   leftApp = 0;
   deferBack = false;
-  private queuedBack = false;
+  private queuedBack = 0;
 
   constructor(url = '/textTrends/?p=trends') {
     this.entries = [{ state: null, url }];
@@ -154,27 +154,28 @@ class FakeHistoryPort implements HistoryPort {
     this.replaces += 1;
   }
 
-  back() {
+  back(steps = 1) {
     this.backs += 1;
     if (this.deferBack) {
-      this.queuedBack = true;
+      this.queuedBack = steps;
       return;
     }
-    this.commitBack();
+    this.commitBack(steps);
   }
 
   flushBack() {
-    if (!this.queuedBack) return;
-    this.queuedBack = false;
-    this.commitBack();
+    if (this.queuedBack === 0) return;
+    const steps = this.queuedBack;
+    this.queuedBack = 0;
+    this.commitBack(steps);
   }
 
-  private commitBack() {
+  private commitBack(steps = 1) {
     if (this.index === 0) {
       this.leftApp += 1;
       return;
     }
-    this.index -= 1;
+    this.index = Math.max(0, this.index - steps);
     this.emit();
   }
 
@@ -529,6 +530,39 @@ describe('workbench route and history authority', () => {
     expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
     history.flushBack();
     expect(runtime.useApp.getState().evidenceTier).toBe('none');
+    runtime.dispose();
+  });
+
+  it('closes a governed parent and its nested child in one Back traversal', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=corpus');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+
+    store.getState().pushLayer(
+      'row-detail',
+      { surface: 'book-sheet', doc: 'book' },
+      'book-title',
+    );
+    store.getState().pushLayer(
+      'row-detail',
+      { surface: 'structure-editor', doc: 'book' },
+      'structure-edit-book',
+    );
+    expect(store.getState().layers).toHaveLength(2);
+
+    store.getState().popLayer(2);
+    expect(history.backs).toBe(1);
+    expect(store.getState().layers).toHaveLength(0);
+
+    history.forward();
+    expect(store.getState().layers).toHaveLength(1);
+    history.forward();
+    expect(store.getState().layers).toHaveLength(2);
+    expect(q.issued).toHaveLength(0);
     runtime.dispose();
   });
 

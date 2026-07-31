@@ -3,7 +3,7 @@ export interface HistoryPort {
   readonly url: string;
   push(state: unknown, url: string): void;
   replace(state: unknown, url: string): void;
-  back(): void;
+  back(steps?: number): void;
   subscribe(listener: () => void): () => void;
 }
 
@@ -22,8 +22,9 @@ export function browserHistoryPort(target: Window): HistoryPort {
     replace(state, url) {
       target.history.replaceState(state, '', url);
     },
-    back() {
-      target.history.back();
+    back(steps = 1) {
+      if (steps === 1) target.history.back();
+      else target.history.go(-steps);
     },
     subscribe(listener) {
       const onPopState = () => listener();

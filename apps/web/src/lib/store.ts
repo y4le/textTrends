@@ -606,8 +606,12 @@ export interface AppState {
     ui?: LayerUI,
   ): void;
   setLayerUI(id: string, ui: LayerUI): void;
-  /** Close and Escape delegate to Back; popstate performs the mutation. */
-  popLayer(): void;
+  /**
+   * Close and Escape delegate to Back; popstate performs the mutation.
+   * A count greater than one closes one governed parent and its nested
+   * descendants as a single user action.
+   */
+  popLayer(count?: number): void;
 
   /** The query notebook (slice-1 ruling): the authoritative ordered group
    *  list. Session-only in this slice — deliberately NOT persisted anywhere
@@ -1259,17 +1263,23 @@ export function createAppRuntime(
       }));
     };
 
-    const requestBack = (): void => {
+    const requestBack = (count = 1): void => {
       const layers = get().layers;
-      if (historyTraversalPending || layers.length === 0) return;
+      if (
+        historyTraversalPending
+        || layers.length === 0
+        || !Number.isSafeInteger(count)
+        || count < 1
+        || count > layers.length
+      ) return;
       if (historyPort === null) {
-        const closing = layers.at(-1)!;
-        writeNavigation('replace', get().place, layers.slice(0, -1));
+        const closing = layers.at(-count)!;
+        writeNavigation('replace', get().place, layers.slice(0, -count));
         restoreFocusTo(closing.returnFocusTo);
         return;
       }
       historyTraversalPending = true;
-      historyPort.back();
+      historyPort.back(count);
     };
 
     const freshLayer = (
@@ -2150,8 +2160,8 @@ export function createAppRuntime(
         if (changed !== undefined) rememberLayer(changed, layers);
         writeNavigation('replace', get().place, layers);
       },
-      popLayer() {
-        requestBack();
+      popLayer(count = 1) {
+        requestBack(count);
       },
       notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
       activeGroupIds: new Set<string>(),
@@ -4046,8 +4056,10 @@ export function createAppRuntime(
     ) {
       historyPort.replace(historyStateFor(layers), normalizedUrl);
     }
-    const removed = previous.layers.at(-1);
-    if (removed && !layers.some((layer) => layer.id === removed.id)) {
+    const removed = previous.layers.find(
+      (candidate) => !layers.some((layer) => layer.id === candidate.id),
+    );
+    if (removed) {
       restoreFocusTo(removed.returnFocusTo);
     }
     if (readerPlace !== null && readerChanged) {

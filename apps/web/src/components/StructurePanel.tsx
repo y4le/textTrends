@@ -10,10 +10,28 @@
  */
 
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { useEffect, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { provenanceLabel, type StructureRow } from '../lib/structure-view.ts';
-import { StructureEditor } from './StructureEditor.tsx';
+import {
+  StructureEditor,
+  type StructureEditorDraft,
+} from './StructureEditor.tsx';
+import { FormLayer } from './FormLayer.tsx';
+import { usePresentation } from './PresentationProvider.tsx';
+import {
+  rowDetailSurface,
+  rowDetailWrite,
+} from '../lib/row-detail.ts';
+import {
+  structureEditControlId,
+  structureEditorTarget,
+} from '../lib/structure-surface.ts';
 
 /** Ancestor depth of each row via the parent chain (root = 0). */
 function depthByRow(rows: readonly StructureRow[]): Map<string, number> {
@@ -39,19 +57,51 @@ export function StructurePanel({
   readonly headingAs?: 'h2' | 'h3' | 'h4';
   readonly showDocumentControl?: boolean;
 }) {
+  const presentation = usePresentation();
   const project = useApp((s) => s.projectSession?.project ?? null);
   const snapshot = useApp((s) => s.snapshot);
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
   const sourceEvidence = useApp((s) => s.projectSession?.sourceEvidence ?? null);
+  const layers = useApp((s) => s.layers);
   const setFocusedDoc = useApp((s) => s.setFocusedDoc);
   const setStructureOverride = useApp((s) => s.setStructureOverride);
+  const pushLayer = useApp((s) => s.pushLayer);
+  const replaceLayer = useApp((s) => s.replaceLayer);
+  const popLayer = useApp((s) => s.popLayer);
 
-  const [editing, setEditing] = useState(false);
-  // A doc switch closes the editor — its draft belonged to the previous doc.
+  const [drafts, setDrafts] = useState<Record<string, StructureEditorDraft>>({});
+  const topLayer = layers.at(-1);
+  const editorTarget = topLayer?.kind === 'row-detail'
+    ? structureEditorTarget(topLayer.target)
+    : null;
+  const editorTargetValid =
+    editorTarget !== null
+    && snapshot?.readyDocs.includes(editorTarget.doc) === true
+    && editorTarget.doc === focusedDoc;
+  const stalePopRequested = useRef(false);
+
   useEffect(() => {
-    setEditing(false);
-  }, [focusedDoc]);
+    stalePopRequested.current = false;
+  }, [topLayer?.id]);
+
+  useEffect(() => {
+    if (editorTarget === null || editorTargetValid || stalePopRequested.current) return;
+    stalePopRequested.current = true;
+    document.getElementById('place-corpus-heading')?.focus({ preventScroll: true });
+    popLayer();
+  }, [editorTarget, editorTargetValid, popLayer]);
+
+  const retainDraft = useCallback((doc: string, next: StructureEditorDraft) => {
+    setDrafts((current) => ({ ...current, [doc]: next }));
+  }, []);
+
+  const closeEditor = (discard: boolean) => {
+    if (discard && editorTarget) {
+      setDrafts(({ [editorTarget.doc]: _closed, ...remaining }) => remaining);
+    }
+    if (editorTarget) popLayer();
+  };
 
   if (!project || !snapshot || !focusedDoc) return null;
 
@@ -74,6 +124,24 @@ export function StructurePanel({
   // /markup source's chapters come from its spine/DOM, not the joined text, so
   // editing them is not yet supported — the read-only outline still shows.
   const editableChapters = doc?.extraction.recipe.candidateReconstruction === 'text';
+  const editing = editorTargetValid;
+  const compact = presentation.width === 'compact';
+
+  const openEditor = () => {
+    const target = Object.freeze({
+      surface: 'structure-editor' as const,
+      doc: focusedDoc,
+    });
+    const write = rowDetailWrite(
+      topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
+      'structure-editor',
+    );
+    if (write === 'replace') {
+      replaceLayer('row-detail', target, structureEditControlId(focusedDoc));
+    } else {
+      pushLayer('row-detail', target, structureEditControlId(focusedDoc));
+    }
+  };
 
   // The result is only meaningful when it echoes the currently-focused doc.
   const st = structure && structure.doc === focusedDoc ? structure.state : null;
@@ -114,7 +182,12 @@ export function StructurePanel({
         )}
         <span style={{ flex: 1 }} />
         {isUser && editableChapters && !editing && overrideStatus !== 'needs-review' && (
-          <button type="button" onClick={() => setEditing(true)} style={SMALL_BUTTON_STYLE}>
+          <button
+            id={structureEditControlId(focusedDoc)}
+            type="button"
+            onClick={openEditor}
+            style={SMALL_BUTTON_STYLE}
+          >
             edit chapters
           </button>
         )}
@@ -154,7 +227,15 @@ export function StructurePanel({
         </p>
       )}
 
-      {editing && <StructureEditor doc={focusedDoc} onClose={() => setEditing(false)} />}
+      {editing && !compact && (
+        <StructureEditor
+          doc={focusedDoc}
+          onClose={() => closeEditor(true)}
+          onCancel={() => closeEditor(true)}
+          {...(drafts[focusedDoc] ? { initialDraft: drafts[focusedDoc] } : {})}
+          onDraftChange={(next) => retainDraft(focusedDoc, next)}
+        />
+      )}
 
       {st?.status === 'pending' && (
         <p style={{ margin: 'var(--space-2) 0 0', color: 'var(--fg-muted)' }}>reading structure…</p>
@@ -187,6 +268,21 @@ export function StructurePanel({
             );
           })}
         </ol>
+      )}
+      {editing && compact && (
+        <FormLayer
+          label={`Chapter editor: ${titleOf(focusedDoc)}`}
+          focusKey={topLayer?.id ?? focusedDoc}
+          onClose={() => closeEditor(false)}
+        >
+          <StructureEditor
+            doc={focusedDoc}
+            onClose={() => closeEditor(true)}
+            onCancel={() => closeEditor(true)}
+            {...(drafts[focusedDoc] ? { initialDraft: drafts[focusedDoc] } : {})}
+            onDraftChange={(next) => retainDraft(focusedDoc, next)}
+          />
+        </FormLayer>
       )}
     </section>
   );

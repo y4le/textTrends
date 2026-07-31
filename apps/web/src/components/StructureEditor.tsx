@@ -13,7 +13,7 @@
  */
 
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { overrideFromEditedOutline, ROOT_KEY, type EditableSectionValue, type StructureSectionRecordV2 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { canAddSection, newDraftSection, normalizeLevels } from '../lib/structure-view.ts';
@@ -22,6 +22,8 @@ import type { StructureEditContextV1 } from '../shared/analysis-contract.ts';
 /** The added-row key allocator — injectable so tests are deterministic;
  *  production mints a fresh uuid per Add (ruling §5, no per-session counter). */
 const defaultNewKey = (): string => `user-${crypto.randomUUID()}`;
+
+export type StructureEditorDraft = readonly EditableSectionValue[];
 
 /** Build the initial editable draft from the current composed outline. */
 function draftFromContext(ctx: StructureEditContextV1): EditableSectionValue[] {
@@ -38,7 +40,21 @@ function draftFromContext(ctx: StructureEditContextV1): EditableSectionValue[] {
   });
 }
 
-export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc: string; onClose: () => void; newKey?: () => string }) {
+export function StructureEditor({
+  doc,
+  onClose,
+  onCancel = onClose,
+  newKey = defaultNewKey,
+  initialDraft,
+  onDraftChange,
+}: {
+  readonly doc: string;
+  readonly onClose: () => void;
+  readonly onCancel?: () => void;
+  readonly newKey?: () => string;
+  readonly initialDraft?: StructureEditorDraft;
+  readonly onDraftChange?: (draft: StructureEditorDraft) => void;
+}) {
   const editContext = useApp((s) => s.editContext);
   const correction = useApp((s) => s.projectSession?.corrections?.[doc] ?? null);
   const requestEditContext = useApp((s) => s.requestEditContext);
@@ -46,19 +62,38 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
 
   const [draft, setDraft] = useState<EditableSectionValue[] | null>(null);
   const [applyError, setApplyError] = useState<string | null>(null);
+  const draftRef = useRef<EditableSectionValue[] | null>(null);
+  const initialDraftRef = useRef(initialDraft);
+  const onDraftChangeRef = useRef(onDraftChange);
+  initialDraftRef.current = initialDraft;
+  onDraftChangeRef.current = onDraftChange;
 
-  // Fetch the authoring context once when the editor opens for this doc.
+  // Fetch the authoring context once per snapshot/doc. Presentation changes
+  // can remount this editor (compact portal ↔ in-flow) and must not reissue
+  // analysis; snapshot publication clears stale contexts in the store.
   useEffect(() => {
-    requestEditContext(doc);
-  }, [doc, requestEditContext]);
+    if (editContext?.doc !== doc) requestEditContext(doc);
+  }, [doc, editContext?.doc, requestEditContext]);
 
   const ctx = editContext && editContext.doc === doc && editContext.state.status === 'ready' ? editContext.state.context : null;
   const ctxError = editContext && editContext.doc === doc && editContext.state.status === 'error' ? editContext.state.message : null;
 
   // Seed the draft once the context arrives (and re-seed if the doc changes).
   useEffect(() => {
-    if (ctx) setDraft(draftFromContext(ctx));
-    else setDraft(null);
+    if (ctx) {
+      const seeded = initialDraftRef.current
+        ? initialDraftRef.current.map((row) => ({
+            ...row,
+            chars: { ...row.chars },
+          }))
+        : draftFromContext(ctx);
+      draftRef.current = seeded;
+      setDraft(seeded);
+      onDraftChangeRef.current?.(seeded);
+    } else {
+      draftRef.current = null;
+      setDraft(null);
+    }
   }, [ctx]);
 
   const rows = draft ?? [];
@@ -68,39 +103,50 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
     [rows],
   );
 
+  const updateDraft = (
+    transform: (current: EditableSectionValue[]) => EditableSectionValue[],
+  ) => {
+    const current = draftRef.current;
+    if (!current) return;
+    const next = transform(current);
+    draftRef.current = next;
+    setDraft(next);
+    onDraftChange?.(next);
+  };
+
   const patchRow = (key: string, patch: Partial<EditableSectionValue>) => {
     setApplyError(null);
-    setDraft((d) => (d ? d.map((r) => (r.key === key ? { ...r, ...patch } : r)) : d));
+    updateDraft((current) =>
+      current.map((r) => (r.key === key ? { ...r, ...patch } : r)));
   };
 
   // Title is optional — an empty input REMOVES it (never stores `undefined`,
   // which exactOptionalPropertyTypes forbids and the hash would treat distinctly).
   const setTitle = (key: string, value: string) => {
     setApplyError(null);
-    setDraft((d) =>
-      d
-        ? d.map((r) => {
-            if (r.key !== key) return r;
-            if (value === '') {
-              const { title: _drop, ...rest } = r;
-              return rest;
-            }
-            return { ...r, title: value };
-          })
-        : d,
+    updateDraft((current) =>
+      current.map((r) => {
+        if (r.key !== key) return r;
+        if (value === '') {
+          const { title: _drop, ...rest } = r;
+          return rest;
+        }
+        return { ...r, title: value };
+      }),
     );
   };
 
   const removeRow = (key: string) => {
     setApplyError(null);
-    setDraft((d) => (d ? d.filter((r) => r.key !== key) : d));
+    updateDraft((current) => current.filter((r) => r.key !== key));
   };
 
   const addRow = () => {
-    if (!draft || !canAddSection(draft.length)) return;
+    const current = draftRef.current;
+    if (!current || !canAddSection(current.length)) return;
     setApplyError(null);
-    const rootEnd = draft.find((r) => r.key === ROOT_KEY)?.chars.end ?? 1;
-    setDraft([...draft, newDraftSection(newKey(), rootEnd)]);
+    const rootEnd = current.find((r) => r.key === ROOT_KEY)?.chars.end ?? 1;
+    updateDraft((latest) => [...latest, newDraftSection(newKey(), rootEnd)]);
   };
 
   const setParent = (key: string, parentKey: string) => {
@@ -125,6 +171,7 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
 
   const numField = (value: number, onChange: (n: number) => void, label: string) => (
     <input
+      className="exact-input"
       type="number"
       aria-label={label}
       value={value}
@@ -135,21 +182,23 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
   );
 
   return (
-    <div style={{ marginTop: 'var(--space-2)', borderTop: '1px solid var(--rule)', paddingTop: 'var(--space-2)' }}>
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+    <div className="structure-editor" style={{ marginTop: 'var(--space-2)', borderTop: '1px solid var(--rule)', paddingTop: 'var(--space-2)' }}>
+      <div className="structure-editor-heading" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         <strong>editing chapters</strong>
         {correction?.phase === 'hashing' && <span style={{ color: 'var(--fg-muted)' }}>applying…</span>}
         {correction?.phase === 'error' && <span role="alert" style={{ color: 'var(--accent-text)' }}>{correction.message}</span>}
         <span style={{ flex: 1 }} />
         <button type="button" onClick={addRow} disabled={!ctx || !canAddSection(rows.length)} style={SMALL_BUTTON_STYLE}>add chapter</button>
-        {/* Apply stays enabled while a prior correction is still hashing: a newer
-            Apply (or discard) intentionally SUPERSEDES the pending one — the
-            session's per-doc token fence guarantees only the latest installs. */}
-        <button type="button" onClick={apply} disabled={!ctx} style={SMALL_BUTTON_STYLE}>apply</button>
-        <button type="button" onClick={onClose} style={SMALL_BUTTON_STYLE}>cancel</button>
       </div>
 
-      {ctxError && <p role="alert" style={{ color: 'var(--accent-text)' }}>could not open the editor: {ctxError}</p>}
+      {ctxError && (
+        <p role="alert" style={{ color: 'var(--accent-text)' }}>
+          could not open the editor: {ctxError}{' '}
+          <button type="button" onClick={() => requestEditContext(doc)} style={SMALL_BUTTON_STYLE}>
+            retry
+          </button>
+        </p>
+      )}
       {applyError && <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>invalid outline: {applyError}</p>}
       {!ctx && !ctxError && <p style={{ color: 'var(--fg-muted)' }}>loading the editable outline…</p>}
 
@@ -159,6 +208,7 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
           {nonRoot.map((r) => (
             <li key={r.key} style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', flexWrap: 'wrap' }}>
               <input
+                className="exact-input structure-title-input"
                 aria-label={`Title for ${r.key}`}
                 value={r.title ?? ''}
                 placeholder="(untitled)"
@@ -169,6 +219,7 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
               <label style={{ color: 'var(--fg-muted)' }}>
                 under{' '}
                 <select
+                  className="exact-input"
                   aria-label={`Parent for ${r.key}`}
                   value={r.parent ?? ROOT_KEY}
                   onChange={(e) => setParent(r.key, e.target.value)}
@@ -185,7 +236,13 @@ export function StructureEditor({ doc, onClose, newKey = defaultNewKey }: { doc:
           ))}
         </ul>
       )}
+      <div className="form-layer-actions structure-editor-actions">
+        <button type="button" onClick={onCancel} style={SMALL_BUTTON_STYLE}>cancel</button>
+        {/* Apply stays enabled while a prior correction is still hashing: a newer
+            Apply (or discard) intentionally SUPERSEDES the pending one — the
+            session's per-doc token fence guarantees only the latest installs. */}
+        <button type="button" onClick={apply} disabled={!ctx || !draft} style={SMALL_BUTTON_STYLE}>apply</button>
+      </div>
     </div>
   );
 }
-

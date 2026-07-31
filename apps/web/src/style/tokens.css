@@ -1374,6 +1374,52 @@ canvas {
     font-size: var(--text-sm) !important;
   }
 
+  .form-layer .structure-editor {
+    display: flex;
+    min-block-size:
+      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-block-size:
+      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-inline-size: 0;
+    flex-direction: column;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    font-size: var(--text-sm);
+  }
+
+  .form-layer .structure-editor-heading {
+    align-items: center !important;
+  }
+
+  .form-layer .structure-editor-heading > span:last-of-type {
+    display: none;
+  }
+
+  .form-layer .structure-editor ul {
+    min-inline-size: 0;
+  }
+
+  .form-layer .structure-editor li {
+    min-inline-size: 0;
+    padding-block: var(--space-2);
+    border-block-start: 1px solid var(--rule);
+  }
+
+  .form-layer .structure-title-input {
+    inline-size: min(100%, 22ch) !important;
+    min-block-size: 44px;
+  }
+
+  .form-layer .structure-editor input[type='number'] {
+    min-block-size: 44px;
+  }
+
+  .form-layer .structure-editor select {
+    max-inline-size: 100%;
+    min-block-size: 44px;
+  }
+
   .form-layer button {
     min-block-size: 44px;
   }
