@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { PinButton } from './PinButton.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
+import { SheetFrame } from './SheetFrame.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import {
@@ -7,6 +9,7 @@ import {
   type EvidenceSurfaceVM,
 } from '../lib/evidence-surface.ts';
 import { pinCapacity } from '../lib/pin-capacity.ts';
+import { sheetDetent, sheetSurface, type SheetSurface } from '../lib/sheet.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 function CurrentPassage({ view }: { readonly view: EvidenceSurfaceVM }) {
@@ -48,6 +51,24 @@ export function EvidenceSurface() {
   const openReader = useApp((state) => state.openReader);
   const setPlace = useApp((state) => state.setPlace);
   const readerOpen = useApp((state) => state.readerPlace !== null);
+  const layers = useApp((state) => state.layers);
+  const pushLayer = useApp((state) => state.pushLayer);
+  const replaceLayer = useApp((state) => state.replaceLayer);
+  const setLayerUI = useApp((state) => state.setLayerUI);
+  const popLayer = useApp((state) => state.popLayer);
+  const topLayer = layers.at(-1);
+  const activeSheet = sheetSurface(topLayer);
+  const previousWidth = useRef(presentation.width);
+
+  useEffect(() => {
+    const movedToWide = previousWidth.current !== 'wide' && presentation.width === 'wide';
+    previousWidth.current = presentation.width;
+    if (!movedToWide || activeSheet !== 'evidence') return undefined;
+    const frame = requestAnimationFrame(() => {
+      document.getElementById('evidence-region')?.focus({ preventScroll: true });
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeSheet, presentation.width]);
 
   // Compact Reader is the one full-viewport evidence owner. Keeping the
   // fixed Evidence line mounted would cover its prose and duplicate actions.
@@ -68,48 +89,117 @@ export function EvidenceSurface() {
   });
   const capacity = pinCapacity(pins.length);
   const recent = [...pins].slice(-3).reverse();
+  const detent = sheetDetent(topLayer);
+  const sheetEnabled = presentation.width !== 'wide';
+  const showEvidenceSheet = sheetEnabled && activeSheet === 'evidence';
+
+  const openSheet = (surface: SheetSurface, returnFocusTo: string) => {
+    if (topLayer?.kind === 'sheet') {
+      replaceLayer('sheet', Object.freeze({ surface }), returnFocusTo, { detent });
+    } else {
+      pushLayer('sheet', Object.freeze({ surface }), returnFocusTo, { detent: 'peek' });
+    }
+  };
+
+  const body = (
+    <>
+      <CurrentPassage view={view} />
+      {view.kind !== 'empty' && snapshot !== null && (
+        <div className="evidence-actions">
+          <PinButton
+            capacity={capacity}
+            label={`Pin passage at token ${(view.token + 1).toLocaleString()}`}
+            onPin={() => pinPassage(view.doc, view.token)}
+          />
+          <button
+            id="evidence-read"
+            className="coarse-target"
+            type="button"
+            aria-label="Open passage in reader"
+            onClick={() => openReader(
+              {
+                snapshot: snapshot.snapshot,
+                doc: view.doc,
+                token: view.token,
+                from: 'passage',
+              },
+              'evidence-read',
+            )}
+            style={SMALL_BUTTON_STYLE}
+          >
+            Read
+          </button>
+          {!capacity.enabled && (
+            <button
+              className="coarse-target"
+              type="button"
+              onClick={() => setPlace('findings')}
+              style={SMALL_BUTTON_STYLE}
+            >
+              manage pins
+            </button>
+          )}
+        </div>
+      )}
+    </>
+  );
+
+  if (showEvidenceSheet && topLayer?.kind === 'sheet') {
+    return (
+      <SheetFrame
+        title="Evidence"
+        detent={detent}
+        compact={presentation.width === 'compact'}
+        onDetent={(next) => setLayerUI(topLayer.id, { detent: next })}
+        onClose={popLayer}
+      >
+        <div className="sheet-surface-switch">
+          <span>{capacity.label}</span>
+          <button
+            id="method-open"
+            type="button"
+            onClick={() => openSheet('method', 'method-open')}
+          >
+            Method
+          </button>
+        </div>
+        {body}
+      </SheetFrame>
+    );
+  }
+
+  // A non-wide Method sheet replaces Evidence rather than stacking over it.
+  if (sheetEnabled && activeSheet === 'method') return null;
 
   return (
-    <aside className="evidence-region" aria-label="Evidence">
+    <aside
+      id="evidence-region"
+      className="evidence-region"
+      aria-label="Evidence"
+      tabIndex={-1}
+    >
       <div className="evidence-heading">
         <strong className="region-label">Evidence</strong>
         <span>{capacity.label}</span>
       </div>
       <div className="evidence-current">
-        <CurrentPassage view={view} />
-        {view.kind !== 'empty' && snapshot !== null && (
-          <div className="evidence-actions">
-            <PinButton
-              capacity={capacity}
-              label={`Pin passage at token ${(view.token + 1).toLocaleString()}`}
-              onPin={() => pinPassage(view.doc, view.token)}
-            />
+        {body}
+        {sheetEnabled && (
+          <div className="evidence-inspect-actions">
             <button
-              id="evidence-read"
+              id="evidence-more"
               type="button"
-              aria-label="Open passage in reader"
-              onClick={() => openReader(
-                {
-                  snapshot: snapshot.snapshot,
-                  doc: view.doc,
-                  token: view.token,
-                  from: 'passage',
-                },
-                'evidence-read',
-              )}
-              style={SMALL_BUTTON_STYLE}
+              onClick={() => openSheet('evidence', 'evidence-more')}
             >
-              Read
+              More evidence
             </button>
-            {!capacity.enabled && (
-              <button
-                type="button"
-                onClick={() => setPlace('findings')}
-                style={SMALL_BUTTON_STYLE}
-              >
-                manage pins
-              </button>
-            )}
+            <button
+              id="method-open"
+              type="button"
+              onClick={() => openSheet('method', 'method-open')}
+            >
+              Method
+            </button>
           </div>
         )}
       </div>

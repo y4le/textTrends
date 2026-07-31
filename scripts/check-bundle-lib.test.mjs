@@ -29,7 +29,7 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CorpusPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js","assets/FindingsPlace-6666.js"];const method="assets/MethodSummary-MMMM.js";const queries="assets/QuerySurface-QQQQ.js";const evidence="assets/EvidenceSurface-VVVV.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CorpusPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js","assets/FindingsPlace-6666.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const evidence="assets/EvidenceSurface-VVVV.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
   put('assets/CorpusPlace-1111.js', 'const cache=()=>import("./standard-ebooks-cache-CCCC.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
@@ -39,6 +39,7 @@ function syntheticDist() {
   put('assets/ComparePlace-5555.js', 'export const Compare=1;');
   put('assets/FindingsPlace-6666.js', 'export const Findings=1;');
   put('assets/MethodSummary-MMMM.js', 'export const Method=1;');
+  put('assets/MethodSurface-UUUU.js', 'const summary="assets/MethodSummary-MMMM.js";export const MethodSurface=1;');
   put('assets/QuerySurface-QQQQ.js', 'export const QuerySurface=1;');
   put('assets/EvidenceSurface-VVVV.js', 'export const EvidenceSurface=1;');
   put('assets/standard-ebooks-cache-CCCC.js', 'const lazy=()=>import("./archive-RRRR.js");export{lazy};');
@@ -146,14 +147,14 @@ describe('bundle contract', () => {
 
   it('a missing, unreferenced, or statically imported Method region fails', () => {
     const d = syntheticDist();
-    d.files.delete('assets/MethodSummary-MMMM.js');
+    d.files.delete('assets/MethodSurface-UUUU.js');
     assert.ok(run(d.files).failures.some((f) => f.includes('Method region')));
 
     const d2 = syntheticDist();
     d2.put(
       'assets/index-AAAA.js',
       d2.files.get('assets/index-AAAA.js').toString()
-        .replace('const method="assets/MethodSummary-MMMM.js";', ''),
+        .replace('const method="assets/MethodSurface-UUUU.js";', ''),
     );
     assert.ok(run(d2.files).failures.some((f) => f.includes('lazy Method region edge is gone')));
 
@@ -161,9 +162,26 @@ describe('bundle contract', () => {
     d3.put(
       'assets/index-AAAA.js',
       d3.files.get('assets/index-AAAA.js').toString()
-        + ';import"./MethodSummary-MMMM.js";',
+        + ';import"./MethodSurface-UUUU.js";',
     );
     assert.ok(run(d3.files).failures.some((f) => f.includes('Method region must stay lazy')));
+  });
+
+  it('a missing, unreferenced, or statically imported Method summary fails', () => {
+    const d = syntheticDist();
+    d.files.delete('assets/MethodSummary-MMMM.js');
+    assert.ok(run(d.files).failures.some((f) => f.includes('Method summary')));
+
+    const d2 = syntheticDist();
+    d2.put('assets/MethodSurface-UUUU.js', 'export const MethodSurface=1;');
+    assert.ok(run(d2.files).failures.some((f) => f.includes('lazy Method summary edge is gone')));
+
+    const d3 = syntheticDist();
+    d3.put(
+      'assets/MethodSurface-UUUU.js',
+      'import"./MethodSummary-MMMM.js";export const MethodSurface=1;',
+    );
+    assert.ok(run(d3.files).failures.some((f) => f.includes('Method summary must stay lazy')));
   });
 
   it('a missing, unreferenced, or statically imported Query region fails', () => {

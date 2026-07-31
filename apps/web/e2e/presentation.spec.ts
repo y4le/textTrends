@@ -52,7 +52,12 @@ for (const viewport of viewports) {
     }
     await expect(page.getByRole('complementary', { name: 'Queries' })).toHaveCount(1);
     await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(1);
-    await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(1);
+    if (viewport.width >= 1024) {
+      await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(1);
+    } else {
+      await expect(page.getByRole('button', { name: 'Method', exact: true })).toHaveCount(1);
+      await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(0);
+    }
   });
 }
 

@@ -26,14 +26,14 @@ const ConcordancePlace = lazy(() =>
 const FindingsPlace = lazy(() =>
   import('./places/FindingsPlace.tsx').then(({ FindingsPlace: placeBody }) => ({ default: placeBody })),
 );
-const MethodSummary = lazy(() =>
-  import('./components/MethodSummary.tsx').then(({ MethodSummary: summary }) => ({ default: summary })),
-);
 const QuerySurface = lazy(() =>
   import('./components/QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
 );
 const EvidenceSurface = lazy(() =>
   import('./components/EvidenceSurface.tsx').then(({ EvidenceSurface: surface }) => ({ default: surface })),
+);
+const MethodSurface = lazy(() =>
+  import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
 );
 
 function PlaceSurface({
@@ -195,15 +195,9 @@ export function App() {
           <EvidenceSurface />
         </Suspense>
       </div>
-      <section className="method-region" aria-label="Method">
-        <Suspense
-          fallback={(
-            <p className="region-placeholder">loading Method…</p>
-          )}
-        >
-          <MethodSummary place={place} />
-        </Suspense>
-      </section>
+      <Suspense fallback={null}>
+        <MethodSurface place={place} />
+      </Suspense>
       {readerPlace && (
         <Suspense fallback={null}>
           <ReaderDrawer />
