@@ -20,7 +20,9 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { barcodeTracks, orderTracks, resolveBarcodeActivation, stepTarget, trackSummaryText, type BarcodeActivation, type BarcodeTrackVM } from '../lib/barcode-view.ts';
+import { barcodeStepperFor } from '../lib/barcode-stepper.ts';
 import { slotColor } from '../lib/series-style.ts';
+import { usePresentation } from './PresentationProvider.tsx';
 
 const TRACK_H = 7;
 const TRACK_GAP = 2;
@@ -59,8 +61,11 @@ export function BarcodeStrip({
   const selectedDispersion = useApp((s) => s.selectedDispersion);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
+  const showEvidenceAt = useApp((s) => s.showEvidenceAt);
   const openReader = useApp((s) => s.openReader);
   const kwicCenter = useApp((s) => s.kwic?.center ?? null);
+  const presentation = usePresentation();
+  const coarse = presentation.pointer === 'coarse';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
   const tracks: readonly BarcodeTrackVM[] = useMemo(() => {
@@ -87,6 +92,7 @@ export function BarcodeStrip({
   };
 
   const height = tracks.length === 0 ? 0 : tracks.length * (TRACK_H + TRACK_GAP);
+  const stepper = barcodeStepperFor(tracks, focusedSeries, labelOf);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -155,6 +161,7 @@ export function BarcodeStrip({
       track.seriesId, target.doc, target.token,
       target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
     );
+    showEvidenceAt(target.doc, target.token);
     // An exact tick is authenticated occurrence evidence and can open
     // directly. A density cell is only an aggregate midpoint; it centres the
     // KWIC, whose nearest real row supplies the reader link.
@@ -179,12 +186,18 @@ export function BarcodeStrip({
     <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
       <canvas
         ref={canvasRef}
-        style={{ width, height, display: 'block' }}
-        onClick={onClick}
+        style={{
+          width,
+          height,
+          display: 'block',
+          pointerEvents: coarse ? 'none' : 'auto',
+        }}
+        onClick={coarse ? undefined : onClick}
+        data-pointer-contract={coarse ? 'read-only' : 'clickable'}
         data-selected-layer={selectedTracks.length > 0 ? 'ready' : undefined}
         aria-hidden="true"
       />
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg-muted)' }}>
+      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)', color: 'var(--fg-muted)' }}>
         <span>{axisLabel}</span>
         {tracks.map((track) => (
           <span key={track.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
@@ -197,7 +210,7 @@ export function BarcodeStrip({
                 <> · {selectedLabel(track.seriesId)} selected</>
               ) : null}
             </span>
-            {track.total > 0 && (
+            {!coarse && track.total > 0 && (
               <>
                 <button
                   type="button" style={navBtn}
@@ -214,6 +227,46 @@ export function BarcodeStrip({
           </span>
         ))}
       </div>
+      {coarse && stepper.track && (
+        <div
+          role="group"
+          aria-label="Barcode occurrence navigation"
+          style={{
+            alignItems: 'center',
+            display: 'flex',
+            flexWrap: 'wrap',
+            gap: 'var(--space-2)',
+            marginTop: 'var(--space-2)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-sm)',
+          }}
+        >
+          <span>{stepper.label}</span>
+          {stepper.fellBack && (
+            <span role="note" style={{ color: 'var(--fg-muted)' }}>
+              focused term has no delivered barcode track; showing the first track
+            </span>
+          )}
+          <button
+            type="button"
+            style={coarseNavBtn}
+            disabled={!stepper.enabled}
+            aria-label={`Previous ${labelOf(stepper.track.seriesId)} ${stepper.unit}`}
+            onClick={() => step(stepper.track!, -1)}
+          >
+            ‹
+          </button>
+          <button
+            type="button"
+            style={coarseNavBtn}
+            disabled={!stepper.enabled}
+            aria-label={`Next ${labelOf(stepper.track.seriesId)} ${stepper.unit}`}
+            onClick={() => step(stepper.track!, 1)}
+          >
+            ›
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -225,6 +278,12 @@ const navBtn = {
   border: '1px solid var(--rule)',
   cursor: 'pointer',
   padding: '0 0.5ch',
+} as const;
+
+const coarseNavBtn = {
+  ...navBtn,
+  minBlockSize: 48,
+  minInlineSize: 48,
 } as const;
 
 function colorOf(slot: number): string {

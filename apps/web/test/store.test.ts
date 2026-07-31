@@ -1392,6 +1392,78 @@ describe('store query intent discipline', () => {
     );
   });
 
+  it('showEvidenceAt loads the shared passage without re-centering or querying KWIC', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      const kwicCount = f.kwics().length;
+
+      f.store.getState().showEvidenceAt('a', 500);
+      expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 500 });
+      expect(f.passages()).toHaveLength(1);
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 2);
+      expect(f.kwics()).toHaveLength(kwicCount);
+
+      const passage = f.passages()[0]!;
+      vi.useRealTimers();
+      passage.resolve({
+        op: 'passage',
+        passage: fakePassage(400, 600, 500),
+      });
+      await flush();
+      expect(f.store.getState().passage?.result.doc).toBe('a');
+      expect(f.kwics()).toHaveLength(kwicCount);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('showEvidenceAt refuses invalid targets and its passage failure never issues KWIC', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const kwicCount = f.kwics().length;
+
+    f.store.getState().showEvidenceAt('missing', 1);
+    f.store.getState().showEvidenceAt('a', -1);
+    f.store.getState().showEvidenceAt('a', Number.MAX_SAFE_INTEGER + 1);
+    expect(f.passages()).toHaveLength(0);
+    expect(f.store.getState().scrub).toBeNull();
+
+    f.store.getState().showEvidenceAt('a', 7);
+    f.passages()[0]!.reject(new Error('passage unavailable'));
+    await flush();
+    expect(f.store.getState().scrub).toBeNull();
+    expect(f.store.getState().passage).toBeNull();
+    expect(f.kwics()).toHaveLength(kwicCount);
+  });
+
+  it('a later chart activation can re-center a position first adopted as Evidence-only', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      const kwicCount = f.kwics().length;
+
+      f.store.getState().showEvidenceAt('a', 25);
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 2);
+      expect(f.kwics()).toHaveLength(kwicCount);
+
+      f.store.getState().setScrub({ doc: 'a', token: 25 });
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      expect(f.kwics()).toHaveLength(kwicCount + 1);
+      const request = f.kwics().at(-1)!.query as {
+        request: { center?: { doc: string; token: number } };
+      };
+      expect(request.request.center).toEqual({ doc: 'a', token: 25 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('scrub: moves inside the guard band are purely local; edge moves refetch', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');

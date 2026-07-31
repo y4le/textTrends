@@ -746,6 +746,9 @@ export interface AppState {
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
+  /** Adopt a reading position and load its bounded passage without changing
+   *  concordance intent or issuing a KWIC query. */
+  showEvidenceAt(doc: string, token: number): void;
   clearScrub(): void;
   pinPassage(doc: string, token: number): void;
   removePin(id: string): void;
@@ -1110,7 +1113,10 @@ export function createAppRuntime(
   // Scrub scheduling: ONE active passage request plus ONE replaceable pending
   // target — pointer motion never queues and never cancel-storms the worker.
   let passageActiveCancel: (() => void) | null = null;
-  let passagePending: ScrubTarget | null = null;
+  let passagePending: {
+    readonly target: ScrubTarget;
+    readonly resetKwicOnFailure: boolean;
+  } | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -1645,9 +1651,10 @@ export function createAppRuntime(
 
     const pumpPassage = () => {
       if (passageActiveCancel !== null) return; // active request finishes first
-      const target = passagePending;
-      if (!target) return;
+      const intent = passagePending;
+      if (!intent) return;
       passagePending = null;
+      const { target } = intent;
       const { snapshot, series } = get();
       if (!snapshot || series.length === 0) return;
       const tracks = trackSpecs(series);
@@ -1694,16 +1701,49 @@ export function createAppRuntime(
           if (!settleOwnership()) return;
           if (!isCancelled(e) && current()) {
             // A rejected center (stale geometry) or failed read: drop the
-            // scrub rather than display a block that does not match it. The
-            // concordance center goes with it so it cannot resurrect.
-            set({ passage: null, scrub: null });
-            passagePending = null;
-            resetKwicCenter();
-            runKwic();
-            return;
+            // scrub rather than display a block that does not match it. Only
+            // raw chart scrubbing owns concordance intent; an Evidence-only
+            // adoption must never issue a KWIC query on its failure path.
+            const scrub = get().scrub;
+            const targetStillCurrent =
+              scrub?.doc === target.doc && scrub.token === target.token;
+            if (targetStillCurrent) {
+              set({ passage: null, scrub: null });
+              if (intent.resetKwicOnFailure) {
+                resetKwicCenter();
+                runKwic();
+              }
+            }
           }
           pumpPassage();
         });
+    };
+
+    /** Adopt one validated reading target into the shared Evidence tier.
+     *  Returns whether the reading position changed; passage loading remains
+     *  one-active/one-replaceable and is deliberately independent of KWIC. */
+    const adoptEvidenceTarget = (
+      target: ScrubTarget,
+      resetKwicOnFailure: boolean,
+    ): boolean => {
+      const { snapshot, passage } = get();
+      if (
+        !snapshot
+        || !snapshot.readyDocs.includes(target.doc)
+        || !Number.isSafeInteger(target.token)
+        || target.token < 0
+      ) return false;
+      const tokenCount = docTokenCountOf(target.doc);
+      if (tokenCount !== null && target.token >= tokenCount) return false;
+
+      const prev = get().scrub;
+      const changed = !prev || prev.doc !== target.doc || prev.token !== target.token;
+      if (changed) set({ scrub: target });
+      if (!passage || !blockServes(passage, target)) {
+        passagePending = { target, resetKwicOnFailure };
+        pumpPassage();
+      }
+      return changed;
     };
 
     /** (Re)issue the SELECTED-range overlays (trends + dispersion) for the
@@ -2288,14 +2328,17 @@ export function createAppRuntime(
       },
 
       setScrub(target) {
-        const prev = get().scrub;
-        if (prev && prev.doc === target.doc && prev.token === target.token) return;
-        set({ scrub: target });
+        const changed = adoptEvidenceTarget(target, true);
+        const alreadySettled =
+          kwicCenter?.doc === target.doc
+          && kwicCenter.token === target.token
+          && kwicCenter.origin === undefined;
+        if (!changed && alreadySettled) return;
         scheduleKwicCenter(target); // debounced concordance re-centre on the axis
-        const { passage } = get();
-        if (passage && blockServes(passage, target)) return; // purely local move
-        passagePending = target; // replaceable slot — motion never queues
-        pumpPassage();
+      },
+
+      showEvidenceAt(doc, token) {
+        adoptEvidenceTarget({ doc, token }, false);
       },
 
       clearScrub() {
@@ -2702,7 +2745,7 @@ export function createAppRuntime(
         }
         const scrub = get().scrub;
         if (scrub) {
-          passagePending = scrub;
+          passagePending = { target: scrub, resetKwicOnFailure: true };
           pumpPassage();
         }
 
