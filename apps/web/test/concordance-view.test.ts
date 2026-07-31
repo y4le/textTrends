@@ -1,0 +1,64 @@
+import { describe, expect, it } from 'vitest';
+import {
+  concordanceMethodLine,
+  concordanceRows,
+  nodeCenterOffset,
+  oneLine,
+} from '../src/lib/concordance-view.ts';
+import type { KwicRowView } from '../src/lib/store.ts';
+
+const ROW: KwicRowView = {
+  seriesId: 'series-a',
+  groupId: 'group-a',
+  members: [0],
+  node: { start: 10, end: 11 },
+  doc: 'book-a',
+  pos: 10,
+  left: '  all   the\ncontext before  ',
+  nodeText: '\nHolmes ',
+  right: '  context\tafter the node  ',
+};
+
+describe('Concordance presentation', () => {
+  it('collapses display whitespace and trims only the rendered edges', () => {
+    expect(oneLine(' a\n\t b ')).toBe('a b');
+    const [row] = concordanceRows(
+      [ROW],
+      12,
+      () => 'Holmes',
+      () => 2,
+      () => 'The Adventures',
+    );
+    expect(row).toMatchObject({
+      label: 'Holmes',
+      slot: 2,
+      title: 'The Adventures',
+      leftFull: 'all the context before',
+      leftShown: 'ntext before',
+      nodeText: 'Holmes',
+      rightFull: 'context after the node',
+      rightShown: 'context afte',
+    });
+  });
+
+  it('rejects invalid rendered context widths', () => {
+    expect(() => concordanceRows([ROW], 0, String, () => 0, String)).toThrow(
+      'context width must be a positive integer',
+    );
+  });
+
+  it('centers the shared node column without producing negative scroll', () => {
+    expect(nodeCenterOffset(320, 500, 80)).toBe(380);
+    expect(nodeCenterOffset(800, 120, 80)).toBe(0);
+    expect(nodeCenterOffset(Number.NaN, 120, 80)).toBe(0);
+  });
+
+  it('states whether reading position participates in ordering', () => {
+    expect(concordanceMethodLine('proximity', 38)).toContain(
+      'nearest reading position',
+    );
+    expect(concordanceMethodLine('L1', 24)).toBe(
+      'order: first L1 collocate · reading-order tiebreak · reading position is not used · context: 6 tokens served per side, up to 24 characters shown',
+    );
+  });
+});

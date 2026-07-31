@@ -1,200 +1,419 @@
 /**
- * KWIC concordance — the merged evidence layer for ALL enabled terms, ordered
- * by proximity to the current axis position (the served `center`), or reading
- * order when no position is set. Each occurrence's node is drawn in its own
- * series colour; per-term toggle chips (accessible, `aria-pressed`, not colour
- * alone) add or remove a term from the merge without touching the chart's
- * focused series. The table IS the visualization.
+ * Concordance is an evidence table, not a miniature chart. Its aligned mode
+ * keeps every node on one locked vertical axis inside a single horizontal
+ * port; reading mode trades that alignment for wrapped, complete context.
  */
 
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { kwicCaptionText } from '../lib/barcode-view.ts';
-import { kwicRowKey, type KwicRowView } from '../lib/store.ts';
+import {
+  concordanceMethodLine,
+  concordanceRows,
+  CONTEXT_CHAR_CHOICES,
+  nodeCenterOffset,
+  type ConcordanceRowVM,
+} from '../lib/concordance-view.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
-
-/** One display line per occurrence: the source text's own line breaks (and
- *  any whitespace runs) collapse to single spaces before the fixed-width
- *  slice — presentation only, the underlying text is untouched. */
-const oneLine = (s: string) => s.replace(/\s+/g, ' ');
+import { usePresentation } from './PresentationProvider.tsx';
 
 export function KwicPanel({
   showHeading = true,
 }: {
   readonly showHeading?: boolean;
 }) {
-  const kwic = useApp((s) => s.kwic);
-  const project = useApp((s) => s.projectSession?.project ?? null);
-  const series = useApp((s) => s.series);
-  const enabled = useApp((s) => s.kwicEnabledSeries);
-  const toggle = useApp((s) => s.toggleKwicSeries);
-  const openReader = useApp((s) => s.openReader);
+  const kwic = useApp((state) => state.kwic);
+  const project = useApp((state) => state.projectSession?.project ?? null);
+  const snapshot = useApp((state) => state.snapshot);
+  const selection = useApp((state) => state.linkedSelection);
+  const series = useApp((state) => state.series);
+  const enabled = useApp((state) => state.kwicEnabledSeries);
+  const view = useApp((state) => state.concordanceView);
+  const toggle = useApp((state) => state.toggleKwicSeries);
+  const setSort = useApp((state) => state.setConcordanceSort);
+  const setContext = useApp((state) => state.setConcordanceContext);
+  const setReading = useApp((state) => state.setConcordanceReading);
+  const showEvidenceAt = useApp((state) => state.showEvidenceAt);
+  const openReader = useApp((state) => state.openReader);
+  const presentation = usePresentation();
+
+  const portRef = useRef<HTMLDivElement | null>(null);
+  const nodeHeadingRef = useRef<HTMLTableCellElement | null>(null);
+  const rowRefs = useRef(new Map<string, HTMLTableRowElement | HTMLDivElement>());
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+
+  const seriesById = useMemo(
+    () => new Map(series.map((item) => [item.id, item])),
+    [series],
+  );
+  const titleByDoc = useMemo(
+    () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
+    [project],
+  );
+  const labelOf = useCallback(
+    (id: string) => seriesById.get(id)?.label ?? id,
+    [seriesById],
+  );
+  const slotOf = useCallback(
+    (id: string) => seriesById.get(id)?.styleSlot ?? 0,
+    [seriesById],
+  );
+  const titleOf = useCallback(
+    (doc: string) => titleByDoc.get(doc) ?? doc,
+    [titleByDoc],
+  );
+
+  const readyRows = kwic?.state.status === 'ready' ? kwic.state.rows : [];
+  const rows = useMemo(
+    () => concordanceRows(readyRows, view.contextChars, labelOf, slotOf, titleOf),
+    [readyRows, view.contextChars, labelOf, slotOf, titleOf],
+  );
+  const rowIdentity = rows.map((row) => row.key).join('\u001f');
+
+  const recenter = useCallback(() => {
+    const port = portRef.current;
+    const node = nodeHeadingRef.current;
+    if (!port || !node || view.reading !== 'aligned') return;
+    const portRect = port.getBoundingClientRect();
+    const nodeRect = node.getBoundingClientRect();
+    const nodeLeftInContent = nodeRect.left - portRect.left + port.scrollLeft;
+    port.scrollLeft = nodeCenterOffset(
+      port.clientWidth,
+      nodeLeftInContent,
+      nodeRect.width,
+    );
+  }, [view.reading]);
+
+  useLayoutEffect(() => {
+    recenter();
+  }, [recenter, rowIdentity, view.contextChars]);
+
+  useEffect(() => {
+    setActiveKey(null);
+    rowRefs.current.clear();
+  }, [rowIdentity]);
 
   if (series.length === 0) return null;
-  // Map lookups, built once per render — the table does up to 50 rows × 5
-  // cells of these (matching TrendPanel's titleByDoc pattern).
-  const seriesById = new Map(series.map((s) => [s.id, s]));
-  const slotOf = (id: string) => seriesById.get(id)?.styleSlot ?? 0;
-  const labelOf = (id: string) => seriesById.get(id)?.label ?? id;
-  // Presentation titles come from document metadata — doc ids are opaque
-  // identity (user projects use UUIDs).
-  const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
-  const titleOf = (doc: string) => titleByDoc.get(doc) ?? doc;
 
-  const table = (total: number, rows: readonly KwicRowView[]) => (
+  const caption = kwicCaptionText(
+    kwic?.center ?? null,
+    rows[0]?.pos ?? null,
+    titleOf,
+  );
+  const scope = selection
+    ? `selected range in ${titleOf(selection.doc)}`
+    : `${snapshot?.readyDocs.length ?? 0} ready book${snapshot?.readyDocs.length === 1 ? '' : 's'}`;
+  const activeIndex = activeKey === null
+    ? -1
+    : rows.findIndex((row) => row.key === activeKey);
+
+  const activate = (index: number) => {
+    const row = rows[index];
+    if (!row) return;
+    setActiveKey(row.key);
+    showEvidenceAt(row.doc, row.pos);
+    rowRefs.current.get(row.key)?.scrollIntoView({
+      block: 'nearest',
+      inline: 'nearest',
+    });
+    if (view.reading === 'aligned') requestAnimationFrame(recenter);
+  };
+
+  const readerId = (row: ConcordanceRowVM) =>
+    `kwic-reader-${encodeURIComponent(row.key)}`;
+
+  const openRowReader = (row: ConcordanceRowVM) => {
+    if (!kwic) return;
+    openReader(
+      {
+        snapshot: kwic.snapshot,
+        doc: row.doc,
+        token: row.pos,
+        from: 'kwic',
+      },
+      readerId(row),
+    );
+  };
+
+  const resultBar = kwic?.state.status === 'ready' && rows.length > 0 ? (
+    <div className="kwic-result-bar">
+      <p role="status">
+        <strong>{rows.length} of {kwic.state.total.toLocaleString()}</strong>
+        {' '}occurrences · {scope}
+      </p>
+      <div className="kwic-result-actions" aria-label="Occurrence navigation">
+        <button
+          type="button"
+          onClick={() => activate(activeIndex < 0 ? rows.length - 1 : activeIndex - 1)}
+          disabled={activeIndex === 0}
+        >
+          previous
+        </button>
+        <output aria-live="polite">
+          {activeIndex < 0 ? '—' : activeIndex + 1} / {rows.length}
+        </output>
+        <button
+          type="button"
+          onClick={() => activate(activeIndex < 0 ? 0 : activeIndex + 1)}
+          disabled={activeIndex === rows.length - 1}
+        >
+          next
+        </button>
+        {view.reading === 'aligned' && (
+          <button type="button" onClick={recenter}>
+            recenter node
+          </button>
+        )}
+      </div>
+    </div>
+  ) : null;
+
+  const alignedTable = (total: number) => (
     <div
-      className="horizontal-data-port"
+      ref={portRef}
+      className="horizontal-data-port kwic-aligned-port"
       role="region"
       tabIndex={0}
       aria-label="Scrollable concordance table"
     >
-      <table
-        aria-label="Concordance"
-        style={{ fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', borderCollapse: 'collapse', whiteSpace: 'pre' }}
-      >
-      <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
-        Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences
-      </caption>
-      <thead>
-        <tr style={{ color: 'var(--fg-muted)' }}>
-          <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>term</th>
-          <th scope="col" style={{ textAlign: 'right', fontWeight: 400 }}>book</th>
-          <th scope="col" style={{ textAlign: 'right', fontWeight: 400 }}>left context</th>
-          <th scope="col" style={{ fontWeight: 400 }}>node</th>
-          <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>right context</th>
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((r) => (
-          <tr key={kwicRowKey(r)} style={{ borderTop: '1px solid var(--rule)' }}>
-            <td style={{ color: slotColor(slotOf(r.seriesId)), paddingRight: '1ch', whiteSpace: 'nowrap' }}>{labelOf(r.seriesId)}</td>
-            <td style={{ color: 'var(--fg-muted)', paddingRight: '1ch', textAlign: 'right' }}>{titleOf(r.doc).slice(0, 12)}</td>
-            <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>
-            <td style={{ padding: '0 1ch' }}>
-              <button
-                id={`kwic-row-${kwicRowKey(r)}`}
-                type="button"
-                onClick={() => {
-                  if (!kwic) return;
-                  openReader(
-                    {
-                      snapshot: kwic.snapshot,
-                      doc: r.doc,
-                      token: r.pos,
-                      from: 'kwic',
-                    },
-                    `kwic-row-${kwicRowKey(r)}`,
-                  );
-                }}
-                title="Open this occurrence in the reader"
-                style={{
-                  font: 'inherit',
-                  color: slotColor(slotOf(r.seriesId)),
-                  background: 'none',
-                  border: 0,
-                  padding: 0,
-                  cursor: 'pointer',
-                  fontWeight: 600,
-                }}
-              >
-                {oneLine(r.nodeText)}
-              </button>
-            </td>
-            <td style={{ color: 'var(--fg-muted)' }}>{oneLine(r.right).slice(0, 38)}</td>
+      <table aria-label="Concordance" className="kwic-table">
+        <caption className="kwic-caption">
+          Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
+        </caption>
+        <colgroup>
+          <col className="kwic-col-term" />
+          <col className="kwic-col-book" />
+          <col className="kwic-col-left" />
+          <col className="kwic-col-node" />
+          <col className="kwic-col-right" />
+          <col className="kwic-col-action" />
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col">term</th>
+            <th scope="col">book</th>
+            <th scope="col">left context</th>
+            <th ref={nodeHeadingRef} scope="col">node</th>
+            <th scope="col">right context</th>
+            <th scope="col">evidence</th>
           </tr>
-        ))}
-      </tbody>
+        </thead>
+        <tbody>
+          {rows.map((row, index) => (
+            <tr
+              key={row.key}
+              ref={(element) => {
+                if (element) rowRefs.current.set(row.key, element);
+                else rowRefs.current.delete(row.key);
+              }}
+              data-active={row.key === activeKey || undefined}
+            >
+              <td
+                title={row.label}
+                style={{ color: slotColor(row.slot) }}
+              >
+                {row.label}
+              </td>
+              <td title={row.title}>{row.title}</td>
+              <td className="kwic-left-context">
+                <span aria-hidden="true">{row.leftShown}</span>
+                <span className="visually-hidden">{row.leftFull}</span>
+              </td>
+              <td className="kwic-node">
+                <button
+                  id={readerId(row)}
+                  type="button"
+                  onClick={() => openRowReader(row)}
+                  title="Open this occurrence in the reader"
+                  style={{ color: slotColor(row.slot) }}
+                >
+                  {row.nodeText}
+                </button>
+              </td>
+              <td className="kwic-right-context">
+                <span aria-hidden="true">{row.rightShown}</span>
+                <span className="visually-hidden">{row.rightFull}</span>
+              </td>
+              <td>
+                <button
+                  type="button"
+                  aria-label={`Show evidence for ${row.nodeText} in ${row.title}`}
+                  onClick={() => activate(index)}
+                >
+                  Evidence
+                </button>
+              </td>
+            </tr>
+          ))}
+        </tbody>
       </table>
     </div>
   );
 
-  // Every pending load: reserve a few rows of height so the result lands into
-  // space that already exists rather than pushing the page.
-  const skeleton = (
-    <div aria-hidden="true" style={{ opacity: 0.4 }}>
-      {Array.from({ length: 6 }, (_, i) => (
+  const stackedRows = (total: number) => (
+    <div className="kwic-reading" aria-label="Concordance reading view">
+      <p role="note">Alignment is off in reading mode.</p>
+      <p className="kwic-caption">
+        Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
+      </p>
+      {rows.map((row, index) => (
         <div
-          key={i}
-          style={{ height: '1.35em', margin: '0.35em 0', background: 'var(--rule)', maxWidth: `${70 - i * 4}%` }}
-        />
+          key={row.key}
+          ref={(element) => {
+            if (element) rowRefs.current.set(row.key, element);
+            else rowRefs.current.delete(row.key);
+          }}
+          className="kwic-reading-row"
+          data-active={row.key === activeKey || undefined}
+        >
+          <p className="kwic-reading-source">
+            <span style={{ color: slotColor(row.slot) }}>{row.label}</span>
+            {' · '}{row.title}
+          </p>
+          <p className="kwic-reading-context">
+            {row.leftFull}{' '}
+            <button
+              id={readerId(row)}
+              type="button"
+              onClick={() => openRowReader(row)}
+              title="Open this occurrence in the reader"
+              style={{ color: slotColor(row.slot) }}
+            >
+              {row.nodeText}
+            </button>
+            {' '}{row.rightFull}
+          </p>
+          <button
+            type="button"
+            aria-label={`Show evidence for ${row.nodeText} in ${row.title}`}
+            onClick={() => activate(index)}
+          >
+            Evidence
+          </button>
+        </div>
       ))}
     </div>
   );
 
-  // Per-term toggle chips: every series, on/off, independent of chart focus.
+  const skeleton = (
+    <div aria-hidden="true" className="kwic-skeleton">
+      {Array.from({ length: 6 }, (_, index) => (
+        <div key={index} style={{ maxWidth: `${70 - index * 4}%` }} />
+      ))}
+    </div>
+  );
+
   const chips = (
-    <div role="group" aria-label="Concordance terms" style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', marginBottom: 'var(--space-2)' }}>
-      <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)' }}>terms:</span>
-      {series.map((s) => {
-        const on = enabled.has(s.id);
+    <div
+      role="group"
+      aria-label="Concordance terms"
+      className="kwic-term-chips"
+      data-compact={presentation.width === 'compact' || undefined}
+    >
+      <span>terms:</span>
+      {series.map((item) => {
+        const on = enabled.has(item.id);
         return (
           <button
-            key={s.id}
+            key={item.id}
             type="button"
-            onClick={() => toggle(s.id)}
+            onClick={() => toggle(item.id)}
             aria-pressed={on}
-            title={on ? `hide “${s.label}” from the concordance` : `show “${s.label}” in the concordance`}
-            style={{
-              font: 'inherit',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-xs)',
-              color: on ? 'var(--fg)' : 'var(--fg-muted)',
-              background: 'none',
-              border: '1px solid',
-              borderColor: on ? 'var(--rule-strong)' : 'var(--rule)',
-              cursor: 'pointer',
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: '0.75ch',
-              padding: '1px 0.75ch',
-              opacity: on ? 1 : 0.6,
-            }}
+            title={on
+              ? `hide “${item.label}” from the concordance`
+              : `show “${item.label}” in the concordance`}
           >
-            <SeriesLineSample slot={s.styleSlot} emphasized={on} />
-            {on ? '✓ ' : ''}{s.label}
+            <SeriesLineSample slot={item.styleSlot} emphasized={on} />
+            {on ? '✓ ' : ''}{item.label}
           </button>
         );
       })}
     </div>
   );
 
-  const caption = kwicCaptionText(
-    kwic?.center ?? null,
-    kwic?.state.status === 'ready' && kwic.state.rows.length > 0 ? kwic.state.rows[0]!.pos : null,
-    titleOf,
+  const controls = (
+    <div className="kwic-controls" aria-label="Concordance display">
+      <label>
+        order
+        <select
+          aria-label="Concordance order"
+          value={view.sort}
+          onChange={(event) => setSort(event.currentTarget.value as typeof view.sort)}
+        >
+          <option value="proximity">nearest position</option>
+          <option value="L1">first left word</option>
+          <option value="R1">first right word</option>
+          <option value="R2">second right word</option>
+        </select>
+      </label>
+      <label>
+        shown context
+        <select
+          aria-label="Shown context characters"
+          value={view.contextChars}
+          onChange={(event) => setContext(Number(event.currentTarget.value) as typeof view.contextChars)}
+        >
+          {CONTEXT_CHAR_CHOICES.map((chars) => (
+            <option key={chars} value={chars}>{chars} characters</option>
+          ))}
+        </select>
+      </label>
+      <fieldset>
+        <legend>reading</legend>
+        <button
+          type="button"
+          aria-pressed={view.reading === 'aligned'}
+          onClick={() => setReading('aligned')}
+        >
+          aligned
+        </button>
+        <button
+          type="button"
+          aria-pressed={view.reading === 'stacked'}
+          onClick={() => setReading('stacked')}
+        >
+          wrapped
+        </button>
+      </fieldset>
+    </div>
   );
 
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode = null;
   if (status === 'no-terms') {
-    body = <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>No concordance terms enabled.</p>;
+    body = <p className="kwic-message">No concordance terms enabled.</p>;
   } else if (status === 'error') {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
-    body = <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>concordance failed: {message}</p>;
+    body = <p className="kwic-message kwic-error">concordance failed: {message}</p>;
   } else if (status === 'pending') {
-    // EVIDENCE DISCIPLINE (pass-2 ruling): the panel renders ONLY rows the
-    // current store state owns. A component-local "last table" cache showed
-    // center-A rows under a center-B caption during reloads — the skeleton
-    // reserves height instead, so the page still never shoves.
     body = skeleton;
-  } else if (kwic?.state.status === 'ready' && kwic.state.rows.length === 0) {
-    body = <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>No occurrences of the enabled terms.</p>;
+  } else if (kwic?.state.status === 'ready' && rows.length === 0) {
+    body = <p className="kwic-message">No occurrences of the enabled terms.</p>;
   } else if (kwic?.state.status === 'ready') {
-    body = table(kwic.state.total, kwic.state.rows);
+    body = view.reading === 'aligned'
+      ? alignedTable(kwic.state.total)
+      : stackedRows(kwic.state.total);
   }
 
   return (
     <section
       aria-labelledby={showHeading ? 'concordance-heading' : undefined}
       aria-label={showHeading ? undefined : 'Concordance results'}
-      style={{ marginTop: 'var(--space-3)' }}
+      className="kwic-panel"
     >
-      {showHeading && (
-        <h2 id="concordance-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
-          Concordance
-        </h2>
-      )}
+      {showHeading && <h2 id="concordance-heading">Concordance</h2>}
       {chips}
+      {controls}
+      <p className="kwic-method">{concordanceMethodLine(view.sort, view.contextChars)}</p>
+      {resultBar}
       {body}
     </section>
   );

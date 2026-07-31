@@ -63,7 +63,10 @@ export function BarcodeStrip({
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const showEvidenceAt = useApp((s) => s.showEvidenceAt);
   const openReader = useApp((s) => s.openReader);
-  const kwicCenter = useApp((s) => s.kwic?.center ?? null);
+  // Navigation follows the live evidence position, not the request echo:
+  // collocate Concordance orders correctly omit a KWIC center but must not
+  // make the independent barcode stepper restart at its first occurrence.
+  const evidenceAnchor = useApp((s) => s.scrub);
   const presentation = usePresentation();
   const coarse = presentation.pointer === 'coarse';
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -177,9 +180,9 @@ export function BarcodeStrip({
 
   /** Keyboard navigation for BOTH representations: exact tracks step
    *  occurrences, density tracks step nonzero buckets (midpoints) — always
-   *  relative to the current concordance center. */
+   *  relative to the live evidence position. */
   const step = (track: BarcodeTrackVM, dir: 1 | -1) => {
-    activate(track, stepTarget(track, docs, kwicCenter, dir));
+    activate(track, stepTarget(track, docs, evidenceAnchor, dir));
   };
 
   return (

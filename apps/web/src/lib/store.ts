@@ -487,6 +487,18 @@ function keynessTableIntentKey(
 
 export type TrendView = 'series' | 'by-book';
 
+/** Concordance presentation + ordering intent. This is deliberately fenced
+ * from durable research state: reading mode and rendered context are local
+ * presentation, while changing order reissues only the KWIC lane. */
+export type ConcordanceSortMode = 'proximity' | 'L1' | 'R1' | 'R2';
+export type ConcordanceReadingMode = 'aligned' | 'stacked';
+
+export interface ConcordanceView {
+  readonly sort: ConcordanceSortMode;
+  readonly contextChars: 12 | 24 | 38 | 60;
+  readonly reading: ConcordanceReadingMode;
+}
+
 /** The scrubbed reading position — document-local, view-independent. */
 export interface ScrubTarget {
   readonly doc: string;
@@ -628,6 +640,8 @@ export interface AppState {
    *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
    *  surviving series (by presentation id). */
   kwicEnabledSeries: ReadonlySet<string>;
+  /** Session-local Concordance controls. Never serialized or autosaved. */
+  concordanceView: ConcordanceView;
   /** The barcode's dispersion result (null = no comparison/corpus). */
   dispersion: DispersionState | null;
   /** The ONE transient linked token-range selection (ruling §2): single-doc,
@@ -707,6 +721,9 @@ export interface AppState {
   /** Toggle a term in/out of the merged concordance; reissues ONLY the KWIC
    *  query, immediately, against the latest axis position. */
   toggleKwicSeries(seriesId: string): void;
+  setConcordanceSort(sort: ConcordanceSortMode): void;
+  setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
+  setConcordanceReading(reading: ConcordanceReadingMode): void;
   setTrendView(view: TrendView): void;
   /** Center the concordance on activated barcode evidence IMMEDIATELY (no
    *  scrub debounce). Carries the activated series: a deliberate occurrence
@@ -1833,7 +1850,7 @@ export function createAppRuntime(
      *  SETTLED axis position (`kwicCenter`). Independent of `focusedSeries`. */
     const runKwic = () => {
       kwicLane.supersede(); // even a no-query outcome supersedes in-flight work
-      const { snapshot, series, kwicEnabledSeries } = get();
+      const { snapshot, series, kwicEnabledSeries, concordanceView } = get();
       // No snapshot, or no terms at all (blank input) → no panel (kwic null),
       // distinct from "terms exist but all toggled off" (the no-terms state).
       if (!snapshot || series.length === 0) {
@@ -1842,7 +1859,11 @@ export function createAppRuntime(
       }
       // The center must name a ready doc at issue time; a stale center (its doc
       // departed on a new snapshot) degrades to reading order, never a clamp.
-      const center = kwicCenter && snapshot.readyDocs.includes(kwicCenter.doc) ? kwicCenter : null;
+      const center = concordanceView.sort === 'proximity'
+        && kwicCenter
+        && snapshot.readyDocs.includes(kwicCenter.doc)
+        ? kwicCenter
+        : null;
       const enabled = series.filter((s) => kwicEnabledSeries.has(s.id));
       if (enabled.length === 0) {
         // Zero enabled terms: clear rows, issue no query, keep the panel + chips.
@@ -1872,7 +1893,13 @@ export function createAppRuntime(
           request: {
             contextTokens: 6,
             ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
-            sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
+            sort: concordanceView.sort === 'proximity'
+              ? [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }]
+              : [
+                  { at: concordanceView.sort, dir: 1 },
+                  { at: 'doc', dir: 1 },
+                  { at: 'pos', dir: 1 },
+                ],
             page: { offset: 0, limit: 50 },
           },
         },
@@ -1912,8 +1939,12 @@ export function createAppRuntime(
       // With every term toggled off the panel MUST keep its explicit no-terms
       // state — scrubbing must not flip it to "finding examples…". The next
       // toggle adopts the live scrub, so nothing is lost.
-      const { series, kwicEnabledSeries } = get();
+      const { series, kwicEnabledSeries, concordanceView } = get();
       if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
+      // Collocate sorts deliberately do not depend on reading position. Raw
+      // evidence navigation therefore leaves their resident ordering intact;
+      // returning to proximity adopts the live scrub in one explicit reissue.
+      if (concordanceView.sort !== 'proximity') return;
       kwicLane.supersede(); // any in-flight KWIC result was under the old center — drop it
       const held = get().kwic;
       if (held && held.state.status !== 'pending') {
@@ -2137,6 +2168,11 @@ export function createAppRuntime(
       kwic: null,
       // Every term appears in the concordance by default.
       kwicEnabledSeries: new Set<string>(),
+      concordanceView: {
+        sort: 'proximity',
+        contextChars: 38,
+        reading: 'aligned',
+      },
       dispersion: null,
       linkedSelection: null,
       selectedTrends: new Map(),
@@ -2309,6 +2345,38 @@ export function createAppRuntime(
         const scrub = get().scrub;
         if (scrub && get().snapshot?.readyDocs.includes(scrub.doc)) kwicCenter = scrub;
         runKwic();
+      },
+
+      setConcordanceSort(sort) {
+        if (!(['proximity', 'L1', 'R1', 'R2'] as const).includes(sort)) return;
+        const state = get();
+        if (state.concordanceView.sort === sort) return;
+        if (kwicCenterTimer !== null) {
+          clearTimeout(kwicCenterTimer);
+          kwicCenterTimer = null;
+        }
+        if (sort === 'proximity') {
+          const scrub = state.scrub;
+          kwicCenter = scrub && state.snapshot?.readyDocs.includes(scrub.doc)
+            ? scrub
+            : null;
+        }
+        set({ concordanceView: { ...state.concordanceView, sort } });
+        runKwic();
+      },
+
+      setConcordanceContext(contextChars) {
+        if (!([12, 24, 38, 60] as const).includes(contextChars)) return;
+        const view = get().concordanceView;
+        if (view.contextChars === contextChars) return;
+        set({ concordanceView: { ...view, contextChars } });
+      },
+
+      setConcordanceReading(reading) {
+        if (!(['aligned', 'stacked'] as const).includes(reading)) return;
+        const view = get().concordanceView;
+        if (view.reading === reading) return;
+        set({ concordanceView: { ...view, reading } });
       },
 
       setTrendView(view) {
@@ -3513,6 +3581,7 @@ export function createAppRuntime(
       centerKwicAt(seriesId, doc, token, origin) {
         const state = get();
         if (!state.snapshot?.readyDocs.includes(doc)) return;
+        let queryIntentChanged = false;
         // A DELIBERATE click outside the active range clears the range first
         // (visibly — the shading and overlays drop) so the clicked evidence
         // can appear in the range-scoped concordance (ruling §2).
@@ -3520,6 +3589,7 @@ export function createAppRuntime(
         if (sel !== null && (doc !== sel.doc || token < sel.tokens.start || token >= sel.tokens.end)) {
           set({ linkedSelection: null });
           runSelected();
+          queryIntentChanged = true;
         }
         // The activated track must be able to appear in the result: a
         // disabled chip is re-enabled (visible state change, not a silent
@@ -3528,12 +3598,15 @@ export function createAppRuntime(
           const next = new Set(state.kwicEnabledSeries);
           next.add(seriesId);
           set({ kwicEnabledSeries: next });
+          queryIntentChanged = true;
         }
         // IMMEDIATE evidence: cancel any pending debounce and adopt the
         // position as the concordance center (like the chip toggle path).
         if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         kwicCenter = origin ? { doc, token, origin: 'bucket', bucketCount: origin.count } : { doc, token };
-        runKwic();
+        // A collocate order is independent of reading position. Reissue only
+        // when activation also changed the range or enabled-track intent.
+        if (state.concordanceView.sort === 'proximity' || queryIntentChanged) runKwic();
       },
 
       runStructure() {

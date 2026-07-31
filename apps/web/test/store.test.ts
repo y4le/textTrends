@@ -1313,6 +1313,81 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().trendView).toBe('series');
   });
 
+  it('keeps Concordance reading and context local while sort alone reissues KWIC', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    const before = researchSemanticKey(f.store.getState());
+    const issued = f.issued.length;
+
+    f.store.getState().setConcordanceReading('stacked');
+    f.store.getState().setConcordanceContext(24);
+    expect(f.store.getState().concordanceView).toMatchObject({
+      reading: 'stacked',
+      contextChars: 24,
+    });
+    expect(researchSemanticKey(f.store.getState())).toBe(before);
+    expect(f.issued).toHaveLength(issued);
+
+    f.store.getState().setConcordanceSort('L1');
+    expect(f.issued).toHaveLength(issued + 1);
+    const request = f.kwics().at(-1)!.query as {
+      request: {
+        center?: { doc: string; token: number };
+        sort: readonly { at: string; dir: number }[];
+      };
+    };
+    expect(request.request.center).toBeUndefined();
+    expect(request.request.sort).toEqual([
+      { at: 'L1', dir: 1 },
+      { at: 'doc', dir: 1 },
+      { at: 'pos', dir: 1 },
+    ]);
+    expect(researchSemanticKey(f.store.getState())).toBe(before);
+  });
+
+  it('does not requery a collocate order while the reading position moves', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1');
+      f.store.getState().quickAdd('holmes');
+      f.store.getState().setConcordanceSort('R2');
+      const issued = f.kwics().length;
+      f.store.getState().setScrub({ doc: 'a', token: 20 });
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS + 1);
+      expect(f.kwics()).toHaveLength(issued);
+
+      f.store.getState().setConcordanceSort('proximity');
+      expect(f.kwics()).toHaveLength(issued + 1);
+      const request = f.kwics().at(-1)!.query as {
+        request: { center?: { doc: string; token: number } };
+      };
+      expect(request.request.center).toEqual({ doc: 'a', token: 20 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not requery collocate order for barcode evidence unless query intent changes', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes, moriarty');
+    f.store.getState().setConcordanceSort('L1');
+    const holmes = f.store.getState().series[0]!.id;
+    const moriarty = f.store.getState().series[1]!.id;
+    let issued = f.kwics().length;
+
+    f.store.getState().centerKwicAt(holmes, 'a', 20);
+    expect(f.kwics()).toHaveLength(issued);
+
+    f.store.getState().toggleKwicSeries(moriarty);
+    issued = f.kwics().length;
+    f.store.getState().centerKwicAt(moriarty, 'a', 30);
+    expect(f.kwics()).toHaveLength(issued + 1);
+    expect(f.store.getState().kwicEnabledSeries.has(moriarty)).toBe(true);
+  });
+
   it('clears results to pending on reissue — old arrays are never relabeled', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');

@@ -1,0 +1,82 @@
+import {
+  kwicRowKey,
+  type ConcordanceSortMode,
+  type KwicRowView,
+} from './store.ts';
+
+export const KWIC_SERVED_CONTEXT_TOKENS = 6;
+export const CONTEXT_CHAR_CHOICES = [12, 24, 38, 60] as const;
+export const DEFAULT_CONTEXT_CHARS = 38;
+
+export interface ConcordanceRowVM {
+  readonly key: string;
+  readonly seriesId: string;
+  readonly label: string;
+  readonly slot: number;
+  readonly doc: string;
+  readonly title: string;
+  readonly pos: number;
+  readonly leftFull: string;
+  readonly leftShown: string;
+  readonly nodeText: string;
+  readonly rightFull: string;
+  readonly rightShown: string;
+  readonly source: KwicRowView;
+}
+
+/** Collapse source whitespace for one-line display without changing the
+ * underlying result or its complete accessible string. */
+export function oneLine(value: string): string {
+  return value.replace(/\s+/g, ' ').trim();
+}
+
+export function concordanceRows(
+  rows: readonly KwicRowView[],
+  contextChars: number,
+  labelOf: (seriesId: string) => string,
+  slotOf: (seriesId: string) => number,
+  titleOf: (doc: string) => string,
+): readonly ConcordanceRowVM[] {
+  if (!Number.isSafeInteger(contextChars) || contextChars < 1) {
+    throw new RangeError('context width must be a positive integer');
+  }
+  return rows.map((source) => {
+    const leftFull = oneLine(source.left);
+    const rightFull = oneLine(source.right);
+    return {
+      key: kwicRowKey(source),
+      seriesId: source.seriesId,
+      label: labelOf(source.seriesId),
+      slot: slotOf(source.seriesId),
+      doc: source.doc,
+      title: titleOf(source.doc),
+      pos: source.pos,
+      leftFull,
+      leftShown: leftFull.slice(-contextChars),
+      nodeText: oneLine(source.nodeText),
+      rightFull,
+      rightShown: rightFull.slice(0, contextChars),
+      source,
+    };
+  });
+}
+
+/** Scroll offset that puts an aligned node's midpoint at the port midpoint. */
+export function nodeCenterOffset(
+  portWidth: number,
+  nodeLeft: number,
+  nodeWidth: number,
+): number {
+  if (![portWidth, nodeLeft, nodeWidth].every(Number.isFinite)) return 0;
+  return Math.max(0, nodeLeft + nodeWidth / 2 - portWidth / 2);
+}
+
+export function concordanceMethodLine(
+  sort: ConcordanceSortMode,
+  contextChars: number,
+): string {
+  const order = sort === 'proximity'
+    ? 'nearest reading position · reading-order tiebreak'
+    : `first ${sort} collocate · reading-order tiebreak · reading position is not used`;
+  return `order: ${order} · context: ${KWIC_SERVED_CONTEXT_TOKENS} tokens served per side, up to ${contextChars} characters shown`;
+}
