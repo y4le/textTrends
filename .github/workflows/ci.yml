@@ -21,7 +21,7 @@ permissions:
 jobs:
   checks:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 32
     steps:
       - uses: actions/checkout@v6
         with:
@@ -44,8 +44,8 @@ jobs:
       - name: Enforce the production bundle contract (budget, lazy chunks, no facade)
         run: pnpm check:bundle
 
-      - name: Install Playwright Chromium
-        run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium
+      - name: Install Playwright Chromium and WebKit
+        run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium webkit
 
       - name: Real-browser suites (functional, then the serial benchmark)
         run: pnpm e2e

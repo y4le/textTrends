@@ -47,9 +47,7 @@
   --lens-block-size: 4.5rem;
   --organs-block-size: 3.5rem;
   --evidence-line-block-size: 9.5rem;
-  --evidence-peek: 28dvh;
-  --evidence-half: 58dvh;
-  --evidence-tall: 88dvh;
+  --keyboard-inset: 0px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -414,7 +412,8 @@ canvas {
   inset-block-end: 0;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
-  block-size: var(--evidence-peek);
+  block-size: 28vh;
+  block-size: 28dvh;
   padding:
     var(--space-2)
     calc(var(--space-3) + env(safe-area-inset-right, 0px))
@@ -429,11 +428,13 @@ canvas {
 }
 
 .workbench-sheet[data-detent='half'] {
-  block-size: var(--evidence-half);
+  block-size: 58vh;
+  block-size: 58dvh;
 }
 
 .workbench-sheet[data-detent='tall'] {
-  block-size: var(--evidence-tall);
+  block-size: 88vh;
+  block-size: 88dvh;
 }
 
 .sheet-header {
@@ -756,11 +757,16 @@ canvas {
     z-index: 60;
     inset: 0;
     min-width: 0;
-    min-height: 100vh;
+    min-block-size: 100vh;
+    min-block-size: 100dvh;
     padding:
       calc(var(--space-3) + env(safe-area-inset-top, 0px))
       calc(var(--space-3) + env(safe-area-inset-right, 0px))
-      calc(var(--space-3) + env(safe-area-inset-bottom, 0px))
+      calc(
+        var(--space-3)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      )
       calc(var(--space-3) + env(safe-area-inset-left, 0px));
     overflow: auto;
     overscroll-behavior: contain;
@@ -770,7 +776,10 @@ canvas {
 
   .query-editor-form {
     display: flex;
-    min-block-size: calc(100dvh - 2 * var(--space-3));
+    min-block-size:
+      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-block-size:
+      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
     flex-direction: column;
     gap: var(--space-3);
   }
@@ -792,7 +801,10 @@ canvas {
   }
 
   .query-editor-layer .group-editor {
-    min-block-size: calc(100dvh - 2 * var(--space-3));
+    min-block-size:
+      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-block-size:
+      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
     margin: 0 !important;
     padding: 0 !important;
     border: 0 !important;
@@ -807,7 +819,7 @@ canvas {
   .query-editor-layer .group-editor-actions {
     position: sticky;
     z-index: 1;
-    inset-block-end: 0;
+    inset-block-end: var(--keyboard-inset);
     display: flex;
     gap: var(--space-2);
     margin-block-start: auto;

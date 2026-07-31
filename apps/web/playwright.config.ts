@@ -4,19 +4,20 @@
  * e2e build (`vite build --mode e2e`) via `vite preview` under the deployed
  * /textTrends/ base path.
  *
- * Two projects, deliberately separated:
+ * Three projects, deliberately separated:
  * - functional: semantic gates; may retry once in CI (traces on retry);
+ * - WebKit compact: one viewport/keyboard contract spec, not the full suite;
  * - benchmark:  timing specs — never retried, so a failed timing sample is
  *   a visible failure, not noise a retry can hide. ISOLATION is enforced
  *   by the config, not by convention: the benchmark project DEPENDS on the
- *   functional project (Playwright completes dependencies first and skips
- *   dependents on failure) and pins its own workers to 1 — so one
+ *   functional and WebKit projects (Playwright completes dependencies first
+ *   and skips dependents on failure) and pins its own workers to 1 — so one
  *   invocation, one webServer build, and timing samples that never share
  *   the machine with functional load. `pnpm e2e:bench` passes --no-deps
  *   for a deliberate timing-only run.
  */
 
-import { defineConfig } from '@playwright/test';
+import { defineConfig, devices } from '@playwright/test';
 
 export default defineConfig({
   testDir: './e2e',
@@ -33,9 +34,15 @@ export default defineConfig({
       retries: process.env.CI ? 1 : 0,
     },
     {
+      name: 'webkit-compact',
+      testMatch: /viewport\.spec\.ts/,
+      use: { ...devices['iPhone 14'] },
+      retries: process.env.CI ? 1 : 0,
+    },
+    {
       name: 'chromium-benchmark',
       testMatch: /.*\.bench\.spec\.ts/,
-      dependencies: ['chromium-functional'],
+      dependencies: ['chromium-functional', 'webkit-compact'],
       workers: 1,
       retries: 0,
     },

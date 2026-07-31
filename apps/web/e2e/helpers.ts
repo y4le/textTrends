@@ -195,6 +195,69 @@ export async function trace(page: Page): Promise<TraceSnapshot> {
   });
 }
 
+/**
+ * Simulate the resizes-visual browser model. Playwright cannot summon an OS
+ * keyboard, so this shadows only the VisualViewport values our app consumes
+ * and dispatches the same resize event. The layout viewport stays unchanged.
+ */
+export async function simulateKeyboard(page: Page, occludedPixels: number): Promise<void> {
+  await page.evaluate((occlusion) => {
+    const visual = window.visualViewport;
+    if (!visual) throw new Error('VisualViewport is unavailable');
+    const scope = window as unknown as {
+      __ttViewportSimulation?: {
+        occlusion: number;
+        scale: number;
+      };
+    };
+    if (!scope.__ttViewportSimulation) {
+      const state = { occlusion: 0, scale: 1 };
+      scope.__ttViewportSimulation = state;
+      Object.defineProperties(visual, {
+        height: {
+          configurable: true,
+          get: () => Math.max(0, window.innerHeight - state.occlusion),
+        },
+        offsetTop: {
+          configurable: true,
+          get: () => 0,
+        },
+        scale: {
+          configurable: true,
+          get: () => state.scale,
+        },
+      });
+    }
+    scope.__ttViewportSimulation.occlusion = Math.max(0, occlusion);
+    visual.dispatchEvent(new Event('resize'));
+  }, occludedPixels);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
+/** Simulate only VisualViewport.scale so the pinch-zoom guard is testable. */
+export async function simulatePinchZoom(page: Page, scale: number): Promise<void> {
+  const installed = await page.evaluate(() =>
+    Boolean((window as unknown as { __ttViewportSimulation?: unknown }).__ttViewportSimulation));
+  if (!installed) await simulateKeyboard(page, 0);
+  await page.evaluate((nextScale) => {
+    const visual = window.visualViewport;
+    const state = (window as unknown as {
+      __ttViewportSimulation?: {
+        occlusion: number;
+        scale: number;
+      };
+    }).__ttViewportSimulation;
+    if (!visual || !state) throw new Error('viewport simulation is not installed');
+    state.scale = nextScale;
+    visual.dispatchEvent(new Event('resize'));
+  }, scale);
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
+}
+
 export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEvent>): ProtocolTraceEvent[] {
   return snapshot.events.filter((e) =>
     Object.entries(filter).every(([k, v]) => e[k as keyof ProtocolTraceEvent] === v),

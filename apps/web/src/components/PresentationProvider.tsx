@@ -2,6 +2,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useEffect,
   useMemo,
   useSyncExternalStore,
   type ReactNode,
@@ -13,6 +14,7 @@ import {
   WIDE_QUERY,
   type Presentation,
 } from '../lib/presentation.ts';
+import { keyboardInsetFor } from '../lib/viewport-metrics.ts';
 
 const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
@@ -55,6 +57,41 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
   const wide = useMediaQuery(WIDE_QUERY, true);
   const coarse = useMediaQuery(COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
+
+  useEffect(() => {
+    const visual = window.visualViewport;
+    if (!visual) return undefined;
+
+    let frame: number | null = null;
+    let lastInset = -1;
+    const publish = () => {
+      frame = null;
+      const inset = keyboardInsetFor({
+        innerHeight: window.innerHeight,
+        visualHeight: visual.height,
+        offsetTop: visual.offsetTop,
+        scale: visual.scale,
+      });
+      if (inset === lastInset) return;
+      lastInset = inset;
+      document.documentElement.style.setProperty('--keyboard-inset', `${inset}px`);
+    };
+    const schedule = () => {
+      if (frame === null) frame = requestAnimationFrame(publish);
+    };
+
+    visual.addEventListener('resize', schedule);
+    visual.addEventListener('scroll', schedule);
+    window.addEventListener('orientationchange', schedule);
+    publish();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      visual.removeEventListener('resize', schedule);
+      visual.removeEventListener('scroll', schedule);
+      window.removeEventListener('orientationchange', schedule);
+      document.documentElement.style.removeProperty('--keyboard-inset');
+    };
+  }, []);
 
   const presentation = useMemo<Presentation>(() => ({
     width: compact ? 'compact' : wide ? 'wide' : 'regular',

@@ -24,16 +24,19 @@ export default defineConfig(({ mode }) => ({
   test: {
     include: ['test/**/*.test.ts'],
   },
-  ...(mode === 'e2e'
-    ? {
-        build: {
+  build: {
+    // Preserve the explicit vh declarations that precede dvh. The fallback is
+    // part of the deployed mobile-browser contract, not dead legacy syntax.
+    cssTarget: 'safari14',
+    ...(mode === 'e2e'
+      ? {
           rollupOptions: {
             input: {
               index: fileURLToPath(new URL('./index.html', import.meta.url)),
               harness: fileURLToPath(new URL('./e2e-harness.html', import.meta.url)),
             },
           },
-        },
-      }
-    : {}),
+        }
+      : {}),
+  },
 }));
