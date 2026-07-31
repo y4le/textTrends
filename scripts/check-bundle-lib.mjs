@@ -23,6 +23,17 @@ export const ENTRY_GZIP_BUDGET_BYTES = 90_000;
  *  production bundle (M6 consult; formerly a shell grep in CI). */
 const FACADE_SENTINELS = ['ttE2E', 'ttHarness'];
 
+/** Canonical workbench places are route-level lazy boundaries. Keep this list
+ * in lockstep with apps/web/src/lib/places.ts. */
+const PLACE_CHUNKS = [
+  ['Corpus', /^assets\/CorpusPlace-[^/]+\.js$/],
+  ['Trends', /^assets\/TrendsPlace-[^/]+\.js$/],
+  ['Concordance', /^assets\/ConcordancePlace-[^/]+\.js$/],
+  ['Vocabulary', /^assets\/VocabularyPlace-[^/]+\.js$/],
+  ['Compare', /^assets\/ComparePlace-[^/]+\.js$/],
+  ['Findings', /^assets\/FindingsPlace-[^/]+\.js$/],
+];
+
 const gzipSize = (bytes) => gzipSync(bytes, { level: 9 }).length;
 
 /** All paths in `files` matching `re`, sorted for stable diagnostics. */
@@ -90,6 +101,12 @@ export function checkBundle(files, catalogSource) {
   const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
+  const placePaths = new Map(
+    PLACE_CHUNKS.map(([place, re]) => [
+      place,
+      unique(files, re, `${place} place`, failures),
+    ]),
+  );
 
   // Entry identity: index.html must load exactly the one entry chunk.
   if (indexHtml && entryPath) {
@@ -106,6 +123,24 @@ export function checkBundle(files, catalogSource) {
     report.push(`entry ${entryPath}: ${bytes.length} B raw, ${gz} B gzip (${(gz / 1000).toFixed(1)} kB) — budget ${ENTRY_GZIP_BUDGET_BYTES} B`);
     if (gz > ENTRY_GZIP_BUDGET_BYTES) {
       failures.push(`${entryPath}: gzip ${gz} B exceeds the ${ENTRY_GZIP_BUDGET_BYTES} B entry budget`);
+    }
+  }
+
+  // ---- active-place lazy boundaries ---------------------------------------
+  // Every place must remain independently addressable by the entry loader.
+  // A static place import would mount route code in the initial payload even
+  // though App renders only one active place.
+  if (entryPath) {
+    const entryText = files.get(entryPath).toString('utf8');
+    const entryStatic = staticImports(entryText);
+    for (const [place, path] of placePaths) {
+      if (!path) continue;
+      const name = path.replace('assets/', '');
+      if (entryStatic.has(name)) {
+        failures.push(`${entryPath}: statically imports ${name} — the ${place} place must stay lazy`);
+      } else if (!references(entryText, name)) {
+        failures.push(`${entryPath}: no reference to ${name} — the lazy ${place} place edge is gone`);
+      }
     }
   }
 
@@ -132,14 +167,19 @@ export function checkBundle(files, catalogSource) {
   }
 
   // ---- main-thread lazy chain ---------------------------------------------
-  if (entryPath && cachePath && archivePath) {
+  const corpusPath = placePaths.get('Corpus');
+  if (entryPath && corpusPath && cachePath && archivePath) {
     const entryText = files.get(entryPath).toString('utf8');
-    const entryStatic = staticImports(entryText);
+    const corpusText = files.get(corpusPath).toString('utf8');
+    const corpusStatic = staticImports(corpusText);
     const cacheName = cachePath.replace('assets/', '');
     const archiveName = archivePath.replace('assets/', '');
-    if (entryStatic.has(cacheName)) failures.push(`${entryPath}: statically imports ${cacheName} — the SE cache client must stay lazy`);
-    if (!references(entryText, cacheName)) failures.push(`${entryPath}: no reference to ${cacheName} — the lazy SE cache edge is gone`);
-    if (references(entryText, archiveName)) failures.push(`${entryPath}: references ${archiveName} — the archive client must load only through the cache chunk`);
+    if (references(entryText, cacheName)) failures.push(`${entryPath}: references ${cacheName} — the SE cache client must load only through the Corpus place`);
+    if (corpusStatic.has(cacheName)) failures.push(`${corpusPath}: statically imports ${cacheName} — the SE cache client must stay lazy`);
+    if (!references(corpusText, cacheName)) failures.push(`${corpusPath}: no reference to ${cacheName} — the lazy SE cache edge is gone`);
+    if (references(entryText, archiveName) || references(corpusText, archiveName)) {
+      failures.push(`main-thread route chunks reference ${archiveName} — the archive client must load only through the cache chunk`);
+    }
     const cacheText = files.get(cachePath).toString('utf8');
     if (staticImports(cacheText).has(archiveName)) failures.push(`${cachePath}: statically imports ${archiveName} — the archive client must stay lazy`);
     if (!references(cacheText, archiveName)) failures.push(`${cachePath}: no reference to ${archiveName} — the lazy archive edge is gone`);

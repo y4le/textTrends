@@ -18,7 +18,11 @@ import { SeriesLineSample } from './chrome.tsx';
  *  slice — presentation only, the underlying text is untouched. */
 const oneLine = (s: string) => s.replace(/\s+/g, ' ');
 
-export function KwicPanel() {
+export function KwicPanel({
+  showHeading = true,
+}: {
+  readonly showHeading?: boolean;
+}) {
   const kwic = useApp((s) => s.kwic);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const series = useApp((s) => s.series);
@@ -176,10 +180,16 @@ export function KwicPanel() {
   }
 
   return (
-    <section aria-labelledby="concordance-heading" style={{ marginTop: 'var(--space-3)' }}>
-      <h2 id="concordance-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
-        Concordance
-      </h2>
+    <section
+      aria-labelledby={showHeading ? 'concordance-heading' : undefined}
+      aria-label={showHeading ? undefined : 'Concordance results'}
+      style={{ marginTop: 'var(--space-3)' }}
+    >
+      {showHeading && (
+        <h2 id="concordance-heading" style={{ fontSize: 'var(--text-md)', margin: 0 }}>
+          Concordance
+        </h2>
+      )}
       {chips}
       {body}
     </section>

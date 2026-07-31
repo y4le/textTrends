@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  gotoPlace,
   trace,
 } from './helpers.ts';
 import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
@@ -20,12 +21,14 @@ const CORPUS = Array.from(
 test('touch reads by default and commits only through explicit range mode', async ({ page, context }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'touch-range.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(CORPUS, 'utf-8'),
   });
   await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
   await expect(page.getByText('Holmes: 15 occurrences', { exact: true })).toBeVisible();
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });

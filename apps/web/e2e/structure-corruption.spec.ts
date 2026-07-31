@@ -10,7 +10,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitCacheSettled, DB_NAME, DOC_COUNT, events, SHERLOCK, trace, trackCorpusRequests } from './helpers.ts';
+import { awaitAllReady, awaitCacheSettled, DB_NAME, DOC_COUNT, events, gotoPlace, SHERLOCK, trace, trackCorpusRequests } from './helpers.ts';
 
 const victim = SHERLOCK[0]!; // "A Study in Scarlet" — 15 detected chapters
 
@@ -96,6 +96,7 @@ test('a corrupt cached structure warns, recomposes only structure, and re-persis
   await page.goto('./');
   await awaitAllReady(page);
   await awaitCacheSettled(page);
+  await gotoPlace(page, 'corpus');
 
   // Capture the exact key + deterministic original, then tamper the root range
   // (an inner invariant) — awaiting the WRITE TRANSACTION's completion.

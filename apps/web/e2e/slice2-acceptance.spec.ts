@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  gotoPlace,
   submitAndAwaitFreshResults,
   trace,
 } from './helpers.ts';
@@ -60,6 +61,7 @@ async function awaitOps(
 test('slice 2: exact evidence → linked range → pin → gap-free reader → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'slice-two.txt',
     mimeType: 'text/plain',
@@ -67,6 +69,7 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
   // Author one multi-member group: wolf OR hound.
@@ -88,8 +91,10 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: canvasBox.width * (430.5 / 900), y: 3 } });
   await awaitOps(page, mark, ['kwic', 'reader-page']);
-  await expect(page.getByText(/nearest to .* token 431\b/)).toBeVisible();
   await page.getByRole('dialog', { name: /Reader: slice-two/ }).getByRole('button', { name: 'close' }).click();
+  await gotoPlace(page, 'concordance');
+  await expect(page.getByText(/nearest to .* token 431\b/)).toBeVisible();
+  await gotoPlace(page, 'trends');
 
   // Keyboard-only brush: token 420 through 480 inclusive → [420,481).
   // PageDown advances one 23-token bin in this 900-token / 40-bin document.
@@ -114,6 +119,7 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await expect(
     page.getByRole('region', { name: 'Query notebook' }).getByText('4 selected / 6 corpus'),
   ).toBeVisible();
+  await gotoPlace(page, 'concordance');
   const rows = page.getByRole('table', { name: 'Concordance' }).locator('tbody tr');
   await expect(rows).toHaveCount(4);
   const rowText = (await rows.allInnerTexts()).join(' ');
@@ -125,8 +131,10 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
 
   // P pins the scrub anchor (token 420) without changing the selection. Open
   // the immutable pin in the current-semantics reader.
+  await gotoPlace(page, 'trends');
   await scrubber.focus();
   await scrubber.press('p');
+  await gotoPlace(page, 'findings');
   const pinOpen = page.getByRole('button', {
     name: /Open pinned evidence at token 421 in reader/,
   });
@@ -154,6 +162,7 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
 
   // Clearing restores baseline consumers without recomputing/relabeling them
   // as selected evidence.
+  await gotoPlace(page, 'trends');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['kwic']);
@@ -169,5 +178,6 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(page.locator('canvas[data-selected-layer]')).toHaveCount(0);
   await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
+  await gotoPlace(page, 'concordance');
   await expect(rows).toHaveCount(6);
 });

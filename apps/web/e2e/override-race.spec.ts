@@ -9,13 +9,14 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, digestGateConsumed, installDigestGate, latestSnapshot, releaseDigestGate, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, digestGateConsumed, gotoPlace, installDigestGate, latestSnapshot, releaseDigestGate, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 const BOOK_MD = '# Alpha\n\nthe wolf ran far over the hill.\n\n# Beta\n\na wolf slept by the door.\n';
 
 async function importBook(page: Page): Promise<void> {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'book.md', mimeType: 'text/markdown', buffer: Buffer.from(BOOK_MD, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -77,7 +78,9 @@ async function awaitFreshOutline(page: Page, mark: number, notSnapshot: string |
 async function assertLateHashChangesNothing(page: Page, stableSnapshot: string, expectVisible: string, expectAbsent?: string): Promise<void> {
   const releaseMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await releaseDigestGate(page);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf'); // task-queue barrier after the late settlement
+  await gotoPlace(page, 'corpus');
   const t = await trace(page);
   expect(t.dropped).toBe(0);
   expect(t.events.filter((e) => e.seq > releaseMark && e.direction === 'to-worker' && e.t === 'begin-generation')).toEqual([]);

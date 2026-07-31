@@ -14,7 +14,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // Token positions: wolf@1, wolves@4, "dire wolf"@7-8, Wolf@12 (capitalized).
 const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf spoke.\n';
@@ -22,6 +22,7 @@ const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf sp
 async function importCorpus(page: Page): Promise<void> {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'wolves.txt',
     mimeType: 'text/plain',
@@ -29,6 +30,7 @@ async function importCorpus(page: Page): Promise<void> {
   });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
 }
 
 async function rowNodes(page: Page): Promise<{ term: string; node: string }[]> {
@@ -94,6 +96,7 @@ test('a multi-member group (alias + phrase + prefix) authored in the editor driv
   await editor.getByRole('button', { name: 'Add phrase to wolf' }).click();
   await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
   await awaitFreshKwic(page, mark);
+  await gotoPlace(page, 'concordance');
 
   // All OR alternatives appear under the ONE group's track — including the
   // COMPLETE phrase span as the concordance node text.
@@ -103,6 +106,7 @@ test('a multi-member group (alias + phrase + prefix) authored in the editor driv
   expect(new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf'])); // one track
 
   // The notebook count qualifies as a READY total for the merged group.
+  await gotoPlace(page, 'trends');
   await expect(page.getByRole('region', { name: 'Query notebook' }).getByText(/^4$/)).toBeVisible();
 
   // The PASSAGE lane runs under the same authored group: scrub the axis,
@@ -141,6 +145,7 @@ test('a case-SENSITIVE member distinguishes what the folded default merges', asy
   await editor.getByRole('button', { name: 'Apply changes to nothingyet' }).click();
   await awaitFreshKwic(page, mark);
   // Only the capitalized occurrence matches — the folded default would find 3+.
+  await gotoPlace(page, 'concordance');
   await expect.poll(async () => (await rowNodes(page)).map((r) => r.node)).toEqual(['Wolf']);
 });
 
@@ -160,10 +165,12 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
 
   // Concordance chip OFF for dire — the chart focus chips are untouched.
   const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await gotoPlace(page, 'concordance');
   await page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ }).click();
   await awaitFreshKwic(page, mark0);
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   // dire still SHOWN IN ANALYSIS (mute is a different control).
+  await gotoPlace(page, 'trends');
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
 
   // Load a passage BEFORE muting so the muted interval is observed on live
@@ -206,7 +213,9 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   const unmutedBurst = await awaitFreshAnswered(page, unmuteMark);
   expect(unmutedBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await expect(markSpan('dire').first()).toBeVisible(); // the passage mark RETURNS
+  await gotoPlace(page, 'concordance');
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
+  await gotoPlace(page, 'trends');
 
   // Solo wolf (correlated): ONE fresh trend; the other chart chips vanish.
   const soloMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -228,12 +237,14 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   // the pre-solo table (review-E round 2).
   expect(restoredBurst.some((q) => q.op === 'kwic')).toBe(true);
   await expect(direChip).toBeVisible();
+  await gotoPlace(page, 'concordance');
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   const direKwicChip = page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ });
   await expect(direKwicChip).toHaveAttribute('aria-pressed', 'false');
 
   // Keyboard: the quick-add field and notebook controls are reachable and
   // operable without a pointer (smoke — full traversal is not the contract).
+  await gotoPlace(page, 'trends');
   await page.getByLabel(/add terms to the notebook/i).focus();
   await page.keyboard.type('keyterm');
   await page.keyboard.press('Enter');

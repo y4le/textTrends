@@ -8,6 +8,7 @@ import { expect, test, type Page, type Worker } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  gotoPlace,
   submitAndAwaitFreshResults,
   trace,
 } from './helpers.ts';
@@ -22,6 +23,7 @@ async function importCorpus(
   text: string,
   expectedReady: number,
 ): Promise<void> {
+  await gotoPlace(page, 'corpus');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -125,6 +127,7 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   await page.goto('./');
   await awaitAllReady(page);
   await importCorpus(page, 'pins.txt', CORPUS, 1);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
   await expect.poll(() => page.workers().length).toBe(1);
@@ -150,13 +153,16 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   await page.getByRole('button', { name: 'Pin passage at token 2' }).click();
   await page.mouse.click(point(9).x, point(9).y);
   await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
+  await gotoPlace(page, 'findings');
   const pane = page.getByRole('region', { name: 'Pinned evidence' });
   await expect(pane.locator('article')).toHaveCount(2);
   await expect(pane.getByText('capturing passage…')).toHaveCount(2);
   await expect.poll(() => gateHeld(worker)).toBeGreaterThanOrEqual(3);
 
   // Duplicate location focuses rather than appending, even while pending.
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
+  await gotoPlace(page, 'findings');
   await expect(pane.locator('article')).toHaveCount(2);
   await expect(pane.getByText(/already pinned; focused the existing evidence/i)).toBeVisible();
 
@@ -200,6 +206,7 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   // A new snapshot clears transient token coordinates, then durable character
   // anchors restore evidence whose document TextHash is unchanged.
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
+  await gotoPlace(page, 'findings');
   await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(1);
   await expect(page.getByText('pins · token 10')).toBeVisible();
 });

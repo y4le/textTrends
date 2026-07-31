@@ -84,7 +84,6 @@ function EvidenceText({
 export function PinnedPane() {
   const pins = useApp((state) => state.pins);
   const focusedPinId = useApp((state) => state.focusedPinId);
-  const pinError = useApp((state) => state.pinError);
   const pinAnnouncement = useApp((state) => state.pinAnnouncement);
   const durablePins = useApp((state) => state.durablePins);
   const notebook = useApp((state) => state.notebook);
@@ -94,7 +93,6 @@ export function PinnedPane() {
   const setPinNote = useApp((state) => state.setPinNote);
   const retryPin = useApp((state) => state.retryPin);
   const focusPin = useApp((state) => state.focusPin);
-  const clearPinError = useApp((state) => state.clearPinError);
   const openReader = useApp((state) => state.openReader);
   const itemRefs = useRef(new Map<string, HTMLElement>());
 
@@ -102,7 +100,7 @@ export function PinnedPane() {
     if (focusedPinId) itemRefs.current.get(focusedPinId)?.focus({ preventScroll: true });
   }, [focusedPinId, pinAnnouncement]);
 
-  if (pins.length === 0 && !pinError) return null;
+  if (pins.length === 0) return null;
 
   const identityById = new Map(
     notebook.groups.map((group) => [group.id, groupIdentity(group)]),
@@ -124,12 +122,6 @@ export function PinnedPane() {
           {pins.length}/{MAX_PINNED_SNIPPETS}
         </span>
       </div>
-      {pinError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {pinError}{' '}
-          <button type="button" onClick={clearPinError} style={SMALL_BUTTON_STYLE}>dismiss</button>
-        </p>
-      )}
       <p
         role="status"
         aria-live="polite"

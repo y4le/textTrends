@@ -8,7 +8,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady } from './helpers.ts';
+import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 const BOOK_MD = '# Alpha\n\nthe wolf ran far over the hill.\n\n# Beta\n\na wolf slept by the door.\n';
 
@@ -19,6 +19,7 @@ function mdFile() {
 test('import md → edit a chapter title → apply → correction round-trips', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page); // built-in Sherlock is the read-only default
+  await gotoPlace(page, 'corpus');
 
   // ── Create a user project from a Markdown file with two chapters. ──
   await page.getByLabel('Create project from files').setInputFiles(mdFile());
@@ -51,6 +52,7 @@ test('import md → edit a chapter title → apply → correction round-trips', 
 test('the editor can add a fresh chapter row', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles(mdFile());
   await expect(page.getByRole('region', { name: 'Chapter structure' })
     .getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });

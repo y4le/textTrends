@@ -5,7 +5,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
 
 const prose = (terms: readonly string[], repetitions: number) =>
   Array.from({ length: repetitions }, () => `${terms.join(' ')}.`).join(' ');
@@ -56,12 +56,14 @@ async function awaitOps(
 test('slice 4: A-key/B-key → side evidence → swap inversion → brush independence', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
   ]);
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
+  await gotoPlace(page, 'compare');
   await expect(page.getByRole('heading', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
 
   await page.getByLabel('combined docs ≥').fill('1');
@@ -96,6 +98,7 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   expect(negative).toBeLessThan(0);
   expect(negative).toBeCloseTo(-positive, 2);
 
+  await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await scrubber.focus();
   await scrubber.press('Home');
@@ -108,10 +111,12 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
     (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
   );
   expect(brushQueries.some((event) => event.op === 'keyness')).toBe(false);
+  await gotoPlace(page, 'compare');
   await expect(forestB).toBeVisible();
 
   await page.getByText('method and filter notes').click();
-  await expect(page.getByText(/keyness-g2-2x2\/1/)).toBeVisible();
-  await expect(page.getByText(/log-ratio-halves\/1/)).toBeVisible();
+  const comparison = page.getByLabel('Keyness comparison');
+  await expect(comparison.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
+  await expect(comparison.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
   await expect(page.getByText('No confidence intervals — see method notes.')).toBeVisible();
 });

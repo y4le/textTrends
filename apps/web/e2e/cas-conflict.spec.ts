@@ -8,13 +8,14 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, readUserProject, setUserProjectRevision, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, readUserProject, setUserProjectRevision, trace } from './helpers.ts';
 
 const DOC_TEXT = '# Alpha\n\nthe wolf ran far over the hill.\n\n# Beta\n\na wolf slept by the door.\n';
 
 test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites the durable record', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'novel.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });

@@ -1,21 +1,38 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
-import { PLACE_HEADING } from '../src/lib/places.ts';
+import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
+import { PLACE_HEADING, PLACES } from '../src/lib/places.ts';
 
-test('the migration page exposes every canonical place as a real heading', async ({ page }) => {
+test('every route exposes one canonical place and no canonical peer', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  const headings = Object.values(PLACE_HEADING);
-  for (const heading of headings) {
-    await expect(page.getByRole('heading', { name: heading, exact: true })).toBeVisible();
-    const region = page.getByRole('region', { name: heading, exact: true });
-    await expect(region).toBeVisible();
-    for (const peer of headings) {
-      if (peer !== heading) {
-        await expect(region.getByRole('region', { name: peer, exact: true })).toHaveCount(0);
-      }
+  for (const place of PLACES) {
+    await gotoPlace(page, place);
+    for (const [candidate, heading] of Object.entries(PLACE_HEADING)) {
+      const expected = candidate === place ? 1 : 0;
+      await expect(page.getByRole('heading', { name: heading, exact: true })).toHaveCount(expected);
+      await expect(page.getByRole('region', { name: heading, exact: true })).toHaveCount(expected);
     }
   }
+});
+
+test('Vocabulary notebook refusals are visible at the action and cleared on departure', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await clearNotebook(page);
+  const quickAdd = page.getByLabel(/add terms to the notebook/i);
+  await quickAdd.fill('alpha, beta, gamma, delta, epsilon');
+  await quickAdd.press('Enter');
+
+  await gotoPlace(page, 'vocabulary');
+  const vocabulary = page.getByRole('table', { name: 'Vocabulary frequency list' });
+  await expect(vocabulary).toBeVisible();
+  await vocabulary.getByRole('button', { name: 'add exact' }).first().click();
+  await expect(page.getByRole('alert')).toContainText(
+    'deactivate a group before adding this frequency-table term',
+  );
+
+  await gotoPlace(page, 'corpus');
+  await expect(page.getByRole('alert')).toHaveCount(0);
 });
 
 test('resume reconciles visible state without claiming background work or issuing queries', async ({ page }) => {

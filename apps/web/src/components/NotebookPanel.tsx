@@ -65,13 +65,11 @@ export function NotebookPanel() {
   const selectedTrends = useApp((s) => s.selectedTrends);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const snapshot = useApp((s) => s.snapshot);
-  const notebookError = useApp((s) => s.notebookError);
   const renameGroup = useApp((s) => s.renameGroup);
   const removeGroup = useApp((s) => s.removeGroup);
   const reorderGroups = useApp((s) => s.reorderGroups);
   const setGroupActive = useApp((s) => s.setGroupActive);
   const setSolo = useApp((s) => s.setSolo);
-  const clearNotebookError = useApp((s) => s.clearNotebookError);
   // Rename drafts are local until commit (Enter/blur) — keystrokes must not
   // hit the store (and thus never a worker) per the draft-and-Apply rule.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -114,12 +112,6 @@ export function NotebookPanel() {
       <h3 id="query-notebook-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
         Query notebook
       </h3>
-      {notebookError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-          {notebookError}{' '}
-          <button type="button" style={rowButton} onClick={clearNotebookError}>dismiss</button>
-        </p>
-      )}
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {rows.map((row, i) => (
           <Fragment key={row.id}>

@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 
 test('Scope states resident corpus truth and follows the committed range', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   const scope = page.getByRole('region', { name: 'Scope' });
   await expect(scope.getByText('Sherlock Holmes', { exact: true })).toBeVisible();
@@ -18,6 +19,7 @@ test('Scope states resident corpus truth and follows the committed range', async
     .innerText();
   await expect(scope.getByText(`${dashboardTokens} tokens`, { exact: true })).toBeVisible();
 
+  await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await scrubber.focus();
   await scrubber.press('Home');

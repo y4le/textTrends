@@ -6,7 +6,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
 
 /** Three files with DISTINCT byte lengths (padded) and distinct headings. */
 function fixtures() {
@@ -20,6 +20,7 @@ function fixtures() {
 test('multi-file import transfers every source and finalizes in selection order', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   const files = fixtures();
   const lengths = files.map((f) => f.len);

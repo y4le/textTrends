@@ -8,6 +8,7 @@ import { expect, test, type Page, type Worker } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  gotoPlace,
   submitAndAwaitFreshResults,
   trace,
 } from './helpers.ts';
@@ -26,6 +27,16 @@ async function importCorpus(
   text: string,
   expectedReady: number,
 ): Promise<void> {
+  if (await page.getByRole('dialog', { name: /Reader:/ }).count()) {
+    await page
+      .getByRole('region', { name: 'Scope' })
+      .getByRole('button')
+      .first()
+      .click({ force: true });
+    await expect(page).toHaveURL(/[?&]p=corpus(?:&|$)/);
+  } else {
+    await gotoPlace(page, 'corpus');
+  }
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -193,11 +204,13 @@ test.beforeEach(async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await importCorpus(page, 'reader.txt', CORPUS, 1);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 });
 
 test('compact Reader replaces Lens navigation without covering its controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
+  await gotoPlace(page, 'concordance');
   const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
   await expect(lens).toBeVisible();
 
@@ -221,6 +234,7 @@ test('compact Reader replaces Lens navigation without covering its controls', as
 });
 
 test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot replacement stay fenced', async ({ page }) => {
+  await gotoPlace(page, 'concordance');
   const table = page.getByRole('table', { name: 'Concordance' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   const kwicOpen = table.getByRole('button', { name: 'wolf', exact: true });
@@ -262,6 +276,12 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   // A semantic member edit reissues the current page's highlight projection.
   // Force is intentional: the non-modal drawer visually covers the notebook
   // while leaving it mounted; this test targets store/query coordination.
+  await page
+    .getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Trends', exact: true })
+    .evaluate((link: HTMLAnchorElement) => link.click());
+  await expect(page).toHaveURL(/[?&]p=trends(?:&|$)/);
+  await expect(page.getByRole('region', { name: 'Query notebook' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit members: wolf' }).click({ force: true });
   const editor = page.getByRole('group', { name: 'Edit members: wolf' });
   await editor.getByLabel(/Add member to wolf/).fill('w0100', { force: true });
@@ -306,6 +326,7 @@ test('exact barcode, passage, and pin evidence all open the reader', async ({ pa
   // immutable anchor opens under the current track set.
   await scrubber.focus();
   await scrubber.press('p');
+  await gotoPlace(page, 'findings');
   const pinOpen = page.getByRole('button', { name: /Open pinned evidence at token 1 in reader/ });
   await expect(pinOpen).toBeVisible();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;

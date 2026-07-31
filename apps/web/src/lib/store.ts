@@ -1197,7 +1197,12 @@ export function createAppRuntime(
           urlWithRoute(historyPort.url, { place, evidence: evidenceTier }),
         );
       }
-      set({ place, evidenceTier, layers });
+      set((state) => ({
+        place,
+        evidenceTier,
+        layers,
+        notebookError: place === state.place ? state.notebookError : null,
+      }));
     };
 
     const freshLayer = (
@@ -3799,11 +3804,12 @@ export function createAppRuntime(
     const parsed = parseLayerHistory(historyPort.state);
     const reconciled = reconcileLayerRefs(parsed.refs, resolveLayer);
     const evidenceTier = evidenceForLayers(reconciled.layers);
-    store.setState({
+    store.setState((state) => ({
       place: route.place,
       evidenceTier,
       layers: reconciled.layers,
-    });
+      notebookError: route.place === state.place ? state.notebookError : null,
+    }));
     const normalizedUrl = urlWithRoute(historyPort.url, {
       place: route.place,
       evidence: evidenceTier,

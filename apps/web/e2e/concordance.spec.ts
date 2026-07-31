@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace, clearNotebook } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, trace, clearNotebook, gotoPlace } from './helpers.ts';
 
 // wolf@1,@7 · fox@4,@10 (12 tokens). Nearest to the last token (11): fox@10,
 // wolf@7, fox@4, wolf@1.
@@ -48,17 +48,20 @@ async function rowDetails(page: Page): Promise<{ term: string; right: string }[]
 test('the concordance merges all terms nearest the axis and toggles a term off', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Compare two terms; the concordance merges BOTH by default (reading order).
+  await gotoPlace(page, 'trends');
   const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await clearNotebook(page);
   const input = page.getByLabel(/add terms to the notebook/i);
   await input.fill('wolf, fox');
   await input.press('Enter');
   await awaitFreshKwic(page, mark0);
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
@@ -72,6 +75,7 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   expect(bookCells.length).toBeGreaterThan(0);
   for (const cell of bookCells) expect(cell.trim()).toBe('beasts');
   // The trend summary labels the book by reading-order ordinal + title.
+  await gotoPlace(page, 'trends');
   await expect(page.getByRole('table', { name: /exact totals by book/i }).getByText('1 · beasts')).toBeVisible();
 
   // Move the axis to the END via the KEYBOARD scrubber (token 12 of 12). The
@@ -84,9 +88,13 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await scrubber.press('End');
   await awaitFreshKwic(page, mark1);
   // The served End token, captioned with the metadata title (not the doc id).
+  await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to beasts · token 12\b/)).toBeVisible();
   // The scrubber's accessible position text uses the same metadata title.
-  await expect(scrubber).toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
+  await gotoPlace(page, 'trends');
+  await expect(page.getByRole('slider', { name: /reading position/i }))
+    .toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
+  await gotoPlace(page, 'concordance');
   await expect
     .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged proximity order' })
     .toEqual(['fox', 'wolf', 'fox', 'wolf']);

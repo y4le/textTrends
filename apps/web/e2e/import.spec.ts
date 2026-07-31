@@ -13,7 +13,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, clearArtifactStores, events, trace } from './helpers.ts';
+import { awaitAllReady, clearArtifactStores, events, gotoPlace, trace } from './helpers.ts';
 
 const DOC_NAME = 'smoke-doc.txt';
 const DOC_TITLE = 'smoke-doc';
@@ -43,8 +43,9 @@ async function assertTransferred(page: import('@playwright/test').Page, sinceSeq
 test('import → transfer → save → reload → load → reattach', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page); // built-in Sherlock is the read-only default
+  await gotoPlace(page, 'corpus');
 
-  expect(await page.getByText('built-in corpus (read-only)').isVisible()).toBe(true);
+  await expect(page.getByText('built-in corpus (read-only)')).toBeVisible();
 
   // ── Create a user project from a picked file. ──
   const markImport = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -66,6 +67,7 @@ test('import → transfer → save → reload → load → reattach', async ({ p
   await clearArtifactStores(page);
   await page.reload();
   await awaitAllReady(page); // the built-in cold-reboots into the empty db2
+  await gotoPlace(page, 'corpus');
 
   // ── Load the saved project: the external source is now genuinely missing. ──
   await page.getByRole('button', { name: 'Load saved project' }).click();

@@ -8,7 +8,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, bumpUserDataVersion, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, bumpUserDataVersion, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 const DOC_TEXT = `# Chapter One\n\n${'the wolf ran far over the hill. '.repeat(40)}`;
 const DOC_BYTES = Buffer.byteLength(DOC_TEXT, 'utf-8');
@@ -35,6 +35,7 @@ async function awaitUserDataError(page: import('@playwright/test').Page, mark: n
 test('user-data unavailable: persist, retry (File-retained), and save each fail; analysis unaffected', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'novel.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
@@ -66,5 +67,6 @@ test('user-data unavailable: persist, retry (File-retained), and save each fail;
   await expect(page.getByText('save failed (PERSISTENCE_UNAVAILABLE)')).toBeVisible({ timeout: 30_000 });
 
   // Resident analysis (db2 artifacts) is unaffected by the durable store closing.
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 });

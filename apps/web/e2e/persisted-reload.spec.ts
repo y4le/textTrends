@@ -8,7 +8,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, submitAndAwaitFreshResults, trace, USER_DATA_DB, userDataCounts } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, gotoPlace, submitAndAwaitFreshResults, trace, USER_DATA_DB, userDataCounts } from './helpers.ts';
 
 const DOC_TEXT = `# Chapter One\n\n${'the wolf ran far over the hill. '.repeat(60)}`;
 
@@ -48,6 +48,7 @@ async function mutatePersistedSources(page: import('@playwright/test').Page): Pr
 test('a persisted source warm-reopens after a db2 clear; user data stays isolated', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'hound.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
@@ -102,12 +103,14 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
   // No missing/reattach state; the source is persisted; analysis works fresh.
   await expect(page.getByText('source missing')).toHaveCount(0);
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible();
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 });
 
 test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing repair; reattach heals it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   // Import, persist, save — then corrupt the durable copy in place and force a
   // cold-cache reload so the warm reopen must read the damaged bytes.
@@ -151,5 +154,6 @@ test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing re
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   await expect(page.getByText(/reattach to repair/)).toHaveCount(0);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 });

@@ -17,7 +17,7 @@ import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test, type Page } from '@playwright/test';
 import { SE_ARCHIVE_CACHE_DB_NAME } from '../src/lib/standard-ebooks-cache.ts';
-import { awaitAllReady, awaitReadyCount } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
 
 const BOOK = 'arthur-conan-doyle_a-study-in-scarlet';
 const RAW_BASE = `https://raw.githubusercontent.com/standardebooks/${BOOK}/master/src/epub`;
@@ -73,6 +73,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
 
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   // Browsing is purely the baked snapshot: open the catalog and see a series
   // render complete and position-ordered with NO external catalog traffic
@@ -148,6 +149,7 @@ test('a repeat add after reload is served from the IndexedDB cache: zero raw req
 
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
   const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
   await series.getByRole('listitem').nth(0).getByRole('button', { name: 'add' }).click();
@@ -180,6 +182,7 @@ test('a repeat add after reload is served from the IndexedDB cache: zero raw req
 
   await page.reload();
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
   await page
     .getByRole('list', { name: 'Sherlock Holmes series' })
@@ -312,6 +315,7 @@ test('the catalog asset loads on demand, and a failed fetch shows a genuinely re
   });
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   expect(aborted, 'no catalog asset request before the panel opens').toBe(0);
   await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
   await expect(page.getByText(/Could not load the catalog/)).toBeVisible();

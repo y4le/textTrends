@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // wolf@1, wolf@7, fox@4 — exact ticks, deterministic.
 const CORPUS = 'the wolf ran. a fox saw the wolf sleep.\n';
@@ -15,11 +15,13 @@ const CORPUS = 'the wolf ran. a fox saw the wolf sleep.\n';
 test('the barcode summarizes exact occurrences, steps into the concordance, and never queries on resize', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8'),
   });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
   // The accessible summary names the track, its EXACT total, and (here) no
@@ -39,9 +41,11 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
     }, { timeout: 30_000 })
     .toBe('answered');
   // The caption reports the exact served center (wolf@1 → 1-based token 2).
+  await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible();
 
   // Stepping again advances to wolf@7 — relative to the current center.
+  await gotoPlace(page, 'trends');
   const mark2 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Next wolf occurrence' }).click();
   await expect
@@ -52,13 +56,17 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
       return res.length > 0 ? 'answered' : 'waiting';
     }, { timeout: 30_000 })
     .toBe('answered');
+  await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 8\b/)).toBeVisible();
 
   // CANVAS CLICK: click the strip at wolf@7's x position — the inversion +
   // authoritative resolver center the concordance on that exact occurrence.
   // (First move the center elsewhere so the assertion cannot pass stale.)
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Previous wolf occurrence' }).click();
+  await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible();
+  await gotoPlace(page, 'trends');
   const canvas = page.locator('canvas').first();
   const box = (await canvas.boundingBox())!;
   const mark3 = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -74,9 +82,14 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
       return res.length > 0 ? 'answered' : 'waiting';
     }, { timeout: 30_000 })
     .toBe('answered');
+  await page.getByRole('dialog', { name: /Reader: beasts/ })
+    .getByRole('button', { name: 'close', exact: true })
+    .click();
+  await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 8\b/)).toBeVisible();
 
   // RESIZE: the strip redraws from the resident result — zero worker queries.
+  await gotoPlace(page, 'trends');
   const before = ((await trace(page)).events.at(-1)?.seq ?? -1);
   await page.setViewportSize({ width: 900, height: 800 });
   await page.waitForTimeout(400); // let any (forbidden) reissue surface

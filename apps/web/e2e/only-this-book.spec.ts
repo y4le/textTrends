@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 
 test('book focus preserves scope while only this book explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
 
   const scope = page.getByRole('region', { name: 'Scope' });
   const documents = page.getByRole('table', { name: 'Corpus documents' });
@@ -73,16 +74,20 @@ test('book focus preserves scope while only this book explicitly rescopes linked
     .map((event) => event.op);
   expect(new Set(scopeOps)).toEqual(new Set(requiredScopeOps));
 
+  await gotoPlace(page, 'vocabulary');
   await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
   await expect(page.getByText(/rates use .* selected class tokens/)).toBeVisible();
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible();
 
   // The range-scoped inventory row retains its selection-independent
   // fullTokens. Even with no trend series left as a fallback, the named
   // one-step escape must remain enabled and correctly labelled.
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Remove Holmes' }).click();
   await page.getByRole('button', { name: 'Remove Moriarty' }).click();
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
+  await gotoPlace(page, 'corpus');
   const rowEscape = documents.getByRole('button', { name: 'all books' });
   await expect(rowEscape).toBeVisible();
   await expect(rowEscape).not.toHaveAttribute('aria-disabled');

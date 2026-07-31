@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page, type Worker } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
 
 // 12 tokens; wolf at 1, 6, and 9.
@@ -21,6 +21,7 @@ async function importCorpus(
   text: string,
   expectedReady = 1,
 ): Promise<void> {
+  await gotoPlace(page, 'corpus');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -181,6 +182,7 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await page.goto('./');
   await awaitAllReady(page);
   await importCorpus(page, 'animals.txt', CORPUS);
+  await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
   await expect.poll(() => page.workers().length).toBe(1);
@@ -234,7 +236,9 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await expect(page.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
   await expect(page.getByRole('region', { name: 'Query notebook' }).getByText('1 selected / 3 corpus')).toBeVisible();
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'by book' }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
@@ -246,7 +250,9 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await expect.poll(() => gateHeld(worker)).toBe(0);
   await expect(page.getByText(/Selected 3 tokens in/)).toBeVisible();
   await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
+  await gotoPlace(page, 'trends');
 
   // Clear while C is pending. Baseline evidence remains, the selection layers
   // disappear immediately, and releasing C cannot resurrect them.
@@ -275,6 +281,7 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await scrubber.press('Enter');
   await expect(page.getByText(/Selected 2 tokens in/)).toBeVisible();
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
+  await gotoPlace(page, 'trends');
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);

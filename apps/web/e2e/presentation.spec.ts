@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady } from './helpers.ts';
+import { awaitAllReady, gotoPlace } from './helpers.ts';
 import {
   COMPACT_QUERY,
   WIDE_QUERY,
@@ -70,7 +70,9 @@ test('scrollable analytical tables expose named regions', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('region', { name: 'Scrollable concordance table' })).toBeVisible();
+  await gotoPlace(page, 'trends');
   await expect(page.getByRole('region', { name: 'Scrollable exact totals table' })).toBeVisible();
 });
 
@@ -89,6 +91,7 @@ test('coarse input sizing does not inflate dense concordance rows', async ({ bro
   const quickBox = await quickAdd.boundingBox();
   expect(quickBox?.height).toBeGreaterThanOrEqual(44);
 
+  await gotoPlace(page, 'concordance');
   const node = page.getByRole('table', { name: 'Concordance' }).getByRole('button').first();
   const nodeBox = await node.boundingBox();
   expect(nodeBox?.height).toBeLessThan(44);

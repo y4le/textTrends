@@ -484,6 +484,31 @@ function harness(initial?: SessionState, opts?: { seed?: boolean }) {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('workbench route and history authority', () => {
+  it('clears transient notebook refusals on direct and history place changes', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+
+    store.setState({ notebookError: 'first refusal' });
+    store.getState().setPlace('corpus');
+    expect(store.getState()).toMatchObject({
+      place: 'corpus',
+      notebookError: null,
+    });
+
+    store.setState({ notebookError: 'second refusal' });
+    history.back();
+    expect(store.getState()).toMatchObject({
+      place: 'trends',
+      notebookError: null,
+    });
+    runtime.dispose();
+  });
+
   it('does not leave the app or double-traverse when there is no layer to unwind', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');

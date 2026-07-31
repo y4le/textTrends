@@ -5,7 +5,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
 
 const prose = (terms: readonly string[], repetitions: number) =>
   Array.from({ length: repetitions }, () => `${terms.join(' ')}.`).join(' ');
@@ -56,6 +56,7 @@ async function awaitOps(
 test('slice 3: corpus → focus → vocabulary → concordance → linked range → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
@@ -76,6 +77,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
 
+  await gotoPlace(page, 'vocabulary');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'DP', exact: true }).click();
   await awaitOps(page, mark, ['freq-list']);
@@ -91,8 +93,10 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await wolfRow.getByRole('button', { name: 'concordance' }).click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
+  await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible();
 
+  await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await scrubber.focus();
   await scrubber.press('End');
@@ -106,14 +110,17 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
     (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
   );
   expect(selectionEvents.some((event) => event.op === 'tfidf-sections')).toBe(false);
+  await gotoPlace(page, 'corpus');
   await expect(page.getByText(/Showing the linked selected range/)).toBeVisible();
   await expect(betaRow.locator('td').first()).not.toHaveText(baselineTokens);
   await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['inventory', 'freq-list']);
+  await gotoPlace(page, 'corpus');
   await expect(betaRow.locator('td').first()).toHaveText(baselineTokens);
   await expect(page.getByText(/Showing the linked selected range/)).toHaveCount(0);
 });
