@@ -4,7 +4,7 @@ import type {
   KeynessRowV1,
   KeynessSortFieldV1,
 } from '../shared/analysis-contract.ts';
-import { frequencyPageView } from '../lib/corpus-dashboard-view.ts';
+import { boundedPageView } from '../lib/bounded-page-view.ts';
 import type {
   KeynessInventoryState,
   KeynessTableState,
@@ -90,7 +90,7 @@ function KeynessTable({
     return <p style={{ color: 'var(--accent-text)' }}>{state.state.message}</p>;
   }
   const result = state.state.result;
-  const page = frequencyPageView(
+  const page = boundedPageView(
     result.total,
     requestedPage.offset,
     requestedPage.limit,

@@ -637,6 +637,166 @@ canvas {
   display: none;
 }
 
+.frequency-view-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+}
+
+.frequency-view-bar p,
+.frequency-result-summary,
+.frequency-window-message,
+.frequency-row-note {
+  margin: 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.frequency-view-bar button {
+  flex: 0 0 auto;
+}
+
+.frequency-filter-inline {
+  margin-block: var(--space-2);
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+}
+
+.frequency-filter-form {
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.frequency-filter-form h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.frequency-filter-fields {
+  display: flex;
+  align-items: end;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.frequency-filter-fields > label {
+  display: flex;
+  min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.frequency-filter-fields fieldset {
+  display: flex;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule);
+}
+
+.frequency-filter-fields fieldset label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.frequency-filter-message {
+  margin: 0;
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+}
+
+.frequency-filter-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+}
+
+.frequency-table-port {
+  max-inline-size: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.frequency-table {
+  inline-size: 100%;
+}
+
+.frequency-table th,
+.frequency-table td {
+  vertical-align: top;
+}
+
+.frequency-term {
+  max-inline-size: 28ch;
+  text-align: start;
+}
+
+.frequency-term button {
+  display: block;
+  max-inline-size: 100%;
+  padding: 0;
+  overflow: hidden;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.frequency-row-detail {
+  padding: var(--space-2);
+  border-inline-start: 2px solid var(--accent-text);
+}
+
+.frequency-row-detail dl {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+}
+
+.frequency-row-detail dl div {
+  min-inline-size: 0;
+}
+
+.frequency-row-detail dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.frequency-row-detail dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.frequency-row-actions,
+.frequency-pagination {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.frequency-pagination {
+  margin-block-start: var(--space-2);
+}
+
+.section-vocabulary-strip {
+  inline-size: 100%;
+  max-inline-size: 560px;
+  overflow: hidden;
+}
+
 .book-detail {
   margin-block: var(--space-2);
   padding: var(--space-3);
@@ -1025,6 +1185,154 @@ canvas {
 
   .exact-input {
     font-size: 1rem !important;
+  }
+
+  .frequency-view-bar {
+    align-items: flex-start;
+  }
+
+  .frequency-view-bar p {
+    min-inline-size: 0;
+  }
+
+  .frequency-view-bar button,
+  .frequency-pagination button,
+  .frequency-row-actions button {
+    min-block-size: 44px;
+  }
+
+  .frequency-table-port {
+    overflow: visible;
+  }
+
+  .frequency-table,
+  .frequency-table tbody {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .frequency-table thead {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .frequency-primary-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: var(--space-2);
+    inline-size: 100%;
+    min-block-size: 48px;
+    padding-block: var(--space-1);
+    border-block-end: 1px solid var(--rule);
+  }
+
+  .frequency-primary-row > td {
+    display: none;
+  }
+
+  .frequency-primary-row > .frequency-term {
+    display: block;
+    min-inline-size: 0;
+    max-inline-size: none;
+  }
+
+  .frequency-term button {
+    inline-size: 100%;
+    min-block-size: 44px;
+    text-align: start;
+  }
+
+  .frequency-primary-row > .frequency-measure[data-current-measure] {
+    display: flex;
+    min-inline-size: 0;
+    align-items: center;
+    gap: 0.5ch;
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    white-space: nowrap;
+  }
+
+  .frequency-primary-row > .frequency-measure[data-current-measure]::before {
+    content: attr(data-measure-label) ' ';
+  }
+
+  .frequency-primary-row > .frequency-measure[data-current-measure]::after {
+    content: ' ▸';
+  }
+
+  .frequency-detail-row,
+  .frequency-detail-row > td {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .frequency-row-detail {
+    padding-inline: var(--space-2) 0;
+  }
+
+  .frequency-row-detail dl {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .frequency-row-actions {
+    flex-wrap: wrap;
+  }
+
+  .frequency-row-actions button {
+    flex: 1 1 10rem;
+  }
+
+  .frequency-pagination {
+    justify-content: space-between;
+    flex-wrap: wrap;
+  }
+
+  .frequency-filter-form {
+    min-block-size:
+      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
+    min-block-size:
+      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
+  }
+
+  .frequency-filter-fields {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .frequency-filter-fields > label:first-child,
+  .frequency-filter-fields fieldset {
+    grid-column: 1 / -1;
+  }
+
+  .frequency-filter-fields input,
+  .frequency-filter-fields select {
+    min-inline-size: 0;
+    max-inline-size: 100%;
+    min-block-size: 44px;
+  }
+
+  .frequency-filter-fields fieldset {
+    min-inline-size: 0;
+    justify-content: space-around;
+  }
+
+  .frequency-filter-fields fieldset label {
+    min-block-size: 44px;
+  }
+
+  .frequency-filter-actions button {
+    min-block-size: 44px;
+    flex: 1 1 0;
   }
 
   .corpus-inventory-port {

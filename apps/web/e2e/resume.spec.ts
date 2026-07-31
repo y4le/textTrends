@@ -28,6 +28,7 @@ test('Vocabulary notebook refusals are visible at the action and cleared on depa
   await gotoPlace(page, 'vocabulary');
   const vocabulary = page.getByRole('table', { name: 'Vocabulary frequency list' });
   await expect(vocabulary).toBeVisible();
+  await vocabulary.locator('tr[data-frequency-row]').first().getByRole('button').click();
   await vocabulary.getByRole('button', { name: 'add exact' }).first().click();
   await expect(page.getByRole('alert')).toContainText(
     'deactivate a group before adding this frequency-table term',

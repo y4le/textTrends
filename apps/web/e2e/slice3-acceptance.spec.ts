@@ -84,6 +84,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await page.getByRole('button', { name: 'DP', exact: true }).click();
   await awaitOps(page, mark, ['freq-list']);
 
+  await page.getByRole('button', { name: 'sort and filter' }).click();
   const prefix = page.getByLabel('starts with');
   await prefix.fill('wolf');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -92,10 +93,13 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   const wolfRow = page.getByRole('table', { name: 'Vocabulary frequency list' })
     .getByRole('row', { name: /^wolf / });
   await expect(wolfRow).toBeVisible();
+  await wolfRow.getByRole('button', { name: 'wolf', exact: true }).click();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await wolfRow.getByRole('button', { name: 'concordance' }).click();
+  await page.getByRole('region', { name: 'Vocabulary detail: wolf' })
+    .getByRole('button', { name: 'concordance' })
+    .click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
-  await gotoPlace(page, 'concordance');
+  await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible();
 
   await gotoPlace(page, 'trends');

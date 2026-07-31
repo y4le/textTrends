@@ -517,15 +517,15 @@ describe('workbench route and history authority', () => {
       history,
       newLayerId: layerIds(),
     });
-    runtime.useApp.getState().popLayer();
-    runtime.useApp.getState().popLayer();
+    expect(runtime.useApp.getState().popLayer()).toBe(false);
+    expect(runtime.useApp.getState().popLayer()).toBe(false);
     expect(history.backs).toBe(0);
     expect(history.leftApp).toBe(0);
 
     runtime.useApp.getState().setEvidenceTier('sheet');
     history.deferBack = true;
-    runtime.useApp.getState().popLayer();
-    runtime.useApp.getState().popLayer();
+    expect(runtime.useApp.getState().popLayer()).toBe(true);
+    expect(runtime.useApp.getState().popLayer()).toBe(false);
     expect(history.backs).toBe(1);
     expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
     history.flushBack();
@@ -3020,6 +3020,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
       }),
     ]);
     expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
+    expect(f.store.getState().place).toBe('concordance');
 
     f.store.getState().toggleKwicSeries(group.id);
     f.store.getState().setGroupActive(group.id, false);
@@ -3029,6 +3030,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
     expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
     expect(f.store.getState().focusedSeries).toBe(group.id);
+    expect(f.store.getState().place).toBe('concordance');
   });
 
   it('reports duplicate and cap refusals for add-exact without partial mutation', () => {
@@ -3047,17 +3049,36 @@ describe('corpus dashboard query intent (slice-3)', () => {
     f.store.getState().addFrequencyTerm('one-too-many');
     expect(f.store.getState().notebook.groups).toHaveLength(atCap);
     expect(f.store.getState().notebookError).toMatch(/deactivate/);
+
+    f.store.getState().setPlace('vocabulary');
+    f.store.getState().showFrequencyTermInKwic('still-one-too-many');
+    expect(f.store.getState().place).toBe('vocabulary');
+    expect(f.store.getState().notebook.groups).toHaveLength(atCap);
+    expect(f.store.getState().notebookError).toMatch(/deactivate/);
   });
 
-  it('applies minimums/prefix/page size atomically and refuses out-of-window pages', () => {
+  it('applies the complete frequency view atomically and refuses out-of-window pages', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     const before = f.frequencies().length;
-    f.store.getState().setFrequencyFilter(3, 2, 'Holmes');
+    f.store.getState().applyFrequencyView({
+      minCount: 3,
+      minDocFreq: 2,
+      prefix: ' Holmes ',
+      classes: ['lexical', 'numeral'],
+      sort: { by: 'docFreq', dir: 1 },
+      pageLimit: 200,
+    });
     expect(f.frequencies()).toHaveLength(before + 1);
     expect((f.frequencies().at(-1)!.query as {
       request: {
-        filter: { minCount: number; minDocFreq: number; prefixNfc: string };
+        filter: {
+          minCount: number;
+          minDocFreq: number;
+          prefixNfc: string;
+          classes: string[];
+        };
+        sort: { by: string; dir: number };
         page: { offset: number; limit: number };
       };
     }).request).toEqual(expect.objectContaining({
@@ -3065,11 +3086,12 @@ describe('corpus dashboard query intent (slice-3)', () => {
         minCount: 3,
         minDocFreq: 2,
         prefixNfc: 'Holmes',
+        classes: ['lexical', 'numeral'],
       }),
-      page: { offset: 0, limit: 100 },
+      sort: { by: 'docFreq', dir: 1 },
+      page: { offset: 0, limit: 200 },
     }));
 
-    f.store.getState().setFrequencyPageSize(200);
     expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
     const issued = f.frequencies().length;
     f.store.getState().setFrequencyPage(5_000);

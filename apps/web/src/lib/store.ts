@@ -331,6 +331,15 @@ export interface FrequencyViewV1 {
   readonly page: { readonly offset: number; readonly limit: number };
 }
 
+export interface FrequencyViewInputV1 {
+  readonly minCount: number;
+  readonly minDocFreq: number;
+  readonly classes: readonly FrequencyTokenClassV1[];
+  readonly prefix: string;
+  readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
+  readonly pageLimit: number;
+}
+
 export interface FrequencyState {
   readonly snapshot: string;
   readonly selection: TokenRangeSelectionV1 | null;
@@ -609,9 +618,11 @@ export interface AppState {
   /**
    * Close and Escape delegate to Back; popstate performs the mutation.
    * A count greater than one closes one governed parent and its nested
-   * descendants as a single user action.
+   * descendants as a single user action. A stale-target caller may override
+   * focus restoration with a stable surviving control. Returns false when a
+   * traversal is already pending or the requested depth is invalid.
    */
-  popLayer(count?: number): void;
+  popLayer(count?: number, returnFocusTo?: string): boolean;
 
   /** The query notebook (slice-1 ruling): the authoritative ordered group
    *  list. Session-only in this slice — deliberately NOT persisted anywhere
@@ -743,11 +754,8 @@ export interface AppState {
   runFrequency(): void;
   runTfidf(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
-  setFrequencyPrefix(prefix: string): void;
-  setFrequencyFilter(minCount: number, minDocFreq: number, prefix: string): void;
-  setFrequencyClasses(classes: readonly FrequencyTokenClassV1[]): void;
+  applyFrequencyView(input: FrequencyViewInputV1): void;
   setFrequencyPage(offset: number): void;
-  setFrequencyPageSize(limit: number): void;
   addFrequencyTerm(key: string): void;
   showFrequencyTermInKwic(key: string): void;
   runKeyness(): void;
@@ -1162,6 +1170,7 @@ export function createAppRuntime(
   let saveResearchNow = (_overwrite = false): void => undefined;
   let restoreDurablePins = (): void => undefined;
   let historyTraversalPending = false;
+  let pendingBackFocusTo: string | null = null;
 
   // Route and layer state is initialized before the store so the first React
   // snapshot and the current history entry cannot disagree. A deep evidence
@@ -1263,7 +1272,7 @@ export function createAppRuntime(
       }));
     };
 
-    const requestBack = (count = 1): void => {
+    const requestBack = (count = 1, returnFocusTo?: string): boolean => {
       const layers = get().layers;
       if (
         historyTraversalPending
@@ -1271,15 +1280,17 @@ export function createAppRuntime(
         || !Number.isSafeInteger(count)
         || count < 1
         || count > layers.length
-      ) return;
+      ) return false;
       if (historyPort === null) {
         const closing = layers.at(-count)!;
         writeNavigation('replace', get().place, layers.slice(0, -count));
-        restoreFocusTo(closing.returnFocusTo);
-        return;
+        restoreFocusTo(returnFocusTo ?? closing.returnFocusTo);
+        return true;
       }
       historyTraversalPending = true;
+      pendingBackFocusTo = returnFocusTo ?? null;
       historyPort.back(count);
+      return true;
     };
 
     const freshLayer = (
@@ -2160,8 +2171,8 @@ export function createAppRuntime(
         if (changed !== undefined) rememberLayer(changed, layers);
         writeNavigation('replace', get().place, layers);
       },
-      popLayer(count = 1) {
-        requestBack(count);
+      popLayer(count = 1, returnFocusTo) {
+        return requestBack(count, returnFocusTo);
       },
       notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
       activeGroupIds: new Set<string>(),
@@ -3402,23 +3413,26 @@ export function createAppRuntime(
         get().runFrequency();
       },
 
-      setFrequencyPrefix(prefix) {
-        get().setFrequencyFilter(
-          get().frequencyView.minCount,
-          get().frequencyView.minDocFreq,
-          prefix,
+      applyFrequencyView(input) {
+        const normalized = input.prefix.trim().normalize('NFC');
+        const classes = [...new Set(input.classes)].filter(
+          (value): value is FrequencyTokenClassV1 =>
+            value === 'lexical' || value === 'numeral',
         );
-      },
-
-      setFrequencyFilter(minCount, minDocFreq, prefix) {
-        const normalized = prefix.trim().normalize('NFC');
         const current = get().frequencyView;
         if (
-          !Number.isSafeInteger(minCount) ||
-          minCount < 1 ||
-          !Number.isSafeInteger(minDocFreq) ||
-          minDocFreq < 1 ||
-          normalized.length > FREQUENCY_PREFIX_MAX_UNITS
+          !Number.isSafeInteger(input.minCount) ||
+          input.minCount < 1 ||
+          !Number.isSafeInteger(input.minDocFreq) ||
+          input.minDocFreq < 1 ||
+          normalized.length > FREQUENCY_PREFIX_MAX_UNITS ||
+          classes.length === 0 ||
+          classes.length !== input.classes.length ||
+          !['count', 'docFreq', 'dp', 'dpNorm', 'key'].includes(input.sort.by) ||
+          (input.sort.dir !== 1 && input.sort.dir !== -1) ||
+          !Number.isSafeInteger(input.pageLimit) ||
+          input.pageLimit < 1 ||
+          input.pageLimit > FREQUENCY_PAGE_MAX
         ) {
           return;
         }
@@ -3427,34 +3441,21 @@ export function createAppRuntime(
           frequencyView: normalized === ''
             ? {
                 ...withoutPrefix,
-                minCount,
-                minDocFreq,
-                page: { ...current.page, offset: 0 },
+                minCount: input.minCount,
+                minDocFreq: input.minDocFreq,
+                classes,
+                sort: { ...input.sort },
+                page: { offset: 0, limit: input.pageLimit },
               }
             : {
                 ...current,
-                minCount,
-                minDocFreq,
+                minCount: input.minCount,
+                minDocFreq: input.minDocFreq,
+                classes,
                 prefixNfc: normalized,
-                page: { ...current.page, offset: 0 },
+                sort: { ...input.sort },
+                page: { offset: 0, limit: input.pageLimit },
               },
-        });
-        get().runFrequency();
-      },
-
-      setFrequencyClasses(classes) {
-        const unique = [...new Set(classes)].filter(
-          (value): value is FrequencyTokenClassV1 =>
-            value === 'lexical' || value === 'numeral',
-        );
-        if (unique.length === 0) return;
-        const current = get().frequencyView;
-        set({
-          frequencyView: {
-            ...current,
-            classes: unique,
-            page: { ...current.page, offset: 0 },
-          },
         });
         get().runFrequency();
       },
@@ -3472,24 +3473,6 @@ export function createAppRuntime(
           frequencyView: {
             ...current,
             page: { ...current.page, offset },
-          },
-        });
-        get().runFrequency();
-      },
-
-      setFrequencyPageSize(limit) {
-        if (
-          !Number.isSafeInteger(limit) ||
-          limit < 1 ||
-          limit > FREQUENCY_PAGE_MAX
-        ) {
-          return;
-        }
-        const current = get().frequencyView;
-        set({
-          frequencyView: {
-            ...current,
-            page: { offset: 0, limit },
           },
         });
         get().runFrequency();
@@ -3559,6 +3542,7 @@ export function createAppRuntime(
         );
         if (!group) {
           get().addFrequencyTerm(key);
+          if (get().notebookError === null) get().setPlace('concordance');
           return;
         }
         if (!state.activeGroupIds.has(group.id) && state.activeGroupIds.size >= MAX_SERIES) {
@@ -3570,6 +3554,7 @@ export function createAppRuntime(
         adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
         if (!get().kwicEnabledSeries.has(group.id)) get().toggleKwicSeries(group.id);
         get().setFocus(group.id);
+        get().setPlace('concordance');
       },
 
       setLinkedSelection(selection) {
@@ -4010,6 +3995,8 @@ export function createAppRuntime(
 
   const reconcileHistory = (): void => {
     if (historyPort === null || disposed) return;
+    const requestedFocusTo = pendingBackFocusTo;
+    pendingBackFocusTo = null;
     historyTraversalPending = false;
     const previous = store.getState();
     const route = routeFromUrl(historyPort.url);
@@ -4060,7 +4047,7 @@ export function createAppRuntime(
       (candidate) => !layers.some((layer) => layer.id === candidate.id),
     );
     if (removed) {
-      restoreFocusTo(removed.returnFocusTo);
+      restoreFocusTo(requestedFocusTo ?? removed.returnFocusTo);
     }
     if (readerPlace !== null && readerChanged) {
       store.getState().runReader();

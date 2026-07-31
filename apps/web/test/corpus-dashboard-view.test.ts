@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  frequencyFilterError,
-  frequencyPageView,
   rhythmBinsForDocument,
   rhythmDescription,
 } from '../src/lib/corpus-dashboard-view.ts';
@@ -26,27 +24,4 @@ describe('corpus dashboard view model', () => {
       .toBe('bin 1: 2 sentences, mean 5, 10 selected tokens; bin 2: 0 sentences, mean —, 0 selected tokens');
   });
 
-  it('validates integer filter drafts before a no-op store action', () => {
-    expect(frequencyFilterError(Number.NaN, 1)).toMatch(/Minimum count/);
-    expect(frequencyFilterError(1, 0)).toMatch(/Minimum documents/);
-    expect(frequencyFilterError(2, 3)).toBeNull();
-  });
-
-  it('labels empty and populated pages and stops with disclosure at the 5,000-row window', () => {
-    expect(frequencyPageView(0, 0, 100, 0)).toEqual({
-      label: '0 rows',
-      canNext: false,
-      atWindow: false,
-    });
-    expect(frequencyPageView(10_000, 4_800, 200, 200)).toEqual({
-      label: 'rows 4,801–5,000',
-      canNext: false,
-      atWindow: true,
-    });
-    expect(frequencyPageView(450, 200, 200, 200)).toEqual({
-      label: 'rows 201–400',
-      canNext: true,
-      atWindow: false,
-    });
-  });
 });

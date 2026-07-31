@@ -40,6 +40,7 @@ export function SectionProfile() {
         : (
           <>
             <div
+              className="section-vocabulary-strip"
               role="img"
               aria-label={`${rows.length} section vocabulary strip for ${titleByDoc.get(sectionDoc!) ?? sectionDoc}`}
               style={{ display: 'flex', alignItems: 'end', gap: 2, height: 48, maxWidth: 560 }}
@@ -61,20 +62,27 @@ export function SectionProfile() {
             </div>
             <details>
               <summary>exact section values</summary>
-              <table aria-label="Focused-book section values">
-                <thead><tr><th scope="col">section</th><th scope="col">selected tokens</th><th scope="col">types</th><th scope="col">sentences</th><th scope="col">sentence mean</th></tr></thead>
-                <tbody>
-                  {rows.map((row) => (
-                    <tr key={row.id}>
-                      <th scope="row">{row.title ?? `section ${row.id.slice(0, 8)}`}</th>
-                      <td>{number.format(row.selectedTokens)}</td>
-                      <td>{number.format(row.types)}</td>
-                      <td>{number.format(row.sentences)}</td>
-                      <td>{value(row.sentenceMean)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+              <div
+                className="horizontal-data-port"
+                role="region"
+                aria-label="Exact focused-book section values"
+                tabIndex={0}
+              >
+                <table aria-label="Focused-book section values">
+                  <thead><tr><th scope="col">section</th><th scope="col">selected tokens</th><th scope="col">types</th><th scope="col">sentences</th><th scope="col">sentence mean</th></tr></thead>
+                  <tbody>
+                    {rows.map((row) => (
+                      <tr key={row.id}>
+                        <th scope="row">{row.title ?? `section ${row.id.slice(0, 8)}`}</th>
+                        <td>{number.format(row.selectedTokens)}</td>
+                        <td>{number.format(row.types)}</td>
+                        <td>{number.format(row.sentences)}</td>
+                        <td>{value(row.sentenceMean)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
             </details>
           </>
         )}

@@ -607,19 +607,24 @@ term                                      current sorted measure ▸
 ```
 
 Activating one row expands exactly one detail containing rate, DP/DPnorm,
-class, per-book distribution/sparkline, and the verbs:
+class, and the verbs:
 
 ```text
-add as term · concordance · read first occurrence
+add as term · concordance
 ```
+
+The delivered `freq-list/1` row has no per-book vector or occurrence anchor.
+Per-book distribution/sparkline and “read first occurrence” are therefore
+deferred until a bounded, provenance-visible worker contract supplies them;
+the UI never derives or implies those absent facts.
 
 Sort/filter controls open a focused sheet while their active values remain
 summarized above the list. Page size and filters retain their semantic values
 across viewport changes; compact presentation must not silently request a
 different analysis.
 
-A compact distribution strip or ECDF may index the sorted table. It never
-replaces exact rows.
+A future compact distribution strip or ECDF may index the sorted table only
+after that bounded contract exists. It never replaces exact rows.
 
 ### Compare
 
@@ -1060,7 +1065,8 @@ contracts.
 - Keep complete per-book statistics in Corpus; split per-type/per-section
   Vocabulary surfaces from the current dashboard and link focused slices
   rather than duplicating ownership.
-- Add compact vocabulary row detail and distribution index.
+- Add compact vocabulary row detail; defer its distribution index until the
+  frequency contract supplies a bounded per-book vector.
 
 ### Stage 5 — Compare and Findings
 
