@@ -16,6 +16,10 @@ import {
   querySurfaceView,
   type QueryEditorTarget,
 } from '../lib/query-surface.ts';
+import {
+  rowDetailSurface,
+  rowDetailWrite,
+} from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 
@@ -272,7 +276,11 @@ export function QuerySurface() {
     target: QueryEditorTarget,
     returnFocusTo: string,
   ) => {
-    if (layerTarget !== null) {
+    const write = rowDetailWrite(
+      topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
+      'query-editor',
+    );
+    if (write === 'replace') {
       replaceLayer('row-detail', Object.freeze(target), returnFocusTo);
     } else {
       pushLayer('row-detail', Object.freeze(target), returnFocusTo);

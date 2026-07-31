@@ -614,6 +614,66 @@ canvas {
   overscroll-behavior-inline: contain;
 }
 
+.book-detail {
+  margin-block: var(--space-2);
+  padding: var(--space-3);
+  border-block: 1px solid var(--rule-strong);
+  background: var(--bg);
+  text-align: start;
+}
+
+.book-detail h3,
+.book-detail h4 {
+  margin: 0;
+}
+
+.book-detail > section,
+.book-detail > nav {
+  margin-block-start: var(--space-3);
+}
+
+.book-detail-header,
+.book-detail > nav {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  flex-wrap: wrap;
+}
+
+.book-detail-header h3 {
+  flex: 1 1 24ch;
+  font-size: var(--text-md);
+}
+
+.book-detail-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(13ch, 1fr));
+  gap: var(--space-2) var(--space-3);
+}
+
+.book-detail-stats dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.book-detail-stats dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.book-rhythm-mark {
+  display: inline-flex;
+  block-size: 48px;
+  align-items: end;
+  gap: 2px;
+}
+
+.book-rhythm-mark > span {
+  display: inline-block;
+  inline-size: 5px;
+  background: var(--accent-text);
+}
+
 .horizontal-data-port:focus-visible {
   outline-offset: 1px;
 }

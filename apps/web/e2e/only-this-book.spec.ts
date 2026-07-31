@@ -8,7 +8,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
 
   const scope = page.getByRole('region', { name: 'Scope' });
   const documents = page.getByRole('table', { name: 'Corpus documents' });
-  const rows = documents.locator('tbody tr');
+  const rows = documents.locator(':scope > tbody > tr:not([data-book-detail])');
   await expect(rows).toHaveCount(6);
   const baselineTokens = await scope.locator('span').filter({ hasText: /^[\d,]+ tokens$/ }).first().innerText();
 
@@ -28,6 +28,13 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
   await titleButton.click();
   await expect(titleButton).toHaveAttribute('aria-pressed', 'true');
+  const controlledDetail = await titleButton.getAttribute('aria-controls');
+  expect(controlledDetail).not.toBeNull();
+  expect(controlledDetail).not.toMatch(/\s/u);
+  await expect(page.locator(`[id="${controlledDetail!}"]`)).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inventory' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sentence rhythm' })).toBeVisible();
   await expect(scope).toContainText(baselineTokens);
   await expect.poll(async () => new Set(
     (await trace(page)).events
@@ -51,7 +58,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await expect(scope).toContainText(title);
   await expect(scope).toContainText(/tokens 1–/);
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
-  await expect(documents.locator('tbody tr')).toHaveCount(1);
+  await expect(rows).toHaveCount(1);
 
   const requiredScopeOps = ['trend', 'dispersion', 'kwic', 'inventory', 'freq-list'];
   await expect.poll(async () => {

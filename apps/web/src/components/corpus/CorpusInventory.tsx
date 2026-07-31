@@ -1,7 +1,25 @@
-import { useMemo, useState } from 'react';
+import {
+  Fragment,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import { useApp } from '../../lib/store-instance.ts';
-import { fullTokensByDoc } from '../../lib/doc-tokens.ts';
+import {
+  bookDetailRegionId,
+  bookDetailView,
+  bookSheetTarget,
+  bookTitleControlId,
+} from '../../lib/corpus-view.ts';
+import {
+  rowDetailSurface,
+  rowDetailWrite,
+} from '../../lib/row-detail.ts';
+import { StructurePanel } from '../StructurePanel.tsx';
+import { BookDetail } from './BookDetail.tsx';
 import { GrowthCurve } from './GrowthCurve.tsx';
+import { OnlyBookButton } from './OnlyBookButton.tsx';
 import { RhythmMark } from './RhythmMark.tsx';
 
 const number = new Intl.NumberFormat('en-US');
@@ -18,9 +36,11 @@ export function CorpusInventory({
   const focusedDoc = useApp((s) => s.focusedDoc);
   const setFocusedDoc = useApp((s) => s.setFocusedDoc);
   const snapshot = useApp((s) => s.snapshot);
-  const trends = useApp((s) => s.trends);
   const linkedSelection = useApp((s) => s.linkedSelection);
-  const setLinkedSelection = useApp((s) => s.setLinkedSelection);
+  const layers = useApp((s) => s.layers);
+  const pushLayer = useApp((s) => s.pushLayer);
+  const replaceLayer = useApp((s) => s.replaceLayer);
+  const popLayer = useApp((s) => s.popLayer);
   const [scopeMessage, setScopeMessage] = useState<string | null>(null);
   const readyDocs = snapshot?.readyDocs ?? [];
   const project = useApp((s) => s.projectSession?.project ?? null);
@@ -28,6 +48,42 @@ export function CorpusInventory({
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
     [project],
   );
+  const topLayer = layers.at(-1);
+  const bookLayer = layers.find(
+    (layer) => layer.kind === 'row-detail' && bookSheetTarget(layer.target) !== null,
+  ) ?? null;
+  const bookTarget = bookLayer === null ? null : bookSheetTarget(bookLayer.target);
+  const bookTargetValid = bookTarget === null || readyDocs.includes(bookTarget.doc);
+  const stalePopRequested = useRef(false);
+
+  useEffect(() => {
+    stalePopRequested.current = false;
+  }, [bookLayer?.id]);
+
+  useEffect(() => {
+    if (bookTarget === null || bookTargetValid || stalePopRequested.current) return;
+    stalePopRequested.current = true;
+    document.getElementById('place-corpus-heading')?.focus({ preventScroll: true });
+    popLayer();
+  }, [bookTarget, bookTargetValid, popLayer]);
+
+  const openBook = (doc: string) => {
+    setFocusedDoc(doc);
+    if (bookTarget?.doc === doc && topLayer?.id === bookLayer?.id) {
+      popLayer();
+      return;
+    }
+    const target = Object.freeze({ surface: 'book-sheet' as const, doc });
+    const write = rowDetailWrite(
+      topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
+      'book-sheet',
+    );
+    if (write === 'replace') {
+      replaceLayer('row-detail', target, bookTitleControlId(doc));
+    } else {
+      pushLayer('row-detail', target, bookTitleControlId(doc));
+    }
+  };
 
   if (!inventory) return null;
   return (
@@ -71,14 +127,29 @@ export function CorpusInventory({
               <table aria-label="Corpus documents">
                 <thead><tr><th scope="col">book</th><th scope="col">selected/full tokens</th><th scope="col">types</th><th scope="col">hapax</th><th scope="col">sentences</th><th scope="col">mean / median / p90</th><th scope="col">paragraph mean</th><th scope="col">TTR</th><th scope="col">MATTR</th><th scope="col">rhythm</th><th scope="col">scope</th></tr></thead>
                 <tbody>
-                  {result.documents.map((row) => (
-                    <tr key={row.doc}>
+                  {result.documents.map((row) => {
+                    const expanded = bookTarget?.doc === row.doc;
+                    const detail = bookTarget !== null && bookTarget.doc === row.doc
+                      ? bookDetailView({
+                          target: bookTarget,
+                          title: titleByDoc.get(row.doc) ?? row.doc,
+                          result,
+                          snapshotDocOrdinal: readyDocs.indexOf(row.doc),
+                          selection: linkedSelection,
+                        })
+                      : null;
+                    return (
+                    <Fragment key={row.doc}>
+                    <tr data-focused={focusedDoc === row.doc ? true : undefined}>
                       <th scope="row">
                         <button
+                          id={bookTitleControlId(row.doc)}
                           type="button"
-                          onClick={() => setFocusedDoc(row.doc)}
+                          onClick={() => openBook(row.doc)}
                           aria-pressed={focusedDoc === row.doc}
-                          title="Focus this book without changing analysis scope"
+                          aria-expanded={expanded}
+                          aria-controls={bookDetailRegionId(row.doc)}
+                          title="Focus this book and show its detail without changing analysis scope"
                         >
                           {titleByDoc.get(row.doc) ?? row.doc}
                         </button>
@@ -90,45 +161,24 @@ export function CorpusInventory({
                       <td>{value(row.mattr)}{row.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}</td>
                       <td><RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} /></td>
                       <td>
-                        {(() => {
-                          const fullTokens = fullTokensByDoc(row.doc, { inventory, trends });
-                          const unavailable = fullTokens === null || snapshot === null;
-                          const isOnlyThisBook = linkedSelection !== null
-                            && linkedSelection.doc === row.doc
-                            && linkedSelection.tokens.start === 0
-                            && linkedSelection.tokens.end === fullTokens;
-                          return (
-                            <button
-                              className="coarse-target"
-                              type="button"
-                              aria-disabled={unavailable ? true : undefined}
-                              title={unavailable
-                                ? 'The full token extent is not available yet.'
-                                : isOnlyThisBook
-                                  ? 'Restore analysis scope to all ready books.'
-                                  : 'Use this whole book as the linked analysis scope.'}
-                              onClick={() => {
-                                if (snapshot === null || fullTokens === null) {
-                                  setScopeMessage('The full token extent is not available yet.');
-                                  return;
-                                }
-                                setScopeMessage(null);
-                                setLinkedSelection(isOnlyThisBook
-                                  ? null
-                                  : {
-                                      snapshot: snapshot.snapshot,
-                                      doc: row.doc,
-                                      tokens: { start: 0, end: fullTokens },
-                                    });
-                              }}
-                            >
-                              {isOnlyThisBook ? 'all books' : 'only this book'}
-                            </button>
-                          );
-                        })()}
+                        <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />
                       </td>
                     </tr>
-                  ))}
+                    {detail && (
+                      <tr data-book-detail>
+                        <td colSpan={11}>
+                          <BookDetail
+                            view={detail}
+                            growth={result.growth}
+                            onClose={popLayer}
+                            onScopeMessage={setScopeMessage}
+                          />
+                        </td>
+                      </tr>
+                    )}
+                    </Fragment>
+                  );
+                  })}
                 </tbody>
               </table>
             </div>
@@ -137,6 +187,7 @@ export function CorpusInventory({
           );
         })()}
       </section>
+      {bookTarget === null && <StructurePanel headingAs="h3" />}
     </>
   );
 }

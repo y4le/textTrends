@@ -34,8 +34,10 @@ function depthByRow(rows: readonly StructureRow[]): Map<string, number> {
 
 export function StructurePanel({
   headingAs: Heading = 'h2',
+  showDocumentControl = true,
 }: {
-  readonly headingAs?: 'h2' | 'h3';
+  readonly headingAs?: 'h2' | 'h3' | 'h4';
+  readonly showDocumentControl?: boolean;
 }) {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const snapshot = useApp((s) => s.snapshot);
@@ -95,19 +97,21 @@ export function StructurePanel({
         <Heading id="chapter-structure-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
           Chapter structure
         </Heading>
-        <label style={{ color: 'var(--fg-muted)' }}>
-          document{' '}
-          <select
-            aria-label="Document to preview"
-            value={focusedDoc}
-            onChange={(e) => setFocusedDoc(e.target.value)}
-            style={{ font: 'inherit', fontFamily: 'var(--font-mono)', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--rule-strong)' }}
-          >
-            {readyInOrder.map((d) => (
-              <option key={d} value={d}>{titleOf(d)}</option>
-            ))}
-          </select>
-        </label>
+        {showDocumentControl && (
+          <label style={{ color: 'var(--fg-muted)' }}>
+            document{' '}
+            <select
+              aria-label="Document to preview"
+              value={focusedDoc}
+              onChange={(e) => setFocusedDoc(e.target.value)}
+              style={{ font: 'inherit', fontFamily: 'var(--font-mono)', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--rule-strong)' }}
+            >
+              {readyInOrder.map((d) => (
+                <option key={d} value={d}>{titleOf(d)}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <span style={{ flex: 1 }} />
         {isUser && editableChapters && !editing && overrideStatus !== 'needs-review' && (
           <button type="button" onClick={() => setEditing(true)} style={SMALL_BUTTON_STYLE}>

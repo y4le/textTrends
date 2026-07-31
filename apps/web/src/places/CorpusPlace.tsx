@@ -1,6 +1,5 @@
 import { CorpusInventory } from '../components/corpus/CorpusInventory.tsx';
 import { ProjectPanel } from '../components/ProjectPanel.tsx';
-import { StructurePanel } from '../components/StructurePanel.tsx';
 
 /**
  * Corpus owns study composition, sources, document inventory, and structure.
@@ -12,7 +11,6 @@ export function CorpusPlace() {
     <>
       <ProjectPanel headingAs="h3" />
       <CorpusInventory showHeading={false} />
-      <StructurePanel headingAs="h3" />
     </>
   );
 }
