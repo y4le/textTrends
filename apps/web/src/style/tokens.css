@@ -1105,7 +1105,7 @@ canvas {
     font-size: var(--text-lg);
   }
 
-  .query-editor-layer {
+  .form-layer {
     position: fixed;
     z-index: 60;
     inset: 0;
@@ -1148,12 +1148,12 @@ canvas {
     gap: var(--space-1);
   }
 
-  .query-editor-layer .quick-add-input {
+  .form-layer .quick-add-input {
     width: 100%;
     min-block-size: 44px;
   }
 
-  .query-editor-layer .group-editor {
+  .form-layer .group-editor {
     min-block-size:
       calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
     min-block-size:
@@ -1164,12 +1164,12 @@ canvas {
     font-size: var(--text-sm) !important;
   }
 
-  .query-editor-layer button {
+  .form-layer button {
     min-block-size: 44px;
   }
 
-  .query-editor-actions,
-  .query-editor-layer .group-editor-actions {
+  .form-layer-actions,
+  .form-layer .group-editor-actions {
     position: sticky;
     z-index: 1;
     inset-block-end: var(--keyboard-inset);
@@ -1180,8 +1180,8 @@ canvas {
     background: var(--bg);
   }
 
-  .query-editor-actions button,
-  .query-editor-layer .group-editor-actions button {
+  .form-layer-actions button,
+  .form-layer .group-editor-actions button {
     min-block-size: 44px;
     flex: 1 1 0;
   }

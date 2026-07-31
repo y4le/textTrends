@@ -1,15 +1,13 @@
 import {
   useCallback,
   useEffect,
-  useRef,
   useState,
-  type KeyboardEvent,
 } from 'react';
-import { createPortal } from 'react-dom';
 import {
   GroupEditor,
   type GroupEditorDraft,
 } from './GroupEditor.tsx';
+import { FormLayer } from './FormLayer.tsx';
 import { NotebookPanel } from './NotebookPanel.tsx';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -22,6 +20,8 @@ import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 const QUICK_ADD_LABEL = 'Add terms to the notebook, comma-separated';
+const INLINE_FOCUSABLE =
+  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
 function countLabel(count: GroupCountVM): string {
   switch (count.kind) {
@@ -78,7 +78,7 @@ function QuickAddForm({
         />
       </label>
       {compact && (
-        <div className="query-editor-actions">
+        <div className="form-layer-actions">
           <button type="button" onClick={onCancel}>Cancel</button>
           <button type="submit">Add terms</button>
         </div>
@@ -203,9 +203,6 @@ function CompactQuerySummary({
   );
 }
 
-const FOCUSABLE =
-  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
-
 export function QuerySurface() {
   const presentation = usePresentation();
   const place = useApp((state) => state.place);
@@ -229,7 +226,6 @@ export function QuerySurface() {
   const [inlineGroupId, setInlineGroupId] = useState<string | null>(null);
   const [inlineReturnFocusTo, setInlineReturnFocusTo] = useState<string | null>(null);
   const [groupDrafts, setGroupDrafts] = useState<Record<string, GroupEditorDraft>>({});
-  const modalRef = useRef<HTMLDivElement | null>(null);
 
   const view = querySurfaceView({
     place,
@@ -261,25 +257,12 @@ export function QuerySurface() {
   }, [activeGroupId]);
 
   useEffect(() => {
-    if (!compactEditorOpen) return undefined;
-    const root = document.getElementById('root');
-    const wasInert = root?.inert ?? false;
-    if (root) root.inert = true;
-    const initial = modalRef.current?.querySelector<HTMLElement>(FOCUSABLE)
-      ?? modalRef.current;
-    initial?.focus({ preventScroll: true });
-    return () => {
-      if (root) root.inert = wasInert;
-    };
-  }, [activeGroup?.id, compactEditorOpen, layerTarget?.mode]);
-
-  useEffect(() => {
     if (compact || layerTarget === null) return undefined;
     const frame = requestAnimationFrame(() => {
       const equivalent = layerTarget.mode === 'quick-add'
         ? document.getElementById('query-quick-add-input')
         : document.querySelector('.query-inline-editor')
-          ?.querySelector<HTMLElement>(FOCUSABLE);
+          ?.querySelector<HTMLElement>(INLINE_FOCUSABLE);
       equivalent?.focus({ preventScroll: true });
     });
     return () => cancelAnimationFrame(frame);
@@ -336,41 +319,12 @@ export function QuerySurface() {
     { surface: 'query-editor', mode: 'quick-add' },
     'compact-query-add',
   );
-  const onModalKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.key === 'Escape') {
-      event.preventDefault();
-      closeEditor();
-      return;
-    }
-    if (event.key !== 'Tab') return;
-    const controls = [...(modalRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
-      .filter((node) => node.getClientRects().length > 0);
-    if (controls.length === 0) {
-      event.preventDefault();
-      modalRef.current?.focus();
-      return;
-    }
-    const first = controls[0]!;
-    const last = controls.at(-1)!;
-    if (event.shiftKey && document.activeElement === first) {
-      event.preventDefault();
-      last.focus();
-    } else if (!event.shiftKey && document.activeElement === last) {
-      event.preventDefault();
-      first.focus();
-    }
-  };
-
   const compactModal = compact && layerTarget?.mode === 'quick-add'
     ? (
-        <div
-          ref={modalRef}
-          className="query-editor-layer"
-          role="dialog"
-          aria-modal="true"
-          aria-label="Quick add query terms"
-          tabIndex={-1}
-          onKeyDown={onModalKeyDown}
+        <FormLayer
+          label="Quick add query terms"
+          focusKey="quick-add"
+          onClose={closeEditor}
         >
           <QuickAddForm
             draft={draft}
@@ -379,18 +333,14 @@ export function QuerySurface() {
             onSubmit={submitQuickAdd}
             onCancel={closeEditor}
           />
-        </div>
+        </FormLayer>
       )
     : activeGroup && compact
       ? (
-          <div
-            ref={modalRef}
-            className="query-editor-layer"
-            role="dialog"
-            aria-modal="true"
-            aria-label={`Query editor: ${activeGroup.name}`}
-            tabIndex={-1}
-            onKeyDown={onModalKeyDown}
+          <FormLayer
+            label={`Query editor: ${activeGroup.name}`}
+            focusKey={activeGroup.id}
+            onClose={closeEditor}
           >
             <GroupEditor
               group={activeGroup}
@@ -400,7 +350,7 @@ export function QuerySurface() {
                 : {})}
               onDraftChange={retainActiveGroupDraft}
             />
-          </div>
+          </FormLayer>
         )
       : null;
 
@@ -482,7 +432,7 @@ export function QuerySurface() {
           </div>
         )}
       </aside>
-      {compactModal && createPortal(compactModal, document.body)}
+      {compactModal}
     </>
   );
 }

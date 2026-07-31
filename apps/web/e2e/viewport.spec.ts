@@ -63,9 +63,9 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
     /\.workbench-sheet\[data-detent=half\]\{[^}]*block-size:58vh;block-size:58dvh/,
     /\.workbench-sheet\[data-detent=tall\]\{[^}]*block-size:88vh;block-size:88dvh/,
     /\.reader-region\[data-slot=viewport\]\{[^}]*block-size:100vh;[^}]*block-size:100dvh/,
-    /\.query-editor-layer\{[^}]*min-block-size:100vh;min-block-size:100dvh/,
+    /\.form-layer\{[^}]*min-block-size:100vh;min-block-size:100dvh/,
     /\.query-editor-form\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
-    /\.query-editor-layer \.group-editor\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
+    /\.form-layer \.group-editor\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
   ]) {
     expect(css).toMatch(rule);
   }
