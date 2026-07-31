@@ -34,11 +34,12 @@ function PlaceSurface({
   readonly place: Place;
   readonly children: ReactNode;
 }) {
-  const headingId = `${place}-place-heading`;
+  const headingId = `place-${place}-heading`;
   return (
     <section className="place-surface" aria-labelledby={headingId}>
       <h2
         id={headingId}
+        tabIndex={-1}
         style={{ fontSize: 'var(--text-md)', margin: 'var(--space-3) 0 var(--space-1)' }}
       >
         {PLACE_HEADING[place]}

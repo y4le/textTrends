@@ -901,12 +901,15 @@ function ScrubSurface({
           onPin={() => pinPassage(scrub.doc, scrub.token)}
           onOpenReader={() => {
             if (!snapshot) return;
-            openReader({
-              snapshot: passage.snapshot,
-              doc: scrub.doc,
-              token: scrub.token,
-              from: 'passage',
-            });
+            openReader(
+              {
+                snapshot: passage.snapshot,
+                doc: scrub.doc,
+                token: scrub.token,
+                from: 'passage',
+              },
+              'evidence-read',
+            );
           }}
         />
       ) : scrub ? (

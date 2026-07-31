@@ -88,6 +88,13 @@ test('unknown places normalize quietly to Trends', async ({ page }) => {
     .toHaveAttribute('aria-current', 'page');
 });
 
+test('an unresolvable deep Reader route normalizes to its canonical place', async ({ page }) => {
+  await page.goto('./?foreign=kept&p=compare&e=reader');
+  await expect(page).toHaveURL(/\?foreign=kept&p=compare$/);
+  await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
+});
+
 test('compact Lens keeps four complete destinations in portrait and landscape', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

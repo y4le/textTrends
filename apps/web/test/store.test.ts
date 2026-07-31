@@ -532,7 +532,47 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('installs a Back-safe base for deep evidence routes and restores forward by id', () => {
+  it('installs a Back-safe base for deep sheet routes and restores forward by id', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort(
+      '/textTrends/?foreign=a+b&p=corpus&e=sheet#s=kept',
+    );
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'sheet',
+      layers: [{ kind: 'sheet' }],
+    });
+    expect(history.entries).toHaveLength(2);
+    expect(history.entries[0]?.url)
+      .toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
+    expect(history.entries[1]?.url)
+      .toBe('/textTrends/?foreign=a+b&p=corpus&e=sheet#s=kept');
+
+    history.back();
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'none',
+      layers: [],
+    });
+    history.forward();
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'sheet',
+      layers: [{ kind: 'sheet' }],
+    });
+    expect(q.issued).toHaveLength(0);
+
+    runtime.dispose();
+    history.back();
+    expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
+  });
+
+  it('normalizes an unresolvable deep reader route to the place base', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
       '/textTrends/?foreign=a+b&p=corpus&e=reader#s=kept',
@@ -544,32 +584,14 @@ describe('workbench route and history authority', () => {
 
     expect(runtime.useApp.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'reader',
-      layers: [{ kind: 'reader' }],
-    });
-    expect(history.entries).toHaveLength(2);
-    expect(history.entries[0]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
-    expect(history.entries[1]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus&e=reader#s=kept');
-
-    history.back();
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
       evidenceTier: 'none',
       layers: [],
+      readerPlace: null,
     });
-    history.forward();
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
-      evidenceTier: 'reader',
-      layers: [{ kind: 'reader' }],
-    });
+    expect(history.entries).toHaveLength(1);
+    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#s=kept');
     expect(q.issued).toHaveLength(0);
-
     runtime.dispose();
-    history.back();
-    expect(runtime.useApp.getState().evidenceTier).toBe('reader');
   });
 
   it('keeps route/layer changes outside research, queries, and serialized targets', async () => {
@@ -685,7 +707,7 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('demotes a bare reader to a real sheet at the same history depth', () => {
+  it('demotes a governed reader to a real sheet at the same history depth', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');
     const runtime = createAppRuntime(q.client, {
@@ -693,7 +715,15 @@ describe('workbench route and history authority', () => {
       newLayerId: layerIds(),
     });
     const store = runtime.useApp;
-    store.getState().setEvidenceTier('reader');
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    port.publishSnapshot('g1', 's1', ['a']);
+    store.getState().openReader({
+      snapshot: 's1',
+      doc: 'a',
+      token: 1,
+      from: 'kwic',
+    });
     const entries = history.entries.length;
     const backs = history.backs;
     store.getState().setEvidenceTier('sheet');
@@ -2334,6 +2364,7 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     const pending = f.passages().at(-1)!;
     f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
     expect(f.store.getState().readerPlace).not.toBeNull();
+    expect(f.store.getState().layers.at(-1)?.kind).toBe('reader');
     f.store.getState().renameGroup(f.store.getState().notebook.groups[0]!.id, 'Detective');
     expect(f.store.getState().pins).toHaveLength(1);
     expect(pending.cancelled).toBe(false);
@@ -2341,6 +2372,7 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     expect(pending.cancelled).toBe(true);
     expect(f.store.getState().pins).toEqual([]);
     expect(f.store.getState().readerPlace).toBeNull();
+    expect(f.store.getState().layers.some((layer) => layer.kind === 'reader')).toBe(false);
     pending.resolve({ op: 'passage', passage: fakePassage(0, 10, 1) });
     await flush();
     expect(f.store.getState().pins).toEqual([]);
@@ -2359,8 +2391,10 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     expect(f.store.getState().readerPlace).toBeNull();
     f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
     expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'around', token: 1 });
+    expect(f.store.getState().layers.at(-1)?.kind).toBe('reader');
     f.store.getState().closeReader();
     expect(f.store.getState().readerPlace).toBeNull();
+    expect(f.store.getState().layers.some((layer) => layer.kind === 'reader')).toBe(false);
   });
 
   it('dispose cancels every pending pin and fences late settlements', async () => {
@@ -2385,6 +2419,97 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     f.store.getState().quickAdd('holmes');
     return f;
   };
+
+  it('governs open, replace, Back, Forward, and place departure with one reader layer', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    port.publishSnapshot('g1', 's1', ['a']);
+    const store = runtime.useApp;
+
+    store.getState().openReader(
+      { snapshot: 's1', doc: 'a', token: 1, from: 'kwic' },
+      'reader-origin',
+    );
+    expect(store.getState()).toMatchObject({
+      evidenceTier: 'reader',
+      readerPlace: { doc: 'a', cursor: { kind: 'around', token: 1 } },
+      layers: [{ kind: 'reader', returnFocusTo: 'reader-origin' }],
+    });
+    expect(history.entries).toHaveLength(2);
+    expect(history.url).toBe('/textTrends/?p=trends&e=reader');
+    const firstLayer = store.getState().layers[0]!.id;
+
+    store.getState().openReader(
+      { snapshot: 's1', doc: 'a', token: 2, from: 'pin' },
+      'second-reader-origin',
+    );
+    expect(history.entries).toHaveLength(2);
+    expect(store.getState().layers).toHaveLength(1);
+    expect(store.getState().layers[0]!.id).not.toBe(firstLayer);
+    expect(store.getState().readerPlace).toMatchObject({
+      from: 'pin',
+      cursor: { kind: 'around', token: 2 },
+    });
+
+    store.getState().closeReader();
+    expect(store.getState()).toMatchObject({
+      evidenceTier: 'none',
+      readerPlace: null,
+      layers: [],
+    });
+    history.forward();
+    expect(store.getState()).toMatchObject({
+      evidenceTier: 'reader',
+      readerPlace: { from: 'pin', cursor: { kind: 'around', token: 2 } },
+      layers: [{ kind: 'reader' }],
+    });
+
+    store.getState().setPlace('corpus');
+    expect(store.getState()).toMatchObject({
+      place: 'corpus',
+      evidenceTier: 'none',
+      readerPlace: null,
+      layers: [{ kind: 'place' }],
+    });
+    runtime.dispose();
+  });
+
+  it('snapshot invalidation consumes the reader entry without traversing history', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    port.publishSnapshot('g1', 's1', ['a']);
+    runtime.useApp.getState().openReader({
+      snapshot: 's1',
+      doc: 'a',
+      token: 1,
+      from: 'passage',
+    });
+    const backs = history.backs;
+    const replaces = history.replaces;
+
+    port.publishSnapshot('g1', 's2', ['a']);
+    expect(history.backs).toBe(backs);
+    expect(history.replaces).toBe(replaces + 1);
+    expect(history.url).toBe('/textTrends/?p=trends');
+    expect(runtime.useApp.getState()).toMatchObject({
+      evidenceTier: 'none',
+      readerPlace: null,
+      layers: [],
+    });
+    runtime.dispose();
+  });
 
   it('opens one canonical page under the current snapshot and captured track semantics', async () => {
     const f = setup();
@@ -2500,7 +2625,12 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(disposed.cancelled).toBe(true);
     disposed.resolve(fakeReaderPage(0, 4));
     await flush();
-    expect(f.store.getState().readerPage?.state.status).toBe('pending');
+    expect(f.store.getState()).toMatchObject({
+      readerPlace: null,
+      readerPage: null,
+      readerNavigation: null,
+    });
+    expect(f.store.getState().layers.some((layer) => layer.kind === 'reader')).toBe(false);
   });
 
   it('surfaces an impossible doc mismatch as an error instead of a permanent skeleton', async () => {

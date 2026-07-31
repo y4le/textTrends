@@ -151,6 +151,7 @@ export function PassageLine({
           onPin={onPin}
         />
         <button
+          id="evidence-read"
           type="button"
           aria-label="Open passage in reader"
           onClick={onOpenReader}

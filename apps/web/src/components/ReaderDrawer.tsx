@@ -148,18 +148,9 @@ export function ReaderDrawer() {
   const pinPassage = useApp((state) => state.pinPassage);
   const pinsUsed = useApp((state) => state.pins.length);
   const drawerRef = useRef<HTMLElement | null>(null);
-  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
-    openerRef.current =
-      document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
     drawerRef.current?.focus({ preventScroll: true });
-    return () => {
-      const opener = openerRef.current;
-      if (opener?.isConnected) opener.focus({ preventScroll: true });
-    };
   }, []);
 
   if (!place) return null;

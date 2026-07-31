@@ -192,14 +192,18 @@ export function PinnedPane() {
                 <div style={{ display: 'flex', gap: 'var(--space-1)' }}>
                   {pin.kind === 'ready' && (
                     <button
+                      id={`pin-open-${pin.id}`}
                       type="button"
                       aria-label={`Open pinned evidence at token ${pin.anchor.token + 1} in reader`}
-                      onClick={() => openReader({
-                        snapshot: pin.anchor.snapshot,
-                        doc: pin.anchor.doc,
-                        token: pin.anchor.token,
-                        from: 'pin',
-                      })}
+                      onClick={() => openReader(
+                        {
+                          snapshot: pin.anchor.snapshot,
+                          doc: pin.anchor.doc,
+                          token: pin.anchor.token,
+                          from: 'pin',
+                        },
+                        `pin-open-${pin.id}`,
+                      )}
                       style={SMALL_BUTTON_STYLE}
                     >
                       open reader

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  liveReaderPlace,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
@@ -50,5 +51,27 @@ describe('reader open intent', () => {
     expect(sameReaderPlace(place, null)).toBe(false);
     expect(sameReaderCursor(place.cursor, { ...place.cursor })).toBe(true);
     expect(sameReaderCursor(place.cursor, { kind: 'from', token: 3 })).toBe(false);
+  });
+
+  it('revalidates restored layer targets against shape and the live snapshot', () => {
+    const place = {
+      snapshot: 's1',
+      doc: 'a',
+      cursor: { kind: 'before' as const, token: 4 },
+      from: 'barcode' as const,
+    };
+    expect(liveReaderPlace(place, 's1', ['a'])).toBe(place);
+    expect(liveReaderPlace(place, 's2', ['a'])).toBeNull();
+    expect(liveReaderPlace({ ...place, doc: 'gone' }, 's1', ['a'])).toBeNull();
+    expect(liveReaderPlace(
+      { ...place, cursor: { kind: 'before', token: 0 } },
+      's1',
+      ['a'],
+    )).toBeNull();
+    expect(liveReaderPlace(
+      { ...place, from: 'invented' },
+      's1',
+      ['a'],
+    )).toBeNull();
   });
 });

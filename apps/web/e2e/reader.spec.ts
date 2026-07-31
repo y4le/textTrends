@@ -208,7 +208,7 @@ test.beforeEach(async ({ page }) => {
   await submitAndAwaitFreshResults(page, 'wolf');
 });
 
-test('compact Reader replaces Lens navigation without covering its controls', async ({ page }) => {
+test('compact Reader is a Back/Escape layer and restores its invoking row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoPlace(page, 'concordance');
   const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
@@ -224,13 +224,21 @@ test('compact Reader replaces Lens navigation without covering its controls', as
   const drawer = page.getByRole('dialog', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
   await expect(lens).toHaveCount(0);
-  const close = drawer.getByRole('button', { name: 'close', exact: true });
-  await expect(close).toBeVisible();
-  await close.click();
+  await page.goBack();
   await expect(drawer).toHaveCount(0);
+  const row = page
+    .getByRole('table', { name: 'Concordance' })
+    .getByRole('button', { name: 'wolf', exact: true });
+  await expect(row).toBeFocused();
   await expect(
     page.getByRole('navigation', { name: 'Analysis lenses' }),
   ).toBeVisible();
+
+  await row.click();
+  await expect(drawer).toBeVisible();
+  await drawer.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect(row).toBeFocused();
 });
 
 test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot replacement stay fenced', async ({ page }) => {
@@ -273,14 +281,22 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   await expect(drawer.getByText(/<em>/)).toBeVisible();
   await expect(drawer.locator('em')).toHaveCount(0);
 
-  // A semantic member edit reissues the current page's highlight projection.
-  // Force is intentional: the non-modal drawer visually covers the notebook
-  // while leaving it mounted; this test targets store/query coordination.
-  await page
-    .getByRole('navigation', { name: 'Analysis lenses' })
-    .getByRole('link', { name: 'Trends', exact: true })
-    .evaluate((link: HTMLAnchorElement) => link.click());
-  await expect(page).toHaveURL(/[?&]p=trends(?:&|$)/);
+  await drawer.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(drawer).toHaveCount(0);
+  await expect(kwicOpen).toBeFocused();
+  await gotoPlace(page, 'trends');
+
+  // Open a Trends-owned first-page Reader before editing so the semantic edit
+  // can reissue its current highlight projection without crossing places.
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  const passageOpen = page.getByRole('button', { name: 'Open passage in reader' });
+  await expect(passageOpen).toBeVisible();
+  let readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await passageOpen.click();
+  await awaitFreshReader(page, readerMark);
+  const trendDrawer = page.getByRole('dialog', { name: /Reader: reader/ });
   await expect(page.getByRole('region', { name: 'Query notebook' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit members: wolf' }).click({ force: true });
   const editor = page.getByRole('group', { name: 'Edit members: wolf' });
@@ -289,9 +305,24 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   const semanticMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await editor.getByRole('button', { name: 'Apply changes to wolf' }).click({ force: true });
   await awaitFreshReader(page, semanticMark);
-  await expect(drawer.locator('[data-reader-mark]').filter({ hasText: 'w0100' })).toBeVisible();
+  await expect(trendDrawer.locator('[data-reader-mark]').filter({ hasText: 'w0100' })).toBeVisible();
+
+  // A place departure terminates the Reader layer instead of carrying a
+  // fixed overlay onto the destination.
+  await page
+    .getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Concordance', exact: true })
+    .evaluate((link: HTMLAnchorElement) => link.click());
+  await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
+  await expect(trendDrawer).toHaveCount(0);
 
   // Publishing another snapshot closes the token-coordinate reader.
+  await gotoPlace(page, 'trends');
+  const replacementOpen = page.getByRole('button', { name: 'Open passage in reader' });
+  await expect(replacementOpen).toBeVisible();
+  readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await replacementOpen.click();
+  await awaitFreshReader(page, readerMark);
   await importCorpus(page, 'replacement.txt', 'replacement words for a new snapshot', 2);
   await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
 });

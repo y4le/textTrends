@@ -18,6 +18,56 @@ export interface ReaderPlace {
   readonly from: ReaderOpenIntent['from'];
 }
 
+const READER_ORIGINS = new Set<ReaderOpenIntent['from']>([
+  'kwic',
+  'barcode',
+  'pin',
+  'passage',
+]);
+const READER_CURSOR_KINDS = new Set<ReaderPlace['cursor']['kind']>([
+  'around',
+  'from',
+  'before',
+]);
+
+/**
+ * Layer targets are deliberately typed `unknown`; browser history retains
+ * only their ids, and the in-memory registry supplies the target on restore.
+ * Revalidate that target against both its shape and the live snapshot before
+ * a restored reader can issue a query.
+ */
+export function liveReaderPlace(
+  value: unknown,
+  liveSnapshot: string | null,
+  readyDocs: readonly string[],
+): ReaderPlace | null {
+  if (typeof value !== 'object' || value === null) return null;
+  const candidate = value as Partial<ReaderPlace>;
+  const cursor = candidate.cursor;
+  if (
+    candidate.snapshot !== liveSnapshot
+    || typeof candidate.doc !== 'string'
+    || !readyDocs.includes(candidate.doc)
+    || typeof candidate.from !== 'string'
+    || !READER_ORIGINS.has(candidate.from as ReaderOpenIntent['from'])
+    || typeof cursor !== 'object'
+    || cursor === null
+  ) {
+    return null;
+  }
+  const shapedCursor = cursor as Partial<ReaderPlace['cursor']>;
+  if (
+    typeof shapedCursor.kind !== 'string'
+    || !READER_CURSOR_KINDS.has(shapedCursor.kind as ReaderPlace['cursor']['kind'])
+    || !Number.isSafeInteger(shapedCursor.token)
+    || (shapedCursor.token ?? -1) < 0
+    || (shapedCursor.kind === 'before' && (shapedCursor.token ?? 0) < 1)
+  ) {
+    return null;
+  }
+  return value as ReaderPlace;
+}
+
 export function readerPlaceFor(
   intent: ReaderOpenIntent,
   liveSnapshot: string | null,

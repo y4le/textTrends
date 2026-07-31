@@ -80,6 +80,7 @@ import {
   type PinnedSnippet,
 } from './pins.ts';
 import {
+  liveReaderPlace,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
@@ -747,7 +748,7 @@ export interface AppState {
   retryPin(id: string): void;
   focusPin(id: string): void;
   clearPinError(): void;
-  openReader(intent: ReaderOpenIntent): void;
+  openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -1002,6 +1003,13 @@ function relativeHistoryUrl(url: string): string {
   }
 }
 
+function restoreFocusTo(id: string): void {
+  if (typeof document === 'undefined') return;
+  const focus = () => document.getElementById(id)?.focus({ preventScroll: true });
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus);
+  else queueMicrotask(focus);
+}
+
 function historyHash(url: string): string {
   try {
     return new URL(url, 'https://texttrends.invalid/').hash;
@@ -1156,7 +1164,10 @@ export function createAppRuntime(
       historyStateFor([]),
       urlWithRoute(historyPort.url, { place: bootRoute.place, evidence: 'none' }),
     );
-    if (bootRoute.evidence !== 'none') {
+    // A sheet can honestly boot without selected evidence. A reader cannot:
+    // its target is a snapshot-bound document/cursor held only in the
+    // in-memory layer registry, never in the URL.
+    if (bootRoute.evidence === 'sheet') {
       const deepLayer: Layer = {
         kind: bootRoute.evidence,
         id: newLayerId(),
@@ -1175,20 +1186,24 @@ export function createAppRuntime(
   }
 
   const store = create<AppState>((set, get) => {
-    const requestBack = (): void => {
-      if (
-        historyPort === null
-        || historyTraversalPending
-        || get().layers.length === 0
-      ) return;
-      historyTraversalPending = true;
-      historyPort.back();
+    const readerForLayers = (
+      layers: readonly Layer[],
+      snapshot = get().snapshot,
+    ): ReaderPlace | null => {
+      const layer = layers.at(-1);
+      if (layer?.kind !== 'reader') return null;
+      return liveReaderPlace(
+        layer.target,
+        snapshot?.snapshot ?? null,
+        snapshot?.readyDocs ?? [],
+      );
     };
 
     const writeNavigation = (
       mode: 'push' | 'replace',
       place: Place,
       layers: readonly Layer[],
+      options: { readonly preserveReaderNavigation?: boolean } = {},
     ): void => {
       const evidenceTier = evidenceForLayers(layers);
       if (historyPort !== null) {
@@ -1197,12 +1212,35 @@ export function createAppRuntime(
           urlWithRoute(historyPort.url, { place, evidence: evidenceTier }),
         );
       }
+      const current = get();
+      const readerPlace = readerForLayers(layers, current.snapshot);
+      const readerChanged = !sameReaderPlace(current.readerPlace, readerPlace);
+      if (readerChanged) readerLane.supersede();
       set((state) => ({
         place,
         evidenceTier,
         layers,
         notebookError: place === state.place ? state.notebookError : null,
+        readerPlace,
+        readerPage: readerChanged ? null : state.readerPage,
+        readerNavigation:
+          readerChanged && !options.preserveReaderNavigation
+            ? null
+            : state.readerNavigation,
       }));
+    };
+
+    const requestBack = (): void => {
+      const layers = get().layers;
+      if (historyTraversalPending || layers.length === 0) return;
+      if (historyPort === null) {
+        const closing = layers.at(-1)!;
+        writeNavigation('replace', get().place, layers.slice(0, -1));
+        restoreFocusTo(closing.returnFocusTo);
+        return;
+      }
+      historyTraversalPending = true;
+      historyPort.back();
     };
 
     const freshLayer = (
@@ -1984,6 +2022,10 @@ export function createAppRuntime(
           requestBack();
           return;
         }
+        // Reader requires a resolved snapshot/doc/cursor intent. A bare tier
+        // would create an invisible URL-only layer; openReader is the sole
+        // promotion path.
+        if (tier === 'reader') return;
         if (get().evidenceTier === 'reader') {
           if (get().layers.at(-2)?.kind === 'sheet') {
             requestBack();
@@ -2413,7 +2455,7 @@ export function createAppRuntime(
         set({ pinError: null });
       },
 
-      openReader(intent) {
+      openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
         const snapshot = get().snapshot;
         const place = readerPlaceFor(
           intent,
@@ -2421,7 +2463,13 @@ export function createAppRuntime(
           snapshot?.readyDocs ?? [],
         );
         if (place) {
-          set({ readerPlace: place, readerNavigation: null });
+          const next = freshLayer('reader', Object.freeze(place), returnFocusTo);
+          const replacing = get().layers.at(-1)?.kind === 'reader';
+          const layers = replacing
+            ? replaceTopLayer(get().layers, next)
+            : pushLayerStack(get().layers, next);
+          rememberLayer(next, layers);
+          writeNavigation(replacing ? 'replace' : 'push', get().place, layers);
           get().runReader();
         }
       },
@@ -2442,7 +2490,21 @@ export function createAppRuntime(
           || cursor.token < 0
           || (cursor.kind === 'before' && cursor.token < 1)
         ) return;
-        set({ readerPlace: { ...place, cursor: { ...cursor } } });
+        const nextPlace: ReaderPlace = { ...place, cursor: { ...cursor } };
+        const readerLayer = get().layers.at(-1);
+        if (readerLayer?.kind !== 'reader') return;
+        const nextLayer: Layer = {
+          ...readerLayer,
+          target: Object.freeze(nextPlace),
+        };
+        const layers = [...get().layers.slice(0, -1), nextLayer];
+        rememberLayer(nextLayer, layers);
+        writeNavigation(
+          'replace',
+          get().place,
+          layers,
+          { preserveReaderNavigation: true },
+        );
         get().runReader();
       },
 
@@ -2451,8 +2513,7 @@ export function createAppRuntime(
       },
 
       closeReader() {
-        readerLane.supersede();
-        set({ readerPlace: null, readerPage: null, readerNavigation: null });
+        requestBack();
       },
 
       runReader() {
@@ -2561,17 +2622,23 @@ export function createAppRuntime(
           state.readerPlace !== null
           && state.readerPlace.snapshot === liveSnapshot
           && readyDocs.includes(state.readerPlace.doc);
-        if (dead.length > 0 || (!readerLive && state.readerPlace !== null)) {
+        if (dead.length > 0) {
           const deadIds = new Set(dead.map((pin) => pin.id));
           set({
             pins: state.pins.filter((pin) => !deadIds.has(pin.id)),
             focusedPinId: deadIds.has(state.focusedPinId ?? '') ? null : state.focusedPinId,
             pinError: null,
             pinAnnouncement: dead.length > 0 ? 'Cleared pins from the replaced snapshot.' : state.pinAnnouncement,
-            readerPlace: readerLive ? state.readerPlace : null,
-            readerPage: readerLive ? state.readerPage : null,
-            readerNavigation: readerLive ? state.readerNavigation : null,
           });
+        }
+        if (!readerLive && state.readerPlace !== null) {
+          const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
+          const layers = readerIndex < 0
+            ? state.layers
+            : state.layers.slice(0, readerIndex);
+          // Snapshot invalidation is store-driven, not a user Back intent:
+          // consume the now-unresolvable current entry in place.
+          writeNavigation('replace', state.place, layers);
         }
       },
 
@@ -3800,15 +3867,37 @@ export function createAppRuntime(
   const reconcileHistory = (): void => {
     if (historyPort === null || disposed) return;
     historyTraversalPending = false;
+    const previous = store.getState();
     const route = routeFromUrl(historyPort.url);
     const parsed = parseLayerHistory(historyPort.state);
     const reconciled = reconcileLayerRefs(parsed.refs, resolveLayer);
-    const evidenceTier = evidenceForLayers(reconciled.layers);
+    let layers = reconciled.layers;
+    let staleReader = false;
+    const readerIndex = layers.findIndex((layer) => layer.kind === 'reader');
+    let readerPlace: ReaderPlace | null = null;
+    if (readerIndex >= 0) {
+      const layer = layers[readerIndex]!;
+      readerPlace = liveReaderPlace(
+        layer.target,
+        previous.snapshot?.snapshot ?? null,
+        previous.snapshot?.readyDocs ?? [],
+      );
+      if (readerPlace === null) {
+        layers = layers.slice(0, readerIndex);
+        staleReader = true;
+      }
+    }
+    const evidenceTier = evidenceForLayers(layers);
+    const readerChanged = !sameReaderPlace(previous.readerPlace, readerPlace);
+    if (readerChanged) readerLane.supersede();
     store.setState((state) => ({
       place: route.place,
       evidenceTier,
-      layers: reconciled.layers,
+      layers,
       notebookError: route.place === state.place ? state.notebookError : null,
+      readerPlace,
+      readerPage: readerChanged ? null : state.readerPage,
+      readerNavigation: readerChanged ? null : state.readerNavigation,
     }));
     const normalizedUrl = urlWithRoute(historyPort.url, {
       place: route.place,
@@ -3817,10 +3906,18 @@ export function createAppRuntime(
     if (
       !parsed.valid
       || reconciled.truncated
+      || staleReader
       || route.evidence !== evidenceTier
       || relativeHistoryUrl(historyPort.url) !== normalizedUrl
     ) {
-      historyPort.replace(historyStateFor(reconciled.layers), normalizedUrl);
+      historyPort.replace(historyStateFor(layers), normalizedUrl);
+    }
+    const removed = previous.layers.at(-1);
+    if (removed && !layers.some((layer) => layer.id === removed.id)) {
+      restoreFocusTo(removed.returnFocusTo);
+    }
+    if (readerPlace !== null && readerChanged) {
+      store.getState().runReader();
     }
   };
   const unsubscribeHistory = historyPort?.subscribe(reconcileHistory) ?? (() => undefined);
@@ -4173,6 +4270,30 @@ export function createAppRuntime(
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
+      const state = store.getState();
+      const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
+      if (readerIndex >= 0 || state.readerPlace !== null) {
+        const layers = readerIndex < 0
+          ? state.layers
+          : state.layers.slice(0, readerIndex);
+        const evidenceTier = evidenceForLayers(layers);
+        if (historyPort !== null) {
+          historyPort.replace(
+            historyStateFor(layers),
+            urlWithRoute(historyPort.url, {
+              place: state.place,
+              evidence: evidenceTier,
+            }),
+          );
+        }
+        store.setState({
+          layers,
+          evidenceTier,
+          readerPlace: null,
+          readerPage: null,
+          readerNavigation: null,
+        });
+      }
       passageActiveCancel?.();
       passageActiveCancel = null;
       passagePending = null;

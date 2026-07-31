@@ -72,15 +72,19 @@ export function KwicPanel({
             <td style={{ textAlign: 'right', color: 'var(--fg-muted)' }}>{oneLine(r.left).slice(-38)}</td>
             <td style={{ padding: '0 1ch' }}>
               <button
+                id={`kwic-row-${kwicRowKey(r)}`}
                 type="button"
                 onClick={() => {
                   if (!kwic) return;
-                  openReader({
-                    snapshot: kwic.snapshot,
-                    doc: r.doc,
-                    token: r.pos,
-                    from: 'kwic',
-                  });
+                  openReader(
+                    {
+                      snapshot: kwic.snapshot,
+                      doc: r.doc,
+                      token: r.pos,
+                      from: 'kwic',
+                    },
+                    `kwic-row-${kwicRowKey(r)}`,
+                  );
                 }}
                 title="Open this occurrence in the reader"
                 style={{
