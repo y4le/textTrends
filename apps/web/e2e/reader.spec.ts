@@ -196,6 +196,30 @@ test.beforeEach(async ({ page }) => {
   await submitAndAwaitFreshResults(page, 'wolf');
 });
 
+test('compact Reader replaces Lens navigation without covering its controls', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  await expect(lens).toBeVisible();
+
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page
+    .getByRole('table', { name: 'Concordance' })
+    .getByRole('button', { name: 'wolf', exact: true })
+    .click();
+  await awaitFreshReader(page, mark);
+
+  const drawer = page.getByRole('dialog', { name: /Reader: reader/ });
+  await expect(drawer).toBeVisible();
+  await expect(lens).toHaveCount(0);
+  const close = drawer.getByRole('button', { name: 'close', exact: true });
+  await expect(close).toBeVisible();
+  await close.click();
+  await expect(drawer).toHaveCount(0);
+  await expect(
+    page.getByRole('navigation', { name: 'Analysis lenses' }),
+  ).toBeVisible();
+});
+
 test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot replacement stay fenced', async ({ page }) => {
   const table = page.getByRole('table', { name: 'Concordance' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;

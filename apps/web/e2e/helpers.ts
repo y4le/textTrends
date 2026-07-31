@@ -23,7 +23,7 @@ export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
 
 /** Wait for the header to report `n/n books ready` (a user project's count). */
 export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {
-  await expect(page.getByText(`${n}/${n} books ready`)).toBeVisible({ timeout });
+  await expect(page.getByText(`${n}/${n} books ready`, { exact: true })).toBeVisible({ timeout });
 }
 
 /** Clear ONLY the disposable artifact stores (db2), preserving durable user
@@ -176,7 +176,7 @@ export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEve
 
 /** Wait for the app to report every book ready. */
 export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void> {
-  await expect(page.getByText(READY_TEXT)).toBeVisible({ timeout });
+  await expect(page.getByText(READY_TEXT, { exact: true })).toBeVisible({ timeout });
 }
 
 /** Remove every notebook group through the UI (the notebook is append-only;

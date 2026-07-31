@@ -3,6 +3,7 @@ import { MAX_PINNED_SNIPPETS } from '../lib/pins.ts';
 import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
+import { pinCapacity } from '../lib/pin-capacity.ts';
 
 export function ScopeBar() {
   const snapshot = useApp((state) => state.snapshot);
@@ -15,6 +16,8 @@ export function ScopeBar() {
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
   const setLinkedSelection = useApp((state) => state.setLinkedSelection);
   const trends = useApp((state) => state.trends);
+  const place = useApp((state) => state.place);
+  const setPlace = useApp((state) => state.setPlace);
 
   const project = projectSession?.project ?? null;
   const titleByDoc = useMemo(
@@ -45,8 +48,7 @@ export function ScopeBar() {
           ? 'preparing the built-in project…'
           : loadingPhase,
       },
-      // The long page's implicit place until routed places land in W1.3.
-      'trends',
+      place,
     ),
     [
       bootstrapPhase,
@@ -55,6 +57,7 @@ export function ScopeBar() {
       loadingPhase,
       pins.length,
       pinRestoreIssues.length,
+      place,
       project,
       snapshot,
       titleByDoc,
@@ -66,19 +69,27 @@ export function ScopeBar() {
   const isOnlyThisBook = linkedSelection !== null
     && linkedSelection.tokens.start === 0
     && linkedSelection.tokens.end === selectionFullTokens;
+  const findingsLabel = pinCapacity(pins.length, MAX_PINNED_SNIPPETS).label;
 
   return (
     <section
+      className="scope-organ"
       aria-label="Scope"
       style={{
         borderBottom: '1px solid var(--rule)',
         padding: 'var(--space-2) 0',
       }}
     >
-      <div
+      <span
+        className="visually-hidden"
         role="status"
         aria-live="polite"
         aria-atomic="true"
+      >
+        {vm.announcement}
+      </span>
+      <div
+        className="scope-organ-content"
         style={{
           display: 'flex',
           alignItems: 'baseline',
@@ -102,7 +113,38 @@ export function ScopeBar() {
         {vm.segments.map((segment, index) => (
           <span key={`${index}:${segment}`} style={{ display: 'inline-flex', gap: '0.5ch' }}>
             {index > 0 && <span aria-hidden="true">·</span>}
-            <span>{segment}</span>
+            {index === 0
+              ? (
+                  <button
+                    className="scope-organ-link coarse-target"
+                    type="button"
+                    onClick={() => setPlace('corpus')}
+                  >
+                    {segment}
+                  </button>
+                )
+              : segment === findingsLabel
+                ? (
+                    <button
+                      className="scope-organ-link coarse-target"
+                      type="button"
+                      onClick={() => setPlace('findings')}
+                    >
+                      {segment}
+                    </button>
+                  )
+                : segment === vm.range?.label
+                  ? (
+                      <button
+                        className="scope-organ-link coarse-target"
+                        type="button"
+                        aria-label={`${segment} — review linked range in Trends`}
+                        onClick={() => setPlace('trends')}
+                      >
+                        {segment}
+                      </button>
+                    )
+                  : <span>{segment}</span>}
             {segment === vm.range?.label && (
               <button
                 className="coarse-target"

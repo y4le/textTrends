@@ -27,7 +27,10 @@ test('Scope states resident corpus truth and follows the committed range', async
   await scrubber.press('Enter');
 
   await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
-  await expect(scope.getByText(/tokens 1–3 · 3 tokens/)).toBeVisible();
+  await expect(scope.getByRole('button', {
+    name: /tokens 1–3 · 3 tokens — review linked range in Trends/,
+  }))
+    .toContainText(/tokens 1–3 · 3 tokens/);
   await expect(scope.getByRole('status')).toContainText('1 book in scope');
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;

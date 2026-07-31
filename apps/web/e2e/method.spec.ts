@@ -2,7 +2,7 @@ import { expect, test } from '@playwright/test';
 
 test('Method exposes visible, copyable provenance and result text', async ({ page }) => {
   await page.goto('./');
-  await expect(page.getByText('6/6 books ready')).toBeVisible();
+  await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
   const method = page.locator('details.method-summary');
   await expect(method.locator('summary')).toContainText('trend');
   await method.locator('summary').click();
@@ -25,7 +25,7 @@ test('Method exposes visible, copyable provenance and result text', async ({ pag
 
 test('Method range provenance and TSV use the selected overlay, never the retained baseline', async ({ page }) => {
   await page.goto('./');
-  await expect(page.getByText('6/6 books ready')).toBeVisible();
+  await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
   const method = page.locator('details.method-summary');
   await method.locator('summary').click();
   await method.getByRole('button', { name: 'copy result as TSV' }).click();

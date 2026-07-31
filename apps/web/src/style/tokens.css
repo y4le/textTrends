@@ -98,6 +98,18 @@ canvas {
   max-inline-size: 100%;
 }
 
+.visually-hidden {
+  position: absolute !important;
+  inline-size: 1px !important;
+  block-size: 1px !important;
+  padding: 0 !important;
+  margin: -1px !important;
+  overflow: hidden !important;
+  clip: rect(0 0 0 0) !important;
+  white-space: nowrap !important;
+  border: 0 !important;
+}
+
 .app-shell {
   width: 100%;
   min-width: 0;
@@ -129,6 +141,56 @@ canvas {
   width: min(32ch, 100%);
 }
 
+.workbench-organs {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 20;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  background: var(--bg);
+  border-bottom: 1px solid var(--rule);
+}
+
+.scope-organ {
+  min-width: 0;
+}
+
+.scope-organ-link {
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.lens-organ {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-1);
+  padding: var(--space-1) 0 var(--space-1) var(--space-2);
+}
+
+.lens-organ a {
+  display: inline-flex;
+  min-inline-size: 0;
+  min-block-size: 36px;
+  align-items: center;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid transparent;
+  color: var(--fg-muted);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.lens-organ a[aria-current='page'] {
+  border-bottom-color: var(--fg);
+  color: var(--fg);
+}
+
 .horizontal-data-port,
 .structure-list {
   max-inline-size: 100%;
@@ -144,7 +206,7 @@ canvas {
   .app-shell {
     padding-block:
       calc(var(--space-3) + env(safe-area-inset-top, 0px))
-      calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+      calc(4.5rem + env(safe-area-inset-bottom, 0px));
     padding-inline:
       calc(var(--space-3) + env(safe-area-inset-left, 0px))
       calc(var(--space-3) + env(safe-area-inset-right, 0px));
@@ -160,6 +222,67 @@ canvas {
 
   .exact-authoring-form {
     flex-wrap: wrap;
+  }
+
+  .workbench-organs {
+    display: block;
+  }
+
+  .lens-organ {
+    position: fixed;
+    z-index: 40;
+    inset-inline: 0;
+    inset-block-end: 0;
+    justify-content: space-evenly;
+    gap: 0;
+    padding:
+      var(--space-1)
+      env(safe-area-inset-right, 0px)
+      calc(var(--space-1) + env(safe-area-inset-bottom, 0px))
+      env(safe-area-inset-left, 0px);
+    border-top: 1px solid var(--rule-strong);
+    background: var(--bg);
+  }
+
+  .lens-organ a {
+    min-block-size: 44px;
+    justify-content: center;
+    padding-inline: var(--space-1);
+    font-size: var(--text-sm);
+  }
+}
+
+@media (max-width: 599.98px) and (orientation: landscape) {
+  .app-shell {
+    padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    padding-inline-start: calc(8.5rem + env(safe-area-inset-left, 0px));
+  }
+
+  .lens-organ {
+    inset-block: 0;
+    inset-inline-start: 0;
+    inset-inline-end: auto;
+    inline-size: 8rem;
+    flex-direction: column;
+    justify-content: center;
+    padding:
+      env(safe-area-inset-top, 0px)
+      var(--space-2)
+      env(safe-area-inset-bottom, 0px)
+      calc(var(--space-2) + env(safe-area-inset-left, 0px));
+    border-top: 0;
+    border-right: 1px solid var(--rule-strong);
+  }
+
+  .lens-organ a {
+    justify-content: flex-start;
+    border-bottom-color: transparent;
+    border-left: 1px solid transparent;
+  }
+
+  .lens-organ a[aria-current='page'] {
+    border-bottom-color: transparent;
+    border-left-color: var(--fg);
   }
 }
 

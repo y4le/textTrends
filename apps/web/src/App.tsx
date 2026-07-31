@@ -10,6 +10,7 @@ import { ResearchPanel } from './components/ResearchPanel.tsx';
 import { ScopeBar } from './components/ScopeBar.tsx';
 import { MethodSummary } from './components/MethodSummary.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
+import { LensOrgan } from './components/LensOrgan.tsx';
 
 // The chart/interaction surface is the largest main-thread feature module and
 // is irrelevant until the notebook has an active series. Keep the initial
@@ -87,6 +88,7 @@ export function App() {
   const loadError = useApp((s) => s.loadError);
   const readerPlace = useApp((s) => s.readerPlace);
   const bootstrap = useApp((s) => s.bootstrap);
+  const place = useApp((s) => s.place);
   const [draft, setDraft] = useState('');
 
   const focusedId = focusedSeries;
@@ -126,7 +128,10 @@ export function App() {
           />
         </form>
       </header>
-      <ScopeBar />
+      <div className="workbench-organs">
+        <ScopeBar />
+        <LensOrgan />
+      </div>
       <ResumeStatus />
       <div role="status" aria-live="polite">
         {inputError && (
@@ -164,7 +169,7 @@ export function App() {
         >
           Trends
         </h2>
-        <MethodSummary place="trends" />
+        <MethodSummary place={place} />
         {series.length > 0 && (
           <div
             style={{
