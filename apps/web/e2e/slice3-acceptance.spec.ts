@@ -72,12 +72,14 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   const betaRow = documents.getByRole('row', { name: /beta/ });
   const baselineTokens = await betaRow.locator('td').first().innerText();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Focused-book section profile' })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toHaveCount(0);
+
+  await gotoPlace(page, 'vocabulary');
   await expect(page.getByRole('img', { name: /section vocabulary strip for beta/ })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toBeVisible();
   await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
-
-  await gotoPlace(page, 'vocabulary');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'DP', exact: true }).click();
   await awaitOps(page, mark, ['freq-list']);

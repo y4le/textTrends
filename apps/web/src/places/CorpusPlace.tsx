@@ -1,4 +1,4 @@
-import { CorpusDashboard } from '../components/CorpusDashboard.tsx';
+import { CorpusInventory } from '../components/corpus/CorpusInventory.tsx';
 import { ProjectPanel } from '../components/ProjectPanel.tsx';
 import { StructurePanel } from '../components/StructurePanel.tsx';
 
@@ -11,7 +11,7 @@ export function CorpusPlace() {
   return (
     <>
       <ProjectPanel headingAs="h3" />
-      <CorpusDashboard showHeading={false} showVocabulary={false} />
+      <CorpusInventory showHeading={false} />
       <StructurePanel headingAs="h3" />
     </>
   );
