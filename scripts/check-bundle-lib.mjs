@@ -101,6 +101,8 @@ export function checkBundle(files, catalogSource) {
   const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
+  const methodPath = unique(files, /^assets\/MethodSummary-[^/]+\.js$/, 'Method region', failures);
+  const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
   const placePaths = new Map(
     PLACE_CHUNKS.map(([place, re]) => [
       place,
@@ -123,6 +125,20 @@ export function checkBundle(files, catalogSource) {
     report.push(`entry ${entryPath}: ${bytes.length} B raw, ${gz} B gzip (${(gz / 1000).toFixed(1)} kB) — budget ${ENTRY_GZIP_BUDGET_BYTES} B`);
     if (gz > ENTRY_GZIP_BUDGET_BYTES) {
       failures.push(`${entryPath}: gzip ${gz} B exceeds the ${ENTRY_GZIP_BUDGET_BYTES} B entry budget`);
+    }
+    for (const [path, role] of [
+      [methodPath, 'Method'],
+      [querySurfacePath, 'Query'],
+    ]) {
+      if (!path) continue;
+      const name = path.replace('assets/', '');
+      const entryText = files.get(entryPath).toString('utf8');
+      const entryStatic = staticImports(entryText);
+      if (entryStatic.has(name)) {
+        failures.push(`${entryPath}: statically imports ${name} — the ${role} region must stay lazy`);
+      } else if (!references(entryText, name)) {
+        failures.push(`${entryPath}: no reference to ${name} — the lazy ${role} region edge is gone`);
+      }
     }
   }
 

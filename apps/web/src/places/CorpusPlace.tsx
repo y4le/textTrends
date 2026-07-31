@@ -1,5 +1,4 @@
 import { CorpusDashboard } from '../components/CorpusDashboard.tsx';
-import { MethodSummary } from '../components/MethodSummary.tsx';
 import { ProjectPanel } from '../components/ProjectPanel.tsx';
 import { StructurePanel } from '../components/StructurePanel.tsx';
 
@@ -11,7 +10,6 @@ import { StructurePanel } from '../components/StructurePanel.tsx';
 export function CorpusPlace() {
   return (
     <>
-      <MethodSummary place="corpus" />
       <ProjectPanel headingAs="h3" />
       <CorpusDashboard showHeading={false} showVocabulary={false} />
       <StructurePanel headingAs="h3" />

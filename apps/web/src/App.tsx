@@ -1,4 +1,4 @@
-import { lazy, Suspense, useState, type ReactNode } from 'react';
+import { lazy, Suspense, type ReactNode } from 'react';
 import { useApp } from './lib/store-instance.ts';
 import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
@@ -25,6 +25,12 @@ const ConcordancePlace = lazy(() =>
 );
 const FindingsPlace = lazy(() =>
   import('./places/FindingsPlace.tsx').then(({ FindingsPlace: placeBody }) => ({ default: placeBody })),
+);
+const MethodSummary = lazy(() =>
+  import('./components/MethodSummary.tsx').then(({ MethodSummary: summary }) => ({ default: summary })),
+);
+const QuerySurface = lazy(() =>
+  import('./components/QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
 );
 
 function PlaceSurface({
@@ -73,7 +79,6 @@ function ActivePlace({ place }: { readonly place: Place }) {
 }
 
 export function App() {
-  const quickAdd = useApp((s) => s.quickAdd);
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
@@ -84,42 +89,11 @@ export function App() {
   const readerPlace = useApp((s) => s.readerPlace);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
-  const [draft, setDraft] = useState('');
 
   return (
     <main className="app-shell">
       <header className="app-header" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
         <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
-        <form
-          className="quick-add-form"
-          onSubmit={(e) => {
-            e.preventDefault();
-            // Append-only quick-add: the field clears on submission — the
-            // NOTEBOOK below, not this input, is the authoritative group list.
-            quickAdd(draft);
-            setDraft('');
-          }}
-        >
-          <input
-            className="exact-input quick-add-input"
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            aria-label="Add terms to the notebook, comma-separated"
-            placeholder="add terms: holmes, moriarty"
-            autoCapitalize="none"
-            autoCorrect="off"
-            spellCheck={false}
-            style={{
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-sm)',
-              background: 'transparent',
-              color: 'var(--fg)',
-              border: 'none',
-              borderBottom: '1px solid var(--rule-strong)',
-              padding: '2px 0',
-            }}
-          />
-        </form>
       </header>
       <div className="workbench-organs">
         <ScopeBar />
@@ -193,9 +167,38 @@ export function App() {
           </p>
         )}
       </div>
-      <PlaceSurface place={place}>
-        <ActivePlace place={place} />
-      </PlaceSurface>
+      <div className="workbench">
+        <Suspense
+          fallback={(
+            <aside className="query-region" aria-label="Queries">
+              <p className="region-placeholder">loading Queries…</p>
+            </aside>
+          )}
+        >
+          <QuerySurface />
+        </Suspense>
+        <div className="place-region">
+          <PlaceSurface place={place}>
+            <ActivePlace place={place} />
+          </PlaceSurface>
+        </div>
+        <aside className="evidence-region" aria-label="Evidence">
+          <strong className="region-label">Evidence</strong>
+          <p className="region-placeholder">
+            Passage evidence and actions remain with the active analysis while
+            this governed region is completed.
+          </p>
+        </aside>
+      </div>
+      <section className="method-region" aria-label="Method">
+        <Suspense
+          fallback={(
+            <p className="region-placeholder">loading Method…</p>
+          )}
+        >
+          <MethodSummary place={place} />
+        </Suspense>
+      </section>
       {readerPlace && (
         <Suspense fallback={null}>
           <ReaderDrawer />

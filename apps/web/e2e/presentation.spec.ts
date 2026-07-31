@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
 import {
   COMPACT_QUERY,
   WIDE_QUERY,
@@ -39,13 +39,57 @@ for (const viewport of viewports) {
     expect(mediaWidth.wide).toBe(expectedWidth === 'wide');
 
     const quickAdd = page.getByRole('textbox', { name: 'Add terms to the notebook, comma-separated' });
+    if (viewport.width < 600) {
+      const openQuickAdd = page.getByRole('button', { name: 'Add terms to the notebook, comma-separated' });
+      await expect(openQuickAdd).toBeVisible();
+      await openQuickAdd.click();
+    }
     await expect(quickAdd).toBeVisible();
     if (viewport.width < 600) {
       const size = await quickAdd.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
       expect(size).toBeGreaterThanOrEqual(16);
+      await page.getByRole('button', { name: 'Cancel' }).click();
     }
+    await expect(page.getByRole('complementary', { name: 'Queries' })).toHaveCount(1);
+    await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(1);
   });
 }
+
+test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
+  for (const viewport of [
+    { width: 768, height: 1024, areas: '"queries place" "evidence evidence"' },
+    { width: 1440, height: 900, areas: '"queries place evidence"' },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('./');
+    await awaitAllReady(page);
+    const layout = await page.locator('.workbench').evaluate((node) => {
+      const grid = getComputedStyle(node);
+      const query = getComputedStyle(
+        node.querySelector<HTMLElement>('.query-region')!,
+      );
+      const place = getComputedStyle(
+        node.querySelector<HTMLElement>('.place-region')!,
+      );
+      const evidence = getComputedStyle(
+        node.querySelector<HTMLElement>('.evidence-region')!,
+      );
+      return {
+        areas: grid.gridTemplateAreas,
+        query: query.gridArea,
+        place: place.gridArea,
+        evidence: evidence.gridArea,
+      };
+    });
+    expect(layout).toEqual({
+      areas: viewport.areas,
+      query: 'queries',
+      place: 'place',
+      evidence: 'evidence',
+    });
+  }
+});
 
 test('a compact exact-term editor stays inside the page', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
@@ -64,6 +108,174 @@ test('a compact exact-term editor stays inside the page', async ({ page }) => {
   }));
   expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
   expect(geometry.bodyScrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
+});
+
+test('compact query editing is one Back-governed layer', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const edit = page.getByRole('button', { name: 'Edit members: Holmes' });
+  await edit.click();
+  const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog).toHaveAttribute('aria-modal', 'true');
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
+  expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+  await page.goBack();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(edit).toBeFocused();
+});
+
+test('compact Terms key belongs only to places with query-encoded marks', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+
+  await gotoPlace(page, 'vocabulary');
+  await expect(page.getByRole('group', { name: 'Query terms' })).toHaveCount(0);
+  const queries = page.getByRole('complementary', { name: 'Queries' });
+  await expect(queries).toContainText('edit in Trends');
+  await queries.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }).click();
+  await expect(page.getByRole('dialog', { name: 'Quick add query terms' })).toBeVisible();
+  await expect(
+    page.getByRole('textbox', { name: 'Add terms to the notebook, comma-separated' }),
+  ).toBeFocused();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  await gotoPlace(page, 'concordance');
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+});
+
+test('shell Evidence placeholder never contradicts live passage evidence', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Create project from files').setInputFiles({
+    name: 'evidence.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Holmes found exact evidence in this passage.', 'utf8'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+
+  await expect(page.getByRole('button', { name: 'Open passage in reader' })).toBeVisible({
+    timeout: 30_000,
+  });
+  const evidence = page.getByRole('complementary', { name: 'Evidence' });
+  await expect(evidence).not.toContainText('No passage selected');
+  await expect(evidence).toContainText('Passage evidence');
+});
+
+test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  for (const control of [
+    page.locator('.query-focus-chip').first(),
+    page.locator('.compact-query-edit').first(),
+    page.locator('.compact-query-add'),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test('responsive query composition never reissues analysis', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await expect(page.getByRole('region', { name: 'Query notebook' })).toBeVisible();
+
+  const freshQueries = (await trace(page)).events.filter(
+    (event) =>
+      event.seq > mark
+      && event.direction === 'to-worker'
+      && event.t === 'query',
+  );
+  expect(freshQueries).toEqual([]);
+});
+
+test('an open compact quick-add editor transforms into the one wide input', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+
+  await page.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }).click();
+  const compactDialog = page.getByRole('dialog', { name: 'Quick add query terms' });
+  const compactInput = page.getByRole('textbox', {
+    name: 'Add terms to the notebook, comma-separated',
+  });
+  await compactInput.fill('watson');
+  await page.setViewportSize({ width: 844, height: 390 });
+
+  await expect(compactDialog).toHaveCount(0);
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  const wideInput = page.getByRole('textbox', {
+    name: 'Add terms to the notebook, comma-separated',
+  });
+  await expect(wideInput).toHaveCount(1);
+  await expect(wideInput).toHaveValue('watson');
+  await expect(wideInput).toBeFocused();
+  await page.keyboard.press('Tab');
+  await expect(wideInput).not.toBeFocused();
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(compactDialog).toBeVisible();
+  await expect(compactInput).toHaveValue('watson');
+  await expect(compactInput).toBeFocused();
+  expect((await trace(page)).events.filter(
+    (event) =>
+      event.seq > mark
+      && event.direction === 'to-worker'
+      && event.t === 'query',
+  )).toEqual([]);
+  await page.goBack();
+});
+
+test('an open compact group editor keeps its draft and focus across width classes', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+
+  await page.getByRole('button', { name: 'Edit members: Holmes' }).click();
+  const compactDialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
+  const addMember = page.getByRole('textbox', { name: /Add member to Holmes/ });
+  await addMember.fill('watson');
+  await page.setViewportSize({ width: 844, height: 390 });
+
+  await expect(compactDialog).toHaveCount(0);
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  const inlineEditor = page.getByRole('group', { name: 'Edit members: Holmes' });
+  await expect(inlineEditor).toBeVisible();
+  await expect(addMember).toHaveValue('watson');
+  expect(await inlineEditor.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expect(compactDialog).toBeVisible();
+  await expect(addMember).toHaveValue('watson');
+  expect(await compactDialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
+  expect((await trace(page)).events.filter(
+    (event) =>
+      event.seq > mark
+      && event.direction === 'to-worker'
+      && event.t === 'query',
+  )).toEqual([]);
+  await page.goBack();
 });
 
 test('scrollable analytical tables expose named regions', async ({ page }) => {
@@ -87,9 +299,11 @@ test('coarse input sizing does not inflate dense concordance rows', async ({ bro
   await awaitAllReady(page);
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
+  await page.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }).click();
   const quickAdd = page.getByRole('textbox', { name: 'Add terms to the notebook, comma-separated' });
   const quickBox = await quickAdd.boundingBox();
   expect(quickBox?.height).toBeGreaterThanOrEqual(44);
+  await page.getByRole('button', { name: 'Cancel' }).click();
 
   await gotoPlace(page, 'concordance');
   const node = page.getByRole('table', { name: 'Concordance' }).getByRole('button').first();

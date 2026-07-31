@@ -14,10 +14,12 @@
  * Member editing (aliases/phrases/affixes) arrives with commit D.
  */
 
-import { Fragment, useState } from 'react';
-import { GroupEditor } from './GroupEditor.tsx';
+import { useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import { notebookRows, type GroupCountVM } from '../lib/notebook-view.ts';
+import {
+  type GroupCountVM,
+  type NotebookRowVM,
+} from '../lib/notebook-view.ts';
 import { SeriesLineSample } from './chrome.tsx';
 
 function CountCell({ count }: { count: GroupCountVM }) {
@@ -56,15 +58,16 @@ const rowButton = {
   padding: '0 0.5ch',
 } as const;
 
-export function NotebookPanel() {
+export function NotebookPanel({
+  rows,
+  onEdit,
+  activeEditorGroupId,
+}: {
+  readonly rows: readonly NotebookRowVM[];
+  readonly onEdit: (groupId: string, returnFocusTo: string) => void;
+  readonly activeEditorGroupId: string | null;
+}) {
   const notebook = useApp((s) => s.notebook);
-  const activeGroupIds = useApp((s) => s.activeGroupIds);
-  const soloGroupId = useApp((s) => s.soloGroupId);
-  const styleSlots = useApp((s) => s.styleSlots);
-  const trends = useApp((s) => s.trends);
-  const selectedTrends = useApp((s) => s.selectedTrends);
-  const linkedSelection = useApp((s) => s.linkedSelection);
-  const snapshot = useApp((s) => s.snapshot);
   const renameGroup = useApp((s) => s.renameGroup);
   const removeGroup = useApp((s) => s.removeGroup);
   const reorderGroups = useApp((s) => s.reorderGroups);
@@ -73,22 +76,9 @@ export function NotebookPanel() {
   // Rename drafts are local until commit (Enter/blur) — keystrokes must not
   // hit the store (and thus never a worker) per the draft-and-Apply rule.
   const [drafts, setDrafts] = useState<Record<string, string>>({});
-  // At most one member editor open (commit D); closing discards its draft.
-  const [editing, setEditing] = useState<string | null>(null);
 
   if (notebook.groups.length === 0) return null;
 
-  const rows = notebookRows({
-    groups: notebook.groups,
-    activeGroupIds,
-    soloGroupId,
-    styleSlots,
-    trends,
-    selectedTrends,
-    hasSelection: linkedSelection !== null,
-    hasSnapshot: snapshot !== null,
-    partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
-  });
   const order = notebook.groups.map((g) => g.id);
   const move = (id: string, delta: -1 | 1) => {
     const i = order.indexOf(id);
@@ -114,8 +104,8 @@ export function NotebookPanel() {
       </h3>
       <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
         {rows.map((row, i) => (
-          <Fragment key={row.id}>
           <li
+            key={row.id}
             className="query-notebook-row"
             style={{
               display: 'flex',
@@ -179,21 +169,13 @@ export function NotebookPanel() {
             <button
               type="button"
               style={rowButton}
+              id={`query-edit-${row.id}`}
               aria-label={`Edit members: ${row.name}`}
-              aria-expanded={editing === row.id}
-              onClick={() => setEditing(editing === row.id ? null : row.id)}
+              aria-expanded={activeEditorGroupId === row.id}
+              onClick={() => onEdit(row.id, `query-edit-${row.id}`)}
             >edit</button>
             <button type="button" style={rowButton} aria-label={`Remove ${row.name}`} onClick={() => removeGroup(row.id)}>remove</button>
           </li>
-          {editing === row.id && (
-            <li style={{ listStyle: 'none' }}>
-              <GroupEditor
-                group={notebook.groups.find((g) => g.id === row.id)!}
-                onClose={() => setEditing(null)}
-              />
-            </li>
-          )}
-          </Fragment>
         ))}
       </ul>
     </section>

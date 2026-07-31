@@ -12,7 +12,7 @@
  * says "exact", the data stays `sensitive|folded`.
  */
 
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { GroupMember, MatchMode } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { compileMemberInput, compilePhraseChips, describeMember } from '../lib/member-edit.ts';
@@ -33,6 +33,16 @@ const flipCase = (m: MatchMode): MatchMode =>
   ({ ...m, case: m.case === 'folded' ? 'sensitive' : 'folded' });
 const flipDiacritics = (m: MatchMode): MatchMode =>
   ({ ...m, diacritics: m.diacritics === 'folded' ? 'sensitive' : 'folded' });
+
+export interface GroupEditorDraft {
+  readonly members: readonly GroupMember[];
+  readonly countOverlaps: boolean;
+  readonly addText: string;
+  readonly addMatch: MatchMode;
+  readonly chips: readonly string[];
+  readonly chipText: string;
+  readonly error: string | null;
+}
 
 function MatchToggles({ match, name, onChange }: {
   match: MatchMode;
@@ -60,15 +70,52 @@ function MatchToggles({ match, name, onChange }: {
   );
 }
 
-export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClose: () => void }) {
+export function GroupEditor({
+  group,
+  onClose,
+  initialDraft,
+  onDraftChange,
+}: {
+  group: NotebookGroupV1;
+  onClose: () => void;
+  initialDraft?: GroupEditorDraft;
+  onDraftChange?: (draft: GroupEditorDraft) => void;
+}) {
   const setGroupMembers = useApp((s) => s.setGroupMembers);
-  const [members, setMembers] = useState<readonly GroupMember[]>(group.members);
-  const [countOverlaps, setCountOverlaps] = useState(group.countOverlaps);
-  const [addText, setAddText] = useState('');
-  const [addMatch, setAddMatch] = useState<MatchMode>({ case: 'folded', diacritics: 'folded' });
-  const [chips, setChips] = useState<readonly string[]>([]);
-  const [chipText, setChipText] = useState('');
-  const [error, setError] = useState<string | null>(null);
+  const [members, setMembers] = useState<readonly GroupMember[]>(
+    initialDraft?.members ?? group.members,
+  );
+  const [countOverlaps, setCountOverlaps] = useState(
+    initialDraft?.countOverlaps ?? group.countOverlaps,
+  );
+  const [addText, setAddText] = useState(initialDraft?.addText ?? '');
+  const [addMatch, setAddMatch] = useState<MatchMode>(
+    initialDraft?.addMatch ?? { case: 'folded', diacritics: 'folded' },
+  );
+  const [chips, setChips] = useState<readonly string[]>(initialDraft?.chips ?? []);
+  const [chipText, setChipText] = useState(initialDraft?.chipText ?? '');
+  const [error, setError] = useState<string | null>(initialDraft?.error ?? null);
+
+  useEffect(() => {
+    onDraftChange?.({
+      members,
+      countOverlaps,
+      addText,
+      addMatch,
+      chips,
+      chipText,
+      error,
+    });
+  }, [
+    addMatch,
+    addText,
+    chipText,
+    chips,
+    countOverlaps,
+    error,
+    members,
+    onDraftChange,
+  ]);
 
   const newId = () => crypto.randomUUID();
   const push = (compiled: ReturnType<typeof compileMemberInput>): boolean => {
@@ -92,6 +139,7 @@ export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClos
 
   return (
     <div
+      className="group-editor"
       role="group"
       aria-label={`Edit members: ${group.name}`}
       style={{
@@ -205,7 +253,7 @@ export function GroupEditor({ group, onClose }: { group: NotebookGroupV1; onClos
         counts, which can intentionally double-count overlapping evidence
       </p>
       {error && <p role="alert" style={{ color: 'var(--accent-text)', margin: 0 }}>{error}</p>}
-      <div style={{ display: 'flex', gap: 'var(--space-2)' }}>
+      <div className="group-editor-actions" style={{ display: 'flex', gap: 'var(--space-2)' }}>
         <button type="button" style={btn} aria-label={`Apply changes to ${group.name}`} onClick={apply}>Apply</button>
         <button type="button" style={btn} aria-label={`Cancel editing ${group.name}`} onClick={onClose}>Cancel</button>
       </div>
