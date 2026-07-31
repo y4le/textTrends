@@ -1,10 +1,8 @@
 /**
  * Chapter structure preview (commit 8a — READ ONLY). Shows the focused
  * document's detected outline with per-row detection provenance, a durable
- * encoding badge, and a toggle to mark the top-level chapter boundaries on the
- * chart. Correction controls (editing the outline into a declarative override)
- * are commit 8c; this panel only reads the structure query and the durable
- * source descriptor.
+ * encoding badge. Chart-annotation controls live with the chart in Trends;
+ * correction controls here edit the outline into a declarative override.
  *
  * The outline is rendered in the canonical order the query already returns
  * (root first, then depth-first by character start); depth is derived from the
@@ -43,10 +41,8 @@ export function StructurePanel({
   const snapshot = useApp((s) => s.snapshot);
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
-  const sectionMarks = useApp((s) => s.sectionMarks);
   const sourceEvidence = useApp((s) => s.projectSession?.sourceEvidence ?? null);
   const setFocusedDoc = useApp((s) => s.setFocusedDoc);
-  const setSectionMarks = useApp((s) => s.setSectionMarks);
   const setStructureOverride = useApp((s) => s.setStructureOverride);
 
   const [editing, setEditing] = useState(false);
@@ -113,15 +109,6 @@ export function StructurePanel({
           </select>
         </label>
         <span style={{ flex: 1 }} />
-        <label style={{ cursor: 'pointer', color: 'var(--fg-muted)', userSelect: 'none' }}>
-          <input
-            type="checkbox"
-            checked={sectionMarks}
-            onChange={(e) => setSectionMarks(e.target.checked)}
-            aria-label="Mark top-level chapters on the chart"
-          />{' '}
-          mark chapters on chart
-        </label>
         {isUser && editableChapters && !editing && overrideStatus !== 'needs-review' && (
           <button type="button" onClick={() => setEditing(true)} style={SMALL_BUTTON_STYLE}>
             edit chapters
