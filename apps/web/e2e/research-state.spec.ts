@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, gotoPlace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, openQuickAdd } from './helpers.ts';
 
 async function openResearch(page: Page): Promise<void> {
   await gotoPlace(page, 'findings');
@@ -9,10 +9,10 @@ async function openResearch(page: Page): Promise<void> {
 
 async function addTerm(page: Page, term: string): Promise<void> {
   await gotoPlace(page, 'trends');
-  const input = page.getByLabel('Add terms to the notebook, comma-separated');
+  const input = await openQuickAdd(page);
   await input.fill(term);
   await input.press('Enter');
-  await expect(page.getByLabel(`Group name: ${term}`)).toBeVisible();
+  await expect(page.getByRole('button', { name: new RegExp(`^${term} \\d+$`) })).toBeVisible();
 }
 
 async function awaitResearchSaved(page: Page): Promise<void> {
@@ -31,7 +31,7 @@ test('research state survives reload and a source-free link previews before repl
   await page.reload();
   await awaitAllReady(page);
   await gotoPlace(page, 'trends');
-  await expect(page.getByLabel('Group name: Watson')).toBeVisible({
+  await expect(page.getByRole('button', { name: /^Watson \d+$/ })).toBeVisible({
     timeout: 30_000,
   });
   await openResearch(page);
@@ -53,7 +53,7 @@ test('research state survives reload and a source-free link previews before repl
   const liveScrubber = page.getByRole('slider', { name: /reading position/i });
   await liveScrubber.press('p');
   await openResearch(page);
-  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Saved excerpts' })).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByText('research changes waiting to save')).toBeVisible();
@@ -67,7 +67,7 @@ test('research state survives reload and a source-free link previews before repl
   await expect(page.getByRole('list', { name: 'Saved ranges' }).getByText('Opening')).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toBeVisible({
+  await expect(page.getByRole('region', { name: 'Saved excerpts' })).toBeVisible({
     timeout: 30_000,
   });
   await page.getByRole('button', { name: 'preview share link' }).click();
@@ -78,7 +78,7 @@ test('research state survives reload and a source-free link previews before repl
 
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Remove Watson' }).click();
-  await expect(page.getByLabel('Group name: Watson')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Watson \d+$/ })).toHaveCount(0);
   await awaitResearchSaved(page);
 
   // A source-free URL boots into Findings and only prefills review. It does
@@ -89,7 +89,7 @@ test('research state survives reload and a source-free link previews before repl
   await expect(page.getByRole('region', { name: 'Findings', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Evidence' })).toHaveCount(0);
   await gotoPlace(page, 'trends');
-  await expect(page.getByLabel('Group name: Watson')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: /^Watson \d+$/ })).toHaveCount(0);
   await openResearch(page);
   await expect(page.getByLabel('Share link to import')).toHaveValue(share);
   await page.getByRole('button', { name: 'review shared state' }).click();
@@ -97,10 +97,10 @@ test('research state survives reload and a source-free link previews before repl
   await expect(review.getByText('3', { exact: true }).first()).toBeVisible();
   await expect(review).toContainText('notebook groups');
   await expect(review).toContainText('referenced documents');
-  await expect(review).toContainText('Replacing keeps your pinned evidence');
+  await expect(review).toContainText('Replacing keeps your saved excerpts');
   await page.getByRole('button', { name: 'replace with this shared state' }).click();
   await gotoPlace(page, 'trends');
-  await expect(page.getByLabel('Group name: Watson')).toBeVisible();
+  await expect(page.getByRole('button', { name: /^Watson \d+$/ })).toBeVisible();
 });
 
 test('two tabs surface a research conflict and require explicit overwrite', async ({ context, page }) => {

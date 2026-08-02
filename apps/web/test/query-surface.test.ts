@@ -29,6 +29,8 @@ describe('query surface', () => {
   });
 
   it('parses only governed query-editor targets', () => {
+    expect(queryEditorTarget({ surface: 'query-editor', mode: 'manage' }))
+      .toEqual({ surface: 'query-editor', mode: 'manage' });
     expect(queryEditorTarget({ surface: 'query-editor', mode: 'quick-add' }))
       .toEqual({ surface: 'query-editor', mode: 'quick-add' });
     expect(queryEditorTarget({

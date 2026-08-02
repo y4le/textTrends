@@ -351,6 +351,8 @@ class FakeSessionPort implements SessionPort {
 function fakeTrend(marker: number): NumericTrend {
   return {
     coordinate: 'declared-sequence',
+    bins: { mode: 'per-doc', count: 4 },
+    rowOffsets: Uint32Array.from([0, 1]),
     docOrdinal: Uint32Array.from([0]),
     binIndex: Uint32Array.from([0]),
     binStartToken: Uint32Array.from([0]),
@@ -409,13 +411,16 @@ function fakeReaderPage(
   };
 }
 
-function fakeInventoryResult(marker: number): QueryResultDataV4 {
+function fakeInventoryResult(
+  marker: number,
+  extents: readonly { readonly doc: string; readonly fullTokens: number }[] = [],
+): QueryResultDataV4 {
   return {
     op: 'inventory',
     inventory: {
       method: 'inventory/1',
       selection: `selection-${marker}`,
-      order: ['a'],
+      order: extents.length === 0 ? ['a'] : extents.map((row) => row.doc),
       totals: {
         selectedDocs: 1,
         expectedDocs: 1,
@@ -429,7 +434,10 @@ function fakeInventoryResult(marker: number): QueryResultDataV4 {
         paragraphs: 1,
         charsUtf16: marker,
       },
-      documents: [],
+      documents: extents.map((row) => ({
+        doc: row.doc,
+        fullTokens: row.fullTokens,
+      })),
       rhythm: null,
       growth: null,
       sections: null,
@@ -913,10 +921,17 @@ describe('the session bridge', () => {
         views: {
           ...researchState(BUILTIN_SHERLOCK_ID, 3).views,
           trend: {
-            schema: 'texttrends/trend-view/1',
+            schema: 'texttrends/trend-view/2',
             mode: 'by-book',
             sectionMarks: false,
             focusedDoc: null,
+            bins: { mode: 'fixed-tokens', count: 500 },
+            measure: {
+              kind: 'rate',
+              denominator: 100_000,
+              smoothing: 7,
+              showRaw: true,
+            },
           },
         },
       },
@@ -926,11 +941,69 @@ describe('the session bridge', () => {
     await Promise.resolve();
     expect(runtime.useApp.getState()).toMatchObject({
       trendView: 'by-book',
+      trendBins: { mode: 'fixed-tokens', count: 500 },
+      trendMeasure: {
+        kind: 'rate',
+        denominator: 100_000,
+        smoothing: 7,
+        showRaw: true,
+      },
       notebook: { groups: [{ id: 'durable', name: 'Irene' }] },
       researchPersistence: { phase: 'saved' },
     });
     expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
     runtime.dispose();
+  });
+
+  it('announces and persists geometry normalized after corpus extents arrive', async () => {
+    vi.useFakeTimers();
+    try {
+      const q = fakeQueryClient();
+      const runtime = createAppRuntime(q.client, { newId: () => 'new' });
+      const port = new FakeSessionPort();
+      const durable = researchState(BUILTIN_SHERLOCK_ID, 3);
+      port.researchLoadValue = {
+        kind: 'loaded',
+        state: {
+          ...durable,
+          views: {
+            ...durable.views,
+            trend: {
+              ...durable.views.trend,
+              bins: { mode: 'fixed-tokens', count: 250 },
+            },
+          },
+        },
+      };
+      runtime.attachSession(port);
+      await Promise.resolve();
+      await Promise.resolve();
+      port.publishSnapshot('g1', 's1', ['a', 'b']);
+      q.inventories().at(-1)!.resolve(
+        fakeInventoryResult(2_000_000, [
+          { doc: 'a', fullTokens: 1_000_000 },
+          { doc: 'b', fullTokens: 1_000_000 },
+        ]),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(0);
+
+      expect(runtime.useApp.getState().trendBins).toEqual({
+        mode: 'fixed-tokens',
+        count: 500,
+      });
+      expect(runtime.useApp.getState().trendSettingsNotice).toMatch(/saved preference/);
+      expect(runtime.useApp.getState().researchPersistence.phase).toBe('dirty');
+      await vi.advanceTimersByTimeAsync(1_500);
+      expect(port.researchSaves.at(-1)?.state.views.trend.bins).toEqual({
+        mode: 'fixed-tokens',
+        count: 500,
+      });
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('previews a saved range as evidence without changing linked or durable scope', async () => {
@@ -1529,6 +1602,213 @@ describe('store query intent discipline', () => {
     f.store.getState().setTrendView('series');
     expect(f.issued.length).toBe(count);
     expect(f.store.getState().trendView).toBe('series');
+  });
+
+  it('keeps display settings resident-only and reissues only trend lanes for bin changes', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+    const issued = f.issued.length;
+    const trendCount = f.trends().length;
+    const kwicCount = f.kwics().length;
+    const dispersionCount = f.issued.filter((item) => item.op === 'dispersion').length;
+
+    f.store.getState().applyTrendSettings({
+      bins: { mode: 'per-doc', count: 40 },
+      measure: {
+        kind: 'rate',
+        denominator: 100_000,
+        smoothing: 5,
+        showRaw: true,
+      },
+    });
+    expect(f.issued).toHaveLength(issued);
+    expect(f.store.getState().trendMeasure).toEqual({
+      kind: 'rate',
+      denominator: 100_000,
+      smoothing: 5,
+      showRaw: true,
+    });
+
+    f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: { kind: 'count' },
+    });
+    expect(f.trends()).toHaveLength(trendCount + 1);
+    expect(f.kwics()).toHaveLength(kwicCount);
+    expect(f.issued.filter((item) => item.op === 'dispersion')).toHaveLength(dispersionCount);
+    expect((f.trends().at(-1)!.query as {
+      request: { bins: unknown };
+    }).request.bins).toEqual({ mode: 'fixed-tokens', count: 250 });
+    expect(f.store.getState().trendMeasure).toEqual({ kind: 'count' });
+  });
+
+  it('keeps an in-flight bin reissue current across a measure-only apply', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes');
+
+    expect(f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: { kind: 'count' },
+    })).toBe('applied');
+    const inFlight = f.trends().at(-1)!;
+    const issuedBins = f.store.getState().trendBins;
+    expect(f.store.getState().trends.get('u1')?.status).toBe('pending');
+
+    expect(f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: {
+        kind: 'rate',
+        denominator: 100_000,
+        smoothing: 5,
+        showRaw: true,
+      },
+    })).toBe('applied');
+    expect(f.store.getState().trendBins).toBe(issuedBins);
+    f.store.setState({ trendBins: { ...issuedBins } });
+    expect(f.store.getState().trendBins).not.toBe(issuedBins);
+
+    inFlight.resolve({ op: 'trend', trend: fakeTrend(17) });
+    await flush();
+    expect(f.store.getState().trends.get('u1')).toMatchObject({
+      status: 'ready',
+      trend: { count: Uint32Array.from([17]) },
+    });
+  });
+
+  it('rejects over-limit bin settings and clamps restored geometry from inventory alone', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.inventories().at(-1)!.resolve(fakeInventoryResult(2_000_000, [
+      { doc: 'a', fullTokens: 1_000_000 },
+      { doc: 'b', fullTokens: 1_000_000 },
+    ]));
+    await flush();
+
+    const before = f.store.getState().trendBins;
+    expect(f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: { kind: 'count' },
+    })).toBe('rejected');
+    expect(f.store.getState().trendBins).toBe(before);
+
+    const research = researchState(BUILTIN_SHERLOCK_ID, 1);
+    f.store.getState().restoreResearch({
+      ...research,
+      views: {
+        ...research.views,
+        trend: {
+          ...research.views.trend,
+          bins: { mode: 'fixed-tokens', count: 250 },
+        },
+      },
+    });
+    expect(f.store.getState().trendBins).toEqual({ mode: 'fixed-tokens', count: 500 });
+  });
+
+  it('normalizes a persisted bin preference when expanded-corpus extents arrive', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const research = researchState(BUILTIN_SHERLOCK_ID, 1);
+    f.store.getState().restoreResearch({
+      ...research,
+      views: {
+        ...research.views,
+        trend: {
+          ...research.views.trend,
+          bins: { mode: 'fixed-tokens', count: 250 },
+        },
+      },
+    });
+    expect(f.store.getState().trendBins).toEqual({ mode: 'fixed-tokens', count: 250 });
+
+    f.inventories().at(-1)!.resolve(fakeInventoryResult(2_000_000, [
+      { doc: 'a', fullTokens: 1_000_000 },
+      { doc: 'b', fullTokens: 1_000_000 },
+    ]));
+    await flush();
+    expect(f.store.getState().trendBins).toEqual({ mode: 'fixed-tokens', count: 500 });
+    expect(f.store.getState().trendSettingsNotice).toMatch(/saved preference/);
+  });
+
+  it('retains corpus extents when a range inventory replaces the full inventory', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.inventories().at(-1)!.resolve(fakeInventoryResult(2_000_000, [
+      { doc: 'a', fullTokens: 1_000_000 },
+      { doc: 'b', fullTokens: 1_000_000 },
+    ]));
+    await flush();
+
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      doc: 'a',
+      tokens: { start: 10, end: 20 },
+    });
+    f.inventories().at(-1)!.resolve(fakeInventoryResult(10, [
+      { doc: 'a', fullTokens: 1_000_000 },
+    ]));
+    await flush();
+    f.store.setState({
+      trends: new Map([['u1', { status: 'error', message: 'trend failed' }]]),
+    });
+
+    expect(f.store.getState().corpusTokenCounts).toEqual(new Map([
+      ['a', 1_000_000],
+      ['b', 1_000_000],
+    ]));
+    expect(f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: { kind: 'count' },
+    })).toBe('rejected');
+  });
+
+  it('switches to the viable bin mode when the persisted mode cannot fit', async () => {
+    const f = harness();
+    const docs = Array.from({ length: 1_001 }, (_, index) => `doc-${index}`);
+    f.port.publishSnapshot('g1', 's1', docs);
+    f.inventories().at(-1)!.resolve(fakeInventoryResult(1_001, docs.map((doc) => ({
+      doc,
+      fullTokens: 1,
+    }))));
+    await flush();
+
+    expect(f.store.getState().trendBins).toEqual({
+      mode: 'fixed-tokens',
+      count: 1_000,
+    });
+    expect(f.store.getState().trendSettingsNotice).toMatch(
+      /changed bin mode.*saved preference/,
+    );
+  });
+
+  it('undoes explicit term deletion without retaining a style slot and preserves null focus', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('holmes, moriarty');
+    expect(f.store.getState().focusedSeries).toBeNull();
+    const removed = f.store.getState().notebook.groups[0]!;
+    f.store.getState().setSolo(removed.id);
+    const previousSlot = f.store.getState().styleSlots.get(removed.id);
+    f.store.getState().removeGroup(removed.id);
+    expect(f.store.getState().removedGroups.at(-1)?.group).toBe(removed);
+    expect(f.store.getState().removedGroups.at(-1)?.solo).toBe(true);
+    expect(f.store.getState().styleSlots.has(removed.id)).toBe(false);
+    f.store.getState().undoRemoveGroup();
+    expect(f.store.getState().notebook.groups[0]).toBe(removed);
+    expect(f.store.getState().activeGroupIds.has(removed.id)).toBe(true);
+    expect(f.store.getState().soloGroupId).toBe(removed.id);
+    expect(f.store.getState().focusedSeries).toBeNull();
+    expect(f.store.getState().styleSlots.get(removed.id)).not.toBeUndefined();
+    // Slot reconciliation may naturally choose the same free slot; the undo
+    // record itself carries no slot authority.
+    expect(f.store.getState().removedGroups).toHaveLength(0);
+    expect(previousSlot).not.toBeUndefined();
+
+    f.store.getState().removeGroup(removed.id);
+    f.store.getState().dismissRemovedGroup();
+    expect(f.store.getState().removedGroups).toHaveLength(0);
   });
 
   it('keeps Concordance reading and context local while sort alone reissues KWIC', () => {
@@ -2621,6 +2901,23 @@ describe('independent pinned passage intents (slice-2 F)', () => {
   const centerOf = (issued: Issued) =>
     (issued.query as { request: { centerToken: number } }).request.centerToken;
 
+  it('records and clears the surface that owns live pin feedback', () => {
+    const f = setup();
+    f.store.getState().pinPassage('a', 2, 'reader');
+    expect(f.store.getState()).toMatchObject({
+      pinFeedbackOrigin: 'reader',
+      pinAnnouncement: 'Saving excerpt to Findings.',
+    });
+    f.store.getState().clearPinFeedback('evidence');
+    expect(f.store.getState().pinFeedbackOrigin).toBe('reader');
+    f.store.getState().clearPinFeedback('reader');
+    expect(f.store.getState()).toMatchObject({
+      pinFeedbackOrigin: null,
+      pinAnnouncement: null,
+      pinError: null,
+    });
+  });
+
   it('captures issue-time semantics and resolves a bounded passage without cancelling peers', async () => {
     const f = setup();
     f.store.getState().pinPassage('a', 2);
@@ -2667,7 +2964,7 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     expect(f.passages()).toHaveLength(afterFirst);
     expect(f.store.getState().pins).toHaveLength(1);
     expect(f.store.getState().focusedPinId).toBe(first.id);
-    expect(f.store.getState().pinAnnouncement).toMatch(/already pinned/);
+    expect(f.store.getState().pinAnnouncement).toMatch(/already saved/);
     for (let token = 1; token < 8; token++) f.store.getState().pinPassage('a', token);
     const eight = f.store.getState().pins;
     const requests = f.passages().length;
@@ -2841,8 +3138,8 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     const navigation = store.getState().readerNavigation;
     const pushes = history.pushes;
 
-    store.getState().setReaderMode('peek');
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('peek');
+    store.getState().setReaderMode('full');
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('full');
     expect(store.getState()).toMatchObject({
       evidenceTier: 'reader',
       readerPage: page,
@@ -2855,10 +3152,23 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(history.state).toEqual(serialized);
     expect(history.url).toBe(url);
 
+    store.getState().pushLayer(
+      'row-detail',
+      { surface: 'query-editor', mode: 'group', groupId: 'test' },
+      'term-edit-test',
+    );
+    expect(store.getState().readerPlace).not.toBeNull();
+    store.getState().setReaderMode('study');
+    expect(store.getState().layers.find((layer) => layer.kind === 'reader')?.ui?.reader)
+      .toBe('study');
+    store.getState().popLayer();
+    expect(store.getState().layers.at(-1)?.kind).toBe('reader');
+    store.getState().setReaderMode('full');
+
     store.getState().closeReader();
     expect(store.getState().readerPlace).toBeNull();
     history.forward();
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('peek');
+    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('full');
 
     store.getState().closeReader();
     store.getState().openReader({

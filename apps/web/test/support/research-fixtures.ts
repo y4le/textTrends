@@ -18,10 +18,17 @@ export function researchState(
     pins: [],
     views: {
       trend: {
-        schema: 'texttrends/trend-view/1',
+        schema: 'texttrends/trend-view/2',
         mode: 'series',
         sectionMarks: true,
         focusedDoc: null,
+        bins: { mode: 'per-doc', count: 40 },
+        measure: {
+          kind: 'rate',
+          denominator: 10_000,
+          smoothing: 0,
+          showRaw: false,
+        },
       },
       inventory: {
         schema: 'texttrends/inventory-view/1',

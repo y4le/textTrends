@@ -298,13 +298,17 @@ test('KWIC opens the lazy reader; navigation, semantic edits, and snapshot repla
   await passageOpen.click();
   await awaitFreshReader(page, readerMark);
   const trendDrawer = page.getByRole('dialog', { name: /Reader: reader/ });
-  await expect(page.getByRole('region', { name: 'Query notebook' })).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await page.getByRole('button', { name: 'Edit members: wolf' }).click({ force: true });
   const editor = page.getByRole('group', { name: 'Edit members: wolf' });
+  await expect(editor).toBeVisible();
+  await expect(trendDrawer).toBeVisible();
   await editor.getByLabel(/Add member to wolf/).fill('w0100', { force: true });
   await editor.getByRole('button', { name: 'add', exact: true }).click({ force: true });
   const semanticMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await editor.getByRole('button', { name: 'Apply changes to wolf' }).click({ force: true });
+  await expect(editor).toHaveCount(0);
+  await expect(trendDrawer).toBeVisible();
   await awaitFreshReader(page, semanticMark);
   await expect(trendDrawer.locator('[data-reader-mark]').filter({ hasText: 'w0100' })).toBeVisible();
 
@@ -359,10 +363,10 @@ test('exact barcode, passage, and pin evidence all open the reader', async ({ pa
   await scrubber.focus();
   await scrubber.press('p');
   await gotoPlace(page, 'findings');
-  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  const pinnedEvidence = page.getByRole('region', { name: 'Saved excerpts' });
   await pinnedEvidence.locator('.findings-record-trigger').click();
   const pinOpen = pinnedEvidence.getByRole('button', {
-    name: /Open pinned evidence at token 1 in reader/,
+    name: /Open saved excerpt at token 1 in reader/,
   });
   await expect(pinOpen).toBeVisible();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;

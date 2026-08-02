@@ -274,7 +274,15 @@ type WarmProbe =
  */
 function trendTransferList(t: import('@texttrends/core').NumericTrend): Transferable[] {
   const buffers = new Set<ArrayBuffer>();
-  for (const view of [t.docOrdinal, t.binIndex, t.binStartToken, t.binTokens, t.count, t.ratePer10k]) {
+  for (const view of [
+    t.rowOffsets,
+    t.docOrdinal,
+    t.binIndex,
+    t.binStartToken,
+    t.binTokens,
+    t.count,
+    t.ratePer10k,
+  ]) {
     if (view.buffer instanceof ArrayBuffer) buffers.add(view.buffer);
   }
   return [...buffers];

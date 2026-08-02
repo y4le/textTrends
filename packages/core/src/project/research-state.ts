@@ -13,6 +13,13 @@ import {
 import { FREQUENCY_PAGE_MAX } from '../ops/frequency.ts';
 import { MAX_KWIC_TRACKS } from '../ops/kwic.ts';
 import {
+  TREND_FIXED_TOKENS_MAX,
+  TREND_FIXED_TOKENS_MIN,
+  TREND_PER_DOC_MAX,
+  TREND_PER_DOC_MIN,
+  type TrendBinsSpecV1,
+} from '../ops/trend.ts';
+import {
   NOTEBOOK_LIMITS_V1,
   parseQueryNotebook,
   type QueryNotebookV1,
@@ -55,11 +62,28 @@ export interface SavedPinV1 {
   readonly captured: readonly SavedPinTrackV1[];
 }
 
-export interface TrendResearchViewV1 {
-  readonly schema: 'texttrends/trend-view/1';
+export const TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
+export const TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
+
+export type TrendRateDenominator = (typeof TREND_RATE_DENOMINATORS)[number];
+export type TrendSmoothingWindow = (typeof TREND_SMOOTHING_WINDOWS)[number];
+
+export type TrendMeasureV2 =
+  | {
+      readonly kind: 'rate';
+      readonly denominator: TrendRateDenominator;
+      readonly smoothing: 0 | TrendSmoothingWindow;
+      readonly showRaw: boolean;
+    }
+  | { readonly kind: 'count' };
+
+export interface TrendResearchViewV2 {
+  readonly schema: 'texttrends/trend-view/2';
   readonly mode: 'series' | 'by-book';
   readonly sectionMarks: boolean;
   readonly focusedDoc: string | null;
+  readonly bins: TrendBinsSpecV1;
+  readonly measure: TrendMeasureV2;
 }
 
 export interface InventoryViewV1 {
@@ -104,7 +128,7 @@ export interface ResearchStateV1 {
   readonly selections: readonly SavedSelectionV1[];
   readonly pins: readonly SavedPinV1[];
   readonly views: {
-    readonly trend: TrendResearchViewV1;
+    readonly trend: TrendResearchViewV2;
     readonly inventory: InventoryViewV1;
     readonly keyness: KeynessViewV1;
   };
@@ -263,12 +287,73 @@ function parseClasses(value: unknown, what: string): readonly ('lexical' | 'nume
   return rows as readonly ('lexical' | 'numeral')[];
 }
 
-export function parseTrendResearchView(value: unknown): TrendResearchViewV1 {
-  if (!exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc'])) {
+function parseTrendBins(value: unknown): TrendBinsSpecV1 {
+  if (
+    !exactRecord(value, ['mode', 'count']) ||
+    !isNonNegSafeInt(value.count) ||
+    (
+      value.mode === 'per-doc'
+        ? value.count < TREND_PER_DOC_MIN || value.count > TREND_PER_DOC_MAX
+        : value.mode === 'fixed-tokens'
+          ? value.count < TREND_FIXED_TOKENS_MIN || value.count > TREND_FIXED_TOKENS_MAX
+          : true
+    )
+  ) {
+    throw new RangeError('invalid trend bins');
+  }
+  return value as unknown as TrendBinsSpecV1;
+}
+
+function parseTrendMeasure(value: unknown): TrendMeasureV2 {
+  if (exactRecord(value, ['kind']) && value.kind === 'count') {
+    return value as unknown as TrendMeasureV2;
+  }
+  if (
+    !exactRecord(value, ['kind', 'denominator', 'smoothing', 'showRaw']) ||
+    value.kind !== 'rate' ||
+    !TREND_RATE_DENOMINATORS.includes(value.denominator as TrendRateDenominator) ||
+    (
+      value.smoothing !== 0 &&
+      !TREND_SMOOTHING_WINDOWS.includes(value.smoothing as TrendSmoothingWindow)
+    ) ||
+    typeof value.showRaw !== 'boolean'
+  ) {
+    throw new RangeError('invalid trend measure');
+  }
+  return value as unknown as TrendMeasureV2;
+}
+
+export function parseTrendResearchView(value: unknown): TrendResearchViewV2 {
+  if (exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc'])) {
+    if (
+      value.schema !== 'texttrends/trend-view/1' ||
+      (value.mode !== 'series' && value.mode !== 'by-book') ||
+      typeof value.sectionMarks !== 'boolean'
+    ) {
+      throw new RangeError('invalid legacy trend view');
+    }
+    if (value.focusedDoc !== null) {
+      boundedString(value.focusedDoc, RESEARCH_MAX_DOC_UNITS, 'focused document');
+    }
+    return {
+      schema: 'texttrends/trend-view/2',
+      mode: value.mode,
+      sectionMarks: value.sectionMarks,
+      focusedDoc: value.focusedDoc,
+      bins: { mode: 'per-doc', count: 40 },
+      measure: {
+        kind: 'rate',
+        denominator: 10_000,
+        smoothing: 0,
+        showRaw: false,
+      },
+    };
+  }
+  if (!exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc', 'bins', 'measure'])) {
     throw new RangeError('trend view must be exact');
   }
   if (
-    value.schema !== 'texttrends/trend-view/1' ||
+    value.schema !== 'texttrends/trend-view/2' ||
     (value.mode !== 'series' && value.mode !== 'by-book') ||
     typeof value.sectionMarks !== 'boolean'
   ) {
@@ -277,7 +362,9 @@ export function parseTrendResearchView(value: unknown): TrendResearchViewV1 {
   if (value.focusedDoc !== null) {
     boundedString(value.focusedDoc, RESEARCH_MAX_DOC_UNITS, 'focused document');
   }
-  return value as unknown as TrendResearchViewV1;
+  parseTrendBins(value.bins);
+  parseTrendMeasure(value.measure);
+  return value as unknown as TrendResearchViewV2;
 }
 
 export function parseInventoryResearchView(value: unknown): InventoryViewV1 {
@@ -431,8 +518,49 @@ export function parseResearchState(value: unknown): ResearchStateV1 {
   };
 }
 
-/** V1 identity seam; future upgrades may recognize only older schemas. */
+/** Upgrade the original presentation-only trend view to the configurable
+ *  trend-view/2 contract. The outer research-state schema stays /1 because
+ *  its ownership, CAS, and privacy boundaries are unchanged. */
 export function upgradeStoredResearchState(raw: unknown): unknown {
+  if (
+    raw !== null &&
+    typeof raw === 'object' &&
+    !Array.isArray(raw)
+  ) {
+    const record = raw as Record<string, unknown>;
+    const views = record.views;
+    if (views !== null && typeof views === 'object' && !Array.isArray(views)) {
+      const viewRecord = views as Record<string, unknown>;
+      const trend = viewRecord.trend;
+      if (
+        trend !== null &&
+        typeof trend === 'object' &&
+        !Array.isArray(trend) &&
+        (trend as Record<string, unknown>).schema === 'texttrends/trend-view/1'
+      ) {
+        const legacy = trend as Record<string, unknown>;
+        return {
+          ...record,
+          views: {
+            ...viewRecord,
+            trend: {
+              schema: 'texttrends/trend-view/2',
+              mode: legacy.mode,
+              sectionMarks: legacy.sectionMarks,
+              focusedDoc: legacy.focusedDoc,
+              bins: { mode: 'per-doc', count: 40 },
+              measure: {
+                kind: 'rate',
+                denominator: 10_000,
+                smoothing: 0,
+                showRaw: false,
+              },
+            },
+          },
+        };
+      }
+    }
+  }
   return raw;
 }
 

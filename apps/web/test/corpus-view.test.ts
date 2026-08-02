@@ -48,7 +48,7 @@ const result: InventoryResultV1 = {
     charsUtf16: 20,
   }],
   rhythm: {
-    binsPerDoc: 1,
+    binsPerDoc: 4,
     docOrdinal: Uint32Array.from([0]),
     binIndex: Uint32Array.from([0]),
     binStartToken: Uint32Array.from([0]),

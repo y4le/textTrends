@@ -16,12 +16,14 @@ export const TREND_LABEL_SPACE = 130;
 export function selectedTrendPathData(
   trend: NumericTrend,
   doc: string,
-  bins: number,
+  values: ArrayLike<number>,
   xAt: (bin: number) => number,
-  yAt: (rate: number) => number,
+  yAt: (value: number) => number,
 ): string[] {
   const d = trend.order.indexOf(doc);
   if (d < 0) return [];
+  const start = trend.rowOffsets[d] ?? 0;
+  const end = trend.rowOffsets[d + 1] ?? start;
   const paths: string[] = [];
   let points: string[] = [];
   const flush = () => {
@@ -30,13 +32,13 @@ export function selectedTrendPathData(
     paths.push(`M${first}${rest.map((p) => ` L${p}`).join('')}${rest.length === 0 ? ' l0.01,0' : ''}`);
     points = [];
   };
-  for (let b = 0; b < bins; b++) {
-    const i = d * bins + b;
+  for (let i = start; i < end; i++) {
+    const b = i - start;
     if ((trend.binTokens[i] as number) === 0) {
       flush();
       continue;
     }
-    points.push(`${xAt(b).toFixed(1)},${yAt(trend.ratePer10k[i] as number).toFixed(1)}`);
+    points.push(`${xAt(b).toFixed(1)},${yAt(values[i] as number).toFixed(1)}`);
   }
   flush();
   return paths;
@@ -59,15 +61,48 @@ export function linearMap(
   return (v) => r0 + ((v - d0) * (r1 - r0)) / (d1 - d0);
 }
 
-/** Bin token extents for one doc: equal-width construction (ceil(tokens/bins),
- *  matching the trend kernel), last bin clamped. */
-export function binSpan(
-  tokens: number,
-  bins: number,
-  b: number,
-): { start: number; end: number } {
-  const width = tokens === 0 ? 0 : Math.ceil(tokens / bins);
-  return { start: Math.min(b * width, tokens), end: Math.min((b + 1) * width, tokens) };
+/** Exact token span of one result row. Fixed-token layouts have a variable
+ * number of rows per document, so the next row offset (or the document extent)
+ * is the only honest end boundary. */
+export function trendBinSpan(
+  trend: NumericTrend,
+  docOrdinal: number,
+  localBin: number,
+): { readonly start: number; readonly end: number } {
+  const rowStart = trend.rowOffsets[docOrdinal] ?? 0;
+  const rowEnd = trend.rowOffsets[docOrdinal + 1] ?? rowStart;
+  const row = rowStart + localBin;
+  if (row < rowStart || row >= rowEnd) return { start: 0, end: 0 };
+  const extent = trend.docTokenCount[docOrdinal] ?? 0;
+  const start = Math.min(trend.binStartToken[row] ?? 0, extent);
+  const rawEnd = row + 1 < rowEnd
+    ? trend.binStartToken[row + 1] ?? start
+    : extent;
+  return { start, end: Math.max(start, Math.min(rawEnd, extent)) };
+}
+
+export function trendRowsForDoc(
+  trend: NumericTrend,
+  docOrdinal: number,
+): { readonly start: number; readonly end: number; readonly count: number } {
+  const start = trend.rowOffsets[docOrdinal] ?? 0;
+  const end = trend.rowOffsets[docOrdinal + 1] ?? start;
+  return { start, end, count: Math.max(0, end - start) };
+}
+
+export function trendBinAtToken(
+  trend: NumericTrend,
+  docOrdinal: number,
+  token: number,
+): { readonly row: number; readonly span: { readonly start: number; readonly end: number } } | null {
+  const rows = trendRowsForDoc(trend, docOrdinal);
+  for (let local = 0; local < rows.count; local++) {
+    const span = trendBinSpan(trend, docOrdinal, local);
+    if (token >= span.start && token < span.end) {
+      return { row: rows.start + local, span };
+    }
+  }
+  return null;
 }
 
 /** Clamp a point into its book's pixel span [x0, x1], applying the requested

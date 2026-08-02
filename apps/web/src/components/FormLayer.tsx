@@ -28,6 +28,7 @@ export function FormLayer({
   readonly children: ReactNode;
 }): ReactPortal {
   const layerRef = useRef<HTMLDivElement | null>(null);
+  const lastFocusedRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     const root = document.getElementById('root');
@@ -43,7 +44,41 @@ export function FormLayer({
       .find((node) => node.getClientRects().length > 0)
       ?? layerRef.current;
     initial?.focus({ preventScroll: true });
+    lastFocusedRef.current = initial;
   }, [focusKey]);
+
+  useEffect(() => {
+    const layer = layerRef.current;
+    if (!layer) return undefined;
+    let frame: number | null = null;
+    const rememberFocus = (event: FocusEvent) => {
+      if (event.target instanceof HTMLElement && layer.contains(event.target)) {
+        lastFocusedRef.current = event.target;
+      }
+    };
+    const restoreAfterResize = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        if (layer.contains(document.activeElement)) return;
+        const target = lastFocusedRef.current;
+        if (target?.isConnected && target.getClientRects().length > 0) {
+          target.focus({ preventScroll: true });
+        } else {
+          layer.focus({ preventScroll: true });
+        }
+      });
+    };
+    layer.addEventListener('focusin', rememberFocus);
+    window.addEventListener('resize', restoreAfterResize);
+    window.visualViewport?.addEventListener('resize', restoreAfterResize);
+    return () => {
+      layer.removeEventListener('focusin', rememberFocus);
+      window.removeEventListener('resize', restoreAfterResize);
+      window.visualViewport?.removeEventListener('resize', restoreAfterResize);
+      if (frame !== null) cancelAnimationFrame(frame);
+    };
+  }, []);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key === 'Escape') {

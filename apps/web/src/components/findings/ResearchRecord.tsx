@@ -127,7 +127,7 @@ export function ResearchRecord({
       </div>
       <p className="findings-record-note">
         Research state saves separately from project files. Share links are
-        source-free and omit pinned excerpts.
+        source-free and omit saved excerpts.
       </p>
     </section>
   );

@@ -52,11 +52,11 @@ for (const viewport of [
 
     const log = page.locator('.findings-log');
     await expect(log).toBeVisible();
-    await expect(page.getByRole('region', { name: 'Pinned evidence' }))
-      .toContainText('0 of 8 pinned');
+    await expect(page.getByRole('region', { name: 'Saved excerpts' }))
+      .toContainText('0 saved · limit 8');
     await expect(log.getByRole('heading', { level: 3 })).toHaveText([
       'Saved ranges',
-      'Pinned evidence',
+      'Saved excerpts',
       'Sharing',
       'Incoming shared state',
       'Research and project record',
@@ -197,15 +197,12 @@ test('removing the final pin restores focus to the capacity group', async ({ pag
   await scrubber.focus();
   await scrubber.press('Home');
   await scrubber.press('p');
-  await expect(page.getByRole('region', { name: 'Scope' }))
-    .toContainText('1 of 8 pinned');
-
   await gotoPlace(page, 'findings');
-  const pins = page.getByRole('region', { name: 'Pinned evidence' });
+  const pins = page.getByRole('region', { name: 'Saved excerpts' });
   await pins.locator('.findings-record-trigger').click();
   await pins.getByRole('button', { name: 'remove' }).click();
-  await expect(pins).toContainText('0 of 8 pinned');
-  await expect(page.getByRole('heading', { name: 'Pinned evidence' })).toBeFocused();
+  await expect(pins).toContainText('0 saved · limit 8');
+  await expect(page.getByRole('heading', { name: 'Saved excerpts' })).toBeFocused();
 });
 
 test('Corpus points to the one project Save and status owner in Findings', async ({ page }) => {

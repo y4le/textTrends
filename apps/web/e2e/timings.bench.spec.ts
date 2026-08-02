@@ -16,7 +16,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace, clearNotebook } from './helpers.ts';
+import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace, clearNotebook, openQuickAdd } from './helpers.ts';
 import type { ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 test.describe.configure({ mode: 'serial' });
@@ -43,13 +43,13 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   const warmReopenMs = warmBarrierAt - warmBeginAt;
 
   // Query latency samples through the real UI (trend + kwic per input).
-  const input = page.getByLabel(/add terms to the notebook/i);
   const queryLatencies: number[] = [];
   for (const terms of ['watson', 'moriarty', 'adler', 'lestrade', 'baskerville']) {
     // Fresh single-term comparison per sample (append-only notebook): the
     // measured burst must stay one trend + one KWIC, comparable across runs.
     await clearNotebook(page);
     const before = ((await trace(page)).events.at(-1)?.seq ?? -1);
+    const input = await openQuickAdd(page);
     await input.fill(terms);
     await input.press('Enter');
     // Correlate by JOB id: a late-settling result from a superseded removal

@@ -65,10 +65,17 @@ function state(): ResearchStateV1 {
     }],
     views: {
       trend: {
-        schema: 'texttrends/trend-view/1',
+        schema: 'texttrends/trend-view/2',
         mode: 'series',
         sectionMarks: true,
         focusedDoc: 'a',
+        bins: { mode: 'per-doc', count: 40 },
+        measure: {
+          kind: 'rate',
+          denominator: 10_000,
+          smoothing: 0,
+          showRaw: false,
+        },
       },
       inventory: {
         schema: 'texttrends/inventory-view/1',
@@ -110,6 +117,62 @@ describe('research-state/1', () => {
     const value = state();
     expect(parseResearchState(value)).toEqual(value);
     expect(upgradeStoredResearchState(value)).toBe(value);
+  });
+
+  it('upgrades the original trend view without changing outer CAS identity', () => {
+    const current = state();
+    const legacy = {
+      ...current,
+      views: {
+        ...current.views,
+        trend: {
+          schema: 'texttrends/trend-view/1',
+          mode: 'by-book',
+          sectionMarks: false,
+          focusedDoc: null,
+        },
+      },
+    };
+    const upgraded = upgradeStoredResearchState(legacy);
+    expect(parseResearchState(upgraded).views.trend).toEqual({
+      schema: 'texttrends/trend-view/2',
+      mode: 'by-book',
+      sectionMarks: false,
+      focusedDoc: null,
+      bins: { mode: 'per-doc', count: 40 },
+      measure: {
+        kind: 'rate',
+        denominator: 10_000,
+        smoothing: 0,
+        showRaw: false,
+      },
+    });
+  });
+
+  it('enforces trend-view/2 bin bounds and discriminated display settings', () => {
+    const current = state();
+    const withTrend = (trend: unknown) => parseResearchState({
+      ...current,
+      views: { ...current.views, trend },
+    });
+    expect(() => withTrend({
+      ...current.views.trend,
+      bins: { mode: 'per-doc', count: 3 },
+    })).toThrow(/trend bins/);
+    expect(() => withTrend({
+      ...current.views.trend,
+      bins: { mode: 'fixed-tokens', count: 50_001 },
+    })).toThrow(/trend bins/);
+    expect(() => withTrend({
+      ...current.views.trend,
+      measure: { kind: 'count', smoothing: 3 },
+    })).toThrow(/trend measure/);
+    expect(() => withTrend({
+      ...current.views.trend,
+      measure: {
+        kind: 'rate', denominator: 10_000, smoothing: 4, showRaw: false,
+      },
+    })).toThrow(/trend measure/);
   });
 
   it('drops active/KWIC ids absent from the admitted notebook only on reconciliation', () => {

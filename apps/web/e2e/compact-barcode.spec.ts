@@ -56,7 +56,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
 
   await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
   const evidence = page.getByRole('complementary', { name: 'Evidence' });
-  await expect(evidence.getByRole('button', { name: 'Open passage in reader' })).toBeVisible({
+  await expect(evidence.getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
@@ -84,8 +84,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
 
   await page
     .getByRole('group', { name: 'Query terms' })
-    .locator('.query-focus-chip')
-    .filter({ hasText: 'Moriarty' })
+    .getByRole('button', { name: /^Moriarty \d+$/ })
     .click();
   await expect(stepper.getByRole('button', { name: 'Next Moriarty occurrence' })).toBeVisible();
   await expect(stepper.getByRole('button', { name: 'Next Holmes occurrence' })).toHaveCount(0);

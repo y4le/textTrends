@@ -209,21 +209,27 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   await page.mouse.move(point(1).x, point(1).y);
   await expect.poll(() => gateHeld(worker)).toBeGreaterThanOrEqual(1);
   await page.mouse.click(point(1).x, point(1).y);
-  await page.getByRole('button', { name: 'Pin passage at token 2' }).click();
-  await page.mouse.click(point(9).x, point(9).y);
-  await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
+  await page.getByRole('button', { name: 'Save excerpt at token 2 to Findings' }).click();
+  await scrubber.press('End');
+  await scrubber.press('ArrowLeft');
+  await scrubber.press('ArrowLeft');
+  await expect(page.getByText('pins · token 10 of 12', { exact: true })).toBeVisible();
+  await page.getByRole('button', { name: 'Save excerpt at token 10 to Findings' }).click();
   await gotoPlace(page, 'findings');
-  const pane = page.getByRole('region', { name: 'Pinned evidence' });
+  const pane = page.getByRole('region', { name: 'Saved excerpts' });
   await expect(pane.locator('article')).toHaveCount(2);
   await expect(pane.getByText('capturing passage…')).toHaveCount(2);
   await expect.poll(() => gateHeld(worker)).toBeGreaterThanOrEqual(3);
 
   // Duplicate location focuses rather than appending, even while pending.
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'Pin passage at token 10' }).click();
+  await page.getByRole('button', { name: 'Save excerpt at token 10 to Findings' }).click();
   await gotoPlace(page, 'findings');
   await expect(pane.locator('article')).toHaveCount(2);
-  await expect(pane.getByText(/already pinned; focused the existing evidence/i)).toBeVisible();
+  await expect(
+    page.getByRole('complementary', { name: 'Evidence' })
+      .getByText(/already saved; focused the existing excerpt/i),
+  ).toBeVisible();
 
   // Remove A while its completed worker result is still withheld. Releasing
   // that result cannot resurrect the card; B independently becomes ready.
@@ -233,7 +239,7 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   await gateRelease(worker);
   await expect.poll(() => gateHeld(worker)).toBe(0);
   await pane.locator('.findings-record-trigger').click();
-  await expect(pane.getByRole('button', { name: /Open pinned evidence/ })).toBeVisible();
+  await expect(pane.getByRole('button', { name: /Open saved excerpt/ })).toBeVisible();
   await expect(pane.locator('article')).toHaveCount(1);
 
   // Job-correlate the proof: at least the held scrub + two independent pin
@@ -268,7 +274,7 @@ test('explicit pins are independent, removed late evidence stays removed, and sn
   // anchors restore evidence whose document TextHash is unchanged.
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
   await gotoPlace(page, 'findings');
-  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  const pinnedEvidence = page.getByRole('region', { name: 'Saved excerpts' });
   await expect(pinnedEvidence).toHaveCount(1);
   await expect(pinnedEvidence.getByText('pins · token 10')).toBeVisible();
 });
@@ -287,33 +293,68 @@ test('repeated chart activation reads without creating durable evidence', async 
       box.y + 80,
     );
     const label = await page
-      .getByRole('button', { name: /Pin passage at token/ })
+      .getByRole('button', { name: /Save excerpt at token/ })
       .getAttribute('aria-label');
     if (label) visited.add(label);
   }
   expect(visited.size).toBeGreaterThan(1);
 
   const scope = page.getByRole('region', { name: 'Scope' });
-  await expect(scope.getByText('0 of 8 pinned', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Pinned evidence' })).toHaveCount(0);
+  await expect(scope).not.toContainText(/saved excerpts/i);
 
   // Retention is now an explicit verb on the Evidence line. Reader exposes
   // the same verb; repeating it at the same anchor focuses rather than adds.
-  const pin = page.getByRole('button', { name: /Pin passage at token/ });
+  const pin = page.getByRole('button', { name: /Save excerpt at token/ });
   await expect(pin).toBeVisible();
   await pin.click();
-  await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
-  await page.getByRole('button', { name: 'Open passage in reader' }).click();
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Evidence sheet' })
+    .getByRole('button', { name: 'Open passage in reader' })
+    .click();
   const reader = page.getByRole('dialog', { name: /Reader:/ });
-  const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
+  const readerPin = reader.getByRole('button', { name: /Save reader excerpt at token/ });
   await expect(readerPin).toBeVisible();
   await readerPin.click();
   await expect(reader.getByRole('status')).toContainText(
-    'That position is already pinned; focused the existing evidence.',
+    'That position is already saved; focused the existing excerpt.',
   );
   await reader.getByRole('button', { name: 'back', exact: true }).click();
-  await expect(scope.getByText('1 of 8 pinned', { exact: true })).toBeVisible();
+});
+
+test('the study-mode Evidence strip owns feedback for its own Save action', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  const evidence = page.getByRole('complementary', { name: 'Evidence' });
+  await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
+  const reader = page.getByRole('dialog', { name: /Reader:/ });
+  await expect(reader).toHaveAttribute('data-mode', 'study');
+  await expect(evidence).toBeVisible();
+
+  await evidence.getByRole('button', { name: /Save excerpt at token/ }).click();
+  await expect(evidence.getByRole('status')).toContainText(
+    /Sav(?:ed|ing).*excerpt.*Findings/i,
+  );
+  await expect(reader.getByRole('status')).toHaveCount(0);
+  await reader.getByRole('button', { name: 'next →', exact: true }).click();
+  await expect(evidence.getByRole('status')).toContainText(
+    /Sav(?:ed|ing).*excerpt.*Findings/i,
+  );
+
+  await reader.getByRole('button', { name: 'close', exact: true }).click();
+  await gotoPlace(page, 'findings');
+  const findings = page.getByRole('region', { name: 'Saved excerpts' });
+  await findings.locator('.findings-record-trigger').click();
+  await findings.getByRole('button', { name: 'show current passage' }).click();
+  const findingsEvidence = page.getByRole('complementary', { name: 'Evidence' });
+  await findingsEvidence.getByRole('button', { name: /Save excerpt at token/ }).click();
+  await expect(findingsEvidence.getByRole('status')).toContainText(/already saved/i);
+  await expect(page.locator('.findings-announcement')).toBeEmpty();
 });
 
 test('at capacity Pin stays reachable and announces the refusal', async ({ page }) => {
@@ -328,35 +369,41 @@ test('at capacity Pin stays reachable and announces the refusal', async ({ page 
     await scrubber.press('ArrowRight');
   }
 
-  const scope = page.getByRole('region', { name: 'Scope' });
-  await expect(scope.getByText('8 of 8 pinned', { exact: true })).toBeVisible();
-  const pin = page.getByRole('button', { name: /Pin passage at token/ });
+  await scrubber.press('p');
+  const evidence = page.getByRole('complementary', { name: 'Evidence' });
+  await expect(evidence.getByRole('alert')).toContainText(
+    'Saved excerpts are limited to 8 — remove one from Findings first.',
+  );
+  await evidence.getByRole('button', { name: 'dismiss', exact: true }).click();
+
+  const pin = page.getByRole('button', { name: /Save excerpt at token/ });
   await expect(pin).toHaveAttribute('aria-disabled', 'true');
   await pin.focus();
   await expect(pin).toBeFocused();
   await pin.press('Enter');
-  await expect(page.getByRole('alert')).toContainText(
-    'Pinned evidence is limited to 8 — remove one first.',
+  await expect(evidence.getByRole('alert')).toContainText(
+    'Saved excerpts are limited to 8 — remove one from Findings first.',
   );
-  await expect(scope.getByText('8 of 8 pinned', { exact: true })).toBeVisible();
 
-  await page.setViewportSize({ width: 390, height: 844 });
+  await evidence.getByRole('button', { name: 'dismiss', exact: true }).click();
   await page.getByRole('button', { name: 'Open passage in reader' }).click();
   const reader = page.getByRole('dialog', { name: /Reader:/ });
-  const readerPin = reader.getByRole('button', { name: /Pin reader passage at token/ });
+  await reader.getByRole('button', { name: 'full', exact: true }).click();
+  await expect(reader).toHaveAttribute('data-mode', 'full');
+  const readerPin = reader.getByRole('button', { name: /Save reader excerpt at token/ });
   await expect(readerPin).toHaveAttribute('aria-disabled', 'true');
   await readerPin.focus();
   await expect(readerPin).toBeFocused();
   await readerPin.press('Enter');
   await expect(reader.getByRole('alert')).toContainText(
-    'Pinned evidence is limited to 8 — remove one first.',
+    'Saved excerpts are limited to 8 — remove one from Findings first.',
   );
   await expect(reader.getByRole('button', { name: 'dismiss', exact: true })).toBeVisible();
-  await reader.getByRole('button', { name: 'manage pins', exact: true }).click();
+  await reader.getByRole('button', { name: 'Open Findings', exact: true }).click();
   await expect(reader).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]p=findings(?:&|$)/);
-  await expect(page.getByRole('region', { name: 'Pinned evidence' }))
-    .toContainText('8 of 8 pinned');
+  await expect(page.getByRole('region', { name: 'Saved excerpts' }))
+    .toContainText('8 saved · limit 8');
 });
 
 test('a quarantined anchor keeps note and document facts distinct and routes repair', async ({ page }) => {
@@ -395,5 +442,5 @@ test('a quarantined anchor keeps note and document facts distinct and routes rep
   await expect(detail).toBeVisible();
   await detail.getByRole('button', { name: 'remove record' }).click();
   await expect(anchors).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Pinned evidence' })).toBeFocused();
+  await expect(page.getByRole('heading', { name: 'Saved excerpts' })).toBeFocused();
 });

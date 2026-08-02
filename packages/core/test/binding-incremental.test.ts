@@ -348,7 +348,7 @@ describe('kernel purity (risk 8)', () => {
     const sel = await resolveSelection(snapshot, { docs: ['a'] as ProjectDocId[] });
     const occ = occurrences(snapshot, new Map([['a', resident]]), new Map([['a', byMode]]), sel, wolfGroup);
     expect(occ.pos.length).toBe(2);
-    trend(snapshot, sel, occ, { coordinate: 'document-relative', binsPerDoc: 2 });
+    trend(snapshot, sel, occ, { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } });
     const page = kwicPage(snapshot, bound, sel, [occ], {
       contextTokens: 2,
       sort: SORT_POS,

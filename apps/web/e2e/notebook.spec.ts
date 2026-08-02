@@ -14,7 +14,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // Token positions: wolf@1, wolves@4, "dire wolf"@7-8, Wolf@12 (capitalized).
 const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf spoke.\n';
@@ -107,7 +107,8 @@ test('a multi-member group (alias + phrase + prefix) authored in the editor driv
 
   // The notebook count qualifies as a READY total for the merged group.
   await gotoPlace(page, 'trends');
-  await expect(page.getByRole('region', { name: 'Query notebook' }).getByText(/^4$/)).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })
+    .getByRole('button', { name: 'wolf 4', exact: true })).toBeVisible();
 
   // The PASSAGE lane runs under the same authored group: scrub the axis,
   // wait for the job-correlated passage result, and assert the FULL phrase
@@ -152,16 +153,20 @@ test('a case-SENSITIVE member distinguishes what the folded default merges', asy
 test('mute is global, the concordance filter stays orthogonal, solo restores exactly, and zero-hit is a visible ready state', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf, dire, absentterm');
-  const notebook = page.getByRole('region', { name: 'Query notebook' });
+  const terms = page.getByRole('group', { name: 'Query terms' });
 
   // Zero-hit: a valid query displaying the number 0 (ready, not missing).
-  await expect(notebook.getByText(/^0$/)).toBeVisible();
+  await expect(terms.getByRole('button', { name: 'absentterm 0', exact: true })).toBeVisible();
 
   // Accessible names + pressed state (deferred from commit C).
-  const showDire = notebook.getByRole('button', { name: 'Shown in analysis: dire' });
+  const showDire = terms.getByRole('button', { name: 'Shown in analysis: dire' });
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
-  const soloWolf = notebook.getByRole('button', { name: 'Solo: wolf' });
-  await expect(soloWolf).toHaveAttribute('aria-pressed', 'false');
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  let manager = page.getByRole('dialog', { name: 'Manage terms' });
+  let notebook = manager.getByRole('region', { name: 'Query notebook' });
+  await expect(notebook.getByRole('button', { name: 'Solo: wolf' }))
+    .toHaveAttribute('aria-pressed', 'false');
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Concordance chip OFF for dire — the chart focus chips are untouched.
   const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -185,18 +190,16 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
     page.locator('span[style*="border-bottom"]').filter({ hasText: new RegExp(`^${text}$`) });
   await expect(markSpan('dire').first()).toBeVisible();
 
-  // Mute dire GLOBALLY and observe the muted interval itself: the chart
-  // focus chip disappears and the fresh reissued burst carries exactly the
+  // Mute dire GLOBALLY and observe the muted interval itself: its term bucket
+  // becomes unavailable for focus and the fresh reissued burst carries exactly the
   // two remaining tracks (wolf + absentterm) — a mute that only flipped the
   // button would fail both.
-  // The CHART focus chip (title-scoped: the concordance chip can share the
-  // bare accessible name 'dire' once its checkmark is off).
-  const direChip = page.locator('button[title*=\'emphasize \u201cdire\u201d\']');
+  const direChip = showDire.locator('..').locator('.term-bucket-focus');
   await expect(direChip).toBeVisible();
   const muteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'false');
-  await expect(direChip).toBeHidden(); // gone from the chart, not just the toggle
+  await expect(direChip).toBeDisabled();
   const mutedBurst = await awaitFreshAnswered(page, muteMark);
   expect(mutedBurst.filter((q) => q.op === 'trend').length).toBe(2);
   // The RESIDENT passage was invalidated and refetched WITHOUT the muted
@@ -209,7 +212,7 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   const unmuteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
-  await expect(direChip).toBeVisible();
+  await expect(direChip).toBeEnabled();
   const unmutedBurst = await awaitFreshAnswered(page, unmuteMark);
   expect(unmutedBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await expect(markSpan('dire').first()).toBeVisible(); // the passage mark RETURNS
@@ -219,24 +222,34 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
 
   // Solo wolf (correlated): ONE fresh trend; the other chart chips vanish.
   const soloMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  manager = page.getByRole('dialog', { name: 'Manage terms' });
+  notebook = manager.getByRole('region', { name: 'Query notebook' });
+  let soloWolf = notebook.getByRole('button', { name: 'Solo: wolf' });
   await soloWolf.click();
   await expect(soloWolf).toHaveAttribute('aria-pressed', 'true');
   await expect(notebook.getByText('not run').first()).toBeVisible();
-  await expect(direChip).toBeHidden();
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
+  await expect(direChip).toBeDisabled();
   const soloBurst = await awaitFreshAnswered(page, soloMark);
   expect(soloBurst.filter((q) => q.op === 'trend').length).toBe(1);
   expect(soloBurst.some((q) => q.op === 'kwic')).toBe(true); // fresh KWIC required
   // Clearing solo restores the EXACT prior projection: three fresh trends,
   // the dire chip back, KWIC still wolf-only (dire's toggle stayed OFF).
   const restoreMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  manager = page.getByRole('dialog', { name: 'Manage terms' });
+  notebook = manager.getByRole('region', { name: 'Query notebook' });
+  soloWolf = notebook.getByRole('button', { name: 'Solo: wolf' });
   await soloWolf.click();
   await expect(soloWolf).toHaveAttribute('aria-pressed', 'false');
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
   const restoredBurst = await awaitFreshAnswered(page, restoreMark);
   expect(restoredBurst.filter((q) => q.op === 'trend').length).toBe(3);
   // The row assertions below must rest on FRESH concordance evidence, never
   // the pre-solo table (review-E round 2).
   expect(restoredBurst.some((q) => q.op === 'kwic')).toBe(true);
-  await expect(direChip).toBeVisible();
+  await expect(direChip).toBeEnabled();
   await gotoPlace(page, 'concordance');
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   const direKwicChip = page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ });
@@ -245,8 +258,9 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   // Keyboard: the quick-add field and notebook controls are reachable and
   // operable without a pointer (smoke — full traversal is not the contract).
   await gotoPlace(page, 'trends');
-  await page.getByLabel(/add terms to the notebook/i).focus();
+  const quickAdd = await openQuickAdd(page);
+  await quickAdd.focus();
   await page.keyboard.type('keyterm');
   await page.keyboard.press('Enter');
-  await expect(notebook.getByLabel('Group name: keyterm')).toBeVisible();
+  await expect(terms.getByRole('button', { name: /^keyterm \d+$/ })).toBeVisible();
 });

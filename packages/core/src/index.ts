@@ -47,6 +47,8 @@ export {
 export {
   RESEARCH_MAX_PINS,
   RESEARCH_MAX_SELECTIONS,
+  TREND_RATE_DENOMINATORS,
+  TREND_SMOOTHING_WINDOWS,
   parseCharAnchor,
   parseInventoryResearchView,
   parseKeynessResearchView,
@@ -61,7 +63,10 @@ export {
   type SavedPinTrackV1,
   type SavedPinV1,
   type SavedSelectionV1,
-  type TrendResearchViewV1,
+  type TrendMeasureV2,
+  type TrendRateDenominator,
+  type TrendResearchViewV2,
+  type TrendSmoothingWindow,
 } from './project/research-state.ts';
 export {
   SHARE_MAX_ANCHORS,
@@ -93,7 +98,18 @@ export {
   type ReadyDocument,
 } from './snapshot/compose.ts';
 export { resolveSelection, type ResolvedSelection } from './snapshot/selection.ts';
-export { trend, type NumericTrend, type TrendRequest } from './ops/trend.ts';
+export {
+  TREND_FIXED_TOKENS_MAX,
+  TREND_FIXED_TOKENS_MIN,
+  TREND_MAX_ROWS,
+  TREND_PER_DOC_MAX,
+  TREND_PER_DOC_MIN,
+  trend,
+  type NumericTrend,
+  type TrendBinMode,
+  type TrendBinsSpecV1,
+  type TrendRequest,
+} from './ops/trend.ts';
 export {
   bindShardsIncremental,
   bindTextsVerified,

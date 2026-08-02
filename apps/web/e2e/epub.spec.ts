@@ -9,7 +9,7 @@
 
 import { expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME, clearNotebook, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 
 /** A two-chapter EPUB 3: body matter carries the distinctive word "zephyrwood";
  *  the title page (front matter) is excluded from body-only extraction. */
@@ -70,7 +70,7 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
   // the container was unzipped and its XHTML extracted to analyzable text.
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await gotoPlace(page, 'concordance');
@@ -128,7 +128,7 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   // not a text-only candidate rescan).
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await gotoPlace(page, 'concordance');
@@ -184,7 +184,7 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
 
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
   await gotoPlace(page, 'concordance');

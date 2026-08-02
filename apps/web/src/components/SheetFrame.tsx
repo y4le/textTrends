@@ -110,7 +110,7 @@ export function SheetFrame({
               type="button"
               data-sheet-close
               aria-label={`Close ${title} sheet`}
-              onClick={onClose}
+              onClick={() => onClose()}
             >
               close
             </button>

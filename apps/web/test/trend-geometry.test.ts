@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  binSpan,
   bookTokenFromX,
   bookXFromTokenEdge,
   clampRangeHeadToOrigin,
@@ -24,6 +23,8 @@ const trendWithDenominators = (
   rates: readonly number[],
 ): NumericTrend => ({
   coordinate: 'declared-sequence',
+  bins: { mode: 'per-doc', count: Math.max(4, binTokens.length) },
+  rowOffsets: Uint32Array.from([0, binTokens.length]),
   order: ['doc'],
   docOrdinal: Uint32Array.from(binTokens.map(() => 0)),
   binIndex: Uint32Array.from(binTokens.map((_, i) => i)),
@@ -38,7 +39,7 @@ const trendWithDenominators = (
 describe('selected trend paths', () => {
   it('breaks at zero-denominator bins instead of drawing a fabricated zero', () => {
     const trend = trendWithDenominators([2, 0, 3, 4, 0, 5], [10, 999, 20, 30, 999, 40]);
-    expect(selectedTrendPathData(trend, 'doc', 6, (b) => b * 10, (rate) => 100 - rate)).toEqual([
+    expect(selectedTrendPathData(trend, 'doc', trend.ratePer10k, (b) => b * 10, (rate) => 100 - rate)).toEqual([
       'M0.0,90.0 l0.01,0',
       'M20.0,80.0 L30.0,70.0',
       'M50.0,60.0 l0.01,0',
@@ -46,7 +47,8 @@ describe('selected trend paths', () => {
   });
 
   it('returns no geometry for a document absent from the result', () => {
-    expect(selectedTrendPathData(trendWithDenominators([1], [5]), 'other', 1, (b) => b, (r) => r)).toEqual([]);
+    const trend = trendWithDenominators([1], [5]);
+    expect(selectedTrendPathData(trend, 'other', trend.ratePer10k, (b) => b, (r) => r)).toEqual([]);
   });
 });
 
@@ -109,24 +111,6 @@ const LAYOUT: SequenceLayout = {
   tokenCounts: [100, 0, 50],
   totalTokens: 150,
 };
-
-describe('binSpan', () => {
-  it('matches the kernel: ceil(tokens/bins) widths, last bin clamped', () => {
-    // 5 tokens over 2 bins → width 3: [0,3) and [3,5)
-    expect(binSpan(5, 2, 0)).toEqual({ start: 0, end: 3 });
-    expect(binSpan(5, 2, 1)).toEqual({ start: 3, end: 5 });
-  });
-
-  it('zero-token documents produce empty spans, never negative ones', () => {
-    expect(binSpan(0, 40, 0)).toEqual({ start: 0, end: 0 });
-    expect(binSpan(0, 40, 39)).toEqual({ start: 0, end: 0 });
-  });
-
-  it('bins past the token count clamp to the document end', () => {
-    // 3 tokens over 4 bins → width 1; bin 3 starts at the end.
-    expect(binSpan(3, 4, 3)).toEqual({ start: 3, end: 3 });
-  });
-});
 
 describe('clampToSpan', () => {
   it('applies boundary gaps on spans wide enough to contain them', () => {

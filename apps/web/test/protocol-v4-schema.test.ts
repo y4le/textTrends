@@ -281,7 +281,8 @@ describe('narrowQueryV4', () => {
   const passageReq = { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] };
 
   it('accepts trend/kwic/passage/structure with COMPLETE request fields', () => {
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } })).toBe(true);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'fixed-tokens', count: 250 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
     expect(narrowQueryV4({ op: 'passage', request: passageReq })).toBe(true);
     expect(narrowQueryV4({ op: 'structure', request: { doc: 'a' } })).toBe(true);
@@ -290,16 +291,16 @@ describe('narrowQueryV4', () => {
     // kwic accepts an optional axis center and multiple tracks.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }, { seriesId: 's2', group: wolfGroup }], request: { ...kwicReq, center: { doc: 'a', token: 3 } } })).toBe(true);
     // A valid selection with well-formed ranges.
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(true);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
   });
 
   it('rejects skeletal/malformed requests, ranges, and passage caps', () => {
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'x', binsPerDoc: 1 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'x', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
     // A skeletal kwic/passage request is NOT valid (required fields missing).
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: {} })).toBe(false);
     expect(narrowQueryV4({ op: 'passage', request: { doc: 'a' } })).toBe(false);
     // Malformed selection ranges.
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: 7 }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: 7 }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
     // Passage: over the 5-track cap and duplicate seriesIds.
     const sixTracks = Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup }));
     expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: sixTracks } })).toBe(false);
@@ -327,12 +328,12 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'bogus' })).toBe(false);
     // Exact match-mode enums (a bogus value must not silently mean sensitive).
     const badMatch = { ...wolfGroup, members: [{ id: 'm', kind: 'token', surface: 'w', match: { case: 'x', diacritics: 'folded' } }] };
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: badMatch, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: badMatch, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
   });
 
   it('enforces TERM_GROUP_LIMITS_V1 at the wire — same authority as the kernel validator', () => {
     const trend = (group: unknown) =>
-      narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } });
+      narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } });
     const member = (over: Record<string, unknown>) => ({
       id: 'm', kind: 'token', surface: 'w', match: { case: 'folded', diacritics: 'folded' }, ...over,
     });
@@ -373,7 +374,7 @@ describe('narrowQueryV4', () => {
       op: 'trend',
       selection: { docs },
       group: wolfGroup,
-      request: { coordinate: 'declared-sequence', binsPerDoc: 1 },
+      request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } },
     })).toBe(false);
 
     const ranges = [{ doc: 'a', tokens: { start: 0, end: 1 } }];
@@ -382,7 +383,7 @@ describe('narrowQueryV4', () => {
       op: 'trend',
       selection: { docs: ['a'], ranges },
       group: wolfGroup,
-      request: { coordinate: 'declared-sequence', binsPerDoc: 1 },
+      request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } },
     })).toBe(false);
 
     const tracks = [...kwicTracks];
@@ -616,7 +617,8 @@ describe('narrowQueryV4', () => {
   });
 
   it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
-    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', binsPerDoc: 1 } })).toBe(false);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
+    expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'bogus', count: 4 } } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'pos', dir: 0 }] } })).toBe(false);
   });
@@ -624,8 +626,8 @@ describe('narrowQueryV4', () => {
   it('rejects non-finite/negative/fractional/unsafe numeric quantities across every query op', () => {
     for (const n of BAD_QUANTITIES) {
       const why = String(n);
-      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: n } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: n, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', binsPerDoc: 1 } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: n } } }), why).toBe(false);
+      expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: n, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, contextTokens: n } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, page: { offset: n, limit: 10 } } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: n } } }), why).toBe(false);
@@ -643,5 +645,26 @@ describe('narrowQueryV4', () => {
         },
       }), why).toBe(false);
     }
+  });
+
+  it('enforces exact trend-bin shapes and mode-specific bounds', () => {
+    const trend = (bins: unknown) => narrowQueryV4({
+      op: 'trend',
+      selection: { docs: ['a'] },
+      group: wolfGroup,
+      request: { coordinate: 'document-relative', bins },
+    });
+
+    expect(narrowQueryV4({
+      op: 'trend',
+      selection: { docs: ['a'] },
+      group: wolfGroup,
+      request: { coordinate: 'document-relative', binsPerDoc: 40 },
+    })).toBe(false);
+    expect(trend({ mode: 'per-doc', count: 3 })).toBe(false);
+    expect(trend({ mode: 'per-doc', count: 201 })).toBe(false);
+    expect(trend({ mode: 'fixed-tokens', count: 249 })).toBe(false);
+    expect(trend({ mode: 'fixed-tokens', count: 50_001 })).toBe(false);
+    expect(trend({ mode: 'per-doc', count: 40, extra: true })).toBe(false);
   });
 });

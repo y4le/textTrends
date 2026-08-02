@@ -11,9 +11,8 @@ export interface PinCapacityVM {
 }
 
 /**
- * One capacity vocabulary for every Pin entry point. The route is declarative
- * until canonical place routing lands in W1; callers must not invent another
- * at-capacity destination.
+ * One capacity vocabulary for every Save excerpt entry point. Callers must
+ * not invent another refusal or at-capacity destination.
  */
 export function pinCapacity(
   used: number,
@@ -32,9 +31,9 @@ export function pinCapacity(
   return {
     used,
     cap,
-    label: `${used} of ${cap} pinned`,
+    label: `${used} of ${cap} saved excerpts`,
     enabled: !full,
-    reason: full ? `Pin limit reached — remove pinned evidence before retaining another passage.` : null,
+    reason: full ? `Saved excerpts are limited to ${cap} — remove one from Findings first.` : null,
     route: full ? 'findings' : null,
   };
 }

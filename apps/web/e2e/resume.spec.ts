@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, clearNotebook, gotoPlace, openQuickAdd, trace } from './helpers.ts';
 import { PLACE_HEADING, PLACES } from '../src/lib/places.ts';
 
 test('every route exposes one canonical place and no canonical peer', async ({ page }) => {
@@ -7,8 +7,9 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
   await awaitAllReady(page);
   for (const place of PLACES) {
     await gotoPlace(page, place);
-    await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(1);
-    await expect(page.locator('details.method-summary')).toHaveCount(1);
+    const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
+    await expect(page.getByRole('button', { name: methodLabel, exact: true })).toHaveCount(1);
+    await expect(page.locator('details.method-summary')).toHaveCount(0);
     for (const [candidate, heading] of Object.entries(PLACE_HEADING)) {
       const expected = candidate === place ? 1 : 0;
       await expect(page.getByRole('heading', { name: heading, exact: true })).toHaveCount(expected);
@@ -21,7 +22,7 @@ test('Vocabulary notebook refusals are visible at the action and cleared on depa
   await page.goto('./');
   await awaitAllReady(page);
   await clearNotebook(page);
-  const quickAdd = page.getByLabel(/add terms to the notebook/i);
+  const quickAdd = await openQuickAdd(page);
   await quickAdd.fill('alpha, beta, gamma, delta, epsilon');
   await quickAdd.press('Enter');
 

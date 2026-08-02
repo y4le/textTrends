@@ -7,7 +7,7 @@ import {
 describe('corpus dashboard view model', () => {
   it('selects rhythm bins by snapshot document ordinal and describes empty bins honestly', () => {
     const bins = rhythmBinsForDocument({
-      binsPerDoc: 2,
+      binsPerDoc: 4,
       docOrdinal: Uint32Array.from([0, 0, 1, 1]),
       binIndex: Uint32Array.from([0, 1, 0, 1]),
       binStartToken: Uint32Array.from([0, 10, 0, 8]),

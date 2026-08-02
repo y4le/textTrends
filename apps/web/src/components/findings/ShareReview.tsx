@@ -66,7 +66,7 @@ export function ShareReview({
             : <p role="note">Every referenced document matches this corpus.</p>}
           <p>{SHARE_REPLACE_SURVIVORS}</p>
           <p className="findings-record-note">
-            Source text and pinned excerpts are not carried by the link.
+            Source text and saved excerpts are not carried by the link.
           </p>
         </div>
       )}

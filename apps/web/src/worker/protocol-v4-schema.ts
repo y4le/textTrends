@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { COMPILE_ANCHOR_MAX_ITEMS, exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K } from '@texttrends/core';
+import { COMPILE_ANCHOR_MAX_ITEMS, exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -25,6 +25,15 @@ const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
 const FREQUENCY_SORT_KEYS = new Set(['count', 'docFreq', 'dp', 'dpNorm', 'key']);
 const KEYNESS_SORT_KEYS = new Set(['logRatio', 'g2', 'countA', 'countB']);
 const KEYNESS_SIDES = new Set(['a', 'b', 'both']);
+
+function narrowTrendBins(value: unknown): boolean {
+  if (!exactRecord(value, ['mode', 'count']) || !isCount(value.count)) return false;
+  return value.mode === 'per-doc'
+    ? value.count >= TREND_PER_DOC_MIN && value.count <= TREND_PER_DOC_MAX
+    : value.mode === 'fixed-tokens'
+      && value.count >= TREND_FIXED_TOKENS_MIN
+      && value.count <= TREND_FIXED_TOKENS_MAX;
+}
 
 /** The extraction recipe value carried in a doc spec — structural shape only;
  *  the worker's async core validator (validateExtractionRecipe, which also
@@ -182,9 +191,9 @@ export function narrowQueryV4(q: unknown): boolean {
   if (!isRecord(q) || !isStr(q.op)) return false;
   switch (q.op) {
     case 'trend':
-      return narrowSelection(q.selection) && narrowGroup(q.group) && isRecord(q.request) &&
-        COORDINATES.has((q.request as Record<string, unknown>).coordinate as string) &&
-        isCount((q.request as Record<string, unknown>).binsPerDoc);
+      return narrowSelection(q.selection) && narrowGroup(q.group) &&
+        exactRecord(q.request, ['coordinate', 'bins']) &&
+        COORDINATES.has(q.request.coordinate as string) && narrowTrendBins(q.request.bins);
     case 'kwic':
       // kwic/2 is a BREAKING replacement: `group` was removed. Reject a payload
       // that carries the legacy field so a partially-migrated caller cannot hide

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { InventoryResultV1, NumericTrend } from '@texttrends/core';
 import type { InventoryState, SeriesTrendState } from '../src/lib/store.ts';
-import { fullTokensByDoc } from '../src/lib/doc-tokens.ts';
+import { fullTokenCountsForDocs, fullTokensByDoc } from '../src/lib/doc-tokens.ts';
 
 const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => ({
   method: 'inventory/1',
@@ -48,6 +48,8 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
 
 const trend = (order: readonly string[], counts: readonly number[]): NumericTrend => ({
   coordinate: 'declared-sequence',
+  bins: { mode: 'per-doc', count: 4 },
+  rowOffsets: new Uint32Array(order.length + 1),
   docOrdinal: new Uint32Array(),
   binIndex: new Uint32Array(),
   binStartToken: new Uint32Array(),
@@ -95,6 +97,23 @@ describe('fullTokensByDoc', () => {
     })).toBe(240);
   });
 
+  it('uses snapshot-bound retained extents when range inventory omits a failed trend doc', () => {
+    const inventory: InventoryState = {
+      snapshot: 'snapshot-1',
+      selection: {
+        snapshot: 'snapshot-1',
+        doc: 'a',
+        tokens: { start: 10, end: 20 },
+      },
+      state: { status: 'ready', result: inventoryResult('a', 120) },
+    };
+    expect(fullTokenCountsForDocs(['a', 'b'], {
+      corpusTokenCounts: new Map([['a', 120], ['b', 240]]),
+      inventory,
+      trends: new Map([['failed', { status: 'error', message: 'too many rows' }]]),
+    })).toEqual([120, 240]);
+  });
+
   it('prefers a selected document’s range-scoped inventory full extent', () => {
     const inventory: InventoryState = {
       snapshot: 'snapshot-1',
@@ -121,6 +140,23 @@ describe('fullTokensByDoc', () => {
         ['pending', { status: 'pending' }],
         ['ready', readyTrend(trend(['a'], [120]))],
       ]),
+    })).toBeNull();
+  });
+
+  it('resolves aggregate corpus geometry from inventory after every trend lane fails', () => {
+    const result = inventoryResult('a', 2_000_000);
+    const inventory: InventoryState = {
+      snapshot: 'snapshot-1',
+      selection: null,
+      state: { status: 'ready', result },
+    };
+    expect(fullTokenCountsForDocs(['a'], {
+      inventory,
+      trends: new Map([['failed', { status: 'error', message: 'too many rows' }]]),
+    })).toEqual([2_000_000]);
+    expect(fullTokenCountsForDocs(['a', 'missing'], {
+      inventory,
+      trends: new Map(),
     })).toBeNull();
   });
 });

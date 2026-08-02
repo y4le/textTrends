@@ -81,7 +81,8 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
   await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Query notebook' }).getByText(/^6$/)).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })
+    .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();
 
   // Activate the exact barcode tick at wolf@430. It centres fresh KWIC
   // evidence and also demonstrates the exact reader open path; close it so
@@ -117,7 +118,8 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await expect(page.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   await expect(page.getByText('wolf: 6 occurrences · 4 selected', { exact: true })).toBeVisible();
   await expect(
-    page.getByRole('region', { name: 'Query notebook' }).getByText('4 selected / 6 corpus'),
+    page.getByRole('group', { name: 'Query terms' })
+      .getByRole('button', { name: 'wolf 4 selected / 6', exact: true }),
   ).toBeVisible();
   await gotoPlace(page, 'concordance');
   const rows = page.getByRole('table', { name: 'Concordance' }).locator('tbody tr');
@@ -135,10 +137,10 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await scrubber.focus();
   await scrubber.press('p');
   await gotoPlace(page, 'findings');
-  const pinnedEvidence = page.getByRole('region', { name: 'Pinned evidence' });
+  const pinnedEvidence = page.getByRole('region', { name: 'Saved excerpts' });
   await pinnedEvidence.locator('.findings-record-trigger').click();
   const pinOpen = pinnedEvidence.getByRole('button', {
-    name: /Open pinned evidence at token 421 in reader/,
+    name: /Open saved excerpt at token 421 in reader/,
   });
   await expect(pinOpen).toBeVisible();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;

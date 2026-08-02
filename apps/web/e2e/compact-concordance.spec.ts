@@ -96,7 +96,7 @@ test('compact Concordance keeps alignment optional and evidence operable', async
 
   await resultActions.getByRole('button', { name: 'next', exact: true }).click();
   await expect(page.getByRole('complementary', { name: 'Evidence' })
-    .getByRole('button', { name: 'Open passage in reader' })).toBeVisible({
+    .getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
     timeout: 30_000,
   });
   await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);

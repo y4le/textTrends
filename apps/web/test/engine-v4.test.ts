@@ -1061,10 +1061,10 @@ describe('protocol narrowing and dispatch (v4)', () => {
     const snap = h.last('snapshot-published').snapshot;
     // Wire-level malformation: the whole message fails narrowing → PARSE_FAILED.
     for (const bad of [
-      { op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      { op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } },
       { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: null },
-      { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [null], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
-      { op: 'trend', selection: { docs: ['a'] }, group: { ...wolfGroup, countOverlaps: 'false' }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [null], countOverlaps: false }, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } },
+      { op: 'trend', selection: { docs: ['a'] }, group: { ...wolfGroup, countOverlaps: 'false' }, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } },
       { op: 'bogus' },
       null,
     ]) {
@@ -1080,22 +1080,22 @@ describe('protocol narrowing and dispatch (v4)', () => {
     ]) {
       await h.send({
         t: 'query', job: 20, snapshot: snap,
-        query: { op: 'trend', selection: { docs: ['a'] }, group: badGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+        query: { op: 'trend', selection: { docs: ['a'] }, group: badGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } },
       });
       expect(h.last('error').code, JSON.stringify(badGroup)).toBe('PARSE_FAILED');
     }
-    // Narrowing-valid but KERNEL-invalid: mapped deterministically BY TYPE. A
-    // duplicate member id 'cap' (the one semantic check the narrower leaves to
-    // the kernel) must be REQUEST_INVALID, never CAP_EXCEEDED (message-text
-    // independence).
+    // A bin count outside the closed wire range is malformed before dispatch.
     await h.send({
       t: 'query', job: 21, snapshot: snap,
-      query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 0 } },
+      query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 3 } } },
     });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+    // Narrowing-valid but KERNEL-invalid: mapped deterministically BY TYPE. A
+    // duplicate member id 'cap' (the one semantic check the narrower leaves to
+    // the kernel) must be REQUEST_INVALID, never CAP_EXCEEDED.
     await h.send({
       t: 'query', job: 22, snapshot: snap,
-      query: { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [{ id: 'cap', kind: 'token', surface: 'x', match: FOLD }, { id: 'cap', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false }, request: { coordinate: 'document-relative', binsPerDoc: 1 } },
+      query: { op: 'trend', selection: { docs: ['a'] }, group: { id: 'g', members: [{ id: 'cap', kind: 'token', surface: 'x', match: FOLD }, { id: 'cap', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false }, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } },
     });
     expect(h.last('error').code).toBe('REQUEST_INVALID');
   });
@@ -1216,22 +1216,22 @@ describe('query dispatch and emission (engine-retained after the executor extrac
     await coldIngest(h, 'g', 'a', 'wolf one', 10);
     const first = h.last('snapshot-published').snapshot;
     await coldIngest(h, 'g', 'b', 'wolf two', 11); // supersedes the snapshot
-    await h.send({ t: 'query', job: 30, snapshot: first, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 30, snapshot: first, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
     const snap = h.last('snapshot-published').snapshot;
-    await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.last('error').code).toBe('SELECTION_INVALID');
   });
   it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {
     const { h, snap } = await ready();
-    await h.send({ t: 'query', job: 50, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    await h.send({ t: 'query', job: 50, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const idx = h.messages.findIndex((m: { t: string }) => m.t === 'result');
     const transfers = h.transferLists[idx];
     expect(transfers).toBeDefined();
     const result = h.messages[idx]!;
     if (result.t === 'result' && result.data.op === 'trend') {
       const t = result.data.trend;
-      const views = [t.docOrdinal, t.binIndex, t.binStartToken, t.binTokens, t.count, t.ratePer10k];
+      const views = [t.rowOffsets, t.docOrdinal, t.binIndex, t.binStartToken, t.binTokens, t.count, t.ratePer10k];
       expect(new Set(transfers as ArrayBuffer[])).toEqual(new Set(views.map((v) => v.buffer)));
       // No canonical shard buffer is ever transferred (collected recursively).
       const shardBuffers = new Set<ArrayBuffer>();
@@ -1244,7 +1244,7 @@ describe('query dispatch and emission (engine-retained after the executor extrac
       for (const buf of transfers as ArrayBuffer[]) expect(shardBuffers.has(buf)).toBe(false);
     }
     // A second identical query still answers — the canonical index was not detached.
-    await h.send({ t: 'query', job: 51, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    await h.send({ t: 'query', job: 51, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const results = h.all('result');
     expect(results.length).toBe(2);
   });
@@ -1305,7 +1305,7 @@ describe('composition and query races (v4)', () => {
     h.onYield(async () => {
       if (!replaced) { replaced = true; await h.send({ t: 'begin-generation', job: 4, generation: 'g2', docs: [], indexRecipe: DEFAULT_INDEX_RECIPE }); }
     });
-    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.all('result').length).toBe(0);
     expect(h.all('error').some((e) => e.code === 'SNAPSHOT_UNKNOWN')).toBe(true);
   });
@@ -1318,7 +1318,7 @@ describe('composition and query races (v4)', () => {
     const snap = h.last('snapshot-published').snapshot;
     let yields = 0;
     h.onYield(async () => { yields++; if (yields === 4) await h.send({ t: 'cancel', job: 3 }); });
-    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 3, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(yields).toBeGreaterThanOrEqual(4);
     expect(h.all('result').length).toBe(0);
     expect(h.all('cancelled').some((m) => m.job === 3)).toBe(true);

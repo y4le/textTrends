@@ -128,8 +128,8 @@ export function RecordRows({
 
       <section className="findings-group" aria-labelledby="findings-pins-heading">
         <header className="findings-group-heading">
-          <h3 id="findings-pins-heading" tabIndex={-1}>Pinned evidence</h3>
-          <span>{pins.length} of {MAX_PINNED_SNIPPETS} pinned</span>
+          <h3 id="findings-pins-heading" tabIndex={-1}>Saved excerpts</h3>
+          <span>{pins.length} saved · limit {MAX_PINNED_SNIPPETS}</span>
         </header>
         <p
           className="findings-announcement"
@@ -141,11 +141,11 @@ export function RecordRows({
         {pins.length === 0
           ? (
               <p className="findings-empty">
-                No pinned evidence. Pin a current passage from Evidence or Reader.
+                No saved excerpts. Save a current passage from Evidence or Reader.
               </p>
             )
           : (
-              <ul className="findings-record-list" aria-label="Pinned evidence">
+              <ul className="findings-record-list" aria-label="Saved excerpts">
                 {pins.map((entry) => {
                   const { pin, durable, title, legend } = entry;
                   const open = expanded(target, 'pin', pin.id);

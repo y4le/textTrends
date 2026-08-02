@@ -235,7 +235,8 @@ test('pointer and keyboard selections share detail evidence and stale results ca
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
   await expect(page.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Query notebook' }).getByText('1 selected / 3 corpus')).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })
+    .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
   await gotoPlace(page, 'trends');

@@ -55,6 +55,7 @@ export function FindingsLog() {
   const pins = useApp((state) => state.pins);
   const focusedPinId = useApp((state) => state.focusedPinId);
   const pinAnnouncement = useApp((state) => state.pinAnnouncement);
+  const pinFeedbackOrigin = useApp((state) => state.pinFeedbackOrigin);
   const durablePins = useApp((state) => state.durablePins);
   const restoreIssues = useApp((state) => state.pinRestoreIssues);
   const notebook = useApp((state) => state.notebook);
@@ -361,7 +362,7 @@ export function FindingsLog() {
         pins={pinRows}
         issues={restoreIssues}
         target={rowTarget}
-        pinAnnouncement={pinAnnouncement}
+        pinAnnouncement={pinFeedbackOrigin === null ? pinAnnouncement : null}
         rangeAuthoring={rangeAuthoring}
         onOpen={openRow}
         onRangePreview={(id) => {

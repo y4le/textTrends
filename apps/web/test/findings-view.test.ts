@@ -127,6 +127,6 @@ describe('Findings view contracts', () => {
     expect(reviewShareDraft('#s=not-valid', [])).toMatchObject({
       status: 'invalid',
     });
-    expect(SHARE_REPLACE_SURVIVORS).toContain('keeps your pinned evidence');
+    expect(SHARE_REPLACE_SURVIVORS).toContain('keeps your saved excerpts');
   });
 });

@@ -184,7 +184,7 @@ describe('user-data lane', () => {
     await begin(h, [spec], 'g2');
     await coldIngest(h, 'g2', 'a', 'the wolf ran far', 10);
     const snap = h.last('snapshot-published').snapshot;
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 4 } } });
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const result = h.last('result');
     expect(result.data.op).toBe('trend');
   });

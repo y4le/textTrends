@@ -39,32 +39,24 @@ for (const viewport of viewports) {
     expect(mediaWidth.wide).toBe(expectedWidth === 'wide');
 
     const quickAdd = page.getByRole('textbox', { name: 'Add terms to the notebook, comma-separated' });
-    if (viewport.width < 600) {
-      const openQuickAdd = page.getByRole('button', { name: 'Add terms to the notebook, comma-separated' });
-      await expect(openQuickAdd).toBeVisible();
-      await openQuickAdd.click();
-    }
+    const openQuickAdd = page.getByRole('button', { name: 'Add terms to the notebook, comma-separated' });
+    await expect(openQuickAdd).toBeVisible();
+    await openQuickAdd.click();
     await expect(quickAdd).toBeVisible();
-    if (viewport.width < 600) {
-      const size = await quickAdd.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
-      expect(size).toBeGreaterThanOrEqual(16);
-      await page.getByRole('button', { name: 'Cancel' }).click();
-    }
-    await expect(page.getByRole('complementary', { name: 'Queries' })).toHaveCount(1);
-    await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(1);
-    if (viewport.width >= 1024) {
-      await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(1);
-    } else {
-      await expect(page.getByRole('button', { name: 'Method', exact: true })).toHaveCount(1);
-      await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(0);
-    }
+    const size = await quickAdd.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
+    expect(size).toBeGreaterThanOrEqual(16);
+    await page.getByRole('button', { name: 'Cancel' }).click();
+    await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(1);
+    await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(0);
   });
 }
 
 test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
   for (const viewport of [
-    { width: 768, height: 1024, areas: '"queries place" "evidence evidence"' },
-    { width: 1440, height: 900, areas: '"queries place evidence"' },
+    { width: 768, height: 1024, areas: '"queries" "place" "evidence"' },
+    { width: 1440, height: 900, areas: '"queries" "place" "evidence"' },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('./');
@@ -77,21 +69,16 @@ test('workbench regions use the governed layout at regular and wide widths', asy
       const place = getComputedStyle(
         node.querySelector<HTMLElement>('.place-region')!,
       );
-      const evidence = getComputedStyle(
-        node.querySelector<HTMLElement>('.evidence-region')!,
-      );
       return {
         areas: grid.gridTemplateAreas,
         query: query.gridArea,
         place: place.gridArea,
-        evidence: evidence.gridArea,
       };
     });
     expect(layout).toEqual({
       areas: viewport.areas,
       query: 'queries',
       place: 'place',
-      evidence: 'evidence',
     });
   }
 });
@@ -100,7 +87,11 @@ test('a compact exact-term editor stays inside the page', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
-  await page.getByRole('button', { name: 'Edit members: Holmes' }).click();
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit members: Holmes' })
+    .click();
 
   const member = page.getByRole('textbox', { name: /Add member to Holmes/ });
   await expect(member).toBeVisible();
@@ -115,12 +106,15 @@ test('a compact exact-term editor stays inside the page', async ({ page }) => {
   expect(geometry.bodyScrollWidth).toBeLessThanOrEqual(geometry.clientWidth);
 });
 
-test('compact query editing is one Back-governed layer', async ({ page }) => {
+test('compact query editing returns through its Back-governed manager', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
 
-  const edit = page.getByRole('button', { name: 'Edit members: Holmes' });
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  const edit = page
+    .getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit members: Holmes' });
   await edit.click();
   const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
   await expect(dialog).toBeVisible();
@@ -129,20 +123,23 @@ test('compact query editing is one Back-governed layer', async ({ page }) => {
   expect(await dialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
   await page.goBack();
   await expect(dialog).toHaveCount(0);
-  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(page.getByRole('dialog', { name: 'Manage terms' })).toBeVisible();
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   await expect(edit).toBeFocused();
+  await page.goBack();
+  await expect(page.getByRole('dialog', { name: 'Manage terms' })).toHaveCount(0);
+  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
 });
 
-test('compact Terms key belongs only to places with query-encoded marks', async ({ page }) => {
+test('the Terms bar remains a first-class editor across places', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
 
   await gotoPlace(page, 'vocabulary');
-  await expect(page.getByRole('group', { name: 'Query terms' })).toHaveCount(0);
-  const queries = page.getByRole('complementary', { name: 'Queries' });
-  await expect(queries).toContainText('edit in Trends');
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+  const queries = page.getByRole('complementary', { name: 'Terms' });
   await queries.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }).click();
   await expect(page.getByRole('dialog', { name: 'Quick add query terms' })).toBeVisible();
   await expect(
@@ -175,7 +172,7 @@ test('shell Evidence owns the one live passage action set', async ({ page }) => 
   const evidence = page.getByRole('complementary', { name: 'Evidence' });
   await expect(evidence).not.toContainText('No passage selected');
   await expect(evidence).toContainText('evidence · token 1');
-  await expect(page.getByRole('button', { name: /Pin passage at token/ })).toHaveCount(1);
+  await expect(page.getByRole('button', { name: /Save excerpt at token/ })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(1);
   await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
   const reader = page.getByRole('dialog', { name: /Reader: evidence/ });
@@ -184,15 +181,35 @@ test('shell Evidence owns the one live passage action set', async ({ page }) => 
   await expect(evidence.getByRole('button', { name: 'Open passage in reader' })).toBeFocused();
 });
 
+test('compact Evidence keeps Save immediate and moves Read into Inspect', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+
+  const strip = page.getByRole('complementary', { name: 'Evidence' });
+  await expect(strip.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
+  await expect(strip.getByRole('button', { name: 'Inspect', exact: true })).toBeVisible();
+  await expect(strip.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(0);
+  await expect(strip.getByRole('button', { name: 'Method', exact: true })).toHaveCount(0);
+
+  await strip.getByRole('button', { name: 'Inspect', exact: true }).click();
+  const sheet = page.getByRole('dialog', { name: 'Evidence sheet' });
+  await expect(sheet.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
+  await expect(sheet.getByRole('button', { name: 'Open passage in reader' })).toBeVisible();
+});
+
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
 
   for (const control of [
-    page.locator('.query-focus-chip').first(),
-    page.locator('.compact-query-edit').first(),
-    page.locator('.compact-query-add'),
+    page.locator('.term-bucket-focus').first(),
+    page.locator('.term-bucket-toggle').first(),
+    page.locator('.term-bar-actions button').first(),
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
@@ -209,7 +226,7 @@ test('responsive query composition never reissues analysis', async ({ page }) =>
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
   await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(page.getByRole('region', { name: 'Query notebook' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
 
   const freshQueries = (await trace(page)).events.filter(
     (event) =>
@@ -220,7 +237,7 @@ test('responsive query composition never reissues analysis', async ({ page }) =>
   expect(freshQueries).toEqual([]);
 });
 
-test('an open compact quick-add editor transforms into the one wide input', async ({ page }) => {
+test('an open quick-add editor keeps one modal draft across width classes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
@@ -234,8 +251,8 @@ test('an open compact quick-add editor transforms into the one wide input', asyn
   await compactInput.fill('watson');
   await page.setViewportSize({ width: 844, height: 390 });
 
-  await expect(compactDialog).toHaveCount(0);
-  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(compactDialog).toBeVisible();
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   const wideInput = page.getByRole('textbox', {
     name: 'Add terms to the notebook, comma-separated',
   });
@@ -248,7 +265,7 @@ test('an open compact quick-add editor transforms into the one wide input', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(compactDialog).toBeVisible();
   await expect(compactInput).toHaveValue('watson');
-  await expect(compactInput).toBeFocused();
+  expect(await compactDialog.evaluate((node) => node.contains(document.activeElement))).toBe(true);
   expect((await trace(page)).events.filter(
     (event) =>
       event.seq > mark
@@ -258,22 +275,25 @@ test('an open compact quick-add editor transforms into the one wide input', asyn
   await page.goBack();
 });
 
-test('an open compact group editor keeps its draft and focus across width classes', async ({ page }) => {
+test('an open group editor keeps its modal draft and focus across width classes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
-  await page.getByRole('button', { name: 'Edit members: Holmes' }).click();
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page
+    .getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit members: Holmes' })
+    .click();
   const compactDialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
   const addMember = page.getByRole('textbox', { name: /Add member to Holmes/ });
   await addMember.fill('watson');
   await page.setViewportSize({ width: 844, height: 390 });
 
-  await expect(compactDialog).toHaveCount(0);
-  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
+  await expect(compactDialog).toBeVisible();
+  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   const inlineEditor = page.getByRole('group', { name: 'Edit members: Holmes' });
-  await expect(inlineEditor).toBeVisible();
   await expect(addMember).toHaveValue('watson');
   expect(await inlineEditor.evaluate((node) => node.contains(document.activeElement))).toBe(true);
 

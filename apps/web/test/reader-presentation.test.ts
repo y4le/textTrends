@@ -9,7 +9,7 @@ import type { WidthClass } from '../src/lib/presentation.ts';
 
 describe('reader presentation authority', () => {
   it('is a total mode parser with a reading-first default', () => {
-    expect(readerMode('peek')).toBe('peek');
+    expect(readerMode('peek')).toBe(DEFAULT_READER_MODE);
     expect(readerMode('study')).toBe('study');
     expect(readerMode('full')).toBe('full');
     for (const hostile of [undefined, null, '', 'wide', 1, {}, []]) {
@@ -19,11 +19,11 @@ describe('reader presentation authority', () => {
 
   it('restores every governed region when Reader is closed', () => {
     for (const width of ['compact', 'regular', 'wide'] as const) {
-      const view = readerComposition(width, false, 'peek');
+      const view = readerComposition(width, false, 'study');
       expect(view).toMatchObject({
         open: false,
-        requested: 'peek',
-        mode: 'peek',
+        requested: 'study',
+        mode: 'study',
         slot: null,
         showScope: true,
         showLens: true,
@@ -38,20 +38,17 @@ describe('reader presentation authority', () => {
   });
 
   it.each([
-    ['compact', 'peek', 'full', 'viewport', false, false, false, false, false, false, false, true],
     ['compact', 'study', 'full', 'viewport', false, false, false, false, false, false, false, true],
     ['compact', 'full', 'full', 'viewport', false, false, false, false, false, false, false, true],
-    ['regular', 'peek', 'study', 'place', true, true, true, false, true, true, true, false],
     ['regular', 'study', 'study', 'place', true, true, true, false, true, true, true, false],
-    ['regular', 'full', 'full', 'workbench', true, true, true, false, false, true, true, false],
-    ['wide', 'peek', 'peek', 'evidence', true, true, true, true, false, true, true, false],
+    ['regular', 'full', 'full', 'workbench', true, true, false, false, false, true, true, false],
     ['wide', 'study', 'study', 'place', true, true, true, false, true, true, true, false],
-    ['wide', 'full', 'full', 'workbench', true, true, true, false, false, true, true, false],
+    ['wide', 'full', 'full', 'workbench', true, true, false, false, false, true, true, false],
   ] satisfies readonly [
     WidthClass,
     ReaderMode,
     ReaderMode,
-    'evidence' | 'place' | 'workbench' | 'viewport',
+    'place' | 'workbench' | 'viewport',
     boolean,
     boolean,
     boolean,

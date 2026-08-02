@@ -4,9 +4,9 @@
  * Semantics (fixing plan §d.7's open edges):
  * - Bins RESTART per document in every coordinate. `document-relative` and
  *   `declared-sequence` both partition each selected document into
- *   `binsPerDoc` equal-token bins; `declared-sequence` differs only in the
- *   echoed sequence bases (the x-coordinate offset). `document-token` (fixed
- *   width) is deferred.
+ *   equal-token bins; `declared-sequence` differs only in the echoed sequence
+ *   bases (the x-coordinate offset). The bin partition is an orthogonal
+ *   request: either a fixed number of bins per document or a fixed token span.
  * - An occurrence is assigned to a bin by its START token (plan decision).
  * - When the selection has token ranges, `binTokens` counts only SELECTED
  *   tokens within the bin's span — the denominator never claims unselected
@@ -22,13 +22,33 @@ import type { ResolvedSelection } from '../snapshot/selection.ts';
 
 export type TrendCoordinate = 'document-relative' | 'declared-sequence';
 
+export type TrendBinMode = 'per-doc' | 'fixed-tokens';
+
+export interface TrendBinsSpecV1 {
+  readonly mode: TrendBinMode;
+  /** Bins per document under `per-doc`; tokens per bin under `fixed-tokens`. */
+  readonly count: number;
+}
+
+export const TREND_PER_DOC_MIN = 4;
+export const TREND_PER_DOC_MAX = 200;
+export const TREND_FIXED_TOKENS_MIN = 250;
+export const TREND_FIXED_TOKENS_MAX = 50_000;
+/** Bound SVG point count, not merely typed-array memory. */
+export const TREND_MAX_ROWS = 4_000;
+
 export interface TrendRequest {
   readonly coordinate: TrendCoordinate;
-  readonly binsPerDoc: number;
+  readonly bins: TrendBinsSpecV1;
 }
 
 export interface NumericTrend {
   readonly coordinate: TrendCoordinate;
+  /** Verbatim, owned echo of the partition that produced this result. */
+  readonly bins: TrendBinsSpecV1;
+  /** Length `order.length + 1`; rows for document d are the half-open span
+   *  `[rowOffsets[d], rowOffsets[d + 1])`. */
+  readonly rowOffsets: Uint32Array;
   /** Parallel arrays: one entry per (selected doc, bin). */
   readonly docOrdinal: Uint32Array;
   readonly binIndex: Uint32Array;
@@ -61,12 +81,18 @@ export function trend(
   if (occ.selection !== selection.hash) {
     throw new RangeError('occurrences were computed under a different selection');
   }
-  const bins = request.binsPerDoc;
-  if (!Number.isInteger(bins) || bins <= 0) {
-    throw new RangeError('binsPerDoc must be a positive integer');
-  }
   if (request.coordinate !== 'document-relative' && request.coordinate !== 'declared-sequence') {
     throw new RangeError(`unknown trend coordinate '${String(request.coordinate)}'`);
+  }
+  const bins = request.bins;
+  if (bins.mode !== 'per-doc' && bins.mode !== 'fixed-tokens') {
+    throw new RangeError(`unknown trend bin mode '${String(bins.mode)}'`);
+  }
+  const min = bins.mode === 'per-doc' ? TREND_PER_DOC_MIN : TREND_FIXED_TOKENS_MIN;
+  const max = bins.mode === 'per-doc' ? TREND_PER_DOC_MAX : TREND_FIXED_TOKENS_MAX;
+  if (!Number.isInteger(bins.count) || bins.count < min || bins.count > max) {
+    const unit = bins.mode === 'per-doc' ? 'bins per document' : 'tokens per bin';
+    throw new RangeError(`${unit} must be an integer from ${min} to ${max}`);
   }
 
   const selectedTokensIn = (doc: ProjectDocId, from: number, to: number, tokenCount: number): number => {
@@ -85,11 +111,27 @@ export function trend(
   const binTokens: number[] = [];
   const count: number[] = [];
   const order: string[] = [];
+  const rowOffsets: number[] = [0];
   const sequenceBases: number[] = [];
   const docTokenCount: number[] = [];
 
+  let requestedRows = 0;
+  for (const ref of snapshot.docs) {
+    if (!selection.docSet.has(ref.doc) || ref.tokenCount === 0) continue;
+    requestedRows += bins.mode === 'per-doc'
+      ? bins.count
+      : Math.ceil(ref.tokenCount / bins.count);
+  }
+  if (requestedRows > TREND_MAX_ROWS) {
+    throw new RangeError(
+      `trend request would produce ${requestedRows} rows; the limit is ${TREND_MAX_ROWS}`,
+    );
+  }
+
   // Row layout per selected document, then per bin — declared order.
   const rowBase = new Map<number, number>(); // snapshot doc ordinal -> first row
+  const rowsByOrdinal = new Map<number, number>();
+  const widthByOrdinal = new Map<number, number>();
   for (let ord = 0; ord < snapshot.docs.length; ord++) {
     const ref = snapshot.docs[ord]!;
     if (!selection.docSet.has(ref.doc)) continue;
@@ -98,8 +140,19 @@ export function trend(
     docTokenCount.push(ref.tokenCount);
     rowBase.set(ord, docOrdinal.length);
     const tokens = ref.tokenCount;
-    const width = tokens === 0 ? 0 : Math.ceil(tokens / bins);
-    for (let b = 0; b < bins; b++) {
+    const rows = tokens === 0
+      ? 0
+      : bins.mode === 'per-doc'
+        ? bins.count
+        : Math.ceil(tokens / bins.count);
+    const width = tokens === 0
+      ? 0
+      : bins.mode === 'per-doc'
+        ? Math.ceil(tokens / bins.count)
+        : bins.count;
+    rowsByOrdinal.set(ord, rows);
+    widthByOrdinal.set(ord, width);
+    for (let b = 0; b < rows; b++) {
       const from = b * width;
       const to = Math.min(tokens, (b + 1) * width);
       docOrdinal.push(ord);
@@ -108,6 +161,7 @@ export function trend(
       binTokens.push(width === 0 ? 0 : selectedTokensIn(ref.doc, from, to, tokens));
       count.push(0);
     }
+    rowOffsets.push(docOrdinal.length);
   }
 
   // Assign occurrences by start token.
@@ -115,11 +169,10 @@ export function trend(
     const ord = occ.docOrdinal[i] as number;
     const base = rowBase.get(ord);
     if (base === undefined) continue; // occurrence outside the selection's docs
-    const ref = snapshot.docs[ord]!;
-    const tokens = ref.tokenCount;
-    const width = tokens === 0 ? 0 : Math.ceil(tokens / bins);
-    if (width === 0) continue;
-    const b = Math.min(bins - 1, Math.floor((occ.pos[i] as number) / width));
+    const rows = rowsByOrdinal.get(ord) ?? 0;
+    const width = widthByOrdinal.get(ord) ?? 0;
+    if (width === 0 || rows === 0) continue;
+    const b = Math.min(rows - 1, Math.floor((occ.pos[i] as number) / width));
     const row = base + b;
     count[row] = (count[row] as number) + 1;
   }
@@ -131,6 +184,8 @@ export function trend(
 
   return {
     coordinate: request.coordinate,
+    bins: Object.freeze({ mode: bins.mode, count: bins.count }),
+    rowOffsets: Uint32Array.from(rowOffsets),
     docOrdinal: Uint32Array.from(docOrdinal),
     binIndex: Uint32Array.from(binIndex),
     binStartToken: Uint32Array.from(binStartToken),

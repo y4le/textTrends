@@ -50,4 +50,27 @@ describe('share-link/1 admission', () => {
     expect(() => parseShareLink({ ...share(), a: [1] })).toThrow(/indices/);
     expect(() => parseShareLink({ ...share(), sourceText: 'secret' })).toThrow(/exact/);
   });
+
+  it('migrates legacy trend-view settings in old source-free links', () => {
+    expect(parseShareLink({
+      ...share(),
+      v: {
+        t: {
+          schema: 'texttrends/trend-view/1',
+          mode: 'by-book',
+          sectionMarks: true,
+          focusedDoc: null,
+        },
+      },
+    }).v.t).toEqual({
+      schema: 'texttrends/trend-view/2',
+      mode: 'by-book',
+      sectionMarks: true,
+      focusedDoc: null,
+      bins: { mode: 'per-doc', count: 40 },
+      measure: {
+        kind: 'rate', denominator: 10_000, smoothing: 0, showRaw: false,
+      },
+    });
+  });
 });

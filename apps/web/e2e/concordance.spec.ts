@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace, clearNotebook, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, trace, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 
 // wolf@1,@7 · fox@4,@10 (12 tokens). Nearest to the last token (11): fox@10,
 // wolf@7, fox@4, wolf@1.
@@ -57,7 +57,7 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await gotoPlace(page, 'trends');
   const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await clearNotebook(page);
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill('wolf, fox');
   await input.press('Enter');
   await awaitFreshKwic(page, mark0);

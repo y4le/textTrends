@@ -1,31 +1,19 @@
-import {
-  useCallback,
-  useEffect,
-  useState,
-} from 'react';
-import {
-  GroupEditor,
-  type GroupEditorDraft,
-} from './GroupEditor.tsx';
+import { useCallback, useState } from 'react';
+import { MAX_KWIC_TRACKS, NOTEBOOK_LIMITS_V1 } from '@texttrends/core';
 import { FormLayer } from './FormLayer.tsx';
+import { GroupEditor, type GroupEditorDraft } from './GroupEditor.tsx';
 import { NotebookPanel } from './NotebookPanel.tsx';
 import { SeriesLineSample } from './chrome.tsx';
-import { usePresentation } from './PresentationProvider.tsx';
 import {
   queryEditorTarget,
   querySurfaceView,
   type QueryEditorTarget,
 } from '../lib/query-surface.ts';
-import {
-  rowDetailSurface,
-  rowDetailWrite,
-} from '../lib/row-detail.ts';
+import { rowDetailSurface, rowDetailWrite } from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 const QUICK_ADD_LABEL = 'Add terms to the notebook, comma-separated';
-const INLINE_FOCUSABLE =
-  'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
 function countLabel(count: GroupCountVM): string {
   switch (count.kind) {
@@ -46,169 +34,112 @@ function countLabel(count: GroupCountVM): string {
 
 function QuickAddForm({
   draft,
-  compact,
   onDraft,
   onSubmit,
   onCancel,
 }: {
   readonly draft: string;
-  readonly compact: boolean;
   readonly onDraft: (value: string) => void;
   readonly onSubmit: () => void;
   readonly onCancel: () => void;
 }) {
   return (
     <form
-      className={compact ? 'query-editor-form' : 'quick-add-form'}
-      aria-label={compact ? 'Quick add query terms' : undefined}
+      className="query-editor-form"
+      aria-label="Quick add query terms"
       onSubmit={(event) => {
         event.preventDefault();
         onSubmit();
       }}
     >
-      {compact && <h2>Quick add terms</h2>}
-      <label className={compact ? 'query-editor-field' : undefined}>
-        {compact && <span>Terms</span>}
+      <h2>Quick add terms</h2>
+      <label className="query-editor-field">
+        <span>Terms</span>
         <input
           id="query-quick-add-input"
           className="exact-input quick-add-input"
           value={draft}
           onChange={(event) => onDraft(event.target.value)}
           aria-label={QUICK_ADD_LABEL}
-          placeholder="add terms: holmes, moriarty"
+          placeholder="holmes, moriarty"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}
         />
       </label>
-      {compact && (
-        <div className="form-layer-actions">
-          <button type="button" onClick={onCancel}>Cancel</button>
-          <button type="submit">Add terms</button>
-        </div>
-      )}
+      <p className="query-editor-help">
+        Commas create separate folded token groups. You can refine aliases,
+        phrases, matching, and overlap rules after adding them.
+      </p>
+      <div className="form-layer-actions">
+        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="submit">Add terms</button>
+      </div>
     </form>
   );
 }
 
-function ChartFocusChip({
+function TermBucket({
   row,
   focused,
   onFocus,
+  onToggle,
+  onEdit,
+  onRemove,
 }: {
   readonly row: NotebookRowVM;
   readonly focused: boolean;
   readonly onFocus: () => void;
-}) {
-  const status = row.count.kind === 'error'
-    ? 'error'
-    : row.count.kind === 'pending'
-      ? 'pending'
-      : 'ready';
-  return (
-    <button
-      type="button"
-      className="query-focus-chip"
-      onClick={onFocus}
-      disabled={!row.projected}
-      aria-pressed={focused}
-      title={
-        !row.projected
-          ? `${row.name} is not shown in analysis`
-          : status === 'error'
-            ? 'query failed'
-            : `emphasize “${row.name}” in the chart`
-      }
-    >
-      <SeriesLineSample slot={row.slot ?? 0} emphasized={focused} />
-      <span>{row.name}</span>
-      <span className="query-count">{countLabel(row.count)}</span>
-    </button>
-  );
-}
-
-function CompactQueryKey({
-  rows,
-  focusedSeries,
-  onFocus,
-  onEdit,
-  onQuickAdd,
-}: {
-  readonly rows: readonly NotebookRowVM[];
-  readonly focusedSeries: string | null;
-  readonly onFocus: (groupId: string) => void;
-  readonly onEdit: (groupId: string, returnFocusTo: string) => void;
-  readonly onQuickAdd: () => void;
+  readonly onToggle: () => void;
+  readonly onEdit: () => void;
+  readonly onRemove: () => void;
 }) {
   return (
-    <>
-      <strong className="compact-query-label">Terms</strong>
-      <div className="compact-query-scroll" role="group" aria-label="Query terms">
-        {rows.map((row) => (
-          <span className="compact-query-item" key={row.id}>
-            <ChartFocusChip
-              row={row}
-              focused={row.id === focusedSeries}
-              onFocus={() => onFocus(row.id)}
-            />
-            <button
-              type="button"
-              id={`compact-query-edit-${row.id}`}
-              className="compact-query-edit"
-              aria-label={`Edit members: ${row.name}`}
-              onClick={() => onEdit(row.id, `compact-query-edit-${row.id}`)}
-            >
-              edit
-            </button>
-          </span>
-        ))}
-        <button
-          type="button"
-          id="compact-query-add"
-          className="compact-query-add"
-          aria-label={QUICK_ADD_LABEL}
-          onClick={onQuickAdd}
-        >
-          +
-        </button>
-      </div>
-    </>
-  );
-}
-
-function CompactQuerySummary({
-  count,
-  onOpenQueries,
-  onQuickAdd,
-}: {
-  readonly count: number;
-  readonly onOpenQueries: () => void;
-  readonly onQuickAdd: () => void;
-}) {
-  return (
-    <>
-      <strong className="compact-query-label">Queries</strong>
-      <div className="compact-query-summary">
-        <button type="button" className="compact-query-route" onClick={onOpenQueries}>
-          {count === 0 ? 'No groups' : `${count} ${count === 1 ? 'group' : 'groups'}`}
-          {' · edit in Trends'}
-        </button>
-        <button
-          type="button"
-          id="compact-query-add"
-          className="compact-query-add"
-          aria-label={QUICK_ADD_LABEL}
-          onClick={onQuickAdd}
-        >
-          +
-        </button>
-      </div>
-    </>
+    <span className="term-bucket" data-active={row.active || undefined}>
+      <button
+        type="button"
+        className="term-bucket-focus"
+        disabled={!row.projected}
+        aria-pressed={focused}
+        onClick={onFocus}
+        title={row.projected ? `Emphasize ${row.name} in the chart` : `${row.name} is not shown`}
+      >
+        <SeriesLineSample slot={row.slot ?? 0} emphasized={focused} />
+        <span className="term-bucket-name">{row.name}</span>
+        <span className="term-bucket-count">{countLabel(row.count)}</span>
+      </button>
+      <button
+        type="button"
+        className="term-bucket-toggle"
+        aria-label={`Shown in analysis: ${row.name}`}
+        aria-pressed={row.active}
+        onClick={onToggle}
+        title={row.active ? 'Hide from analysis' : 'Show in analysis'}
+      >
+        <span aria-hidden="true">{row.active ? '✓' : '○'}</span>
+      </button>
+      <button
+        type="button"
+        id={`term-edit-${row.id}`}
+        className="term-bucket-edit"
+        aria-label={`Edit members: ${row.name}`}
+        onClick={onEdit}
+      >
+        edit
+      </button>
+      <button
+        type="button"
+        className="term-bucket-remove"
+        aria-label={`Remove ${row.name}`}
+        onClick={onRemove}
+      >
+        ×
+      </button>
+    </span>
   );
 }
 
 export function QuerySurface() {
-  const presentation = usePresentation();
   const place = useApp((state) => state.place);
   const notebook = useApp((state) => state.notebook);
   const activeGroupIds = useApp((state) => state.activeGroupIds);
@@ -220,15 +151,17 @@ export function QuerySurface() {
   const snapshot = useApp((state) => state.snapshot);
   const focusedSeries = useApp((state) => state.focusedSeries);
   const layers = useApp((state) => state.layers);
+  const removedGroups = useApp((state) => state.removedGroups);
   const quickAdd = useApp((state) => state.quickAdd);
   const setFocus = useApp((state) => state.setFocus);
+  const setGroupActive = useApp((state) => state.setGroupActive);
+  const removeGroup = useApp((state) => state.removeGroup);
+  const undoRemoveGroup = useApp((state) => state.undoRemoveGroup);
+  const dismissRemovedGroup = useApp((state) => state.dismissRemovedGroup);
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
   const popLayer = useApp((state) => state.popLayer);
-  const setPlace = useApp((state) => state.setPlace);
   const [draft, setDraft] = useState('');
-  const [inlineGroupId, setInlineGroupId] = useState<string | null>(null);
-  const [inlineReturnFocusTo, setInlineReturnFocusTo] = useState<string | null>(null);
   const [groupDrafts, setGroupDrafts] = useState<Record<string, GroupEditorDraft>>({});
 
   const view = querySurfaceView({
@@ -244,203 +177,154 @@ export function QuerySurface() {
     partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
   });
   const topLayer = layers.at(-1);
-  const layerTarget = topLayer?.kind === 'row-detail'
+  const target = topLayer?.kind === 'row-detail'
     ? queryEditorTarget(topLayer.target)
     : null;
-  const compact = presentation.width === 'compact';
-  const activeGroupId =
-    layerTarget?.mode === 'group' ? layerTarget.groupId : inlineGroupId;
-  const activeGroup = notebook.groups.find((group) => group.id === activeGroupId) ?? null;
-  const compactEditorOpen = compact && (layerTarget !== null || activeGroup !== null);
-  const retainActiveGroupDraft = useCallback((next: GroupEditorDraft) => {
-    if (!activeGroupId) return;
-    setGroupDrafts((current) => ({
-      ...current,
-      [activeGroupId]: next,
-    }));
-  }, [activeGroupId]);
+  const activeGroup = target?.mode === 'group'
+    ? notebook.groups.find((group) => group.id === target.groupId) ?? null
+    : null;
 
-  useEffect(() => {
-    if (compact || layerTarget === null) return undefined;
-    const frame = requestAnimationFrame(() => {
-      const equivalent = layerTarget.mode === 'quick-add'
-        ? document.getElementById('query-quick-add-input')
-        : document.querySelector('.query-inline-editor')
-          ?.querySelector<HTMLElement>(INLINE_FOCUSABLE);
-      equivalent?.focus({ preventScroll: true });
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [compact, layerTarget?.mode, layerTarget?.mode === 'group' ? layerTarget.groupId : null]);
-
-  const writeEditorLayer = (
-    target: QueryEditorTarget,
-    returnFocusTo: string,
-  ) => {
+  const writeLayer = (next: QueryEditorTarget, returnFocusTo: string) => {
+    if (target?.mode === 'manage') {
+      pushLayer('row-detail', Object.freeze(next), returnFocusTo);
+      return;
+    }
     const write = rowDetailWrite(
       topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
       'query-editor',
     );
-    if (write === 'replace') {
-      replaceLayer('row-detail', Object.freeze(target), returnFocusTo);
-    } else {
-      pushLayer('row-detail', Object.freeze(target), returnFocusTo);
-    }
+    if (write === 'replace') replaceLayer('row-detail', Object.freeze(next), returnFocusTo);
+    else pushLayer('row-detail', Object.freeze(next), returnFocusTo);
   };
-  const openGroup = (groupId: string, returnFocusTo: string) => {
-    if (activeGroupId === groupId) {
-      if (layerTarget !== null) popLayer();
-      else setInlineGroupId(null);
-      return;
-    }
-    if (compact) {
-      setInlineGroupId(null);
-      writeEditorLayer(
-        { surface: 'query-editor', mode: 'group', groupId },
-        returnFocusTo,
-      );
-    } else {
-      setInlineGroupId(groupId);
-      setInlineReturnFocusTo(returnFocusTo);
-    }
-  };
+  const openGroup = (groupId: string, returnFocusTo: string) => writeLayer(
+    { surface: 'query-editor', mode: 'group', groupId },
+    returnFocusTo,
+  );
   const closeEditor = () => {
-    if (activeGroupId) {
-      setGroupDrafts(({ [activeGroupId]: _closed, ...remaining }) => remaining);
+    if (activeGroup) {
+      setGroupDrafts(({ [activeGroup.id]: _closed, ...remaining }) => remaining);
     }
-    if (layerTarget !== null) {
-      popLayer();
-    } else {
-      const returnFocusTo = inlineReturnFocusTo;
-      setInlineGroupId(null);
-      setInlineReturnFocusTo(null);
-      requestAnimationFrame(() => {
-        if (returnFocusTo) document.getElementById(returnFocusTo)?.focus();
-      });
-    }
+    popLayer();
   };
+  const retainDraft = useCallback((next: GroupEditorDraft) => {
+    if (!activeGroup) return;
+    setGroupDrafts((current) => ({ ...current, [activeGroup.id]: next }));
+  }, [activeGroup]);
   const submitQuickAdd = () => {
     quickAdd(draft);
     setDraft('');
-    if (layerTarget?.mode === 'quick-add') popLayer();
+    popLayer();
   };
-  const openQuickAdd = () => writeEditorLayer(
-    { surface: 'query-editor', mode: 'quick-add' },
-    'compact-query-add',
-  );
-  const compactModal = compact && layerTarget?.mode === 'quick-add'
-    ? (
-        <FormLayer
-          label="Quick add query terms"
-          focusKey="quick-add"
-          onClose={closeEditor}
-        >
+
+  return (
+    <>
+      <aside
+        className="query-region term-bar"
+        aria-label="Terms"
+        data-uses-query-encoding={view.usesQueryEncoding}
+      >
+        <strong className="term-bar-label">Terms</strong>
+        <div className="term-bucket-port" role="group" aria-label="Query terms">
+          {view.rows.length === 0 && (
+            <span className="term-bar-empty">No terms yet.</span>
+          )}
+          {view.rows.map((row) => (
+            <TermBucket
+              key={row.id}
+              row={row}
+              focused={row.id === focusedSeries}
+              onFocus={() => setFocus(row.id)}
+              onToggle={() => setGroupActive(row.id, !row.active)}
+              onEdit={() => openGroup(row.id, `term-edit-${row.id}`)}
+              onRemove={() => removeGroup(row.id)}
+            />
+          ))}
+        </div>
+        <div className="term-bar-actions">
+          <button
+            id="term-add"
+            type="button"
+            aria-label={QUICK_ADD_LABEL}
+            onClick={() => writeLayer({ surface: 'query-editor', mode: 'quick-add' }, 'term-add')}
+          >
+            + Add
+          </button>
+          <button
+            id="term-manage"
+            type="button"
+            onClick={() => writeLayer({ surface: 'query-editor', mode: 'manage' }, 'term-manage')}
+          >
+            Manage <span aria-hidden="true">({view.rows.length})</span>
+          </button>
+        </div>
+        {removedGroups.length > 0 && (
+          <div className="term-undo" role="status">
+            Removed {removedGroups.at(-1)!.group.name}.
+            {' '}<button type="button" onClick={undoRemoveGroup}>Undo</button>
+            {' '}<button type="button" onClick={dismissRemovedGroup}>Dismiss</button>
+          </div>
+        )}
+      </aside>
+
+      {target?.mode === 'quick-add' && (
+        <FormLayer label="Quick add query terms" focusKey="quick-add" onClose={closeEditor}>
           <QuickAddForm
             draft={draft}
-            compact
             onDraft={setDraft}
             onSubmit={submitQuickAdd}
             onCancel={closeEditor}
           />
         </FormLayer>
-      )
-    : activeGroup && compact
-      ? (
-          <FormLayer
-            label={`Query editor: ${activeGroup.name}`}
-            focusKey={activeGroup.id}
-            onClose={closeEditor}
-          >
-            <GroupEditor
-              group={activeGroup}
-              onClose={closeEditor}
-              {...(groupDrafts[activeGroup.id]
-                ? { initialDraft: groupDrafts[activeGroup.id] }
-                : {})}
-              onDraftChange={retainActiveGroupDraft}
-            />
-          </FormLayer>
-        )
-      : null;
-
-  return (
-    <>
-      <aside
-        className="query-region"
-        aria-label="Queries"
-        data-uses-query-encoding={view.usesQueryEncoding}
-      >
-        {!compact && (
-          <>
-            <strong className="region-label">Queries</strong>
-            <QuickAddForm
-              draft={draft}
-              compact={false}
-              onDraft={setDraft}
-              onSubmit={submitQuickAdd}
-              onCancel={() => undefined}
-            />
-            {view.rows.length === 0
-              ? <p className="region-placeholder">No query groups.</p>
-              : (
-                  <div className="query-focus-key" aria-label="Chart focus">
-                    {view.rows.map((row) => (
-                      <ChartFocusChip
-                        key={row.id}
-                        row={row}
-                        focused={row.id === focusedSeries}
-                        onFocus={() => setFocus(row.id)}
-                      />
-                    ))}
-                  </div>
-                )}
+      )}
+      {target?.mode === 'manage' && (
+        <FormLayer label="Manage terms" focusKey="manage-terms" onClose={closeEditor}>
+          <section className="term-manager">
+            <header className="term-manager-header">
+              <div>
+                <h2>Manage terms</h2>
+                <p>
+                  {view.rows.length} of {NOTEBOOK_LIMITS_V1.maxGroups} groups · up to{' '}
+                  {MAX_KWIC_TRACKS} shown in analysis
+                </p>
+              </div>
+              <div>
+                <button
+                  type="button"
+                  onClick={() => writeLayer(
+                    { surface: 'query-editor', mode: 'quick-add' },
+                    'term-manager-add',
+                  )}
+                  id="term-manager-add"
+                >
+                  Add terms
+                </button>
+                <button type="button" onClick={closeEditor}>Done</button>
+              </div>
+            </header>
             <NotebookPanel
               rows={view.rows}
-              activeEditorGroupId={activeGroupId}
+              activeEditorGroupId={null}
               onEdit={openGroup}
             />
-          </>
-        )}
-        {compact && !compactEditorOpen && (
-          view.usesQueryEncoding
-            ? (
-                <CompactQueryKey
-                  rows={view.rows}
-                  focusedSeries={focusedSeries}
-                  onFocus={setFocus}
-                  onEdit={openGroup}
-                  onQuickAdd={openQuickAdd}
-                />
-              )
-            : (
-                <CompactQuerySummary
-                  count={view.rows.length}
-                  onOpenQueries={() => setPlace('trends')}
-                  onQuickAdd={openQuickAdd}
-                />
-              )
-        )}
-        {activeGroup && !compact && (
-          <div
-            className="query-inline-editor"
-            onKeyDown={(event) => {
-              if (event.key === 'Escape') {
-                event.preventDefault();
-                closeEditor();
-              }
-            }}
-          >
-            <GroupEditor
-              group={activeGroup}
-              onClose={closeEditor}
-              {...(groupDrafts[activeGroup.id]
-                ? { initialDraft: groupDrafts[activeGroup.id] }
-                : {})}
-              onDraftChange={retainActiveGroupDraft}
-            />
-          </div>
-        )}
-      </aside>
-      {compactModal}
+          </section>
+        </FormLayer>
+      )}
+      {activeGroup && (
+        <FormLayer
+          label={`Query editor: ${activeGroup.name}`}
+          focusKey={activeGroup.id}
+          onClose={closeEditor}
+        >
+          <GroupEditor
+            group={activeGroup}
+            onClose={closeEditor}
+            {...(groupDrafts[activeGroup.id]
+              ? { initialDraft: groupDrafts[activeGroup.id] }
+              : {})}
+            onDraftChange={retainDraft}
+          />
+        </FormLayer>
+      )}
     </>
   );
 }

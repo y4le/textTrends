@@ -66,10 +66,10 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
 
   it('answers trend and KWIC against the published snapshot', async () => {
     const { h, snap } = await ready();
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const trend = h.last('result');
     expect(trend.data.op).toBe('trend');
-    if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 1]);
+    if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 0, 1, 0]);
     await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
     const kwic = h.last('result');
     expect(kwic.data.op).toBe('kwic');
@@ -199,7 +199,7 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     });
     const trendQuery = (surface: string) => ({
       op: 'trend' as const, selection: { docs: ['a'] }, group: group(surface, 9),
-      request: { coordinate: 'document-relative' as const, binsPerDoc: 2 },
+      request: { coordinate: 'document-relative' as const, bins: { mode: 'per-doc', count: 4 } },
     });
     // Two DISTINCT 4-track KWIC jobs plus two distinct trend jobs (10 unique
     // identities > MAX_OCCURRENCE_CACHE_ENTRIES=5) — BOTH consumers write the
@@ -242,7 +242,7 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
   // cache. The pass-through `occurrences` spy counts exactly how many times the
   // engine pays for a full per-doc match.
   describe('trend/kwic occurrence-cache sharing (Phase E)', () => {
-    const trendQ = { op: 'trend' as const, selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative' as const, binsPerDoc: 2 } };
+    const trendQ = { op: 'trend' as const, selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative' as const, bins: { mode: 'per-doc', count: 4 } } };
     const kwicQ = {
       op: 'kwic' as const, selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }],
       request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
@@ -412,7 +412,7 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     await begin(h, [spec]);
     await coldIngest(h, 'g', 'a', 'wolf', 10);
     const snap1 = h.last('snapshot-published').snapshot;
-    await h.send({ t: 'query', job: 70, snapshot: snap1, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 70, snapshot: snap1, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.last('result').data.op).toBe('trend');
     // Replace the document under the SAME generation (a fresh spec with no
     // asserted identity so different bytes are accepted).
@@ -422,16 +422,16 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     const snap2 = h.last('snapshot-published').snapshot;
     expect(snap2).not.toBe(snap1);
     const bearGroup = { id: 'g2', members: [{ id: 'm', kind: 'token' as const, surface: 'bear', match: FOLD }], countOverlaps: false };
-    await h.send({ t: 'query', job: 73, snapshot: snap2, query: { op: 'trend', selection: { docs: ['a'] }, group: bearGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 73, snapshot: snap2, query: { op: 'trend', selection: { docs: ['a'] }, group: bearGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const r = h.last('result');
     expect(r.data.op).toBe('trend');
-    if (r.data.op === 'trend') expect(Array.from(r.data.trend.count)).toEqual([1]);
+    if (r.data.op === 'trend') expect(Array.from(r.data.trend.count)).toEqual([1, 0, 0, 0]);
     expect(h.all('error').some((e) => /different shard/.test(e.message))).toBe(false);
   });
 
   it('a late cancel for a finished job is dropped; job bookkeeping does not accrete', async () => {
     const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'query', job: 40, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 1 } } });
+    await h.send({ t: 'query', job: 40, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.last('result').data.op).toBe('trend');
     await h.send({ t: 'cancel', job: 40 }); // job already finished
     const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
@@ -917,7 +917,7 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
     const snap = h.last('snapshot-published').snapshot;
     const occSpy = () => vi.mocked(occurrences);
     occSpy().mockClear();
-    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(occSpy()).toHaveBeenCalledTimes(1);
     await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'dispersion', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }], request: dispReq } });
     expect(occSpy()).toHaveBeenCalledTimes(1); // served from the shared cache
@@ -1013,7 +1013,7 @@ describe('reader-page/1 through the executor (slice-2 commit G)', () => {
     const snap = h.last('snapshot-published').snapshot;
     const occSpy = () => vi.mocked(occurrences);
     occSpy().mockClear();
-    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['b', 'a'] }, group: wolfGroup, request: { coordinate: 'document-relative', binsPerDoc: 2 } } });
+    await h.send({ t: 'query', job: 30, snapshot: snap, query: { op: 'trend', selection: { docs: ['b', 'a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(occSpy()).toHaveBeenCalledTimes(1);
     await h.send({ t: 'query', job: 31, snapshot: snap, query: rp('a', { kind: 'around', token: 1 }, 400, [{ seriesId: 's-wolf', group: wolfGroup }]) });
     expect(occSpy()).toHaveBeenCalledTimes(1); // engine-built base selection hashes identically

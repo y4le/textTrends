@@ -3,7 +3,7 @@
  * from authenticated worker text; source HTML is never interpreted.
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
@@ -158,23 +158,22 @@ export function ReaderDrawer({
   const pinPassage = useApp((state) => state.pinPassage);
   const pinError = useApp((state) => state.pinError);
   const pinAnnouncement = useApp((state) => state.pinAnnouncement);
-  const clearPinError = useApp((state) => state.clearPinError);
+  const pinFeedbackOrigin = useApp((state) => state.pinFeedbackOrigin);
+  const clearPinFeedback = useApp((state) => state.clearPinFeedback);
   const pinsUsed = useApp((state) => state.pins.length);
   const drawerRef = useRef<HTMLElement | null>(null);
-  const [ownsPinFeedback, setOwnsPinFeedback] = useState(false);
 
   useEffect(() => {
     drawerRef.current?.focus({ preventScroll: true });
   }, []);
 
   useEffect(() => {
-    setOwnsPinFeedback(false);
-  }, [place?.snapshot, place?.doc, place?.cursor.token]);
+    clearPinFeedback('reader');
+  }, [clearPinFeedback, place?.snapshot, place?.doc, place?.cursor.token]);
 
   if (!place) return null;
   const pinAtReaderCursor = () => {
-    pinPassage(place.doc, place.cursor.token);
-    setOwnsPinFeedback(true);
+    pinPassage(place.doc, place.cursor.token, 'reader');
   };
   const current = result && sameReaderPlace(result.place, place) ? result : null;
   const title =
@@ -243,7 +242,7 @@ export function ReaderDrawer({
           )}
           <PinButton
             capacity={capacity}
-            label={`Pin reader passage at token ${(place.cursor.token + 1).toLocaleString()}`}
+            label={`Save reader excerpt at token ${(place.cursor.token + 1).toLocaleString()} to Findings`}
             onPin={pinAtReaderCursor}
           />
           {!capacity.enabled && (
@@ -252,7 +251,7 @@ export function ReaderDrawer({
               onClick={() => setPlace('findings')}
               style={SMALL_BUTTON_STYLE}
             >
-              manage pins
+              Open Findings
             </button>
           )}
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
@@ -262,23 +261,19 @@ export function ReaderDrawer({
       </header>
 
       <div className="reader-pin-feedback">
-        {composition.slot === 'viewport' && ownsPinFeedback && pinError && (
+        {pinFeedbackOrigin === 'reader' && pinError && (
           <p role="alert">
             {pinError}{' '}
             <button
               type="button"
-              onClick={() => {
-                clearPinError();
-                setOwnsPinFeedback(false);
-              }}
+              onClick={() => clearPinFeedback('reader')}
               style={SMALL_BUTTON_STYLE}
             >
               dismiss
             </button>
           </p>
         )}
-        {composition.slot === 'viewport'
-          && ownsPinFeedback
+        {pinFeedbackOrigin === 'reader'
           && !pinError
           && pinAnnouncement && (
             <p role="status" aria-live="polite" aria-atomic="true">

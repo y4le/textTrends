@@ -28,7 +28,7 @@ for (const viewport of [
     const strokes = await seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
       [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),
     );
-    expect(strokes).toEqual([2, 3.5]);
+    expect(strokes).toEqual([2]);
 
     const totals = page.getByRole('table', { name: /exact totals by book/i });
     await expect(totals).toBeVisible();
@@ -38,9 +38,12 @@ for (const viewport of [
     const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
     await page
       .getByRole('group', { name: 'Query terms' })
-      .locator('.query-focus-chip')
-      .filter({ hasText: 'Moriarty' })
+      .getByRole('button', { name: /^Moriarty \d+$/ })
       .click();
+    const focusedStrokes = await seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
+      [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),
+    );
+    expect(focusedStrokes).toEqual([2, 3.5]);
     await expect(totals.locator('caption')).toContainText('Moriarty');
     await expect(totals.locator('thead')).not.toContainText('Holmes');
     expect((await trace(page)).events.filter((event) =>

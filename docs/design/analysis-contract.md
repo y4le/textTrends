@@ -320,18 +320,25 @@ the adapter. Exemplar definitions fixing the pattern (remaining ops follow it in
 interface TrendRequest {
   readonly selection: ResolvedSelection;
   readonly group: TermGroup;
-  readonly time: TimeCoordinate;
-  readonly bins: { readonly mode: 'equal-tokens'; readonly count: number };
+  readonly coordinate: 'document-relative' | 'declared-sequence';
+  readonly bins:
+    | { readonly mode: 'per-doc'; readonly count: number }       // 4..200 bins/doc
+    | { readonly mode: 'fixed-tokens'; readonly count: number }; // 250..50k tokens/bin
   readonly method: { readonly id: 'trend'; readonly version: 1 };   // statistics.md `trend/1`
 }
-interface TrendResult {                       // parallel arrays, one entry per bin per doc
-  readonly doc: readonly ProjectDocId[];
+interface TrendResult {                       // variable rows, grouped by selected doc
+  readonly coordinate: 'document-relative' | 'declared-sequence';
+  readonly bins: TrendRequest['bins'];         // owned echo of result geometry
+  readonly rowOffsets: Uint32Array;            // order.length + 1 prefix array
+  readonly docOrdinal: Uint32Array;
   readonly binIndex: Uint32Array;
+  readonly binStartToken: Uint32Array;
   readonly binTokens: Uint32Array;            // true size — final bins may be short
   readonly count: Uint32Array;
   readonly ratePer10k: Float64Array;
-  readonly order: readonly ProjectDocId[];    // effective declared order + bases echoed
-  readonly sequenceBases: readonly number[];
+  readonly order: readonly ProjectDocId[];
+  readonly sequenceBases: readonly number[] | null;
+  readonly docTokenCount: readonly number[];  // full geometry, not selected denominator
 }
 
 // kwic/2 (concordance amendment, 2026-07-22 — planner consult
@@ -411,6 +418,22 @@ interface ResolvedRecipes {                   // carried by begin-generation
   readonly quote: QuoteRecipeV1;             readonly quoteHash: string;
 }
 ```
+
+Trend bins restart at every document boundary. Fixed-token mode may therefore
+return a different row count for every document; no consumer may derive a row
+as `docOrdinal * bins.count + binIndex`. `rowOffsets[d]..rowOffsets[d + 1]`
+is authoritative. A request is rejected above 4,000 total rows, and zero-token
+documents contribute zero rows. Raw results remain unsmoothed; rate
+denominator changes and within-document smoothing are governed presentation
+overlays recorded in `texttrends/trend-view/2`.
+
+The UI orchestration retains snapshot-bound `docTokenCount`/inventory
+`fullTokens` extents independently of the currently visible inventory result.
+This is necessary because a linked range replaces that result with a
+range-scoped inventory that can omit other documents; row-cap admission must
+still validate the complete ready-document set. Automatic admission may clamp
+within the requested mode or choose the other mode when only that mode fits,
+and the normalized durable preference must be announced to the user.
 
 Phrase gap policy (fixing review-2's "referenced but undefined"): phrase members
 match **strictly adjacent** lexical tokens (gap 0) in v1; `crossSentence: false`

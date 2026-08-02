@@ -101,18 +101,20 @@ describe('layer stack transitions', () => {
     expect(pushLayer([nextPlace], layer('row-detail', ids.row))).toHaveLength(2);
   });
 
-  it('refuses to mint stacks that the history parser would reject', () => {
+  it('permits governed authoring over Reader and rejects other deeper surfaces', () => {
     const place = layer('place', ids.place);
     const reader = layer('reader', ids.reader);
+    const authoring = layer('row-detail', ids.row);
+    expect(pushLayer([place, reader], authoring)).toEqual([place, reader, authoring]);
     expect(() => pushLayer([place, reader], layer('sheet', ids.sheet)))
-      .toThrow(/terminal/);
+      .toThrow(/authoring row-detail/);
     const deep = Array.from({ length: 16 }, (_, i) => layer(
       'sheet',
       `00000000-0000-4000-8000-${String(i).padStart(12, '0')}`,
     ));
     expect(() => pushLayer(deep, layer('sheet', ids.other))).toThrow(/limited to 16/);
     expect(() => historyStateFor([place, reader, layer('sheet', ids.sheet)]))
-      .toThrow(/terminal/);
+      .toThrow(/authoring row-detail/);
   });
 
   it('replaces active depth and changes UI without changing identity', () => {
@@ -131,8 +133,8 @@ describe('layer stack transitions', () => {
     expect(updateLayerUI(changed, ids.other, { detent: 'tall' })).toBe(changed);
 
     const readerStack = [place, layer('reader', ids.reader)];
-    const reading = updateLayerUI(readerStack, ids.reader, { reader: 'peek' });
-    expect(reading[1]).toMatchObject({ id: ids.reader, ui: { reader: 'peek' } });
+    const reading = updateLayerUI(readerStack, ids.reader, { reader: 'full' });
+    expect(reading[1]).toMatchObject({ id: ids.reader, ui: { reader: 'full' } });
     expect(historyStateFor(reading)).toEqual(historyStateFor(readerStack));
     expect(parseLayerHistory({
       tt: {
@@ -200,6 +202,22 @@ describe('layer stack transitions', () => {
         { kind: 'reader', id: ids.reader },
       ],
       truncated: true,
+    });
+    expect(reconcileLayerRefs(
+      [
+        { kind: 'place', id: ids.place },
+        { kind: 'reader', id: ids.reader },
+        { kind: 'row-detail', id: ids.row },
+      ],
+      resolve,
+    )).toEqual({
+      layers: [place, reader, row],
+      refs: [
+        { kind: 'place', id: ids.place },
+        { kind: 'reader', id: ids.reader },
+        { kind: 'row-detail', id: ids.row },
+      ],
+      truncated: false,
     });
     expect(reconcileLayerRefs(
       [

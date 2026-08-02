@@ -13,7 +13,7 @@ import {
   type CharAnchorV1,
   type InventoryViewV1,
   type KeynessViewV1,
-  type TrendResearchViewV1,
+  type TrendResearchViewV2,
 } from './research-state.ts';
 
 export const SHARE_MAX_DOCUMENTS = 64;
@@ -32,7 +32,7 @@ export interface ShareLinkV1 {
   readonly a: readonly number[];
   readonly k: readonly number[];
   readonly v: {
-    readonly t?: TrendResearchViewV1;
+    readonly t?: TrendResearchViewV2;
     readonly i?: InventoryViewV1;
     readonly y?: KeynessViewV1;
   };

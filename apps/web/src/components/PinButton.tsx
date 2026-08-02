@@ -16,7 +16,7 @@ export function PinButton({
       type="button"
       aria-label={label}
       aria-disabled={!capacity.enabled || undefined}
-      title={capacity.reason ?? `Retain this passage · ${capacity.label}`}
+      title={capacity.reason ?? 'Save this excerpt to Findings'}
       // Stay focusable at capacity: activation reaches the store's existing
       // live refusal message instead of hiding the reason in a tooltip.
       onClick={onPin}
@@ -26,7 +26,7 @@ export function PinButton({
         cursor: capacity.enabled ? 'pointer' : 'default',
       }}
     >
-      Pin
+      Save excerpt
     </button>
   );
 }

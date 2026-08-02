@@ -24,6 +24,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const inventory = useApp((state) => state.inventory);
   const series = useApp((state) => state.series);
   const trends = useApp((state) => state.trends);
+  const trendMeasure = useApp((state) => state.trendMeasure);
   const selectedTrends = useApp((state) => state.selectedTrends);
   const kwic = useApp((state) => state.kwic);
   const kwicEnabledSeries = useApp((state) => state.kwicEnabledSeries);
@@ -84,6 +85,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
           ? [{ label: item.label, result: resident.trend }]
           : [];
       }) : [],
+      trendMeasure,
       concordance: {
         resident: kwic?.state.status === 'ready',
         enabledTracks: kwicEnabledSeries.size,
@@ -151,7 +153,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
           textHash: issue.pin.anchor.text,
           status: `${issue.reason}: ${issue.message}`,
         })),
-        sharePolicy: 'Share links include the notebook, active tracks, saved ranges, and view settings; pins and source text stay on this device.',
+        sharePolicy: 'Share links include the notebook, active tracks, saved ranges, and view settings; saved excerpts and source text stay on this device.',
         researchStatus,
         projectStatus: projectSaveView(project).label,
       },
@@ -178,6 +180,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     selectedTrends,
     snapshot,
     trends,
+    trendMeasure,
   ]);
   const provenance = useMemo(() => provenanceFor(input, place), [input, place]);
   const provenanceText = useMemo(

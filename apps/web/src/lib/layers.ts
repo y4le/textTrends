@@ -82,6 +82,7 @@ function assertSerializableStack(layers: readonly Layer[]): void {
     throw new Error(`Layer history is limited to ${MAX_LAYER_DEPTH} entries.`);
   }
   const seen = new Set<string>();
+  let readerSeen = false;
   for (const [index, layer] of layers.entries()) {
     if (!isLayerKind(layer.kind) || !isLayerId(layer.id)) {
       throw new Error('Layer history requires an enumerated kind and a minted UUID.');
@@ -92,9 +93,10 @@ function assertSerializableStack(layers: readonly Layer[]): void {
     if (layer.kind === 'place' && index !== 0) {
       throw new Error('A place layer must begin a fresh stack.');
     }
-    if (layers[index - 1]?.kind === 'reader') {
-      throw new Error('Reader is a terminal layer.');
+    if (readerSeen && layer.kind !== 'row-detail') {
+      throw new Error('Only an authoring row-detail may follow Reader.');
     }
+    if (layer.kind === 'reader') readerSeen = true;
     seen.add(layer.id);
   }
 }
@@ -124,6 +126,7 @@ export function parseLayerHistory(state: unknown): ParsedLayerHistory {
   }
   const refs: LayerRef[] = [];
   const seen = new Set<string>();
+  let readerSeen = false;
   let valid = raw.length <= MAX_LAYER_DEPTH;
   for (const value of raw.slice(0, MAX_LAYER_DEPTH)) {
     if (
@@ -137,10 +140,11 @@ export function parseLayerHistory(state: unknown): ParsedLayerHistory {
       valid = false;
       break;
     }
-    if (refs.at(-1)?.kind === 'reader') {
+    if (readerSeen && value.kind !== 'row-detail') {
       valid = false;
       break;
     }
+    if (value.kind === 'reader') readerSeen = true;
     seen.add(value.id);
     refs.push({ kind: value.kind, id: value.id });
   }
@@ -197,6 +201,7 @@ export function reconcileLayerRefs(
   const layers: Layer[] = [];
   const refs: LayerRef[] = [];
   const seen = new Set<string>();
+  let readerSeen = false;
   let truncated = requested.length > MAX_LAYER_DEPTH;
   for (const ref of requested.slice(0, MAX_LAYER_DEPTH)) {
     if (
@@ -204,7 +209,7 @@ export function reconcileLayerRefs(
       || !isLayerId(ref.id)
       || seen.has(ref.id)
       || (ref.kind === 'place' && layers.length !== 0)
-      || layers.at(-1)?.kind === 'reader'
+      || (readerSeen && ref.kind !== 'row-detail')
     ) {
       truncated = true;
       break;
@@ -215,6 +220,7 @@ export function reconcileLayerRefs(
       break;
     }
     seen.add(ref.id);
+    if (ref.kind === 'reader') readerSeen = true;
     layers.push(layer);
     refs.push(layerRef(layer));
   }

@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearNotebook, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 
 const MESSY_HTML = `<!DOCTYPE html>
 <html>
@@ -46,7 +46,7 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   // Body text is analyzable (parse5 recovered the unclosed <p> structure).
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill('barnowl');
   await input.press('Enter');
   await gotoPlace(page, 'concordance');
@@ -65,7 +65,7 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   // examples…" — a term absent from the extracted text yields zero rows.
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  const script = page.getByLabel(/add terms to the notebook/i);
+  const script = await openQuickAdd(page);
   await script.fill('SCRIPTLEAKMARKER');
   await script.press('Enter');
   await gotoPlace(page, 'concordance');

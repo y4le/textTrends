@@ -169,7 +169,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputsFor(world, selection),
-      { ...REQUEST, sections: false },
+      { ...REQUEST, rhythmBinsPerDoc: 4, sections: false },
       [],
       async () => {},
     );
@@ -185,7 +185,7 @@ describe('inventory/1', () => {
         memberOffsets: Uint32Array.of(0),
         memberOrdinals: new Uint32Array(),
       },
-      { coordinate: 'document-relative', binsPerDoc: 2 },
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
     );
     expect([...result.rhythm!.docOrdinal]).toEqual([...baseline.docOrdinal]);
     expect([...result.rhythm!.binIndex]).toEqual([...baseline.binIndex]);
@@ -205,7 +205,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputsFor(world, selection),
-      { ...REQUEST, sections: false },
+      { ...REQUEST, rhythmBinsPerDoc: 4, sections: false },
       [],
       async () => {},
     );
@@ -221,9 +221,9 @@ describe('inventory/1', () => {
         memberOffsets: Uint32Array.of(0),
         memberOrdinals: new Uint32Array(),
       },
-      { coordinate: 'document-relative', binsPerDoc: 2 },
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
     );
-    expect([...result.rhythm!.docOrdinal]).toEqual([1, 1]);
+    expect([...result.rhythm!.docOrdinal]).toEqual([1, 1, 1, 1]);
     expect([...result.rhythm!.docOrdinal]).toEqual([...baseline.docOrdinal]);
   });
 

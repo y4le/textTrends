@@ -9,6 +9,10 @@ import type { SeriesTrendState } from './store.ts';
 export type QueryEditorTarget =
   | {
       readonly surface: 'query-editor';
+      readonly mode: 'manage';
+    }
+  | {
+      readonly surface: 'query-editor';
       readonly mode: 'quick-add';
     }
   | {
@@ -35,6 +39,9 @@ export function queryEditorTarget(value: unknown): QueryEditorTarget | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.surface !== 'query-editor') return null;
+  if (candidate.mode === 'manage') {
+    return { surface: 'query-editor', mode: 'manage' };
+  }
   if (candidate.mode === 'quick-add') {
     return { surface: 'query-editor', mode: 'quick-add' };
   }

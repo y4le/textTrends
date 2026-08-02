@@ -70,7 +70,9 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
     expect(css).toMatch(rule);
   }
 
-  await page.getByRole('button', { name: 'Edit members: Holmes' }).click();
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit members: Holmes' }).click();
   const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
   const draft = dialog.getByRole('textbox', { name: /Add member to Holmes/ });
   await draft.fill('watson');
@@ -126,7 +128,9 @@ test('Chromium resizes-content uses dvh once and preserves the open draft', asyn
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
-  await page.getByRole('button', { name: 'Edit members: Holmes' }).click();
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Edit members: Holmes' }).click();
   const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
   const draft = dialog.getByRole('textbox', { name: /Add member to Holmes/ });
   await draft.fill('watson');

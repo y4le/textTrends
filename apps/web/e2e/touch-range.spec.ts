@@ -5,7 +5,6 @@ import {
   gotoPlace,
   trace,
 } from './helpers.ts';
-import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
 
 test.use({
   hasTouch: true,
@@ -44,17 +43,17 @@ test('touch reads by default and commits only through explicit range mode', asyn
   });
 
   const box = (await scrubber.boundingBox())!;
-  const plotWidth = box.width - TREND_LABEL_SPACE;
+  const plotWidth = box.width;
   const point = (fraction: number) => ({
     x: box.x + plotWidth * fraction,
-    y: box.y + 80,
+    y: box.y + box.height / 2,
   });
 
   await page.touchscreen.tap(point(0.25).x, point(0.25).y);
-  await expect(page.getByRole('button', { name: /Pin passage at token/ })).toBeVisible();
-  await expect(
-    page.getByRole('region', { name: 'Scope' }).getByText('0 of 8 pinned', { exact: true }),
-  ).toBeVisible();
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  const evidenceSheet = page.getByRole('dialog', { name: 'Evidence sheet' });
+  await expect(evidenceSheet.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
+  await evidenceSheet.getByRole('button', { name: 'Close Evidence sheet' }).click();
   expect(await page.evaluate(
     () => (window as unknown as { __ttScrubberCaptures?: number }).__ttScrubberCaptures,
   )).toBe(0);
@@ -81,11 +80,12 @@ test('touch reads by default and commits only through explicit range mode', asyn
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   const rangeBox = (await scrubber.boundingBox())!;
-  const livePoint = {
-    x: rangeBox.x + (rangeBox.width - TREND_LABEL_SPACE) * 0.7,
-    y: rangeBox.y + 80,
-  };
-  await page.touchscreen.tap(livePoint.x, livePoint.y);
+  await scrubber.tap({
+    position: {
+      x: rangeBox.width * 0.7,
+      y: Math.min(80, rangeBox.height / 2),
+    },
+  });
   await expect(page.locator('[data-range-handle="start"]')).toBeVisible();
   await expect(page.locator('[data-range-handle="end"]')).toBeVisible();
   await controls.getByRole('button', { name: 'Move range start forward one token' }).click();
@@ -118,11 +118,7 @@ test('touch reads by default and commits only through explicit range mode', asyn
       original(pointerId);
     };
   });
-  const handleBox = (await handle.boundingBox())!;
-  await page.touchscreen.tap(
-    handleBox.x + handleBox.width / 2,
-    handleBox.y + handleBox.height / 2,
-  );
+  await handle.tap();
   expect(await page.evaluate(
     () => (window as unknown as { __ttHandleCaptures?: number }).__ttHandleCaptures,
   )).toBe(1);

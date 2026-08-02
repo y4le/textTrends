@@ -37,7 +37,7 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
   } else if (place === 'findings') {
     await page
       .getByRole('region', { name: 'Scope' })
-      .getByRole('button', { name: /\d+ of 8 pinned/ })
+      .getByRole('button', { name: 'Findings', exact: true })
       .click();
   } else {
     await page
@@ -276,6 +276,20 @@ export async function clearNotebook(page: Page): Promise<void> {
   while ((await removeButtons.count()) > 0) await removeButtons.first().click();
 }
 
+/** Open the cross-width quick-add layer and return its text field. */
+export async function openQuickAdd(page: Page) {
+  const input = page.getByRole('textbox', {
+    name: 'Add terms to the notebook, comma-separated',
+  });
+  if (!(await input.isVisible())) {
+    await page.getByRole('button', {
+      name: 'Add terms to the notebook, comma-separated',
+    }).click();
+  }
+  await expect(input).toBeVisible();
+  return input;
+}
+
 /**
  * Submit a comparison and wait for EVERY query posted after the action to
  * deliver its result — an assertion must never pass on pre-action evidence
@@ -293,7 +307,7 @@ export async function submitAndAwaitFreshResults(page: Page, terms: string): Pro
   // bursts can't stall the fresh-results poll.
   await clearNotebook(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const input = page.getByLabel(/add terms to the notebook/i);
+  const input = await openQuickAdd(page);
   await input.fill(terms);
   await input.press('Enter');
   let fresh: ProtocolTraceEvent[] = [];

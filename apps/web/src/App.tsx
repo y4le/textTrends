@@ -90,12 +90,12 @@ export function App() {
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
-  const pinError = useApp((s) => s.pinError);
-  const clearPinError = useApp((s) => s.clearPinError);
   const notebookError = useApp((s) => s.notebookError);
   const clearNotebookError = useApp((s) => s.clearNotebookError);
+  const trendSettingsNotice = useApp((s) => s.trendSettingsNotice);
   const readerPlace = useApp((s) => s.readerPlace);
-  const requestedReaderMode = useApp((s) => s.layers.at(-1)?.ui?.reader);
+  const requestedReaderMode = useApp((s) =>
+    s.layers.findLast((layer) => layer.kind === 'reader')?.ui?.reader);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
   const presentation = usePresentation();
@@ -118,6 +118,14 @@ export function App() {
 
   return (
     <main className="app-shell">
+      <p
+        className="visually-hidden"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {trendSettingsNotice}
+      </p>
       {showWorkbenchChrome && (
         <>
           <header className="app-header" style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-3)', borderBottom: '1px solid var(--rule-strong)', paddingBottom: 'var(--space-2)' }}>
@@ -130,25 +138,6 @@ export function App() {
             </div>
           )}
           <ResumeStatus />
-          {pinError && (
-            <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-              {pinError}{' '}
-              <button
-                type="button"
-                onClick={clearPinError}
-                style={{
-                  font: 'inherit',
-                  color: 'inherit',
-                  background: 'none',
-                  border: '1px solid var(--rule-strong)',
-                  cursor: 'pointer',
-                  padding: '0 0.5ch',
-                }}
-              >
-                dismiss
-              </button>
-            </p>
-          )}
           {notebookError && (
             <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
               {notebookError}{' '}

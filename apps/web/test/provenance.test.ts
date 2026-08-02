@@ -45,6 +45,8 @@ const inventory: InventoryResultV1 = {
 
 const trend: NumericTrend = {
   coordinate: 'declared-sequence',
+  bins: { mode: 'per-doc', count: 4 },
+  rowOffsets: new Uint32Array([0, 2]),
   docOrdinal: new Uint32Array([0, 0]),
   binIndex: new Uint32Array([0, 1]),
   binStartToken: new Uint32Array([0, 50]),
@@ -107,6 +109,12 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
     linkedSelection: null,
     inventory,
     trends: [{ label: 'Holmes', result: trend }],
+    trendMeasure: {
+      kind: 'rate',
+      denominator: 10_000,
+      smoothing: 0,
+      showRaw: false,
+    },
     concordance: { resident: true, enabledTracks: 2, total: 42 },
     frequency: {
       view: {
@@ -168,10 +176,10 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
 describe('provenanceFor', () => {
   it('names every enumerated Trends parameter from resident results', () => {
     const value = formatProvenanceText(provenanceFor(input(), 'trends'));
-    expect(value).toContain('denominator: rate per 10,000 selected tokens');
-    expect(value).toContain('bins per document: 2');
-    expect(value).toContain('coordinate: declared-sequence');
-    expect(value).toContain('smoothing: none');
+    expect(value).toContain('result · kernel rate: rate per 10,000 selected tokens');
+    expect(value).toContain('result · bin policy: 4 equal bins per document');
+    expect(value).toContain('result · coordinate: declared-sequence');
+    expect(value).toContain('presentation · smoothing: none');
     expect(value).toContain('resident series: Holmes');
     expect(value).toContain('Snapshot: snapshot-1');
   });
@@ -197,7 +205,7 @@ describe('provenanceFor', () => {
     const findings = formatProvenanceText(provenanceFor(input(), 'findings'));
     expect(findings).toContain('Method: research log');
     expect(findings).toContain('saved ranges: 1');
-    expect(findings).toContain('pinned evidence: 1 of 8');
+    expect(findings).toContain('saved excerpts: 1');
     expect(findings).toContain('current-state register');
   });
 

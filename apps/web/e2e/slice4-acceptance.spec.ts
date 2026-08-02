@@ -110,7 +110,9 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
     .getByRole('button', { name: 'show evidence' })
     .click();
   await awaitOps(page, mark, ['kwic']);
-  const evidence = page.getByRole('table', { name: 'Comparison occurrence evidence' });
+  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
+  const evidenceSheet = page.getByRole('dialog', { name: 'Evidence sheet' });
+  const evidence = evidenceSheet.getByRole('table', { name: 'Comparison occurrence evidence' });
   await expect(evidence).toBeVisible();
   await expect(evidence.locator('tbody tr').first()).toContainText('alpha');
   await expect(evidence.locator('tbody')).not.toContainText('beta');
@@ -120,7 +122,7 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
     'Occurrences of “forest” restricted to side A: alpha',
   );
   await occurrences.getByRole('button', { name: 'inspect' }).first().click();
-  await expect(page.getByRole('complementary', { name: 'Evidence' })).toContainText('alpha');
+  await expect(evidenceSheet).toContainText('alpha');
 
   const read = occurrences.getByRole('button', { name: 'Read' }).first();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -132,6 +134,8 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   await expect(read).toBeFocused();
   await occurrences.getByRole('button', { name: 'dismiss' }).click();
   await expect(occurrences).toHaveCount(0);
+  await evidenceSheet.getByRole('button', { name: 'Close Evidence sheet' }).click();
+  await expect(evidenceSheet).toHaveCount(0);
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Swap keyness sides' }).click();
@@ -162,8 +166,9 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   await gotoPlace(page, 'compare');
   await expect(forestB).toBeVisible();
 
-  const method = page.getByRole('region', { name: 'Method' });
-  await method.getByText(/^Method/).click();
+  await page.getByRole('button', { name: 'Method', exact: true }).click();
+  const method = page.getByRole('dialog', { name: 'Method sheet' });
+  await method.locator('details.method-summary > summary').click();
   await expect(method.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
   await expect(method.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
   await expect(page.getByText(/No confidence intervals are available/)).toBeVisible();

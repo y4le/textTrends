@@ -1,6 +1,6 @@
 import type { WidthClass } from './presentation.ts';
 
-export const READER_MODES = ['peek', 'study', 'full'] as const;
+export const READER_MODES = ['study', 'full'] as const;
 export type ReaderMode = (typeof READER_MODES)[number];
 
 export const DEFAULT_READER_MODE: ReaderMode = 'study';
@@ -11,7 +11,7 @@ export interface ReaderComposition {
   readonly requested: ReaderMode;
   /** The presentation this width can honestly render. */
   readonly mode: ReaderMode;
-  readonly slot: 'evidence' | 'place' | 'workbench' | 'viewport' | null;
+  readonly slot: 'place' | 'workbench' | 'viewport' | null;
   readonly showScope: boolean;
   readonly showLens: boolean;
   readonly showQuery: boolean;
@@ -69,22 +69,18 @@ export function readerComposition(
     };
   }
 
-  const mode = width === 'regular' && requested === 'peek'
-    ? 'study'
-    : requested;
+  const mode = requested;
   return {
     open: true,
     requested,
     mode,
-    slot: mode === 'peek'
-      ? 'evidence'
-      : mode === 'study'
+    slot: mode === 'study'
         ? 'place'
         : 'workbench',
     showScope: true,
     showLens: true,
-    showQuery: true,
-    showPlace: mode === 'peek',
+    showQuery: mode === 'study',
+    showPlace: false,
     showEvidence: mode === 'study',
     showMethod: true,
     modeControls: true,

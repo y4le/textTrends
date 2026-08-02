@@ -153,7 +153,7 @@ async function runGenerationRace(): Promise<GenerationRaceResult> {
     op: 'trend',
     selection: { docs: ['race-doc'] },
     group: wolfGroup,
-    request: { coordinate: 'document-relative', binsPerDoc: 4 },
+    request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
   });
   const data = await query.result;
   if (data.op === 'trend') {
@@ -206,7 +206,7 @@ async function runCancelProbe(wantAcks: number): Promise<CancelProbeResult> {
       op: 'trend',
       selection: { docs: ['cancel-doc'] },
       group: wolfGroup,
-      request: { coordinate: 'document-relative', binsPerDoc: 40 },
+      request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 40 } },
     });
     query.cancel(); // same tick — the worker sees query, then cancel, queued
     try {

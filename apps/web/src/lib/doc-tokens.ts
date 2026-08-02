@@ -5,6 +5,9 @@ import type {
 } from './store.ts';
 
 export interface DocTokenSources {
+  /** Snapshot-bound extents retained when the visible inventory becomes
+   * range-scoped. This cache is authoritative for documents it contains. */
+  readonly corpusTokenCounts?: ReadonlyMap<string, number>;
   readonly inventory: InventoryState | null;
   readonly trends: ReadonlyMap<string, SeriesTrendState>;
 }
@@ -33,6 +36,9 @@ export function fullTokensByDoc(
   doc: string,
   sources: DocTokenSources,
 ): number | null {
+  const retained = sources.corpusTokenCounts?.get(doc);
+  if (validTokenCount(retained)) return retained;
+
   const inventory = sources.inventory;
   if (
     inventory !== null
@@ -48,4 +54,16 @@ export function fullTokensByDoc(
     if (count !== null) return count;
   }
   return null;
+}
+
+/** Resolve one ordered corpus geometry atomically. A partial answer is not
+ * safe for aggregate row-cap validation, so any missing extent yields null. */
+export function fullTokenCountsForDocs(
+  docs: readonly string[],
+  sources: DocTokenSources,
+): readonly number[] | null {
+  const counts = docs.map((doc) => fullTokensByDoc(doc, sources));
+  return counts.some((count) => count === null)
+    ? null
+    : counts as readonly number[];
 }

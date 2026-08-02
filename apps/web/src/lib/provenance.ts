@@ -3,6 +3,7 @@ import type {
   InventoryResultV1,
   KeynessResultV1,
   NumericTrend,
+  TrendMeasureV2,
 } from '@texttrends/core';
 import type {
   FrequencyViewV1,
@@ -52,6 +53,7 @@ export interface ProvenanceInput {
   readonly linkedSelection: TokenRangeSelectionV1 | null;
   readonly inventory: InventoryResultV1 | null;
   readonly trends: readonly ProvenanceTrend[];
+  readonly trendMeasure: TrendMeasureV2;
   readonly concordance: {
     readonly resident: boolean;
     readonly enabledTracks: number;
@@ -173,19 +175,32 @@ function inventoryMethod(result: InventoryResultV1): ProvenanceMethod {
 
 function trendMethod(input: ProvenanceInput): ProvenanceMethod {
   const first = input.trends[0]!.result;
+  const bins = first.bins.mode === 'per-doc'
+    ? `${first.bins.count} equal bins per document`
+    : `${first.bins.count.toLocaleString()} tokens per bin`;
+  const presentation = input.trendMeasure.kind === 'count'
+    ? 'count per bin (unsmoothed)'
+    : `rate per ${input.trendMeasure.denominator.toLocaleString()} tokens`;
+  const smoothing = input.trendMeasure.kind === 'count'
+    ? 'disabled for counts'
+    : input.trendMeasure.smoothing === 0
+      ? 'none'
+      : `${input.trendMeasure.smoothing}-bin centered token-weighted mean${input.trendMeasure.showRaw ? '; raw line shown behind' : ''}`;
   return {
     method: 'trend',
     parameters: [
-      parameter('denominator', 'rate per 10,000 selected tokens'),
-      parameter('bins per document', String(
-        first.order.length === 0 ? 0 : first.binIndex.length / first.order.length,
-      )),
-      parameter('coordinate', first.coordinate),
-      parameter('smoothing', 'none'),
+      parameter('result · bin policy', bins),
+      parameter('result · kernel rate', 'rate per 10,000 selected tokens'),
+      parameter('result · coordinate', first.coordinate),
+      parameter('presentation · measure', presentation),
+      parameter('presentation · smoothing', smoothing),
       parameter('resident series', input.trends.map((trend) => trend.label).join(', ')),
     ],
     limitations: [
       'Bins with no selected-token denominator are gaps, not zero observations.',
+      ...(input.trendMeasure.kind === 'rate' && input.trendMeasure.smoothing !== 0
+        ? ['Where a document edge or adjacent gap supplies too few contributing bins, the plotted point retains its exact unsmoothed value.']
+        : []),
       'Rates describe the selected corpus; they are not uncertainty estimates.',
     ],
   };
@@ -269,7 +284,7 @@ function findingsMethod(input: ProvenanceInput): ProvenanceMethod {
     parameters: [
       parameter('saved ranges', String(input.findings.ranges.length)),
       parameter('ranges checked in this session', String(checked)),
-      parameter('pinned evidence', `${input.findings.pins.length} of 8`),
+      parameter('saved excerpts', String(input.findings.pins.length)),
       parameter('anchors needing review', String(input.findings.issues.length)),
       parameter('share policy', input.findings.sharePolicy),
       parameter('research persistence', input.findings.researchStatus),

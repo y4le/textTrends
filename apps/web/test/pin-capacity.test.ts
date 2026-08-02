@@ -6,10 +6,10 @@ describe('pinCapacity', () => {
     'describes %d of 8 retained passages',
     (used) => {
       const view = pinCapacity(used);
-      expect(view.label).toBe(`${used} of 8 pinned`);
+      expect(view.label).toBe(`${used} of 8 saved excerpts`);
       expect(view.enabled).toBe(used < 8);
       expect(view.reason).toBe(used === 8
-        ? 'Pin limit reached — remove pinned evidence before retaining another passage.'
+        ? 'Saved excerpts are limited to 8 — remove one from Findings first.'
         : null);
       expect(view.route).toBe(used === 8 ? 'findings' : null);
     },

@@ -18,7 +18,7 @@ export interface ShareReviewTarget {
 }
 
 export const SHARE_REPLACE_SURVIVORS =
-  'Replacing keeps your pinned evidence and replaces the notebook, active tracks, saved ranges, and view settings.';
+  'Replacing keeps your saved excerpts and replaces the notebook, active tracks, saved ranges, and view settings.';
 
 export type ShareDraftReview =
   | { readonly status: 'empty' }

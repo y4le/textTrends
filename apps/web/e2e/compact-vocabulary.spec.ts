@@ -195,6 +195,10 @@ test('Vocabulary detail remains mounted beneath governed Evidence and restores s
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('Home');
+  await expect(page.getByRole('complementary', { name: 'Evidence' })).toBeVisible();
   await gotoPlace(page, 'vocabulary');
 
   const row = page.locator('tr[data-frequency-row]').first();
@@ -202,9 +206,11 @@ test('Vocabulary detail remains mounted beneath governed Evidence and restores s
   const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
   await expect(detail).toBeVisible();
 
-  const more = page.getByRole('button', { name: 'More evidence' });
+  const more = page.getByRole('button', { name: 'Inspect', exact: true });
   await more.click();
   const sheet = page.getByRole('dialog', { name: 'Evidence sheet' });
+  await expect(sheet).toHaveAttribute('data-detent', 'half');
+  await sheet.getByRole('button', { name: 'peek', exact: true }).click();
   await expect(sheet).toHaveAttribute('data-detent', 'peek');
   await expect(sheet).toHaveAttribute('aria-modal', 'false');
   await expect(page.locator('#root')).toHaveJSProperty('inert', false);

@@ -54,7 +54,9 @@ import {
   FREQUENCY_WINDOW_MAX,
   MAX_KWIC_TRACKS,
   PASSAGE_MAX_TOKENS,
+  parseTrendResearchView,
   READER_MAX_TOKENS,
+  TREND_MAX_ROWS,
   termGroupIdentity,
   RESEARCH_MAX_SELECTIONS,
   type CharAnchorV1,
@@ -68,8 +70,12 @@ import {
   type ShareLinkV1,
   type StructureOverrideV1,
   type TermGroupSpec,
+  type TrendBinsSpecV1,
+  type TrendMeasureV2,
 } from '@texttrends/core';
 import { detailSelection, isValidSelection, type TokenRangeSelectionV1 } from './selection.ts';
+import { fullTokenCountsForDocs } from './doc-tokens.ts';
+import { trendBinLimits } from './trend-settings.ts';
 import {
   MAX_PINNED_SNIPPETS,
   canReusePassage,
@@ -100,6 +106,7 @@ import {
   parseQuickAdd,
   reconcileStyleSlots,
   validateNotebookGroup,
+  type NotebookGroupV1,
   type QueryNotebookV1,
 } from './notebook.ts';
 import { isCancelled, UserDataClientError } from './client.ts';
@@ -158,6 +165,7 @@ import {
 } from './route.ts';
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
+import { pinCapacity } from './pin-capacity.ts';
 
 
 export interface KwicRowView {
@@ -201,7 +209,16 @@ export interface QueryClient {
 /** The max compared/concordance terms — one authority, shared with the kwic
  *  track cap so a series set can always be sent as concordance tracks. */
 export const MAX_SERIES = MAX_KWIC_TRACKS;
-export const BINS = 40;
+export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
+  mode: 'per-doc',
+  count: 40,
+});
+export const DEFAULT_TREND_MEASURE: TrendMeasureV2 = Object.freeze({
+  kind: 'rate',
+  denominator: 10_000,
+  smoothing: 0,
+  showRaw: false,
+});
 export const INVENTORY_RHYTHM_BINS = 24;
 export const INVENTORY_GROWTH_POINTS = 128;
 export const INVENTORY_MATTR_WINDOW = 500;
@@ -516,6 +533,21 @@ function keynessTableIntentKey(
 
 export type TrendView = 'series' | 'by-book';
 
+export interface TrendSettingsInput {
+  readonly bins: TrendBinsSpecV1;
+  readonly measure: TrendMeasureV2;
+}
+
+export type TrendSettingsOutcome = 'applied' | 'unchanged' | 'rejected';
+
+export interface RemovedNotebookGroup {
+  readonly group: NotebookGroupV1;
+  readonly index: number;
+  readonly active: boolean;
+  readonly kwicEnabled: boolean;
+  readonly solo: boolean;
+}
+
 /** Concordance presentation + ordering intent. This is deliberately fenced
  * from durable research state: reading mode and rendered context are local
  * presentation, while changing order reissues only the KWIC lane. */
@@ -678,6 +710,10 @@ export interface AppState {
   /** One bounded notebook-authoring refusal (sixth activation, invalid member
    *  set, over-limit name). Cleared by the next successful notebook action. */
   notebookError: string | null;
+  /** Session undo for explicit term deletion. No style slot is retained;
+   * undo re-enters normal slot reconciliation. Cleared across research or
+   * project identity changes. */
+  removedGroups: readonly RemovedNotebookGroup[];
   /** The EFFECTIVE active comparison, in notebook order (solo-projected) —
    *  the stored projection every panel and query lane consumes. */
   series: readonly SeriesIntent[];
@@ -705,6 +741,9 @@ export interface AppState {
   selectedDispersion: DispersionState | null;
   /** Vocabulary-wide analytics are notebook-independent. */
   inventory: InventoryState | null;
+  /** Snapshot-bound full-document extents survive a range-scoped inventory
+   * replacing the visible corpus inventory. Cleared on snapshot identity. */
+  corpusTokenCounts: ReadonlyMap<string, number>;
   frequencyView: FrequencyViewV1;
   frequency: FrequencyState | null;
   /** Full-document chapter labels for the focused book. */
@@ -717,6 +756,14 @@ export interface AppState {
   keynessInventoryB: KeynessInventoryState | null;
   keynessEvidence: KeynessEvidenceState | null;
   trendView: TrendView;
+  /** Durable result geometry and resident-data display transform. Bin changes
+   * reissue only baseline + selected trend lanes; measure changes query
+   * nothing. */
+  trendBins: TrendBinsSpecV1;
+  trendMeasure: TrendMeasureV2;
+  /** Resident explanation for automatic geometry normalization or a corpus
+   * that cannot satisfy the bounded trend protocol. */
+  trendSettingsNotice: string | null;
   /** The document whose chapter outline is previewed and whose top-level
    *  boundaries the chart may mark. A real presentation intent (NOT the scrub
    *  doc or focused series): defaults to the first ready doc in declared
@@ -740,6 +787,8 @@ export interface AppState {
   focusedPinId: string | null;
   pinError: string | null;
   pinAnnouncement: string | null;
+  /** Which concurrently visible surface owns the current live pin feedback. */
+  pinFeedbackOrigin: 'evidence' | 'reader' | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
   readerPage: ReaderPageState | null;
@@ -763,6 +812,8 @@ export interface AppState {
   renameGroup(groupId: string, name: string): void;
   setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): void;
   removeGroup(groupId: string): void;
+  undoRemoveGroup(): void;
+  dismissRemovedGroup(): void;
   reorderGroups(order: readonly string[]): void;
   setGroupActive(groupId: string, active: boolean): void;
   setSolo(groupId: string | null): void;
@@ -775,6 +826,7 @@ export interface AppState {
   setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
   setConcordanceReading(reading: ConcordanceReadingMode): void;
   setTrendView(view: TrendView): void;
+  applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
   /** Center the concordance on activated barcode evidence IMMEDIATELY (no
    *  scrub debounce). Carries the activated series: a deliberate occurrence
    *  click must yield a concordance CAPABLE of containing it, so a disabled
@@ -809,12 +861,12 @@ export interface AppState {
    *  concordance intent or issuing a KWIC query. */
   showEvidenceAt(doc: string, token: number): void;
   clearScrub(): void;
-  pinPassage(doc: string, token: number): void;
+  pinPassage(doc: string, token: number, origin?: 'evidence' | 'reader' | null): void;
   removePin(id: string): void;
   setPinNote(id: string, note: string): void;
   retryPin(id: string): void;
   focusPin(id: string): void;
-  clearPinError(): void;
+  clearPinFeedback(origin?: 'evidence' | 'reader' | null): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   setReaderMode(mode: ReaderMode): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
@@ -866,6 +918,72 @@ export interface AppState {
   restoreResearch(state: ResearchStateV1): void;
 }
 
+type TrendCorpusState = Pick<
+  AppState,
+  'snapshot' | 'inventory' | 'trends' | 'corpusTokenCounts'
+>;
+
+function preferredTrendBinsForMode(mode: TrendBinsSpecV1['mode']): TrendBinsSpecV1 {
+  return mode === 'per-doc'
+    ? DEFAULT_TREND_BINS
+    : { mode: 'fixed-tokens', count: 1_000 };
+}
+
+function fitCountWithinLimits(
+  bins: TrendBinsSpecV1,
+  limits: { readonly minimum: number; readonly maximum: number },
+): TrendBinsSpecV1 {
+  return {
+    mode: bins.mode,
+    count: Math.max(limits.minimum, Math.min(limits.maximum, bins.count)),
+  };
+}
+
+function fitTrendBinsToCorpus(
+  state: TrendCorpusState,
+  bins: TrendBinsSpecV1,
+  clamp: boolean,
+): TrendBinsSpecV1 | null {
+  if (state.snapshot === null) return bins;
+  const tokenCounts = fullTokenCountsForDocs(
+    state.snapshot.readyDocs,
+    {
+      corpusTokenCounts: state.corpusTokenCounts,
+      inventory: state.inventory,
+      trends: state.trends,
+    },
+  );
+  // Corpus geometry is not known yet. Restoration may provision the durable
+  // preference now; the inventory landing path normalizes it before it can
+  // remain as a failed resident intent.
+  if (tokenCounts === null) return bins;
+  const limits = trendBinLimits(tokenCounts, bins.mode);
+  if (limits === null) {
+    if (!clamp) return null;
+    const alternate = preferredTrendBinsForMode(
+      bins.mode === 'per-doc' ? 'fixed-tokens' : 'per-doc',
+    );
+    const alternateLimits = trendBinLimits(tokenCounts, alternate.mode);
+    return alternateLimits === null
+      ? null
+      : fitCountWithinLimits(alternate, alternateLimits);
+  }
+  if (bins.count >= limits.minimum && bins.count <= limits.maximum) return bins;
+  if (!clamp) return null;
+  return fitCountWithinLimits(bins, limits);
+}
+
+function trendGeometryNotice(
+  before: TrendBinsSpecV1,
+  after: TrendBinsSpecV1,
+): string {
+  const description = after.mode === 'per-doc'
+    ? `${after.count.toLocaleString()} bins per book`
+    : `${after.count.toLocaleString()} tokens per bin`;
+  const switched = before.mode !== after.mode ? ' and changed bin mode' : '';
+  return `Adjusted trend geometry${switched} to ${description} for this corpus. The adjusted value is now the saved preference.`;
+}
+
 /** The synchronously-constructed runtime: the React-facing store plus the
  *  private one-shot session bridge the composition root drives. Components
  *  receive only `useApp`; `attachSession`/`failBootstrap`/`dispose` are for
@@ -890,6 +1008,20 @@ function describeAnalysis(analysis: AnalysisPhase): string | null {
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function retainTrendTokenCounts(
+  current: ReadonlyMap<string, number>,
+  trend: NumericTrend,
+): ReadonlyMap<string, number> {
+  const next = new Map(current);
+  for (let index = 0; index < trend.order.length; index++) {
+    const count = trend.docTokenCount[index];
+    if (count !== undefined && Number.isSafeInteger(count) && count >= 0) {
+      next.set(trend.order[index]!, count);
+    }
+  }
+  return next;
 }
 
 function selectionCheckFor(
@@ -977,10 +1109,12 @@ function researchStateFromApp(
     pins: state.durablePins,
     views: {
       trend: {
-        schema: 'texttrends/trend-view/1',
+        schema: 'texttrends/trend-view/2',
         mode: state.trendView,
         sectionMarks: state.sectionMarks,
         focusedDoc: state.focusedDoc,
+        bins: state.trendBins,
+        measure: state.trendMeasure,
       },
       inventory: {
         schema: 'texttrends/inventory-view/1',
@@ -1302,8 +1436,8 @@ export function createAppRuntime(
       layers: readonly Layer[],
       snapshot = get().snapshot,
     ): ReaderPlace | null => {
-      const layer = layers.at(-1);
-      if (layer?.kind !== 'reader') return null;
+      const layer = layers.findLast((candidate) => candidate.kind === 'reader');
+      if (layer === undefined) return null;
       return liveReaderPlace(
         layer.target,
         snapshot?.snapshot ?? null,
@@ -1734,8 +1868,10 @@ export function createAppRuntime(
         });
     };
 
-    /** The doc's token extent, if any ready trend result carries it. */
+    /** The doc's token extent, from retained corpus geometry or a ready trend. */
     const docTokenCountOf = (doc: string): number | null => {
+      const retained = get().corpusTokenCounts.get(doc);
+      if (retained !== undefined) return retained;
       for (const [, state] of get().trends) {
         if (state.status !== 'ready') continue;
         const d = state.trend.order.indexOf(doc);
@@ -1863,6 +1999,117 @@ export function createAppRuntime(
       return changed;
     };
 
+    /** Reissue only the two trend result lanes after a bin-policy change.
+     * Dispersion, KWIC, passage, and inventory do not depend on trend bins and
+     * must remain resident. */
+    const runTrendLanesOnly = () => {
+      trendLane.supersede();
+      selectedTrendLane.supersede();
+      const { snapshot, series, linkedSelection, trendBins } = get();
+      if (!snapshot || series.length === 0) {
+        set({ trends: new Map(), selectedTrends: new Map() });
+        return;
+      }
+      const issuedKey = snapKey(snapshot);
+      const issuedBins = trendBins;
+      const binsCurrent = () => {
+        const current = get().trendBins;
+        return current.mode === issuedBins.mode && current.count === issuedBins.count;
+      };
+      set({
+        trends: new Map(series.map((item) => [item.id, { status: 'pending' } as const])),
+      });
+      const baselineLease = trendLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        binsCurrent,
+      );
+      for (const item of series) {
+        const spec = specFor(item.id);
+        if (spec === null) continue;
+        const issuedIdentity = termGroupIdentity(spec);
+        const write = (state: SeriesTrendState) => set((live) => {
+          const next = new Map(live.trends);
+          next.set(item.id, state);
+          return {
+            trends: next,
+            corpusTokenCounts: state.status === 'ready'
+              ? retainTrendTokenCounts(live.corpusTokenCounts, state.trend)
+              : live.corpusTokenCounts,
+          };
+        });
+        issueOn(
+          trendLane,
+          snapshot.snapshot,
+          {
+            op: 'trend',
+            selection: { docs: [...snapshot.readyDocs] },
+            group: spec,
+            request: { coordinate: 'declared-sequence', bins: issuedBins },
+          },
+          baselineLease,
+          (data) => {
+            if (data.op === 'trend' && identityOf(item.id) === issuedIdentity) {
+              write({ status: 'ready', trend: data.trend });
+            }
+          },
+          (message) => {
+            if (identityOf(item.id) === issuedIdentity) {
+              write({ status: 'error', message });
+            }
+          },
+        );
+      }
+
+      if (
+        linkedSelection === null ||
+        !isValidSelection(linkedSelection, snapshot.snapshot, snapshot.readyDocs)
+      ) {
+        set({ selectedTrends: new Map() });
+        return;
+      }
+      const issuedSelection = linkedSelection;
+      const wireSelection = detailSelection(snapshot.readyDocs, issuedSelection);
+      set({
+        selectedTrends: new Map(series.map((item) => [item.id, { status: 'pending' } as const])),
+      });
+      const selectedLease = selectedTrendLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        binsCurrent,
+        () => get().linkedSelection === issuedSelection,
+      );
+      for (const item of series) {
+        const spec = specFor(item.id);
+        if (spec === null) continue;
+        const issuedIdentity = termGroupIdentity(spec);
+        const write = (state: SeriesTrendState) => set((live) => {
+          const next = new Map(live.selectedTrends);
+          next.set(item.id, state);
+          return { selectedTrends: next };
+        });
+        issueOn(
+          selectedTrendLane,
+          snapshot.snapshot,
+          {
+            op: 'trend',
+            selection: wireSelection,
+            group: spec,
+            request: { coordinate: 'declared-sequence', bins: issuedBins },
+          },
+          selectedLease,
+          (data) => {
+            if (data.op === 'trend' && identityOf(item.id) === issuedIdentity) {
+              write({ status: 'ready', trend: data.trend });
+            }
+          },
+          (message) => {
+            if (identityOf(item.id) === issuedIdentity) {
+              write({ status: 'error', message });
+            }
+          },
+        );
+      }
+    };
+
     /** (Re)issue the SELECTED-range overlays (trends + dispersion) for the
      *  active linked selection — separate lanes so a brush never cancels the
      *  resident whole-corpus baseline (ruling §2). No selection: overlays
@@ -1870,7 +2117,7 @@ export function createAppRuntime(
     const runSelected = () => {
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
-      const { snapshot, series, linkedSelection } = get();
+      const { snapshot, series, linkedSelection, trendBins } = get();
       if (!snapshot || series.length === 0 || linkedSelection === null
         || !isValidSelection(linkedSelection, snapshot.snapshot, snapshot.readyDocs)) {
         set({ selectedTrends: new Map(), selectedDispersion: null });
@@ -1898,7 +2145,7 @@ export function createAppRuntime(
         issueOn(
           selectedTrendLane,
           snapshot.snapshot,
-          { op: 'trend', selection: wireSelection, group: spec, request: { coordinate: 'declared-sequence', binsPerDoc: BINS } },
+          { op: 'trend', selection: wireSelection, group: spec, request: { coordinate: 'declared-sequence', bins: trendBins } },
           lease,
           (data) => {
             if (data.op === 'trend' && identityOf(s.id) === issuedIdentity) write({ status: 'ready', trend: data.trend });
@@ -2151,7 +2398,11 @@ export function createAppRuntime(
         series,
         notebookError: null,
         kwicEnabledSeries: nextEnabled,
-        focusedSeries: stillFocused ? prev.focusedSeries : series[0]?.id ?? null,
+        focusedSeries: prev.focusedSeries === null
+          ? null
+          : stillFocused
+            ? prev.focusedSeries
+            : series[0]?.id ?? null,
       });
       if (opts.reissue && effectiveIntentKey(notebook, series, nextEnabled) !== prevIntent) {
         get().runQueries();
@@ -2259,6 +2510,7 @@ export function createAppRuntime(
       soloGroupId: null,
       styleSlots: new Map<string, number>(),
       notebookError: null,
+      removedGroups: [],
       series: [],
       inputError: null,
       // Canonical from the start: the store, not the panels, decides the
@@ -2279,6 +2531,7 @@ export function createAppRuntime(
       selectedTrends: new Map(),
       selectedDispersion: null,
       inventory: null,
+      corpusTokenCounts: new Map(),
       frequencyView: {
         schema: 'texttrends/frequency-view/1',
         minCount: 1,
@@ -2296,6 +2549,9 @@ export function createAppRuntime(
       keynessInventoryB: null,
       keynessEvidence: null,
       trendView: 'series',
+      trendBins: DEFAULT_TREND_BINS,
+      trendMeasure: DEFAULT_TREND_MEASURE,
+      trendSettingsNotice: null,
       focusedDoc: null,
       structure: null,
       editContext: null,
@@ -2307,6 +2563,7 @@ export function createAppRuntime(
       focusedPinId: null,
       pinError: null,
       pinAnnouncement: null,
+      pinFeedbackOrigin: null,
       readerPlace: null,
       readerPage: null,
       readerNavigation: null,
@@ -2374,10 +2631,53 @@ export function createAppRuntime(
 
       removeGroup(groupId) {
         const nb = get().notebook;
-        if (!nb.groups.some((x) => x.id === groupId)) return;
+        const index = nb.groups.findIndex((x) => x.id === groupId);
+        if (index < 0) return;
+        const group = nb.groups[index]!;
+        const removed: RemovedNotebookGroup = {
+          group,
+          index,
+          active: get().activeGroupIds.has(groupId),
+          kwicEnabled: get().kwicEnabledSeries.has(groupId),
+          solo: get().soloGroupId === groupId,
+        };
         const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.filter((x) => x.id !== groupId) };
         const wasProjected = get().series.some((s) => s.id === groupId);
         adoptNotebook({ notebook }, { reissue: wasProjected });
+        set((state) => ({ removedGroups: [...state.removedGroups, removed].slice(-5) }));
+      },
+
+      undoRemoveGroup() {
+        const state = get();
+        const removed = state.removedGroups.at(-1);
+        if (!removed) return;
+        if (
+          state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups ||
+          state.notebook.groups.some((group) => group.id === removed.group.id)
+        ) {
+          set({ removedGroups: state.removedGroups.slice(0, -1) });
+          refuseNotebook('The removed term can no longer be restored.');
+          return;
+        }
+        const groups = [...state.notebook.groups];
+        groups.splice(Math.min(removed.index, groups.length), 0, removed.group);
+        const active = new Set(state.activeGroupIds);
+        if (removed.active && active.size < MAX_SERIES) active.add(removed.group.id);
+        const enabled = new Set(state.kwicEnabledSeries);
+        if (removed.kwicEnabled) enabled.add(removed.group.id);
+        set({ removedGroups: state.removedGroups.slice(0, -1) });
+        adoptNotebook({
+          notebook: { ...state.notebook, groups },
+          activeGroupIds: active,
+          kwicEnabledGroupIds: enabled,
+          soloGroupId: removed.solo && state.soloGroupId === null
+            ? removed.group.id
+            : state.soloGroupId,
+        }, { reissue: removed.active });
+      },
+
+      dismissRemovedGroup() {
+        set((state) => ({ removedGroups: state.removedGroups.slice(0, -1) }));
       },
 
       reorderGroups(order) {
@@ -2484,6 +2784,44 @@ export function createAppRuntime(
         set({ trendView: view }); // presentation-only: no query is reissued
       },
 
+      applyTrendSettings(input) {
+        const state = get();
+        let admitted;
+        try {
+          admitted = parseTrendResearchView({
+            schema: 'texttrends/trend-view/2',
+            mode: state.trendView,
+            sectionMarks: state.sectionMarks,
+            focusedDoc: state.focusedDoc,
+            bins: input.bins,
+            measure: input.measure,
+          });
+        } catch {
+          return 'rejected';
+        }
+        if (fitTrendBinsToCorpus(state, admitted.bins, false) === null) return 'rejected';
+        const binsChanged =
+          admitted.bins.mode !== state.trendBins.mode ||
+          admitted.bins.count !== state.trendBins.count;
+        const measureChanged = canonicalJson(admitted.measure) !== canonicalJson(state.trendMeasure);
+        if (!binsChanged && !measureChanged) return 'unchanged';
+        // A measure-only change does not fabricate a new geometry object.
+        // Trend-lane leases also fence by bin value, so any future equal-value
+        // writer remains semantically current while a reissue is in flight.
+        set(binsChanged
+          ? {
+              trendBins: admitted.bins,
+              trendMeasure: admitted.measure,
+              trendSettingsNotice: null,
+            }
+          : {
+              trendMeasure: admitted.measure,
+              trendSettingsNotice: null,
+            });
+        if (binsChanged) runTrendLanesOnly();
+        return 'applied';
+      },
+
       setFocusedDoc(doc) {
         if (get().focusedDoc === doc) return;
         if (!get().snapshot?.readyDocs.includes(doc)) return; // only a ready doc
@@ -2520,7 +2858,7 @@ export function createAppRuntime(
         runKwic();
       },
 
-      pinPassage(doc, token) {
+      pinPassage(doc, token, origin = null) {
         const { snapshot, pins, passage, series } = get();
         if (
           !snapshot
@@ -2536,14 +2874,17 @@ export function createAppRuntime(
           set({
             focusedPinId: duplicate.id,
             pinError: null,
-            pinAnnouncement: 'That position is already pinned; focused the existing evidence.',
+            pinAnnouncement: 'That position is already saved; focused the existing excerpt.',
+            pinFeedbackOrigin: origin,
           });
           return;
         }
         if (pins.length >= MAX_PINNED_SNIPPETS) {
+          const capacity = pinCapacity(pins.length);
           set({
-            pinError: `Pinned evidence is limited to ${MAX_PINNED_SNIPPETS} — remove one first.`,
+            pinError: capacity.reason,
             pinAnnouncement: null,
+            pinFeedbackOrigin: origin,
           });
           return;
         }
@@ -2564,7 +2905,8 @@ export function createAppRuntime(
               pins: [...pins, ready],
               focusedPinId: id,
               pinError: null,
-              pinAnnouncement: 'Pinned the loaded passage.',
+              pinAnnouncement: 'Saved the loaded excerpt to Findings.',
+              pinFeedbackOrigin: origin,
             });
             upsertDurableReadyPin(
               ready as Extract<PinnedSnippet, { readonly kind: 'ready' }>,
@@ -2582,7 +2924,8 @@ export function createAppRuntime(
           pins: [...pins, pending],
           focusedPinId: id,
           pinError: null,
-          pinAnnouncement: 'Capturing pinned evidence.',
+          pinAnnouncement: 'Saving excerpt to Findings.',
+          pinFeedbackOrigin: origin,
         });
         issuePin(id, anchor, request.captured, request.wire);
       },
@@ -2623,7 +2966,8 @@ export function createAppRuntime(
             ),
             focusedPinId: state.focusedPinId === id ? neighbour : state.focusedPinId,
             pinError: null,
-            pinAnnouncement: 'Removed pinned evidence.',
+            pinAnnouncement: 'Removed saved excerpt.',
+            pinFeedbackOrigin: null,
           };
         });
       },
@@ -2663,17 +3007,27 @@ export function createAppRuntime(
           anchor: pin.anchor,
           tracks: pin.tracks,
         }));
-        set({ focusedPinId: id, pinError: null, pinAnnouncement: 'Retrying pinned evidence.' });
+        set({
+          focusedPinId: id,
+          pinError: null,
+          pinAnnouncement: 'Retrying saved excerpt.',
+          pinFeedbackOrigin: null,
+        });
         issuePin(id, pin.anchor, request.tracks, request.wire);
       },
 
       focusPin(id) {
         if (!get().pins.some((pin) => pin.id === id)) return;
-        set({ focusedPinId: id, pinAnnouncement: 'Focused pinned evidence.' });
+        set({
+          focusedPinId: id,
+          pinAnnouncement: 'Focused saved excerpt.',
+          pinFeedbackOrigin: null,
+        });
       },
 
-      clearPinError() {
-        set({ pinError: null });
+      clearPinFeedback(origin) {
+        if (origin !== undefined && get().pinFeedbackOrigin !== origin) return;
+        set({ pinError: null, pinAnnouncement: null, pinFeedbackOrigin: null });
       },
 
       openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
@@ -2702,8 +3056,8 @@ export function createAppRuntime(
 
       setReaderMode(mode) {
         if (!READER_MODES.includes(mode)) return;
-        const layer = get().layers.at(-1);
-        if (layer?.kind !== 'reader' || layer.ui?.reader === mode) return;
+        const layer = get().layers.findLast((candidate) => candidate.kind === 'reader');
+        if (layer === undefined || layer.ui?.reader === mode) return;
         get().setLayerUI(layer.id, { reader: mode });
       },
 
@@ -2724,13 +3078,15 @@ export function createAppRuntime(
           || (cursor.kind === 'before' && cursor.token < 1)
         ) return;
         const nextPlace: ReaderPlace = { ...place, cursor: { ...cursor } };
-        const readerLayer = get().layers.at(-1);
-        if (readerLayer?.kind !== 'reader') return;
+        const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
+        const readerLayer = get().layers[readerIndex];
+        if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
         const nextLayer: Layer = {
           ...readerLayer,
           target: Object.freeze(nextPlace),
         };
-        const layers = [...get().layers.slice(0, -1), nextLayer];
+        const layers = get().layers.map((layer, index) =>
+          index === readerIndex ? nextLayer : layer);
         rememberLayer(nextLayer, layers);
         writeNavigation(
           'replace',
@@ -2862,6 +3218,7 @@ export function createAppRuntime(
             focusedPinId: deadIds.has(state.focusedPinId ?? '') ? null : state.focusedPinId,
             pinError: null,
             pinAnnouncement: dead.length > 0 ? 'Cleared pins from the replaced snapshot.' : state.pinAnnouncement,
+            pinFeedbackOrigin: null,
           });
         }
         if (!readerLive && state.readerPlace !== null) {
@@ -2876,7 +3233,7 @@ export function createAppRuntime(
       },
 
       runQueries() {
-        const { snapshot, series } = get();
+        const { snapshot, series, trendBins } = get();
         // Reader highlights use the CURRENT semantic active-track projection;
         // rename-only notebook edits do not call runQueries and remain
         // presentation-only, while active/member/overlap changes reissue here.
@@ -2937,7 +3294,12 @@ export function createAppRuntime(
             set((prev) => {
               const next = new Map(prev.trends); // NEVER mutate the resident map
               next.set(s.id, state);
-              return { trends: next };
+              return {
+                trends: next,
+                corpusTokenCounts: state.status === 'ready'
+                  ? retainTrendTokenCounts(prev.corpusTokenCounts, state.trend)
+                  : prev.corpusTokenCounts,
+              };
             });
           issueOn(
             trendLane,
@@ -2946,7 +3308,7 @@ export function createAppRuntime(
               op: 'trend',
               selection: { docs: [...snapshot.readyDocs] },
               group: spec,
-              request: { coordinate: 'declared-sequence', binsPerDoc: BINS },
+              request: { coordinate: 'declared-sequence', bins: trendBins },
             },
             lease,
             (data) => {
@@ -3050,13 +3412,38 @@ export function createAppRuntime(
           lease,
           (data) => {
             if (data.op !== 'inventory') return;
-            set({
-              inventory: {
-                snapshot: snapshot.snapshot,
-                selection: issuedSelection,
-                state: { status: 'ready', result: data.inventory },
-              },
+            set((state) => {
+              const corpusTokenCounts = new Map(state.corpusTokenCounts);
+              for (const row of data.inventory.documents) {
+                if (Number.isSafeInteger(row.fullTokens) && row.fullTokens >= 0) {
+                  corpusTokenCounts.set(row.doc, row.fullTokens);
+                }
+              }
+              return {
+                inventory: {
+                  snapshot: snapshot.snapshot,
+                  selection: issuedSelection,
+                  state: { status: 'ready', result: data.inventory },
+                },
+                corpusTokenCounts,
+              };
             });
+            const current = get();
+            const fitted = fitTrendBinsToCorpus(current, current.trendBins, true);
+            if (fitted === null) {
+              set({
+                trendSettingsNotice: `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`,
+              });
+            } else if (
+              fitted.mode !== current.trendBins.mode
+              || fitted.count !== current.trendBins.count
+            ) {
+              set({
+                trendBins: fitted,
+                trendSettingsNotice: trendGeometryNotice(current.trendBins, fitted),
+              });
+              runTrendLanesOnly();
+            }
           },
           (message) => set({
             inventory: {
@@ -4043,6 +4430,15 @@ export function createAppRuntime(
         selectionLane.supersede();
         previewSelectionLane.supersede();
         const state = get();
+        const fittedRestoredTrendBins = fitTrendBinsToCorpus(
+          state,
+          research.views.trend.bins,
+          true,
+        );
+        const restoredTrendBins = fittedRestoredTrendBins ?? state.trendBins;
+        const restoredTrendBinsChanged =
+          restoredTrendBins.mode !== research.views.trend.bins.mode
+          || restoredTrendBins.count !== research.views.trend.bins.count;
         const rows = projectTextRows(state);
         const docsByHash = new Map(rows.map((row) => [row.text, row.doc]));
         const a = research.views.keyness.a.flatMap((hash) => {
@@ -4065,6 +4461,13 @@ export function createAppRuntime(
           : b[0] ?? null;
         set({
           trendView: research.views.trend.mode,
+          trendBins: restoredTrendBins,
+          trendMeasure: research.views.trend.measure,
+          trendSettingsNotice: fittedRestoredTrendBins === null
+            ? `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`
+            : restoredTrendBinsChanged
+              ? trendGeometryNotice(research.views.trend.bins, restoredTrendBins)
+              : null,
           sectionMarks: research.views.trend.sectionMarks,
           focusedDoc: research.views.trend.focusedDoc,
           frequencyView: {
@@ -4103,6 +4506,7 @@ export function createAppRuntime(
           pins: [],
           focusedPinId: null,
           selectionError: null,
+          removedGroups: [],
         });
         adoptNotebook(
           {
@@ -4313,9 +4717,14 @@ export function createAppRuntime(
       if (result.kind === 'loaded') {
         researchRevision = result.state.revision;
         store.getState().restoreResearch(result.state);
+        const liveBins = store.getState().trendBins;
+        const geometryNormalized =
+          liveBins.mode !== result.state.views.trend.bins.mode
+          || liveBins.count !== result.state.views.trend.bins.count;
         researchHydrated = true;
         researchLastKey = researchSemanticKey(store.getState());
         store.setState({ researchPersistence: { phase: 'saved' } });
+        if (geometryNormalized) scheduleResearchSave();
         return;
       }
       researchHydrated = true;
@@ -4454,6 +4863,15 @@ export function createAppRuntime(
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
       focusedDoc,
       keynessView,
+      corpusTokenCounts: prevKey !== nextKey
+        ? new Map()
+        : store.getState().corpusTokenCounts,
+      trendSettingsNotice: prevKey !== nextKey
+        ? null
+        : store.getState().trendSettingsNotice,
+      removedGroups: prevProject !== next.project.id
+        ? []
+        : store.getState().removedGroups,
     });
     if (prevProject !== next.project.id) {
       if (store.getState().selectionChecks.size > 0) {

@@ -132,7 +132,7 @@ export function PinRecordDetail({
   return (
     <section
       className="findings-record-detail"
-      aria-label={`Pinned evidence detail: ${title}, token ${pin.anchor.token + 1}`}
+      aria-label={`Saved excerpt detail: ${title}, token ${pin.anchor.token + 1}`}
     >
       <dl>
         <div><dt>document</dt><dd>{title}</dd></div>
@@ -179,7 +179,7 @@ export function PinRecordDetail({
         <button type="button" onClick={onShow}>show current passage</button>
         <button
           type="button"
-          aria-label={`Open pinned evidence at token ${pin.anchor.token + 1} in reader`}
+          aria-label={`Open saved excerpt at token ${pin.anchor.token + 1} in reader`}
           onClick={onRead}
           disabled={pin.kind !== 'ready'}
         >

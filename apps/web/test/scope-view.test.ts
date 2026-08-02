@@ -53,7 +53,7 @@ const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
   inventory: readyInventory(),
   linkedSelection: null,
   titleByDoc: new Map([['a', 'A Study in Scarlet']]),
-  pins: { used: 2, cap: 8, needingReview: 0 },
+  pins: { needingReview: 0 },
   loadingPhase: null,
   ...overrides,
 });

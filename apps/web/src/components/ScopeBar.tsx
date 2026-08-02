@@ -1,16 +1,13 @@
 import { useMemo } from 'react';
-import { MAX_PINNED_SNIPPETS } from '../lib/pins.ts';
 import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
-import { pinCapacity } from '../lib/pin-capacity.ts';
 
 export function ScopeBar() {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const projectSession = useApp((state) => state.projectSession);
-  const pins = useApp((state) => state.pins);
   const pinRestoreIssues = useApp((state) => state.pinRestoreIssues);
   const loadingPhase = useApp((state) => state.loadingPhase);
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
@@ -18,6 +15,9 @@ export function ScopeBar() {
   const trends = useApp((state) => state.trends);
   const place = useApp((state) => state.place);
   const setPlace = useApp((state) => state.setPlace);
+  const layers = useApp((state) => state.layers);
+  const pushLayer = useApp((state) => state.pushLayer);
+  const replaceLayer = useApp((state) => state.replaceLayer);
 
   const project = projectSession?.project ?? null;
   const titleByDoc = useMemo(
@@ -37,11 +37,6 @@ export function ScopeBar() {
         linkedSelection,
         titleByDoc,
         pins: {
-          // This is the collection MAX_PINNED_SNIPPETS actually caps. Durable
-          // anchors that failed restoration remain visible via needingReview
-          // but do not consume a live pin slot.
-          used: pins.length,
-          cap: MAX_PINNED_SNIPPETS,
           needingReview: pinRestoreIssues.length,
         },
         loadingPhase: bootstrapPhase === 'initializing'
@@ -55,7 +50,6 @@ export function ScopeBar() {
       inventory,
       linkedSelection,
       loadingPhase,
-      pins.length,
       pinRestoreIssues.length,
       place,
       project,
@@ -69,7 +63,7 @@ export function ScopeBar() {
   const isOnlyThisBook = linkedSelection !== null
     && linkedSelection.tokens.start === 0
     && linkedSelection.tokens.end === selectionFullTokens;
-  const findingsLabel = pinCapacity(pins.length, MAX_PINNED_SNIPPETS).label;
+  const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
 
   return (
     <section
@@ -123,17 +117,7 @@ export function ScopeBar() {
                     {segment}
                   </button>
                 )
-              : segment === findingsLabel
-                ? (
-                    <button
-                      className="scope-organ-link coarse-target"
-                      type="button"
-                      onClick={() => setPlace('findings')}
-                    >
-                      {segment}
-                    </button>
-                  )
-                : segment === vm.range?.label
+              : segment === vm.range?.label
                   ? (
                       <button
                         className="scope-organ-link coarse-target"
@@ -166,6 +150,37 @@ export function ScopeBar() {
             )}
           </span>
         ))}
+        <button
+          className="scope-organ-link coarse-target scope-findings-link"
+          type="button"
+          onClick={() => setPlace('findings')}
+        >
+          Findings
+        </button>
+        <button
+          id="global-method-open"
+          className="scope-organ-link coarse-target scope-method-link"
+          type="button"
+          onClick={() => {
+            if (layers.at(-1)?.kind === 'sheet') {
+              replaceLayer(
+                'sheet',
+                Object.freeze({ surface: 'method' }),
+                'global-method-open',
+                { detent: 'tall' },
+              );
+            } else {
+              pushLayer(
+                'sheet',
+                Object.freeze({ surface: 'method' }),
+                'global-method-open',
+                { detent: 'tall' },
+              );
+            }
+          }}
+        >
+          {methodLabel}
+        </button>
       </div>
     </section>
   );
