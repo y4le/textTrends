@@ -78,6 +78,10 @@ import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
 import type { CapturedTrack } from './track-legend.ts';
 import {
+  FOOTER_PASSAGE_DEBOUNCE_MS,
+  footerPassageServes,
+} from './footer-view.ts';
+import {
   liveReaderPlace,
   readerPlaceFor,
   sameReaderCursor,
@@ -301,6 +305,18 @@ export interface DispersionState {
 export interface ReaderPageState {
   readonly snapshot: string;
   readonly place: ReaderPlace;
+  readonly tracks: readonly CapturedTrack[];
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly page: ReaderPageResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+/** The reading footer's canonical source page. It deliberately has its own
+ * lane: Reader paging must never move or blank the workbench footer. */
+export interface FooterPassageState {
+  readonly snapshot: string;
+  readonly doc: string;
   readonly tracks: readonly CapturedTrack[];
   readonly state:
     | { readonly status: 'pending' }
@@ -714,6 +730,8 @@ export interface AppState {
   /** Opt-in: draw the focused doc's top-level chapter boundaries on the chart. */
   sectionMarks: boolean;
   scrub: ScrubTarget | null;
+  /** Transient, snapshot-bound source text for the global reading footer. */
+  footerPassage: FooterPassageState | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
   readerPage: ReaderPageState | null;
@@ -786,6 +804,7 @@ export interface AppState {
   retryReader(): void;
   closeReader(): void;
   runReader(): void;
+  runFooterPassage(): void;
   runQueries(): void;
   /** (Re)issue the focused doc's outline query. Called on snapshot change and
    *  when the focused doc changes; independent of the term-series flow. */
@@ -1034,7 +1053,7 @@ export function researchSemanticKey(state: AppState): string | null {
  *  cancels it may best-effort clean up. Superseding is ONE operation, so no
  *  call site can cancel without invalidating or invalidate without cancelling. */
 class QueryLane {
-  private cancels: (() => void)[] = [];
+  private readonly cancels = new Set<() => void>();
   readonly ops: LatestOperation;
   constructor(scope: OperationScope) {
     this.ops = new LatestOperation(scope);
@@ -1050,11 +1069,12 @@ class QueryLane {
         // The request either settles normally or its lease is already dead.
       }
     }
-    this.cancels = [];
+    this.cancels.clear();
     this.ops.invalidate();
   }
-  track(cancel: () => void): void {
-    this.cancels.push(cancel);
+  track(cancel: () => void): () => void {
+    this.cancels.add(cancel);
+    return () => this.cancels.delete(cancel);
   }
 }
 
@@ -1141,6 +1161,12 @@ export function createAppRuntime(
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
   const readerLane = new QueryLane(scope);
+  // The global reading footer reuses reader-page/1 through a separate lane.
+  // Reader navigation and footer scrubbing never supersede one another.
+  const footerPassageLane = new QueryLane(scope);
+  let footerPassageTimer: ReturnType<typeof setTimeout> | null = null;
+  let footerPassagePending: ScrubTarget | null = null;
+  let footerPassageActive: { readonly cancel: () => void } | null = null;
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
   let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
@@ -1534,6 +1560,133 @@ export function createAppRuntime(
 
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
       pairs.every(([id, ident]) => identityOf(id) === ident);
+
+    const footerServes = (target: ScrubTarget): boolean => {
+      const snapshot = get().snapshot;
+      return snapshot !== null && footerPassageServes(
+        get().footerPassage,
+        target,
+        snapshot.snapshot,
+        identityOf,
+      );
+    };
+
+    const clearFooterPassageTimer = () => {
+      if (footerPassageTimer !== null) {
+        clearTimeout(footerPassageTimer);
+        footerPassageTimer = null;
+      }
+    };
+
+    const resetFooterPassage = () => {
+      clearFooterPassageTimer();
+      footerPassagePending = null;
+      footerPassageLane.supersede();
+      footerPassageActive = null;
+      if (get().footerPassage !== null) set({ footerPassage: null });
+    };
+
+    let pumpFooterPassage = (): void => undefined;
+
+    const scheduleFooterPassage = (target: ScrubTarget) => {
+      const snapshot = get().snapshot;
+      if (!snapshot || !snapshot.readyDocs.includes(target.doc)) return;
+      if (footerServes(target)) {
+        footerPassagePending = null;
+        clearFooterPassageTimer();
+        return;
+      }
+      footerPassagePending = { ...target };
+      clearFooterPassageTimer();
+      footerPassageTimer = setTimeout(() => {
+        footerPassageTimer = null;
+        pumpFooterPassage();
+      }, FOOTER_PASSAGE_DEBOUNCE_MS);
+    };
+
+    pumpFooterPassage = () => {
+      if (footerPassageActive !== null) return;
+      const target = footerPassagePending;
+      footerPassagePending = null;
+      const { snapshot, series } = get();
+      if (!target || !snapshot || !snapshot.readyDocs.includes(target.doc)) return;
+      if (footerServes(target)) return;
+      const tracks = trackSpecs(series);
+      if (tracks === null) {
+        set({ footerPassage: null });
+        return;
+      }
+      const issuedKey = snapKey(snapshot);
+      const lease = footerPassageLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => identitiesCurrent(tracks.identities),
+      );
+      set({
+        footerPassage: {
+          snapshot: snapshot.snapshot,
+          doc: target.doc,
+          tracks: tracks.captured,
+          state: { status: 'pending' },
+        },
+      });
+      const handle = client.query(snapshot.snapshot, {
+        op: 'reader-page',
+        tracks: tracks.wire,
+        request: {
+          method: 'reader-page/1',
+          doc: target.doc,
+          cursor: { kind: 'around', token: target.token },
+          maxTokens: READER_MAX_TOKENS,
+        },
+      });
+      const active = { cancel: handle.cancel };
+      footerPassageActive = active;
+      const untrack = footerPassageLane.track(handle.cancel);
+      const settle = () => {
+        untrack();
+        if (footerPassageActive !== active) return;
+        footerPassageActive = null;
+        if (footerPassagePending && footerServes(footerPassagePending)) {
+          footerPassagePending = null;
+        }
+        if (footerPassagePending) pumpFooterPassage();
+      };
+      void handle.result
+        .then((data) => {
+          if (!lease.isCurrent() || data.op !== 'reader-page') return;
+          if (data.page.doc !== target.doc) {
+            set({
+              footerPassage: {
+                snapshot: snapshot.snapshot,
+                doc: target.doc,
+                tracks: tracks.captured,
+                state: { status: 'error', message: 'footer source returned the wrong document' },
+              },
+            });
+            return;
+          }
+          set({
+            footerPassage: {
+              snapshot: snapshot.snapshot,
+              doc: target.doc,
+              tracks: tracks.captured,
+              state: { status: 'ready', page: data.page },
+            },
+          });
+        })
+        .catch((error: unknown) => {
+          if (isCancelled(error) || !lease.isCurrent()) return;
+          set({
+            footerPassage: {
+              snapshot: snapshot.snapshot,
+              doc: target.doc,
+              tracks: tracks.captured,
+              state: { status: 'error', message: queryErrorMessage(error) },
+            },
+          });
+        })
+        .finally(settle);
+    };
 
     /** Reissue only the two trend result lanes after a bin-policy change.
      * Dispersion, KWIC, and inventory do not depend on trend bins and must
@@ -2070,6 +2223,7 @@ export function createAppRuntime(
       lineExcerpt: null,
       sectionMarks: false,
       scrub: null,
+      footerPassage: null,
       readerPlace: null,
       readerPage: null,
       readerNavigation: null,
@@ -2357,13 +2511,20 @@ export function createAppRuntime(
           kwicCenter?.doc === target.doc
           && kwicCenter.token === target.token
           && kwicCenter.origin === undefined;
-        if (!changed && alreadySettled) return;
+        if (!changed && alreadySettled) {
+          // Footer residency is independent of the settled KWIC center. A
+          // missing/error page may retry without invalidating concordance.
+          scheduleFooterPassage(target);
+          return;
+        }
         if (changed) set({ scrub: target });
+        scheduleFooterPassage(target);
         scheduleKwicCenter(target); // debounced concordance re-centre on the axis
       },
 
       clearScrub() {
         set({ scrub: null });
+        resetFooterPassage();
         // The concordance falls back to reading order immediately.
         resetKwicCenter();
         runKwic();
@@ -2519,12 +2680,25 @@ export function createAppRuntime(
         );
       },
 
+      runFooterPassage() {
+        const target = get().scrub;
+        if (target === null) {
+          resetFooterPassage();
+          return;
+        }
+        footerPassagePending = { ...target };
+        clearFooterPassageTimer();
+        pumpFooterPassage();
+      },
+
       runQueries() {
         const { snapshot, series, trendBins } = get();
         // Reader highlights use the CURRENT semantic active-track projection;
         // rename-only notebook edits do not call runQueries and remain
         // presentation-only, while active/member/overlap changes reissue here.
         get().runReader();
+        resetFooterPassage();
+        if (snapshot && get().scrub) get().runFooterPassage();
         // Trend intent changed: ALWAYS cancel superseded work, clear to
         // pending, and invalidate the epoch — even when the new intent runs
         // no query.
@@ -2546,7 +2720,14 @@ export function createAppRuntime(
           // return or their late results could repopulate the cleared overlays.
           selectedTrendLane.supersede();
           selectedDispersionLane.supersede();
-          set({ trends: new Map(), scrub: null, dispersion: null, selectedTrends: new Map(), selectedDispersion: null });
+          set({
+            trends: new Map(),
+            scrub: null,
+            footerPassage: null,
+            dispersion: null,
+            selectedTrends: new Map(),
+            selectedDispersion: null,
+          });
           resetKwicCenter(); // the axis is gone — no stale center may resurrect
           runKwic(); // clears or re-targets the concordance consistently
           return;
@@ -3735,6 +3916,13 @@ export function createAppRuntime(
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
+      footerPassageLane.supersede();
+      footerPassageActive = null;
+      footerPassagePending = null;
+      if (footerPassageTimer !== null) {
+        clearTimeout(footerPassageTimer);
+        footerPassageTimer = null;
+      }
       if (
         store.getState().editContext !== null ||
         store.getState().lineExcerpt !== null
@@ -3827,6 +4015,13 @@ export function createAppRuntime(
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
+      footerPassageLane.supersede();
+      footerPassageActive = null;
+      footerPassagePending = null;
+      if (footerPassageTimer !== null) {
+        clearTimeout(footerPassageTimer);
+        footerPassageTimer = null;
+      }
       const state = store.getState();
       const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
       if (readerIndex >= 0 || state.readerPlace !== null) {

@@ -306,7 +306,9 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 test('an exact barcode occurrence opens the reader', async ({ page }) => {
   // Exact barcode tick at wolf@450 opens directly (density aggregates instead
   // centre KWIC, whose nearest real row supplies its reader link).
-  const canvas = page.locator('canvas').first();
+  const canvas = page.getByRole('slider', { name: /reading position/i })
+    .locator('canvas')
+    .first();
   const box = (await canvas.boundingBox())!;
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: box.width * (450.5 / 900), y: 3 } });

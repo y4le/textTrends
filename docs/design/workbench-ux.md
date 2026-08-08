@@ -68,8 +68,10 @@ landscape move the Lens links to their governed bottom or side dock without
 duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There are no permanent
-desktop side rails or footer controls. **Method & settings** opens the sole
-shared sheet surface; governed row details remain separate history layers.
+desktop side rails. One fixed corpus-reading footer carries transient source
+position, passage, trend, progress, and dispersion context; it is not a Method
+or Evidence surface. **Method & settings** opens the sole shared sheet surface;
+governed row details remain separate history layers.
 
 ### Scope organ
 
@@ -114,7 +116,17 @@ Pointer motion and touch reading move a transient cursor. Fine-pointer hover in
 an exact barcode row snaps only within the specified pixel tolerance. Density
 cells never pretend to be exact targets. Clicking an exact occurrence centers
 the concordance; opening source text is an explicit action from Concordance or
-the barcode occurrence controls.
+the global reading footer.
+
+The fixed reading footer is present in all five workbench places and absent in
+Reader. Its one corpus-order axis aligns a clipped current passage, thin
+all-book sparkline for every shown query, corpus progress, document boundaries,
+and the resident multi-track dispersion barcode. It sits above the compact
+portrait Lens dock and to the right of the compact-landscape rail. The source
+line is a transient `reader-page/1` window; rapid scrubbing is debounced, a
+serving canonical page is reused, and no text or range is saved. Fine-pointer
+hover requires a brief entry dwell before it moves global focus; coarse input
+gets a 44px strip and a 44px passage action that opens Reader.
 
 ## Concordance and direct reading
 
@@ -124,8 +136,9 @@ contexts readable. The final source-position field shows `book · token / total`
 for multi-book corpora and `token / total` when only one book is present.
 
 Activating a concordance node opens Reader directly. Exact barcode occurrence
-controls can do the same. There is no saved-excerpt, pinned-passage,
-intermediate source strip, or comparison-occurrence sheet.
+controls in Trends open Reader. The footer's barcode centers Concordance in
+place, while its current passage is the footer's Reader door. There is no saved
+excerpt, pinned passage, durable range, or comparison-occurrence sheet.
 
 ## Method and trend settings
 
@@ -175,7 +188,8 @@ The design remains complete while these gates hold:
 
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
 2. one Terms bar and one active place at every width;
-3. no persistent side rails or Method footer;
+3. no persistent side rails or Method/Evidence footer beyond the transient
+   corpus-reading instrument;
 4. 44px compact/coarse controls and keyboard-operable equivalents;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;

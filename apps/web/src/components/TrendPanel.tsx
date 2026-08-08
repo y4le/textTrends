@@ -1214,36 +1214,19 @@ function ScrubSurface({
           />
         )}
       </div>
-      {scrub ? (
-        <div
-          style={{
-            display: 'flex',
-            alignItems: 'baseline',
-            flexWrap: 'wrap',
-            gap: 'var(--space-2)',
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--fg-muted)',
-            minHeight: '3.2em',
-            margin: 'var(--space-2) 0 0',
-          }}
-        >
-          <span>{scrubCaption}</span>
-        </div>
-      ) : (
-        <p
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: 'var(--text-xs)',
-            color: 'var(--fg-muted)',
-            minHeight: '3.2em',
-            margin: 'var(--space-2) 0 0',
-          }}
-        >
-          hover or focus the chart to set the reading position — arrows step by
-          token, shift+arrows by 5, PageUp/Down by bin · press S to select a range
-        </p>
-      )}
+      <p
+        style={{
+          fontFamily: 'var(--font-mono)',
+          fontSize: 'var(--text-xs)',
+          color: 'var(--fg-muted)',
+          minHeight: '3.2em',
+          margin: 'var(--space-2) 0 0',
+        }}
+      >
+        {scrub
+          ? 'arrows step by token, shift+arrows by 5, PageUp/Down by bin · press S to select a range'
+          : 'hover or focus the chart to set the reading position — arrows step by token, shift+arrows by 5, PageUp/Down by bin · press S to select a range'}
+      </p>
       <p
         role="status"
         aria-live="polite"

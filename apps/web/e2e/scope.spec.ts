@@ -41,6 +41,8 @@ test('Scope states resident corpus truth and follows the committed range', async
   await expect(scope.getByRole('button', { name: 'Clear linked range' })).toHaveCount(0);
 
   const after = await trace(page);
+  // The global transient footer owns its own debounced source-page lane; it
+  // is navigation traffic, not a linked-range analysis consumer.
   const clearOps = after.events
     .filter(
       (event) =>
@@ -48,6 +50,7 @@ test('Scope states resident corpus truth and follows the committed range', async
         && event.direction === 'to-worker'
         && event.t === 'query',
     )
+    .filter((event) => event.op !== 'reader-page')
     .map((event) => event.op);
   expect(clearOps.length).toBeGreaterThan(0);
   expect(new Set(clearOps)).toEqual(new Set(['kwic', 'inventory', 'freq-list']));

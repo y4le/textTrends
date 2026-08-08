@@ -238,7 +238,7 @@ test('pointer and keyboard selections share detail results and stale results can
   // Every selected consumer serves B: one wolf inside [0,3), versus three in
   // the corpus. The concordance contains no occurrence outside that range.
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
-  await expect(page.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
+  await expect(scrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();

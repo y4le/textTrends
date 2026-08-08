@@ -93,8 +93,9 @@ test('Method range provenance and TSV use the selected overlay, never the retain
   const plot = page.getByRole('slider', { name: 'Reading position scrubber' });
   const box = (await plot.boundingBox())!;
   await page.mouse.move(box.x + 2, box.y + 80);
-  await expect(page.getByRole('region', { name: 'Trends', exact: true })
-    .getByText(/A Study in Scarlet · token \d+ of/)).toBeVisible();
+  await expect(page.getByRole('complementary', { name: 'Reading position' })
+    .locator('.footer-reading-status'))
+    .toContainText(/A Study in Scarlet · token \d+ of/);
   await plot.focus();
   await plot.press('s');
   await expect(page.getByText(/Selecting .*tokens \d+–\d+/)).toBeVisible();

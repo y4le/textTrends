@@ -45,6 +45,7 @@
   /* Workbench chrome metrics shared by layout and safe-area reservation. */
   --lens-block-size: 4.5rem;
   --keyboard-inset: 0px;
+  --footer-block-size: 0px;
 }
 
 @media (prefers-color-scheme: light) {
@@ -2666,6 +2667,245 @@ canvas {
 
   .coarse-target,
   .quick-add-input {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+}
+
+/* Corpus-order reading footer. Its CSS reservation is published by the
+ * mounted component so pages never disappear underneath the fixed strip.
+ * These late app-shell rules intentionally follow the earlier responsive
+ * shell declarations; the matching compact overrides below must stay later. */
+.app-shell {
+  padding-block-end:
+    calc(var(--space-4) + var(--footer-block-size) + env(safe-area-inset-bottom, 0px));
+}
+
+.workbench-footer {
+  position: fixed;
+  z-index: 30;
+  inset-inline:
+    calc(var(--space-4) + env(safe-area-inset-left, 0px))
+    calc(var(--space-4) + env(safe-area-inset-right, 0px));
+  inset-block-end:
+    calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  block-size: var(--footer-local-block-size);
+  min-inline-size: 0;
+  padding-block: var(--footer-pad-block);
+  overflow: hidden;
+  border-block-start: 1px solid var(--rule-strong);
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  color: var(--fg);
+}
+
+.footer-passage {
+  position: relative;
+  block-size: var(--footer-passage-height);
+  min-inline-size: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  line-height: 20px;
+  white-space: pre;
+}
+
+.footer-passage-text {
+  position: absolute;
+  inset-block-start: calc((var(--footer-passage-height) - 20px) / 2);
+  display: inline-block;
+  min-inline-size: max-content;
+  white-space: pre;
+  will-change: transform;
+}
+
+.footer-passage-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--fg-muted);
+  text-align: center;
+}
+
+.footer-passage-coarse {
+  display: block;
+  inline-size: 100%;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: transparent;
+  text-align: start;
+  cursor: pointer;
+}
+
+.footer-passage-coarse .footer-passage-text {
+  pointer-events: none;
+}
+
+.footer-passage-retry {
+  padding: 0;
+  border: 0;
+  border-block-end: 1px solid var(--rule-strong);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  cursor: pointer;
+}
+
+.footer-passage-node {
+  padding: 0;
+  border: 0;
+  border-block-end: 1px solid var(--rule-strong);
+  color: inherit;
+  background: transparent;
+  font: inherit;
+  line-height: inherit;
+  cursor: pointer;
+}
+
+.footer-passage-node:focus-visible,
+.footer-passage-coarse:focus-visible,
+.footer-passage-retry:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: 2px;
+}
+
+.footer-reading-status {
+  block-size: var(--footer-status-height);
+  margin-block-start: var(--footer-lane-gap);
+  overflow: hidden;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: var(--footer-status-height);
+  text-align: center;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.footer-strip {
+  position: relative;
+  inline-size: 100%;
+  min-inline-size: 0;
+  margin-block-start: var(--footer-lane-gap);
+  overflow: hidden;
+  outline: none;
+  cursor: crosshair;
+  touch-action: pan-y;
+}
+
+.footer-strip:focus-visible {
+  outline: 1px solid var(--fg);
+  outline-offset: -1px;
+}
+
+.footer-strip-static,
+.footer-sparkline {
+  position: absolute;
+  inset: 0;
+  display: block;
+  inline-size: 100%;
+  pointer-events: none;
+}
+
+.footer-book-boundary {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  background: var(--rule-strong);
+  pointer-events: none;
+}
+
+.footer-range {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  border-inline: 1px solid var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+  pointer-events: none;
+}
+
+.footer-progress-track {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: 0;
+  inset-inline: 0;
+  block-size: 2px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--fg) 14%, transparent);
+  pointer-events: none;
+}
+
+.footer-progress-fill {
+  inline-size: 100%;
+  block-size: 100%;
+  background: var(--fg);
+  transform-origin: left center;
+}
+
+.footer-cursor {
+  position: absolute;
+  z-index: 4;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  inline-size: 1px;
+  background: var(--fg);
+  pointer-events: none;
+  will-change: transform;
+}
+
+@media (max-width: 599.98px) {
+  .app-shell {
+    padding-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--footer-block-size)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .workbench-footer {
+    inset-inline:
+      calc(var(--space-3) + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
+    inset-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .footer-passage {
+    font-size: var(--text-xs);
+    line-height: 18px;
+  }
+
+  .footer-passage-text {
+    inset-block-start: calc((var(--footer-passage-height) - 18px) / 2);
+  }
+
+  .footer-reading-status {
+    line-height: var(--footer-status-height);
+  }
+}
+
+@media (max-width: 599.98px) and (orientation: landscape) {
+  .app-shell {
+    padding-block-end:
+      calc(var(--space-3) + var(--footer-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .workbench-footer {
+    inset-inline-start: calc(8.5rem + env(safe-area-inset-left, 0px));
+    inset-block-end:
+      calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+@media (pointer: coarse) {
+  .footer-passage-retry {
     min-inline-size: 44px;
     min-block-size: 44px;
   }

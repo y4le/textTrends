@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1, NumericTrend } from '@texttrends/core';
 import { trendGeometryFor } from '../src/lib/trend-compact.ts';
 import {
+  projectedBarcodeSnapIndexes,
+  projectedBarcodeTracks,
   trendStageGeometry,
   trendStageProjection,
   trendStageSnapIndexes,
@@ -105,6 +107,14 @@ describe('trend stage projection and geometry', () => {
     expect(projected.selectedTracks[0]?.docOrder).toEqual(['a', 'b']);
     expect(projected.selectedTracks[0]?.segmentsByDocOrdinal.map((bucket) => bucket.length))
       .toEqual([1, 1]);
+  });
+
+  it('shares barcode projections and snap indexes across consumers', () => {
+    const first = projectedBarcodeTracks(dispersion, ['a', 'b'], ['s']);
+    const second = projectedBarcodeTracks(dispersion, ['a', 'b'], ['s']);
+    expect(second).toBe(first);
+    expect(projectedBarcodeSnapIndexes(second)).toBe(projectedBarcodeSnapIndexes(first));
+    expect(projectedBarcodeTracks(dispersion, ['b', 'a'], ['s'])).not.toBe(first);
   });
 
 });

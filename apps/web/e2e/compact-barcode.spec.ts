@@ -39,7 +39,8 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await gotoPlace(page, 'trends');
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
-  const canvas = page.locator('canvas[data-pointer-contract="scrub-only"]');
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  const canvas = scrubber.locator('canvas[data-pointer-contract="scrub-only"]');
   await expect(canvas).toBeVisible();
   expect(await canvas.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('none');
 
@@ -55,9 +56,19 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   }
 
   await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toHaveAttribute('aria-valuetext', /token \d+ of/);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+
+  const footerSlider = page.getByRole('slider', { name: 'Corpus footer position' });
+  expect((await footerSlider.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  const footerReader = page.getByRole('button', { name: /Open reader at .* token/ });
+  await expect(footerReader).toBeVisible({ timeout: 15_000 });
+  expect((await footerReader.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await footerReader.click();
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: 'back' }).click();
+  await expect(footerSlider).toBeVisible();
 
   const captions = [await scrubber.getAttribute('aria-valuetext')];
   await gotoPlace(page, 'concordance');

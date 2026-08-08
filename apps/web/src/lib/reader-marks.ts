@@ -6,6 +6,12 @@ export interface ReaderSegment {
   readonly seriesIds: readonly string[];
 }
 
+/** Replace display-breaking whitespace one UTF-16 code unit at a time so
+ * worker-provided mark offsets remain valid. Source text is never mutated. */
+export function displayReaderText(text: string): string {
+  return text.replace(/[\n\r\t\u0085\u2028\u2029]/g, ' ');
+}
+
 /** Build non-overlapping segments from possibly overlapping mark spans. */
 export function segmentReaderMarks(
   length: number,

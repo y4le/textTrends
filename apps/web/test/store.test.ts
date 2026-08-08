@@ -44,6 +44,7 @@ import {
   type ResearchStateV1,
 } from '@texttrends/core';
 import { researchState } from './support/research-fixtures.ts';
+import { FOOTER_PASSAGE_DEBOUNCE_MS } from '../src/lib/footer-view.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -1110,9 +1111,11 @@ describe('the session bridge', () => {
       f.store.getState().quickAdd('holmes');
       f.store.getState().setScrub({ doc: 'a', token: 100 }); // arms the debounce timer
       const count = f.kwics().length;
+      const readerCount = f.readers().length;
       f.runtime.dispose();
       vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 3);
       expect(f.kwics().length).toBe(count); // the queued center never issued
+      expect(f.readers()).toHaveLength(readerCount); // nor the queued footer page
     } finally {
       vi.useRealTimers();
     }
@@ -2508,6 +2511,157 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().linkedSelection).toBeNull();
     f.store.getState().setLinkedSelection({ snapshot: 's1', ranges: [{ doc: 'zz', tokens: { start: 0, end: 2 } }] });
     expect(f.store.getState().linkedSelection).toBeNull();
+  });
+});
+
+describe('global footer passage intent', () => {
+  const settle = async () => {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  };
+  const cursorToken = (entry: Issued) => (
+    entry.query as { request: { cursor: { kind: string; token: number } } }
+  ).request.cursor.token;
+
+  it('debounces rapid scrub motion and issues the latest cursor on its own reader lane', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+
+      f.store.getState().setScrub({ doc: 'a', token: 10 });
+      f.store.getState().setScrub({ doc: 'a', token: 30 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS - 1);
+      expect(f.readers()).toHaveLength(0);
+      vi.advanceTimersByTime(1);
+
+      expect(f.readers()).toHaveLength(1);
+      expect(cursorToken(f.readers()[0]!)).toBe(30);
+      expect(f.store.getState().footerPassage).toMatchObject({
+        snapshot: 's1',
+        doc: 'a',
+        state: { status: 'pending' },
+      });
+      expect((f.readers()[0]!.query as { tracks: unknown[] }).tracks).toHaveLength(1);
+      f.runtime.dispose();
+      expect(f.readers()[0]!.cancelled).toBe(true);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps at most one request active and pumps only the newest pending cursor', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      f.store.getState().setScrub({ doc: 'a', token: 20 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
+      const first = f.readers()[0]!;
+
+      f.store.getState().setScrub({ doc: 'a', token: 500 });
+      f.store.getState().setScrub({ doc: 'a', token: 700 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
+      expect(f.readers()).toHaveLength(1);
+
+      first.resolve(fakeReaderPage(0, 400, 1_000));
+      await settle();
+      expect(f.readers()).toHaveLength(2);
+      expect(cursorToken(f.readers()[1]!)).toBe(700);
+      expect(f.store.getState().footerPassage?.state.status).toBe('pending');
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps source reading available with zero query series', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setScrub({ doc: 'a', token: 12 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
+
+      expect(f.readers()).toHaveLength(1);
+      expect((f.readers()[0]!.query as { tracks: unknown[] }).tracks).toEqual([]);
+      f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000));
+      await settle();
+      expect(f.store.getState().footerPassage?.state.status).toBe('ready');
+      expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 12 });
+      f.port.publishSnapshot('g2', 's2', ['a']);
+      expect(f.store.getState().scrub).toBeNull();
+      expect(f.store.getState().footerPassage).toBeNull();
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces a source error and retries the current cursor without touching settled KWIC', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      f.store.getState().setScrub({ doc: 'a', token: 25 });
+      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
+      const centered = f.kwics().at(-1)!;
+      centered.resolve({ op: 'kwic', total: 0, rows: [] });
+      f.readers()[0]!.reject(new Error('source failed'));
+      await settle();
+      expect(f.store.getState().footerPassage?.state).toEqual({
+        status: 'error',
+        message: 'source failed',
+      });
+      const kwicCount = f.kwics().length;
+
+      // An unchanged settled axis position retries only source residency.
+      f.store.getState().setScrub({ doc: 'a', token: 25 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
+      expect(f.kwics()).toHaveLength(kwicCount);
+      expect(f.readers()).toHaveLength(2);
+      f.store.getState().runFooterPassage();
+      expect(f.readers()).toHaveLength(2); // same request remains active
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reuses a serving canonical page, then reissues immediately when track semantics change', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      f.store.getState().setScrub({ doc: 'a', token: 40 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
+      f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000));
+      await settle();
+      expect(f.store.getState().footerPassage?.state.status).toBe('ready');
+
+      f.store.getState().setScrub({ doc: 'a', token: 80 });
+      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS * 2);
+      expect(f.readers()).toHaveLength(1);
+
+      f.store.getState().quickAdd('watson');
+      expect(f.readers()).toHaveLength(2);
+      expect(cursorToken(f.readers()[1]!)).toBe(80);
+      expect((f.readers()[1]!.query as { tracks: unknown[] }).tracks).toHaveLength(2);
+      f.store.getState().clearScrub();
+      expect(f.readers()[1]!.cancelled).toBe(true);
+      expect(f.store.getState().footerPassage).toBeNull();
+      f.readers()[1]!.resolve(fakeReaderPage(0, 100, 1_000));
+      await settle();
+      expect(f.store.getState().footerPassage).toBeNull();
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

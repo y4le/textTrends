@@ -4,7 +4,7 @@ export interface ReaderOpenIntent {
   readonly snapshot: string;
   readonly doc: string;
   readonly token: number;
-  readonly from: 'kwic' | 'barcode';
+  readonly from: 'kwic' | 'barcode' | 'footer';
 }
 
 export interface ReaderPlace {
@@ -20,6 +20,7 @@ export interface ReaderPlace {
 const READER_ORIGINS = new Set<ReaderOpenIntent['from']>([
   'kwic',
   'barcode',
+  'footer',
 ]);
 const READER_CURSOR_KINDS = new Set<ReaderPlace['cursor']['kind']>([
   'around',

@@ -4,14 +4,37 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-08 — One global corpus-reading footer
+
+The owner restored a fixed reading footer across all five workbench places.
+It is one transient instrument on the declared-sequence corpus axis: the
+current source line sits above a thin all-book trend sparkline, corpus progress,
+and the existing multi-track dispersion barcode. Fine-pointer scrubbing and
+keyboard movement update the shared reading cursor; exact and density barcode
+activation retain their direct Concordance behavior. Reader remains the only
+full-viewport place and hides the footer.
+
+The source line uses a separately fenced, debounced `reader-page/1` lane and
+reuses a canonical page while it serves the cursor. It does not restore
+`passage/1`, excerpts, saved ranges, pins, Findings, sharing, or any durable
+Evidence state. Trends retains its detailed graph, barcode, selection controls,
+legend, and totals; only the moving visible source/position readout is global,
+so Trends does not repeat the same live position below its graph.
+
+The interaction and responsive specifics were reviewed with an explicitly
+pinned Claude Opus planner through Parley (request
+`req_consult_774ced41afcab047`, artifact
+`art_sha256_509e1efd128bc65e29c7352f4591f5c39c6fa23c9e01d0caa7b44564064daff1`).
+
 ## 2026-08-07 — Retire retained excerpts and Findings
 
 The owner removed the Evidence surface, saved excerpts and ranges, live and
 durable pins, URL sharing, passage/anchor worker operations, and the Findings
-place. Source reading now flows directly from Concordance or exact barcode
-occurrences into Reader. Reader position and linked range selection remain
-transient; durable research state is limited to the notebook and analysis-view
-settings. Project saving and conflict handling live in Corpus.
+place. Source reading now flows through the transient global reading footer or
+directly from Concordance and exact barcode occurrences into Reader. Reader
+position and linked range selection remain transient; durable research state
+is limited to the notebook and analysis-view settings. Project saving and
+conflict handling live in Corpus.
 
 Old decisions below remain historical provenance where useful, but their
 Evidence, Findings, excerpt, pin, range-persistence, and sharing provisions are

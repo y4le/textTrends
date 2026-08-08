@@ -19,6 +19,52 @@ import {
   type TrendStageSpec,
 } from './trend-geometry.ts';
 
+const trackProjectionCache = new WeakMap<
+  DispersionResultV1,
+  Map<string, readonly BarcodeTrackVM[]>
+>();
+const snapIndexCache = new WeakMap<
+  readonly BarcodeTrackVM[],
+  readonly (readonly (BarcodeSnapIndex | null)[])[]
+>();
+
+// These shared projections intentionally outlive either mounted consumer but
+// not their immutable dispersion result: WeakMap keys release both caches when
+// the store replaces that resident result.
+
+/** Share the expensive occurrence projection between the Trends stage and
+ * the global footer. Geometry remains outside this identity cache. */
+export function projectedBarcodeTracks(
+  dispersion: DispersionResultV1 | null,
+  docs: readonly string[],
+  seriesOrder: readonly string[],
+): readonly BarcodeTrackVM[] {
+  if (dispersion === null) return [];
+  let byIntent = trackProjectionCache.get(dispersion);
+  if (!byIntent) {
+    byIntent = new Map();
+    trackProjectionCache.set(dispersion, byIntent);
+  }
+  const key = JSON.stringify([docs, seriesOrder]);
+  const resident = byIntent.get(key);
+  if (resident) return resident;
+  const projected = orderTracks(barcodeTracks(dispersion, docs), seriesOrder);
+  byIntent.set(key, projected);
+  return projected;
+}
+
+/** Exact-track snap indexes are also shared; a 250k-occurrence track must not
+ * allocate a second index merely because two views consume it. */
+export function projectedBarcodeSnapIndexes(
+  tracks: readonly BarcodeTrackVM[],
+): readonly (readonly (BarcodeSnapIndex | null)[])[] {
+  const resident = snapIndexCache.get(tracks);
+  if (resident) return resident;
+  const projected = tracks.map((track) => buildBarcodeSnapIndexes(track));
+  snapIndexCache.set(tracks, projected);
+  return projected;
+}
+
 /** Inputs whose projection is unchanged by resize, view switching, or pointer
  * capability. Keeping width out of this contract is the memoization boundary. */
 export interface TrendStageProjectionInput {
@@ -55,11 +101,9 @@ export function trendStageProjection(input: TrendStageProjectionInput): TrendSta
       ? 0
       : (bases[docs.length - 1] ?? 0) + (trend.docTokenCount[docs.length - 1] ?? 0),
   };
-  const tracks = input.dispersion
-    ? orderTracks(barcodeTracks(input.dispersion, docs), seriesOrder)
-    : [];
-  const selectedTracks = input.selectedDispersion && input.selectedDocs.length > 0
-    ? orderTracks(barcodeTracks(input.selectedDispersion, input.selectedDocs), seriesOrder)
+  const tracks = projectedBarcodeTracks(input.dispersion, docs, seriesOrder);
+  const selectedTracks = input.selectedDocs.length > 0
+    ? projectedBarcodeTracks(input.selectedDispersion, input.selectedDocs, seriesOrder)
     : [];
   const barcodeHeight = barcodeBandHeight(
     tracks.length,
@@ -90,7 +134,7 @@ export function trendStageProjection(input: TrendStageProjectionInput): TrendSta
 export function trendStageSnapIndexes(
   projection: TrendStageProjection,
 ): readonly (readonly (BarcodeSnapIndex | null)[])[] {
-  return projection.tracks.map((track) => buildBarcodeSnapIndexes(track));
+  return projectedBarcodeSnapIndexes(projection.tracks);
 }
 
 export interface TrendStageGeometryInput {

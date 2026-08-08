@@ -18,6 +18,11 @@ describe('reader open intent', () => {
       cursor: { kind: 'around', token: 7 },
       from: 'kwic',
     });
+    expect(readerPlaceFor(
+      { snapshot: 's1', doc: 'b', token: 2, from: 'footer' },
+      's1',
+      ['a', 'b'],
+    )?.from).toBe('footer');
   });
 
   it('refuses stale snapshots, departed docs, and invalid tokens', () => {

@@ -29,6 +29,9 @@ const QuerySurface = lazy(() =>
 const MethodSurface = lazy(() =>
   import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
 );
+const WorkbenchFooter = lazy(() =>
+  import('./components/WorkbenchFooter.tsx').then(({ WorkbenchFooter: footer }) => ({ default: footer })),
+);
 
 function PlaceSurface({
   place,
@@ -223,6 +226,9 @@ export function App() {
       </div>
       <Suspense fallback={null}>
         <MethodSurface place={place} />
+      </Suspense>
+      <Suspense fallback={null}>
+        <WorkbenchFooter />
       </Suspense>
     </main>
   );

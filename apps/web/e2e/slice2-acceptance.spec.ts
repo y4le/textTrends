@@ -87,7 +87,8 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   // Activate the exact barcode tick at wolf@430. It centres fresh KWIC
   // evidence and also demonstrates the exact reader open path; return so
   // the rest of the journey continues on the analysis surface.
-  const canvas = page.locator('canvas').first();
+  const trendScrubber = page.getByRole('slider', { name: /reading position/i });
+  const canvas = trendScrubber.locator('canvas').first();
   const canvasBox = (await canvas.boundingBox())!;
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: canvasBox.width * (430.5 / 900), y: 3 } });
@@ -115,7 +116,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   // six in the corpus, with no outside-marker row admitted.
   await expect(page.getByText(/Selected 61 tokens in slice-two/)).toBeVisible();
   await expect(page.locator('[data-selected-overlay]').first()).toBeVisible();
-  await expect(page.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
+  await expect(trendScrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   await expect(page.getByText('wolf: 6 occurrences · 4 selected', { exact: true })).toBeVisible();
   await expect(
     page.getByRole('group', { name: 'Query terms' })
@@ -170,7 +171,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
     .toHaveLength(0);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
-  await expect(page.locator('canvas[data-selected-layer]')).toHaveCount(0);
+  await expect(trendScrubber.locator('canvas[data-selected-layer]')).toHaveCount(0);
   await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
   await gotoPlace(page, 'concordance');
   await expect(rows).toHaveCount(6);

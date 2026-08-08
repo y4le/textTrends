@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { segmentReaderMarks } from '../src/lib/reader-marks.ts';
+import { displayReaderText, segmentReaderMarks } from '../src/lib/reader-marks.ts';
 
 describe('Reader mark presentation', () => {
   it('partitions overlapping marks and caller boundaries deterministically', () => {
@@ -25,5 +25,12 @@ describe('Reader mark presentation', () => {
     expect(segmentReaderMarks(3, [
       { seriesId: 'a', start: -4, end: 8 },
     ])).toEqual([{ start: 0, end: 3, seriesIds: ['a'] }]);
+  });
+
+  it('normalizes display whitespace without changing UTF-16 offsets', () => {
+    const source = 'A\r\nB\tC\u0085D\u2028E\u2029F 😀';
+    const display = displayReaderText(source);
+    expect(display).toBe('A  B C D E F 😀');
+    expect(display.length).toBe(source.length);
   });
 });

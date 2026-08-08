@@ -23,7 +23,8 @@ test('a live color-scheme change repaints canvas evidence without reloading', as
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
-  const canvas = page.locator('canvas[data-barcode-band="series"]');
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  const canvas = scrubber.locator('canvas[data-barcode-band="series"]');
   await expect(canvas).toBeVisible();
   const bootId = await page.evaluate(() => {
     const target = window as unknown as { __ttThemeBootId?: string };
@@ -111,7 +112,9 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible();
   await gotoPlace(page, 'trends');
-  const canvas = page.locator('canvas').first();
+  const canvas = page.getByRole('slider', { name: /reading position/i })
+    .locator('canvas')
+    .first();
   const box = (await canvas.boundingBox())!;
   const mark3 = (await trace(page)).events.at(-1)?.seq ?? -1;
   // NINE word tokens in the corpus doc; wolf@7 centers at x = (7.5/9)·width
@@ -170,7 +173,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   // Series uses one declared-sequence band. Six pixels before wolf@global8
   // inverts to raw global7, but is within the inclusive 8px painted interval
   // threshold and therefore snaps to the exact occurrence at global8.
-  const seriesBand = page.locator('canvas[data-barcode-band="series"]');
+  const seriesBand = scrubber.locator('canvas[data-barcode-band="series"]');
   await expect(seriesBand).toHaveCount(1);
   const seriesCommits = await commits('series');
   const seriesBox = (await seriesBand.boundingBox())!;
@@ -188,7 +191,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   expect(await commits('series')).toBe(seriesCommits);
 
   await page.getByRole('button', { name: 'by book' }).click();
-  const bookBands = page.locator('canvas[data-barcode-band="by-book"]');
+  const bookBands = scrubber.locator('canvas[data-barcode-band="by-book"]');
   await expect(bookBands).toHaveCount(2);
   const bookBandPixels = await bookBands.evaluateAll((nodes) => nodes.map((node) => {
     const canvas = node as HTMLCanvasElement;

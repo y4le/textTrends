@@ -11,12 +11,25 @@ for (const viewport of [
     await awaitAllReady(page);
     await gotoPlace(page, 'trends');
 
+    const footer = page.getByRole('complementary', { name: 'Reading position' });
+    const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+    await expect(footer).toBeVisible();
+    expect(await footer.locator('.footer-sparkline path').count()).toBeGreaterThanOrEqual(2);
+    const footerBox = await footer.boundingBox();
+    const lensBox = await lens.boundingBox();
+    const reservedFooterHeight = await page.evaluate(() =>
+      Number.parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--footer-block-size')));
+    expect(footerBox?.height).toBe(reservedFooterHeight);
+    expect(footerBox && lensBox ? footerBox.y + footerBox.height : Number.POSITIVE_INFINITY)
+      .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
+
     const scrubber = page.getByRole('slider', { name: /reading position/i });
     const seriesChart = page.locator('svg[data-trend-view="series"]');
     await expect(seriesChart).toBeVisible();
     // 132px plot + 3px band gap + two 7px compact barcode rows + 8px tail.
     expect((await seriesChart.boundingBox())?.height).toBe(157);
-    const barcodeBand = page.locator('canvas[data-barcode-band="series"]');
+    const barcodeBand = scrubber.locator('canvas[data-barcode-band="series"]');
     await expect(barcodeBand).toHaveCount(1);
     expect((await barcodeBand.boundingBox())?.height).toBe(14);
     expect(await scrubber.evaluate((node) => getComputedStyle(node).touchAction)).toBe('pan-y');

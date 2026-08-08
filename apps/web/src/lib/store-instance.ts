@@ -56,6 +56,7 @@ function pendingAnalyses(): number {
     state.structure?.state,
     state.editContext?.state,
     state.lineExcerpt?.state,
+    state.footerPassage?.state,
     state.readerPage?.state,
   ];
   const maps = [

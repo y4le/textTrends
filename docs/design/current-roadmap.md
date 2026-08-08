@@ -15,9 +15,10 @@ explain how the tree arrived here, but may describe superseded UI shapes.
   and Compare (`apps/web/src/places`). They cover structure review, term
   groups, linked selections, frequency/TF-IDF/keyness, project saving, and
   method surfaces.
-- **Direct reading paths:** trends and adaptive dispersion barcodes share token
-  geometry with KWIC and a full-page Reader. Concordance rows and exact barcode
-  occurrences open Reader directly; there is no intermediate excerpt surface.
+- **Direct reading paths:** all workbench places share a transient corpus-order
+  footer with current source, all-book trends, progress, and adaptive
+  dispersion. It shares token geometry with KWIC and the full-page Reader;
+  there is no saved excerpt or Findings surface.
 - **Bounded analysis results:** occurrence construction now has typed hard
   caps, the worker cache has simultaneous entry/byte ceilings, and publishing
   a new snapshot releases old occurrence entries. Cap failures remain visible
