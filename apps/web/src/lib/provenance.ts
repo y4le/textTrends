@@ -10,7 +10,7 @@ import type {
   KeynessViewV1,
 } from './store.ts';
 import type { Place } from './places.ts';
-import type { TokenRangeSelectionV1 } from './selection.ts';
+import { selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 
 export const PROVENANCE_SCHEMA = 'texttrends/provenance/1' as const;
 
@@ -117,9 +117,14 @@ const list = (values: readonly string[]): string => values.length === 0
   : values.join(', ');
 
 function selectionText(selection: TokenRangeSelectionV1 | null): string {
-  return selection === null
-    ? 'all ready documents'
-    : `${selection.doc} tokens ${selection.tokens.start + 1}–${selection.tokens.end} (1-based inclusive)`;
+  if (selection === null) return 'all ready documents';
+  if (selection.ranges.length === 1) {
+    const range = selection.ranges[0]!;
+    return `${range.doc} tokens ${range.tokens.start + 1}–${range.tokens.end} (1-based inclusive)`;
+  }
+  const first = selection.ranges[0]!;
+  const last = selection.ranges.at(-1)!;
+  return `${first.doc} token ${first.tokens.start + 1} through ${last.doc} token ${last.tokens.end} (${selectionTokenCount(selection)} tokens across ${selection.ranges.length} documents)`;
 }
 
 function completeness(
@@ -145,7 +150,9 @@ function completeness(
   if (input.linkedSelection !== null) {
     return {
       status: 'complete',
-      statement: `The selected range in ${input.linkedSelection.doc} is represented.`,
+      statement: input.linkedSelection.ranges.length === 1
+        ? `The selected range in ${input.linkedSelection.ranges[0]!.doc} is represented.`
+        : `The selected range across ${input.linkedSelection.ranges.length} documents is represented.`,
     };
   }
   return {

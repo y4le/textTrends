@@ -85,14 +85,14 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
     .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();
 
   // Activate the exact barcode tick at wolf@430. It centres fresh KWIC
-  // evidence and also demonstrates the exact reader open path; close it so
+  // evidence and also demonstrates the exact reader open path; return so
   // the rest of the journey continues on the analysis surface.
   const canvas = page.locator('canvas').first();
   const canvasBox = (await canvas.boundingBox())!;
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: canvasBox.width * (430.5 / 900), y: 3 } });
   await awaitOps(page, mark, ['kwic', 'reader-page']);
-  await page.getByRole('dialog', { name: /Reader: slice-two/ }).getByRole('button', { name: 'close' }).click();
+  await page.getByRole('main', { name: /Reader: slice-two/ }).getByRole('button', { name: 'back' }).click();
   await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 431\b/)).toBeVisible();
   await gotoPlace(page, 'trends');
@@ -146,7 +146,7 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await pinOpen.click();
   await awaitOps(page, mark, ['reader-page']);
-  const drawer = page.getByRole('dialog', { name: /Reader: slice-two/ });
+  const drawer = page.getByRole('main', { name: /Reader: slice-two/ });
   await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
   await expect(drawer.locator('[data-reader-selection="true"]').first()).toBeVisible();
 
@@ -162,7 +162,7 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
   await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
-  await drawer.getByRole('button', { name: 'close' }).click();
+  await drawer.getByRole('button', { name: 'back' }).click();
 
   // Clearing restores baseline consumers without recomputing/relabeling them
   // as selected evidence.

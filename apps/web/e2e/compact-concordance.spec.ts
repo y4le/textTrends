@@ -99,7 +99,7 @@ test('compact Concordance keeps alignment optional and evidence operable', async
     .getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
   await expect(resultActions.locator('output')).toHaveText(`1 / ${await page.getByLabel('Concordance reading view').locator('.kwic-reading-row').count()}`);
 
   await controls.getByRole('button', { name: 'aligned' }).click();

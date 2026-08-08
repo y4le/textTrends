@@ -18,6 +18,7 @@
     "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && vitest run && pnpm --filter @texttrends/standard-ebooks test",
     "typecheck": "pnpm build:se && pnpm -r typecheck",
     "e2e": "pnpm --filter @texttrends/web e2e",
-    "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs"
+    "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs",
+    "update:sherlock-corpus": "pnpm build:se && node scripts/update-sherlock-corpus.mjs"
   }
 }

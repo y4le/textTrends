@@ -24,7 +24,7 @@ function CurrentPassage({ view }: { readonly view: EvidenceSurfaceVM }) {
         ? <p className="evidence-empty">loading passage…</p>
         : (
             <p
-              className="evidence-excerpt"
+              className="evidence-excerpt source-text"
               title={view.truncated ? 'Passage clipped at the character safety limit.' : undefined}
             >
               <span>{view.text.slice(0, view.anchorCharsUtf16.start)}</span>

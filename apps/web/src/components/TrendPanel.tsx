@@ -25,40 +25,44 @@
  * navigates locally inside them.
  */
 
-import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { NumericTrend, TrendMeasureV2 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
-import { BarcodeStrip } from './BarcodeStrip.tsx';
+import { BarcodeBand, BarcodeLegend } from './BarcodeStrip.tsx';
+import { resolveCapturedBarcodeTarget, snapBarcodeIndex, type BarcodeActivation, type BarcodeTrackVM } from '../lib/barcode-view.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
   bookXFromToken,
   bookXFromTokenEdge,
-  clampRangeHeadToOrigin,
+  barcodeBandExtent,
   clampToSpan,
   linearMap,
-  pointerTargetByBook,
-  pointerTargetSeries,
   selectedTrendPathData,
   seriesXFromToken,
-  seriesTokenFromX,
   seriesXFromTokenEdge,
   spreadLabels,
   stepAlongSequence,
   trendBinAtToken,
   trendBinSpan,
   trendRowsForDoc,
+  trendStageHit,
   type SequenceLayout,
+  type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import { PassageLine } from './PassageLine.tsx';
-import { commitRange } from '../lib/selection.ts';
+import {
+  commitRange,
+  selectionTokenCount,
+  type TokenRangeSelectionSpanV1,
+} from '../lib/selection.ts';
 import {
   armRange,
   cancelRange,
   commitRangeDraft,
-  draftRangeTokens,
+  draftRanges,
   moveRangeHandle,
   setRangeEnd,
   stepRangeHandle,
@@ -73,6 +77,7 @@ import {
   trendMeasureUnit,
   trendRawValues,
 } from '../lib/trend-display.ts';
+import { trendStageGeometry, trendStageProjection, trendStageSnapIndexes } from '../lib/trend-stage.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
@@ -93,6 +98,21 @@ interface RangePreview {
   readonly head: ScrubTarget;
 }
 
+interface StagePointerTargetBase extends ScrubTarget {
+  readonly d: number;
+  /** Unsnapped inversion retained for density-cell activation and raw scrub. */
+  readonly rawToken: number;
+}
+
+type StagePointerTarget =
+  | (StagePointerTargetBase & { readonly zone: 'plot' })
+  | (StagePointerTargetBase & {
+      readonly zone: 'barcode';
+      readonly trackRow: number;
+      readonly trackId: string;
+      readonly snapActivation: BarcodeActivation | null;
+    });
+
 export function TrendPanel() {
   // Deliberately NO `scrub`/`passage` subscription here: those update once per
   // pointer animation frame, and this component's render rebuilds every path,
@@ -103,6 +123,9 @@ export function TrendPanel() {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const trends = useApp((s) => s.trends);
   const selectedTrends = useApp((s) => s.selectedTrends);
+  const dispersion = useApp((s) => s.dispersion);
+  const selectedDispersion = useApp((s) => s.selectedDispersion);
+  const linkedSelection = useApp((s) => s.linkedSelection);
   const trendView = useApp((s) => s.trendView);
   const trendBins = useApp((s) => s.trendBins);
   const trendMeasure = useApp((s) => s.trendMeasure);
@@ -110,9 +133,11 @@ export function TrendPanel() {
   const focusedDoc = useApp((s) => s.focusedDoc);
   const structure = useApp((s) => s.structure);
   const sectionMarks = useApp((s) => s.sectionMarks);
-  const layers = useApp((s) => s.layers);
   const pushLayer = useApp((s) => s.pushLayer);
   const replaceLayer = useApp((s) => s.replaceLayer);
+  const centerKwicAt = useApp((s) => s.centerKwicAt);
+  const showEvidenceAt = useApp((s) => s.showEvidenceAt);
+  const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const geometry = trendGeometryFor(presentation.width);
   const [showAllTotals, setShowAllTotals] = useState(false);
@@ -138,8 +163,6 @@ export function TrendPanel() {
     return () => observer.disconnect();
   }, [containerEl, geometry]);
 
-  if (series.length === 0) return null;
-
   const states = series.map((intent) => ({ intent, state: trends.get(intent.id) }));
   const pending = states.filter((s) => !s.state || s.state.status === 'pending');
   const failed = states.filter((s) => s.state?.status === 'error');
@@ -152,6 +175,52 @@ export function TrendPanel() {
     const state = selectedTrends.get(intent.id);
     return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
   });
+  const readyGeo = ready[0]?.trend ?? null;
+  const stageProjection = useMemo(() => {
+    if (
+      series.length === 0
+      || pending.length > 0
+      || !readyGeo
+      || !readyGeo.sequenceBases
+    ) return null;
+    return trendStageProjection({
+      trend: readyGeo,
+      seriesOrder: series.map((item) => item.id),
+      dispersion: dispersion?.state.status === 'ready' ? dispersion.state.result : null,
+      selectedDispersion: selectedDispersion?.state.status === 'ready'
+        ? selectedDispersion.state.result
+        : null,
+      selectedDocs: linkedSelection?.ranges.map((range) => range.doc) ?? [],
+      geometry,
+    });
+  }, [dispersion, geometry, linkedSelection, pending.length, readyGeo, selectedDispersion, series]);
+  const stageGeometry = useMemo(() => stageProjection
+    ? trendStageGeometry(stageProjection, {
+        plotWidth: plotW,
+        view: trendView,
+      })
+    : null,
+  [plotW, stageProjection, trendView]);
+  const snapIndexes = useMemo(
+    // Branch before calling the allocator: exact tracks can contain 250k
+    // occurrences, and coarse pointers never consume pixel snapping.
+    () => stageProjection && presentation.pointer !== 'coarse'
+      ? trendStageSnapIndexes(stageProjection)
+      : [],
+    [presentation.pointer, stageProjection],
+  );
+  const styleSlotBySeries = useMemo(
+    () => new Map(series.map((item) => [item.id, item.styleSlot])),
+    [series],
+  );
+  const labelBySeries = useMemo(
+    () => new Map(series.map((item) => [item.id, item.label])),
+    [series],
+  );
+  const slotOf = useCallback((id: string) => styleSlotBySeries.get(id) ?? 0, [styleSlotBySeries]);
+  const labelOf = useCallback((id: string) => labelBySeries.get(id) ?? id, [labelBySeries]);
+
+  if (series.length === 0) return null;
 
   // Hold the comparison until the current set settles: a shared y-scale that
   // re-fits as each line lands reads as data changing when it isn't.
@@ -170,8 +239,22 @@ export function TrendPanel() {
 
   // Geometry is identical across series (same snapshot, selection, bins) —
   // take it from the first ready result.
-  const geo = ready[0]!.trend;
-  const docs = geo.order;
+  const geo = readyGeo!;
+  if (!stageProjection || !stageGeometry) {
+    throw new Error('trend stage projection missing for ready geometry');
+  }
+  const {
+    docs,
+    layout,
+    tracks,
+    selectedTracks,
+    barcodeHeight,
+    rowPitch,
+  } = stageProjection;
+  const {
+    edgeX,
+    hitSpec,
+  } = stageGeometry;
   // Presentation titles come from the project's document metadata — doc ids
   // are opaque identity (user projects use UUIDs). Ordinals are reading-order.
   const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
@@ -180,15 +263,32 @@ export function TrendPanel() {
   // always returns sequenceBases — a null here is an invariant violation, and
   // the old ad-hoc fallback (d * count[d]) was NOT a prefix sum and would have
   // silently mislaid every x-position had it ever run.
-  if (!geo.sequenceBases) throw new Error('trend result missing sequenceBases (declared-sequence is the only requested coordinate)');
-  const bases = geo.sequenceBases;
-  const layout: SequenceLayout = {
-    bases,
-    tokenCounts: geo.docTokenCount,
-    totalTokens:
-      docs.length === 0
-        ? 0
-        : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0),
+  const bases = layout.bases;
+  const snapBarcode = (trackRow: number, d: number, px: number): BarcodeActivation | null =>
+    presentation.pointer === 'coarse'
+      ? null
+      : snapBarcodeIndex(snapIndexes[trackRow]?.[d] ?? null, px, edgeX);
+  const activateBarcode = (
+    track: BarcodeTrackVM,
+    target: BarcodeActivation | null,
+    openExact = false,
+  ) => {
+    if (!target) return;
+    centerKwicAt(
+      track.seriesId,
+      target.doc,
+      target.token,
+      target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
+    );
+    showEvidenceAt(target.doc, target.token);
+    if (openExact && target.kind === 'occurrence' && dispersion) {
+      openReader({
+        snapshot: dispersion.snapshot,
+        doc: target.doc,
+        token: target.token,
+        from: 'barcode',
+      });
+    }
   };
   const displayedReady: DisplayedSeries[] = ready.map((item) => ({
     ...item,
@@ -271,7 +371,7 @@ export function TrendPanel() {
     : 'unsmoothed';
   const methodLine = `${trendMeasure.kind === 'count' ? 'counts' : `rate per ${trendMeasure.denominator.toLocaleString()} tokens`} · ${binLine} · ${smoothingLine} · books token-proportional in declared order`;
   const openSettings = () => {
-    const top = layers.at(-1);
+    const top = useApp.getState().layers.at(-1);
     if (top?.kind === 'sheet') {
       replaceLayer('sheet', Object.freeze({ surface: 'method' }), 'trend-settings-open', { detent: 'tall' });
     } else {
@@ -317,6 +417,31 @@ export function TrendPanel() {
         series={series}
         focusedSeries={focusedSeries}
         geometry={geometry}
+        barcodeHeight={barcodeHeight}
+        rowPitch={rowPitch}
+        barcodeTracks={tracks}
+        snapBarcode={snapBarcode}
+        hitSpec={hitSpec}
+        onBarcodeActivate={activateBarcode}
+        barcodeBand={(
+          <BarcodeBand
+            view={trendView}
+            docs={docs}
+            tracks={tracks}
+            selectedTracks={selectedTracks}
+            linkedSelection={linkedSelection !== null}
+            edgeX={edgeX}
+            width={plotW}
+            plotHeight={trendView === 'series' ? geometry.seriesHeight : geometry.rowHeight}
+            rowPitch={rowPitch}
+            bandGap={geometry.barcodeBandGap}
+            trackHeight={geometry.barcodeTrackHeight}
+            trackGap={geometry.barcodeTrackGap}
+            slotOf={slotOf}
+            focusedSeries={focusedSeries}
+            coarse={presentation.pointer === 'coarse'}
+          />
+        )}
       >
         {trendView === 'series' ? (
           <SeriesView
@@ -331,6 +456,7 @@ export function TrendPanel() {
             sectionMarks={seriesMarks}
             strokeFor={strokeFor}
             geometry={geometry}
+            barcodeHeight={barcodeHeight}
           />
         ) : (
           <ByBookView
@@ -345,23 +471,20 @@ export function TrendPanel() {
             sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
             geometry={geometry}
+            rowPitch={rowPitch}
           />
         )}
       </ScrubSurface>
-      {/* The dispersion barcode: every occurrence (or an honest density
-          cell) on the SAME concatenated reading-order axis as the series
-          view — present in both layouts; in by-book mode it reads as the
-          corpus summary strip. Resident-data redraws only (ruling §D). */}
-      <BarcodeStrip
-        docs={docs}
-        edgeX={(d, t) => seriesXFromTokenEdge(d, t, plotW, layout)}
-        xToDocToken={(px) => seriesTokenFromX(px, plotW, layout)}
-        width={plotW}
-        slotOf={(id) => series.find((s) => s.id === id)?.styleSlot ?? 0}
-        labelOf={(id) => series.find((s) => s.id === id)?.label ?? id}
+      <BarcodeLegend
+        tracks={tracks}
+        selectedTracks={selectedTracks}
+        linkedSelection={linkedSelection !== null}
+        selectedStatus={linkedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
+        slotOf={slotOf}
+        labelOf={labelOf}
         focusedSeries={focusedSeries}
-        axisLabel="occurrences · corpus reading order"
-        seriesOrder={series.map((s) => s.id)}
+        axisLabel={trendView === 'series' ? 'occurrences' : 'occurrences · within each book'}
+        onActivate={activateBarcode}
       />
       {compactTotals && ready.length > 1 && (
         <div
@@ -438,7 +561,7 @@ export function TrendPanel() {
                 <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch', whiteSpace: 'nowrap' }}>
                   {`${d + 1} · ${title}`}
                 </th>
-                <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
+                <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
                   {tokens.toLocaleString()}
                 </td>
                 {totalsSeries.map((r) => {
@@ -452,7 +575,7 @@ export function TrendPanel() {
           })}
           <tr style={{ borderTop: '1px solid var(--rule-strong)' }}>
             <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch' }}>corpus</th>
-            <td style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
+            <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
               {totalTokens.toLocaleString()}
             </td>
             {totalsSeries.map((r) => {
@@ -495,6 +618,13 @@ function ScrubSurface({
   series,
   focusedSeries,
   geometry,
+  barcodeHeight,
+  rowPitch,
+  barcodeTracks,
+  snapBarcode,
+  hitSpec,
+  onBarcodeActivate,
+  barcodeBand,
   children,
 }: {
   containerRef: (el: HTMLDivElement | null) => void;
@@ -507,6 +637,13 @@ function ScrubSurface({
   series: readonly SeriesIntent[];
   focusedSeries: string | null;
   geometry: TrendGeometry;
+  barcodeHeight: number;
+  rowPitch: number;
+  barcodeTracks: readonly BarcodeTrackVM[];
+  snapBarcode: (trackRow: number, d: number, px: number) => BarcodeActivation | null;
+  hitSpec: TrendStageSpec;
+  onBarcodeActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
+  barcodeBand: React.ReactNode;
   children: React.ReactNode;
 }) {
   const scrub = useApp((s) => s.scrub);
@@ -526,7 +663,7 @@ function ScrubSurface({
   const scheduleScrub = useCallback(
     (target: ScrubTarget | null) => {
       if (!target) return;
-      pointerSample.current = target;
+      pointerSample.current = { doc: target.doc, token: target.token };
       frame.current ??= requestAnimationFrame(() => {
         frame.current = null;
         if (pointerSample.current) setScrub(pointerSample.current);
@@ -539,6 +676,7 @@ function ScrubSurface({
   }, []);
 
   const docTokenCount = layout.tokenCounts;
+  const bandExtent = barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
   const scrubDocOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
   const scrubX =
     scrub && scrubDocOrdinal >= 0
@@ -547,33 +685,54 @@ function ScrubSurface({
         : bookXFromToken(scrub.token, plotW, docTokenCount[scrubDocOrdinal] ?? 0)
       : null;
 
-  const targetFromPointer = (px: number, py: number): ScrubTarget | null => {
-    const hit =
-      trendView === 'series'
-        ? pointerTargetSeries(px, py, plotW, geometry.seriesHeight, layout)
-        : pointerTargetByBook(
-            px,
-            py,
-            plotW,
-            geometry.rowHeight,
-            geometry.rowGap,
-            docTokenCount,
-          );
-    return hit ? { doc: docs[hit.d]!, token: hit.token } : null;
+  const targetFromPointer = (
+    px: number,
+    py: number,
+    allowSnap = true,
+  ): StagePointerTarget | null => {
+    const hit = trendStageHit(px, py, hitSpec);
+    if (!hit) return null;
+    const doc = docs[hit.d];
+    if (doc === undefined) return null;
+    // A series pointer owns the document it inverted into. Do not cross a
+    // declared document boundary merely because another lane's tick is close.
+    if (hit.zone === 'plot') return {
+      d: hit.d,
+      doc,
+      token: hit.token,
+      rawToken: hit.token,
+      zone: 'plot',
+    };
+    const track = barcodeTracks[hit.trackRow];
+    if (!track) return null;
+    const snapped = allowSnap ? snapBarcode(hit.trackRow, hit.d, px) : null;
+    return {
+      d: hit.d,
+      doc,
+      token: snapped?.token ?? hit.token,
+      rawToken: hit.token,
+      zone: 'barcode',
+      trackRow: hit.trackRow,
+      trackId: track.seriesId,
+      snapActivation: snapped,
+    };
   };
 
   const commitPreview = (range: RangePreview) => {
-    const d = docs.indexOf(range.origin.doc);
     const selection = snapshot
       ? commitRange(
           snapshot.snapshot,
-          range.origin.doc,
-          range.origin.token,
-          range.head.token,
-          docTokenCount[d] ?? 0,
+          range.origin,
+          range.head,
+          docs,
+          docTokenCount,
         )
       : null;
-    if (selection) setLinkedSelection(selection);
+    if (!selection) {
+      if (range.mode === 'pointer') setPreview(null);
+      return;
+    }
+    setLinkedSelection(selection);
     setPreview(null);
   };
 
@@ -614,14 +773,22 @@ function ScrubSurface({
       return;
     }
     if (preview?.mode === 'keyboard') {
-      const d = docs.indexOf(preview.origin.doc);
+      const d = docs.indexOf(preview.head.doc);
       const count = docTokenCount[d] ?? 0;
-      let head = preview.head.token;
+      let head: ScrubTarget = preview.head;
       switch (e.key) {
-        case 'ArrowLeft': head--; break;
-        case 'ArrowRight': head++; break;
-        case 'Home': head = 0; break;
-        case 'End': head = count - 1; break;
+        case 'ArrowLeft': {
+          const next = stepAlongSequence(d, preview.head.token, -1, layout);
+          head = next ? { doc: docs[next.d]!, token: next.token } : preview.head;
+          break;
+        }
+        case 'ArrowRight': {
+          const next = stepAlongSequence(d, preview.head.token, 1, layout);
+          head = next ? { doc: docs[next.d]!, token: next.token } : preview.head;
+          break;
+        }
+        case 'Home': head = { doc: preview.head.doc, token: 0 }; break;
+        case 'End': head = { doc: preview.head.doc, token: Math.max(0, count - 1) }; break;
         case 'Enter':
           e.preventDefault();
           commitPreview(preview);
@@ -635,7 +802,7 @@ function ScrubSurface({
       e.preventDefault();
       setPreview({
         ...preview,
-        head: { doc: preview.origin.doc, token: Math.max(0, Math.min(count - 1, head)) },
+        head,
       });
       return;
     }
@@ -689,52 +856,65 @@ function ScrubSurface({
   // so frame-to-frame motion is a compositor-friendly update.
   const cursorTop = trendView === 'series'
     ? geometry.topPad
-    : scrubDocOrdinal * (geometry.rowHeight + geometry.rowGap);
+    : scrubDocOrdinal * rowPitch;
   const cursorHeight = trendView === 'series'
-    ? geometry.seriesHeight - geometry.topPad
-    : geometry.rowHeight;
+    ? geometry.seriesHeight + bandExtent - geometry.topPad
+    : geometry.rowHeight + bandExtent;
 
-  const shownRange = preview
-    ? {
-        doc: preview.origin.doc,
-        tokens: {
-          start: Math.min(preview.origin.token, preview.head.token),
-          end: Math.max(preview.origin.token, preview.head.token) + 1,
-        },
-      }
+  const shownRanges: readonly TokenRangeSelectionSpanV1[] = preview
+    ? commitRange('', preview.origin, preview.head, docs, docTokenCount)?.ranges ?? []
     : rangeDraft
-      ? { doc: rangeDraft.doc, tokens: draftRangeTokens(rangeDraft) }
-    : linkedSelection;
-  const rangeDocOrdinal = shownRange ? docs.indexOf(shownRange.doc) : -1;
-  const rangeBox = shownRange && rangeDocOrdinal >= 0
-    ? trendView === 'series'
-      ? {
-          left: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.start, plotW, layout),
-          right: seriesXFromTokenEdge(rangeDocOrdinal, shownRange.tokens.end, plotW, layout),
+      ? draftRanges(rangeDraft, docs, docTokenCount)
+      : linkedSelection?.ranges ?? [];
+  const rangeBoxes = trendView === 'series' && shownRanges.length > 0
+    ? (() => {
+        const first = shownRanges[0]!;
+        const last = shownRanges.at(-1)!;
+        const firstOrdinal = docs.indexOf(first.doc);
+        const lastOrdinal = docs.indexOf(last.doc);
+        return firstOrdinal < 0 || lastOrdinal < 0 ? [] : [{
+          left: seriesXFromTokenEdge(firstOrdinal, first.tokens.start, plotW, layout),
+          right: seriesXFromTokenEdge(lastOrdinal, last.tokens.end, plotW, layout),
           top: geometry.topPad,
-          height: geometry.seriesHeight - geometry.topPad,
-        }
-      : {
+          height: geometry.seriesHeight + bandExtent - geometry.topPad,
+        }];
+      })()
+    : shownRanges.flatMap((range) => {
+        const ordinal = docs.indexOf(range.doc);
+        return ordinal < 0 ? [] : [{
           left: bookXFromTokenEdge(
-            shownRange.tokens.start,
+            range.tokens.start,
             plotW,
-            docTokenCount[rangeDocOrdinal] ?? 0,
+            docTokenCount[ordinal] ?? 0,
           ),
           right: bookXFromTokenEdge(
-            shownRange.tokens.end,
+            range.tokens.end,
             plotW,
-            docTokenCount[rangeDocOrdinal] ?? 0,
+            docTokenCount[ordinal] ?? 0,
           ),
-          top: rangeDocOrdinal * (geometry.rowHeight + geometry.rowGap),
-          height: geometry.rowHeight,
-        }
-    : null;
+          top: ordinal * rowPitch,
+          height: geometry.rowHeight + bandExtent,
+        }];
+      });
+  const describeRanges = (ranges: readonly TokenRangeSelectionSpanV1[]): string => {
+    if (ranges.length === 0) return 'no tokens';
+    if (ranges.length === 1) {
+      const range = ranges[0]!;
+      return `${titleByDoc.get(range.doc) ?? range.doc}, tokens ${range.tokens.start + 1}–${range.tokens.end}`;
+    }
+    const first = ranges[0]!;
+    const last = ranges.at(-1)!;
+    const count = selectionTokenCount({ snapshot: '', ranges });
+    return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} books`;
+  };
   const rangeStatus = preview
-    ? `Selecting ${titleByDoc.get(preview.origin.doc) ?? preview.origin.doc}, tokens ${Math.min(preview.origin.token, preview.head.token) + 1}–${Math.max(preview.origin.token, preview.head.token) + 1}`
+    ? `Selecting ${describeRanges(shownRanges)}`
     : rangeDraft
-      ? `Range draft in ${titleByDoc.get(rangeDraft.doc) ?? rangeDraft.doc}, tokens ${Math.min(rangeDraft.start, rangeDraft.end) + 1}–${Math.max(rangeDraft.start, rangeDraft.end) + 1}${rangeDraft.message ? ` · ${rangeDraft.message}` : ''}`
+      ? `Range draft in ${describeRanges(shownRanges)}`
     : linkedSelection
-      ? `Selected ${(linkedSelection.tokens.end - linkedSelection.tokens.start).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.doc) ?? linkedSelection.doc}`
+      ? linkedSelection.ranges.length === 1
+        ? `Selected ${selectionTokenCount(linkedSelection).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.ranges[0]!.doc) ?? linkedSelection.ranges[0]!.doc}`
+        : `Selected ${describeRanges(linkedSelection.ranges)}`
       : 'Press S at the reading cursor to select a range';
 
   const pointX = (point: ScrubTarget): number | null => {
@@ -745,22 +925,30 @@ function ScrubSurface({
       : bookXFromToken(point.token, plotW, docTokenCount[d] ?? 0);
   };
 
-  const rangeHandleX = rangeDraft
-    ? {
-        start: pointX({ doc: rangeDraft.doc, token: rangeDraft.start }),
-        end: pointX({ doc: rangeDraft.doc, token: rangeDraft.end }),
-      }
+  const rangeHandlePosition = rangeDraft
+    ? Object.fromEntries((['start', 'end'] as const).map((handle) => {
+        const point = rangeDraft[handle];
+        const ordinal = docs.indexOf(point.doc);
+        return [handle, {
+          x: pointX(point),
+          top: trendView === 'series' ? geometry.topPad : ordinal * rowPitch,
+          height: trendView === 'series'
+            ? geometry.seriesHeight + bandExtent - geometry.topPad
+            : geometry.rowHeight + bandExtent,
+        }];
+      })) as Record<RangeHandle, { x: number | null; top: number; height: number }>
     : null;
 
   const useRangeDraft = () => {
     if (!rangeDraft || !snapshot) return;
-    const d = docs.indexOf(rangeDraft.doc);
     const selection = commitRangeDraft(
       snapshot.snapshot,
       rangeDraft,
-      docTokenCount[d] ?? 0,
+      docs,
+      docTokenCount,
     );
-    if (selection) setLinkedSelection(selection);
+    if (!selection) return;
+    setLinkedSelection(selection);
     setRangeDraft(null);
   };
 
@@ -768,7 +956,8 @@ function ScrubSurface({
     readonly pointerId: number;
     readonly x: number;
     readonly y: number;
-    readonly origin: ScrubTarget;
+    readonly origin: StagePointerTarget;
+    readonly pointerType: string;
     moved: boolean;
   } | null>(null);
   const rangeHandleDrag = useRef<{
@@ -784,7 +973,7 @@ function ScrubSurface({
     const slider = sliderRef.current;
     if (!slider) return;
     const rect = slider.getBoundingClientRect();
-    const target = targetFromPointer(clientX - rect.left, clientY - rect.top);
+    const target = targetFromPointer(clientX - rect.left, clientY - rect.top, false);
     if (!target) return;
     setRangeDraft((draft) => draft
       ? moveRangeHandle(draft, handle, target)
@@ -795,6 +984,7 @@ function ScrubSurface({
     <div ref={containerRef} style={{ width: '100%' }}>
       <div
         ref={sliderRef}
+        className="trend-scrubber"
         role="slider"
         id="reading-position-scrubber"
         tabIndex={0}
@@ -815,9 +1005,17 @@ function ScrubSurface({
         }
         onKeyDown={onKeyDown}
         style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'pan-y' }}
+        onDoubleClick={(event) => {
+          event.preventDefault();
+          setPreview(null);
+          setRangeDraft(null);
+          setLinkedSelection(null);
+        }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
-          const target = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+          const px = e.clientX - rect.left;
+          const py = e.clientY - rect.top;
+          const target = targetFromPointer(px, py);
           const tap = pointerTap.current;
           if (tap?.pointerId === e.pointerId) {
             if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= 4) {
@@ -828,11 +1026,12 @@ function ScrubSurface({
           }
           const drag = pointerDrag.current;
           if (drag?.pointerId === e.pointerId) {
-            if (!target) return;
+            const rangeTarget = targetFromPointer(px, py, false);
+            if (!rangeTarget) return;
             const distance = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
             if (!drag.active && distance >= 4) drag.active = true;
             if (drag.active) {
-              drag.head = clampRangeHeadToOrigin(drag.origin, target, docs, docTokenCount);
+              drag.head = { doc: rangeTarget.doc, token: rangeTarget.token };
               setPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
             }
             return;
@@ -841,14 +1040,20 @@ function ScrubSurface({
         }}
         onPointerDown={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
-          const origin = targetFromPointer(e.clientX - rect.left, e.clientY - rect.top);
+          const origin = targetFromPointer(
+            e.clientX - rect.left,
+            e.clientY - rect.top,
+            rangeDraft === null,
+          );
           if (!origin) return;
-          if (e.pointerType !== 'mouse' || rangeDraft !== null) {
+          if (origin.zone === 'barcode' || e.pointerType !== 'mouse' || rangeDraft !== null) {
+            if (e.pointerType === 'mouse') e.currentTarget.setPointerCapture(e.pointerId);
             pointerTap.current = {
               pointerId: e.pointerId,
               x: e.clientX,
               y: e.clientY,
               origin,
+              pointerType: e.pointerType,
               moved: false,
             };
             return;
@@ -858,8 +1063,8 @@ function ScrubSurface({
             pointerId: e.pointerId,
             x: e.clientX,
             y: e.clientY,
-            origin,
-            head: origin,
+            origin: { doc: origin.doc, token: origin.token },
+            head: { doc: origin.doc, token: origin.token },
             active: false,
           };
           setPreview(null);
@@ -868,11 +1073,32 @@ function ScrubSurface({
           const tap = pointerTap.current;
           if (tap?.pointerId === e.pointerId) {
             pointerTap.current = null;
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }
             if (!tap.moved) {
-              setScrub(tap.origin);
-              setRangeDraft((draft) => draft
-                ? setRangeEnd(draft, tap.origin)
-                : draft);
+              if (
+                tap.origin.zone === 'barcode'
+                && tap.pointerType === 'mouse'
+                && rangeDraft === null
+              ) {
+                const resolution = resolveCapturedBarcodeTarget(barcodeTracks, {
+                  trackId: tap.origin.trackId,
+                  doc: tap.origin.doc,
+                  rawToken: tap.origin.rawToken,
+                  exactActivation: tap.origin.snapActivation ?? null,
+                });
+                if (resolution.kind === 'activation') {
+                  onBarcodeActivate(resolution.track, resolution.activation, true);
+                } else {
+                  setScrub({ doc: resolution.doc, token: resolution.token });
+                }
+              } else {
+                setScrub({ doc: tap.origin.doc, token: tap.origin.token });
+                setRangeDraft((draft) => draft
+                  ? setRangeEnd(draft, tap.origin)
+                  : draft);
+              }
             }
             return;
           }
@@ -898,13 +1124,19 @@ function ScrubSurface({
         }}
       >
         {children}
-        {rangeDraft && rangeBox && rangeHandleX && (
+        {barcodeBand}
+        {rangeDraft && rangeBoxes.length > 0 && rangeHandlePosition && (
           <>
             {(['start', 'end'] as const).map((handle) => {
-              if (rangeDraft.start === rangeDraft.end && handle === 'start') {
+              if (
+                rangeDraft.start.doc === rangeDraft.end.doc
+                && rangeDraft.start.token === rangeDraft.end.token
+                && handle === 'start'
+              ) {
                 return null;
               }
-              const x = rangeHandleX[handle];
+              const position = rangeHandlePosition[handle];
+              const x = position.x;
               if (x === null) return null;
               return (
                 <span
@@ -941,7 +1173,7 @@ function ScrubSurface({
                   style={{
                     position: 'absolute',
                     left: Math.max(0, Math.min(plotW - 44, x - 22)),
-                    top: Math.max(0, rangeBox.top + rangeBox.height / 2 - 22),
+                    top: Math.max(0, position.top + position.height / 2 - 22),
                     zIndex: 4,
                     inlineSize: 44,
                     blockSize: 44,
@@ -958,16 +1190,18 @@ function ScrubSurface({
             })}
           </>
         )}
-        {rangeBox && (
+        {rangeBoxes.map((rangeBox, index) => (
           <div
+            key={`${rangeBox.left}:${rangeBox.top}:${rangeBox.right}`}
             aria-hidden="true"
-            data-testid={
-              preview
+            data-range-selection-segment="true"
+            data-testid={index === 0
+              ? preview
                 ? 'selection-preview'
                 : rangeDraft
                   ? 'range-draft'
                   : 'linked-selection'
-            }
+              : undefined}
             style={{
               position: 'absolute',
               left: rangeBox.left,
@@ -980,7 +1214,7 @@ function ScrubSurface({
               zIndex: 1,
             }}
           />
-        )}
+        ))}
         {scrubX !== null && (
           <div
             aria-hidden="true"
@@ -1102,12 +1336,12 @@ function ScrubSurface({
                 type="button"
                 aria-label={`Move range ${handle} ${delta < 0 ? 'back' : 'forward'} one token`}
                 onClick={() => {
-                  const d = docs.indexOf(rangeDraft.doc);
                   setRangeDraft(stepRangeHandle(
                     rangeDraft,
                     handle,
                     delta,
-                    docTokenCount[d] ?? 0,
+                    docs,
+                    docTokenCount,
                   ));
                 }}
                 style={SMALL_BUTTON_STYLE}
@@ -1151,8 +1385,8 @@ function SubHeads({ denominator }: { readonly denominator: number }) {
 function Cells({ count, rate }: { count: number; rate: number }) {
   return (
     <>
-      <td style={{ textAlign: 'right', padding: '0 0 0 1ch' }}>{count}</td>
-      <td style={{ textAlign: 'right', padding: '0 1ch 0 0.5ch' }}>{rate.toFixed(1)}</td>
+      <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 0 0 1ch' }}>{count}</td>
+      <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch 0 0.5ch' }}>{rate.toFixed(1)}</td>
     </>
   );
 }
@@ -1180,6 +1414,7 @@ const SeriesView = memo(function SeriesView({
   sectionMarks,
   strokeFor,
   geometry,
+  barcodeHeight,
 }: {
   ready: readonly DisplayedSeries[];
   selected: readonly DisplayedSeries[];
@@ -1192,6 +1427,7 @@ const SeriesView = memo(function SeriesView({
   sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
+  barcodeHeight: number;
 }) {
   const geo = ready[0]!.trend;
   const totalTokens =
@@ -1199,7 +1435,8 @@ const SeriesView = memo(function SeriesView({
   const x = linearMap(0, Math.max(1, totalTokens), 0, plotW);
   const y = linearMap(0, maxValue, geometry.seriesHeight, geometry.topPad);
   const axisY = geometry.seriesHeight;
-  const height = geometry.seriesHeight + (geometry.bookMarks === 'ticks' ? 34 : 8);
+  const barcodeBottom = axisY + barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
+  const height = barcodeBottom + (geometry.bookMarks === 'ticks' ? 34 : 8);
 
   // One path segment per (series, doc) — the break at every boundary is
   // mandatory; connecting them would invent data.
@@ -1248,7 +1485,7 @@ const SeriesView = memo(function SeriesView({
             {geometry.bookMarks === 'ticks' && (
               <text
                 x={(x0 + x1) / 2}
-                y={axisY + 14}
+                y={barcodeBottom + 14}
                 textAnchor="middle"
                 fill="var(--fg-muted)"
                 fontSize="var(--text-xs)"
@@ -1425,6 +1662,7 @@ const ByBookView = memo(function ByBookView({
   sectionMarkDoc,
   strokeFor,
   geometry,
+  rowPitch,
 }: {
   ready: readonly DisplayedSeries[];
   selected: readonly DisplayedSeries[];
@@ -1437,10 +1675,11 @@ const ByBookView = memo(function ByBookView({
   sectionMarkDoc: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
+  rowPitch: number;
 }) {
   const geo = ready[0]!.trend;
   const y = linearMap(0, maxValue, geometry.rowHeight, 0);
-  const height = docs.length * (geometry.rowHeight + geometry.rowGap) + 4;
+  const height = docs.length * rowPitch + 4;
   const pointX = (d: number, b: number) => {
     const span = trendBinSpan(geo, d, b);
     const tokens = geo.docTokenCount[d] ?? 0;
@@ -1456,7 +1695,7 @@ const ByBookView = memo(function ByBookView({
       aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
     >
       {docs.map((doc, d) => {
-        const rowY = d * (geometry.rowHeight + geometry.rowGap);
+        const rowY = d * rowPitch;
         const title = titles[d] ?? doc;
         return (
           <g key={doc}>

@@ -104,6 +104,47 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   );
 });
 
+test('leaving the catalog aborts its owned add and never imports after unmount', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativeFetch = window.fetch.bind(window);
+    const probe = window as unknown as { __ttCatalogDownload?: { started: number; aborted: number } };
+    probe.__ttCatalogDownload = { started: 0, aborted: 0 };
+    window.fetch = (input, init) => {
+      const url = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url;
+      if (!url.startsWith('https://raw.githubusercontent.com/')) return nativeFetch(input, init);
+      probe.__ttCatalogDownload!.started++;
+      return new Promise<Response>((_resolve, reject) => {
+        const abort = () => {
+          probe.__ttCatalogDownload!.aborted++;
+          reject(new DOMException('aborted', 'AbortError'));
+        };
+        if (init?.signal?.aborted) abort();
+        else init?.signal?.addEventListener('abort', abort, { once: true });
+      });
+    };
+  });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
+  await page
+    .getByRole('list', { name: 'Sherlock Holmes series' })
+    .getByRole('listitem')
+    .first()
+    .getByRole('button', { name: 'add' })
+    .click();
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __ttCatalogDownload?: { started: number } }
+  ).__ttCatalogDownload?.started ?? 0)).toBe(1);
+
+  await gotoPlace(page, 'trends');
+  await expect.poll(() => page.evaluate(() => (
+    window as unknown as { __ttCatalogDownload?: { aborted: number } }
+  ).__ttCatalogDownload?.aborted ?? 0)).toBe(1);
+  await expect(page.getByText('your project')).toHaveCount(0);
+  await expect(page.getByText(/Could not add/)).toHaveCount(0);
+});
+
 /** Count of records in the app-owned archive-cache database, from page
  *  context (raw IDB — nothing here touches app internals). */
 async function cachedArchiveCount(page: Page): Promise<number> {

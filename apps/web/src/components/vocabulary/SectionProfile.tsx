@@ -74,10 +74,10 @@ export function SectionProfile() {
                     {rows.map((row) => (
                       <tr key={row.id}>
                         <th scope="row">{row.title ?? `section ${row.id.slice(0, 8)}`}</th>
-                        <td>{number.format(row.selectedTokens)}</td>
-                        <td>{number.format(row.types)}</td>
-                        <td>{number.format(row.sentences)}</td>
-                        <td>{value(row.sentenceMean)}</td>
+                        <td className="selectable-stat">{number.format(row.selectedTokens)}</td>
+                        <td className="selectable-stat">{number.format(row.types)}</td>
+                        <td className="selectable-stat">{number.format(row.sentences)}</td>
+                        <td className="selectable-stat">{value(row.sentenceMean)}</td>
                       </tr>
                     ))}
                   </tbody>

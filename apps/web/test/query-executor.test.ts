@@ -10,10 +10,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   MAX_OCCURRENCE_CACHE_ENTRIES,
+  MAX_OCCURRENCE_CACHE_BYTES,
   QueryExecutor,
   type PublishedView,
 } from '../src/worker/query-executor.ts';
-import { DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
+import { CapError, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
 import {
   buildResolver,
   DEFAULT_INDEX_RECIPE,
@@ -78,6 +79,64 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
       expect(kwic.data.rows[0]!.nodeText).toBe('wolf');
       expect(kwic.data.rows[0]!.seriesId).toBe('s'); // rows are track-tagged
     }
+  });
+
+  it('maps an occurrence construction cap to recoverable CAP_EXCEEDED', async () => {
+    const { h, snap } = await ready();
+    vi.mocked(occurrences).mockImplementationOnce(() => {
+      throw new CapError('occurrences exceed the cap of 200000 (reached 200001)');
+    });
+    await h.send({
+      t: 'query', job: 22, snapshot: snap,
+      query: {
+        op: 'trend', selection: { docs: ['a'] }, group: wolfGroup,
+        request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      },
+    });
+    expect(h.last('error')).toMatchObject({ code: 'CAP_EXCEEDED', recoverable: true });
+  });
+
+  it('a capped construction neither poisons nor evicts a warm occurrence entry', async () => {
+    const { h, snap } = await ready();
+    const occSpy = vi.mocked(occurrences);
+    occSpy.mockClear();
+    const trendQuery = (group: typeof wolfGroup) => ({
+      op: 'trend' as const,
+      selection: { docs: ['a'] },
+      group,
+      request: {
+        coordinate: 'document-relative' as const,
+        bins: { mode: 'per-doc' as const, count: 4 },
+      },
+    });
+    await h.send({ t: 'query', job: 23, snapshot: snap, query: trendQuery(wolfGroup) });
+    const executor = (h.engine as unknown as {
+      generation: {
+        executor: {
+          occurrenceCache: Map<string, unknown>;
+          occurrenceCacheBytes: number;
+        };
+      } | null;
+    }).generation!.executor;
+    const warmKeys = [...executor.occurrenceCache.keys()];
+    const warmBytes = executor.occurrenceCacheBytes;
+
+    occSpy.mockImplementationOnce(() => {
+      throw new CapError('occurrences exceed the cap of 200000 (reached 200001)');
+    });
+    const foxGroup = {
+      ...wolfGroup,
+      id: 'fox-cap-probe',
+      members: wolfGroup.members.map((member) => ({ ...member, surface: 'fox' })),
+    };
+    await h.send({ t: 'query', job: 24, snapshot: snap, query: trendQuery(foxGroup) });
+    expect(h.last('error')).toMatchObject({ code: 'CAP_EXCEEDED', recoverable: true });
+    expect([...executor.occurrenceCache.keys()]).toEqual(warmKeys);
+    expect(executor.occurrenceCacheBytes).toBe(warmBytes);
+
+    await h.send({ t: 'query', job: 25, snapshot: snap, query: trendQuery(wolfGroup) });
+    expect(h.all('result').some((message) => message.job === 25)).toBe(true);
+    expect(occSpy).toHaveBeenCalledTimes(2);
   });
 
   it('kwic/2 merges two tracks and orders by proximity to an axis center', async () => {
@@ -471,8 +530,70 @@ describe('Slice-3 document-term-count cache', () => {
     executor as unknown as {
       termCountCache: Map<string, unknown>;
       termCountCacheBytes: number;
+      occurrenceCache: Map<string, { bytes: number }>;
+      occurrenceCacheBytes: number;
     }
   );
+
+  it('accounts occurrence-cache bytes exactly and evicts by the byte LRU', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    const executor = new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: MAX_OCCURRENCE_CACHE_ENTRIES, maxBytes: 50 },
+    );
+    executor.publish(view, []);
+    const all = await resolveSelection(snapshot, { docs: ['a', 'b'] as never });
+    const run = (surface: string) => executor.trend(
+      all,
+      { id: surface, countOverlaps: false, members: [{ id: 'm', kind: 'token', surface, match: FOLD }] },
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      async () => {},
+    );
+    await run('alpha'); // 2 rows → 44 bytes
+    expect(cacheOf(executor).occurrenceCacheBytes).toBe(44);
+    await run('gamma'); // 1 row → 24 bytes; alpha is the LRU victim
+    const cache = cacheOf(executor);
+    expect(cache.occurrenceCache.size).toBe(1);
+    expect(cache.occurrenceCacheBytes).toBe(24);
+    expect(cache.occurrenceCacheBytes).toBe(
+      [...cache.occurrenceCache.values()].reduce((sum, entry) => sum + entry.bytes, 0),
+    );
+  });
+
+  it('drops every superseded-snapshot occurrence entry on publish', async () => {
+    const { view, snapshot } = await publishedTwoDocs();
+    const executor = new QueryExecutor(DEFAULT_INDEX_RECIPE);
+    executor.publish(view, []);
+    const all = await resolveSelection(snapshot, { docs: ['a', 'b'] as never });
+    await executor.trend(
+      all,
+      { id: 'alpha', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface: 'alpha', match: FOLD }] },
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      async () => {},
+    );
+    expect(cacheOf(executor).occurrenceCache.size).toBe(1);
+    const nextSnapshot = { ...view.snapshot, id: 'superseding-snapshot' as CorpusSnapshotV1['id'] };
+    executor.publish({ ...view, snapshot: nextSnapshot }, []);
+    expect(cacheOf(executor).occurrenceCache.size).toBe(0);
+    expect(cacheOf(executor).occurrenceCacheBytes).toBe(0);
+  });
+
+  it('only permits occurrence-cache policies that reduce the hard bounds', () => {
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 0, maxBytes: 1 },
+    )).toThrow(RangeError);
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 1, maxBytes: MAX_OCCURRENCE_CACHE_BYTES + 1 },
+    )).toThrow(RangeError);
+  });
 
   it('hits by [snapshot, doc, rangeKey] and checkpoints between documents', async () => {
     const { view, snapshot } = await publishedTwoDocs();

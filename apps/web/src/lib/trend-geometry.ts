@@ -136,25 +136,117 @@ export interface DocumentTokenTarget {
   readonly token: number;
 }
 
-/** A range is authored in one document. If pointer motion crosses a declared
- * document boundary, clamp the preview head to the corresponding edge of the
- * origin document rather than manufacturing a multi-document selection. */
-export function clampRangeHeadToOrigin(
-  origin: DocumentTokenTarget,
-  target: DocumentTokenTarget,
-  docs: readonly string[],
-  tokenCounts: readonly number[],
-): DocumentTokenTarget {
-  if (target.doc === origin.doc) return target;
-  const originOrdinal = docs.indexOf(origin.doc);
-  const targetOrdinal = docs.indexOf(target.doc);
-  if (originOrdinal < 0 || targetOrdinal < 0) return origin;
-  return {
-    doc: origin.doc,
-    token: targetOrdinal < originOrdinal
-      ? 0
-      : Math.max(0, (tokenCounts[originOrdinal] ?? 0) - 1),
-  };
+export type TrendStageHit =
+  | { readonly d: number; readonly token: number; readonly zone: 'plot' }
+  | { readonly d: number; readonly token: number; readonly zone: 'barcode'; readonly trackRow: number };
+
+interface BarcodeBandSpec {
+  readonly trackCount: number;
+  readonly trackHeight: number;
+  readonly trackGap: number;
+}
+
+export type TrendStageSpec =
+  | {
+      readonly view: 'series';
+      readonly plotWidth: number;
+      readonly plotHeight: number;
+      readonly barcodeBandGap: number;
+      readonly barcodeHeight: number;
+      readonly band: BarcodeBandSpec;
+      readonly layout: SequenceLayout;
+    }
+  | {
+      readonly view: 'by-book';
+      readonly plotWidth: number;
+      readonly rowHeight: number;
+      readonly rowGap: number;
+      readonly barcodeBandGap: number;
+      readonly barcodeHeight: number;
+      readonly band: BarcodeBandSpec;
+      readonly tokenCounts: readonly number[];
+    };
+
+export function barcodeBandHeight(
+  trackCount: number,
+  trackHeight: number,
+  trackGap: number,
+): number {
+  return Math.max(0, trackCount) * (trackHeight + trackGap);
+}
+
+export function barcodeBandExtent(barcodeBandGap: number, barcodeHeight: number): number {
+  return barcodeHeight > 0 ? barcodeBandGap + barcodeHeight : 0;
+}
+
+/** One by-book stage row is plot + embedded barcode + breathing room. Keep
+ * this centralized so painting, pointer hit-testing, cursors and SVG rows can
+ * never drift apart. */
+export function byBookRowPitch(
+  rowHeight: number,
+  rowGap: number,
+  barcodeBandGap: number,
+  barcodeHeight: number,
+): number {
+  return rowHeight + barcodeBandExtent(barcodeBandGap, barcodeHeight) + rowGap;
+}
+
+function barcodeTrackRow(
+  localY: number,
+  trackCount: number,
+  trackHeight: number,
+  trackGap: number,
+): number | null {
+  const stride = trackHeight + trackGap;
+  if (stride <= 0 || localY < 0) return null;
+  const row = Math.floor(localY / stride);
+  return row >= 0 && row < trackCount ? row : null;
+}
+
+/** Explicit stage hit zones prevent the new band from silently broadening
+ * the existing plot hit area. Axis gaps and labels continue to reject. */
+export function trendStageHit(
+  px: number,
+  py: number,
+  stage: TrendStageSpec,
+): TrendStageHit | null {
+  if (px < 0 || px >= stage.plotWidth || py < 0) return null;
+  if (stage.view === 'series') {
+    const at = seriesTokenFromX(px, stage.plotWidth, stage.layout);
+    if (!at) return null;
+    if (py <= stage.plotHeight) return { ...at, zone: 'plot' };
+    const barcodeTop = stage.plotHeight + stage.barcodeBandGap;
+    if (py < barcodeTop || py >= barcodeTop + stage.barcodeHeight) return null;
+    const trackRow = barcodeTrackRow(
+      py - barcodeTop,
+      stage.band.trackCount,
+      stage.band.trackHeight,
+      stage.band.trackGap,
+    );
+    return trackRow === null ? null : { ...at, zone: 'barcode', trackRow };
+  }
+
+  const pitch = byBookRowPitch(
+    stage.rowHeight,
+    stage.rowGap,
+    stage.barcodeBandGap,
+    stage.barcodeHeight,
+  );
+  const d = Math.floor(py / pitch);
+  if (d < 0 || d >= stage.tokenCounts.length) return null;
+  const localY = py - d * pitch;
+  const token = bookTokenFromX(px, stage.plotWidth, stage.tokenCounts[d] ?? 0);
+  if (token === null) return null;
+  if (localY <= stage.rowHeight) return { d, token, zone: 'plot' };
+  const barcodeTop = stage.rowHeight + stage.barcodeBandGap;
+  if (localY < barcodeTop || localY >= barcodeTop + stage.barcodeHeight) return null;
+  const trackRow = barcodeTrackRow(
+    localY - barcodeTop,
+    stage.band.trackCount,
+    stage.band.trackHeight,
+    stage.band.trackGap,
+  );
+  return trackRow === null ? null : { d, token, zone: 'barcode', trackRow };
 }
 
 /** Resolve a global sequence token to (doc ordinal, document-local token).
@@ -227,40 +319,6 @@ export function bookXFromToken(token: number, plotWidth: number, tokenCount: num
 export function bookXFromTokenEdge(token: number, plotWidth: number, tokenCount: number): number {
   if (tokenCount <= 0) return 0;
   return (token / tokenCount) * plotWidth;
-}
-
-/** Pointer → scrub target for the series view. Coordinates OUTSIDE the plot
- *  (label rail, area below the axis, the passage line) are rejected — the
- *  scale clamp must never turn a click on chrome into a position change. */
-export function pointerTargetSeries(
-  px: number,
-  py: number,
-  plotWidth: number,
-  plotHeight: number,
-  layout: SequenceLayout,
-): { d: number; token: number } | null {
-  if (px < 0 || px >= plotWidth || py < 0 || py > plotHeight) return null;
-  return seriesTokenFromX(px, plotWidth, layout);
-}
-
-/** Pointer → scrub target for the by-book view: the pointer must sit inside
- *  a row's plotted band — the gaps between rows and anything past the last
- *  row reject rather than snap to the nearest document. */
-export function pointerTargetByBook(
-  px: number,
-  py: number,
-  plotWidth: number,
-  rowHeight: number,
-  rowGap: number,
-  tokenCounts: readonly number[],
-): { d: number; token: number } | null {
-  if (px < 0 || px >= plotWidth || py < 0) return null;
-  const stride = rowHeight + rowGap;
-  const d = Math.floor(py / stride);
-  if (d >= tokenCounts.length) return null;
-  if (py - d * stride > rowHeight) return null;
-  const token = bookTokenFromX(px, plotWidth, tokenCounts[d] ?? 0);
-  return token === null ? null : { d, token };
 }
 
 /** Step a scrub position by `delta` tokens along the declared sequence,

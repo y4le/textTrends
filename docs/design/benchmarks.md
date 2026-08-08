@@ -1,5 +1,70 @@
 # Benchmark record
 
+## Occurrence streaming promotion gate (written before measurement)
+
+The bounded materialization cut remains the V1 architecture unless the
+adversarial `bench-occurrences` case crosses any of these thresholds in a
+fresh process on the largest checked-in corpus:
+
+- cold occurrence construction exceeds **250 ms**, because one synchronous
+  construction is the residual worst-case cancellation delay;
+- the phase-local sampled RSS peak grows by more than **128 MiB** over its
+  post-index, post-GC baseline; or
+- a cap-rejected construction takes more than **500 ms** to reach its bound.
+
+Crossing a threshold promotes a streaming/folding redesign, including its
+cache contract, into active architecture work. A cache-only or transport-only
+rewrite does not satisfy the gate: `NumericOccurrences` is shared by trend,
+KWIC, dispersion, Reader, and passage, so the redesign must cover all of those
+consumers coherently. Run:
+
+`node --expose-gc packages/cli/src/main.ts bench-occurrences <corpus-dir>`
+
+The benchmark builds the corpus in a child, then runs two signalled phases:
+
+- a successful construction selected just below the cap by repeating one
+  exact token member; and
+- a cap-pressure `countOverlaps: true` token + prefix + repeated-common phrase
+  group around the corpus's highest-frequency type; this corpus reaches the
+  typed cap, while smaller corpora may complete successfully.
+
+The parent samples the child's Linux `/proc/<pid>/status` current RSS every
+1 ms only between each phase's ready/result signals. This excludes the index
+build's earlier high-water mark. The reported memory number is the largest
+sampled current-RSS increase over the phase's post-GC baseline, not a
+process-lifetime `maxRSS` subtraction. On platforms without Linux `/proc`, the
+JSON marks phase memory unmeasured; the 128 MiB gate is then explicitly
+untested and cannot support a deferral claim. Each phase also reports its cold
+kernel result (or typed cap) and an explicit cache read.
+
+### 2026-08-03 — adversarial occurrence construction, dev machine
+
+Command: `node --expose-gc packages/cli/src/main.ts bench-occurrences text/ASOIF`
+
+| Corpus/phase | Input | Outcome | Cold time | Phase RSS peak delta | Warm cache |
+|---|---|---|---:|---:|---|
+| ASOIF (5 vols), near-cap | 1,759,717 tokens; exact `have` (8,330 postings) × 24 members | 199,920 occurrences; 3,998,404-byte typed payload | 33.4 ms | +35.5 MiB (33 samples) | hit, 0.001 ms |
+| ASOIF (5 vols), cap pressure | folded `the` (87,271 raw exact-form postings) + prefix + phrase | typed cap at occurrence 200,001 | 42.0 ms | +40.0 MiB (41 samples) | miss, 0.001 ms |
+
+Both the successful near-cap construction and the cap-rejected path stay well
+below their promotion thresholds: 250 ms for successful cold construction,
+500 ms to reject at the cap, and 128 MiB of sampled phase-local RSS growth.
+The warm column is only an explicit in-process map read: it shows that the
+successful phase produced a value the harness can retain and the rejected
+phase produced no value to insert. The product-level guarantee that a failed
+construction neither poisons nor evicts its occurrence cache is covered
+separately in `apps/web/test/query-executor.test.ts`. On this Linux machine,
+the measured latency and memory therefore do **not** promote the streaming
+rewrite. They do not claim responsive mid-kernel cancellation; the residual
+synchronous span remains one capped computation, measured here at 42.0 ms in
+the rejected case.
+
+An earlier version of this row reported a `+0.9 MiB` delta by subtracting
+process-lifetime max-RSS before/after the phase. Review correctly found that
+the index build could already own the high-water mark, making that delta
+incapable of measuring occurrence memory. That number and its memory-based
+conclusion are superseded by the phase-signalled samples above.
+
 Preliminary observations against the synthesis (§6) hypotheses. These are two real
 corpus points, not the formal 1M/10M/50M synthetic tiers (which join the suite with
 the worker adapter) — treat extrapolations below as estimates, not evidence of a
@@ -62,12 +127,13 @@ frozen (Codex M6 consult: unmeasured numbers must not become CI policy).
 | Trend query post → result (bundled corpus, single terms) | 3–15 ms |
 | Cancel acknowledgement p95 (20 real acknowledgements) | 0.3 ms |
 
-(The benchmark project runs AFTER the functional project completes and with
-one worker — enforced in playwright.config.ts itself: `chromium-benchmark`
-declares a project dependency on `chromium-functional` and pins
-`workers: 1`, so one `pnpm e2e` invocation preserves the sequence and timing
-samples never share the machine with functional load. `pnpm e2e:bench`
-passes `--no-deps` for a deliberate timing-only run.)
+(The benchmark project runs AFTER the functional and compact WebKit projects
+complete and with one worker — enforced in playwright.config.ts itself:
+`chromium-benchmark` declares dependencies on `chromium-functional` and
+`webkit-compact` and pins `workers: 1`, so one `pnpm e2e` invocation preserves
+the sequence and timing samples never share the machine with functional load.
+`pnpm --filter @texttrends/web e2e:bench` passes `--no-deps` for a deliberate
+timing-only run.)
 
 Gates now enforced in CI (semantic, deterministic): warm reload performs zero
 corpus fetches and zero decode/segment/index phases and publishes exactly one

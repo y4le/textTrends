@@ -14,7 +14,7 @@
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import { SOURCE_FILE_ACCEPT } from '../lib/project.ts';
+import { BUILTIN_CORPORA, builtinCorpusOption, SOURCE_FILE_ACCEPT, type BuiltinCorpusId } from '../lib/project.ts';
 import { projectSaveView } from '../lib/project-save-view.ts';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import type { SourceStatus } from '../lib/project-session.ts';
@@ -50,6 +50,7 @@ export function ProjectPanel({
   const sources = useApp((s) => s.projectSession?.sources ?? null);
   const reattach = useApp((s) => s.projectSession?.reattach ?? null);
   const commandError = useApp((s) => s.commandError);
+  const openBuiltinCorpus = useApp((s) => s.openBuiltinCorpus);
   const importFiles = useApp((s) => s.importFiles);
   const doReattach = useApp((s) => s.reattach);
   const setPersistIntent = useApp((s) => s.setPersistIntent);
@@ -61,6 +62,7 @@ export function ProjectPanel({
 
   if (!project) return null; // bootstrap not yet attached
   const isBuiltin = project.kind === 'builtin';
+  const builtinLabel = builtinCorpusOption(project.id)?.label ?? 'Built-in corpus';
   const saveView = projectSaveView(project);
   const importLabel = isBuiltin ? 'Create project from files' : 'Add files';
 
@@ -89,9 +91,24 @@ export function ProjectPanel({
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         <Heading id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
-          {isBuiltin ? 'built-in corpus (read-only)' : 'your project'}
+          {isBuiltin ? `${builtinLabel} · built-in corpus (read-only)` : 'your project'}
         </Heading>
         <span style={{ flex: 1 }} />
+        {isBuiltin && (
+          <label>
+            Demo corpus{' '}
+            <select
+              aria-label="Demo corpus"
+              value={project.id}
+              onChange={(event) => openBuiltinCorpus(event.target.value as BuiltinCorpusId)}
+              style={{ font: 'inherit' }}
+            >
+              {BUILTIN_CORPORA.map((corpus) => (
+                <option key={corpus.id} value={corpus.id}>{corpus.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
         <label style={{ cursor: 'pointer' }}>
           {importLabel}
           <input

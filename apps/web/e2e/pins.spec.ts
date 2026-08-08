@@ -313,7 +313,7 @@ test('repeated chart activation reads without creating durable evidence', async 
     .getByRole('dialog', { name: 'Evidence sheet' })
     .getByRole('button', { name: 'Open passage in reader' })
     .click();
-  const reader = page.getByRole('dialog', { name: /Reader:/ });
+  const reader = page.getByRole('main', { name: /Reader:/ });
   const readerPin = reader.getByRole('button', { name: /Save reader excerpt at token/ });
   await expect(readerPin).toBeVisible();
   await readerPin.click();
@@ -323,7 +323,7 @@ test('repeated chart activation reads without creating durable evidence', async 
   await reader.getByRole('button', { name: 'back', exact: true }).click();
 });
 
-test('the study-mode Evidence strip owns feedback for its own Save action', async ({ page }) => {
+test('the full Reader owns feedback for its Save action', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
 
@@ -332,21 +332,18 @@ test('the study-mode Evidence strip owns feedback for its own Save action', asyn
   await scrubber.press('Home');
   const evidence = page.getByRole('complementary', { name: 'Evidence' });
   await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
-  const reader = page.getByRole('dialog', { name: /Reader:/ });
-  await expect(reader).toHaveAttribute('data-mode', 'study');
-  await expect(evidence).toBeVisible();
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).not.toHaveAttribute('role', 'dialog');
+  await expect(evidence).toHaveCount(0);
 
-  await evidence.getByRole('button', { name: /Save excerpt at token/ }).click();
-  await expect(evidence.getByRole('status')).toContainText(
+  await reader.getByRole('button', { name: /Save reader excerpt at token/ }).click();
+  await expect(reader.getByRole('status')).toContainText(
     /Sav(?:ed|ing).*excerpt.*Findings/i,
   );
-  await expect(reader.getByRole('status')).toHaveCount(0);
   await reader.getByRole('button', { name: 'next →', exact: true }).click();
-  await expect(evidence.getByRole('status')).toContainText(
-    /Sav(?:ed|ing).*excerpt.*Findings/i,
-  );
+  await expect(reader.getByRole('status')).toHaveCount(0);
 
-  await reader.getByRole('button', { name: 'close', exact: true }).click();
+  await reader.getByRole('button', { name: 'back', exact: true }).click();
   await gotoPlace(page, 'findings');
   const findings = page.getByRole('region', { name: 'Saved excerpts' });
   await findings.locator('.findings-record-trigger').click();
@@ -387,9 +384,8 @@ test('at capacity Pin stays reachable and announces the refusal', async ({ page 
 
   await evidence.getByRole('button', { name: 'dismiss', exact: true }).click();
   await page.getByRole('button', { name: 'Open passage in reader' }).click();
-  const reader = page.getByRole('dialog', { name: /Reader:/ });
-  await reader.getByRole('button', { name: 'full', exact: true }).click();
-  await expect(reader).toHaveAttribute('data-mode', 'full');
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).not.toHaveAttribute('role', 'dialog');
   const readerPin = reader.getByRole('button', { name: /Save reader excerpt at token/ });
   await expect(readerPin).toHaveAttribute('aria-disabled', 'true');
   await readerPin.focus();

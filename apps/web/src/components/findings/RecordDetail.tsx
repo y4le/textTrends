@@ -59,7 +59,7 @@ function EvidenceText({
       </span>
     );
   };
-  return <p className="findings-captured-excerpt">{segments.map(render)}</p>;
+  return <p className="findings-captured-excerpt source-text">{segments.map(render)}</p>;
 }
 
 function Check({ check }: { readonly check: SelectionCheck | null }) {

@@ -6,7 +6,13 @@
  */
 import { describe, expect, it } from 'vitest';
 import {
+  ASOIF,
+  BUILTIN_ASOIF_ID,
+  BUILTIN_CORPORA,
+  BUILTIN_LOTR_ID,
   BUILTIN_SHERLOCK_ID,
+  LOTR,
+  builtinProjectData,
   builtinProject,
   generationSpecsFromProject,
   manifestForSave,
@@ -17,7 +23,15 @@ import {
   sherlockProjectData,
   type ProjectDataV1,
 } from '../src/lib/project.ts';
-import { emptyOverride, hashStructureOverride, validateProjectManifest, type PersistedOverride, type ProjectManifestV1 } from '@texttrends/core';
+import {
+  DEFAULT_STRUCTURE_RECIPE,
+  buildDetectedSections,
+  emptyOverride,
+  hashStructureOverride,
+  validateProjectManifest,
+  type PersistedOverride,
+  type ProjectManifestV1,
+} from '@texttrends/core';
 
 /** A durable manifest built directly for validation — bypasses the guarded
  *  save path (which correctly rejects the built-in origin). */
@@ -73,6 +87,65 @@ describe('the built-in Sherlock project', () => {
       if (doc.source.kind !== 'text') throw new Error('built-in docs are text sources');
       expect(doc.source.encoding.detected).toBe('utf-8');
       expect(doc.structure.override).toEqual({ status: 'none' });
+    }
+  });
+});
+
+describe('the bundled demo corpus registry', () => {
+  const fixtures = {
+    [BUILTIN_SHERLOCK_ID]: SHERLOCK,
+    [BUILTIN_ASOIF_ID]: ASOIF,
+    [BUILTIN_LOTR_ID]: LOTR,
+  } as const;
+
+  it('materializes every demo as a valid read-only TXT manifest with corpus-qualified sources', async () => {
+    for (const corpus of BUILTIN_CORPORA) {
+      const data = await builtinProjectData(corpus.id);
+      expect(data.id).toBe(corpus.id);
+      expect(data.order).toEqual(fixtures[corpus.id].map((entry) => entry.doc));
+      expect(data.docs.map((doc) => doc.sourceName)).toEqual(
+        fixtures[corpus.id].map((entry) => `${corpus.sourceDirectory}/${entry.doc}`),
+      );
+      await expect(validateProjectManifest(asManifest(data, 1))).resolves.toMatchObject({ id: corpus.id });
+    }
+  });
+
+  it('matches every shipped source byte-for-byte, including UTF-16 lengths and hashes', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const { hashSourceBytes, hashText } = await import('@texttrends/core');
+    for (const corpus of BUILTIN_CORPORA) {
+      const data = await builtinProjectData(corpus.id);
+      for (const doc of data.docs) {
+        const bytes = await readFile(new URL(`../public/corpora/${doc.sourceName}.txt`, import.meta.url));
+        const decoded = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        expect(bytes.byteLength, doc.doc).toBe(doc.source.byteLength);
+        expect(decoded.length, doc.doc).toBe(doc.extraction.textLengthUtf16);
+        expect(await hashSourceBytes(new Uint8Array(bytes)), doc.doc).toBe(doc.source.hash);
+        expect(await hashText(decoded), doc.doc).toBe(doc.extraction.text);
+      }
+    }
+  });
+
+  it('keeps the private TXT demos structurally detectable with titled chapter boundaries', async () => {
+    const { readFile } = await import('node:fs/promises');
+    const expectedSections = {
+      [BUILTIN_ASOIF_ID]: [73, 70, 82, 46, 73],
+      [BUILTIN_LOTR_ID]: [24, 23, 21], // two Book headings plus 22/21/19 chapters
+    } as const;
+
+    for (const id of [BUILTIN_ASOIF_ID, BUILTIN_LOTR_ID] as const) {
+      const data = await builtinProjectData(id);
+      for (const [index, doc] of data.docs.entries()) {
+        const bytes = await readFile(new URL(`../public/corpora/${doc.sourceName}.txt`, import.meta.url));
+        const text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+        const detected = buildDetectedSections(text, [], DEFAULT_STRUCTURE_RECIPE).filter((section) => section.title !== undefined);
+        const expected = expectedSections[id][index];
+        if (expected === undefined) throw new Error(`missing expected section count for ${doc.doc}`);
+        expect(detected, doc.doc).toHaveLength(expected);
+        const chapters = detected.filter((section) => section.title!.startsWith('Chapter '));
+        expect(chapters.length, doc.doc).toBeGreaterThan(0);
+        expect(chapters.every((section) => /^Chapter \d+\. \S/.test(section.title!)), doc.doc).toBe(true);
+      }
     }
   });
 });

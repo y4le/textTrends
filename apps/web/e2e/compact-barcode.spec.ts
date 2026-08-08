@@ -39,7 +39,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await gotoPlace(page, 'trends');
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
-  const canvas = page.locator('canvas[data-pointer-contract="read-only"]');
+  const canvas = page.locator('canvas[data-pointer-contract="scrub-only"]');
   await expect(canvas).toBeVisible();
   expect(await canvas.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('none');
 
@@ -59,7 +59,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await expect(evidence.getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
     timeout: 30_000,
   });
-  await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 
   const captions = [await evidence.locator('.evidence-caption').innerText()];
   await gotoPlace(page, 'concordance');

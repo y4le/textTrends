@@ -81,7 +81,7 @@ function AxisRow({
               />
             </span>
           )}
-          <span className="compare-effect-value">{signed.format(row.logRatio)}</span>
+          <span className="compare-effect-value selectable-stat">{signed.format(row.logRatio)}</span>
         </td>
         <td className="compare-side" role="cell" aria-colindex={3}>
           {side.toUpperCase()}

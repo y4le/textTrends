@@ -1,26 +1,20 @@
-import { commitRange, type TokenRangeSelectionV1 } from './selection.ts';
+import {
+  commitRange,
+  type SelectionPoint,
+  type TokenRangeSelectionSpanV1,
+  type TokenRangeSelectionV1,
+} from './selection.ts';
 
-export interface RangePoint {
-  readonly doc: string;
-  readonly token: number;
-}
-
+export type RangePoint = SelectionPoint;
 export type RangeHandle = 'start' | 'end';
 
 export interface RangeDraft {
-  readonly doc: string;
-  readonly start: number;
-  readonly end: number;
-  readonly message: string | null;
+  readonly start: RangePoint;
+  readonly end: RangePoint;
 }
 
 export function armRange(point: RangePoint): RangeDraft {
-  return {
-    doc: point.doc,
-    start: point.token,
-    end: point.token,
-    message: null,
-  };
+  return { start: point, end: point };
 }
 
 export function cancelRange(): null {
@@ -32,16 +26,9 @@ export function moveRangeHandle(
   handle: RangeHandle,
   point: RangePoint,
 ): RangeDraft {
-  if (point.doc !== draft.doc) {
-    return {
-      ...draft,
-      message: 'A range must stay within one book; the endpoint was not moved.',
-    };
-  }
   return {
     ...draft,
-    [handle]: point.token,
-    message: null,
+    [handle]: { doc: point.doc, token: point.token },
   };
 }
 
@@ -49,43 +36,79 @@ export function setRangeEnd(draft: RangeDraft, point: RangePoint): RangeDraft {
   return moveRangeHandle(draft, 'end', point);
 }
 
+function stepPoint(
+  point: RangePoint,
+  delta: number,
+  docs: readonly string[],
+  docTokenCounts: readonly number[],
+): RangePoint {
+  let ordinal = docs.indexOf(point.doc);
+  if (ordinal < 0) return point;
+  let token = point.token;
+  let remaining = Math.abs(delta);
+  const direction = Math.sign(delta);
+  while (remaining > 0) {
+    const count = docTokenCounts[ordinal] ?? 0;
+    if (direction < 0) {
+      if (token > 0) {
+        const moved = Math.min(remaining, token);
+        token -= moved;
+        remaining -= moved;
+      } else {
+        let previous = ordinal - 1;
+        while (previous >= 0 && (docTokenCounts[previous] ?? 0) <= 0) previous--;
+        if (previous < 0) break;
+        ordinal = previous;
+        token = (docTokenCounts[ordinal] ?? 1) - 1;
+        remaining--;
+      }
+    } else if (direction > 0) {
+      if (token < count - 1) {
+        const moved = Math.min(remaining, count - 1 - token);
+        token += moved;
+        remaining -= moved;
+      } else {
+        let next = ordinal + 1;
+        while (next < docs.length && (docTokenCounts[next] ?? 0) <= 0) next++;
+        if (next >= docs.length) break;
+        ordinal = next;
+        token = 0;
+        remaining--;
+      }
+    } else {
+      break;
+    }
+  }
+  return { doc: docs[ordinal] ?? point.doc, token };
+}
+
 export function stepRangeHandle(
   draft: RangeDraft,
   handle: RangeHandle,
   delta: number,
-  docTokenCount: number,
+  docs: readonly string[],
+  docTokenCounts: readonly number[],
 ): RangeDraft {
-  if (
-    !Number.isSafeInteger(delta)
-    || !Number.isSafeInteger(docTokenCount)
-    || docTokenCount <= 0
-  ) {
-    return draft;
-  }
-  const value = Math.max(
-    0,
-    Math.min(docTokenCount - 1, draft[handle] + delta),
-  );
+  if (!Number.isSafeInteger(delta)) return draft;
   return {
     ...draft,
-    [handle]: value,
-    message: null,
+    [handle]: stepPoint(draft[handle], delta, docs, docTokenCounts),
   };
 }
 
-export function draftRangeTokens(
+export function draftRanges(
   draft: RangeDraft,
-): { readonly start: number; readonly end: number } {
-  return {
-    start: Math.min(draft.start, draft.end),
-    end: Math.max(draft.start, draft.end) + 1,
-  };
+  docs: readonly string[],
+  docTokenCounts: readonly number[],
+): readonly TokenRangeSelectionSpanV1[] {
+  return commitRange('', draft.start, draft.end, docs, docTokenCounts)?.ranges ?? [];
 }
 
 export function commitRangeDraft(
   snapshot: string,
   draft: RangeDraft,
-  docTokenCount: number,
+  docs: readonly string[],
+  docTokenCounts: readonly number[],
 ): TokenRangeSelectionV1 | null {
-  return commitRange(snapshot, draft.doc, draft.start, draft.end, docTokenCount);
+  return commitRange(snapshot, draft.start, draft.end, docs, docTokenCounts);
 }

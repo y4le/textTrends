@@ -76,14 +76,19 @@ The query string never contains terms, text, notes, or other research data.
 
 ## Governing composition
 
-At every width the workbench is one column:
+At every width the workbench is one column beneath a unified page header:
 
 ```text
-Scope + Lens
+textTrends + Scope + Lens
 Terms bucket bar
 Active analytical place, full available width
 Conditional Evidence strip
 ```
+
+The brand, Scope, and Lens share one header row rather than consuming two
+vertical bands. Scope is a single-line local horizontal scroll port when its
+facts do not fit. Compact portrait and landscape still move the Lens links to
+their governed bottom or side dock without duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There is no permanent
 desktop Query rail, Evidence sidebar, or Method footer.
@@ -131,8 +136,8 @@ so every top-bar target remains at least 44 CSS pixels and the legend stays
 scannable. Authoring layers retain drafts and valid focus through viewport and
 software-keyboard changes.
 
-The term bar persists across all six places. Reader **full** may hide it;
-Reader **study** retains it.
+The term bar persists across all six places. Reader hides it while occupying
+the full viewport.
 
 ### Analysis plate
 
@@ -148,10 +153,20 @@ The trend plate preserves these visual rules:
 - a hard path break at every document boundary;
 - color plus dash plus text identity, never color alone;
 - direct labels where space permits;
+- dispersion barcodes embedded as the plot's bottom evidence rows: one shared
+  declared-sequence band in series view and one normalized band per book row
+  in by-book view;
 - a bounded current passage below the reading cursor; and
 - exact per-book/corpus totals beneath the plot.
 
-Pointer motion and touch reading move the cursor. They do not save evidence.
+Pointer motion and touch reading move the cursor. In an exact barcode row,
+fine-pointer hover snaps to a painted occurrence within eight horizontal
+pixels; otherwise it retains the raw graph position. Density cells never
+pretend to be exact hover targets. Hover does not focus a term, create a
+selection, center the concordance immediately, or open Reader. The accessible
+barcode summaries and occurrence steppers remain outside the chart slider. An
+exact click activates only within that same tolerance; clicking farther away
+keeps the raw reading position instead of jumping to remote evidence.
 Touch dragging does not accidentally create a range: range authoring is an
 explicit mode with visible handles, controls, Cancel, and Use range.
 
@@ -209,15 +224,15 @@ locations focus the existing record. The bounded limit is eight and is shown
 as `n saved · limit 8` in Findings. At capacity the still-focusable action
 explains the refusal and links to Findings for removal.
 
-When Reader and the Evidence strip coexist in study mode, feedback belongs to
-the surface whose Save action was invoked. That ownership is explicit resident
-state, not inferred from viewport width or from the mere presence of a Reader
-layer: an Evidence-strip save reports in Evidence, and a Reader save reports in
-Reader. Findings owns origin-free record-management feedback. Only that owner
-renders the message as a live region. If a non-modal Method peek temporarily
-hides Evidence while its keyboard shortcut remains operable, a bounded Evidence
-feedback row remains as the owner of last resort. Navigating the Reader clears
-its prior feedback without erasing another surface's message.
+Feedback belongs to the surface whose Save action was invoked. That ownership
+is explicit resident state, not inferred from viewport width or from the mere
+presence of a Reader layer: an Evidence-strip save reports in Evidence, and a
+Reader save reports in Reader. Findings owns origin-free record-management
+feedback. Only that owner renders the message as a live region. If a non-modal
+Method peek temporarily hides Evidence while its keyboard shortcut remains
+operable, a bounded Evidence feedback row remains as the owner of last resort.
+Navigating the Reader clears its prior feedback without erasing another
+surface's message.
 
 If future product evidence shows that users do not use notes, cross-position
 comparison, resume, export, or audit, saved excerpts can be reconsidered.
@@ -292,18 +307,12 @@ document. Legacy `/1` records and share links migrate on read.
 
 ## Reader
 
-Reader has two modes:
-
-- **study:** keeps workbench context and the Terms bar;
-- **full:** prioritizes continuous reading and hides workbench chrome that no
-  longer earns the space.
-
-Both use the same reader identity and DOM across viewport changes. There is no
-desktop-only peek mode. Reader exposes the same Save excerpt verb, occurrence
-navigation, page status, a slot-independent live confirmation/refusal region,
-and an explicit return path. In study mode, query
-authoring may open above Reader as a governed row-detail; Back closes the
-authoring layer and returns to the same Reader identity.
+Reader has one presentation: a full-viewport reading surface at every width.
+It hides the workbench chrome, Terms bar, Evidence strip, and Method surface;
+the prose pane is its only vertical scroll container, and the outer document
+is locked while Reader is open. Reader retains the same identity and DOM across
+viewport changes and exposes Save excerpt, occurrence navigation, page status,
+a live confirmation/refusal region, and an explicit Back path.
 
 ## Responsive and input contracts
 
@@ -369,7 +378,8 @@ The design is complete only while these behavioral gates hold:
 9. trend-view `/1` migration and `/2` persistence/share round-trip;
 10. explicit save, duplicate, capacity, restore, mismatch, remove, and
     provenance workflows for saved excerpts;
-11. Reader study/full state survives every width class; and
+11. Reader remains full-viewport and outer-scroll-locked at every width class;
+    and
 12. Chromium functional plus compact WebKit suites pass from the
     production-shaped build.
 

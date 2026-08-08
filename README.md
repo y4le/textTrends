@@ -1,37 +1,68 @@
 # textTrends
 
-A local-first corpus reading workbench: analyze and visualize large bodies of text —
-novels, series, any corpus — across many dimensions, entirely in your browser. Nothing
-you load ever leaves your machine.
+textTrends is a local-first corpus reading workbench for studying narrative
+position across a book or an ordered series. Imported text is extracted,
+indexed, queried, and stored in the browser; it is not uploaded to an analysis
+service.
 
-The spine of the app is **narrative time**: position within a chapter, a book, a
-series. Term-group trends, dispersion barcodes, keyword-in-context concordance,
-comparison and keyness, character sheets — every chart links back to the passages that
-produced it.
+The current workbench supports:
 
-**Status: total rewrite in progress.** The previous app is preserved on the
-[`legacy`](../../tree/legacy) branch and still serves at
-[lordchair.github.io/textTrends](http://lordchair.github.io/textTrends/).
+- TXT, Markdown, HTML/XHTML, and EPUB projects, plus the bundled Sherlock
+  Holmes corpus;
+- corpus structure review and chapter editing;
+- vocabulary frequency, section profiles, TF-IDF, comparison, and keyness;
+- term-group trends, exact-or-density dispersion barcodes, linked ranges, and
+  a merged keyword-in-context concordance;
+- a full-page canonical-text Reader with query highlights; and
+- a durable Findings log for saved passages and research state.
+
+The optional Standard Ebooks catalog is the one deliberate content-network
+path: opening the catalog loads a baked same-origin index, and adding a title
+downloads its source archive from GitHub. User-imported books and analysis
+results remain browser-local.
+
+**Status: active rewrite.** The current architecture is functional and covered
+by unit and browser suites, while publication hardening and a hermetic external
+dependency remain open. See the [current roadmap](docs/design/current-roadmap.md)
+for the shipped/in-progress/deferred boundary. Older design documents are
+decision records, not necessarily descriptions of the current UI.
 
 ## Repository layout
 
-- `docs/research/` — the research stage: synthesized findings, decisions, and the raw
-  research inputs (start with `synthesis.md`)
-- `docs/design/` — design-stage contracts (start with `analysis-contract.md`)
-- `packages/core` — the analysis engine: environment-agnostic TypeScript (tokenizer,
-  positional index, analysis passes)
-- `packages/extractors` — transformed-format extraction (epub, html): the lazy-loaded
-  parsers and the one `extractSource` runtime, outside core by design
-- `packages/cli` — Node benchmark/portability harness over the core (a real
-  distributable CLI comes later)
-- `apps/web` — the webapp: React + hand-rolled SVG, Vite
-- `text/` — sample corpora (see `text/README.md` for provenance)
+- `apps/web` — React workbench, browser persistence, worker adapter, and
+  Playwright coverage
+- `packages/core` — environment-independent indexing and analysis kernels
+- `packages/extractors` — lazy TXT/Markdown/HTML/EPUB extraction boundary
+- `packages/cli` — Node portability and benchmark harness
+- `docs/design` — contracts, executed plans, decisions, and current roadmap
+- `docs/research` — product and visualization research inputs
+- `text` — development corpora; read `text/README.md` before redistribution
+
+The root workspace currently enrolls a sibling `../standard_ebooks` checkout.
+That is an acknowledged clean-checkout blocker, not an implicit npm
+dependency. See the roadmap before setting up CI or a public distribution.
 
 ## Development
 
+Requires Node 22.12+ and pnpm 10.19.
+
 ```sh
 pnpm install
-pnpm dev        # run the webapp
-pnpm test       # run all workspace tests
-pnpm typecheck  # strict TS across the workspace
+pnpm dev
+pnpm typecheck
+pnpm test
+pnpm build
+pnpm --filter @texttrends/web e2e:functional
+pnpm --filter @texttrends/web e2e:viewport
 ```
+
+Run the occurrence stress harness with:
+
+```sh
+node --expose-gc packages/cli/src/main.ts bench-occurrences text/ASOIF
+```
+
+It exercises both successful near-cap construction and typed cap rejection.
+On Linux it also samples child-process RSS only during those phases; elsewhere
+the output marks the memory gate untested. Benchmark methodology and promotion
+thresholds live in `docs/design/benchmarks.md`.

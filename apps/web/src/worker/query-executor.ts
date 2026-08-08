@@ -37,6 +37,7 @@ import {
   materializePassage,
   modeKey,
   occurrences,
+  occurrencePayloadBytes,
   planPassage,
   trend,
   type CorpusSnapshotV1,
@@ -80,6 +81,10 @@ import { DependencyError, termGroupIdentity } from '@texttrends/core';
 
 /** The occurrence-cache hard cap — one entry per possible concurrent track. */
 export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
+/** Five worst-case kernel payloads are just under 48 MiB under
+ * OCCURRENCE_LIMITS_V1; the byte ceiling keeps cache retention below that
+ * explicit worker budget even when CSR provenance is unusually wide. */
+export const MAX_OCCURRENCE_CACHE_BYTES = 48 * 1024 * 1024;
 
 /** [SnapshotId, SelectionHash, termGroupIdentity] — the tuple that fully
  *  determines one raw `NumericOccurrences` (see the cache contract below). */
@@ -112,6 +117,15 @@ export interface TermCountCachePolicy {
   readonly maxEntries: number;
   readonly maxBytes: number;
 }
+
+export interface OccurrenceCachePolicy {
+  readonly maxEntries: number;
+  readonly maxBytes: number;
+}
+const DEFAULT_OCCURRENCE_CACHE_POLICY: OccurrenceCachePolicy = {
+  maxEntries: MAX_OCCURRENCE_CACHE_ENTRIES,
+  maxBytes: MAX_OCCURRENCE_CACHE_BYTES,
+};
 const DEFAULT_TERM_COUNT_CACHE_POLICY: TermCountCachePolicy = {
   maxEntries: TERM_COUNT_CACHE_MAX_ENTRIES,
   maxBytes: TERM_COUNT_CACHE_MAX_BYTES,
@@ -121,6 +135,12 @@ interface TermCountCacheEntry {
   readonly doc: string;
   readonly bytes: number;
   readonly value: DocTermCountsV1;
+}
+
+interface OccurrenceCacheEntry {
+  readonly snapshot: CorpusSnapshotV1['id'];
+  readonly bytes: number;
+  readonly value: NumericOccurrences;
 }
 
 export interface PassageQuery {
@@ -139,12 +159,15 @@ export class QueryExecutor {
    *  (Phase E, moved verbatim): keyed by [SnapshotId, SelectionHash,
    *  termGroupIdentity] — the canonical MATCHING identity, never the
    *  caller-owned group.id. Insertion order is LRU recency; every miss
-   *  prunes to MAX_OCCURRENCE_CACHE_ENTRIES synchronously (occurrences is
-   *  synchronous, so no interleaving job can race the miss/store/prune).
-   *  An evicted entry is recomputed on its next query; an in-flight request
-   *  already holds its own reference. Generation-scoped: this executor dies
-   *  with its generation. */
-  private readonly occurrenceCache = new Map<string, NumericOccurrences>();
+   *  prunes synchronously to simultaneous entry and byte ceilings. An evicted
+   *  entry is recomputed on its next query; an in-flight request already owns
+   *  its reference. Publishing a new snapshot drops every old-snapshot entry;
+   *  superseded selections within the current snapshot age out by LRU.
+   *
+   *  The kernel bounds construction memory, but occurrences() remains
+   *  synchronous: cancellation can still wait for one capped computation. */
+  private readonly occurrenceCache = new Map<string, OccurrenceCacheEntry>();
+  private occurrenceCacheBytes = 0;
   /** Sparse per-document selection counts shared by inventory, frequency, and
    * keyness. Insertion order is LRU recency. The entry and byte bounds are
    * simultaneous hard ceilings; output materializers must never transfer or
@@ -157,6 +180,7 @@ export class QueryExecutor {
     private readonly indexRecipe: IndexRecipeProvisional,
     private readonly loadResolver: typeof buildResolver = buildResolver,
     private readonly termCountCachePolicy: TermCountCachePolicy = DEFAULT_TERM_COUNT_CACHE_POLICY,
+    private readonly occurrenceCachePolicy: OccurrenceCachePolicy = DEFAULT_OCCURRENCE_CACHE_POLICY,
   ) {
     if (
       !Number.isSafeInteger(termCountCachePolicy.maxEntries) ||
@@ -168,6 +192,16 @@ export class QueryExecutor {
     ) {
       throw new RangeError('term-count cache policy may only reduce the exported hard bounds');
     }
+    if (
+      !Number.isSafeInteger(occurrenceCachePolicy.maxEntries) ||
+      occurrenceCachePolicy.maxEntries <= 0 ||
+      occurrenceCachePolicy.maxEntries > MAX_OCCURRENCE_CACHE_ENTRIES ||
+      !Number.isSafeInteger(occurrenceCachePolicy.maxBytes) ||
+      occurrenceCachePolicy.maxBytes <= 0 ||
+      occurrenceCachePolicy.maxBytes > MAX_OCCURRENCE_CACHE_BYTES
+    ) {
+      throw new RangeError('occurrence cache policy may only reduce the exported hard bounds');
+    }
   }
 
   /** Adopt a newly published snapshot view. Replaced documents drop their
@@ -176,6 +210,11 @@ export class QueryExecutor {
    *  distinctly and age out of the bounded LRU. */
   publish(view: PublishedView, replacedDocs: Iterable<string>): void {
     this.view = view;
+    for (const [key, entry] of this.occurrenceCache) {
+      if (entry.snapshot === view.snapshot.id) continue;
+      this.occurrenceCache.delete(key);
+      this.occurrenceCacheBytes -= entry.bytes;
+    }
     const replaced = new Set(replacedDocs);
     for (const doc of replaced) this.resolvers.set(doc, new Map());
     if (replaced.size > 0) {
@@ -226,14 +265,21 @@ export class QueryExecutor {
       // Touch → most-recently-used (Map preserves insertion order as recency).
       this.occurrenceCache.delete(key);
       this.occurrenceCache.set(key, hit);
-      return hit;
+      return hit.value;
     }
     const occ = occurrences(snapshot, shards, resolvers, selection, group);
-    this.occurrenceCache.set(key, occ);
-    while (this.occurrenceCache.size > MAX_OCCURRENCE_CACHE_ENTRIES) {
+    const bytes = occurrencePayloadBytes(occ);
+    this.occurrenceCache.set(key, { snapshot: snapshot.id, bytes, value: occ });
+    this.occurrenceCacheBytes += bytes;
+    while (
+      this.occurrenceCache.size > this.occurrenceCachePolicy.maxEntries
+      || this.occurrenceCacheBytes > this.occurrenceCachePolicy.maxBytes
+    ) {
       const oldest = this.occurrenceCache.keys().next().value as string | undefined;
       if (oldest === undefined) break;
+      const evicted = this.occurrenceCache.get(oldest);
       this.occurrenceCache.delete(oldest);
+      if (evicted) this.occurrenceCacheBytes -= evicted.bytes;
     }
     return occ;
   }

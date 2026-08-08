@@ -13,18 +13,10 @@ on.
 
 ## Open items
 
-- **2026-07-29 · docs** — Add a short *current-roadmap* document. Today a
-  reader must reconcile aspirational contracts (analysis-contract.md),
-  executed plans with superseded banners, explicit deferrals, and code to
-  learn what exists. (Both halves of the roadmap audit flagged this.)
-- **2026-07-29 · docs** — README overstates present-tense capabilities
-  (keyness comparison, character sheets) and keeps the stale "total rewrite in
-  progress" framing. Full rewrite is owner-gated Track P3; the false
-  present-tense claims could be narrowed sooner.
 - **2026-07-29 · simplification residue** — simplification-plan.md §"Still
   open" R2/R3/R5 micro-items (assertExactRecord throwing tier, lowerBound
   home, brand-helper normalization, beginAtSnapshot, structureKeyFor, shared
-  mono-button style, TrendPanel trio, CatalogPanel abort cleanup, …). Owner
+  mono-button style, …). Owner
   declared simplification done; treat these as opportunistic in-path fixes
   only, when a slice touches the same file.
 - **2026-07-29 · checkpoint (CORRECTED by the slice-2 ruling)** — the first

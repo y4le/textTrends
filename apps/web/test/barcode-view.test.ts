@@ -5,7 +5,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1 } from '@texttrends/core';
-import { barcodeTracks, kwicCaptionText, orderTracks, resolveBarcodeActivation, stepTarget, tickAtToken, trackSummaryText } from '../src/lib/barcode-view.ts';
+import { barcodeTracks, bucketActivationAt, buildBarcodeSnapIndexes, kwicCaptionText, orderTracks, resolveCapturedBarcodeTarget, selectedBarcodeTotalText, snapBarcodeIndex, stepTarget, trackSummaryText } from '../src/lib/barcode-view.ts';
 
 const exactResult = (): DispersionResultV1 => ({
   method: 'dispersion/1',
@@ -51,12 +51,10 @@ describe('barcodeTracks — exact', () => {
     ]);
   });
 
-  it('tickAtToken resolves the covering occurrence for click-through, null outside', () => {
+  it('buckets the same ticks by their carried document order', () => {
     const [track] = barcodeTracks(exactResult(), ['a', 'b']);
-    expect(tickAtToken(track!, 'a', 10)!.ordinal).toBe(1); // inside the phrase span
-    expect(tickAtToken(track!, 'a', 4)!.ordinal).toBe(0);
-    expect(tickAtToken(track!, 'a', 50)).toBeNull();
-    expect(tickAtToken(track!, 'b', 4)).toBeNull(); // wrong doc
+    expect(track!.docOrder).toEqual(['a', 'b']);
+    expect(track!.segmentsByDocOrdinal.map((bucket) => bucket.length)).toEqual([2, 1]);
   });
 });
 
@@ -69,8 +67,7 @@ describe('barcodeTracks — density', () => {
     expect(cells[0]).toEqual({ kind: 'cell', doc: 'a', t0: 0, t1: 25, count: 10, intensity: 10 / 30, midToken: 12 });
     expect(cells[1]).toEqual({ kind: 'cell', doc: 'a', t0: 50, t1: 75, count: 30, intensity: 1, midToken: 62 });
     expect(cells[2]).toEqual({ kind: 'cell', doc: 'a', t0: 75, t1: 100, count: 20, intensity: 20 / 30, midToken: 87 });
-    // A density track never yields tick click-throughs.
-    expect(tickAtToken(track!, 'a', 60)).toBeNull();
+    expect(track!.segmentsByDocOrdinal).toHaveLength(1);
   });
 
   it('a density track without geometry is an invariant fault, never a silent empty strip', () => {
@@ -79,66 +76,138 @@ describe('barcodeTracks — density', () => {
   });
 });
 
-describe('resolveBarcodeActivation — the ONE authoritative click/keyboard resolver', () => {
-  it('OVERLAP REGRESSION (review-D): a later tick inside an earlier phrase span wins its own token', () => {
-    // countOverlaps=true: phrase [dire wolf] at 9..11 AND token wolf at 10.
-    // Clicking token 10 must center the LATER-start covering occurrence
-    // (wolf@10, painted on top), never the phrase start.
-    const result: DispersionResultV1 = {
-      method: 'dispersion/1',
-      geometry: null,
-      tracks: [{
-        seriesId: 's1', groupId: 'g1', total: 2,
-        data: {
-          kind: 'exact',
-          docOffsets: Uint32Array.from([0, 2]),
-          starts: Uint32Array.from([9, 10]),
-          spanTokens: Uint32Array.from([2, 1]),
-        },
-      }],
-    };
-    const [track] = barcodeTracks(result, ['a']);
-    expect(resolveBarcodeActivation(track!, 'a', 10)).toEqual({ kind: 'occurrence', doc: 'a', token: 10 });
-    // Token 9 is covered only by the phrase → the phrase start.
-    expect(resolveBarcodeActivation(track!, 'a', 9)).toEqual({ kind: 'occurrence', doc: 'a', token: 9 });
-  });
-
-  it('dead-space clicks center the NEAREST tick (earlier wins an exact tie)', () => {
-    const [track] = barcodeTracks(exactResult(), ['a', 'b']);
-    expect(resolveBarcodeActivation(track!, 'a', 6)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 }); // 6 is 2 from 4, 3 from 9
-    expect(resolveBarcodeActivation(track!, 'b', 40)).toEqual({ kind: 'occurrence', doc: 'b', token: 1 });
-    expect(resolveBarcodeActivation(track!, 'zz', 1)).toBeNull();
-  });
-
+describe('bucketActivationAt — density token-space authority', () => {
   it('density: a covering cell resolves to its bucket MIDPOINT with kind bucket (never an occurrence)', () => {
     const [track] = barcodeTracks(densityResult(), ['a']);
-    expect(resolveBarcodeActivation(track!, 'a', 60)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 });
-    expect(resolveBarcodeActivation(track!, 'a', 30)).toBeNull(); // the zero bucket paints (and resolves) nothing
+    expect(bucketActivationAt(track!, 'a', 60)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 });
+    expect(bucketActivationAt(track!, 'a', 30)).toBeNull(); // the zero bucket paints (and resolves) nothing
+    const [exact] = barcodeTracks(exactResult(), ['a', 'b']);
+    expect(bucketActivationAt(exact!, 'a', 4)).toBeNull();
+  });
+});
+
+describe('exact barcode hover snapping', () => {
+  it('snaps inclusively within eight pixels of the painted interval and stays raw beyond it', () => {
+    const [track] = barcodeTracks(exactResult(), ['a', 'b']);
+    const [index] = buildBarcodeSnapIndexes(track!);
+    const edgeX = (_d: number, token: number) => token * 10;
+    expect(snapBarcodeIndex(index!, 32, edgeX)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
+    expect(snapBarcodeIndex(index!, 31.9, edgeX)).toBeNull();
+    expect(snapBarcodeIndex(index!, 58, edgeX)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
+    expect(snapBarcodeIndex(index!, 58.1, edgeX)).toBeNull();
+  });
+
+  it('uses painted-on-top overlap ties and earlier starts for equal non-covering distances', () => {
+    const [overlap] = barcodeTracks({
+      method: 'dispersion/1', geometry: null,
+      tracks: [{
+        seriesId: 's1', groupId: 'g1', total: 3,
+        data: {
+          kind: 'exact',
+          docOffsets: Uint32Array.from([0, 3]),
+          starts: Uint32Array.from([4, 6, 10]),
+          spanTokens: Uint32Array.from([4, 1, 1]),
+        },
+      }],
+    }, ['a']);
+    const [index] = buildBarcodeSnapIndexes(overlap!);
+    const edgeX = (_d: number, token: number) => token * 10;
+    expect(snapBarcodeIndex(index!, 65, edgeX)).toEqual({ kind: 'occurrence', doc: 'a', token: 6 });
+    expect(snapBarcodeIndex(index!, 90, edgeX, 20)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
+  });
+
+  it('preserves the one-pixel painted minimum under a compressed scale', () => {
+    const [track] = barcodeTracks({
+      method: 'dispersion/1', geometry: null,
+      tracks: [{
+        seriesId: 's1', groupId: 'g1', total: 1,
+        data: {
+          kind: 'exact',
+          docOffsets: Uint32Array.from([0, 1]),
+          starts: Uint32Array.from([4]),
+          spanTokens: Uint32Array.from([1]),
+        },
+      }],
+    }, ['a']);
+    const [index] = buildBarcodeSnapIndexes(track!);
+    const compressedEdge = (_d: number, token: number) => token / 2;
+    expect(snapBarcodeIndex(index!, 11, compressedEdge)).toEqual({
+      kind: 'occurrence', doc: 'a', token: 4,
+    });
+    expect(snapBarcodeIndex(index!, 11.001, compressedEdge)).toBeNull();
+  });
+
+  it('projects logarithmic probes and nearby candidates rather than every entry', () => {
+    const count = 4_096;
+    const starts = Uint32Array.from({ length: count }, (_, i) => i * 10);
+    const [track] = barcodeTracks({
+      method: 'dispersion/1', geometry: null,
+      tracks: [{
+        seriesId: 's1', groupId: 'g1', total: count,
+        data: {
+          kind: 'exact',
+          docOffsets: Uint32Array.from([0, count]),
+          starts,
+          spanTokens: new Uint32Array(count).fill(1),
+        },
+      }],
+    }, ['a']);
+    const [index] = buildBarcodeSnapIndexes(track!);
+    let projections = 0;
+    const edgeX = (_d: number, token: number) => {
+      projections += 1;
+      return token * 2;
+    };
+    expect(snapBarcodeIndex(index!, starts[count - 1]! * 2, edgeX)).toEqual({
+      kind: 'occurrence', doc: 'a', token: starts[count - 1],
+    });
+    expect(projections).toBeLessThan(100);
+  });
+
+  it('never builds a snap index for density aggregates', () => {
+    const [dense] = barcodeTracks(densityResult(), ['a']);
+    expect(buildBarcodeSnapIndexes(dense!)).toEqual([null]);
+  });
+
+  it('builds every document lane in one pass without crossing document identity', () => {
+    const [exact] = barcodeTracks(exactResult(), ['a', 'b']);
+    const indexes = buildBarcodeSnapIndexes(exact!);
+    const edgeX = (d: number, token: number) => d * 1000 + token * 10;
+    expect(snapBarcodeIndex(indexes[0]!, 1010, edgeX, 50)).toBeNull();
+    expect(snapBarcodeIndex(indexes[1]!, 1010, edgeX, 0)).toEqual({ kind: 'occurrence', doc: 'b', token: 1 });
   });
 });
 
 describe('stepTarget — keyboard evidence walking for BOTH representations', () => {
   it('exact: steps ticks relative to the center; edges saturate to first/last', () => {
     const [track] = barcodeTracks(exactResult(), ['a', 'b']);
-    expect(stepTarget(track!, ['a', 'b'], null, 1)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
-    expect(stepTarget(track!, ['a', 'b'], { doc: 'a', token: 4 }, 1)).toEqual({ kind: 'occurrence', doc: 'a', token: 9 });
-    expect(stepTarget(track!, ['a', 'b'], { doc: 'a', token: 9 }, 1)).toEqual({ kind: 'occurrence', doc: 'b', token: 1 }); // crosses docs in reading order
-    expect(stepTarget(track!, ['a', 'b'], { doc: 'a', token: 4 }, -1)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 }); // saturates at first
+    expect(stepTarget(track!, null, 1)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
+    expect(stepTarget(track!, { doc: 'a', token: 4 }, 1)).toEqual({ kind: 'occurrence', doc: 'a', token: 9 });
+    expect(stepTarget(track!, { doc: 'a', token: 9 }, 1)).toEqual({ kind: 'occurrence', doc: 'b', token: 1 }); // crosses docs in reading order
+    expect(stepTarget(track!, { doc: 'a', token: 4 }, -1)).toEqual({ kind: 'occurrence', doc: 'a', token: 4 }); // saturates at first
+  });
+
+  it('treats a center outside the track document order as an unpositioned edge', () => {
+    const [track] = barcodeTracks(exactResult(), ['a', 'b']);
+    expect(stepTarget(track!, { doc: 'missing', token: 7 }, 1))
+      .toEqual({ kind: 'occurrence', doc: 'a', token: 4 });
+    expect(stepTarget(track!, { doc: 'missing', token: 7 }, -1))
+      .toEqual({ kind: 'occurrence', doc: 'b', token: 1 });
   });
 
   it('density: steps NONZERO bucket midpoints with kind bucket', () => {
     const [track] = barcodeTracks(densityResult(), ['a']);
-    expect(stepTarget(track!, ['a'], null, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
-    expect(stepTarget(track!, ['a'], { doc: 'a', token: 12 }, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 }); // the zero bucket is skipped
-    expect(stepTarget(track!, ['a'], { doc: 'a', token: 62 }, -1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
+    expect(stepTarget(track!, null, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
+    expect(stepTarget(track!, { doc: 'a', token: 12 }, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 }); // the zero bucket is skipped
+    expect(stepTarget(track!, { doc: 'a', token: 62 }, -1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
   });
 });
 
 describe('bucket-count provenance and announced text (review-D round 2)', () => {
   it('density activation and stepping carry the bucket HIT COUNT', () => {
     const [track] = barcodeTracks(densityResult(), ['a']);
-    expect(resolveBarcodeActivation(track!, 'a', 60)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 });
-    expect(stepTarget(track!, ['a'], null, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
+    expect(bucketActivationAt(track!, 'a', 60)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 });
+    expect(stepTarget(track!, null, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
   });
 
   it('kwicCaptionText announces the bucket count and the first-hit distance', () => {
@@ -157,14 +226,48 @@ describe('bucket-count provenance and announced text (review-D round 2)', () => 
     const [exact] = barcodeTracks(exactResult(), ['a', 'b']);
     expect(trackSummaryText(exact!, 'wolf')).toBe('wolf: 3 occurrences');
   });
+
+  it('never reports a fabricated selected zero while detail is pending or failed', () => {
+    expect(selectedBarcodeTotalText('pending', undefined)).toBe('…');
+    expect(selectedBarcodeTotalText('error', undefined)).toBe('error');
+    expect(selectedBarcodeTotalText('ready', undefined)).toBe('0');
+    expect(selectedBarcodeTotalText('ready', 12)).toBe('12');
+  });
 });
 
 describe('orderTracks — the resident strip follows a query-free reorder', () => {
   it('sorts by the CURRENT series order; unknown ids trail in result order', () => {
-    const a = { seriesId: 'sA', groupId: 'g', representation: 'exact' as const, total: 0, segments: [] };
+    const a = { seriesId: 'sA', groupId: 'g', representation: 'exact' as const, total: 0, docOrder: [], segments: [], segmentsByDocOrdinal: [] };
     const b = { ...a, seriesId: 'sB' };
     const c = { ...a, seriesId: 'sC' };
     expect(orderTracks([a, b], ['sB', 'sA']).map((t) => t.seriesId)).toEqual(['sB', 'sA']);
     expect(orderTracks([a, b, c], ['sC', 'sA']).map((t) => t.seriesId)).toEqual(['sC', 'sA', 'sB']);
+  });
+});
+
+describe('captured barcode identity', () => {
+  it('resolves by the pointer-down series id after rows reorder', () => {
+    const [wolf] = barcodeTracks(exactResult(), ['a', 'b']);
+    const fox = { ...wolf!, seriesId: 'fox', groupId: 'fox' };
+    const resolution = resolveCapturedBarcodeTarget([fox, wolf!], {
+      trackId: 's1',
+      doc: 'a',
+      rawToken: 4,
+      exactActivation: { kind: 'occurrence', doc: 'a', token: 4 },
+    });
+    expect(resolution).toEqual({
+      kind: 'activation',
+      track: wolf,
+      activation: { kind: 'occurrence', doc: 'a', token: 4 },
+    });
+  });
+
+  it('falls back to the captured raw position when the series disappeared', () => {
+    expect(resolveCapturedBarcodeTarget([], {
+      trackId: 'gone',
+      doc: 'a',
+      rawToken: 7,
+      exactActivation: { kind: 'occurrence', doc: 'a', token: 9 },
+    })).toEqual({ kind: 'scrub', doc: 'a', token: 7 });
   });
 });

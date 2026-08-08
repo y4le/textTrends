@@ -94,7 +94,7 @@ export function BookDetail({
           ].map(([label, exact]) => (
             <div key={label}>
               <dt>{label}</dt>
-              <dd>{exact}</dd>
+              <dd className="selectable-stat">{exact}</dd>
             </div>
           ))}
         </dl>
@@ -127,10 +127,10 @@ export function BookDetail({
               <tbody>
                 {view.rhythm.map((bin, index) => (
                   <tr key={index}>
-                    <th scope="row">{index + 1}</th>
-                    <td>{number.format(bin.sentences)}</td>
-                    <td>{value(bin.mean)}</td>
-                    <td>{number.format(bin.tokens)}</td>
+                    <th className="selectable-stat" scope="row">{index + 1}</th>
+                    <td className="selectable-stat">{number.format(bin.sentences)}</td>
+                    <td className="selectable-stat">{value(bin.mean)}</td>
+                    <td className="selectable-stat">{number.format(bin.tokens)}</td>
                   </tr>
                 ))}
               </tbody>

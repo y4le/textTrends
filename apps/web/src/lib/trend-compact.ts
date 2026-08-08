@@ -6,6 +6,9 @@ export interface TrendGeometry {
   readonly topPad: number;
   readonly rowHeight: number;
   readonly rowGap: number;
+  readonly barcodeTrackHeight: number;
+  readonly barcodeTrackGap: number;
+  readonly barcodeBandGap: number;
   readonly labelSpace: number;
   readonly strokeFocused: number;
   readonly strokeOther: number;
@@ -18,6 +21,9 @@ const STANDARD: TrendGeometry = Object.freeze({
   topPad: 14,
   rowHeight: 44,
   rowGap: 22,
+  barcodeTrackHeight: 7,
+  barcodeTrackGap: 2,
+  barcodeBandGap: 3,
   labelSpace: TREND_LABEL_SPACE,
   strokeFocused: 2.5,
   strokeOther: 1.5,
@@ -30,6 +36,9 @@ const COMPACT: TrendGeometry = Object.freeze({
   topPad: 10,
   rowHeight: 28,
   rowGap: 8,
+  barcodeTrackHeight: 5,
+  barcodeTrackGap: 2,
+  barcodeBandGap: 3,
   labelSpace: 0,
   strokeFocused: 3.5,
   strokeOther: 2,

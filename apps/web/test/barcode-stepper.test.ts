@@ -7,9 +7,13 @@ const exact = (seriesId: string, total = 2): BarcodeTrackVM => ({
   groupId: `group-${seriesId}`,
   representation: 'exact',
   total,
+  docOrder: ['book'],
   segments: total > 0
     ? [{ kind: 'tick', doc: 'book', t0: 1, t1: 2, ordinal: 0 }]
     : [],
+  segmentsByDocOrdinal: total > 0
+    ? [[{ kind: 'tick', doc: 'book', t0: 1, t1: 2, ordinal: 0 }]]
+    : [[]],
 });
 
 describe('barcodeStepperFor', () => {
@@ -49,6 +53,15 @@ describe('barcodeStepperFor', () => {
         intensity: 1,
         midToken: 5,
       }],
+      segmentsByDocOrdinal: [[{
+        kind: 'cell',
+        doc: 'book',
+        t0: 0,
+        t1: 10,
+        count: 12,
+        intensity: 1,
+        midToken: 5,
+      }]],
     };
     expect(barcodeStepperFor([dense], 'holmes', labelOf)).toMatchObject({
       label: 'Holmes · 12 occurrences in density buckets',

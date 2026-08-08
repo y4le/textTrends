@@ -199,11 +199,11 @@ function FrequencyRowDetail({
     >
       <dl>
         <div><dt>term</dt><dd>{row.key}</dd></div>
-        <div><dt>count</dt><dd>{number.format(row.count)}</dd></div>
-        <div><dt>rate / 10k</dt><dd>{decimal.format(row.ratePer10k)}</dd></div>
-        <div><dt>documents</dt><dd>{number.format(row.docFreq)}</dd></div>
-        <div><dt>DP</dt><dd>{value(row.dp)}</dd></div>
-        <div><dt>DPnorm</dt><dd>{value(row.dpNorm)}</dd></div>
+        <div><dt>count</dt><dd className="selectable-stat">{number.format(row.count)}</dd></div>
+        <div><dt>rate / 10k</dt><dd className="selectable-stat">{decimal.format(row.ratePer10k)}</dd></div>
+        <div><dt>documents</dt><dd className="selectable-stat">{number.format(row.docFreq)}</dd></div>
+        <div><dt>DP</dt><dd className="selectable-stat">{value(row.dp)}</dd></div>
+        <div><dt>DPnorm</dt><dd className="selectable-stat">{value(row.dpNorm)}</dd></div>
         <div><dt>class</dt><dd>{row.class}</dd></div>
       </dl>
       <p className="frequency-row-note">
@@ -491,7 +491,7 @@ export function FrequencyTable({
                           </button>
                         </th>
                         <td
-                          className="frequency-measure frequency-count"
+                          className="frequency-measure frequency-count selectable-stat"
                           role="cell"
                           aria-colindex={2}
                           data-current-measure={measureData('count')}
@@ -500,7 +500,7 @@ export function FrequencyTable({
                           {measures.count.value}
                         </td>
                         <td
-                          className="frequency-measure frequency-docs"
+                          className="frequency-measure frequency-docs selectable-stat"
                           role="cell"
                           aria-colindex={3}
                           data-current-measure={measureData('docFreq')}
@@ -509,7 +509,7 @@ export function FrequencyTable({
                           {measures.docFreq.value}
                         </td>
                         <td
-                          className="frequency-measure frequency-dp"
+                          className="frequency-measure frequency-dp selectable-stat"
                           role="cell"
                           aria-colindex={4}
                           data-current-measure={measureData('dp')}
@@ -518,7 +518,7 @@ export function FrequencyTable({
                           {measures.dp.value}
                         </td>
                         <td
-                          className="frequency-measure frequency-dpnorm"
+                          className="frequency-measure frequency-dpnorm selectable-stat"
                           role="cell"
                           aria-colindex={5}
                           data-current-measure={measureData('dpNorm')}
@@ -527,7 +527,7 @@ export function FrequencyTable({
                           {measures.dpNorm.value}
                         </td>
                         <td
-                          className="frequency-rate"
+                          className="frequency-rate selectable-stat"
                           role="cell"
                           aria-colindex={6}
                         >

@@ -116,7 +116,7 @@ export function CorpusInventory({
                 ['paragraphs', result.totals.paragraphs],
                 ['UTF-16 span', result.totals.charsUtf16],
               ].map(([label, count]) => (
-                <div key={label as string}><dt style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>{label}</dt><dd style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{number.format(count as number)}</dd></div>
+                <div key={label as string}><dt style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>{label}</dt><dd className="selectable-stat" style={{ margin: 0, fontFamily: 'var(--font-mono)' }}>{number.format(count as number)}</dd></div>
               ))}
             </dl>
             {scopeMessage && (
@@ -179,18 +179,18 @@ export function CorpusInventory({
                         {readyDocs.includes(row.doc) ? 'ready' : 'unavailable'}
                       </td>
                       <td className="corpus-tokens" role="cell" aria-colindex={3}>
-                        <span className="corpus-selected-tokens">{number.format(row.selectedTokens)}</span>
+                        <span className="corpus-selected-tokens selectable-stat">{number.format(row.selectedTokens)}</span>
                         <span className="corpus-token-separator"> / </span>
-                        <span>{number.format(row.fullTokens)}</span>
+                        <span className="selectable-stat">{number.format(row.fullTokens)}</span>
                         <span className="corpus-compact-token-label"> tokens</span>
                       </td>
-                      <td role="cell" aria-colindex={4} data-detail-only>{number.format(row.types)}</td>
-                      <td role="cell" aria-colindex={5} data-detail-only>{number.format(row.hapax)}</td>
-                      <td role="cell" aria-colindex={6} data-detail-only>{number.format(row.sentences)}</td>
-                      <td role="cell" aria-colindex={7} data-detail-only>{value(row.sentenceMean)} / {value(row.sentenceMedian)} / {value(row.sentenceP90)}</td>
-                      <td role="cell" aria-colindex={8} data-detail-only>{value(row.paragraphMean)}</td>
-                      <td role="cell" aria-colindex={9} data-detail-only title="Descriptive and length-dependent">{value(row.ttr)}</td>
-                      <td role="cell" aria-colindex={10} data-detail-only>{value(row.mattr)}{row.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={4} data-detail-only>{number.format(row.types)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={5} data-detail-only>{number.format(row.hapax)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={6} data-detail-only>{number.format(row.sentences)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={7} data-detail-only>{value(row.sentenceMean)} / {value(row.sentenceMedian)} / {value(row.sentenceP90)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={8} data-detail-only>{value(row.paragraphMean)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={9} data-detail-only title="Descriptive and length-dependent">{value(row.ttr)}</td>
+                      <td className="selectable-stat" role="cell" aria-colindex={10} data-detail-only>{value(row.mattr)}{row.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}</td>
                       <td className="corpus-rhythm" role="cell" aria-colindex={11}><RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} /></td>
                       <td className="corpus-scope" role="cell" aria-colindex={12}>
                         <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />

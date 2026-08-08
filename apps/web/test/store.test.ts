@@ -335,6 +335,7 @@ class FakeSessionPort implements SessionPort {
       cancel: () => undefined,
     };
   }
+  openBuiltinProject(id: string): void { this.record('openBuiltinProject', [id]); }
   createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
   appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
@@ -693,7 +694,7 @@ describe('workbench route and history authority', () => {
     );
     assertFenced();
     const sheet = store.getState().layers.find((layer) => layer.kind === 'sheet')!;
-    store.getState().setLayerUI(sheet.id, { detent: 'half', scrollKey: 'local-scroll' });
+    store.getState().setLayerUI(sheet.id, { detent: 'half' });
     assertFenced();
     store.getState().replaceLayer(
       'row-detail',
@@ -1117,8 +1118,7 @@ describe('the session bridge', () => {
     await flush();
     expect(f.store.getState().linkedSelection).toEqual({
       snapshot: 's1',
-      doc: 'a',
-      tokens: { start: 1, end: 4 },
+      ranges: [{ doc: 'a', tokens: { start: 1, end: 4 } }],
     });
     expect(f.store.getState().selectionChecks.get('range-a')?.status).toBe('ok');
 
@@ -1270,6 +1270,16 @@ describe('the session bridge', () => {
     expect(port.calls.map((c) => c.method)).toEqual([
       'loadResearch', 'removeImport', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
     ]);
+  });
+
+  it('switches a built-in demo and replaces cross-corpus starter terms in one notebook update', () => {
+    const { store, port } = harness(undefined, { seed: true });
+    expect(store.getState().notebook.groups.map((group) => group.name)).toEqual(['Holmes', 'Moriarty']);
+    store.getState().openBuiltinCorpus('builtin/asoif');
+    expect(port.calls.at(-1)).toEqual({ method: 'openBuiltinProject', args: ['builtin/asoif'] });
+    expect(store.getState().notebook.groups.map((group) => group.name)).toEqual(['Jon', 'Tyrion', 'Daenerys']);
+    expect(store.getState().activeGroupIds.size).toBe(3);
+    expect(store.getState().kwicEnabledSeries.size).toBe(3);
   });
 
   it('importFiles dispatches createUserProject on the built-in, appendFiles on a user project', () => {
@@ -1433,6 +1443,15 @@ describe('store query intent discipline', () => {
     const failed = after.get(moriarty!.id)!;
     expect(failed.status).toBe('error');
     expect(failed.status === 'error' && failed.message).toContain('CAP_EXCEEDED');
+
+    f.store.getState().quickAdd('watson');
+    const q3 = f.trends().filter((query) => !query.cancelled).find((query) => query.term === 'watson');
+    q3!.reject(new WorkerClientError('WORKER_ERROR', 'CAP_EXCEEDED: too much', 'CAP_EXCEEDED'));
+    await flush();
+    const watson = f.store.getState().series.find((entry) => entry.label === 'watson')!;
+    const friendly = f.store.getState().trends.get(watson.id);
+    expect(friendly?.status === 'error' && friendly.message)
+      .toBe('Too many occurrences to analyse at once — narrow the selected range or corpus.');
   });
 
   it('cancellation is discriminated by the TYPED code, never by message text', async () => {
@@ -1743,8 +1762,7 @@ describe('store query intent discipline', () => {
 
     f.store.getState().setLinkedSelection({
       snapshot: 's1',
-      doc: 'a',
-      tokens: { start: 10, end: 20 },
+      ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
     });
     f.inventories().at(-1)!.resolve(fakeInventoryResult(10, [
       { doc: 'a', fullTokens: 1_000_000 },
@@ -2729,7 +2747,8 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
 
 describe('linked token-range selection (slice-2 commit E)', () => {
   const range = (f: ReturnType<typeof harness>, start: number, end: number) => ({
-    snapshot: f.store.getState().snapshot!.snapshot, doc: 'a', tokens: { start, end },
+    snapshot: f.store.getState().snapshot!.snapshot,
+    ranges: [{ doc: 'a', tokens: { start, end } }],
   });
 
   it('committing a range scopes the concordance to EXACTLY that range (docs:[doc] + ranges) and issues overlays on separate lanes', () => {
@@ -2766,6 +2785,51 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready'); // resident evidence stands
     const kw = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { selection: { docs: string[]; ranges?: unknown[] } };
     expect(kw.selection.ranges).toBeUndefined(); // back to the baseline selection
+  });
+
+  it('scopes every detail consumer to all explicit ranges in a cross-book selection', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().quickAdd('holmes');
+    const ranges = [
+      { doc: 'a', tokens: { start: 8, end: 10 } },
+      { doc: 'b', tokens: { start: 0, end: 20 } },
+      { doc: 'c', tokens: { start: 0, end: 3 } },
+    ];
+    f.store.getState().setLinkedSelection({ snapshot: 's1', ranges });
+    for (const issued of [
+      f.kwics().filter((query) => !query.cancelled).at(-1)!,
+      f.trends().filter((query) => !query.cancelled).at(-1)!,
+      f.inventories().at(-1)!,
+      f.frequencies().at(-1)!,
+    ]) {
+      expect((issued.query as { selection: unknown }).selection).toEqual({
+        docs: ['a', 'b', 'c'],
+        ranges,
+      });
+    }
+    f.store.getState().centerKwicAt(f.store.getState().series[0]!.id, 'b', 10);
+    expect(f.store.getState().linkedSelection).not.toBeNull();
+    f.store.getState().centerKwicAt(f.store.getState().series[0]!.id, 'b', 25);
+    expect(f.store.getState().linkedSelection).toBeNull();
+  });
+
+  it('keeps cross-book analysis active when the single-anchor findings schema cannot save it', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const selection = {
+      snapshot: 's1',
+      ranges: [
+        { doc: 'a', tokens: { start: 8, end: 10 } },
+        { doc: 'b', tokens: { start: 0, end: 3 } },
+      ],
+    };
+    f.store.getState().setLinkedSelection(selection);
+    f.store.getState().saveNamedSelection('Across the boundary');
+    expect(f.store.getState().selectionError)
+      .toBe('A range across books can be analysed but cannot yet be saved as one finding.');
+    expect(f.store.getState().linkedSelection).toEqual(selection);
+    expect(f.issued.filter((query) => query.op === 'anchor-tokens')).toHaveLength(0);
   });
 
   it('a snapshot replacement clears the (snapshot-bound) selection with its overlays', () => {
@@ -2853,9 +2917,9 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
-    f.store.getState().setLinkedSelection({ snapshot: 'sX', doc: 'a', tokens: { start: 0, end: 2 } });
+    f.store.getState().setLinkedSelection({ snapshot: 'sX', ranges: [{ doc: 'a', tokens: { start: 0, end: 2 } }] });
     expect(f.store.getState().linkedSelection).toBeNull();
-    f.store.getState().setLinkedSelection({ snapshot: 's1', doc: 'zz', tokens: { start: 0, end: 2 } });
+    f.store.getState().setLinkedSelection({ snapshot: 's1', ranges: [{ doc: 'zz', tokens: { start: 0, end: 2 } }] });
     expect(f.store.getState().linkedSelection).toBeNull();
   });
 });
@@ -3069,8 +3133,7 @@ describe('independent pinned passage intents (slice-2 F)', () => {
     const f = setup();
     f.store.getState().setLinkedSelection({
       snapshot: 's1',
-      doc: 'a',
-      tokens: { start: 0, end: 3 },
+      ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
     });
     f.store.getState().pinPassage('a', 1);
     expect(f.store.getState().linkedSelection).not.toBeNull();
@@ -3107,7 +3170,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     return f;
   };
 
-  it('keeps reader width ephemeral, query-free, and bound to one restorable layer', async () => {
+  it('keeps the full reader query-free and bound to one restorable layer', async () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');
     const runtime = createAppRuntime(q.client, {
@@ -3129,7 +3192,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     await flush();
 
     const store = runtime.useApp;
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('study');
+    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
     const semantic = researchSemanticKey(store.getState());
     const serialized = structuredClone(history.state);
     const url = history.url;
@@ -3138,8 +3201,6 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     const navigation = store.getState().readerNavigation;
     const pushes = history.pushes;
 
-    store.getState().setReaderMode('full');
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('full');
     expect(store.getState()).toMatchObject({
       evidenceTier: 'reader',
       readerPage: page,
@@ -3152,23 +3213,11 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(history.state).toEqual(serialized);
     expect(history.url).toBe(url);
 
-    store.getState().pushLayer(
-      'row-detail',
-      { surface: 'query-editor', mode: 'group', groupId: 'test' },
-      'term-edit-test',
-    );
-    expect(store.getState().readerPlace).not.toBeNull();
-    store.getState().setReaderMode('study');
-    expect(store.getState().layers.find((layer) => layer.kind === 'reader')?.ui?.reader)
-      .toBe('study');
-    store.getState().popLayer();
-    expect(store.getState().layers.at(-1)?.kind).toBe('reader');
-    store.getState().setReaderMode('full');
-
     store.getState().closeReader();
     expect(store.getState().readerPlace).toBeNull();
     history.forward();
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('full');
+    expect(store.getState().layers.at(-1)?.kind).toBe('reader');
+    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
 
     store.getState().closeReader();
     store.getState().openReader({
@@ -3177,7 +3226,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       token: 2,
       from: 'passage',
     });
-    expect(store.getState().layers.at(-1)?.ui?.reader).toBe('study');
+    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
     runtime.dispose();
   });
 
@@ -3413,8 +3462,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     end: number,
   ) => ({
     snapshot: f.store.getState().snapshot!.snapshot,
-    doc: 'a',
-    tokens: { start, end },
+    ranges: [{ doc: 'a', tokens: { start, end } }],
   });
 
   it('issues inventory, frequency, and focused-document TF-IDF on each snapshot identity', () => {
@@ -3660,8 +3708,7 @@ describe('dueling keyness query intent (slice-4)', () => {
     const inventoryCount = f.keynessInventories().length;
     f.store.getState().setLinkedSelection({
       snapshot: 's1',
-      doc: 'a',
-      tokens: { start: 1, end: 4 },
+      ranges: [{ doc: 'a', tokens: { start: 1, end: 4 } }],
     });
     expect(f.keynesses()).toHaveLength(keynessCount);
     expect(f.keynessInventories()).toHaveLength(inventoryCount);

@@ -3,11 +3,25 @@
 Default demo corpora for textTrends.
 
 - `sherlock/` — the Sherlock Holmes sequence (Doyle), 6 volumes in publication order.
-  Public domain. Sourced from Project Gutenberg plain-text editions (etext IDs 244,
-  2097, 1661, 834, 2852, 108) with Gutenberg boilerplate removed and line endings
-  normalized; the texts themselves are unmodified.
+  Public domain in the US. Sourced from the official release EPUBs in the
+  Standard Ebooks Sherlock Holmes collection
+  (`https://standardebooks.org/collections/sherlock-holmes`); body matter is
+  serialized to UTF-8 plain text with the same `xhtml-block-collapse-v1`
+  extraction used by app EPUB imports. Standard Ebooks releases its editorial
+  work under CC0. Refresh with `pnpm update:sherlock-corpus`.
 - `austen/` — six Jane Austen novels as an author corpus (comparison/keyness demos).
-  Public domain, same sourcing (IDs 1342, 161, 158, 105, 121, 141).
-- `ASOIF/`, `lotr/` — retained legacy corpora (owner decision 2026-07-19); not public
-  domain — revisit their standing before any public launch.
+  Public domain. Sourced from Project Gutenberg plain-text editions (IDs 1342,
+  161, 158, 105, 121, 141) with Gutenberg boilerplate removed and line endings
+  normalized; the texts themselves are unmodified.
+- `ASOIF/` — five A Song of Ice and Fire volumes in publication order. Private
+  built-in demo; UTF-8/LF text with normalized `.txt` filenames. POV headings
+  are serialized as `Chapter N. Name` so the conservative TXT structure scan
+  can recover all 344 sections. The fourth volume ends with the novel itself;
+  its appendix and embedded preview of the fifth volume are excluded.
+- `lotr/` — The Lord of the Rings trilogy in publication order. Private built-in
+  demo; UTF-8/LF text with normalized `.txt` filenames. Its existing Book and
+  Chapter headings are retained, with chapter titles folded onto the Chapter
+  lines so all 62 chapters have useful detected labels.
+- The ASOIF and LOTR source texts are in copyright and intentionally available
+  only in this private deployment. Exclude them from any future public build.
 - `other/` — miscellaneous supporting files (e.g. common word list).

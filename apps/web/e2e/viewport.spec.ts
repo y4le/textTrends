@@ -42,6 +42,39 @@ async function expectAboveOccludedBand(
   expect(box!.y + box!.height).toBeLessThanOrEqual(innerHeight - occlusion + 1);
 }
 
+test('compact header combines brand and single-line Scope without duplicating Lens', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const header = page.locator('.app-header');
+  await expect(header.locator('h1')).toHaveText('textTrends');
+  await expect(header.getByRole('region', { name: 'Scope' })).toHaveCount(1);
+  await expect(header.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(1);
+
+  const geometry = await header.evaluate((node) => {
+    const box = node.getBoundingClientRect();
+    const brand = node.querySelector<HTMLElement>('h1')!.getBoundingClientRect();
+    const scope = node.querySelector<HTMLElement>('.scope-organ')!.getBoundingClientRect();
+    const content = node.querySelector<HTMLElement>('.scope-organ-content')!;
+    return {
+      height: box.height,
+      top: box.top,
+      bottom: box.bottom,
+      brand: { top: brand.top, bottom: brand.bottom },
+      scope: { top: scope.top, bottom: scope.bottom },
+      scopeClientHeight: content.clientHeight,
+      scopeScrollHeight: content.scrollHeight,
+    };
+  });
+  expect(geometry.height).toBeLessThanOrEqual(60);
+  for (const child of [geometry.brand, geometry.scope]) {
+    expect(child.top).toBeGreaterThanOrEqual(geometry.top);
+    expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);
+  }
+  expect(geometry.scopeScrollHeight).toBeLessThanOrEqual(geometry.scopeClientHeight);
+});
+
 test('full-height editors honor resizes-visual geometry without losing draft or issuing work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
@@ -62,7 +95,7 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
     /\.workbench-sheet\{[^}]*block-size:28vh;block-size:28dvh/,
     /\.workbench-sheet\[data-detent=half\]\{[^}]*block-size:58vh;block-size:58dvh/,
     /\.workbench-sheet\[data-detent=tall\]\{[^}]*block-size:88vh;block-size:88dvh/,
-    /\.reader-region\[data-slot=viewport\]\{[^}]*block-size:100vh;[^}]*block-size:100dvh/,
+    /\.reader-region\{[^}]*block-size:100vh;[^}]*block-size:100dvh/,
     /\.form-layer\{[^}]*min-block-size:100vh;min-block-size:100dvh/,
     /\.query-editor-form\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
     /\.form-layer \.group-editor\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,

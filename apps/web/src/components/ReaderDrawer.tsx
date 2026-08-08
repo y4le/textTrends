@@ -3,7 +3,7 @@
  * from authenticated worker text; source HTML is never interpreted.
  */
 
-import { useEffect, useRef } from 'react';
+import { useEffect } from 'react';
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
@@ -12,10 +12,6 @@ import { pinCapacity } from '../lib/pin-capacity.ts';
 import { segmentPassageMarks, type PassageSegment } from '../lib/passage-marks.ts';
 import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
-import {
-  READER_MODES,
-  type ReaderComposition,
-} from '../lib/reader-presentation.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
 import { PinButton } from './PinButton.tsx';
@@ -57,6 +53,7 @@ function ReaderProse({
 
   return (
     <div
+      className="source-text"
       data-reader-page={`${page.tokens.start}:${page.tokens.end}`}
       style={{
         fontFamily: 'var(--font-serif)',
@@ -64,7 +61,6 @@ function ReaderProse({
         lineHeight: 1.75,
         whiteSpace: 'pre-wrap',
         overflowWrap: 'anywhere',
-        userSelect: 'text',
       }}
     >
       {segments.map((segment, index) => {
@@ -139,11 +135,7 @@ function ReaderProse({
   );
 }
 
-export function ReaderDrawer({
-  composition,
-}: {
-  readonly composition: ReaderComposition;
-}) {
+export function ReaderDrawer() {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
@@ -152,7 +144,6 @@ export function ReaderDrawer({
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
   const setPlace = useApp((state) => state.setPlace);
-  const setReaderMode = useApp((state) => state.setReaderMode);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
   const pinPassage = useApp((state) => state.pinPassage);
@@ -161,12 +152,6 @@ export function ReaderDrawer({
   const pinFeedbackOrigin = useApp((state) => state.pinFeedbackOrigin);
   const clearPinFeedback = useApp((state) => state.clearPinFeedback);
   const pinsUsed = useApp((state) => state.pins.length);
-  const drawerRef = useRef<HTMLElement | null>(null);
-
-  useEffect(() => {
-    drawerRef.current?.focus({ preventScroll: true });
-  }, []);
-
   useEffect(() => {
     clearPinFeedback('reader');
   }, [clearPinFeedback, place?.snapshot, place?.doc, place?.cursor.token]);
@@ -196,50 +181,17 @@ export function ReaderDrawer({
   const capacity = pinCapacity(pinsUsed);
 
   return (
-    <aside
-      ref={drawerRef}
-      id="reader-region"
-      className="reader-region"
-      data-mode={composition.mode}
-      data-requested={composition.requested}
-      data-slot={composition.slot}
-      role="dialog"
-      aria-modal="false"
-      aria-label={`Reader: ${title}`}
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') {
-          event.preventDefault();
-          closeReader();
-        }
-      }}
-    >
+    <>
       <header className="reader-header">
         <div>
-          <h2 style={{ margin: 0, fontSize: 'var(--text-lg)' }}>{title}</h2>
+          <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
+            <span className="visually-hidden">Reader: </span>{title}
+          </h2>
           <p className="reader-position">
             {ready ? readerRangeLabel(ready) : 'loading canonical page…'}
           </p>
         </div>
         <div className="reader-header-actions">
-          {composition.modeControls && (
-            <div
-              className="reader-mode-controls"
-              role="group"
-              aria-label="Reader width"
-            >
-              {READER_MODES.map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  aria-pressed={composition.requested === mode}
-                  onClick={() => setReaderMode(mode)}
-                >
-                  {mode}
-                </button>
-              ))}
-            </div>
-          )}
           <PinButton
             capacity={capacity}
             label={`Save reader excerpt at token ${(place.cursor.token + 1).toLocaleString()} to Findings`}
@@ -255,7 +207,7 @@ export function ReaderDrawer({
             </button>
           )}
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
-            {composition.slot === 'viewport' ? 'back' : 'close'}
+            back
           </button>
         </div>
       </header>
@@ -330,7 +282,6 @@ export function ReaderDrawer({
 
       <nav
         className="reader-pages"
-        data-dock={composition.dockPages || undefined}
         aria-label="Reader pages"
       >
         <button
@@ -350,6 +301,6 @@ export function ReaderDrawer({
           next →
         </button>
       </nav>
-    </aside>
+    </>
   );
 }

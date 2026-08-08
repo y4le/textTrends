@@ -6,7 +6,7 @@ import {
   rhythmBinsForDocument,
   type RhythmBinView,
 } from './corpus-dashboard-view.ts';
-import type { TokenRangeSelectionV1 } from './selection.ts';
+import { selectionRangeForDoc, type TokenRangeSelectionV1 } from './selection.ts';
 
 export interface BookSheetTarget {
   readonly surface: 'book-sheet';
@@ -67,10 +67,11 @@ export function isWholeBookSelection(
   doc: string,
   fullTokens: number,
 ): boolean {
-  return selection !== null
-    && selection.doc === doc
-    && selection.tokens.start === 0
-    && selection.tokens.end === fullTokens;
+  const range = selectionRangeForDoc(selection, doc);
+  return selection?.ranges.length === 1
+    && range !== null
+    && range.tokens.start === 0
+    && range.tokens.end === fullTokens;
 }
 
 function vocabularyLabel(

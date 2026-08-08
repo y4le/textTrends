@@ -53,6 +53,46 @@ for (const viewport of viewports) {
   });
 }
 
+test('brand, Scope, and Lens share one header row where Lens is not docked', async ({ page }) => {
+  for (const viewport of [
+    { width: 768, height: 1024 },
+    { width: 1440, height: 900 },
+  ]) {
+    await page.setViewportSize(viewport);
+    await page.goto('./');
+    await awaitAllReady(page);
+
+    const geometry = await page.locator('.app-header').evaluate((header) => {
+      const box = header.getBoundingClientRect();
+      const childBox = (selector: string) => {
+        const child = header.querySelector<HTMLElement>(selector);
+        if (!child) throw new Error(`missing ${selector} from the page header`);
+        const childRect = child.getBoundingClientRect();
+        return { top: childRect.top, bottom: childRect.bottom };
+      };
+      const scope = header.querySelector<HTMLElement>('.scope-organ-content');
+      if (!scope) throw new Error('missing Scope content from the page header');
+      return {
+        height: box.height,
+        top: box.top,
+        bottom: box.bottom,
+        brand: childBox('h1'),
+        scope: childBox('.scope-organ'),
+        lens: childBox('.lens-organ'),
+        scopeClientHeight: scope.clientHeight,
+        scopeScrollHeight: scope.scrollHeight,
+      };
+    });
+
+    expect(geometry.height).toBeLessThanOrEqual(56);
+    for (const child of [geometry.brand, geometry.scope, geometry.lens]) {
+      expect(child.top).toBeGreaterThanOrEqual(geometry.top);
+      expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);
+    }
+    expect(geometry.scopeScrollHeight).toBeLessThanOrEqual(geometry.scopeClientHeight);
+  }
+});
+
 test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
   for (const viewport of [
     { width: 768, height: 1024, areas: '"queries" "place" "evidence"' },
@@ -175,9 +215,9 @@ test('shell Evidence owns the one live passage action set', async ({ page }) => 
   await expect(page.getByRole('button', { name: /Save excerpt at token/ })).toHaveCount(1);
   await expect(page.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(1);
   await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
-  const reader = page.getByRole('dialog', { name: /Reader: evidence/ });
+  const reader = page.getByRole('main', { name: /Reader: evidence/ });
   await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'close', exact: true }).click();
+  await reader.getByRole('button', { name: 'back', exact: true }).click();
   await expect(evidence.getByRole('button', { name: 'Open passage in reader' })).toBeFocused();
 });
 
@@ -375,4 +415,18 @@ test('structural rules and safe viewport contract are active', async ({ page }) 
     expect(contrastRatio(contract.rule, contract.background)).toBeGreaterThanOrEqual(1.6);
     expect(contract.viewport).toContain('viewport-fit=cover');
   }
+});
+
+test('the horizontally overflowing Scope details are keyboard-scrollable', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 800 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  const details = page.getByRole('group', { name: 'Scope details' });
+  await expect(details).toHaveAttribute('tabindex', '0');
+  expect(await details.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
+  await details.focus();
+  await page.keyboard.press('End');
+  await expect.poll(() => details.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
+  await page.keyboard.press('Home');
+  await expect.poll(() => details.evaluate((node) => node.scrollLeft)).toBe(0);
 });

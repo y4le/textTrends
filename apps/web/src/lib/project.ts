@@ -61,8 +61,34 @@ export function builtinProject(data: ProjectDataV1): CurrentProject {
   return { kind: 'builtin', data };
 }
 
-/** The bundled corpus's stable durable id — a built-in, never CAS-saved. */
+/** Stable ids for the read-only bundled corpora — never CAS-saved. */
 export const BUILTIN_SHERLOCK_ID = 'builtin/sherlock';
+export const BUILTIN_ASOIF_ID = 'builtin/asoif';
+export const BUILTIN_LOTR_ID = 'builtin/lotr';
+
+export type BuiltinCorpusId =
+  | typeof BUILTIN_SHERLOCK_ID
+  | typeof BUILTIN_ASOIF_ID
+  | typeof BUILTIN_LOTR_ID;
+
+export interface BuiltinCorpusOption {
+  readonly id: BuiltinCorpusId;
+  readonly sourceDirectory: 'sherlock' | 'asoif' | 'lotr';
+  readonly label: string;
+  readonly defaultTerms: string;
+}
+
+/** Presentation + bootstrap vocabulary for the bundled demo picker. */
+export const BUILTIN_CORPORA: readonly BuiltinCorpusOption[] = [
+  { id: BUILTIN_SHERLOCK_ID, sourceDirectory: 'sherlock', label: 'Sherlock Holmes', defaultTerms: 'Holmes, Moriarty' },
+  { id: BUILTIN_ASOIF_ID, sourceDirectory: 'asoif', label: 'A Song of Ice and Fire', defaultTerms: 'Jon, Tyrion, Daenerys' },
+  { id: BUILTIN_LOTR_ID, sourceDirectory: 'lotr', label: 'The Lord of the Rings', defaultTerms: 'Frodo, Gandalf, Sauron' },
+];
+
+export function builtinCorpusOption(id: string): BuiltinCorpusOption | undefined {
+  return BUILTIN_CORPORA.find((corpus) => corpus.id === id);
+}
+
 /** The single user project id in the v1 one-project scope. */
 export const USER_PROJECT_ID = 'user/default';
 
@@ -164,7 +190,11 @@ export interface BuiltinDocFixture {
  * shares the empty-candidate hash. The built-in is `availability: 'bundled'`:
  * byte misses are fetched from its URL, never persisted or reattached.
  */
-export async function buildBuiltinProjectData(id: string, docs: readonly BuiltinDocFixture[]): Promise<ProjectDataV1> {
+export async function buildBuiltinProjectData(
+  id: string,
+  sourceDirectory: BuiltinCorpusOption['sourceDirectory'],
+  docs: readonly BuiltinDocFixture[],
+): Promise<ProjectDataV1> {
   const { txt } = await defaultExtractionRecipes();
   const [extractionRecipeHash, structureRecipeHash, candidates, indexRecipeHash] = await Promise.all([
     hashExtractionRecipe(txt),
@@ -174,7 +204,7 @@ export async function buildBuiltinProjectData(id: string, docs: readonly Builtin
   ]);
   const projectDocs: ProjectDocV1[] = docs.map((d) => ({
     doc: d.doc,
-    sourceName: d.doc,
+    sourceName: `${sourceDirectory}/${d.doc}`,
     meta: { title: d.title, language: 'en', tags: [] },
     source: { kind: 'text', hash: d.sourceHash, byteLength: d.bytes, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
     sourceAvailability: 'bundled',
@@ -204,26 +234,60 @@ export async function buildBuiltinProjectData(id: string, docs: readonly Builtin
  *  hashes are the authoritative warm-reopen identities the worker rehydrates
  *  against; a mutable doc-label → hash cache must never outrank this manifest. */
 export const SHERLOCK: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
-  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 244251, textLengthUtf16: 239435, sourceHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d', textHash: 'dfee04ef99ffe3d02e5fa014180cdd37a73ae993d7f07fe097692e4d3637837d' },
-  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236849, textLengthUtf16: 232130, sourceHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d', textHash: '81c87d8455b08a0e2e9bb9eadb98bda3789431045d307d831d0e74fd978bcf5d' },
-  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', title: 'The Adventures of Sherlock Holmes', bytes: 575804, textLengthUtf16: 562213, sourceHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3', textHash: '3552d466d95a92fb58e96bbfabbfc02370d359ac95933b5feafe4ebaf3f243b3' },
-  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', title: 'The Memoirs of Sherlock Holmes', bytes: 581689, textLengthUtf16: 569564, sourceHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d', textHash: '9ee3b066f7d761abc5e012510cb1d4e636254976c655494a721537d695647b1d' },
-  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', title: 'The Hound of the Baskervilles', bytes: 360865, textLengthUtf16: 354130, sourceHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e', textHash: '6f2bd20772b2958e7b6683f3e790f12d58f5c6506cbf38743dfd36318ef8262e' },
-  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', title: 'The Return of Sherlock Holmes', bytes: 686382, textLengthUtf16: 673685, sourceHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57', textHash: '190bdeb3e25d6553c3b6d6a3ec7fb677919ba336a1feb7dd0affb06b1c9a4c57' },
+  { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 243457, textLengthUtf16: 238367, sourceHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a', textHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a' },
+  { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236437, textLengthUtf16: 231255, sourceHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a', textHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a' },
+  { doc: '3 - The Adventures of Sherlock Holmes - Arthur Conan Doyle', title: 'The Adventures of Sherlock Holmes', bytes: 576164, textLengthUtf16: 561275, sourceHash: '768d3d31e334e7138acc2e302fe390cd35115c3cd2db0a08fbc7884182cb467e', textHash: '768d3d31e334e7138acc2e302fe390cd35115c3cd2db0a08fbc7884182cb467e' },
+  { doc: '4 - The Memoirs of Sherlock Holmes - Arthur Conan Doyle', title: 'The Memoirs of Sherlock Holmes', bytes: 527990, textLengthUtf16: 514316, sourceHash: '8bf2ce1dbbc0af0db330e06177225af94cb241fce9f13d848f5786f9405bd97d', textHash: '8bf2ce1dbbc0af0db330e06177225af94cb241fce9f13d848f5786f9405bd97d' },
+  { doc: '5 - The Hound of the Baskervilles - Arthur Conan Doyle', title: 'The Hound of the Baskervilles', bytes: 324763, textLengthUtf16: 317491, sourceHash: 'a35d4fb37d632ea347e4d38545b8394265415b2ebd7ec6de80f2eb1e6563ca02', textHash: 'a35d4fb37d632ea347e4d38545b8394265415b2ebd7ec6de80f2eb1e6563ca02' },
+  { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', title: 'The Return of Sherlock Holmes', bytes: 623869, textLengthUtf16: 609845, sourceHash: '939525ae69ffadc5c545ca9249007b31099ca225582d0187809c0f2d0476200b', textHash: '939525ae69ffadc5c545ca9249007b31099ca225582d0187809c0f2d0476200b' },
 ];
 
-/** The bundled corpus as the built-in `ProjectDataV1`, built ONCE (the recipe
- *  and empty-candidate hashes are corpus-wide constants). One project
- *  abstraction drives every origin; Sherlock is simply the read-only built-in.
- *  The composition root (`store-instance.ts`) awaits this to construct the
- *  session's initial `CurrentProject`. Lives HERE with the rest of the
- *  built-in vocabulary — the state container is not the authority for corpus
- *  assets. */
-let sherlockData: Promise<ProjectDataV1> | null = null;
+export const ASOIF: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - A Game of Thrones - George R. R. Martin', title: 'A Game of Thrones', bytes: 1589135, textLengthUtf16: 1589135, sourceHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef', textHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef' },
+  { doc: '2 - A Clash of Kings - George R. R. Martin', title: 'A Clash of Kings', bytes: 1732896, textLengthUtf16: 1732892, sourceHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6', textHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6' },
+  { doc: '3 - A Storm of Swords - George R. R. Martin', title: 'A Storm of Swords', bytes: 2248306, textLengthUtf16: 2248306, sourceHash: 'df415ab2967ebcd7b298ff2a2b8187fef092c46b4b0c90acafa83e0280b2bfcb', textHash: 'df415ab2967ebcd7b298ff2a2b8187fef092c46b4b0c90acafa83e0280b2bfcb' },
+  { doc: '4 - A Feast for Crows - George R. R. Martin', title: 'A Feast for Crows', bytes: 1600851, textLengthUtf16: 1600641, sourceHash: 'ec71a2cd3a869748015b1b25c88ac245b1d29389ad6aea971a4de6b05418b7a8', textHash: 'ec71a2cd3a869748015b1b25c88ac245b1d29389ad6aea971a4de6b05418b7a8' },
+  { doc: '5 - A Dance with Dragons - George R. R. Martin', title: 'A Dance with Dragons', bytes: 2261026, textLengthUtf16: 2260424, sourceHash: '9a5731820527226336b49549c9643f702e7123fa52c87878cf68de83901d6039', textHash: '9a5731820527226336b49549c9643f702e7123fa52c87878cf68de83901d6039' },
+];
+
+export const LOTR: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - The Fellowship of the Ring - J. R. R. Tolkien', title: 'The Fellowship of the Ring', bytes: 1000126, textLengthUtf16: 994303, sourceHash: 'a32d1b2c8a487b614ca4a1367261a976af4e3618810122893025ff13b09a0450', textHash: 'a32d1b2c8a487b614ca4a1367261a976af4e3618810122893025ff13b09a0450' },
+  { doc: '2 - The Two Towers - J. R. R. Tolkien', title: 'The Two Towers', bytes: 817956, textLengthUtf16: 817178, sourceHash: '2ca2c50996b260524c3ce2670177e82b577fc04785883627f51a543b94b2f747', textHash: '2ca2c50996b260524c3ce2670177e82b577fc04785883627f51a543b94b2f747' },
+  { doc: '3 - The Return of the King - J. R. R. Tolkien', title: 'The Return of the King', bytes: 723615, textLengthUtf16: 709748, sourceHash: '96cad064a56aa3cd67f47d59b3c10e856fe6717ab293524beaad8f88d1e617c2', textHash: '96cad064a56aa3cd67f47d59b3c10e856fe6717ab293524beaad8f88d1e617c2' },
+];
+
+/** Bundled corpora as read-only `ProjectDataV1` values, each built ONCE (the
+ *  recipe and empty-candidate hashes are corpus-wide constants). One project
+ *  abstraction drives every origin; Sherlock is simply the initial selection.
+ *  The composition root (`store-instance.ts`) awaits the registry to construct
+ *  the session's initial `CurrentProject`. Lives HERE with the rest of the
+ *  built-in vocabulary — the state container is not the authority for assets. */
+const FIXTURES: Readonly<Record<BuiltinCorpusId, readonly BuiltinDocFixture[]>> = {
+  [BUILTIN_SHERLOCK_ID]: SHERLOCK,
+  [BUILTIN_ASOIF_ID]: ASOIF,
+  [BUILTIN_LOTR_ID]: LOTR,
+};
+
+const builtinData = new Map<BuiltinCorpusId, Promise<ProjectDataV1>>();
+
+export function builtinProjectData(id: BuiltinCorpusId): Promise<ProjectDataV1> {
+  let data = builtinData.get(id);
+  if (data === undefined) {
+    const option = builtinCorpusOption(id);
+    if (option === undefined) throw new RangeError(`unknown built-in corpus '${id}'`);
+    data = buildBuiltinProjectData(id, option.sourceDirectory, FIXTURES[id]);
+    builtinData.set(id, data);
+  }
+  return data;
+}
+
 export function sherlockProjectData(): Promise<ProjectDataV1> {
-  sherlockData ??= buildBuiltinProjectData(
-    BUILTIN_SHERLOCK_ID,
-    SHERLOCK.map(({ doc, title, bytes, textLengthUtf16, sourceHash, textHash }) => ({ doc, title, bytes, textLengthUtf16, sourceHash, textHash })),
+  return builtinProjectData(BUILTIN_SHERLOCK_ID);
+}
+
+export async function builtinProjectRegistry(): Promise<ReadonlyMap<BuiltinCorpusId, ProjectDataV1>> {
+  const entries = await Promise.all(
+    BUILTIN_CORPORA.map(async ({ id }) => [id, await builtinProjectData(id)] as const),
   );
-  return sherlockData;
+  return new Map(entries);
 }

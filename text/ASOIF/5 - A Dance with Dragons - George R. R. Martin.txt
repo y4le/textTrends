@@ -1,6 +1,4 @@
-A Dance With Dragons - George R.R. Martin
-
-PROLOGUE
+Chapter 0. Prologue
 
 
 
@@ -472,7 +470,7 @@ She sees me.
 
 
 
-TYRION
+Chapter 1. Tyrion
 
 
 
@@ -1073,7 +1071,7 @@ three heads."
 
 
 
-DAENERYS
+Chapter 2. Daenerys
 
 
 
@@ -1676,7 +1674,7 @@ No, Dany thought, those are the bones of a child.
 
 
 
-JON
+Chapter 3. Jon
 
 
 
@@ -2284,7 +2282,7 @@ daggers in the dark. Blood frozen red and hard, and naked steel. It was very col
 
 
 
-BRAN
+Chapter 4. Bran
 
 
 
@@ -2726,7 +2724,7 @@ never make it back to the Wall alive. We go with Bran's monster, or we die."
 
 
 
-TYRION
+Chapter 5. Tyrion
 
 
 
@@ -3219,7 +3217,7 @@ him like a well, and he threw himself into it with a will and let the darkness e
 
 
 
-THE MERCHANT'S MAN
+Chapter 6. The Merchant's Man
 
 
 
@@ -3692,7 +3690,7 @@ the demon road."
 
 
 
-JON
+Chapter 7. Jon
 
 
 
@@ -4405,7 +4403,7 @@ inside his tower.
 
 
 
-TYRION
+Chapter 8. Tyrion
 
 He woke alone, and found the litter halted.
 
@@ -4850,7 +4848,7 @@ bowing once again.
 
 
 
-DAVOS
+Chapter 9. Davos
 
 
 
@@ -5248,7 +5246,7 @@ his way with his head still on his shoulders. 'If you lose,' he told Lord Eddard
 
 
 
-JON
+Chapter 10. Jon
 
 
 
@@ -5781,7 +5779,7 @@ lot, he realized as he undressed, from now until the end of my days.
 
 
 
-DAENERYS
+Chapter 11. Daenerys
 
 
 
@@ -6330,7 +6328,7 @@ dragon, she thought. If they are monsters, so am I.
 
 
 
-REEK
+Chapter 12. Reek
 
 
 
@@ -6641,7 +6639,7 @@ you will be coming with me, to help me fetch home my virgin bride."
 
 
 
-BRAN
+Chapter 13. Bran
 
 
 
@@ -7039,7 +7037,7 @@ black river.
 
 
 
-TYRION
+Chapter 14. Tyrion
 
 
 
@@ -7541,7 +7539,7 @@ And why not? Tyrion grinned. Gods and wonders always appear, to attend the birth
 
 
 
-DAVOS
+Chapter 15. Davos
 
 
 
@@ -7941,7 +7939,7 @@ seals. "I need to see Lord Manderly at once," he said. "My business is with him,
 
 
 
-DAENERYS
+Chapter 16. Daenerys
 
 
 
@@ -8575,7 +8573,7 @@ glove.
 
 
 
-JON
+Chapter 17. Jon
 
 
 
@@ -9170,7 +9168,7 @@ And I will have a thousand wildlings, thought Jon, and no way to feed even half 
 
 
 
-TYRION
+Chapter 18. Tyrion
 
 
 
@@ -9603,7 +9601,7 @@ around him.
 
 
 
-DAVOS
+Chapter 19. Davos
 
 
 
@@ -10020,7 +10018,7 @@ upon a spike, with an onion shoved between his lying teeth."
 
 
 
-REEK
+Chapter 20. Reek
 
 
 
@@ -10567,7 +10565,7 @@ after you."
 
 
 
-JON
+Chapter 21. Jon
 
 
 
@@ -10935,7 +10933,7 @@ killers, what then?"
 
 
 
-TYRION
+Chapter 22. Tyrion
 
 
 
@@ -11633,7 +11631,7 @@ outwit him. He spread his hands. "And what do you mean to do with me?"
 
 
 
-DAENERYS
+Chapter 23. Daenerys
 
 
 
@@ -12197,7 +12195,7 @@ and on my heart. We are not so different, Daario and I. We are both monsters.
 
 
 
-THE LOST LORD
+Chapter 24. The Lost Lord
 
 
 
@@ -12726,7 +12724,7 @@ Then Lord Jon Connington could die content.
 
 
 
-THE WINDBLOWN
+Chapter 25. The Windblown
 
 
 
@@ -13199,7 +13197,7 @@ The big man slapped him hard across the back. "So. This is sweet, Frog. A dragon
 
 
 
-THE WAYWARD BRIDE
+Chapter 26. The Wayward Bride
 
 
 
@@ -13938,7 +13936,7 @@ his antlers.
 
 
 
-TYRION
+Chapter 27. Tyrion
 
 
 
@@ -14806,7 +14804,7 @@ waiting. Tell her to come soon."
 
 
 
-JON
+Chapter 28. Jon
 
 
 
@@ -15191,7 +15189,7 @@ hand," she said again, "and let me save your sister."
 
 
 
-DAVOS
+Chapter 29. Davos
 
 Even in the gloom of the Wolf's Den, Davos Seaworth could sense that something was awry this
 morning.
@@ -15687,7 +15685,7 @@ their fast on human flesh.
 
 
 
-DAENERYS
+Chapter 30. Daenerys
 
 
 
@@ -16199,7 +16197,7 @@ She could not say it.
 
 
 
-MELISANDRE
+Chapter 31. Melisandre
 
 
 
@@ -16733,7 +16731,7 @@ deliverance. A gift from the Lord of Light ... and me."
 
 
 
-REEK
+Chapter 32. Reek
 
 
 
@@ -17341,7 +17339,7 @@ rhymes with freak."
 
 
 
-TYRION
+Chapter 33. Tyrion
 
 
 
@@ -17902,7 +17900,7 @@ eye and ten long arms, sailing on a sea of blood."
 
 
 
-BRAN
+Chapter 34. Bran
 
 
 
@@ -18408,7 +18406,7 @@ but as his life flowed out of him in a red tide, Brandon Stark could taste the b
 
 
 
-JON
+Chapter 35. Jon
 
 
 
@@ -18887,7 +18885,7 @@ conquer those.
 
 
 
-DAENERYS
+Chapter 36. Daenerys
 
 
 
@@ -19340,7 +19338,7 @@ She raised her lips to his. "What are you waiting for?"
 
 
 
-THE PRINCE OF WINTERFELL
+Chapter 37. The Prince of Winterfell
 
 
 
@@ -19937,7 +19935,7 @@ Reek, my name is Reek, it rhymes with weak. Reek bent to his task.
 
 
 
-THE WATCHER
+Chapter 38. The Watcher
 
 
 
@@ -20486,7 +20484,7 @@ was all he knew.
 
 
 
-JON
+Chapter 39. Jon
 
 
 
@@ -20892,7 +20890,7 @@ and pale. "Thank you for your time, Lord Snow." They left without another word.
 
 
 
-TYRION
+Chapter 40. Tyrion
 
 
 
@@ -21371,7 +21369,7 @@ that?" he asked Ser Jorah Mormont. "Can you read her name?"
 
 
 
-THE TURNCLOAK
+Chapter 41. The Turncloak
 
 
 
@@ -21876,7 +21874,7 @@ It was. "Hold my tongue or lose it."
 
 
 
-THE KING'S PRIZE
+Chapter 42. The King's Prize
 
 
 
@@ -22444,7 +22442,7 @@ Baratheon's host sat snowbound and unmoving, walled in by ice and snow, starving
 
 
 
-DAENERYS
+Chapter 43. Daenerys
 
 
 
@@ -23081,7 +23079,7 @@ chains of yellow gold.
 
 
 
-JON
+Chapter 44. Jon
 
 
 
@@ -23667,7 +23665,7 @@ beg you. Protect me."
 
 
 
-THE BLIND GIRL
+Chapter 45. The Blind Girl
 
 
 
@@ -24124,7 +24122,7 @@ like a whore at the Happy Port. She had never seen anything so beautiful.
 
 
 
-A GHOST IN WINTERFELL
+Chapter 46. A Ghost in Winterfell
 
 
 
@@ -24631,7 +24629,7 @@ death, 'twill hardly hurt at all." She smiled. "But not till you've sung for Abe
 
 
 
-TYRION
+Chapter 47. Tyrion
 
 
 
@@ -25209,7 +25207,7 @@ Thousands will come see you! Tens of thousands! And, oh, how we shall laugh!"
 
 
 
-JAIME
+Chapter 48. Jaime
 
 
 
@@ -25861,7 +25859,7 @@ will kill her."
 
 
 
-JON
+Chapter 49. Jon
 
 
 
@@ -26409,7 +26407,7 @@ Tormund Giantsbane had come at last.
 
 
 
-DAENERYS
+Chapter 50. Daenerys
 
 
 
@@ -26888,7 +26886,7 @@ The morning came too soon.
 
 
 
-THEON
+Chapter 51. Theon
 
 
 
@@ -27479,7 +27477,7 @@ Theon grabbed Jeyne about the waist and jumped.
 
 
 
-DAENERYS
+Chapter 52. Daenerys
 
 
 
@@ -28020,7 +28018,7 @@ thought, yes, now, now, do it, do it, take me, take me, FLY!
 
 
 
-JON
+Chapter 53. Jon
 
 
 
@@ -28721,7 +28719,7 @@ steel." His sword hand flexed. The wind was rising.
 
 
 
-CERSEI
+Chapter 54. Cersei
 
 
 
@@ -29269,7 +29267,7 @@ come."
 
 
 
-THE QUEENSGUARD
+Chapter 55. The Queensguard
 
 
 
@@ -29698,7 +29696,7 @@ himself. For the city. For my queen.
 
 
 
-THE IRON SUITOR
+Chapter 56. The Iron Suitor
 
 
 
@@ -30152,7 +30150,7 @@ Greyjoy had made a widow.
 
 
 
-TYRION
+Chapter 57. Tyrion
 
 
 
@@ -30792,7 +30790,7 @@ is dry as an old bone, and I can see that I have a deal of talking to do."
 
 
 
-JON
+Chapter 58. Jon
 
 
 
@@ -31346,7 +31344,7 @@ Snow rolled up the parchment, frowning. Nightfalls, he thought, and now my war b
 
 
 
-THE DISCARDED KNIGHT
+Chapter 59. The Discarded Knight
 
 
 
@@ -31724,7 +31722,7 @@ true.
 
 
 
-THE SPURNED SUITOR
+Chapter 60. The Spurned Suitor
 
 
 
@@ -32058,7 +32056,7 @@ should have at least the sense to promise more."
 
 
 
-THE GRIFFIN REBORN
+Chapter 61. The Griffin Reborn
 
 
 
@@ -32539,7 +32537,7 @@ of it, my lord. I want the attack to go ahead ... with one change. I mean to lea
 
 
 
-THE SACRIFICE
+Chapter 62. The Sacrifice
 
 
 
@@ -33092,7 +33090,7 @@ your name."
 
 
 
-VICTARION
+Chapter 63. Victarion
 
 
 
@@ -33393,7 +33391,7 @@ to the horn's master. You must claim the horn. With blood."
 
 
 
-THE UGLY LITTLE GIRL
+Chapter 64. The Ugly Little Girl
 
 
 
@@ -33921,7 +33919,7 @@ Who are you, child?"
 
 
 
-CERSEI
+Chapter 65. Cersei
 
 
 
@@ -34400,7 +34398,7 @@ Yes, thought Cersei Lannister. Oh, yes.
 
 
 
-TYRION
+Chapter 66. Tyrion
 
 
 
@@ -34911,7 +34909,7 @@ cloaks again and do it now." He grinned. "Leave that to me."
 
 
 
-THE KINGBREAKER
+Chapter 67. The Kingbreaker
 
 
 
@@ -35536,7 +35534,7 @@ Ser Barristan asked the boy. "Where does the seneschal want His Grace to go?"
 
 
 
-THE DRAGONTAMER
+Chapter 68. The Dragontamer
 
 
 
@@ -36030,7 +36028,7 @@ Oh, he thought. Then he began to scream.
 
 
 
-JON
+Chapter 69. Jon
 
 
 
@@ -36647,7 +36645,7 @@ snow. He never felt the fourth knife. Only the cold ...
 
 
 
-THE QUEEN'S HAND
+Chapter 70. The Queen's Hand
 
 
 
@@ -37275,7 +37273,7 @@ think they will break Meereen by throwing stones—"
 
 
 
-DAENERYS
+Chapter 71. Daenerys
 
 
 
@@ -37820,7 +37818,7 @@ drifting smoke.
 
 
 
-EPILOGUE
+Chapter 72. Epilogue
 
 
 

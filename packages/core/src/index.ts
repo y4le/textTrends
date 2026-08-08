@@ -128,7 +128,9 @@ export {
 } from './ops/kwic.ts';
 export {
   checkedResolverFor,
+  occurrencePayloadBytes,
   occurrences,
+  OCCURRENCE_LIMITS_V1,
   TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
   validateGroup,

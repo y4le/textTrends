@@ -1,5 +1,3 @@
-import type { ReaderMode } from './reader-presentation.ts';
-
 export const LAYER_KINDS = [
   'place',
   'row-detail',
@@ -13,8 +11,6 @@ export type SheetDetent = 'peek' | 'half' | 'tall';
 
 export interface LayerUI {
   readonly detent?: SheetDetent;
-  readonly reader?: ReaderMode;
-  readonly scrollKey?: string;
 }
 
 /**
@@ -93,8 +89,8 @@ function assertSerializableStack(layers: readonly Layer[]): void {
     if (layer.kind === 'place' && index !== 0) {
       throw new Error('A place layer must begin a fresh stack.');
     }
-    if (readerSeen && layer.kind !== 'row-detail') {
-      throw new Error('Only an authoring row-detail may follow Reader.');
+    if (readerSeen) {
+      throw new Error('Reader must be the terminal layer.');
     }
     if (layer.kind === 'reader') readerSeen = true;
     seen.add(layer.id);
@@ -140,7 +136,7 @@ export function parseLayerHistory(state: unknown): ParsedLayerHistory {
       valid = false;
       break;
     }
-    if (readerSeen && value.kind !== 'row-detail') {
+    if (readerSeen) {
       valid = false;
       break;
     }
@@ -209,7 +205,7 @@ export function reconcileLayerRefs(
       || !isLayerId(ref.id)
       || seen.has(ref.id)
       || (ref.kind === 'place' && layers.length !== 0)
-      || (readerSeen && ref.kind !== 'row-detail')
+      || readerSeen
     ) {
       truncated = true;
       break;

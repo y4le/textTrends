@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
+import { CapError, type BuildGeneration, type ProjectDocId } from '../src/contract/brands.ts';
 import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
-import { occurrences, TERM_GROUP_LIMITS_V1, termGroupIdentity, validateGroup, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { occurrencePayloadBytes, occurrences, OCCURRENCE_LIMITS_V1, TERM_GROUP_LIMITS_V1, termGroupIdentity, validateGroup, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
@@ -63,6 +63,25 @@ function rows(o: ReturnType<typeof occurrences>) {
 }
 
 describe('token and affix occurrences', () => {
+  it('enforces the construction cap at N-1, N, and N+1 before an oversized result exists', async () => {
+    const limit = OCCURRENCE_LIMITS_V1.maxOccurrences;
+    const w = await world({ a: 'x '.repeat(limit + 1) });
+    const selected = async (end: number) => resolveSelection(w.snapshot, {
+      docs: ['a'] as ProjectDocId[],
+      ranges: [{ doc: 'a' as ProjectDocId, tokens: { start: 0 as never, end: end as never } }],
+    });
+    const spec = group([token('m1', 'x')], true);
+    const below = occurrences(w.snapshot, w.shards, w.resolvers, await selected(limit - 1), spec);
+    expect(below.pos).toHaveLength(limit - 1);
+    // 199,999 one-member rows: four N-sized Uint32 arrays plus N + 1 offsets.
+    expect(occurrencePayloadBytes(below)).toBe(3_999_984);
+    expect(occurrences(w.snapshot, w.shards, w.resolvers, await selected(limit), spec).pos)
+      .toHaveLength(limit);
+    const over = await selected(limit + 1);
+    expect(() => occurrences(w.snapshot, w.shards, w.resolvers, over, spec))
+      .toThrow(CapError);
+  }, 30_000);
+
   it('emits from multiple documents in declared order', async () => {
     const w = await world({ a: 'The wolf ran. A WOLF howled.', b: 'a lone wolf again' });
     const o = occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([token('m1', 'wolf')]));

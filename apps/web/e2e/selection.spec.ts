@@ -1,6 +1,6 @@
 /**
- * Slice-2 E acceptance: linked range selection is one committed, half-open
- * single-document selection shared by every detail consumer. The worker gate
+ * Slice-2 E acceptance: linked range selection is one committed set of
+ * half-open document spans shared by every detail consumer. The worker gate
  * deliberately lets selection A finish inside the worker but withholds its
  * messages until selection B has settled, proving the browser store rejects
  * stale late delivery rather than merely relying on worker cancellation.

@@ -39,8 +39,7 @@ export function OnlyBookButton({
           ? null
           : {
               snapshot: snapshot.snapshot,
-              doc,
-              tokens: { start: 0, end: fullTokens },
+              ranges: [{ doc, tokens: { start: 0, end: fullTokens } }],
             });
       }}
     >

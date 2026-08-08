@@ -1,11 +1,13 @@
 import type { InventoryState } from './store.ts';
-import type { TokenRangeSelectionV1 } from './selection.ts';
+import { sameSelection, selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 import type { Place } from './places.ts';
+import { builtinCorpusOption } from './project.ts';
 
 const number = new Intl.NumberFormat();
 
 export interface ScopeProject {
   readonly kind: 'builtin' | 'user';
+  readonly id: string;
   readonly docCount: number;
 }
 
@@ -26,10 +28,15 @@ export interface ScopeInput {
 }
 
 export interface ScopeRangeVM {
+  /** Human title of the one book, or `first → last` for a cross-book range. */
   readonly docTitle: string;
+  /** 1-based inclusive token endpoint in the first selected book. */
   readonly firstToken: number;
+  /** 1-based inclusive token endpoint in the last selected book; it is not
+   * numerically comparable with firstToken when documents > 1. */
   readonly lastToken: number;
   readonly tokens: number;
+  readonly documents: number;
   readonly label: string;
 }
 
@@ -48,18 +55,9 @@ export interface ScopeVM {
 
 export function corpusName(project: ScopeProject | null): string {
   if (project === null) return 'Preparing corpus';
-  return project.kind === 'builtin' ? 'Sherlock Holmes' : 'Imported corpus';
-}
-
-function sameSelection(
-  left: TokenRangeSelectionV1 | null,
-  right: TokenRangeSelectionV1 | null,
-): boolean {
-  if (left === null || right === null) return left === right;
-  return left.snapshot === right.snapshot
-    && left.doc === right.doc
-    && left.tokens.start === right.tokens.start
-    && left.tokens.end === right.tokens.end;
+  return project.kind === 'builtin'
+    ? builtinCorpusOption(project.id)?.label ?? 'Built-in corpus'
+    : 'Imported corpus';
 }
 
 export function scopeView(input: ScopeInput, place: Place): ScopeVM {
@@ -85,16 +83,24 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   const range = selection === null
     ? null
     : (() => {
-        const docTitle = input.titleByDoc.get(selection.doc) ?? selection.doc;
-        const firstToken = selection.tokens.start + 1;
-        const lastToken = selection.tokens.end;
-        const tokens = selection.tokens.end - selection.tokens.start;
+        const first = selection.ranges[0]!;
+        const last = selection.ranges.at(-1)!;
+        const firstTitle = input.titleByDoc.get(first.doc) ?? first.doc;
+        const lastTitle = input.titleByDoc.get(last.doc) ?? last.doc;
+        const documents = selection.ranges.length;
+        const docTitle = documents === 1 ? firstTitle : `${firstTitle} → ${lastTitle}`;
+        const firstToken = first.tokens.start + 1;
+        const lastToken = last.tokens.end;
+        const tokens = selectionTokenCount(selection);
         return {
           docTitle,
           firstToken,
           lastToken,
           tokens,
-          label: `${docTitle} · tokens ${number.format(firstToken)}–${number.format(lastToken)} · ${number.format(tokens)} tokens`,
+          documents,
+          label: documents === 1
+            ? `${docTitle} · tokens ${number.format(firstToken)}–${number.format(lastToken)} · ${number.format(tokens)} tokens`
+            : `${firstTitle} token ${number.format(firstToken)} → ${lastTitle} token ${number.format(lastToken)} · ${number.format(tokens)} tokens across ${number.format(documents)} books`,
         };
       })();
   const exception = place === 'compare' && range !== null
@@ -104,7 +110,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   const segments: string[] = [corpus];
   // Whole-corpus readiness is an honest fallback only when no range is
   // active. During a range query, "6 books in scope" would contradict the
-  // single-document range while its issued inventory is still pending.
+  // linked range while its issued inventory is still pending.
   const scopeDocs = docsInScope ?? (input.snapshot && range === null ? ready : null);
   if (scopeDocs !== null && scopeDocs > 0) {
     segments.push(range

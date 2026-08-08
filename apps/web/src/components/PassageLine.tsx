@@ -90,6 +90,7 @@ export function PassageLine({
   return (
     <div style={{ marginTop: 'var(--space-2)' }}>
       <div
+        className="source-text"
         style={{
           position: 'relative',
           overflow: 'hidden',

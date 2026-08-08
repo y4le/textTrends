@@ -44,7 +44,7 @@ const readyInventory = (
 });
 
 const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
-  project: { kind: 'builtin', docCount: 6 },
+  project: { kind: 'builtin', id: 'builtin/sherlock', docCount: 6 },
   snapshot: {
     snapshot: 'snapshot-1',
     readyDocs: ['a', 'b', 'c', 'd', 'e', 'f'],
@@ -84,8 +84,7 @@ describe('scopeView', () => {
   it('omits unknown document totals while a range inventory is pending', () => {
     const linkedSelection = {
       snapshot: 'snapshot-1',
-      doc: 'a',
-      tokens: { start: 0, end: 3 },
+      ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
     } as const;
     const pending = scopeView(input({
       linkedSelection,
@@ -104,8 +103,7 @@ describe('scopeView', () => {
   it('refuses a ready inventory result issued for a departed scope or snapshot', () => {
     const staleRange = {
       snapshot: 'snapshot-1',
-      doc: 'a',
-      tokens: { start: 0, end: 3 },
+      ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
     } as const;
     const staleSelection = scopeView(input({
       linkedSelection: null,
@@ -145,14 +143,12 @@ describe('scopeView', () => {
         ...readyInventory(1, 3),
         selection: {
           snapshot: 'snapshot-1',
-          doc: 'a',
-          tokens: { start: 0, end: 3 },
+          ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
         },
       },
       linkedSelection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 0, end: 3 },
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
       },
     }), 'trends');
     expect(view.docsInScope).toBe(1);
@@ -161,9 +157,41 @@ describe('scopeView', () => {
       firstToken: 1,
       lastToken: 3,
       tokens: 3,
+      documents: 1,
       label: 'A Study in Scarlet · tokens 1–3 · 3 tokens',
     });
     expect(view.segments).toContain('1 book in scope');
+  });
+
+  it('labels the endpoints and total of a cross-book range', () => {
+    const linkedSelection = {
+      snapshot: 'snapshot-1',
+      ranges: [
+        { doc: 'a', tokens: { start: 8, end: 10 } },
+        { doc: 'b', tokens: { start: 0, end: 4 } },
+      ],
+    } as const;
+    const view = scopeView(input({
+      linkedSelection,
+      inventory: {
+        snapshot: 'snapshot-1',
+        selection: linkedSelection,
+        state: { status: 'ready', result: inventoryResult(2, 6) },
+      },
+      titleByDoc: new Map([
+        ['a', 'Alpha'],
+        ['b', 'Beta'],
+      ]),
+    }), 'trends');
+    expect(view.range).toEqual({
+      docTitle: 'Alpha → Beta',
+      firstToken: 9,
+      lastToken: 4,
+      tokens: 6,
+      documents: 2,
+      label: 'Alpha token 9 → Beta token 4 · 6 tokens across 2 books',
+    });
+    expect(view.segments).toContain('2 books in scope');
   });
 
   it('reports partial readiness without pretending unavailable books are ready', () => {
@@ -183,8 +211,7 @@ describe('scopeView', () => {
   it('states the Compare range exception only where it applies', () => {
     const linkedSelection = {
       snapshot: 'snapshot-1',
-      doc: 'a',
-      tokens: { start: 2, end: 5 },
+      ranges: [{ doc: 'a', tokens: { start: 2, end: 5 } }],
     } as const;
     expect(scopeView(input({ linkedSelection }), 'compare').exception).toBe(
       'Compare uses declared sides A and B · the active trend range does not apply',
@@ -199,8 +226,7 @@ describe('scopeView', () => {
     expect(scopeView(input({
       linkedSelection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 1, end: 3 },
+        ranges: [{ doc: 'a', tokens: { start: 1, end: 3 } }],
       },
     }), 'trends').announcement).not.toBe(first);
   });
@@ -208,8 +234,10 @@ describe('scopeView', () => {
 
 describe('corpusName', () => {
   it('names built-in, imported, and not-yet-loaded corpora without collisions', () => {
-    expect(corpusName({ kind: 'builtin', docCount: 6 })).toBe('Sherlock Holmes');
-    expect(corpusName({ kind: 'user', docCount: 2 })).toBe('Imported corpus');
+    expect(corpusName({ kind: 'builtin', id: 'builtin/sherlock', docCount: 6 })).toBe('Sherlock Holmes');
+    expect(corpusName({ kind: 'builtin', id: 'builtin/asoif', docCount: 5 })).toBe('A Song of Ice and Fire');
+    expect(corpusName({ kind: 'builtin', id: 'builtin/lotr', docCount: 3 })).toBe('The Lord of the Rings');
+    expect(corpusName({ kind: 'user', id: 'user/default', docCount: 2 })).toBe('Imported corpus');
     expect(corpusName(null)).toBe('Preparing corpus');
   });
 });

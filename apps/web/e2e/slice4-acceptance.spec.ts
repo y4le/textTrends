@@ -128,9 +128,9 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await read.click();
   await awaitOps(page, mark, ['reader-page']);
-  await expect(page.getByRole('dialog', { name: /Reader: alpha/ })).toBeVisible();
+  await expect(page.getByRole('main', { name: /Reader: alpha/ })).toBeVisible();
   await page.goBack();
-  await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
   await expect(read).toBeFocused();
   await occurrences.getByRole('button', { name: 'dismiss' }).click();
   await expect(occurrences).toHaveCount(0);

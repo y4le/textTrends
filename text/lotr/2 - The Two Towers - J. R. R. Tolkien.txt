@@ -1,9 +1,7 @@
 Book III
 
 
-Chapter 1
-
-The Departure of Boromir
+Chapter 1. The Departure of Boromir
 
 Aragorn sped on up the hill. Every now and again he bent to the ground. Hobbits go light, and their footprints are not easy even for a Ranger to read, but not far from the top a spring crossed the path, and in the wet earth he saw what he was seeking.
 'I read the signs aright,' he said to himself. 'Frodo ran to the hill-top. I wonder what he saw there? But he returned by the same way, and went down the hill again.'
@@ -102,9 +100,7 @@ They drew up the last boat and carried it to the trees. They laid beneath it suc
 'Yes,' said Aragorn, 'we shall all need the endurance of Dwarves. But come! With hope or without hope we will follow the trail of our enemies. And woe to them, if we prove the swifter! We will make such a chase as shall be accounted a marvel among the Three Kindreds µ Elves. Dwarves, and Men. Forth the Three Hunters!'
 Like a deer he sprang away. Through the trees he sped. On and on he led them, tireless and swift, now that his mind was at last made up. The woods about the lake they left behind. Long slopes they climbed, dark, hard-edged against the sky already red with sunset. Dusk came. They passed away, grey shadows in a stony land.
 
-Chapter 2
-
-The Riders of Rohan
+Chapter 2. The Riders of Rohan
 
 Dusk deepened. Mist lay behind them among the trees below, and brooded on the pale margins of the Anduin, but the sky was clear. Stars came out. The waxing moon was riding in the West, and the shadows of the rocks were black. They had come to the feet of stony hills, and their pace was slower, for the trail was no longer easy to follow. Here the highlands of the Emyn Muil ran from North to South in two long tumbled ridges. The western side of each ridge was steep and difficult, but the eastward slopes were gentler, furrowed with many gullies and narrow ravines. All night the three companions scrambled in this bony land, climbing to the crest of the first and tallest ridge, and down again into the darkness of a deep winding valley on the other side.
 There in the still cool hour before dawn they rested for a brief space. The moon had long gone down before them, the stars glittered above them; the first light of day had not yet come over the dark hills behind. For the moment Aragorn was at a loss: the orc-trail had descended into the valley, but there it had vanished.
@@ -337,9 +333,7 @@ The horses were gone. They had dragged their pickets and disappeared. For me tim
 'I mark them,' said Aragorn. 'But I marked also that this old man had a hat not a hood. Still I do not doubt that you guess right, and that we are in peril here, by night or day. Yet in the meantime there is nothing that we can do but rest, while we may. I will watch for a while now, Gimli. I have more need of thought than of sleep.'
 The night passed slowly. Legolas followed Aragorn, and Gimli followed Legolas, and their watches wore away. But nothing happened. The old man did not appear again, and the horses did not return.
 
-Chapter 3
-
-The Uruk-Hai
+Chapter 3. The Uruk-Hai
 
 Pippin lay in a dark and troubled dream: it seemed that he could hear his own small voice echoing in black tunnels, calling Frodo, Frodo! But instead of Frodo hundreds of hideous orc-faces grinned at him out of the shadows, hundreds of hideous arms grasped at him from every side. Where was Merry?
 He woke. Cold air blew on his face. He was lying on his back. Evening was coming and the sky above was growing dim. He turned and found that the dream was little worse than the waking. His wrists, legs, and ankles were tied with cords. Beside him Merry lay, white-faced, with a dirty rag bound across his brows. All about them sat or stood a great company of Orcs.
@@ -489,8 +483,8 @@ Merry and Pippin heard, clear in the cold air, the neighing of war-horses, and t
 So it was that they did not sec the last stand, when Uglúk was overtaken and brought to bay at the very edge of Fangorn. There he was slain at last by Éomer, the Third Marshal of the Mark, who dismounted and fought him sword to sword. And over the wide fields the keen-eyed Riders hunted down the few Orcs that had escaped and still had strength to fly.
 Then when they had laid their fallen comrades in a mound and had sung their praises, the Riders made a great fire and scattered the ashes of their enemies. So ended the raid, and no news of it came ever back either to Mordor or to Isengard; but the smoke of the burning rose high to heaven and was seen by many watchful eyes.
 
-Chapter 4
-Treebeard
+Chapter 4. Treebeard
+
 Meanwhile the hobbits went with as much speed as the dark and tangled forest allowed, following the line of the running stream, westward and up towards the slopes of the mountains, deeper and deeper into Fangorn. Slowly their fear of the Orcs died away, and their pace slackened. A queer stifling feeling came over them, as if the air were too thin or too scanty for breathing.
 At last Merry halted. 'We can't go on like this,' he panted. 'I want some air.'
 'Let's have a drink at any rate,' said Pippin. 'I'm parched.' He clambered on to a great tree-root that wound down into the stream, and stooping drew up some water in his cupped hands. It was clear and cold, and he took many draughts. Merry followed him. The water refreshed them and seemed to cheer their hearts; for a while they sat together on the brink of the stream, dabbling their sore feet and legs, and peering round at the trees that stood silently about them, rank upon rank, until they faded away into grey twilight in every direction.
@@ -722,9 +716,7 @@ The Ents went striding on at a great pace. They had descended into a long fold o
 Pippin looked behind. The number of the Ents had grown - or what was happening? Where the dim bare slopes that they had crossed should lie, he thought he saw groves of trees. But they were moving! Could it be that the trees of Fangorn were awake, and the forest was rising, marching over the hills to war? He rubbed his eyes wondering if sleep and shadow had deceived him; but the great grey shapes moved steadily onward. There was a noise like wind in many branches. The Ents were drawing near the crest of the ridge now, and all song had ceased. Night fell, and there was silence: nothing was to be heard save a faint quiver of the earth beneath the feet of the Ents, and a rustle, the shade of a whisper as of many drifting leaves. At last they stood upon the summit, and looked down into a dark pit: the great cleft at the end of the mountains: Nan Curunír, the Valley of Saruman.
 'Night lies over Isengard,' said Treebeard.
 
-Chapter 5
-
-The White Rider
+Chapter 5. The White Rider
 
 'My very bones are chilled,' said Gimli, flapping his arms and stamping his feet. Day had come at last. At dawn the companions had made such breakfast as they could; now in the growing light they were getting ready to search the ground again for signs of the hobbits.
 'And do not forget that old man!' said Gimli. 'I should be happier if I could see the print of a boot.'
@@ -908,9 +900,7 @@ For many hours they rode on through the meads and riverlands. Often the grass wa
 'I see a great smoke,' said Legolas. 'What may that be?'
 'Battle and war!' said Gandalf. 'Ride on!'
 
-Chapter 6
-
-The King of the Golden Hall
+Chapter 6. The King of the Golden Hall
 
 They rode on through sunset, and slow dusk, and gathering night. When at last they halted and dismounted, even Aragorn was stiff and weary. Gandalf only allowed them a few hours' rest. Legolas and Gimli slept and Aragorn lay flat, stretched upon his back; but Gandalf stood, leaning on his staff, gazing into the darkness, east and west. All was silent, and there was no sign or sound of living thing. The night was barred with long clouds, fleeting on a chill wind, when they arose again. Under the cold moon they went on once more, as swift as by the light of day.
 Hours passed and still they rode on. Gimli nodded and would have fallen from his seat, if Gandalf had not clutched and shaken him. Hasufel and Arod, weary but proud, followed their tireless leader, a grey shadow before them hardly to he seen. The miles went by. The waxing moon sank into the cloudy West.
@@ -1102,9 +1092,7 @@ Gandalf whistled and called aloud the horse's name, and far away he tossed his h
 'Our King and the White Rider!' they shouted. 'Forth Eorlingas!'
 The trumpets sounded. The horses reared and neighed. Spear clashed on shield. Then the king raised his hand, and with a rush like the sudden onset of a great wind the last host of Rohan rode thundering into the West. Far over the plain Éowyn saw the glitter of their spears, as she stood still, alone before the doors of the silent house.
 
-Chapter 7
-
-Helm's Deep
+Chapter 7. Helm's Deep
 
 The sun was already westering as they rode from Edoras, and the light of it was in their eyes, turning all the rolling fields of Rohan to a golden haze. There was a beaten way, north-westward along the foot-hills of the White Mountains, and this they followed, up and down in a green country, crossing small swift streams by many fords. Far ahead and to their right the Misty Mountains loomed; ever darker and taller they grew as the miles went by. The sun went slowly down before them. Evening came behind.
 The host rode on. Need drove them. Fearing to come too late, they rode with all the speed they could, pausing seldom. Swift and enduring were the steeds of Rohan, but there were many leagues to go. Forty leagues and more it was, as a bird flies, from Edoras to the fords of the Isen, where they hoped to find the king's men that held back the hosts of Saruman.
@@ -1267,9 +1255,7 @@ There suddenly upon a ridge appeared a rider, clad in white, shining in the risi
 'Mithrandir, Mithrandir!' said Legolas. 'This is wizardry indeed! Come! I would look on this forest, ere the spell changes.'
 The hosts of Isengard roared, swaying this way and that, turning from fear to fear. Again the horn sounded from the tower. Down through the breach of the Dike charged the king's company. Down from the hills leaped Erkenbrand, lord of Westfold. Down leaped Shadowfax, like a deer that runs surefooted in the mountains. The White Rider was upon them, and the terror of his coming filled the enemy with madness. The wild men fell on their faces before him. The Orcs reeled and screamed and cast aside both sword and spear. Like a black smoke driven by a mounting wind they fled. Wailing they passed under the waiting shadow of the trees; and from that shadow none ever came again.
 
-Chapter 8
-
-The Road to Isengard
+Chapter 8. The Road to Isengard
 
 So it was that in the light of a fair morning King Théoden and Gandalf the White Rider met again upon the green grass beside the Deeping-stream. There was also Aragorn son of Arathorn, and Legolas the Elf, and Erkenbrand of Westfold, and the lords of the Golden House. About them were gathered the Rohirrim, the Riders of the Mark: wonder overcame their joy in victory, and their eyes were turned towards the wood.
 Suddenly there was a great shout, and down from the Dike came those who had been driven back into the Deep. There came Gamling the Old, and Éomer son of Éomund, and beside them walked Gimli the dwarf. He had no helm, and about his head was a linen band stained with blood; but his voice was loud and strong.
@@ -1412,9 +1398,7 @@ Gandalf laughed. 'That is better!' he said. 'Well, Théoden. will you ride with 
 'I will come with you,' said Théoden. 'Farewell, my hobbits! May we meet again in my house! There you shall sit beside me and tell me all that your hearts desire: the deeds of your grandsires, as far as you can reckon them; and we will speak also of Tobold the Old and his herb-lore. Farewell!'
 The hobbits bowed low. 'So that is the King of Rohan!' said Pippin in an undertone. 'A fine old fellow. Very polite.'
 
-Chapter 9
-
-Flotsam and Jetsam
+Chapter 9. Flotsam and Jetsam
 
 Gandalf and the King's company rode away, turning eastward to make the circuit of the ruined walls of Isengard. But Aragorn, Gimli, and Legolas remained behind. Leaving Arod and Hasufel to stray in search of grass, they came and sat beside the hobbits.
 'Well, well! The hunt is over, and we meet again at last, where none of us ever thought to come,' said Aragorn.
@@ -1541,9 +1525,7 @@ They all fell silent for a while. Gimli re-filled his pipe. 'There is one thing 
 'Ah well, whatever evil was afoot is over now, I hope; or else it is beyond our reach at present,' said Aragorn. 'Yet I think I shall mention it to Gandalf, small matter though it may seem among his great affairs.'
 'I wonder what he is doing,' said Merry. 'The afternoon is getting on. Let us go and look round! You can enter Isengard now at any rate, Strider, if you want to. But it is not a very cheerful sight.'
 
-Chapter 10
-
-The Voice of Saruman
+Chapter 10. The Voice of Saruman
 
 They passed through the ruined tunnel and stood upon a heap of stones, gazing at the dark rock of Orthanc, and its many windows, a menace still in the desolation that lay all about it. The waters had now nearly all subsided. Here and there gloomy pools remained, covered with scum and wreckage; but most of the wide circle was bare again, a wilderness of slime and tumbled rock, pitted with blackened holes, and dotted with posts and pillars leaning drunkenly this way and that. At the rim of the shattered bowl there lay vast mounds and slopes, like the shingles cast up by a great storm; and beyond them the green and tangled valley ran up into the long ravine between the dark arms of the mountains. Across the waste they saw riders picking their way; they were coming from the north side, and already they were drawing near to Orthanc.
 'There is Gandalf, and Théoden and his men!' said Legolas. 'Let us go and meet them!'
@@ -1638,8 +1620,8 @@ they shall remain friends as long as leaves are renewed. Fare you well! But if y
 'Indeed no! Ents will see to that,' said Treebeard. 'Saruman shall not set foot beyond the rock, without my leave. Ents will watch over him.'
 'Good!' said Gandalf. 'That is what I hoped. Now I can go and turn to other matters with one care the less. But you must be wary. The waters have gone down. It will not be enough to put sentinels round the tower, I fear. I do not doubt that there were deep ways delved under Orthanc, and that Saruman hopes to go and come unmarked, before long. If you will undertake the labour, I beg you to pour in the waters again; and do so, until Isengard remains a standing pool, or you discover the outlets. When all the underground places are drowned, and the outlets blocked, then Saruman must stay upstairs and look out of the windows.'
 'Leave it to the Ents!' said Treebeard. 'We shall search the valley from head to foot and peer under every pebble. Trees are coming back to live here, old trees, wild trees. The Watchwood we will call it. Not a squirrel will go here, but I shall know of it. Leave it to Ents! Until seven times the years in which he tormented us have passed, we shall not tire of watching him.'
-Chapter 11
-The Palantír
+Chapter 11. The Palantír
+
 The sun was sinking behind the long western arm of the mountains when Gandalf and his companions, and the king with his Riders, set out again from Isengard. Gandalf took Merry behind him, and Aragorn took Pippin. Two of the king's men went on ahead, riding swiftly, and passed soon out of sight down into the valley. The others followed at an easy pace.
 Ents in a solemn row stood like statues at the gate, with their long arms uplifted, but they made no sound. Merry and Pippin looked back, when they had passed some way down the winding road. Sunlight was still shining in the sky, but long shadows reached over Isengard: grey ruins falling into darkness. Treebeard stood alone there now, like the distant stump of an old tree: the hobbits thought of their first meeting, upon the sunny ledge far away on the borders of Fangorn.
 They came to the pillar of the White Hand. The pillar was still standing, but the graven hand had been thrown down and broken into small pieces. Right in the middle of the road the long forefinger lay, white in the dusk, its red nail darkening to black.
@@ -1774,9 +1756,7 @@ As he fell slowly into sleep, Pippin had a strange feeling: he and Gandalf were 
 Book IV
 
 
-Chapter 1
-
-The Taming of Sméagol
+Chapter 1. The Taming of Sméagol
 
 'Well, master, we're in a fix and no mistake,' said Sam Gamgee. He stood despondently with hunched shoulders beside Frodo, and peered out with puckered eyes into the gloom.
 It was the third evening since they had fled from the Company, as far as they could tell: they had almost lost count of the hours during which they had climbed and laboured among the barren slopes and stones of the Emyn Muil, sometimes retracing their steps because they could find no way forward, sometimes discovering that they had wandered in a circle back to where they had been hours before. Yet on the whole they had worked steadily eastward, keeping as near as they could find a way to the outer edge of this strange twisted knot of hills. But always they found its outward faces sheer, high and impassable, frowning over the plain below; beyond its tumbled skirts lay livid festering marshes where nothing moved and not even a bird was to be seen.
@@ -1952,9 +1932,7 @@ He took a few steps away and looked back inquiringly, like a dog inviting them f
 'No, no! ' said Gollum. 'Sméagol promised.'
 In the deep of night under hard clear stars they set off. Gollum led them back northward for a while along the way they had come; then he slanted to the right away from the steep edge of the Emyn Muil, down the broken stony slopes towards the vast fens below. They faded swiftly and softly into the darkness. Over all the leagues of waste before the gates of Mordor there was a black silence.
 
-Chapter 2
-
-The Passage of the Marshes
+Chapter 2. The Passage of the Marshes
 
 Gollum moved quickly, with his head and neck thrust forward, often using his hands as well as his feet. Frodo and Sam were hard put to it to keep up with him; but he seemed no longer to have any thought of escaping, and if they fell behind, he would turn and wait for them. After a time he brought them to the brink of the narrow gully that they had struck before; but they were now further from the hills.
 `Here it is!' he cried. 'There is a way down inside, yes. Now we follows it - out, out away over there.' He pointed south and east towards the marshes. The reek of them came to their nostrils, heavy and foul even in the cool night air. .
@@ -2106,9 +2084,7 @@ About an hour after midnight the fear fell on them a third time, but it now seem
 Pleading and kind words were no longer of any avail. It was not until Frodo commanded him angrily and laid a hand on his sword-hilt that Gollum would get up again. Then at last he rose with a snarl, and went before them like a beaten dog.
 So they stumbled on through the weary end of the night, and until the coming of another day of fear they walked in silence with bowed heads, seeing nothing, and hearing nothing but the wind hissing in their ears.
 
-Chapter 3
-
-The Black Gate is Closed
+Chapter 3. The Black Gate is Closed
 
 Before the next day dawned their journey to Mordor was over. The marshes and the desert were behind them. Before them, darkling against a pallid sky, the great mountains reared their threatening heads.
 Upon the west of Mordor marched the gloomy range of Ephel Dúath, the Mountains of Shadow, and upon the north the broken peaks and barren ridges of Ered Lithui, grey as ash. But as these ranges approached one another, being indeed but parts of one great wall about the mournful plains of Lithlad and of Gorgoroth, and the bitter inland sea of Núrnen amidmost, they swung out long arms northward; and between these arms there was a deep defile. This was Cirith Gorgor, the Haunted Pass, the entrance to the land of the Enemy. High cliffs lowered upon either side, and thrust forward from its mouth were two sheer hills, black-boned and bare. Upon them stood the Teeth of Mordor, two towers strong and tall. In days long past they were built by the Men of Gondor in their pride and power, after the overthrow of Sauron and his flight, lest he should seek to return to his old realm. But the strength of Gondor failed, and men slept, and for long years the towers stood empty. Then Sauron returned. Now the watch-towers, which had fallen into decay, were repaired, and filled with arms, and garrisoned with ceaseless vigilance. Stony-faced they were, with dark window-holes staring north and east and west, and each window was full of sleepless eyes.
@@ -2208,9 +2184,7 @@ And I never lie.
 Frodo stood up. He had laughed in the midst of all his cares when Sam trotted out the old fireside rhyme of Oliphaunt, and the laugh had released him from hesitation. `I wish we had a thousand oliphaunts with Gandalf on a white one at their head,' he said. `Then we'd break a way into this evil land, perhaps. But we've not; just our own tired legs, that's all. Well, Sméagol, the third turn may turn the best. I will come with you.'
 'Good master, wise master, nice master!' cried Gollum in delight, patting Frodo's knees. `Good master! Then rest now, nice hobbits, under the shadow of the stones, close under the stones! Rest and lie quiet, till the Yellow Face goes away. Then we can go quickly. Soft and quick as shadows we must be!'
 
-Chapter 4
-
-Of Herbs and Stewed Rabbit
+Chapter 4. Of Herbs and Stewed Rabbit
 
 For the few hours of daylight that were left they rested, shifting into the shade as the sun moved, until at last the shadow of the western rim of their dell grew long, and darkness filled all the hollow. Then they ate a little, and drank sparingly. Gollum ate nothing, but he accepted water gladly.
 `Soon get more now,' he said, licking his lips. `Good water runs down in streams to the Great River, nice water in the lands we are going to. Sméagol will get food there too, perhaps. He's very hungry, yes, gollum!' He set his two large flat hands on his shrunken belly, and a pale green light came into his eyes.
@@ -2323,9 +2297,7 @@ Sam drew a deep breath. 'An Oliphaunt it was!' he said. `So there are Oliphaunts
 `Go quietly when you must!' said Sam. `No need to disturb my sleep. I was walking all night.'
 Mablung laughed. `I do not think the Captain will leave you here, Master Samwise,' he said. 'But you shall see.'
 
-Chapter 5
-
-The Window on the West
+Chapter 5. The Window on the West
 
 It seemed to Sam that he had only dozed for a few minutes when he awoke to find that it was late afternoon and Faramir had come back. He had brought many men with him; indeed all the survivors of the foray were now gathered on the slope nearby, two or three hundred strong. They sat in a wide semicircle, between the arms of which Faramir was seated on the ground, while Frodo stood before him. It looked strangely like the trial of a prisoner.
 Sam crept out from the fern, but no one paid any attention to him, and he placed himself at the end of the rows of men, where he could see and hear all that was going on. He watched and listened intently, ready to dash to his master's aid if needed. He could see Faramir's face, which was now unmasked: it was stern and commanding, and a keen wit lay behind his searching glance. Doubt was in the grey eyes that gazed steadily at Frodo.
@@ -2480,9 +2452,7 @@ Faramir smiled. 'A pert servant, Master Samwise. But nay: the praise of the prai
 `Ah well, sir,' said Sam, `you said my master had an elvish air and that was good and true. But I can say this: you have an air too, sir, that reminds me of, of - well, Gandalf, of wizards.
 'Maybe,' said Faramir. `Maybe you discern from far away the air of Númenor. Good night!'
 
-Chapter 6
-
-The Forbidden Pool
+Chapter 6. The Forbidden Pool
 
 Frodo woke to find Faramir bending over him. For a second old fears seized him and he sat up and shrank away.
 `There is nothing to fear,' said Faramir.
@@ -2597,9 +2567,7 @@ Anborn went out and Gollum went cringing before him. The curtain was drawn acros
 'I would gladly learn how this creeping Sméagol became possessed of the Thing of which we speak, and how he lost it, but I will not trouble you now. If ever beyond hope you return to the lands of the living and we retell our tales, sitting by a wall in the sun, laughing at old grief, you shall tell me then. Until that time, or some other time beyond the vision of the Seeing-stones of Númenor, farewell! '
 He rose and bowed low to Frodo, and drawing the curtain passed out into the cave.
 
-Chapter 7
-
-Journey to the Cross-roads
+Chapter 7. Journey to the Cross-roads
 
 Frodo and Sam returned to their beds and lay there in silence resting for a little, while men bestirred themselves and the business of the day began. After a while water was brought to them, and then they were led to a table where food was set for three. Faramir broke his fast with them. He had not slept since the battle on the day before, yet he did not look weary.
 When they had finished they stood up. `May no hunger trouble you on the road,' said Faramir. `You have little provision, but some small store of food fit for travellers I have ordered to be stowed in your packs. You will have no lack of water as you walk in Ithilien, but do not drink of any stream that flows from Imlad Morgul, the Valley of Living Death. This also I must tell you. My scouts and watchers have all returned, even some that have crept within sight of the Morannon. They all find a strange thing. The land is empty. Nothing is on the road, and no sound of foot, or horn, or bowstring is anywhere to be heard. A waiting silence broods above the Nameless Land. I do not know what this portends. But the time draws swiftly to some great conclusion. Storm is coming. Hasten while you may! If you are ready, let us go. The Sun will soon rise above the shadow.'
@@ -2674,9 +2642,7 @@ Suddenly, caught by the level beams, Frodo saw the old king's head: it was lying
 The eyes were hollow and the carven beard was broken, but about the high stern forehead there was a coronal of silver and gold. A trailing plant with flowers like small white stars had bound itself across the brows as if in reverence for the fallen king, and in the crevices of his stony hair yellow stonecrop gleamed.
 'They cannot conquer for ever!' said Frodo. And then suddenly the brief glimpse was gone. The Sun dipped and vanished, and as if at the shuttering of a lamp, black night fell.
 
-Chapter 8
-
-The Stairs of Cirith Ungol
+Chapter 8. The Stairs of Cirith Ungol
 
 Gollum was tugging at Frodo's cloak and hissing with fear and impatience. `We must go,' he said. `We mustn't stand here. Make haste!'
 Reluctantly Frodo turned his back on the West and followed as his guide led him, out into the darkness of the East. They left the ring of trees and crept along the road towards the mountains. This road, too, ran straight for a while, but soon it began to bend away southwards, until it came right under the great shoulder of rock that they had seen from the distance. Black and forbidding it loomed above them, darker than the dark sky behind. Crawling under its shadow the road went on, and rounding it sprang east again and began to climb steeply.
@@ -2783,9 +2749,7 @@ Frodo looked at Sam. 'Yes sir,' he said. `I did use the word, waking up out of m
 'Come, let it pass then,' said Frodo. 'But now we seem to have come to the point, you and I, Sméagol. Tell me. Can we find the rest of the way by ourselves? We're in sight of the pass, of a way in, and if we can find it now, then I suppose our agreement can be said to be over. You have done what you promised, and you're free: free to go back to food and rest, wherever you wish to go, except to servants of the Enemy. And one day I may reward you, I or those that remember me.'
 `No, no, not yet,' Gollum whined. `O no! They can't find the way themselves, can they? O no indeed. There's the tunnel coming. Sméagol must go on. No rest. No food. Not yet.'
 
-Chapter 9
-
-Shelob's Lair
+Chapter 9. Shelob's Lair
 
 It may indeed have been daytime now, as Gollum said, but the hobbits could see little difference, unless, perhaps, the heavy sky above was less utterly black, more like a great roof of smoke; while instead of the darkness of deep night, which lingered still in cracks and holes, a grey blurring shadow shrouded the stony world about them. They passed on, Gollum in front and the hobbits now side by side, up the long ravine between the piers and columns of torn and weathered rock, standing like huge unshapen statues on either hand. There was no sound. Some way ahead, a mile or so, perhaps, was a great grey wall, a last huge upthrusting mass of mountain-stone. Darker it loomed, and steadily it rose as they approached, until it towered up high above them, shutting out the view of all that lay beyond. Deep shadow lay before its feet. Sam sniffed the air.
 `Ugh! That smell!' he said. `It's getting stronger and stronger.'
@@ -2859,9 +2823,7 @@ Not expecting even this simple trick from Sam, Gollum fell over with Sam on top,
 With a squeal Gollum let go. Then Sam waded in; not waiting to change the staff from left to right he dealt another savage blow. Quick as a snake Gollum slithered aside. and the stroke aimed at his head fell across his back. The staff cracked and broke. That was enough for him. Grabbing from behind was an old game of his, and seldom had he failed in it. But this time, misled by spite, he had made the mistake of speaking and gloating before he had both hands on his victim's neck. Everything had gone wrong with his beautiful plan, since that horrible light had so unexpectedly appeared in the darkness. And now he was face to face with a furious enemy, little less than his own size. This fight was not for him. Sam swept up his sword from the ground and raised it. Gollum squealed, and springing aside on to all fours, he jumped away in one big bound like a frog. Before Sam could reach him, he was off, running with amazing speed back towards the tunnel.
 Sword in hand Sam went after him. For the moment he had forgotten everything else but the red fury in his brain and the desire to kill Gollum. But before he could overtake him, Gollum was gone. Then as the dark hole stood before him and the stench came out to meet him, like a clap of thunder the thought of Frodo and the monster smote upon Sam's mind. He spun round, and rushed wildly up the path, calling and calling his master's name. He was too late. So far Gollum's plot had succeeded.
 
-Chapter 10
-
-The Choices of Master Samwise
+Chapter 10. The Choices of Master Samwise
 
 Frodo was lying face upward on the ground and the monster was bending over him, so intent upon her victim that she took no heed of Sam and his cries, until he was close at hand. As he rushed up he saw that Frodo was already bound in cords, wound about him from ankle to shoulder, and the monster with her great forelegs was beginning half to lift, half to drag his body away.
 On the near side of him lay, gleaming on the ground, his elven-blade, where it had fallen useless from his grasp. Sam did not wait to wonder what was to be done, or whether he was brave, or loyal, or filled with rage. He sprang forward with a yell, and seized his master's sword in his left hand. Then he charged. No onslaught more fierce was ever seen in the savage world of beasts; where some desperate small creature armed with little teeth alone, will spring upon a tower of horn and hide that stands above its fallen mate.

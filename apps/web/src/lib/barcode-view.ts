@@ -43,8 +43,14 @@ export interface BarcodeTrackVM {
   readonly groupId: string;
   readonly representation: 'exact' | 'density';
   readonly total: number;
-  readonly segments: readonly (BarcodeTickVM | BarcodeCellVM)[];
+  /** Reading order under which this track was projected. */
+  readonly docOrder: readonly string[];
+  readonly segments: readonly BarcodeSegmentVM[];
+  /** The same segments bucketed once for by-book painting and stepping. */
+  readonly segmentsByDocOrdinal: readonly (readonly BarcodeSegmentVM[])[];
 }
+
+export type BarcodeSegmentVM = BarcodeTickVM | BarcodeCellVM;
 
 /** Project one dispersion result into per-track token-space segments.
  *  `docsInOrder` is the SELECTION order the result was computed under (the
@@ -58,16 +64,27 @@ export function barcodeTracks(
     if (track.data.kind === 'exact') {
       const { docOffsets, starts, spanTokens } = track.data;
       const segments: BarcodeTickVM[] = [];
+      const segmentsByDocOrdinal: BarcodeTickVM[][] = docsInOrder.map(() => []);
       for (let d = 0; d < docsInOrder.length; d++) {
         const doc = docsInOrder[d]!;
         const from = docOffsets[d] ?? 0;
         const to = docOffsets[d + 1] ?? from;
         for (let i = from; i < to; i++) {
           const t0 = starts[i] as number;
-          segments.push({ kind: 'tick', doc, t0, t1: t0 + Math.max(1, spanTokens[i] as number), ordinal: i });
+          const segment = { kind: 'tick' as const, doc, t0, t1: t0 + Math.max(1, spanTokens[i] as number), ordinal: i };
+          segments.push(segment);
+          segmentsByDocOrdinal[d]!.push(segment);
         }
       }
-      return { seriesId: track.seriesId, groupId: track.groupId, representation: 'exact' as const, total: track.total, segments };
+      return {
+        seriesId: track.seriesId,
+        groupId: track.groupId,
+        representation: 'exact' as const,
+        total: track.total,
+        docOrder: [...docsInOrder],
+        segments,
+        segmentsByDocOrdinal,
+      };
     }
     const geometry = result.geometry;
     if (!geometry) throw new Error('density track without geometry — the wire contract forbids this');
@@ -75,6 +92,7 @@ export function barcodeTracks(
     let max = 0;
     for (let i = 0; i < counts.length; i++) if ((counts[i] as number) > max) max = counts[i] as number;
     const segments: BarcodeCellVM[] = [];
+    const segmentsByDocOrdinal: BarcodeCellVM[][] = geometry.order.map(() => []);
     for (let d = 0; d < geometry.order.length; d++) {
       const doc = geometry.order[d]!;
       const from = geometry.bucketOffsets[d] as number;
@@ -85,35 +103,30 @@ export function barcodeTracks(
         if (count === 0) continue; // an empty bucket paints nothing
         const t0 = geometry.bucketStartToken[b] as number;
         const t1 = b + 1 < to ? (geometry.bucketStartToken[b + 1] as number) : extent;
-        segments.push({
+        const segment = {
           kind: 'cell', doc, t0, t1, count,
           intensity: max === 0 ? 0 : count / max,
           midToken: t0 + ((t1 - t0) >> 1),
-        });
+        } as const;
+        segments.push(segment);
+        segmentsByDocOrdinal[d]!.push(segment);
       }
     }
-    return { seriesId: track.seriesId, groupId: track.groupId, representation: 'density' as const, total: track.total, segments };
+    return {
+      seriesId: track.seriesId,
+      groupId: track.groupId,
+      representation: 'density' as const,
+      total: track.total,
+      docOrder: [...geometry.order],
+      segments,
+      segmentsByDocOrdinal,
+    };
   });
 }
 
-/** The exact occurrence (if any) covering a clicked token. TIE RULE: among
- *  covering spans the GREATEST start wins — under countOverlaps an earlier
- *  phrase span can cover a later tick's token, and the later (more specific,
- *  painted-on-top) occurrence is the one the user aimed at. Returns null when
- *  nothing covers (caller falls back to nearest-tick semantics). */
-export function tickAtToken(track: BarcodeTrackVM, doc: string, token: number): BarcodeTickVM | null {
-  if (track.representation !== 'exact') return null;
-  let best: BarcodeTickVM | null = null;
-  for (const seg of track.segments) {
-    if (seg.kind !== 'tick' || seg.doc !== doc) continue;
-    if (seg.t0 <= token && token < seg.t1 && (best === null || seg.t0 > best.t0)) best = seg;
-  }
-  return best;
-}
-
-/** The evidence a barcode activation at (doc, token) targets — the ONE
- *  authoritative resolver for canvas clicks and keyboard actions (review-D:
- *  the component must never re-derive this from pixels).
+/** The evidence a token-space barcode activation targets. Exact fine-pointer
+ *  clicks first use the bounded snap index above; this resolver remains
+ *  authoritative for density cells and token-addressed consumers.
  *  - exact: the covering tick (tie rule above), else the NEAREST tick in the
  *    doc by start distance (earlier wins a tie) — clicking dead space centers
  *    the closest occurrence;
@@ -128,61 +141,221 @@ export interface BarcodeActivation {
   readonly bucketCount?: number;
 }
 
-export function resolveBarcodeActivation(
+/** Width-independent index used by the graph's hover pipeline. It is built
+ * only for exact tracks: density cells are aggregates and must never
+ * masquerade as a snap target. Pixel projection happens during lookup, so a
+ * resize never rebuilds every occurrence entry. */
+export interface BarcodeSnapEntry {
+  readonly activation: BarcodeActivation;
+  readonly t0: number;
+  readonly t1: number;
+}
+
+export interface BarcodeSnapIndex {
+  readonly docOrdinal: number;
+  readonly entries: readonly BarcodeSnapEntry[];
+  /** Greatest token end through each entry, used to reject earlier spans
+   * after projecting one prefix extent through the current scale. */
+  readonly prefixMaxEndToken: readonly number[];
+}
+
+function finalizeBarcodeSnapEntries(
+  docOrdinal: number,
+  entries: BarcodeSnapEntry[],
+): BarcodeSnapIndex {
+  entries.sort((a, b) => a.t0 - b.t0);
+  const prefixMaxEndToken: number[] = [];
+  let maxEndToken = -Infinity;
+  for (const entry of entries) {
+    maxEndToken = Math.max(maxEndToken, entry.t1);
+    prefixMaxEndToken.push(maxEndToken);
+  }
+  return { docOrdinal, entries, prefixMaxEndToken };
+}
+
+/** Build every document lane in one token-space pass over a track. The track
+ * carries its projection order, so a caller cannot silently supply a
+ * different document order. */
+export function buildBarcodeSnapIndexes(
+  track: BarcodeTrackVM,
+): readonly (BarcodeSnapIndex | null)[] {
+  if (track.representation !== 'exact') return track.docOrder.map(() => null);
+  const entriesByDoc: BarcodeSnapEntry[][] = track.docOrder.map(() => []);
+  for (let d = 0; d < track.segmentsByDocOrdinal.length; d++) {
+    for (const segment of track.segmentsByDocOrdinal[d] ?? []) {
+      if (segment.kind !== 'tick') continue;
+      entriesByDoc[d]!.push({
+        activation: { kind: 'occurrence', doc: segment.doc, token: segment.t0 },
+        t0: segment.t0,
+        t1: segment.t1,
+      });
+    }
+  }
+  return entriesByDoc.map((entries, d) => finalizeBarcodeSnapEntries(d, entries));
+}
+
+/** Snap to the closest painted exact interval when it lies within
+ * `maxDistance` horizontal pixels. Covering overlaps choose the greatest
+ * token start (the same painted-on-top rule as click activation); equal
+ * non-covering distances choose the earlier occurrence. */
+export function snapBarcodeIndex(
+  index: BarcodeSnapIndex | null,
+  px: number,
+  xAtEdge: (docOrdinal: number, token: number) => number,
+  maxDistance = 8,
+): BarcodeActivation | null {
+  if (!index || index.entries.length === 0) return null;
+  const { docOrdinal, entries, prefixMaxEndToken } = index;
+  let lo = 0;
+  let hi = entries.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (xAtEdge(docOrdinal, entries[mid]!.t0) <= px + maxDistance) lo = mid + 1;
+    else hi = mid;
+  }
+
+  let best: BarcodeSnapEntry | null = null;
+  let bestDistance = Infinity;
+  for (let i = lo - 1; i >= 0; i--) {
+    const entry = entries[i]!;
+    // The painted interval is [x0, max(x0 + 1, edge(t1))]. Because entries
+    // are sorted by t0 and the scale is monotone, the prefix's greatest
+    // possible right edge is exactly max(edge(max t1), current x0 + 1).
+    const x0 = xAtEdge(docOrdinal, entry.t0);
+    const prefixRight = Math.max(
+      xAtEdge(docOrdinal, prefixMaxEndToken[i] ?? entry.t1),
+      x0 + 1,
+    );
+    if (prefixRight < px - maxDistance) break;
+    const x1 = Math.max(x0 + 1, xAtEdge(docOrdinal, entry.t1));
+    const distance = px < x0
+      ? x0 - px
+      : px > x1
+        ? px - x1
+        : 0;
+    if (distance > maxDistance) continue;
+    if (
+      distance < bestDistance
+      || (
+        distance === bestDistance
+        && best !== null
+        && (distance === 0 ? entry.t0 > best.t0 : entry.t0 < best.t0)
+      )
+    ) {
+      best = entry;
+      bestDistance = distance;
+    }
+  }
+  return best?.activation ?? null;
+}
+
+/** Density-only token activation. Exact pointer activation is owned by the
+ * projected snap index; keeping the addressing spaces separate prevents two
+ * subtly different exact-hit authorities. */
+export function bucketActivationAt(
   track: BarcodeTrackVM,
   doc: string,
   token: number,
 ): BarcodeActivation | null {
-  if (track.representation === 'exact') {
-    const covering = tickAtToken(track, doc, token);
-    if (covering) return { kind: 'occurrence', doc, token: covering.t0 };
-    let best: BarcodeTickVM | null = null;
-    let bestDist = Infinity;
-    for (const seg of track.segments) {
-      if (seg.kind !== 'tick' || seg.doc !== doc) continue;
-      const dist = Math.abs(seg.t0 - token);
-      if (dist < bestDist || (dist === bestDist && best !== null && seg.t0 < best.t0)) { best = seg; bestDist = dist; }
-    }
-    return best ? { kind: 'occurrence', doc: best.doc, token: best.t0 } : null;
-  }
-  for (const seg of track.segments) {
-    if (seg.kind !== 'cell' || seg.doc !== doc) continue;
+  if (track.representation !== 'density') return null;
+  const d = track.docOrder.indexOf(doc);
+  if (d < 0) return null;
+  for (const seg of track.segmentsByDocOrdinal[d] ?? []) {
+    if (seg.kind !== 'cell') continue;
     if (seg.t0 <= token && token < seg.t1) return { kind: 'bucket', doc, token: seg.midToken, bucketCount: seg.count };
   }
   return null;
 }
 
+/** Stable evidence identity captured at pointer-down. The current track list
+ * may be presentation-reordered before pointer-up, so resolution is by
+ * series id rather than the row ordinal that happened to be under the
+ * pointer. */
+export interface CapturedBarcodeTarget {
+  readonly trackId: string;
+  readonly doc: string;
+  readonly rawToken: number;
+  readonly exactActivation: BarcodeActivation | null;
+}
+
+export type CapturedBarcodeResolution =
+  | {
+      readonly kind: 'activation';
+      readonly track: BarcodeTrackVM;
+      readonly activation: BarcodeActivation;
+    }
+  | {
+      readonly kind: 'scrub';
+      readonly doc: string;
+      readonly token: number;
+    };
+
+export function resolveCapturedBarcodeTarget(
+  tracks: readonly BarcodeTrackVM[],
+  captured: CapturedBarcodeTarget,
+): CapturedBarcodeResolution {
+  const track = tracks.find((candidate) => candidate.seriesId === captured.trackId);
+  if (!track) return { kind: 'scrub', doc: captured.doc, token: captured.rawToken };
+  const activation = track.representation === 'exact'
+    ? captured.exactActivation
+    : bucketActivationAt(track, captured.doc, captured.rawToken);
+  return activation
+    ? { kind: 'activation', track, activation }
+    : { kind: 'scrub', doc: captured.doc, token: captured.rawToken };
+}
+
 /** Walk a track's evidence RELATIVE to the current center, in reading order
- *  across `docs`: exact tracks step ticks; density tracks step NONZERO
+ *  across the projection order carried by the track: exact tracks step ticks; density tracks step NONZERO
  *  buckets (kind 'bucket', midpoint targets) — the keyboard path for both
  *  representations (review-D: density must be operable without a pointer). */
+function activationForSegment(segment: BarcodeSegmentVM): BarcodeActivation {
+  return segment.kind === 'tick'
+    ? { kind: 'occurrence', doc: segment.doc, token: segment.t0 }
+    : { kind: 'bucket', doc: segment.doc, token: segment.midToken, bucketCount: segment.count };
+}
+
+function edgeSegment(track: BarcodeTrackVM, direction: 1 | -1): BarcodeSegmentVM | null {
+  for (
+    let d = direction === 1 ? 0 : track.segmentsByDocOrdinal.length - 1;
+    d >= 0 && d < track.segmentsByDocOrdinal.length;
+    d += direction
+  ) {
+    const bucket = track.segmentsByDocOrdinal[d] ?? [];
+    const segment = direction === 1 ? bucket[0] : bucket[bucket.length - 1];
+    if (segment) return segment;
+  }
+  return null;
+}
+
 export function stepTarget(
   track: BarcodeTrackVM,
-  docs: readonly string[],
   center: { readonly doc: string; readonly token: number } | null,
   dir: 1 | -1,
 ): BarcodeActivation | null {
-  const kind = track.representation === 'exact' ? ('occurrence' as const) : ('bucket' as const);
-  const points = track.segments
-    .map((s) => (s.kind === 'tick'
-      ? { doc: s.doc, token: s.t0 }
-      : { doc: s.doc, token: s.midToken, count: s.count }))
-    .sort((a, b) => (docs.indexOf(a.doc) - docs.indexOf(b.doc)) || (a.token - b.token));
-  if (points.length === 0) return null;
-  // No center: enter at the first/last point. With a center: the next/prev
-  // point in reading order, SATURATING at the edge in the step direction
-  // (stepping back past the first stays at the first — never a wraparound).
-  let target = dir === 1 ? points[0] : points[points.length - 1];
-  if (center) {
-    const ord = (doc: string) => docs.indexOf(doc);
-    const found = dir === 1
-      ? points.find((t) => ord(t.doc) > ord(center.doc) || (t.doc === center.doc && t.token > center.token))
-      : [...points].reverse().find((t) => ord(t.doc) < ord(center.doc) || (t.doc === center.doc && t.token < center.token));
-    target = found ?? (dir === 1 ? points[points.length - 1] : points[0]);
+  const first = edgeSegment(track, 1);
+  const last = edgeSegment(track, -1);
+  if (!first || !last) return null;
+  if (!center) return activationForSegment(dir === 1 ? first : last);
+  const centerDoc = track.docOrder.indexOf(center.doc);
+  if (centerDoc < 0) return activationForSegment(dir === 1 ? first : last);
+  if (dir === 1) {
+    for (let d = centerDoc; d < track.segmentsByDocOrdinal.length; d++) {
+      for (const segment of track.segmentsByDocOrdinal[d] ?? []) {
+        const token = segment.kind === 'tick' ? segment.t0 : segment.midToken;
+        if (d > centerDoc || token > center.token) return activationForSegment(segment);
+      }
+    }
+    return activationForSegment(last);
   }
-  if (!target) return null;
-  const count = (target as { count?: number }).count;
-  return count !== undefined ? { kind, doc: target.doc, token: target.token, bucketCount: count } : { kind, doc: target.doc, token: target.token };
+  for (let d = centerDoc; d >= 0; d--) {
+    const bucket = track.segmentsByDocOrdinal[d] ?? [];
+    for (let i = bucket.length - 1; i >= 0; i--) {
+      const segment = bucket[i]!;
+      const token = segment.kind === 'tick' ? segment.t0 : segment.midToken;
+      if (d < centerDoc || token < center.token) return activationForSegment(segment);
+    }
+  }
+  return activationForSegment(first);
 }
 
 /** Present resident tracks in the CURRENT series order — a query-free
@@ -206,6 +379,16 @@ export function trackSummaryText(track: BarcodeTrackVM, label: string): string {
   return track.representation === 'density'
     ? `${label}: ${occ} in ${track.segments.length.toLocaleString()} density buckets`
     : `${label}: ${occ}`;
+}
+
+/** Honest selected-layer label while its bounded query settles or fails. */
+export function selectedBarcodeTotalText(
+  status: 'pending' | 'ready' | 'error',
+  total: number | undefined,
+): string {
+  if (status === 'pending') return '…';
+  if (status === 'error') return 'error';
+  return (total ?? 0).toLocaleString();
 }
 
 /** The concordance caption for a served center — PURE so the announced text

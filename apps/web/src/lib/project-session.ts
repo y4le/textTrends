@@ -69,6 +69,7 @@ import type {
 import { UserDataClientError } from './client.ts';
 import { KeyedLatestOperation, LatestOperation, OperationScope, type OwnedOperationLease } from './operation-lease.ts';
 import {
+  builtinProject,
   generationSpecsFromProject,
   manifestForSave,
   userProjectFromManifest,
@@ -124,6 +125,9 @@ export interface BundledByteProvider {
 export interface ProjectSessionDeps {
   readonly client: ProjectSessionClient;
   readonly bundledBytes: BundledByteProvider;
+  /** Prevalidated read-only corpora available to the built-in picker. Optional
+   *  in focused fixtures that never switch projects. */
+  readonly builtinProjects?: ReadonlyMap<string, ProjectDataV1>;
   /** Stable document id allocator (production: `crypto.randomUUID`). A doc id
    *  is not a filename — it survives rename/reorder/save/reload/reattach. */
   readonly newDocId: () => string;
@@ -508,6 +512,20 @@ export class ProjectSession {
    *  restart; import/reorder/reattach reopen it internally. */
   start(): void {
     this.assertLive();
+    this.startGeneration();
+  }
+
+  /** Switch between prevalidated read-only demo corpora. Deliberately refuses
+   *  a user project: a demo click must never discard imported or unsaved work. */
+  openBuiltinProject(id: string): void {
+    this.assertLive();
+    if (this.kind !== 'builtin') {
+      throw new SessionCommandError('demo corpora can only be switched while a built-in corpus is open');
+    }
+    if (id === this.id) return;
+    const data = this.deps.builtinProjects?.get(id);
+    if (data === undefined) throw new SessionCommandError(`unknown built-in corpus '${id}'`);
+    this.installProject(builtinProject(data));
     this.startGeneration();
   }
 

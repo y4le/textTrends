@@ -230,12 +230,27 @@ describe('provenanceFor', () => {
     const value = provenanceFor(input({
       linkedSelection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 0, end: 3 },
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
       },
     }), 'trends');
     expect(value.content.selection).toBe('a tokens 1–3 (1-based inclusive)');
     expect(value.completeness.statement).toBe('The selected range in a is represented.');
+  });
+
+  it('describes every endpoint and total for a cross-document linked range', () => {
+    const value = provenanceFor(input({
+      linkedSelection: {
+        snapshot: 'snapshot-1',
+        ranges: [
+          { doc: 'a', tokens: { start: 8, end: 10 } },
+          { doc: 'b', tokens: { start: 0, end: 4 } },
+        ],
+      },
+    }), 'trends');
+    expect(value.content.selection)
+      .toBe('a token 9 through b token 4 (6 tokens across 2 documents)');
+    expect(value.completeness.statement)
+      .toBe('The selected range across 2 documents is represented.');
   });
 });
 
@@ -285,8 +300,7 @@ describe('result exports', () => {
     const selectedInput = input({
       linkedSelection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 0, end: 3 },
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
       },
       trends: [{ label: 'Holmes', result: selectedTrend }],
     });

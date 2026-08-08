@@ -76,25 +76,27 @@ Adopt one store-owned, transient selection:
 ```ts
 interface TokenRangeSelectionV1 {
   readonly snapshot: string;
-  readonly doc: string;
-  readonly tokens: { readonly start: number; readonly end: number };
+  readonly ranges: readonly {
+    readonly doc: string;
+    readonly tokens: { readonly start: number; readonly end: number };
+  }[];
 }
 ```
 
-It is single-document in v1, half-open, nonempty, and snapshot-bound. Capture the current generation/snapshot identity in the owning store intent even if the public shape stores only the snapshot ID. Clear it on snapshot publication/replacement, project reset, or removal of the document. Rename/member changes do not clear it.
+It is snapshot-bound and contains one explicit, nonempty, half-open span for each book crossed by the reading-order gesture. The first and last books contribute their selected tails/heads; intermediate nonempty books are included in full. Capture the current generation/snapshot identity in the owning store intent even if the public shape stores only the snapshot ID. Clear it on snapshot publication/replacement, project reset, or removal of any participating document. Rename/member changes do not clear it.
 
-Do not persist this object and do not call it a `Brush`. The durable contract object is char-anchored with `TextHash` precisely so tokenizer/recipe changes can be handled honestly. Saving one requires a worker conversion from the token range to char anchors plus a class-1 project/share schema. Defer “Save selection as brush” to the persistence/share slice. A future compile must reject a text-hash mismatch rather than guessing. Token coordinates from an old snapshot are never durable authority.
+Do not persist this object and do not call it a `Brush`. The durable contract object is char-anchored with `TextHash` precisely so tokenizer/recipe changes can be handled honestly. The current saved-range schema contains one anchor and therefore accepts only a one-book linked range; a cross-book range remains fully analysable but saving it as one finding requires a future multi-anchor research-state schema. A future compile must reject a text-hash mismatch rather than guessing. Token coordinates from an old snapshot are never durable authority.
 
 Create one pure `detailSelection(snapshot, linkedSelection)` builder:
 
 - no linked selection → `{ docs: allReadyDocs }`;
-- linked selection → `{ docs: [doc], ranges: [{ doc, tokens }] }`.
+- linked selection → `{ docs: selectedDocs, ranges: explicitRanges }`.
 
-The `[doc]` is load-bearing. Sending every ready document plus one range would mean “that range in this document and every other document in full,” because an absent per-doc range means whole document. Pin that exact bug with a unit test.
+Every selected document gets an explicit range. Sending a selected document without one would mean “whole document,” so explicit intermediate full-book ranges keep the local model and wire meaning identical. Pin that exact projection with unit tests.
 
 Separate preview from committed intent. Pointer motion and keyboard extension update component-local preview only. Commit once on pointer-up/Enter; cancel on Escape. A click without a drag remains the axis-pin gesture. Do not issue selected queries per pointer frame.
 
-For pointer input, capture on down, begin a brush after a small movement threshold, clamp the endpoint to the origin document, and convert inclusive endpoint tokens to a half-open range. Crossing a book boundary does not create a multi-document range. Hover with no pressed button continues to scrub. For keyboard input, use an explicit selection mode: start at the scrub cursor, arrows move the endpoint, Enter commits, Escape cancels. Do not overload the existing Shift+Arrow fast scrub ambiguously without an announced mode.
+For pointer input, capture on down, begin a brush after a small movement threshold, and convert inclusive endpoint tokens into ordered half-open document ranges. Crossing a book boundary includes the intervening reading-order span. Hover with no pressed button continues to scrub. For keyboard input, use an explicit selection mode: start at the scrub cursor, arrows move the endpoint across book boundaries, Enter commits, Escape cancels. Do not overload the existing Shift+Arrow fast scrub ambiguously without an announced mode.
 
 “Every panel filters” should be implemented without destroying the overview that authored the brush:
 

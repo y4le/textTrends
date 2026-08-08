@@ -1,54 +1,117 @@
-/**
- * The pure linked-selection model (slice-2 commit E): the detailSelection
- * builder's load-bearing `[doc]`, range commitment, and validity rules.
- */
 import { describe, expect, it } from 'vitest';
-import { commitRange, detailSelection, isValidSelection, type TokenRangeSelectionV1 } from '../src/lib/selection.ts';
+import {
+  commitRange,
+  detailSelection,
+  isValidSelection,
+  selectionContains,
+  selectionTokenCount,
+  type TokenRangeSelectionV1,
+} from '../src/lib/selection.ts';
 
 const sel = (over: Partial<TokenRangeSelectionV1> = {}): TokenRangeSelectionV1 => ({
   snapshot: 's1',
-  doc: 'b',
-  tokens: { start: 10, end: 20 },
+  ranges: [{ doc: 'b', tokens: { start: 10, end: 20 } }],
   ...over,
 });
 
-describe('detailSelection — the ONE analytical-detail selection builder', () => {
-  it('no selection → every ready doc, no ranges', () => {
+describe('detailSelection — the one analytical-detail selection builder', () => {
+  it('uses every ready document when there is no linked selection', () => {
     expect(detailSelection(['a', 'b'], null)).toEqual({ docs: ['a', 'b'] });
   });
 
-  it('THE RULING TRAP: a selection names ONLY its document — never every ready doc plus one range', () => {
-    // ranges scope only the docs they name; an absent per-doc range means
-    // "whole document". docs: ['a','b'] + one range on b would silently mean
-    // "b's range AND ALL OF a" (recorded ruling §2, round-1 named trap).
-    const wire = detailSelection(['a', 'b'], sel());
-    expect(wire.docs).toEqual(['b']); // the [doc] is load-bearing
-    expect(wire.ranges).toEqual([{ doc: 'b', tokens: { start: 10, end: 20 } }]);
-    expect(wire.docs).not.toContain('a');
+  it('projects explicit document ranges in declared order', () => {
+    const selection = sel({
+      ranges: [
+        { doc: 'a', tokens: { start: 5, end: 10 } },
+        { doc: 'b', tokens: { start: 0, end: 7 } },
+      ],
+    });
+    expect(detailSelection(['a', 'b'], selection)).toEqual({
+      docs: ['a', 'b'],
+      ranges: selection.ranges,
+    });
+  });
+
+  it('keeps a partial selection narrow and refuses a departed document', () => {
+    expect(detailSelection(['a', 'b'], sel())).toEqual({
+      docs: ['b'],
+      ranges: [{ doc: 'b', tokens: { start: 10, end: 20 } }],
+    });
+    expect(() => detailSelection(['a'], sel())).toThrow(RangeError);
   });
 });
 
-describe('commitRange — inclusive endpoints to half-open, one document', () => {
-  it('orders endpoints either direction and converts to half-open', () => {
-    expect(commitRange('s1', 'a', 5, 9, 100)!.tokens).toEqual({ start: 5, end: 10 });
-    expect(commitRange('s1', 'a', 9, 5, 100)!.tokens).toEqual({ start: 5, end: 10 }); // backwards drag
-    expect(commitRange('s1', 'a', 7, 7, 100)!.tokens).toEqual({ start: 7, end: 8 }); // single token is nonempty
+describe('commitRange — inclusive endpoints across declared books', () => {
+  const docs = ['a', 'empty', 'b', 'c'];
+  const counts = [10, 0, 6, 8];
+
+  it('orders endpoints either direction and converts a same-book span to half-open', () => {
+    expect(commitRange('s1', { doc: 'a', token: 5 }, { doc: 'a', token: 9 }, docs, counts)?.ranges)
+      .toEqual([{ doc: 'a', tokens: { start: 5, end: 10 } }]);
+    expect(commitRange('s1', { doc: 'a', token: 9 }, { doc: 'a', token: 5 }, docs, counts)?.ranges)
+      .toEqual([{ doc: 'a', tokens: { start: 5, end: 10 } }]);
+    expect(commitRange('s1', { doc: 'a', token: 7 }, { doc: 'a', token: 7 }, docs, counts)?.ranges)
+      .toEqual([{ doc: 'a', tokens: { start: 7, end: 8 } }]);
   });
 
-  it('clamps endpoints to the document extent; empty docs commit nothing', () => {
-    expect(commitRange('s1', 'a', -5, 500, 100)!.tokens).toEqual({ start: 0, end: 100 });
-    expect(commitRange('s1', 'a', 1, 2, 0)).toBeNull();
+  it('selects the first tail, intermediate books in full, and the last head', () => {
+    const forward = commitRange(
+      's1',
+      { doc: 'a', token: 7 },
+      { doc: 'c', token: 2 },
+      docs,
+      counts,
+    );
+    expect(forward?.ranges).toEqual([
+      { doc: 'a', tokens: { start: 7, end: 10 } },
+      { doc: 'b', tokens: { start: 0, end: 6 } },
+      { doc: 'c', tokens: { start: 0, end: 3 } },
+    ]);
+    expect(commitRange(
+      's1',
+      { doc: 'c', token: 2 },
+      { doc: 'a', token: 7 },
+      docs,
+      counts,
+    )).toEqual(forward);
+    expect(selectionTokenCount(forward!)).toBe(12);
+  });
+
+  it('clamps endpoints and refuses absent or empty endpoint books', () => {
+    expect(commitRange('s1', { doc: 'a', token: -5 }, { doc: 'a', token: 500 }, docs, counts)?.ranges)
+      .toEqual([{ doc: 'a', tokens: { start: 0, end: 10 } }]);
+    expect(commitRange('s1', { doc: 'empty', token: 0 }, { doc: 'b', token: 2 }, docs, counts))
+      .toBeNull();
+    expect(commitRange('s1', { doc: 'missing', token: 0 }, { doc: 'b', token: 2 }, docs, counts))
+      .toBeNull();
   });
 });
 
-describe('isValidSelection — snapshot-bound, ready-doc, nonempty half-open', () => {
-  it('accepts a live, ready, nonempty range and rejects each broken facet', () => {
+describe('selection validity and membership', () => {
+  it('accepts live ordered ranges and rejects stale, missing, repeated, reversed, or empty ranges', () => {
     expect(isValidSelection(sel(), 's1', ['a', 'b'])).toBe(true);
-    expect(isValidSelection(sel(), 's2', ['a', 'b'])).toBe(false); // superseded snapshot
-    expect(isValidSelection(sel(), null, ['a', 'b'])).toBe(false); // no snapshot
-    expect(isValidSelection(sel(), 's1', ['a'])).toBe(false); // doc departed
-    expect(isValidSelection(sel({ tokens: { start: 5, end: 5 } }), 's1', ['a', 'b'])).toBe(false); // empty
-    expect(isValidSelection(sel({ tokens: { start: -1, end: 3 } }), 's1', ['a', 'b'])).toBe(false);
-    expect(isValidSelection(sel({ tokens: { start: 0, end: Number.MAX_SAFE_INTEGER + 2 } }), 's1', ['a', 'b'])).toBe(false);
+    expect(isValidSelection(sel(), 's2', ['a', 'b'])).toBe(false);
+    expect(isValidSelection(sel(), null, ['a', 'b'])).toBe(false);
+    expect(isValidSelection(sel(), 's1', ['a'])).toBe(false);
+    expect(isValidSelection(sel({ ranges: [] }), 's1', ['a', 'b'])).toBe(false);
+    expect(isValidSelection(sel({
+      ranges: [
+        { doc: 'b', tokens: { start: 0, end: 2 } },
+        { doc: 'a', tokens: { start: 0, end: 2 } },
+      ],
+    }), 's1', ['a', 'b'])).toBe(false);
+    expect(isValidSelection(sel({ ranges: [{ doc: 'b', tokens: { start: 5, end: 5 } }] }), 's1', ['a', 'b']))
+      .toBe(false);
+    expect(isValidSelection(sel({ ranges: [{ doc: 'b', tokens: { start: -1, end: 3 } }] }), 's1', ['a', 'b']))
+      .toBe(false);
+    expect(isValidSelection(sel({
+      ranges: [{ doc: 'b', tokens: { start: 0, end: Number.MAX_SAFE_INTEGER + 2 } }],
+    }), 's1', ['a', 'b'])).toBe(false);
+  });
+
+  it('tests membership against the matching document range', () => {
+    expect(selectionContains(sel(), 'b', 10)).toBe(true);
+    expect(selectionContains(sel(), 'b', 20)).toBe(false);
+    expect(selectionContains(sel(), 'a', 15)).toBe(false);
   });
 });

@@ -12,6 +12,50 @@ import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, 
 // wolf@1, wolf@7, fox@4 — exact ticks, deterministic.
 const CORPUS = 'the wolf ran. a fox saw the wolf sleep.\n';
 
+test('a live color-scheme change repaints canvas evidence without reloading', async ({ page }) => {
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Create project from files').setInputFiles({
+    name: 'theme.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
+  const canvas = page.locator('canvas[data-barcode-band="series"]');
+  await expect(canvas).toBeVisible();
+  const bootId = await page.evaluate(() => {
+    const target = window as unknown as { __ttThemeBootId?: string };
+    target.__ttThemeBootId ??= crypto.randomUUID();
+    return target.__ttThemeBootId;
+  });
+  const paintedPixel = () => canvas.evaluate((node) => {
+    const context = (node as HTMLCanvasElement).getContext('2d')!;
+    const pixels = context.getImageData(0, 0, context.canvas.width, context.canvas.height).data;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if ((pixels[i + 3] ?? 0) > 250) return `${pixels[i]},${pixels[i + 1]},${pixels[i + 2]}`;
+    }
+    return 'transparent';
+  });
+  const expectedSeriesColor = () => page.evaluate(() => {
+    const probe = document.createElement('span');
+    probe.style.color = getComputedStyle(document.documentElement).getPropertyValue('--series-1');
+    document.body.append(probe);
+    const color = getComputedStyle(probe).color;
+    probe.remove();
+    return color.match(/[\d.]+/g)?.slice(0, 3).map(Number).join(',') ?? color;
+  });
+  const darkPixel = await paintedPixel();
+  expect(darkPixel).toBe(await expectedSeriesColor());
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect.poll(expectedSeriesColor).not.toBe(darkPixel);
+  await expect.poll(paintedPixel).toBe(await expectedSeriesColor());
+  expect(await page.evaluate(() => (window as unknown as { __ttThemeBootId?: string }).__ttThemeBootId))
+    .toBe(bootId);
+});
+
 test('the barcode summarizes exact occurrences, steps into the concordance, and never queries on resize', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
@@ -82,8 +126,8 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
       return res.length > 0 ? 'answered' : 'waiting';
     }, { timeout: 30_000 })
     .toBe('answered');
-  await page.getByRole('dialog', { name: /Reader: beasts/ })
-    .getByRole('button', { name: 'close', exact: true })
+  await page.getByRole('main', { name: /Reader: beasts/ })
+    .getByRole('button', { name: 'back', exact: true })
     .click();
   await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 8\b/)).toBeVisible();
@@ -95,4 +139,85 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await page.waitForTimeout(400); // let any (forbidden) reissue surface
   const after = (await trace(page)).events.filter((e) => e.seq > before && e.direction === 'to-worker' && e.t === 'query');
   expect(after).toHaveLength(0);
+});
+
+test('embedded barcode hover snaps exact evidence in series and by-book views without activating it', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Create project from files').setInputFiles([
+    { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('wolf alpha beta gamma delta', 'utf-8') },
+    { name: 'b.txt', mimeType: 'text/plain', buffer: Buffer.from('alpha beta gamma wolf delta', 'utf-8') },
+  ]);
+  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await awaitReadyCount(page, 2);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
+
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  const focused = page.getByRole('group', { name: 'Query terms' }).getByRole('button', { name: /^wolf \d+$/i });
+  const focusedBefore = await focused.getAttribute('aria-pressed');
+  const assertHoverOnly = async () => {
+    await expect(focused).toHaveAttribute('aria-pressed', focusedBefore ?? 'false');
+    await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  };
+  const commits = (view: 'series' | 'by-book') => page.evaluate(
+    (activeView) => (window as unknown as { __ttChartCommits?: Record<string, number> }).__ttChartCommits?.[activeView] ?? 0,
+    view,
+  );
+
+  // Series uses one declared-sequence band. Six pixels before wolf@global8
+  // inverts to raw global7, but is within the inclusive 8px painted interval
+  // threshold and therefore snaps to the exact occurrence at global8.
+  const seriesBand = page.locator('canvas[data-barcode-band="series"]');
+  await expect(seriesBand).toHaveCount(1);
+  const seriesCommits = await commits('series');
+  const seriesBox = (await seriesBand.boundingBox())!;
+  await page.mouse.move(seriesBox.x + seriesBox.width * (8 / 10) - 6, seriesBox.y + 3);
+  await expect(scrubber).toHaveAttribute('aria-valuenow', '8');
+  await assertHoverOnly();
+
+  // Far from either exact tick, hover remains the honest raw graph position.
+  await page.mouse.move(seriesBox.x + seriesBox.width * 0.65, seriesBox.y + 3);
+  await expect(scrubber).toHaveAttribute('aria-valuenow', '6');
+  await assertHoverOnly();
+  await seriesBand.click({ position: { x: seriesBox.width * 0.65, y: 3 } });
+  await expect(scrubber).toHaveAttribute('aria-valuenow', '6');
+  await assertHoverOnly();
+  expect(await commits('series')).toBe(seriesCommits);
+
+  await page.getByRole('button', { name: 'by book' }).click();
+  const bookBands = page.locator('canvas[data-barcode-band="by-book"]');
+  await expect(bookBands).toHaveCount(2);
+  const bookBandPixels = await bookBands.evaluateAll((nodes) => nodes.map((node) => {
+    const canvas = node as HTMLCanvasElement;
+    const context = canvas.getContext('2d');
+    const pixels = context?.getImageData(0, 0, canvas.width, canvas.height).data ?? [];
+    let painted = 0;
+    let black = 0;
+    for (let i = 0; i < pixels.length; i += 4) {
+      if ((pixels[i + 3] ?? 0) === 0) continue;
+      painted++;
+      if (pixels[i] === 0 && pixels[i + 1] === 0 && pixels[i + 2] === 0) black++;
+    }
+    return { painted, black };
+  }));
+  expect(bookBandPixels.every(({ painted, black }) => painted > 0 && black === 0)).toBe(true);
+  const byBookCommits = await commits('by-book');
+  const secondBook = bookBands.nth(1);
+  const bookBox = (await secondBook.boundingBox())!;
+  // Each book owns its normalized scale: wolf@3 in book b snaps locally,
+  // while aria-valuenow remains its declared-sequence coordinate (5 + 3).
+  await page.mouse.move(bookBox.x + bookBox.width * (3 / 5) - 6, bookBox.y + 3);
+  await expect(scrubber).toHaveAttribute('aria-valuenow', '8');
+  await assertHoverOnly();
+
+  await page.mouse.move(bookBox.x + bookBox.width * 0.3, bookBox.y + 3);
+  await expect(scrubber).toHaveAttribute('aria-valuenow', '6');
+  await assertHoverOnly();
+  expect(await commits('by-book')).toBe(byBookCommits);
+
+  // The accessible steppers are siblings of the slider, never descendants.
+  await expect(scrubber.getByRole('button')).toHaveCount(0);
 });

@@ -113,7 +113,9 @@ export function KwicPanel({
     titleOf,
   );
   const scope = selection
-    ? `selected range in ${titleOf(selection.doc)}`
+    ? selection.ranges.length === 1
+      ? `selected range in ${titleOf(selection.ranges[0]!.doc)}`
+      : `selected range across ${selection.ranges.length} books`
     : `${snapshot?.readyDocs.length ?? 0} ready book${snapshot?.readyDocs.length === 1 ? '' : 's'}`;
   const multipleBooks = (snapshot?.readyDocs.length ?? 0) > 1;
   const tokenCountsByDoc = new Map(
@@ -164,7 +166,7 @@ export function KwicPanel({
   const resultBar = kwic?.state.status === 'ready' && rows.length > 0 ? (
     <div className="kwic-result-bar">
       <p role="status">
-        <strong>{rows.length} of {kwic.state.total.toLocaleString()}</strong>
+        <strong className="selectable-stat">{rows.length} of {kwic.state.total.toLocaleString()}</strong>
         {' '}occurrences · {scope}
       </p>
       <div className="kwic-result-actions" aria-label="Occurrence navigation">
@@ -175,7 +177,7 @@ export function KwicPanel({
         >
           previous
         </button>
-        <output aria-live="polite">
+        <output className="selectable-stat" aria-live="polite">
           {activeIndex < 0 ? '—' : activeIndex + 1} / {rows.length}
         </output>
         <button
@@ -230,11 +232,11 @@ export function KwicPanel({
               }}
               data-active={row.key === activeKey || undefined}
             >
-              <td className="kwic-left-context">
+              <td className="kwic-left-context source-text">
                 <span aria-hidden="true">{row.leftShown}</span>
                 <span className="visually-hidden">{row.leftFull}</span>
               </td>
-              <td className="kwic-node">
+              <td className="kwic-node source-text">
                 <button
                   id={readerId(row)}
                   type="button"
@@ -245,7 +247,7 @@ export function KwicPanel({
                   {row.nodeText}
                 </button>
               </td>
-              <td className="kwic-right-context">
+              <td className="kwic-right-context source-text">
                 <span aria-hidden="true">{row.rightShown}</span>
                 <span className="visually-hidden">{row.rightFull}</span>
               </td>
@@ -287,7 +289,7 @@ export function KwicPanel({
             <span style={{ color: slotColor(row.slot) }}>{row.label}</span>
             {' · '}{sourcePosition(row)}
           </p>
-          <p className="kwic-reading-context">
+          <p className="kwic-reading-context source-text">
             {row.leftFull}{' '}
             <button
               id={readerId(row)}

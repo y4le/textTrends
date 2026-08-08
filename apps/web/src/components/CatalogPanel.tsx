@@ -10,7 +10,7 @@
  * analysis); the popular list follows, minus books already shown in a series.
  */
 
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { catalogSections, type CatalogSectionBook } from '../lib/catalog-view.ts';
 import { loadStandardEbooksCatalog, type StandardEbooksCatalog } from '../lib/standard-ebooks-catalog.ts';
@@ -26,6 +26,17 @@ export function CatalogPanel() {
   const [loadError, setLoadError] = useState<string | null>(null);
   // Bumping retries a failed asset fetch (the loader's memo clears on rejection).
   const [loadAttempt, setLoadAttempt] = useState(0);
+  const addController = useRef<AbortController | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      addController.current?.abort();
+      addController.current = null;
+    };
+  }, []);
 
   useEffect(() => {
     if (!open || catalog !== null || loadError !== null) return;
@@ -46,19 +57,36 @@ export function CatalogPanel() {
   const sections = useMemo(() => (catalog === null ? [] : catalogSections(catalog, q)), [catalog, q]);
 
   const add = async (book: CatalogSectionBook) => {
+    addController.current?.abort();
+    const controller = new AbortController();
+    addController.current = controller;
     setAdding(book.name);
     setError(null);
     try {
-      const { bytes } = await downloadEbookArchive(book.name);
+      const { bytes } = await downloadEbookArchive(book.name, controller.signal);
+      if (controller.signal.aborted || !mounted.current) return;
       // A re-readable FileLike: ingest transfers/detaches the buffer it is
       // handed, and persist / retry / warm re-extraction read the source again,
       // so hand out a FRESH copy on every call rather than one shared buffer.
       importFiles([{ name: `${book.name}.epub`, size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer }]);
     } catch (e) {
+      if (controller.signal.aborted || !mounted.current) return;
       setError(`Could not add “${book.title}”: ${e instanceof Error ? e.message : String(e)}`);
     } finally {
+      if (mounted.current && addController.current === controller) {
+        addController.current = null;
+        setAdding(null);
+      }
+    }
+  };
+
+  const toggleOpen = () => {
+    if (open) {
+      addController.current?.abort();
+      addController.current = null;
       setAdding(null);
     }
+    setOpen(!open);
   };
 
   const label = { fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--fg-muted)' } as const;
@@ -85,7 +113,7 @@ export function CatalogPanel() {
     <section style={{ marginTop: 'var(--space-3)' }}>
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={toggleOpen}
         aria-expanded={open}
         style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)', background: 'none', border: '1px solid var(--rule)', padding: '2px 0.75ch', cursor: 'pointer' }}
       >

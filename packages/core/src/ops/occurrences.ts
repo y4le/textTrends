@@ -20,7 +20,7 @@
  *   the snapshot's doc ref — a foreign pair cannot answer for a document.
  */
 
-import type { LocalTypeId } from '../contract/brands.ts';
+import { CapError, type LocalTypeId } from '../contract/brands.ts';
 import { canonicalJson } from '../contract/hash.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 import { postingsFor } from '../index/build.ts';
@@ -34,6 +34,7 @@ import {
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection, TokenRangeSpan } from '../snapshot/selection.ts';
 import { lowerBound } from '../structure/project.ts';
+import { DISPERSION_EXACT_MAX } from './dispersion.ts';
 
 export type { TokenRangeSpan } from '../snapshot/selection.ts';
 
@@ -66,6 +67,19 @@ export const TERM_GROUP_LIMITS_V1 = {
   maxIdUnits: 128,
 } as const;
 
+/** Hard construction bounds for one (snapshot, selection, group) result.
+ * `maxOccurrences` is four times the exact-dispersion threshold: common terms
+ * can cross the 50k density switch without being rejected, while one result's
+ * four occurrence-indexed Uint32 arrays stay near 3.2 MiB. CSR provenance is
+ * capped separately at eight members per emitted span on average, bounding a
+ * maximal typed payload near 9.6 MiB even though a group may declare 32
+ * members. Raw matches share `maxOccurrences`; that stricter work bound is
+ * what prevents overlap merging from hiding an unbounded object-array peak. */
+export const OCCURRENCE_LIMITS_V1 = {
+  maxOccurrences: 4 * DISPERSION_EXACT_MAX,
+  maxMemberOrdinals: 8 * 4 * DISPERSION_EXACT_MAX,
+} as const;
+
 /** Resolvers per document, per match mode (key = modeKey(mode)). */
 export type ResolverTable = ReadonlyMap<string, ReadonlyMap<string, Resolver>>;
 
@@ -80,6 +94,14 @@ export interface NumericOccurrences {
   readonly spanTokens: Uint32Array;
   readonly memberOffsets: Uint32Array;   // length = count + 1
   readonly memberOrdinals: Uint32Array;  // indexes into group.members
+}
+
+export function occurrencePayloadBytes(occurrences: NumericOccurrences): number {
+  return occurrences.docOrdinal.byteLength
+    + occurrences.pos.byteLength
+    + occurrences.spanTokens.byteLength
+    + occurrences.memberOffsets.byteLength
+    + occurrences.memberOrdinals.byteLength;
 }
 
 /**
@@ -207,6 +229,15 @@ export function matchGroupInTokenRanges(
   ranges: readonly TokenRangeSpan[] | null,
 ): RawMatch[] {
   const out: RawMatch[] = [];
+  const pushMatch = (match: RawMatch) => {
+    const observed = out.length + 1;
+    if (observed > OCCURRENCE_LIMITS_V1.maxOccurrences) {
+      throw new CapError(
+        `raw occurrence matches exceed the cap of ${OCCURRENCE_LIMITS_V1.maxOccurrences} (reached ${observed})`,
+      );
+    }
+    out.push(match);
+  };
   const n = shard.tokenTypeIds.length;
   const whole: readonly TokenRangeSpan[] = [{ start: 0, end: n }];
   const spans = ranges ?? whole;
@@ -226,7 +257,7 @@ export function matchGroupInTokenRanges(
           const from = lowerBound(postings, r.start);
           const to = lowerBound(postings, r.end); // span 1: pos < r.end
           for (let i = from; i < to; i++) {
-            out.push({ pos: postings[i] as number, span: 1, member: m });
+            pushMatch({ pos: postings[i] as number, span: 1, member: m });
           }
         }
       }
@@ -267,21 +298,26 @@ export function matchGroupInTokenRanges(
             }
           }
           if (ok && !member.crossSentence && crossesSentence(shard, start, span)) ok = false;
-          if (ok) out.push({ pos: start, span, member: m });
+          if (ok) pushMatch({ pos: start, span, member: m });
         }
       }
     }
   }
   out.sort((a, b) => a.pos - b.pos || b.span - a.span || a.member - b.member);
-  // Anchoring can find the same (pos, span, member) once per anchor id —
-  // dedup exact duplicates.
-  return out.filter(
-    (r, i) =>
-      i === 0 ||
-      r.pos !== (out[i - 1] as RawMatch).pos ||
-      r.span !== (out[i - 1] as RawMatch).span ||
-      r.member !== (out[i - 1] as RawMatch).member,
-  );
+  // Anchoring can find the same (pos, span, member) once per anchor id.
+  // Compact in place so deduplication does not transiently allocate a second
+  // object array at the construction cap.
+  let write = 0;
+  for (let read = 0; read < out.length; read++) {
+    const row = out[read]!;
+    const previous = write === 0 ? null : out[write - 1]!;
+    if (previous && row.pos === previous.pos && row.span === previous.span && row.member === previous.member) {
+      continue;
+    }
+    out[write++] = row;
+  }
+  out.length = write;
+  return out;
 }
 
 /** One emitted occurrence span with its contributing member ordinals. */
@@ -299,12 +335,21 @@ export function mergeGroupSpans(matches: readonly RawMatch[], countOverlaps: boo
     return matches.map((m) => ({ pos: m.pos, span: m.span, members: [m.member] }));
   }
   const out: GroupSpan[] = [];
+  let memberCount = 0;
   let curStart = -1;
   let curEnd = -1;
   let curMembers = new Set<number>();
   const flush = () => {
     if (curStart < 0) return;
-    out.push({ pos: curStart, span: curEnd - curStart, members: [...curMembers].sort((a, b) => a - b) });
+    const members = [...curMembers].sort((a, b) => a - b);
+    const observed = memberCount + members.length;
+    if (observed > OCCURRENCE_LIMITS_V1.maxMemberOrdinals) {
+      throw new CapError(
+        `occurrence member ordinals exceed the cap of ${OCCURRENCE_LIMITS_V1.maxMemberOrdinals} (reached ${observed})`,
+      );
+    }
+    memberCount = observed;
+    out.push({ pos: curStart, span: curEnd - curStart, members });
   };
   for (const m of matches) {
     if (curStart < 0 || m.pos >= curEnd) {
@@ -387,6 +432,18 @@ export function occurrences(
     if (matches.length === 0) continue;
 
     for (const s of mergeGroupSpans(matches, group.countOverlaps)) {
+      const observedOccurrences = docOrdinal.length + 1;
+      if (observedOccurrences > OCCURRENCE_LIMITS_V1.maxOccurrences) {
+        throw new CapError(
+          `occurrences exceed the cap of ${OCCURRENCE_LIMITS_V1.maxOccurrences} (reached ${observedOccurrences})`,
+        );
+      }
+      const observedMembers = memberOrdinals.length + s.members.length;
+      if (observedMembers > OCCURRENCE_LIMITS_V1.maxMemberOrdinals) {
+        throw new CapError(
+          `occurrence member ordinals exceed the cap of ${OCCURRENCE_LIMITS_V1.maxMemberOrdinals} (reached ${observedMembers})`,
+        );
+      }
       docOrdinal.push(ord);
       pos.push(s.pos);
       spanTokens.push(s.span);

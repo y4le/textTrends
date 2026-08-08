@@ -303,6 +303,29 @@ describe('built-in hard boundary (invariant 7)', () => {
     expect(() => session.createUserProject([f])).not.toThrow();
     expect(session.getState().project.kind).toBe('user');
   });
+
+  it('switches only between registered built-ins, retiring the outgoing generation', () => {
+    const initial = builtin([bundledDoc('sherlock', 10)]);
+    const otherData: ProjectDataV1 = {
+      ...initial.data,
+      id: 'builtin/asoif',
+      order: ['asoif'],
+      docs: [bundledDoc('asoif', 20)],
+    };
+    const { session, client } = makeSession(initial, {
+      builtinProjects: new Map([['builtin/asoif', otherData]]),
+    });
+    session.start();
+    const outgoing = client.lastOpen();
+    session.openBuiltinProject('builtin/asoif');
+    expect(outgoing.cancelled).toBe(true);
+    expect(session.getState().project).toMatchObject({ kind: 'builtin', id: 'builtin/asoif' });
+    expect(client.lastOpen().docs.map((doc) => doc.doc)).toEqual(['asoif']);
+    expect(() => session.openBuiltinProject('builtin/missing')).toThrow(SessionCommandError);
+
+    session.createUserProject([fakeFile('user.txt', 10)]);
+    expect(() => session.openBuiltinProject('builtin/asoif')).toThrow(/only be switched/);
+  });
 });
 
 describe('one generation-spec builder + declared order (invariant 10)', () => {

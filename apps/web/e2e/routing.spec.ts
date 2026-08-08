@@ -94,7 +94,7 @@ test('an unresolvable deep Reader route normalizes to its canonical place', asyn
   await page.goto('./?foreign=kept&p=compare&e=reader');
   await expect(page).toHaveURL(/\?foreign=kept&p=compare$/);
   await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeVisible();
-  await expect(page.getByRole('dialog', { name: /Reader:/ })).toHaveCount(0);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
 test('compact Lens keeps four complete destinations in portrait and landscape', async ({ page }) => {

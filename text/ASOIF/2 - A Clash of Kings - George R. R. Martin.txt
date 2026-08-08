@@ -1,4 +1,4 @@
-PROLOGUE
+Chapter 0. Prologue
 
 The comet's tail spread across the dawn, a red slash that bled above the crags of Dragonstone
 like a wound in the pink and purple sky.
@@ -896,7 +896,7 @@ down on him in pity, the candle flames dancing in her red red eyes.
 
 
 
-ARYA
+Chapter 1. Arya
 
 At Winterfell they had called her "Arya Horseface" and she'd thought nothing could be
 worse, but that was before the orphan boy Lommy Greenhands had named her "Lumpyhead."
@@ -1117,7 +1117,7 @@ together. She would have liked that. She would have liked that better than anyth
 
 
 
-SANSA
+Chapter 2. Sansa
 
 The morning of King Joffrey's name day dawned bright and windy, with the long tail of
 the great comet visible through the high scuttling clouds. Sansa was watching it from her tower
@@ -1601,7 +1601,7 @@ again.
 
 
 
-TYRION
+Chapter 3. Tyrion
 
 In the chilly white raiment of the Kingsguard, Ser Mandon Moore looked like a corpse in
 a shroud. "Her Grace left orders, the council in session is not to be disturbed."
@@ -2191,7 +2191,7 @@ do... justice."
 
 
 
-BRAN
+Chapter 4. Bran
 
 Bran preferred the hard stone of the window seat to the comforts of his featherbed and
 blankets. Abed, the walls pressed close and the ceiling hung heavy above him; abed, the room
@@ -2550,7 +2550,7 @@ answer or die.
 
 
 
-ARYA
+Chapter 5. Arya
 
 They traveled dawn to dusk, past woods and orchards and neatly tended fields, through
 small villages, crowded market towns, and stout holdfasts. Come dark, they would make camp
@@ -2947,7 +2947,7 @@ your tail. The rest o' us don't mean spit to them."
 
 
 
-JON
+Chapter 6. Jon
 
 "Sam?" Jon called softly.
 
@@ -3413,7 +3413,7 @@ am?"
 
 
 
-CATELYN
+Chapter 7. Catelyn
 
 Her son's crown was fresh from the forge, and it seemed to Catelyn Stark that the weight
 of it pressed heavy on Robb's head.
@@ -3912,7 +3912,7 @@ had claimed for himself.
 
 
 
-TYRION
+Chapter 8. Tyrion
 
 Janos Slynt was a butcher's son, and he laughed like a man chopping meat. "More
 wine?" Tyrion asked him.
@@ -4416,7 +4416,7 @@ my own. He wanted to laugh; he wanted to weep; most of all, he wanted Shae.
 
 
 
-ARYA
+Chapter 9. Arya
 
 The road was little more than two ruts through the weeds.
 
@@ -4689,7 +4689,7 @@ another sound, fainter, no more than a whisper on the wind, that might have been
 
 
 
-DAVOS
+Chapter 10. Davos
 
 The morning air was dark with the smoke of burning gods.
 
@@ -5282,7 +5282,7 @@ A red hawk."
 
 
 
-THEON
+Chapter 11. Theon
 
 There was no safe anchorage at Pyke, but Theon Greyjoy wished to look on his father's
 castle from the sea, to see it as he had seen it last, ten years before, when Robert Baratheon's war
@@ -6047,7 +6047,7 @@ Where? Theon might have asked, but by then he knew.
 
 
 
-DAENERYS
+Chapter 12. Daenerys
 
 The Dothraki named the comet shierak qiya, the Bleeding Star. The old men muttered
 that it omened ill, but Daenerys Targaryen had seen it first on the night she had burned Khal
@@ -6545,7 +6545,7 @@ Kingdoms, "I am Quaithe of the Shadow. We come seeking dragons."
 
 
 
-JON
+Chapter 13. Jon
 
 Whitetree, the village was named on Sam's old maps. Jon did not think it much of a
 village. Four tumbledown oneroom houses of unmortared stone surrounded an empty sheepfold
@@ -6778,7 +6778,7 @@ Or they will find us, thought Jon.
 
 
 
-ARYA
+Chapter 14. Arya
 
 The river was a blue-green ribbon shining in the morning sun. Reeds grew thick in the
 shallows along the banks, and Arya saw a water snake skimming across the surface, ripples
@@ -7277,7 +7277,7 @@ For whom, she could not say.
 
 
 
-TYRION
+Chapter 15. Tyrion
 
 The queen was not disposed to wait on Varys. "Treason is vile enough," she declared
 furiously, "but this is barefaced naked villainy, and I do not need that mincing eunuch to tell me
@@ -7783,7 +7783,7 @@ worst enemy."
 
 
 
-BRAN
+Chapter 16. Bran
 
 Long before the first pale fingers of light pried apart Bran's shutters, his eyes were open.
 
@@ -8375,7 +8375,7 @@ love," he murmured softly as he tossed him out kicking into empty air.
 
 
 
-TYRION
+Chapter 17. Tyrion
 
 "I do not sleep as I did when I was younger," Grand Maester Pycelle told him, by way of
 apology for the dawn meeting. "I would sooner be up, though the world be dark, than lie restless
@@ -9016,7 +9016,7 @@ Varys giggled, he thought, Three.
 
 
 
-SANSA
+Chapter 18. Sansa
 
 Come to the godswood tonight, if you want to go home.
 
@@ -9342,7 +9342,7 @@ Look around you, and take a good whiff. They're all liars here... and every one 
 
 
 
-ARYA
+Chapter 19. Arya
 
 When she climbed all the way up to the highest branch, Arya could see chimneys poking
 through the trees. Thatched roofs clustered along the shore of the lake and the small stream that
@@ -9933,7 +9933,7 @@ chuckling.
 
 
 
-TYRION
+Chapter 20. Tyrion
 
 They had warned him to dress warmly. Tyrion Lannister took them at their word. He was
 garbed in heavy quilted breeches and a woolen doublet, and over it all he had thrown the
@@ -10462,7 +10462,7 @@ And certain knowledge of an informer too... well, that was the plum in his puddi
 
 
 
-BRAN
+Chapter 21. Bran
 
 Dancer was draped in bardings of snowy white wool emblazoned with the grey direwolf
 of House Stark, while Bran wore grey breeches and white doublet, his sleeves and collar
@@ -10782,7 +10782,7 @@ laughing, and then he was spinning and falling, falling, falling...
 
 
 
-CATELYN
+Chapter 22. Catelyn
 
 As she slept amidst the rolling grasslands, Catelyn dreamt that Bran was whole again,
 that Arya and Sansa held hands, that Rickon was still a babe at her breast. Robb, crownless,
@@ -11418,7 +11418,7 @@ himself now."
 
 
 
-JON
+Chapter 23. Jon
 
 A blowing rain lashed at Jon's face as he spurred his horse across the swollen stream.
 Beside him, Lord Commander Mormont gave the hood of his cloak a tug, muttering curses on
@@ -12203,7 +12203,7 @@ Three hundred, thought Jon, against the fury of the wild. His fingers opened and
 
 
 
-THEON
+Chapter 24. Theon
 
 She was undeniably a beauty. But your first is always beautiful, Theon Greyjoy thought.
 "Now there's a pretty grin," a woman's voice said behind him. "The lordling likes the look of
@@ -12921,7 +12921,7 @@ She laughed. "That's fair. I liked you better when you were nine."
 
 
 
-TYRION
+Chapter 25. Tyrion
 
 Through the door came the soft sound of the high harp, mingled with a trilling of pipes.
 The singer's voice was muffled by the thick walls, yet Tyrion knew the verse. I loved a maid as
@@ -13489,7 +13489,7 @@ pretty sight, he thought.
 
 
 
-ARYA
+Chapter 26. Arya
 
 Fear cuts deeper than swords, Arya would tell herself, but that did not make the fear go
 away. It was as much a part of her days as stale bread and the blisters on her toes after a long day
@@ -13726,7 +13726,7 @@ you'll answer for it. When I sniff you, all I want to smell is fear."
 
 
 
-DAENERYS
+Chapter 27. Daenerys
 
 On the walls of Qarth, men beat gongs to herald her coming, while others blew curious
 horns that encircled their bodies like great bronze snakes. A column of camelry emerged from
@@ -14065,7 +14065,7 @@ dragons layers."
 
 
 
-BRAN
+Chapter 28. Bran
 
 Meera moved in a wary circle, her net dangling loose in her left hand, the slender three-
 pronged frog spear poised in her right. Summer followed her with his golden eyes, turning, his
@@ -14455,7 +14455,7 @@ And he would never walk, nor fly, nor be a knight.
 
 
 
-TYRION
+Chapter 29. Tyrion
 
 The rushes were scratchy under the soles of his bare feet. "My cousin chooses a queer
 hour to come visiting," Tyrion told a sleep-befuddled Podrick Payne, who'd doubtless expected
@@ -14818,7 +14818,7 @@ And her. And her.
 
 
 
-ARYA
+Chapter 30. Arya
 
 Whatever names Harren the Black had meant to give his towers were long forgotten.
 They were called the Tower of Dread, the Widow's Tower, the Wailing Tower, the Tower of
@@ -15228,7 +15228,7 @@ that night, there was one less name to hate.
 
 
 
-CATELYN
+Chapter 31. Catelyn
 
 The meeting place was a grassy sward dotted with pale grey mushrooms and the raw
 stumps of felled trees.
@@ -15760,7 +15760,7 @@ Stark," Lucas said when he saw her, "Mollen says it is to be battle at dawn."
 
 
 
-SANSA
+Chapter 32. Sansa
 
 "The longer you keep him waiting, the worse it will go for you," Sandor Clegane warned
 her.
@@ -16094,7 +16094,7 @@ wiser than I knew. Permit me at least to escort you safely back to your own cham
 
 
 
-CATELYN
+Chapter 33. Catelyn
 
 It was full dark before they found the village. Catelyn found herself wondering if the
 place had a name. If so, its people had taken that knowledge with them when they fled, along
@@ -16443,7 +16443,7 @@ A chill went through her.
 
 
 
-JON
+Chapter 34. Jon
 
 The hill jutted above the dense tangle of forest, rising solitary and sudden, its windswept
 heights visible from miles off. The wildlings called it the Fist of the First Men, rangers said. It
@@ -16814,7 +16814,7 @@ Brother of the Night's Watch.
 
 
 
-BRAN
+Chapter 35. Bran
 
 Alebelly found him in the forge, working the bellows for Mikken. "Maester wants you in
 the turret, m'lord prince. There's been a bird from the king."
@@ -17110,7 +17110,7 @@ they couldn't find me..."
 
 
 
-TYRION
+Chapter 36. Tyrion
 
 Varys stood over the brazier, warming his soft hands. "It would appear Renly was
 murdered most fearfully in the very midst of his army. His throat was opened from ear to ear by
@@ -17436,7 +17436,7 @@ know I hate surprises."
 
 
 
-THEON
+Chapter 37. Theon
 
 Theon wiped the spittle off his cheek with the back of his hand. "Robb will gut you,
 Greyjoy," Benfred Tallheart screamed. "He'll feed your turncloak's heart to his wolf, you piece
@@ -17742,7 +17742,7 @@ Theon smiled. "It's not Torrhen's Square I mean to take."
 
 
 
-ARYA
+Chapter 38. Arya
 
 Confusion and clangor ruled the castle. Men stood on the beds of wagons loading casks
 of wine, sacks of flour, and bundles of new-fletched arrows. Smiths straightened swords,
@@ -18036,7 +18036,7 @@ fingers casually against his cheek.
 
 
 
-CATELYN
+Chapter 39. Catelyn
 
 Two days ride from Riverrun, a scout spied them watering their horses beside a muddy
 steam. Catelyn had never been so glad to see the twin tower badge of House Frey.
@@ -18633,7 +18633,7 @@ remembered dully, but some say they can talk to the dead. And how she envied tha
 
 
 
-DAENERYS
+Chapter 40. Daenerys
 
 The drapes kept out the dust and heat of the streets, but they could not keep out
 disappointment. Dany climbed inside wearily, glad for the refuge from the sea of Qartheen eyes.
@@ -19065,7 +19065,7 @@ that will not be. What else remains, I ask myself?" I am afraid, she realized, b
 
 
 
-TYRION
+Chapter 41. Tyrion
 
 The girl never wept. Young as she was, Myrcella Baratheon was a princess born. And a
 Lannister, despite her name, Tyrion reminded himself, as much Jaime's blood as Cersei's.
@@ -19604,7 +19604,7 @@ that," he told Bronn, but the sellsword only laughed.
 
 
 
-DAVOS
+Chapter 42. Davos
 
 Ser Cortnay Penrose wore no armor. He sat a sorrel stallion, his standard-bearer a dapple
 grey. Above them flapped Baratheon's crowned stag and the crossed quills of Penrose, white on
@@ -20275,7 +20275,7 @@ He knew that shadow. As he knew the man who'd cast it.
 
 
 
-JON
+Chapter 43. Jon
 
 The call came drifting through the black of night. Jon pushed himself onto an elbow, his
 hand reaching for Longclaw by force of habit as the camp began to stir. The horn that wakes the
@@ -20598,7 +20598,7 @@ around them, stirring their black cloaks and sending a scatter of red cinders fl
 
 
 
-TYRION
+Chapter 44. Tyrion
 
 The queen intends to send Prince Tommen away." They knelt alone in the hushed
 dimness of the sept, surrounded by shadows and flickering candles, but even so Lancel kept his
@@ -21114,7 +21114,7 @@ stands between them and chaos."
 
 
 
-CATELYN
+Chapter 45. Catelyn
 
 "Tell Father I have gone to make him proud." Her brother swung up into his saddle,
 every inch the lord in his bright mail and flowing mud-and-water cloak. A silver trout
@@ -21539,7 +21539,7 @@ But if we are winning, why am I so afraid?
 
 
 
-BRAN
+Chapter 46. Bran
 
 The sound was the faintest of clinks, a scraping of steel over stone. He lifted his head
 from his paws, listening, sniffing at the night. The evening's rain had woken a hundred sleeping
@@ -21901,7 +21901,7 @@ back out into the rain.
 
 
 
-ARYA
+Chapter 47. Arya
 
 There's ghosts, I know there is." Hot Pie was kneading bread, his arms floured up to his
 elbows. "Pia saw something in the buttery last night."
@@ -22619,7 +22619,7 @@ spill a drop.
 
 
 
-DAENERYS
+Chapter 48. Daenerys
 
 In this city of splendors, Dany had expected the House of the Undying Ones to be the
 most splendid of all, but she emerged from her palanquin to behold a grey and ancient ruin.
@@ -23010,7 +23010,7 @@ beside Dany in the cool green grass and put his arm around her shoulder.
 
 
 
-TYRION
+Chapter 49. Tyrion
 
 If you die stupidly, I'm going to feed your body to the goats," Tyrion threatened as the
 first load of Stone Crows pushed off from the quay.
@@ -23343,7 +23343,7 @@ man's arrest.
 
 
 
-THEON
+Chapter 50. Theon
 
 One moment he was asleep; the next, awake.
 
@@ -23859,7 +23859,7 @@ made me angry."
 
 
 
-JON
+Chapter 51. Jon
 
 They could see the fire in the night, glimmering against the side of the mountain like a
 fallen star. It burned redder than the other stars, and did not twinkle, though sometimes it flared
@@ -24351,7 +24351,7 @@ She went.
 
 
 
-SANSA
+Chapter 52. Sansa
 
 The southern sky was black with smoke. It rose swirling off a hundred distant fires, its
 sooty fingers smudging out the stars. Across the Blackwater Rush, a line of flame burned nightly
@@ -24729,7 +24729,7 @@ will kill you all the same."
 
 
 
-JON
+Chapter 53. Jon
 
 It was dark in the Skirling Pass. The great stone flanks of the mountains hid the sun for
 most of the day, so they rode in shadow, the breath of man and horse steaming in the cold air. Icy
@@ -25067,7 +25067,7 @@ against the mountains.
 
 
 
-TYRION
+Chapter 54. Tyrion
 
 Pod dressed him for his ordeal in a plush velvet tunic of Lannister crimson and brought
 him his chain of office. Tyrion left it on the bedside table. His sister misliked being reminded
@@ -25444,7 +25444,7 @@ her breathing.
 
 
 
-CATELYN
+Chapter 55. Catelyn
 
 The Great Hall of Riverrun was a lonely place for two to sit to supper. Deep shadows
 draped the walls. One of the torches had guttered out, leaving only three. Catelyn sat staring into
@@ -26032,7 +26032,7 @@ Brienne pushed open the door and stepped inside the cell. "You called, my lady?"
 
 
 
-THEON
+Chapter 56. Theon
 
 The sky was a gloom of cloud, the woods dead and frozen. Roots grabbed at Theon's feet
 as he ran, and bare branches lashed his face, leaving thin stripes of blood across his cheeks. He
@@ -26375,7 +26375,7 @@ were rams' heads, they would have seen horns.
 
 
 
-SANSA
+Chapter 57. Sansa
 
 They had been singing in the sept all morning, since the first report of enemy sails had
 reached the castle. The sound of their voices mingled with the whicker of horses, the clank of
@@ -26565,7 +26565,7 @@ Aemon the Dragonknight to come rescue you, sweetling. I'm sure it won't be very 
 
 
 
-DAVOS
+Chapter 58. Davos
 
 Blackwater Bay was rough and choppy, whitecaps everywhere. Black Betha rode the
 flood tide, her sail cracking and snapping at each shift of wind. Wraith and Lady Marya sailed
@@ -27062,7 +27062,7 @@ mouth of the Blackwater Rush had turned into the mouth of hell.
 
 
 
-TYRION
+Chapter 59. Tyrion
 
 Motionless as a gargoyle, Tyrion Lannister hunched on one knee atop a merlon. Beyond
 the Mud Gate and the desolation that had once been the fishmarket and wharves, the river itself
@@ -27267,7 +27267,7 @@ dared to look.
 
 
 
-SANSA
+Chapter 60. Sansa
 
 The torches shimmered brightly against the hammered metal of the wall sconces, filling
 the Queen's Ballroom with silvery light. Yet there was still darkness in that hall. Sansa could see
@@ -27507,7 +27507,7 @@ touched Sansa's hair, brushing it lightly away from her neck.
 
 
 
-TYRION
+Chapter 61. Tyrion
 
 The slot in his helm limited Tyrion's vision to what was before him, but when he turned
 his head he saw three galleys beached on the tourney grounds, and a fourth, larger than the
@@ -27750,7 +27750,7 @@ sounded almost like Pod.
 
 
 
-SANSA
+Chapter 62. Sansa
 
 When Ser Lancel Lannister told the queen that the battle was lost, she turned her empty
 wine cup in her hands and said, "Tell my brother, ser." Her voice was distant, as if the news were
@@ -28013,7 +28013,7 @@ was Renly! Oh! the banners, darling Sansa! Oh! to be a knight!"
 
 
 
-DAENERYS
+Chapter 63. Daenerys
 
 She was breaking her fast on a bowl of cold shrimp-and-persimmon soup when Irri
 brought her a Qartheen gown, an airy confection of ivory samite patterned with seed pearls.
@@ -28510,7 +28510,7 @@ returned."
 
 
 
-ARYA
+Chapter 64. Arya
 
 The heads had been dipped in tar to slow the rot. Every morning when Arya went to the
 well to draw fresh water for Roose Bolton's basin, she had to pass beneath them. They faced
@@ -29149,7 +29149,7 @@ wash them clean again.
 
 
 
-SANSA
+Chapter 65. Sansa
 
 The throne room was a sea of jewels, furs, and bright fabrics. Lords and ladies filled the
 back of the hall and stood beneath the high windows, jostling like fishwives on a dock.
@@ -29493,7 +29493,7 @@ for your father." Dontos leaned close and kissed her again. "It's home."
 
 
 
-THEON
+Chapter 66. Theon
 
 Maester Luwin came to him when the first scouts were seen outside the walls. "My lord
 prince," he said, "you must yield."
@@ -29981,7 +29981,7 @@ ablaze, screaming, rearing...
 
 
 
-TYRION
+Chapter 67. Tyrion
 
 He dreamed of a cracked stone ceiling and the smells of blood and shit and burnt flesh.
 The air was full of acrid smoke. Men ere groaning and whimpering all around him, and from
@@ -30320,7 +30320,7 @@ he thought bitterly.
 
 
 
-JON
+Chapter 68. Jon
 
 When Qhorin Halfhand told him to find some brush for a fire, Jon knew their end was
 near.
@@ -30764,7 +30764,7 @@ is well down the Milkwater, marching on your Wall."
 
 
 
-BRAN
+Chapter 69. Bran
 
 The ashes fell like a soft grey snow.
 

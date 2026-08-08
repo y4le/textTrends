@@ -84,8 +84,7 @@ describe('fullTokensByDoc', () => {
       snapshot: 'snapshot-1',
       selection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 10, end: 20 },
+        ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
       },
       state: { status: 'ready', result: inventoryResult('a', 120) },
     };
@@ -102,8 +101,7 @@ describe('fullTokensByDoc', () => {
       snapshot: 'snapshot-1',
       selection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 10, end: 20 },
+        ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
       },
       state: { status: 'ready', result: inventoryResult('a', 120) },
     };
@@ -119,8 +117,7 @@ describe('fullTokensByDoc', () => {
       snapshot: 'snapshot-1',
       selection: {
         snapshot: 'snapshot-1',
-        doc: 'a',
-        tokens: { start: 10, end: 20 },
+        ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
       },
       state: { status: 'ready', result: inventoryResult('a', 120) },
     };

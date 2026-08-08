@@ -60,7 +60,7 @@ export function ComparisonOccurrences() {
       )}
       {evidence.state.status === 'ready' && (
         <>
-          <p className="comparison-occurrences-status">
+          <p className="comparison-occurrences-status selectable-stat">
             {evidence.state.rows.length} of {number.format(evidence.state.total)}{' '}
             {evidence.state.total === 1 ? 'occurrence' : 'occurrences'}
           </p>
@@ -87,9 +87,9 @@ export function ComparisonOccurrences() {
                   return (
                     <tr key={kwicRowKey(row)}>
                       <td title={titleOf(row.doc)}>{titleOf(row.doc)}</td>
-                      <td className="comparison-occurrences-left">{oneLine(row.left)}</td>
-                      <td className="comparison-occurrences-node">{oneLine(row.nodeText)}</td>
-                      <td>{oneLine(row.right)}</td>
+                      <td className="comparison-occurrences-left source-text">{oneLine(row.left)}</td>
+                      <td className="comparison-occurrences-node source-text">{oneLine(row.nodeText)}</td>
+                      <td className="source-text">{oneLine(row.right)}</td>
                       <td>
                         <div className="comparison-occurrence-actions">
                           <button

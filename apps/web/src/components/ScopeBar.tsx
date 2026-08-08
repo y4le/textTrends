@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
+import { isWholeBookSelection } from '../lib/corpus-view.ts';
 
 export function ScopeBar() {
   const snapshot = useApp((state) => state.snapshot);
@@ -30,7 +31,7 @@ export function ScopeBar() {
     () => scopeView(
       {
         project: project
-          ? { kind: project.kind, docCount: project.data.order.length }
+          ? { kind: project.kind, id: project.id, docCount: project.data.order.length }
           : null,
         snapshot,
         inventory,
@@ -57,22 +58,21 @@ export function ScopeBar() {
       titleByDoc,
     ],
   );
-  const selectionFullTokens = linkedSelection === null
+  const onlyRange = linkedSelection?.ranges.length === 1
+    ? linkedSelection.ranges[0]!
+    : null;
+  const selectionFullTokens = onlyRange === null
     ? null
-    : fullTokensByDoc(linkedSelection.doc, { inventory, trends });
-  const isOnlyThisBook = linkedSelection !== null
-    && linkedSelection.tokens.start === 0
-    && linkedSelection.tokens.end === selectionFullTokens;
+    : fullTokensByDoc(onlyRange.doc, { inventory, trends });
+  const isOnlyThisBook = onlyRange !== null
+    && selectionFullTokens !== null
+    && isWholeBookSelection(linkedSelection, onlyRange.doc, selectionFullTokens);
   const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
 
   return (
     <section
       className="scope-organ"
       aria-label="Scope"
-      style={{
-        borderBottom: '1px solid var(--rule)',
-        padding: 'var(--space-2) 0',
-      }}
     >
       <span
         className="visually-hidden"
@@ -84,14 +84,39 @@ export function ScopeBar() {
       </span>
       <div
         className="scope-organ-content"
-        style={{
-          display: 'flex',
-          alignItems: 'baseline',
-          flexWrap: 'wrap',
-          gap: '0 var(--space-2)',
-          color: 'var(--fg-muted)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs)',
+        role="group"
+        aria-label="Scope details"
+        tabIndex={0}
+        onKeyDown={(event) => {
+          // A focusable overflow region is not consistently keyboard-scrollable
+          // across engines. Own the conventional horizontal keys when the
+          // region itself (rather than one of its controls) has focus.
+          if (event.target !== event.currentTarget) return;
+          const region = event.currentTarget;
+          const page = Math.max(40, Math.round(region.clientWidth * 0.8));
+          switch (event.key) {
+            case 'ArrowLeft':
+              region.scrollBy({ left: -40 });
+              break;
+            case 'ArrowRight':
+              region.scrollBy({ left: 40 });
+              break;
+            case 'Home':
+              region.scrollTo({ left: 0 });
+              break;
+            case 'End':
+              region.scrollTo({ left: region.scrollWidth });
+              break;
+            case 'PageUp':
+              region.scrollBy({ left: -page });
+              break;
+            case 'PageDown':
+              region.scrollBy({ left: page });
+              break;
+            default:
+              return;
+          }
+          event.preventDefault();
         }}
       >
         <strong

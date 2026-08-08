@@ -100,13 +100,11 @@ describe('corpus view', () => {
     expect(isWholeBookSelection(null, 'a', 10)).toBe(false);
     expect(isWholeBookSelection({
       snapshot: 's',
-      doc: 'a',
-      tokens: { start: 0, end: 10 },
+      ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }],
     }, 'a', 10)).toBe(true);
     expect(isWholeBookSelection({
       snapshot: 's',
-      doc: 'a',
-      tokens: { start: 1, end: 10 },
+      ranges: [{ doc: 'a', tokens: { start: 1, end: 10 } }],
     }, 'a', 10)).toBe(false);
   });
 
@@ -130,7 +128,7 @@ describe('corpus view', () => {
       title: 'Alpha',
       result,
       snapshotDocOrdinal: 0,
-      selection: { snapshot: 's', doc: 'a', tokens: { start: 0, end: 10 } },
+      selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }] },
     })).toMatchObject({
       growth: 'scoped',
       vocabularyLabel: 'vocabulary for this book',
@@ -140,7 +138,7 @@ describe('corpus view', () => {
       title: 'Alpha',
       result,
       snapshotDocOrdinal: 0,
-      selection: { snapshot: 's', doc: 'a', tokens: { start: 2, end: 4 } },
+      selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }] },
     })).toMatchObject({
       growth: 'unscoped',
       vocabularyLabel: 'vocabulary for the active range',

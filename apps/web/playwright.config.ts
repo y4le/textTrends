@@ -14,8 +14,9 @@
  *   functional and WebKit projects (Playwright completes dependencies first
  *   and skips dependents on failure) and pins its own workers to 1 — so one
  *   invocation, one webServer build, and timing samples that never share
- *   the machine with functional load. `pnpm e2e:bench` passes --no-deps
- *   for a deliberate timing-only run.
+ *   the machine with functional load.
+ *   `pnpm --filter @texttrends/web e2e:bench` passes --no-deps for a
+ *   deliberate timing-only run.
  */
 
 import { defineConfig, devices } from '@playwright/test';
@@ -36,7 +37,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-compact',
-      testMatch: /(viewport|compact-trends|compact-barcode|compact-concordance|compact-corpus|compact-vocabulary|compact-compare|compact-findings)\.spec\.ts/,
+      testMatch: /(viewport|reader-modes|compact-trends|compact-barcode|compact-concordance|compact-corpus|compact-vocabulary|compact-compare|compact-findings)\.spec\.ts/,
       use: { ...devices['iPhone 14'] },
       retries: process.env.CI ? 1 : 0,
     },

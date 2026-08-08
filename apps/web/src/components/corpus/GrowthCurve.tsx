@@ -33,8 +33,8 @@ export function GrowthCurve({ growth }: { readonly growth: InventoryGrowthV1 }) 
           <tbody>
             {Array.from(growth.tokens, (tokens, index) => (
               <tr key={`${tokens}:${index}`}>
-                <td>{number.format(tokens)}</td>
-                <td>{number.format(growth.types[index] as number)}</td>
+                <td className="selectable-stat">{number.format(tokens)}</td>
+                <td className="selectable-stat">{number.format(growth.types[index] as number)}</td>
               </tr>
             ))}
           </tbody>

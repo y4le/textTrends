@@ -10,6 +10,7 @@ import {
 import {
   COARSE_POINTER_QUERY,
   COMPACT_QUERY,
+  DARK_SCHEME_QUERY,
   REDUCED_MOTION_QUERY,
   WIDE_QUERY,
   type Presentation,
@@ -20,6 +21,7 @@ const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
   pointer: 'fine',
   reducedMotion: false,
+  colorScheme: 'dark',
 };
 
 const PresentationContext = createContext<Presentation>(DEFAULT_PRESENTATION);
@@ -57,6 +59,7 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
   const wide = useMediaQuery(WIDE_QUERY, true);
   const coarse = useMediaQuery(COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
+  const darkScheme = useMediaQuery(DARK_SCHEME_QUERY, true);
 
   useEffect(() => {
     const visual = window.visualViewport;
@@ -97,7 +100,8 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
     width: compact ? 'compact' : wide ? 'wide' : 'regular',
     pointer: coarse ? 'coarse' : 'fine',
     reducedMotion,
-  }), [coarse, compact, reducedMotion, wide]);
+    colorScheme: darkScheme ? 'dark' : 'light',
+  }), [coarse, compact, darkScheme, reducedMotion, wide]);
 
   return (
     <PresentationContext.Provider value={presentation}>

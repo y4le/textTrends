@@ -73,7 +73,12 @@ import {
   type TrendBinsSpecV1,
   type TrendMeasureV2,
 } from '@texttrends/core';
-import { detailSelection, isValidSelection, type TokenRangeSelectionV1 } from './selection.ts';
+import {
+  detailSelection,
+  isValidSelection,
+  selectionContains,
+  type TokenRangeSelectionV1,
+} from './selection.ts';
 import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
 import {
@@ -95,11 +100,6 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
-  DEFAULT_READER_MODE,
-  READER_MODES,
-  type ReaderMode,
-} from './reader-presentation.ts';
-import {
   coreGroupOf,
   groupIdentity,
   NOTEBOOK_LIMITS_V1,
@@ -109,7 +109,7 @@ import {
   type NotebookGroupV1,
   type QueryNotebookV1,
 } from './notebook.ts';
-import { isCancelled, UserDataClientError } from './client.ts';
+import { isCancelled, UserDataClientError, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import {
   KeyedLatestOperation,
@@ -166,6 +166,7 @@ import {
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
 import { pinCapacity } from './pin-capacity.ts';
+import { builtinCorpusOption, type BuiltinCorpusId } from './project.ts';
 
 
 export interface KwicRowView {
@@ -629,6 +630,7 @@ export interface SessionPort {
     state: import('@texttrends/core').ResearchStateV1,
     expectedRevision: number,
   ): { result: Promise<{ revision: number }>; cancel: () => void };
+  openBuiltinProject(id: string): void;
   createUserProject(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   appendFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   removeImport(doc: string): void;
@@ -833,9 +835,9 @@ export interface AppState {
    *  concordance chip for that series is visibly re-enabled first (review-D
    *  HIGH). `origin: 'bucket'` labels a density-midpoint target. */
   centerKwicAt(seriesId: string, doc: string, token: number, origin?: { readonly kind: 'bucket'; readonly count: number }): void;
-  /** Commit a linked range (already clamped to ONE document by the gesture
-   *  layer). Reissues the DETAIL consumers (kwic + selected overlays); the
-   *  baseline evidence is retained untouched. Null clears. */
+  /** Commit explicit per-document spans from one contiguous reading-order
+   *  gesture. Reissues detail consumers; baseline evidence remains resident.
+   *  Null clears. */
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   runInventory(): void;
   runFrequency(): void;
@@ -868,7 +870,6 @@ export interface AppState {
   focusPin(id: string): void;
   clearPinFeedback(origin?: 'evidence' | 'reader' | null): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
-  setReaderMode(mode: ReaderMode): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -888,6 +889,7 @@ export interface AppState {
   // ── Session command wrappers (forward to the one attached session). ──
   /** Import files: create a user project from the built-in origin, or append
    *  to the current user project. */
+  openBuiltinCorpus(id: BuiltinCorpusId): void;
   importFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   removeImport(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
@@ -1008,6 +1010,12 @@ function describeAnalysis(analysis: AnalysisPhase): string | null {
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function queryErrorMessage(e: unknown): string {
+  return e instanceof WorkerClientError && e.analysisCode === 'CAP_EXCEEDED'
+    ? 'Too many occurrences to analyse at once — narrow the selected range or corpus.'
+    : msg(e);
 }
 
 function retainTrendTokenCounts(
@@ -1529,7 +1537,7 @@ export function createAppRuntime(
         })
         .catch((e: unknown) => {
           if (isCancelled(e) || !lease.isCurrent()) return;
-          onError(e instanceof Error ? e.message : String(e));
+          onError(queryErrorMessage(e));
         });
     };
 
@@ -1863,7 +1871,7 @@ export function createAppRuntime(
             id: pin.id,
             anchor: pin.anchor,
             tracks: pin.tracks,
-            message: e instanceof Error ? e.message : String(e),
+            message: queryErrorMessage(e),
           }));
         });
     };
@@ -2407,6 +2415,30 @@ export function createAppRuntime(
       if (opts.reissue && effectiveIntentKey(notebook, series, nextEnabled) !== prevIntent) {
         get().runQueries();
       }
+    };
+
+    /** Replace the comparison notebook in one publication when a demo corpus
+     *  changes. A later durable research load for that corpus may supersede
+     *  these starter terms; on a first visit they make the demo immediately
+     *  meaningful instead of carrying another corpus's vocabulary across. */
+    const seedDemoNotebook = (input: string) => {
+      const parsed = parseQuickAdd(input, newId, MAX_SERIES, []);
+      if (parsed.error !== null) throw new Error(`invalid built-in starter terms: ${parsed.error}`);
+      const notebook: QueryNotebookV1 = {
+        schema: 'texttrends/query-notebook/1',
+        groups: parsed.groups,
+      };
+      const ids = new Set(parsed.groups.map((group) => group.id));
+      adoptNotebook(
+        {
+          notebook,
+          activeGroupIds: ids,
+          kwicEnabledGroupIds: ids,
+          soloGroupId: null,
+        },
+        { reissue: true },
+      );
+      set({ inputError: null, notebookError: null, removedGroups: [] });
     };
 
     /** Refuse a notebook action with one bounded message (no state change). */
@@ -3042,7 +3074,6 @@ export function createAppRuntime(
             'reader',
             Object.freeze(place),
             returnFocusTo,
-            { reader: DEFAULT_READER_MODE },
           );
           const replacing = get().layers.at(-1)?.kind === 'reader';
           const layers = replacing
@@ -3052,13 +3083,6 @@ export function createAppRuntime(
           writeNavigation(replacing ? 'replace' : 'push', get().place, layers);
           get().runReader();
         }
-      },
-
-      setReaderMode(mode) {
-        if (!READER_MODES.includes(mode)) return;
-        const layer = get().layers.findLast((candidate) => candidate.kind === 'reader');
-        if (layer === undefined || layer.ui?.reader === mode) return;
-        get().setLayerUI(layer.id, { reader: mode });
       },
 
       navigateReader(cursor) {
@@ -4050,7 +4074,7 @@ export function createAppRuntime(
         // (visibly — the shading and overlays drop) so the clicked evidence
         // can appear in the range-scoped concordance (ruling §2).
         const sel = state.linkedSelection;
-        if (sel !== null && (doc !== sel.doc || token < sel.tokens.start || token >= sel.tokens.end)) {
+        if (sel !== null && !selectionContains(sel, doc, token)) {
           set({ linkedSelection: null });
           runSelected();
           queryIntentChanged = true;
@@ -4146,6 +4170,21 @@ export function createAppRuntime(
       },
 
       // ── Session command wrappers ──────────────────────────────────────────
+      openBuiltinCorpus(id) {
+        const current = get().projectSession?.project;
+        if (current?.id === id) return;
+        const option = builtinCorpusOption(id);
+        if (option === undefined) {
+          set({ commandError: `unknown built-in corpus '${id}'` });
+          return;
+        }
+        let opened = false;
+        command((s) => {
+          s.openBuiltinProject(id);
+          opened = true;
+        });
+        if (opened) seedDemoNotebook(option.defaultTerms);
+      },
       importFiles(files, opts) {
         command((s) => {
           if (s.getState().project.kind === 'builtin') s.createUserProject(files, opts);
@@ -4203,6 +4242,11 @@ export function createAppRuntime(
           set({ selectionError: 'Select a token range before saving it.' });
           return;
         }
+        if (selection.ranges.length !== 1) {
+          set({ selectionError: 'A range across books can be analysed but cannot yet be saved as one finding.' });
+          return;
+        }
+        const range = selection.ranges[0]!;
         const issuedKey = snapKey(snapshot);
         const lease = selectionLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
@@ -4216,8 +4260,8 @@ export function createAppRuntime(
             op: 'anchor-tokens',
             request: {
               method: 'anchor-tokens/1',
-              doc: selection.doc,
-              tokens: selection.tokens,
+              doc: range.doc,
+              tokens: range.tokens,
             },
           },
           lease,
@@ -4305,8 +4349,7 @@ export function createAppRuntime(
             if (check.status !== 'ok') return;
             get().setLinkedSelection({
               snapshot: snapshot.snapshot,
-              doc: check.doc,
-              tokens: check.tokens,
+              ranges: [{ doc: check.doc, tokens: check.tokens }],
             });
           },
           (message) => set((live) => ({
