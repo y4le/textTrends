@@ -7,8 +7,6 @@ import {
 import {
   parseResearchState,
   reconcileResearchState,
-  RESEARCH_MAX_PINS,
-  RESEARCH_MAX_SELECTIONS,
   upgradeStoredResearchState,
   type ResearchStateV1,
 } from '../src/project/research-state.ts';
@@ -39,30 +37,6 @@ function state(): ResearchStateV1 {
     notebook: NOTEBOOK,
     active: ['g1'],
     kwicEnabled: ['g1'],
-    selections: [{
-      id: 'selection-1',
-      name: 'Opening',
-      anchor: {
-        doc: 'a',
-        text: HASH_A,
-        chars: { start: 0, end: 10 },
-      },
-    }],
-    pins: [{
-      id: 'pin-1',
-      note: 'clue',
-      anchor: {
-        doc: 'a',
-        text: HASH_A,
-        chars: { start: 4, end: 9 },
-      },
-      captured: [{
-        seriesId: 'g1',
-        groupId: 'g1',
-        identity: 'identity',
-        label: 'Holmes',
-      }],
-    }],
     views: {
       trend: {
         schema: 'texttrends/trend-view/2',
@@ -197,40 +171,14 @@ describe('research-state/1', () => {
     }).kwicEnabled).toEqual(eligible);
   });
 
-  it('rejects over-cap and sparse arrays before accepting authored data', () => {
+  it('rejects over-cap arrays before accepting authored data', () => {
     expect(() => parseResearchState({
       ...state(),
       active: Array.from({ length: 6 }, (_, index) => `g${index}`),
     })).toThrow(/5-item cap/);
-    expect(() => parseResearchState({
-      ...state(),
-      selections: Array.from(
-        { length: RESEARCH_MAX_SELECTIONS + 1 },
-        (_, index) => ({
-          id: `s${index}`,
-          name: 'x',
-          anchor: { doc: 'a', text: HASH_A, chars: { start: 0, end: 1 } },
-        }),
-      ),
-    })).toThrow(/32-item cap/);
-    expect(() => parseResearchState({
-      ...state(),
-      pins: Array.from(
-        { length: RESEARCH_MAX_PINS + 1 },
-        (_, index) => ({
-          id: `p${index}`,
-          note: '',
-          anchor: { doc: 'a', text: HASH_A, chars: { start: 0, end: 1 } },
-          captured: [],
-        }),
-      ),
-    })).toThrow(/8-item cap/);
-    const sparse = [...state().pins];
-    sparse.length = 2;
-    expect(() => parseResearchState({ ...state(), pins: sparse })).toThrow(/dense/);
   });
 
-  it('rejects overlapping keyness hashes, malformed anchors, and derived style slots', () => {
+  it('rejects overlapping keyness hashes and removed or derived fields', () => {
     expect(() => parseResearchState({
       ...state(),
       views: {
@@ -241,19 +189,20 @@ describe('research-state/1', () => {
         },
       },
     })).toThrow(/disjoint TextHashes/);
-    expect(() => parseResearchState({
-      ...state(),
-      selections: [{
-        ...state().selections[0]!,
-        anchor: {
-          ...state().selections[0]!.anchor,
-          chars: { start: 10, end: 9 },
-        },
-      }],
-    })).toThrow(/nondecreasing/);
+    expect(() => parseResearchState({ ...state(), selections: [] })).toThrow(/exact v1 record/);
+    expect(() => parseResearchState({ ...state(), pins: [] })).toThrow(/exact v1 record/);
     expect(() => parseResearchState({
       ...state(),
       styleSlots: { g1: 0 },
     })).toThrow(/exact v1 record/);
+  });
+
+  it('drops legacy saved ranges and excerpts during stored-state upgrade', () => {
+    const upgraded = upgradeStoredResearchState({
+      ...state(),
+      selections: [{ id: 'legacy-range' }],
+      pins: [{ id: 'legacy-excerpt' }],
+    });
+    expect(upgraded).toEqual(state());
   });
 });

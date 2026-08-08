@@ -3,18 +3,15 @@
  * from authenticated worker text; source HTML is never interpreted.
  */
 
-import { useEffect } from 'react';
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
-import { pinTrackLegend, type PinLegendEntry } from '../lib/pins.ts';
-import { pinCapacity } from '../lib/pin-capacity.ts';
-import { segmentPassageMarks, type PassageSegment } from '../lib/passage-marks.ts';
+import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
+import { segmentReaderMarks, type ReaderSegment } from '../lib/reader-marks.ts';
 import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
-import { PinButton } from './PinButton.tsx';
 
 function ReaderProse({
   page,
@@ -23,7 +20,7 @@ function ReaderProse({
 }: {
   page: ReaderPageResultV1;
   snapshot: string;
-  legend: readonly PinLegendEntry[];
+  legend: readonly TrackLegendEntry[];
 }) {
   const selection = useApp((state) => state.linkedSelection);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
@@ -34,7 +31,7 @@ function ReaderProse({
     ...(selected ? [selected.start, selected.end] : []),
     ...(page.anchor ? [page.anchor.charsUtf16.start, page.anchor.charsUtf16.end] : []),
   ];
-  const segments = segmentPassageMarks(
+  const segments = segmentReaderMarks(
     page.text.length,
     page.marks.map((mark) => ({
       seriesId: mark.seriesId,
@@ -43,7 +40,7 @@ function ReaderProse({
     })),
     boundaries,
   );
-  const coveringMark = (segment: PassageSegment): ReaderPageMarkV1 | null =>
+  const coveringMark = (segment: ReaderSegment): ReaderPageMarkV1 | null =>
     page.marks.find(
       (mark) =>
         mark.seriesId === segment.seriesIds[0]
@@ -143,23 +140,9 @@ export function ReaderDrawer() {
   const styleSlots = useApp((state) => state.styleSlots);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
-  const setPlace = useApp((state) => state.setPlace);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
-  const pinPassage = useApp((state) => state.pinPassage);
-  const pinError = useApp((state) => state.pinError);
-  const pinAnnouncement = useApp((state) => state.pinAnnouncement);
-  const pinFeedbackOrigin = useApp((state) => state.pinFeedbackOrigin);
-  const clearPinFeedback = useApp((state) => state.clearPinFeedback);
-  const pinsUsed = useApp((state) => state.pins.length);
-  useEffect(() => {
-    clearPinFeedback('reader');
-  }, [clearPinFeedback, place?.snapshot, place?.doc, place?.cursor.token]);
-
   if (!place) return null;
-  const pinAtReaderCursor = () => {
-    pinPassage(place.doc, place.cursor.token, 'reader');
-  };
   const current = result && sameReaderPlace(result.place, place) ? result : null;
   const title =
     project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
@@ -172,13 +155,12 @@ export function ReaderDrawer() {
     label: group.name,
     styleSlot: styleSlots.get(group.id) ?? 0,
   }));
-  const legend = pinTrackLegend(
+  const legend = trackLegend(
     current?.tracks ?? [],
     (id) => identities.get(id) ?? null,
     liveSeries,
   );
   const ready = current?.state.status === 'ready' ? current.state.page : null;
-  const capacity = pinCapacity(pinsUsed);
 
   return (
     <>
@@ -192,48 +174,11 @@ export function ReaderDrawer() {
           </p>
         </div>
         <div className="reader-header-actions">
-          <PinButton
-            capacity={capacity}
-            label={`Save reader excerpt at token ${(place.cursor.token + 1).toLocaleString()} to Findings`}
-            onPin={pinAtReaderCursor}
-          />
-          {!capacity.enabled && (
-            <button
-              type="button"
-              onClick={() => setPlace('findings')}
-              style={SMALL_BUTTON_STYLE}
-            >
-              Open Findings
-            </button>
-          )}
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
             back
           </button>
         </div>
       </header>
-
-      <div className="reader-pin-feedback">
-        {pinFeedbackOrigin === 'reader' && pinError && (
-          <p role="alert">
-            {pinError}{' '}
-            <button
-              type="button"
-              onClick={() => clearPinFeedback('reader')}
-              style={SMALL_BUTTON_STYLE}
-            >
-              dismiss
-            </button>
-          </p>
-        )}
-        {pinFeedbackOrigin === 'reader'
-          && !pinError
-          && pinAnnouncement && (
-            <p role="status" aria-live="polite" aria-atomic="true">
-              {pinAnnouncement}
-            </p>
-        )}
-      </div>
-
       <div className="reader-prose-scroll">
         <div className="reader-highlights" aria-label="Reader query highlights">
           <span>highlights</span>

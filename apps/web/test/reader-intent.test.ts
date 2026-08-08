@@ -9,14 +9,14 @@ import {
 describe('reader open intent', () => {
   it('turns a live served position into an around cursor', () => {
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'a', token: 7, from: 'pin' },
+      { snapshot: 's1', doc: 'a', token: 7, from: 'kwic' },
       's1',
       ['a', 'b'],
     )).toEqual({
       snapshot: 's1',
       doc: 'a',
       cursor: { kind: 'around', token: 7 },
-      from: 'pin',
+      from: 'kwic',
     });
   });
 
@@ -32,7 +32,7 @@ describe('reader open intent', () => {
       ['a'],
     )).toBeNull();
     expect(readerPlaceFor(
-      { snapshot: 's1', doc: 'a', token: -1, from: 'passage' },
+      { snapshot: 's1', doc: 'a', token: -1, from: 'kwic' },
       's1',
       ['a'],
     )).toBeNull();
@@ -47,7 +47,7 @@ describe('reader open intent', () => {
     };
     expect(sameReaderPlace(place, { ...place, cursor: { ...place.cursor } })).toBe(true);
     expect(sameReaderPlace(place, { ...place, cursor: { kind: 'from', token: 3 } })).toBe(false);
-    expect(sameReaderPlace(place, { ...place, from: 'pin' })).toBe(false);
+    expect(sameReaderPlace(place, { ...place, from: 'barcode' })).toBe(false);
     expect(sameReaderPlace(place, null)).toBe(false);
     expect(sameReaderCursor(place.cursor, { ...place.cursor })).toBe(true);
     expect(sameReaderCursor(place.cursor, { kind: 'from', token: 3 })).toBe(false);

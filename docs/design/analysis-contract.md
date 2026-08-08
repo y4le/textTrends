@@ -240,7 +240,7 @@ later as a *derived* artifact, never the canonical identity.
 ## 6. Selection, time, query
 
 ```ts
-interface SelectionSpec {                     // user/project layer
+interface SelectionSpec {                     // transient UI/query layer
   readonly docs: readonly ProjectDocId[];
   readonly ranges?: readonly { readonly doc: ProjectDocId; readonly tokens: TokenRange }[];
 }
@@ -249,12 +249,6 @@ interface ResolvedSelection {                 // execution layer — always snap
   readonly spec: SelectionSpec;               // canonicalized: doc order, sorted merged
   readonly hash: SelectionHash;               //   ranges, no empties/out-of-bounds;
 }                                             //   hash COMPUTED, never caller-supplied
-
-interface Brush {                             // durable project/share object; compiles
-  readonly id: string;                        //   to a SelectionSpec per snapshot
-  readonly name: string;
-  readonly anchors: readonly { doc: ProjectDocId; text: TextHash; chars: CharRange }[];
-}   // char anchors survive recipe changes; a TextHash mismatch is reported, not guessed
 
 type TimeCoordinate =
   | { kind: 'document-relative' }             // 0..1 within each selected document
@@ -458,8 +452,8 @@ non-breaking for exhaustive consumers.
 4. **Result typing: operation map (compile time) + per-op schemas (runtime)** as above.
    Typed-array validation checks class/length/pairing/caps, not elements. Persisted
    and imported artifacts are always validated.
-5. **Selection is the execution primitive; Brush is the durable object** — compiled to
-   selections per snapshot; char-anchored so recipe changes degrade loudly, not silently.
+5. **Selection is the execution primitive and remains transient** — it is
+   snapshot-bound query intent, never a saved range or share object.
 6. **Recipe gaps**: resolved by the split-recipe scheme (§3) — sentence/paragraph
    policy, token emission, mixed-locale resolution, normalization order, table hashes,
    canonical JSON/hash scheme, segmenter fingerprint, per-op methods all versioned.
@@ -596,8 +590,7 @@ Eager bigram postings · corpus-wide compacted acceleration buffers · phrase-re
 LRU caches · quote-membership bitsets · regex members + isolated execution · core
 LOESS/smoothing (presentation-layer overlay first) · EPUB/PDF source variants (arrive
 with their adapters, Phases 2/4) · WASM kernels and WASM-owned memory · 64-bit
-positions beyond the enforced Uint32 caps · brush share-URL compression · persisted
-query-result caches.
+positions beyond the enforced Uint32 caps · persisted query-result caches.
 
 ## 12. Amendment v2.2 — ingest & structure (2026-07-20)
 

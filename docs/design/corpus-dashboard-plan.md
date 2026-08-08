@@ -4,9 +4,8 @@
 ruling was produced through Parley request
 `req_consult_a2002d56c2327772`, session `ses_cad54a4d184a8c0d`, artifact
 `art_sha256_c27b4b4a264a71518248b3c59162d88624c4852049b44c9f631cd550c4d0c842`.
-The relevant decisions are recorded below; `docs/design/keyness-plan.md` and
-`docs/design/research-state-plan.md` carry the dependent Slice 4 and research
-state rulings.*
+The relevant decisions are recorded below; `docs/design/keyness-plan.md`
+carries the dependent Slice 4 rulings.*
 
 **STATUS: COMPLETE (2026-07-30).** The preliminary protocol-admission
 sweep landed in `e716d2b`: non-group arrays now use `denseArray`, while the

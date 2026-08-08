@@ -25,42 +25,8 @@ import {
   type QueryNotebookV1,
 } from './notebook.ts';
 
-export const RESEARCH_MAX_SELECTIONS = 32;
-export const RESEARCH_MAX_PINS = 8;
 export const RESEARCH_MAX_ID_UNITS = 128;
-export const RESEARCH_MAX_NAME_UNITS = 256;
-export const RESEARCH_MAX_NOTE_UNITS = 2_000;
 export const RESEARCH_MAX_DOC_UNITS = 256;
-export const RESEARCH_MAX_CAPTURED_TRACKS = MAX_KWIC_TRACKS;
-
-export interface CharAnchorV1 {
-  readonly doc: string;
-  readonly text: TextHash;
-  readonly chars: {
-    readonly start: number;
-    readonly end: number;
-  };
-}
-
-export interface SavedSelectionV1 {
-  readonly id: string;
-  readonly name: string;
-  readonly anchor: CharAnchorV1;
-}
-
-export interface SavedPinTrackV1 {
-  readonly seriesId: string;
-  readonly groupId: string;
-  readonly identity: string;
-  readonly label: string;
-}
-
-export interface SavedPinV1 {
-  readonly id: string;
-  readonly note: string;
-  readonly anchor: CharAnchorV1;
-  readonly captured: readonly SavedPinTrackV1[];
-}
 
 export const TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
 export const TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
@@ -125,8 +91,6 @@ export interface ResearchStateV1 {
   readonly notebook: QueryNotebookV1;
   readonly active: readonly string[];
   readonly kwicEnabled: readonly string[];
-  readonly selections: readonly SavedSelectionV1[];
-  readonly pins: readonly SavedPinV1[];
   readonly views: {
     readonly trend: TrendResearchViewV2;
     readonly inventory: InventoryViewV1;
@@ -179,100 +143,6 @@ function uniqueStrings(
     out.push(item);
   }
   return out;
-}
-
-export function parseCharAnchor(
-  value: unknown,
-  what = 'character anchor',
-): CharAnchorV1 {
-  if (!exactRecord(value, ['doc', 'text', 'chars'])) {
-    throw new RangeError(`${what} must be an exact character anchor`);
-  }
-  boundedString(value.doc, RESEARCH_MAX_DOC_UNITS, `${what}.doc`);
-  if (typeof value.text !== 'string' || !/^[0-9a-f]{64}$/.test(value.text)) {
-    throw new RangeError(`${what}.text must be a TextHash`);
-  }
-  if (
-    !exactRecord(value.chars, ['start', 'end']) ||
-    !isNonNegSafeInt(value.chars.start) ||
-    !isNonNegSafeInt(value.chars.end) ||
-    value.chars.start > value.chars.end
-  ) {
-    throw new RangeError(`${what}.chars must be a nondecreasing UTF-16 range`);
-  }
-  return value as unknown as CharAnchorV1;
-}
-
-function parseSelections(value: unknown): readonly SavedSelectionV1[] {
-  const rows = exactDenseArray(
-    value,
-    RESEARCH_MAX_SELECTIONS,
-    'saved selections',
-  );
-  const ids = new Set<string>();
-  return rows.map((item, index) => {
-    if (!exactRecord(item, ['id', 'name', 'anchor'])) {
-      throw new RangeError(`saved selection ${index} must be exact`);
-    }
-    boundedString(item.id, RESEARCH_MAX_ID_UNITS, `selection ${index}.id`);
-    boundedString(item.name, RESEARCH_MAX_NAME_UNITS, `selection ${index}.name`);
-    if (item.name !== item.name.normalize('NFC')) {
-      throw new RangeError(`selection ${index}.name must be NFC`);
-    }
-    if (ids.has(item.id)) throw new RangeError(`duplicate selection id '${item.id}'`);
-    ids.add(item.id);
-    return {
-      id: item.id,
-      name: item.name,
-      anchor: parseCharAnchor(item.anchor, `selection ${index}.anchor`),
-    };
-  });
-}
-
-function parseCaptured(value: unknown, pinIndex: number): readonly SavedPinTrackV1[] {
-  const rows = exactDenseArray(
-    value,
-    RESEARCH_MAX_CAPTURED_TRACKS,
-    `pin ${pinIndex}.captured`,
-  );
-  const series = new Set<string>();
-  return rows.map((item, index) => {
-    if (!exactRecord(item, ['seriesId', 'groupId', 'identity', 'label'])) {
-      throw new RangeError(`pin ${pinIndex} captured track ${index} must be exact`);
-    }
-    boundedString(item.seriesId, RESEARCH_MAX_ID_UNITS, 'captured series id');
-    boundedString(item.groupId, RESEARCH_MAX_ID_UNITS, 'captured group id');
-    boundedString(item.identity, RESEARCH_MAX_NAME_UNITS, 'captured identity');
-    boundedString(item.label, RESEARCH_MAX_NAME_UNITS, 'captured label');
-    if (series.has(item.seriesId)) {
-      throw new RangeError(`pin ${pinIndex} repeats captured series '${item.seriesId}'`);
-    }
-    series.add(item.seriesId);
-    return item as unknown as SavedPinTrackV1;
-  });
-}
-
-function parsePins(value: unknown): readonly SavedPinV1[] {
-  const rows = exactDenseArray(value, RESEARCH_MAX_PINS, 'saved pins');
-  const ids = new Set<string>();
-  return rows.map((item, index) => {
-    if (!exactRecord(item, ['id', 'note', 'anchor', 'captured'])) {
-      throw new RangeError(`saved pin ${index} must be exact`);
-    }
-    boundedString(item.id, RESEARCH_MAX_ID_UNITS, `pin ${index}.id`);
-    boundedString(item.note, RESEARCH_MAX_NOTE_UNITS, `pin ${index}.note`, true);
-    if (item.note !== item.note.normalize('NFC')) {
-      throw new RangeError(`pin ${index}.note must be NFC`);
-    }
-    if (ids.has(item.id)) throw new RangeError(`duplicate pin id '${item.id}'`);
-    ids.add(item.id);
-    return {
-      id: item.id,
-      note: item.note,
-      anchor: parseCharAnchor(item.anchor, `pin ${index}.anchor`),
-      captured: parseCaptured(item.captured, index),
-    };
-  });
 }
 
 function parseClasses(value: unknown, what: string): readonly ('lexical' | 'numeral')[] {
@@ -484,8 +354,6 @@ export function parseResearchState(value: unknown): ResearchStateV1 {
       'notebook',
       'active',
       'kwicEnabled',
-      'selections',
-      'pins',
       'views',
     ])
   ) {
@@ -512,8 +380,6 @@ export function parseResearchState(value: unknown): ResearchStateV1 {
     notebook,
     active,
     kwicEnabled,
-    selections: parseSelections(value.selections),
-    pins: parsePins(value.pins),
     views: parseViews(value.views),
   };
 }
@@ -528,7 +394,12 @@ export function upgradeStoredResearchState(raw: unknown): unknown {
     !Array.isArray(raw)
   ) {
     const record = raw as Record<string, unknown>;
-    const views = record.views;
+    let withoutLegacyCapture = record;
+    if ('selections' in record || 'pins' in record) {
+      const { selections: _selections, pins: _pins, ...remaining } = record;
+      withoutLegacyCapture = remaining;
+    }
+    const views = withoutLegacyCapture.views;
     if (views !== null && typeof views === 'object' && !Array.isArray(views)) {
       const viewRecord = views as Record<string, unknown>;
       const trend = viewRecord.trend;
@@ -540,7 +411,7 @@ export function upgradeStoredResearchState(raw: unknown): unknown {
       ) {
         const legacy = trend as Record<string, unknown>;
         return {
-          ...record,
+          ...withoutLegacyCapture,
           views: {
             ...viewRecord,
             trend: {
@@ -560,6 +431,7 @@ export function upgradeStoredResearchState(raw: unknown): unknown {
         };
       }
     }
+    return withoutLegacyCapture;
   }
   return raw;
 }

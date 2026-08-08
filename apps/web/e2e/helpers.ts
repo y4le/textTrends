@@ -24,8 +24,7 @@ export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
 
 /**
  * Change place through the rendered workbench organs, preserving the running
- * worker/session. Corpus and Findings live in Scope; the four analyses live
- * in Lens.
+ * worker/session. Corpus lives in Scope; the analyses live in Lens.
  */
 export async function gotoPlace(page: Page, place: Place): Promise<void> {
   if (place === 'corpus') {
@@ -33,11 +32,6 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
       .getByRole('region', { name: 'Scope' })
       .getByRole('button')
       .first()
-      .click();
-  } else if (place === 'findings') {
-    await page
-      .getByRole('region', { name: 'Scope' })
-      .getByRole('button', { name: 'Findings', exact: true })
       .click();
   } else {
     await page

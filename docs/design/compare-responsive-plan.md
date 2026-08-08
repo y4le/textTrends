@@ -95,13 +95,13 @@ setKeynessPage(side: 'a' | 'b', offset: number): void;
 
 `applyKeynessSettings` validates the exact worker bounds, publishes one
 complete live view, resets both offsets, and issues exactly two keyness-table
-queries and zero inventory queries. It retains side evidence because side
+queries and zero inventory queries. It retains side inventories because side
 membership did not change.
 
 `setKeynessDirection` toggles only that side, resets only its offset, and
 issues one query. `setKeynessPage` preserves the 5,000-row refusal rule and
 issues one query. Mode, document, and Swap changes continue to reset both
-offsets, clear side evidence, and rerun both tables and both side inventories.
+offsets, clear side inventories, and rerun both tables and both side inventories.
 The reshaped intent key includes the shared filter and sort field, that side's
 direction and page, the side selections, and the projection side. It continues
 to reject superseded results independently: a stale side-A result cannot land
@@ -210,9 +210,7 @@ One row detail follows its primary row and exposes all row facts:
 - rate A and rate B per 10,000;
 - log-ratio and signed G²;
 - documents A and documents B;
-- the active combined-count, combined-documents, and class filters;
-- one verb: show evidence, explicitly restricted to the row's projection
-  side.
+- the active combined-count, combined-documents, and class filters.
 
 Compare deliberately does not duplicate “add as term.” Query authoring remains
 owned by Queries/Vocabulary.
@@ -224,61 +222,9 @@ admission-reporting focus-override pop to land on
 `place-compare-heading` exactly once. Swap requires no exception: the old-side
 target becomes stale when the inverted result is ready.
 
-When an Evidence sheet sits above a Compare row layer, the rendered target is
-the topmost row-detail in the stack so the detail remains mounted beneath the
-sheet. New row-detail writes are allowed only when that row layer is the
-actual top layer. The shared row-detail projection adopts the same rendering
-law for Vocabulary in this phase; both places keep their additive detail
-mounted under a governed sheet without allowing writes through it.
-
-## Governed comparison evidence
-
-The delivered side-restricted 50-row KWIC store/worker contract remains.
-Evidence gains a deliberate comparison-occurrences region rather than a
-second store or worker result.
-
-The old Compare component no longer renders the occurrence list.
-`EvidenceSurface` renders it inside its shared body, above recent retained
-evidence, so the same content naturally appears in the compact Evidence sheet
-and wide Evidence rail. Its accessible region name permanently includes:
-
-```text
-Occurrences of “term” restricted to side A/B: resolved side label
-```
-
-The named internal port contains exact book/left/node/right rows. Each row
-offers:
-
-- inspect, which moves the governed current-passage line through
-  `showEvidenceAt`;
-- Read, which opens Reader with the truthful existing `kwic` origin.
-
-The occurrence region heading also owns a 44px dismiss action wired to
-`closeKeynessEvidence`; dismissal supersedes the occurrence lane and removes
-only comparison evidence. Row-level inspect and Read controls follow the
-dense-evidence exemption rather than inflating every KWIC row to 44px; the
-region-level dismiss and sheet controls retain the touch floor.
-
-`openKeynessEvidence` becomes admission-reporting. It returns true only after
-the side selection and evidence group validate and the new occurrence request
-is admitted; every failure clears any prior comparison evidence and returns
-false. The Compare row action promotes the existing Evidence sheet only after
-a true admission. Compact and regular open it at the tall detent so the
-50-row list is usable, returning focus to the row disclosure on Back. Wide
-needs no sheet because the Evidence rail is resident.
-
-Settings changes retain evidence because side selection is unchanged.
-Mode/document/Swap changes clear it. Snapshot replacement must supersede the
-evidence lane and clear the state; rendering additionally requires the
-evidence snapshot to equal the live snapshot. Stale occurrence rows can never
-remain in the always-visible shell.
-
-Retained evidence can legitimately outlive its axis row after a class/filter
-change: its side selection and snapshot still make the occurrences true even
-when the new projection omits the term. That asymmetry is deliberate. A row
-detail is stale when its row disappears; admitted occurrence evidence remains
-as explicitly labelled retained evidence until side/snapshot change or user
-closure.
+The row detail is explanatory only. Compare does not open a second occurrence
+query or source-inspection surface; source reading remains owned by the normal
+Concordance and Reader flow.
 
 ## Component boundaries
 
@@ -289,14 +235,10 @@ closure.
 - `compare/CompareSettings.tsx`: controlled domain form only.
 - `compare/SignedAxis.tsx`: the semantic axis, rowgroups, pagination, and
   additive detail.
-- `compare/CompareRowDetail.tsx`: exact row facts and the one evidence verb.
-- `evidence/ComparisonOccurrences.tsx`: exact governed occurrence list owned
-  and lazy-loaded by `EvidenceSurface`, including its dismiss action.
+- `compare/CompareRowDetail.tsx`: exact row facts.
 - `provenance.ts`, its tests, and `MethodSummary`: the shared sort field and
   both directions, missing-zero rule, page-local display-normalization rule,
   and linked-range exception.
-- the shared row-detail projection: topmost row-detail rendering under a
-  sheet for both Compare and Vocabulary.
 - `FormLayer`, `SheetFrame`, `bounded-page-view.ts`, and worker contracts
   remain domain-free and reused.
 
@@ -321,8 +263,7 @@ exhausted.
   result for the other;
 - Apply and direction dirty durable research; paging and presentation do not;
 - provenance names the shared sort field, both directions, missing-zero
-  projection, page-local display normalization, and linked-range exception;
-- snapshot replacement supersedes and clears comparison evidence.
+  projection, page-local display normalization, and linked-range exception.
 
 ### Chromium functional
 
@@ -335,15 +276,8 @@ exhausted.
 - independent directions/pages query one side and leave the other page label;
 - each side owns a separately named pager and separately reachable
   5,000-row bounded-window message outside the table;
-- row detail exposes every fact and one side-restricted evidence verb;
+- row detail exposes every fact without issuing a source query;
 - Swap inverts a known term and stale-pops an open old-side detail once;
-- comparison evidence appears only in governed Evidence with a persistent
-  side label, inspect, Read, and a dismiss action that removes it;
-- with a Vocabulary detail open, promoting the Evidence sheet from
-  `evidence-more` keeps that detail mounted beneath a peek, non-modal sheet
-  and inert at half/tall; Back pops only the sheet, leaves the row target and
-  its own `vocabulary-row-<typeId>` focus return intact, and restores focus to
-  the invoking `evidence-more` control;
 - zero-token-side errors leave settings reachable;
 - linked Trends range remains query-independent;
 - save/reload restores shared sort field, page size, and both directions while
@@ -356,13 +290,10 @@ Bind `compact-compare.spec.ts` into `webkit-compact` and repeat at 320/390:
 - no body overflow or axis scroll trap;
 - compact rows are exactly term, signed value, side, and disclosure with no
   decorative bar; regular width restores the shared zero-centred geometry;
-- occurrence rows retain the dense-evidence action exemption while their
-  dismiss and sheet controls meet the 44px floor;
 - 44px Swap, settings disclosure, pagination, and detail actions;
 - inert full-height settings with 16px inputs, focus containment, sticky
   actions, Back/Escape/draft/focus laws, and zero-query transforms;
-- 390→1440→390 retains the settings draft without semantic work;
-- Evidence sheet promotion and Back return to the row disclosure.
+- 390→1440→390 retains the settings draft without semantic work.
 
 Production build, bundle contract, full functional suite, and full viewport
 suite remain commit gates.
@@ -372,10 +303,7 @@ suite remain commit gates.
 1. Reshape the live state and commands first, including `provenance.ts`,
    `MethodSummary`, persistence/query-dirty tests, the reshaped intent-key
    supersession test, and nested-default freezing.
-2. Build the axis, responsive settings, details, and Evidence ownership on the
-   normalized state, including admission-gated tall-sheet promotion, shared
-   row-detail projection, and the comparison-occurrences lazy-chunk/bundle
-   contract.
+2. Build the axis, responsive settings, and details on the normalized state.
 3. Rewrite the existing slice-4 journey while retaining sign inversion and
    linked-brush independence.
 

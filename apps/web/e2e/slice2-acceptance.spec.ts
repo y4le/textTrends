@@ -1,6 +1,6 @@
 /**
  * Slice-2 acceptance journey: one authored semantic flows through exact
- * dispersion, linked detail evidence, immutable pins, and canonical reading.
+ * dispersion, linked detail scope, and canonical reading.
  * The corpus is local and deterministic; every assertion rests on a fresh
  * job-correlated result.
  */
@@ -58,7 +58,7 @@ async function awaitOps(
     .toBe('answered');
 }
 
-test('slice 2: exact evidence → linked range → pin → gap-free reader → baseline', async ({ page }) => {
+test('slice 2: exact occurrences → linked range → gap-free reader → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'corpus');
@@ -131,20 +131,10 @@ test('slice 2: exact evidence → linked range → pin → gap-free reader → b
   expect(rowText).not.toContain('out0100');
   expect(rowText).not.toContain('out0820');
 
-  // P pins the scrub anchor (token 420) without changing the selection. Open
-  // the immutable pin in the current-semantics reader.
-  await gotoPlace(page, 'trends');
-  await scrubber.focus();
-  await scrubber.press('p');
-  await gotoPlace(page, 'findings');
-  const pinnedEvidence = page.getByRole('region', { name: 'Saved excerpts' });
-  await pinnedEvidence.locator('.findings-record-trigger').click();
-  const pinOpen = pinnedEvidence.getByRole('button', {
-    name: /Open saved excerpt at token 421 in reader/,
-  });
-  await expect(pinOpen).toBeVisible();
+  // Open one selected concordance occurrence in the current-semantics Reader.
+  const readerOpen = rows.getByRole('button').first();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await pinOpen.click();
+  await readerOpen.click();
   await awaitOps(page, mark, ['reader-page']);
   const drawer = page.getByRole('main', { name: /Reader: slice-two/ });
   await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();

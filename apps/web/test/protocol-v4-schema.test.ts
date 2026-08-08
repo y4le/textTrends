@@ -159,46 +159,6 @@ describe('parseToWorkerV4 envelope', () => {
     })).toBeNull();
   });
 
-  it('admits exact character-anchor operations and rejects reversed or sparse ranges', () => {
-    const anchor = {
-      doc: 'a',
-      text: 'a'.repeat(64),
-      chars: { start: 2, end: 7 },
-    };
-    const wrap = (query: unknown) => ({
-      v,
-      t: 'query',
-      job: 10,
-      snapshot: 's',
-      query,
-    });
-    expect(parseToWorkerV4(wrap({
-      op: 'anchor-tokens',
-      request: {
-        method: 'anchor-tokens/1',
-        doc: 'a',
-        tokens: { start: 1, end: 2 },
-      },
-    }))).not.toBeNull();
-    expect(parseToWorkerV4(wrap({
-      op: 'compile-anchor',
-      request: { method: 'compile-anchor/1', anchors: [anchor] },
-    }))).not.toBeNull();
-    expect(parseToWorkerV4(wrap({
-      op: 'compile-anchor',
-      request: {
-        method: 'compile-anchor/1',
-        anchors: [{ ...anchor, chars: { start: 7, end: 2 } }],
-      },
-    }))).toBeNull();
-    const sparse = [anchor];
-    sparse.length = 2;
-    expect(parseToWorkerV4(wrap({
-      op: 'compile-anchor',
-      request: { method: 'compile-anchor/1', anchors: sparse },
-    }))).toBeNull();
-  });
-
   it('rejects invalid CAS revisions (only a positive safe integer or the 0 create sentinel)', () => {
     const ok = { v, t: 'project-save', job: 6, project: 'p', manifest: {} };
     expect(parseToWorkerV4({ ...ok, expectedRevision: 0 })).not.toBeNull();
@@ -278,13 +238,11 @@ describe('parseToWorkerV4 envelope', () => {
 describe('narrowQueryV4', () => {
   const kwicReq = { contextTokens: 6, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } };
   const kwicTracks = [{ seriesId: 's1', group: wolfGroup }];
-  const passageReq = { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] };
 
-  it('accepts trend/kwic/passage/structure with COMPLETE request fields', () => {
+  it('accepts trend, concordance, and structure with complete request fields', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'fixed-tokens', count: 250 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
-    expect(narrowQueryV4({ op: 'passage', request: passageReq })).toBe(true);
     expect(narrowQueryV4({ op: 'structure', request: { doc: 'a' } })).toBe(true);
     expect(narrowQueryV4({ op: 'structure-edit-context', request: { doc: 'a' } })).toBe(true);
     expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 10, maxChars: 200 } })).toBe(true);
@@ -294,21 +252,13 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
   });
 
-  it('rejects skeletal/malformed requests, ranges, and passage caps', () => {
+  it('rejects skeletal requests, malformed ranges, and concordance caps', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'x', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
-    // A skeletal kwic/passage request is NOT valid (required fields missing).
+    // A skeletal concordance request is not valid.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: {} })).toBe(false);
-    expect(narrowQueryV4({ op: 'passage', request: { doc: 'a' } })).toBe(false);
     // Malformed selection ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: 7 }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
-    // Passage: over the 5-track cap and duplicate seriesIds.
     const sixTracks = Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup }));
-    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: sixTracks } })).toBe(false);
-    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }] } })).toBe(false);
-    // Passage tracks share the ONE narrowing authority with kwic: an EMPTY
-    // seriesId is rejected (the old inline copy admitted it) — zero tracks stay valid.
-    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [{ seriesId: '', group: wolfGroup }] } })).toBe(false);
-    expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, tracks: [] } })).toBe(true);
     // kwic: 0 tracks, over the shared cap, duplicate seriesId, and a malformed center.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [], request: kwicReq })).toBe(false);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: sixTracks, request: kwicReq })).toBe(false);
@@ -631,8 +581,6 @@ describe('narrowQueryV4', () => {
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, contextTokens: n } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, page: { offset: n, limit: 10 } } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: n } } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, centerToken: n } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'passage', request: { ...passageReq, maxTokens: n } }), why).toBe(false);
       expect(narrowQueryV4({
         op: 'inventory',
         selection: { docs: ['a'] },

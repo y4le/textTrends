@@ -138,12 +138,17 @@ async function awaitDetailBurst(page: Page, mark: number): Promise<void> {
           && event.t === 'query'
           && DETAIL_OPS.has(event.op ?? ''),
       );
-      const jobs = new Set(queries.map((event) => event.job));
+      const latestByOp = new Map<string, number>();
+      for (const event of queries) {
+        if (event.op !== undefined) latestByOp.set(event.op, event.job as number);
+      }
+      const jobs = new Set(latestByOp.values());
       const results = snapshot.events.filter(
         (event) =>
           event.seq > mark
           && event.direction === 'from-worker'
           && event.t === 'result'
+          && event.job !== undefined
           && jobs.has(event.job),
       );
       const ops = new Set(queries.map((event) => event.op));
@@ -178,7 +183,7 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
     .toBe(true);
 }
 
-test('pointer and keyboard selections share detail evidence and stale results cannot resurrect', async ({ page }) => {
+test('pointer and keyboard selections share detail results and stale results cannot resurrect', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await importCorpus(page, 'animals.txt', CORPUS);

@@ -135,40 +135,6 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
       resultA: keyness,
       resultB: keyness,
     },
-    findings: {
-      ranges: [{
-        id: 'range-1',
-        name: 'Opening',
-        document: 'a',
-        charStart: 0,
-        charEnd: 12,
-        textHash: 'sha256:text-a',
-        status: 'checked in this session: tokens 1–3',
-      }],
-      pins: [{
-        id: 'pin-1',
-        note: 'Clue',
-        document: 'a',
-        charStart: 20,
-        charEnd: 32,
-        textHash: 'sha256:text-a',
-        token: 5,
-        capturedTracks: ['Holmes'],
-        status: 'ready',
-      }],
-      issues: [{
-        id: 'pin-old',
-        note: '',
-        document: 'b',
-        charStart: 2,
-        charEnd: 8,
-        textHash: 'sha256:text-b',
-        status: 'text-mismatch: document text changed',
-      }],
-      sharePolicy: 'Pins and source text stay on this device.',
-      researchStatus: 'saved',
-      projectStatus: 'Built-in corpus is read-only.',
-    },
     ...overrides,
   };
 }
@@ -184,7 +150,7 @@ describe('provenanceFor', () => {
     expect(value).toContain('Snapshot: snapshot-1');
   });
 
-  it('describes corpus, concordance, vocabulary, compare, and findings methods', () => {
+  it('describes corpus, concordance, vocabulary, and compare methods', () => {
     expect(formatProvenanceText(provenanceFor(input(), 'corpus'))).toContain('MATTR window: 500');
     expect(formatProvenanceText(provenanceFor(input(), 'concordance'))).toContain('Method: kwic/2');
     const vocabulary = formatProvenanceText(provenanceFor(input(), 'vocabulary'));
@@ -202,11 +168,6 @@ describe('provenanceFor', () => {
     expect(compare).toContain('page-local scale');
     expect(compare).toContain('No confidence intervals');
     expect(compare).toContain('linked Trends range');
-    const findings = formatProvenanceText(provenanceFor(input(), 'findings'));
-    expect(findings).toContain('Method: research log');
-    expect(findings).toContain('saved ranges: 1');
-    expect(findings).toContain('saved excerpts: 1');
-    expect(findings).toContain('current-state register');
   });
 
   it('is deterministic and honest about waiting and partial results', () => {
@@ -255,8 +216,8 @@ describe('provenanceFor', () => {
 });
 
 describe('result exports', () => {
-  it('formats Trends, Vocabulary, Compare, and Findings rows with the same provenance', () => {
-    for (const place of ['trends', 'vocabulary', 'compare', 'findings'] as const) {
+  it('formats Trends, Vocabulary, and Compare rows with the same provenance', () => {
+    for (const place of ['trends', 'vocabulary', 'compare'] as const) {
       const provenance = provenanceFor(input(), place);
       const table = resultTableFor(input(), place);
       expect(table).not.toBeNull();
@@ -277,14 +238,6 @@ describe('result exports', () => {
     expect(compare).toContain('ranking_side\trank\tterm');
     expect(compare).toContain('A\t1\tHolmes');
     expect(compare).toContain('B\t1\tHolmes');
-    const findings = formatResultTsv(
-      resultTableFor(input(), 'findings')!,
-      provenanceFor(input(), 'findings'),
-    );
-    expect(findings).toContain('kind\tid\tname_or_note');
-    expect(findings).toContain('saved_range\trange-1\tOpening');
-    expect(findings).toContain('pinned_evidence\tpin-1\tClue');
-    expect(findings).toContain('anchor_review\tpin-old');
   });
 
   it('exports range-resident Trends rows rather than relabelling baseline rows', () => {
@@ -318,7 +271,7 @@ describe('result exports', () => {
       title: 'test',
       columns: ['first\tcolumn'],
       rows: [['two\nlines']],
-    }, provenanceFor(input(), 'findings'));
+    }, provenanceFor(input(), 'trends'));
     expect(value).toContain('first column');
     expect(value).toContain('two lines');
   });

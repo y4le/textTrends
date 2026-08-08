@@ -55,13 +55,11 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   }
 
   await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
-  const evidence = page.getByRole('complementary', { name: 'Evidence' });
-  await expect(evidence.getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
-    timeout: 30_000,
-  });
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await expect(scrubber).toHaveAttribute('aria-valuetext', /token \d+ of/);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 
-  const captions = [await evidence.locator('.evidence-caption').innerText()];
+  const captions = [await scrubber.getAttribute('aria-valuetext')];
   await gotoPlace(page, 'concordance');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel('Concordance order').selectOption('L1');
@@ -70,8 +68,8 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   for (let index = 0; index < 2; index++) {
     await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
-    await expect(evidence.locator('.evidence-caption')).not.toHaveText(captions.at(-1)!);
-    captions.push(await evidence.locator('.evidence-caption').innerText());
+    await expect(scrubber).not.toHaveAttribute('aria-valuetext', captions.at(-1)! ?? '');
+    captions.push(await scrubber.getAttribute('aria-valuetext'));
   }
   expect(new Set(captions).size).toBe(3);
   expect((await trace(page)).events.filter(

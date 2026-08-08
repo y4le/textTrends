@@ -635,51 +635,6 @@ describe('authoring context + line excerpt queries (8b)', () => {
     expect(h.last('error').code).toBe('REQUEST_INVALID');
   });
 
-  it('round-trips a token selection through the worker character-anchor arms', async () => {
-    const h = harness();
-    const text = 'the wolf ran far';
-    const spec = await docSpec('a', text);
-    await begin(h, [spec]);
-    await coldIngest(h, 'g', 'a', text, 10);
-    const snapshot = h.last('snapshot-published').snapshot;
-    await h.send({
-      t: 'query',
-      job: 34,
-      snapshot,
-      query: {
-        op: 'anchor-tokens',
-        request: {
-          method: 'anchor-tokens/1',
-          doc: 'a',
-          tokens: { start: 1, end: 3 },
-        },
-      },
-    });
-    const anchored = h.last('result');
-    expect(anchored.data.op).toBe('anchor-tokens');
-    if (anchored.data.op !== 'anchor-tokens') return;
-    await h.send({
-      t: 'query',
-      job: 35,
-      snapshot,
-      query: {
-        op: 'compile-anchor',
-        request: {
-          method: 'compile-anchor/1',
-          anchors: [anchored.data.result.anchor],
-        },
-      },
-    });
-    const compiled = h.last('result');
-    expect(compiled.data.op).toBe('compile-anchor');
-    if (compiled.data.op === 'compile-anchor') {
-      expect(compiled.data.result.rows[0]).toMatchObject({
-        status: 'ok',
-        tokens: { start: 1, end: 3 },
-      });
-    }
-  });
-
   it('a structurally-invalid active override maps to REQUEST_INVALID (not INTERNAL)', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far');

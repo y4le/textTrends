@@ -12,12 +12,10 @@ export function CompareRowDetail({
   row,
   side,
   view,
-  onEvidence,
 }: {
   readonly row: KeynessRowV1;
   readonly side: 'a' | 'b';
   readonly view: KeynessViewV1;
-  readonly onEvidence: () => void;
 }) {
   return (
     <section
@@ -43,14 +41,6 @@ export function CompareRowDetail({
           </dd>
         </div>
       </dl>
-      <p className="compare-row-note">
-        Evidence is restricted to side {side.toUpperCase()} for this projection.
-      </p>
-      <div className="compare-row-actions">
-        <button type="button" onClick={onEvidence}>
-          show evidence
-        </button>
-      </div>
     </section>
   );
 }

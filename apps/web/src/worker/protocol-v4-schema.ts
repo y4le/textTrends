@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { COMPILE_ANCHOR_MAX_ITEMS, exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
@@ -151,7 +151,7 @@ function narrowSelection(s: unknown): boolean {
 }
 
 /** 1..MAX_KWIC_TRACKS tracks with unique, nonempty seriesIds and valid groups —
- *  the shared concordance/passage track cap (one authority in core). */
+ *  the shared concordance track cap (one authority in core). */
 function narrowTracks(tracks: unknown, min: number): boolean {
   if (!Array.isArray(tracks) || tracks.length < min || tracks.length > MAX_KWIC_TRACKS) return false;
   const seen = new Set<string>();
@@ -175,14 +175,6 @@ function narrowKwicRequest(r: unknown): boolean {
     if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isCount((r.center as Record<string, unknown>).token)) return false;
   }
   return isCount(r.page.offset) && isCount(r.page.limit);
-}
-
-function narrowPassageRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isStr(r.doc) || !isCount(r.centerToken) || !isCount(r.maxTokens)) return false;
-  // ONE track authority: same shape/uniqueness/cap as the concordance, with
-  // zero tracks allowed (a passage may be fetched with no marks) — and the
-  // same NONEMPTY seriesId rule, which the old inline copy had lost.
-  return narrowTracks(r.tracks, 0);
 }
 
 /** The query op union (§12.8 QueryOpV4) — including the new `structure` op.
@@ -388,8 +380,6 @@ export function narrowQueryV4(q: unknown): boolean {
       if (c.kind === 'before') return (c.token as number) >= 1;
       return c.kind === 'around' || c.kind === 'from';
     }
-    case 'passage':
-      return narrowPassageRequest(q.request);
     case 'structure':
     case 'structure-edit-context':
       return isRecord(q.request) && isStr((q.request as Record<string, unknown>).doc);
@@ -399,40 +389,6 @@ export function narrowQueryV4(q: unknown): boolean {
       // (a NaN budget defeats every stopping comparison and returns an unbounded
       // slice of a pathological line).
       return isRecord(q.request) && isStr(r.doc) && isFiniteNum(r.anchor) && isFiniteNum(r.maxChars);
-    }
-    case 'anchor-tokens': {
-      const r = q.request as Record<string, unknown>;
-      const tokens = r.tokens as Record<string, unknown>;
-      return exactRecord(q, ['op', 'request']) &&
-        exactRecord(q.request, ['method', 'doc', 'tokens']) &&
-        r.method === 'anchor-tokens/1' &&
-        isStr(r.doc) &&
-        exactRecord(r.tokens, ['start', 'end']) &&
-        isCount(tokens.start) &&
-        isCount(tokens.end) &&
-        (tokens.start as number) < (tokens.end as number);
-    }
-    case 'compile-anchor': {
-      const r = q.request as Record<string, unknown>;
-      return exactRecord(q, ['op', 'request']) &&
-        exactRecord(q.request, ['method', 'anchors']) &&
-        r.method === 'compile-anchor/1' &&
-        denseBoundedArray(
-          r.anchors,
-          0,
-          COMPILE_ANCHOR_MAX_ITEMS,
-          (value) => {
-            if (!exactRecord(value, ['doc', 'text', 'chars'])) return false;
-            const chars = value.chars as Record<string, unknown>;
-            return isStr(value.doc) &&
-              isStr(value.text) &&
-              /^[0-9a-f]{64}$/.test(value.text) &&
-              exactRecord(value.chars, ['start', 'end']) &&
-              isCount(chars.start) &&
-              isCount(chars.end) &&
-              (chars.start as number) <= (chars.end as number);
-          },
-        );
     }
     default:
       return false;

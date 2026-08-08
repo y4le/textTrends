@@ -1,6 +1,6 @@
 import type { Layer, SheetDetent } from './layers.ts';
 
-export const SHEET_SURFACES = ['evidence', 'method'] as const;
+export const SHEET_SURFACES = ['method'] as const;
 export type SheetSurface = (typeof SHEET_SURFACES)[number];
 
 export interface SheetTarget {
@@ -18,10 +18,9 @@ export function sheetTarget(value: unknown): SheetTarget | null {
     : null;
 }
 
-/** A bare `?e=sheet` deep link honestly opens the general Evidence surface. */
 export function sheetSurface(layer: Layer | undefined): SheetSurface | null {
   if (layer?.kind !== 'sheet') return null;
-  return sheetTarget(layer.target)?.surface ?? 'evidence';
+  return sheetTarget(layer.target)?.surface ?? null;
 }
 
 export function sheetDetent(layer: Layer | undefined): SheetDetent {

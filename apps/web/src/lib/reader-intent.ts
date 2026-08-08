@@ -1,11 +1,10 @@
-/** Snapshot-fenced intent shared by every evidence surface that can open the
- * full reader. F lands the place boundary; H attaches reader-page queries. */
+/** Snapshot-fenced intent shared by views that can open the full Reader. */
 
 export interface ReaderOpenIntent {
   readonly snapshot: string;
   readonly doc: string;
   readonly token: number;
-  readonly from: 'kwic' | 'barcode' | 'pin' | 'passage';
+  readonly from: 'kwic' | 'barcode';
 }
 
 export interface ReaderPlace {
@@ -21,8 +20,6 @@ export interface ReaderPlace {
 const READER_ORIGINS = new Set<ReaderOpenIntent['from']>([
   'kwic',
   'barcode',
-  'pin',
-  'passage',
 ]);
 const READER_CURSOR_KINDS = new Set<ReaderPlace['cursor']['kind']>([
   'around',

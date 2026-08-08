@@ -50,10 +50,7 @@ test('touch reads by default and commits only through explicit range mode', asyn
   });
 
   await page.touchscreen.tap(point(0.25).x, point(0.25).y);
-  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
-  const evidenceSheet = page.getByRole('dialog', { name: 'Evidence sheet' });
-  await expect(evidenceSheet.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
-  await evidenceSheet.getByRole('button', { name: 'Close Evidence sheet' }).click();
+  await expect(scrubber).toHaveAttribute('aria-valuetext', /token \d+ of 240/);
   expect(await page.evaluate(
     () => (window as unknown as { __ttScrubberCaptures?: number }).__ttScrubberCaptures,
   )).toBe(0);
@@ -100,13 +97,13 @@ test('touch reads by default and commits only through explicit range mode', asyn
         && event.t === 'query',
     )
     .map((event) => event.op);
-  // Moving the reading cursor may re-center KWIC or fetch a passage. The
-  // range draft itself must not issue any scope-changing operation.
+  // Moving the reading cursor may re-center the concordance. The range draft
+  // itself must not issue any scope-changing operation.
   const prohibitedBeforeUse = draftOps.filter(
     (op) => ['trend', 'dispersion', 'inventory', 'freq-list'].includes(op ?? ''),
   );
   expect(prohibitedBeforeUse).toHaveLength(0);
-  expect(draftOps.every((op) => op === 'kwic' || op === 'passage')).toBe(true);
+  expect(draftOps.every((op) => op === 'kwic')).toBe(true);
 
   const handle = page.locator('[data-range-handle="start"]');
   await handle.evaluate((node) => {

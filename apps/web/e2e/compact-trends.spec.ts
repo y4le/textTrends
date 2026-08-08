@@ -5,7 +5,7 @@ for (const viewport of [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
 ]) {
-  test(`compact Trends preserves evidence at ${viewport.width}px`, async ({ page }) => {
+  test(`compact Trends preserves exact values at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
     await awaitAllReady(page);

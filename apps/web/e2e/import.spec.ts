@@ -58,12 +58,11 @@ test('import → transfer → save → reload → load → reattach', async ({ p
   await expect(page.getByText(`attached · ${DOC_NAME}`)).toBeVisible({ timeout: 30_000 });
 
   // ── CAS-save it (revision 1). ──
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByRole('region', { name: 'Findings', exact: true })
-    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   // ── Evict analysis artifacts (keep the durable project), then reload. ──
   await clearArtifactStores(page);

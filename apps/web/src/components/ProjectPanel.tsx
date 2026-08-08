@@ -55,7 +55,10 @@ export function ProjectPanel({
   const doReattach = useApp((s) => s.reattach);
   const setPersistIntent = useApp((s) => s.setPersistIntent);
   const loadSavedProject = useApp((s) => s.loadSavedProject);
-  const setPlace = useApp((s) => s.setPlace);
+  const saveProject = useApp((s) => s.saveProject);
+  const researchPersistence = useApp((s) => s.researchPersistence);
+  const reloadResearch = useApp((s) => s.reloadResearch);
+  const overwriteResearch = useApp((s) => s.overwriteResearch);
   const clearCommandError = useApp((s) => s.clearCommandError);
 
   const importRef = useRef<HTMLInputElement>(null);
@@ -128,21 +131,37 @@ export function ProjectPanel({
         >
           Load saved project
         </button>
+        {!isBuiltin && (
+          <button
+            type="button"
+            disabled={!saveView.canSave}
+            onClick={() => saveProject()}
+            style={SMALL_BUTTON_STYLE}
+          >
+            {saveView.attention ? 'retry Save project' : 'Save project'}
+          </button>
+        )}
       </div>
-      {saveView.showCorpusPointer && (
+      {saveView.showStatus && (
         <p
           role={saveView.attention ? 'alert' : 'status'}
           style={{ margin: 'var(--space-1) 0 0', color: saveView.attention ? 'var(--accent-text)' : 'var(--fg-muted)' }}
         >
-          {saveView.label}{' '}
-          <button
-            type="button"
-            onClick={() => setPlace('findings')}
-            style={SMALL_BUTTON_STYLE}
-          >
-            Save and status in Findings
-          </button>
+          {saveView.label}
         </p>
+      )}
+      {(researchPersistence.phase === 'conflict' || researchPersistence.phase === 'error') && (
+        <div role="alert" style={{ margin: 'var(--space-1) 0 0' }}>
+          {researchPersistence.message}{' '}
+          <button type="button" onClick={() => reloadResearch()} style={SMALL_BUTTON_STYLE}>
+            reload saved analysis state
+          </button>{' '}
+          {researchPersistence.phase === 'conflict' && (
+            <button type="button" onClick={() => overwriteResearch()} style={SMALL_BUTTON_STYLE}>
+              overwrite with this tab
+            </button>
+          )}
+        </div>
       )}
 
       {commandError && (

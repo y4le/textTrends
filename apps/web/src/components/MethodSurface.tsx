@@ -13,7 +13,6 @@ const MethodSummary = lazy(() =>
 export function MethodSurface({ place }: { readonly place: Place }) {
   const presentation = usePresentation();
   const layers = useApp((state) => state.layers);
-  const replaceLayer = useApp((state) => state.replaceLayer);
   const setLayerUI = useApp((state) => state.setLayerUI);
   const popLayer = useApp((state) => state.popLayer);
   const topLayer = layers.at(-1);
@@ -31,20 +30,6 @@ export function MethodSurface({ place }: { readonly place: Place }) {
       onDetent={(next) => setLayerUI(topLayer.id, { detent: next })}
       onClose={popLayer}
     >
-      <div className="sheet-surface-switch">
-        <button
-          id="evidence-more"
-          type="button"
-          onClick={() => replaceLayer(
-            'sheet',
-            Object.freeze({ surface: 'evidence' }),
-            topLayer.returnFocusTo,
-            { detent },
-          )}
-        >
-          Evidence
-        </button>
-      </div>
       {place === 'trends' && <TrendSettings />}
       <Suspense fallback={<p className="region-placeholder">loading Method…</p>}>
         <MethodSummary place={place} />

@@ -6,7 +6,6 @@ export const PLACES = [
   'concordance',
   'vocabulary',
   'compare',
-  'findings',
 ] as const;
 
 export type Place = (typeof PLACES)[number];
@@ -26,5 +25,4 @@ export const PLACE_HEADING: Readonly<Record<Place, string>> = Object.freeze({
   concordance: 'Concordance',
   vocabulary: 'Vocabulary',
   compare: 'Compare',
-  findings: 'Findings',
 });

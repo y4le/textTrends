@@ -9,7 +9,7 @@
  *
  * - EXACT (≤ DISPERSION_EXACT_MAX occurrences): document-local start
  *   positions AND spans, CSR-grouped by selected document — a clicked
- *   phrase/merged occurrence is an exact piece of evidence, not a point.
+ *   phrase/merged occurrence is an exact span, not a point.
  * - DENSITY (above the threshold): HONEST bucket counts over a shared
  *   geometry — never sampled, never silently dropped; bucket sums equal the
  *   exact total. One bucket is never renderable as one occurrence.

@@ -13,7 +13,7 @@
  * - `countOverlaps: true` emits every member match individually.
  * - `countOverlaps: false` merges matches whose covered-token spans overlap
  *   into maximal union spans (per document). Every emitted span reports ALL
- *   contributing member ordinals via a CSR (evidence is never silently
+ *   contributing member ordinals via a CSR (contributors are never silently
  *   discarded); spans are emitted in (declared doc order, start) order.
  * - Binding discipline: the selection must be bound to THIS snapshot, and
  *   each resolver/shard pair must carry the exact index identity named by
@@ -140,7 +140,7 @@ export function termGroupIdentity(group: TermGroupSpec): string {
 }
 
 /** Semantic group validation against `TERM_GROUP_LIMITS_V1` — every PUBLIC
- *  kernel entry (occurrences, planPassage) must run this exactly once so a
+ *  kernel entry must run this exactly once so a
  *  malformed group classifies as RangeError/REQUEST_INVALID, never as an
  *  internal fault. Exported through the barrel (slice-1 ruling): the app's
  *  authoring surface must accept exactly the groups the kernel accepts.
@@ -220,7 +220,7 @@ function crossesSentence(shard: DocumentIndexV1, start: number, span: number): b
  * FULLY contained in a single range.
  *
  * PRECONDITION: `group` has passed `validateGroup` — the public kernel entry
- * (occurrences, planPassage) validates once; this matcher does not re-check.
+ * `occurrences` validates once; this matcher does not re-check.
  */
 export function matchGroupInTokenRanges(
   shard: DocumentIndexV1,
@@ -329,7 +329,7 @@ export interface GroupSpan {
 
 /** Apply the group's overlap semantics to sorted raw matches: overlaps=true
  *  emits every member match; overlaps=false merges into maximal covered-token
- *  union spans reporting ALL contributing members (evidence never dropped). */
+ *  union spans reporting ALL contributing members (contributors never dropped). */
 export function mergeGroupSpans(matches: readonly RawMatch[], countOverlaps: boolean): GroupSpan[] {
   if (countOverlaps) {
     return matches.map((m) => ({ pos: m.pos, span: m.span, members: [m.member] }));

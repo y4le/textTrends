@@ -3,7 +3,7 @@
  *
  * A PASSIVE, SANITIZED record of protocol traffic for the e2e build:
  * metadata only — never query surfaces, byte buffers, result arrays, KWIC
- * rows, or passage text, so the trace can neither leak source text nor
+ * rows, or Reader text, so the trace can neither leak source text nor
  * retain large typed arrays. The ring is bounded; overflow is visible as a
  * dropped-event count, never silent. Snapshots return copies.
  */

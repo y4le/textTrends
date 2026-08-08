@@ -17,7 +17,7 @@
  *   independent (a per-document correction / persist / reattach). `begin()`
  *   mints an `OwnedOperationLease`.
  *
- * Guards stay visible at the call site so the evidence identity (snapshot key,
+ * Guards stay visible at the call site so the result identity (snapshot key,
  * focused doc, …) is auditable rather than hidden in a generic context object.
  * A guard that throws surfaces as an invariant fault; it is never swallowed as
  * "stale".

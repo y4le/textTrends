@@ -7,9 +7,7 @@ export type RowDetailSurface =
   | 'vocab-filter'
   | 'vocab-row'
   | 'compare-settings'
-  | 'compare-row'
-  | 'share-review'
-  | 'findings-row';
+  | 'compare-row';
 
 export type RowDetailWrite = 'push' | 'replace';
 
@@ -25,8 +23,6 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
     case 'vocab-row':
     case 'compare-settings':
     case 'compare-row':
-    case 'share-review':
-    case 'findings-row':
       return surface;
     default:
       return null;

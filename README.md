@@ -14,7 +14,7 @@ The current workbench supports:
 - term-group trends, exact-or-density dispersion barcodes, linked ranges, and
   a merged keyword-in-context concordance;
 - a full-page canonical-text Reader with query highlights; and
-- a durable Findings log for saved passages and research state.
+- durable project, notebook, and analysis-view settings.
 
 The optional Standard Ebooks catalog is the one deliberate content-network
 path: opening the catalog loads a baked same-origin index, and adding a title

@@ -1,6 +1,6 @@
 /**
- * Slice-2 H browser proof: every evidence path carries a snapshot-bound open
- * intent into the lazy canonical reader; rapid navigation delivers stale
+ * Slice-2 H browser proof: concordance and barcode rows carry snapshot-bound
+ * open intents into the lazy canonical reader; rapid navigation delivers stale
  * worker results physically out of order without relabeling the current page.
  */
 
@@ -215,7 +215,6 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
   await expect(lens).toHaveCount(0);
-  await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(0);
   await page.goBack();
   await expect(drawer).toHaveCount(0);
   const row = page
@@ -278,31 +277,22 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
   await expect(kwicOpen).toBeFocused();
   await gotoPlace(page, 'trends');
 
-  // Full Reader has no query-authoring chrome. Return to Trends to make a
-  // semantic edit, then reopen the same page and verify its fresh projection.
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-  const passageOpen = page.getByRole('button', { name: 'Open passage in reader' });
-  await expect(passageOpen).toBeVisible();
-  let readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await passageOpen.click();
-  await awaitFreshReader(page, readerMark);
-  const trendDrawer = page.getByRole('main', { name: /Reader: reader/ });
-  await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
-  await trendDrawer.getByRole('button', { name: 'back', exact: true }).click();
-  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  // Return to Trends to make a semantic edit, then reopen from the refreshed
+  // concordance and verify the Reader's current projection.
   await page.getByRole('button', { name: 'Edit members: wolf' }).click();
   const editor = page.getByRole('group', { name: 'Edit members: wolf' });
   await expect(editor).toBeVisible();
-  await expect(trendDrawer).toHaveCount(0);
   await editor.getByLabel(/Add member to wolf/).fill('w0100');
   await editor.getByRole('button', { name: 'add', exact: true }).click();
   await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
   await expect(editor).toHaveCount(0);
-  readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await passageOpen.click();
+  await gotoPlace(page, 'concordance');
+  const refreshedOpen = page.getByRole('table', { name: 'Concordance' })
+    .getByRole('button', { name: 'w0100', exact: true }).first();
+  const readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await refreshedOpen.click();
   await awaitFreshReader(page, readerMark);
+  const trendDrawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(trendDrawer.locator('[data-reader-mark]').filter({ hasText: 'w0100' })).toBeVisible();
 
   // Back restores workbench navigation; the full Reader never carries across
@@ -313,45 +303,15 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
   await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
 });
 
-test('exact barcode, passage, and pin evidence all open the reader', async ({ page }) => {
+test('an exact barcode occurrence opens the reader', async ({ page }) => {
   // Exact barcode tick at wolf@450 opens directly (density aggregates instead
   // centre KWIC, whose nearest real row supplies its reader link).
   const canvas = page.locator('canvas').first();
   const box = (await canvas.boundingBox())!;
-  let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: box.width * (450.5 / 900), y: 3 } });
   await awaitFreshReader(page, mark);
-  let drawer = page.getByRole('main', { name: /Reader: reader/ });
+  const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
   await drawer.getByRole('button', { name: 'back' }).click();
-
-  // Keyboard scrub produces a source passage with its own explicit link.
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-  const passageOpen = page.getByRole('button', { name: 'Open passage in reader' });
-  await expect(passageOpen).toBeVisible();
-  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await passageOpen.click();
-  await awaitFreshReader(page, mark);
-  drawer = page.getByRole('main', { name: /Reader: reader/ });
-  await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
-  await drawer.getByRole('button', { name: 'back' }).click();
-  await expect(passageOpen).toBeFocused();
-
-  // P at the same cursor captures the resident passage synchronously; its
-  // immutable anchor opens under the current track set.
-  await scrubber.focus();
-  await scrubber.press('p');
-  await gotoPlace(page, 'findings');
-  const pinnedEvidence = page.getByRole('region', { name: 'Saved excerpts' });
-  await pinnedEvidence.locator('.findings-record-trigger').click();
-  const pinOpen = pinnedEvidence.getByRole('button', {
-    name: /Open saved excerpt at token 1 in reader/,
-  });
-  await expect(pinOpen).toBeVisible();
-  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await pinOpen.click();
-  await awaitFreshReader(page, mark);
-  await expect(page.getByRole('main', { name: /Reader: reader/ }).locator('[data-reader-page="0:400"]')).toBeVisible();
 });

@@ -25,7 +25,6 @@ describe('query surface', () => {
     expect(placeUsesQueryEncoding('corpus')).toBe(false);
     expect(placeUsesQueryEncoding('vocabulary')).toBe(false);
     expect(placeUsesQueryEncoding('compare')).toBe(false);
-    expect(placeUsesQueryEncoding('findings')).toBe(false);
   });
 
   it('parses only governed query-editor targets', () => {

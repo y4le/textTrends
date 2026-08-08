@@ -31,7 +31,6 @@ const PLACE_CHUNKS = [
   ['Concordance', /^assets\/ConcordancePlace-[^/]+\.js$/],
   ['Vocabulary', /^assets\/VocabularyPlace-[^/]+\.js$/],
   ['Compare', /^assets\/ComparePlace-[^/]+\.js$/],
-  ['Findings', /^assets\/FindingsPlace-[^/]+\.js$/],
 ];
 
 const gzipSize = (bytes) => gzipSync(bytes, { level: 9 }).length;
@@ -104,13 +103,6 @@ export function checkBundle(files, catalogSource) {
   const methodSummaryPath = unique(files, /^assets\/MethodSummary-[^/]+\.js$/, 'Method summary', failures);
   const methodSurfacePath = unique(files, /^assets\/MethodSurface-[^/]+\.js$/, 'Method region', failures);
   const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
-  const evidenceSurfacePath = unique(files, /^assets\/EvidenceSurface-[^/]+\.js$/, 'Evidence region', failures);
-  const comparisonOccurrencesPath = unique(
-    files,
-    /^assets\/ComparisonOccurrences-[^/]+\.js$/,
-    'comparison occurrences',
-    failures,
-  );
   const placePaths = new Map(
     PLACE_CHUNKS.map(([place, re]) => [
       place,
@@ -137,7 +129,6 @@ export function checkBundle(files, catalogSource) {
     for (const [path, role] of [
       [methodSurfacePath, 'Method'],
       [querySurfacePath, 'Query'],
-      [evidenceSurfacePath, 'Evidence'],
     ]) {
       if (!path) continue;
       const name = path.replace('assets/', '');
@@ -160,23 +151,6 @@ export function checkBundle(files, catalogSource) {
       failures.push(`${methodSurfacePath}: statically imports ${summaryName} — the Method summary must stay lazy`);
     } else if (!references(surfaceText, summaryName)) {
       failures.push(`${methodSurfacePath}: no reference to ${summaryName} — the lazy Method summary edge is gone`);
-    }
-  }
-
-  // Compare occurrence rows belong to Evidence and load only after a
-  // side-restricted evidence request is admitted. Compare must not pull the
-  // occurrence renderer into its route chunk.
-  if (evidenceSurfacePath && comparisonOccurrencesPath) {
-    const evidenceText = files.get(evidenceSurfacePath).toString('utf8');
-    const occurrencesName = comparisonOccurrencesPath.replace('assets/', '');
-    if (staticImports(evidenceText).has(occurrencesName)) {
-      failures.push(`${evidenceSurfacePath}: statically imports ${occurrencesName} — comparison occurrences must stay on-demand`);
-    } else if (!references(evidenceText, occurrencesName)) {
-      failures.push(`${evidenceSurfacePath}: no reference to ${occurrencesName} — the lazy comparison-occurrences edge is gone`);
-    }
-    const comparePath = placePaths.get('Compare');
-    if (comparePath && references(files.get(comparePath).toString('utf8'), occurrencesName)) {
-      failures.push(`${comparePath}: references ${occurrencesName} — comparison occurrences belong to Evidence`);
     }
   }
 

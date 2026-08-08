@@ -29,9 +29,8 @@ import {
   type BoundTexts,
 } from '../src/ops/binding.ts';
 import { kwicPage, materializeKwicPage } from '../src/ops/kwic.ts';
-import { checkedResolverFor, occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { trend } from '../src/ops/trend.ts';
-import { materializePassage, planPassage, type PassageTrackSpec } from '../src/ops/passage.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import {
@@ -335,7 +334,7 @@ describe('snapshot lifetime (risk 7)', () => {
 });
 
 describe('kernel purity (risk 8)', () => {
-  it('occurrences, trend, kwic, and passage leave the owned artifact byte-identical', async () => {
+  it('occurrences, trend, and kwic leave the owned artifact byte-identical', async () => {
     const a = await docOf('a', 'the wolf ran and the wolf slept in the den');
     const snapshot = await snapshotOf([a]);
     const session = createBindingSession();
@@ -355,12 +354,6 @@ describe('kernel purity (risk 8)', () => {
       page: { offset: 0, limit: 10 },
     });
     materializeKwicPage(snapshot, page, texts, [{ seriesId: 's', groupId: 'g1' }]);
-    const ref = snapshot.docs[0]!;
-    const resolverFor = checkedResolverFor('a', ref.index, resident, byMode);
-    const tracks: PassageTrackSpec[] = [{ seriesId: 's', group: wolfGroup }];
-    const plan = planPassage(snapshot, 'a', resident, resolverFor, [wolfGroup], 1, 5);
-    materializePassage(snapshot, plan, texts, tracks);
-
     // Reuse across snapshots makes kernel purity an explicit contract: every
     // resident byte (and the descriptor) must be exactly as bound.
     expect(armor(resident)).toEqual(before);

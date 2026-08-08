@@ -5,7 +5,7 @@
  *
  * Control semantics (recorded ruling §3 — deliberately DISTINCT controls):
  * - "Shown in analysis" (active/mute) — membership in the whole comparison:
- *   trends, passage marks, KWIC eligibility;
+ *   trends, Reader marks, and KWIC eligibility;
  * - the CONCORDANCE chips stay in KwicPanel (orthogonal: hide one track
  *   from the table without touching the chart);
  * - chart FOCUS stays the header chips' job (emphasis only);

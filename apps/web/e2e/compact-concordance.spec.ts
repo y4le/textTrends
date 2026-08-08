@@ -24,7 +24,7 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
   }, { timeout: 30_000 }).toBe('ready');
 }
 
-test('compact Concordance keeps alignment optional and evidence operable', async ({ page }) => {
+test('compact Concordance keeps alignment optional and occurrence navigation operable', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
@@ -95,11 +95,8 @@ test('compact Concordance keeps alignment optional and evidence operable', async
   await expect(page.getByText(/reading position is not used/)).toBeVisible();
 
   await resultActions.getByRole('button', { name: 'next', exact: true }).click();
-  await expect(page.getByRole('complementary', { name: 'Evidence' })
-    .getByRole('button', { name: 'Inspect', exact: true })).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+  await expect(page.getByLabel('Concordance reading view').locator('.kwic-reading-row[data-active]'))
+    .toHaveCount(1);
   await expect(resultActions.locator('output')).toHaveText(`1 / ${await page.getByLabel('Concordance reading view').locator('.kwic-reading-row').count()}`);
 
   await controls.getByRole('button', { name: 'aligned' }).click();

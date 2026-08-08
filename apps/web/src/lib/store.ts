@@ -10,7 +10,8 @@
  * express those listeners. The store SUBSCRIBES to the session's immutable
  * `SessionState` (stored whole in `projectSession`), mirrors `snapshot` +
  * analysis loading/error for the query flow, and exposes thin command wrappers
- * so components talk only to the store. Query/KWIC/passage stay here: they are
+ * so components talk only to the store. Query and concordance work stay here:
+ * they are
  * request/response operations, not competing listeners.
  *
  * Query-notebook intent (slice-1 ruling, docs/design/term-groups-plan.md):
@@ -53,23 +54,17 @@ import {
   FREQUENCY_PREFIX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
   MAX_KWIC_TRACKS,
-  PASSAGE_MAX_TOKENS,
   parseTrendResearchView,
   READER_MAX_TOKENS,
   TREND_MAX_ROWS,
   termGroupIdentity,
-  RESEARCH_MAX_SELECTIONS,
-  type CharAnchorV1,
-  type CompileAnchorRowV1,
   type DocumentMetaV1,
   type GroupMember,
   type NumericTrend,
   type ResearchStateV1,
-  type SavedPinV1,
-  type SavedSelectionV1,
-  type ShareLinkV1,
   type StructureOverrideV1,
   type TermGroupSpec,
+  type TextHash,
   type TrendBinsSpecV1,
   type TrendMeasureV2,
 } from '@texttrends/core';
@@ -81,16 +76,7 @@ import {
 } from './selection.ts';
 import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
-import {
-  MAX_PINNED_SNIPPETS,
-  canReusePassage,
-  evidenceFrom,
-  samePinAnchor,
-  type CapturedTrack,
-  type PassageBlockState,
-  type PinAnchor,
-  type PinnedSnippet,
-} from './pins.ts';
+import type { CapturedTrack } from './track-legend.ts';
 import {
   liveReaderPlace,
   readerPlaceFor,
@@ -112,7 +98,6 @@ import {
 import { isCancelled, UserDataClientError, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import {
-  KeyedLatestOperation,
   LatestOperation,
   OperationScope,
   type OperationLease,
@@ -141,11 +126,6 @@ import {
   type SessionState,
 } from './project-session.ts';
 import {
-  decodeShareLink,
-  matchShareDocuments,
-  shareUrlFor,
-} from './share-state.ts';
-import {
   historyStateFor,
   parseLayerHistory,
   pushLayer as pushLayerStack,
@@ -158,14 +138,11 @@ import {
 } from './layers.ts';
 import {
   DEFAULT_ROUTE,
-  EVIDENCE_TIERS,
   parseRoute,
   routeSearch,
-  type EvidenceTier,
 } from './route.ts';
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
-import { pinCapacity } from './pin-capacity.ts';
 import { builtinCorpusOption, type BuiltinCorpusId } from './project.ts';
 
 
@@ -173,7 +150,7 @@ export interface KwicRowView {
   /** The series (track) that produced this row — the merged concordance tags
    *  each occurrence so the panel can colour and label it. */
   readonly seriesId: string;
-  /** Wire provenance retained for EVIDENCE IDENTITY (commit D): under
+  /** Wire provenance retained for occurrence identity (commit D): under
    *  countOverlaps two rows can share (series, doc, pos) and differ only in
    *  span/members — the panel key must include them (kwicRowKey). */
   readonly groupId: string;
@@ -186,7 +163,7 @@ export interface KwicRowView {
   readonly right: string;
 }
 
-/** The FULL evidence key of a concordance row — stable and collision-free
+/** The full occurrence key of a concordance row — stable and collision-free
  *  where `${seriesId}:${doc}:${pos}` is not: countOverlaps can emit two rows
  *  at one start that differ only by node end / contributing members. The
  *  encoding is an INJECTIVE JSON tuple: string fields have no delimiter-free
@@ -426,16 +403,6 @@ export interface KeynessInventoryState {
     | { readonly status: 'error'; readonly message: string };
 }
 
-export interface KeynessEvidenceState {
-  readonly snapshot: string;
-  readonly side: 'a' | 'b';
-  readonly key: string;
-  readonly state:
-    | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
-    | { readonly status: 'error'; readonly message: string };
-}
-
 export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
   schema: 'texttrends/keyness-view/1',
   mode: 'documents',
@@ -567,10 +534,6 @@ export interface ScrubTarget {
   readonly token: number;
 }
 
-/** Tokens of headroom the loaded block must keep around the target before a
- *  refetch is scheduled — inside the band, scrubbing is purely local. */
-const SCRUB_GUARD_TOKENS = 28;
-
 /** Bootstrap lifecycle, distinct from analysis state: the store is exported
  *  synchronously but the session needs the async-built built-in project, so
  *  there is a window before the one-shot attachment where no session exists.
@@ -587,26 +550,6 @@ export type ResearchPersistenceState =
       readonly phase: 'conflict';
       readonly message: string;
       readonly currentRevision: number;
-    };
-
-export interface PinRestoreIssue {
-  readonly pin: SavedPinV1;
-  readonly reason: 'missing-doc' | 'text-mismatch' | 'empty' | 'error';
-  readonly message: string;
-}
-
-/** Session-only validation of one durable character range against the current
- * snapshot. It is deliberately excluded from research-state/1: a new snapshot
- * invalidates every check, while the durable anchor itself remains unchanged. */
-export type SelectionCheck =
-  | {
-      readonly status: 'ok';
-      readonly doc: string;
-      readonly tokens: { readonly start: number; readonly end: number };
-    }
-  | {
-      readonly status: 'text-mismatch' | 'missing-doc' | 'empty' | 'error';
-      readonly message: string;
     };
 
 /** Descriptive metadata a component may patch (title/author/year/tags). */
@@ -658,19 +601,11 @@ export interface AppState {
    *  `projectSession` (save/sources/reattach). */
   commandError: string | null;
   researchPersistence: ResearchPersistenceState;
-  savedSelections: readonly SavedSelectionV1[];
-  selectionChecks: ReadonlyMap<string, SelectionCheck>;
-  durablePins: readonly SavedPinV1[];
-  pinRestoreIssues: readonly PinRestoreIssue[];
-  selectionError: string | null;
-  shareNotice: string | null;
 
   // ── Route/layer state: session presentation, never research data. ──
   place: Place;
-  evidenceTier: EvidenceTier;
   layers: readonly Layer[];
   setPlace(place: Place): void;
-  setEvidenceTier(tier: EvidenceTier, returnFocusTo?: string): void;
   pushLayer(
     kind: Exclude<LayerKind, 'place'>,
     target: unknown,
@@ -698,8 +633,8 @@ export interface AppState {
    *  (a hand-authored notebook is class-1 user data; durability arrives with
    *  the versioned share/persistence slice, never an ad hoc stash). */
   notebook: QueryNotebookV1;
-  /** Membership = the group participates in the comparison (trends, passage
-   *  marks, KWIC eligibility). Order is notebook order. Never silently
+  /** Membership = the group participates in the comparison (trends, Reader
+   *  marks, and concordance eligibility). Order is notebook order. Never silently
    *  truncated: a sixth activation is refused with `notebookError`. */
   activeGroupIds: ReadonlySet<string>;
   /** Transient view projection: when set, the effective active set is JUST
@@ -756,7 +691,6 @@ export interface AppState {
   keynessB: KeynessTableState | null;
   keynessInventoryA: KeynessInventoryState | null;
   keynessInventoryB: KeynessInventoryState | null;
-  keynessEvidence: KeynessEvidenceState | null;
   trendView: TrendView;
   /** Durable result geometry and resident-data display transform. Bin changes
    * reissue only baseline + selected trend lanes; measure changes query
@@ -780,17 +714,6 @@ export interface AppState {
   /** Opt-in: draw the focused doc's top-level chapter boundaries on the chart. */
   sectionMarks: boolean;
   scrub: ScrubTarget | null;
-  /** The loaded passage block — may lag the scrub target while a fetch is in
-   *  flight; the panel renders the block that CONTAINS the target only. */
-  passage: PassageBlockState | null;
-  /** Bounded, insertion-ordered captured evidence. Pending/error items count
-   *  toward the cap; snapshot replacement clears the whole collection. */
-  pins: readonly PinnedSnippet[];
-  focusedPinId: string | null;
-  pinError: string | null;
-  pinAnnouncement: string | null;
-  /** Which concurrently visible surface owns the current live pin feedback. */
-  pinFeedbackOrigin: 'evidence' | 'reader' | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
   readerPage: ReaderPageState | null;
@@ -810,7 +733,7 @@ export interface AppState {
   quickAdd(input: string): void;
   // ── Notebook authoring (slice-1 commit B: model + actions; UI lands in the
   //    panel commit). Rename/reorder are presentation-only (no reissue);
-  //    member/overlap edits and active-set changes reissue the evidence. ──
+  //    member/overlap edits and active-set changes reissue the results. ──
   renameGroup(groupId: string, name: string): void;
   setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): void;
   removeGroup(groupId: string): void;
@@ -829,14 +752,14 @@ export interface AppState {
   setConcordanceReading(reading: ConcordanceReadingMode): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
-  /** Center the concordance on activated barcode evidence IMMEDIATELY (no
+  /** Center the concordance on an activated barcode occurrence IMMEDIATELY (no
    *  scrub debounce). Carries the activated series: a deliberate occurrence
    *  click must yield a concordance CAPABLE of containing it, so a disabled
    *  concordance chip for that series is visibly re-enabled first (review-D
    *  HIGH). `origin: 'bucket'` labels a density-midpoint target. */
   centerKwicAt(seriesId: string, doc: string, token: number, origin?: { readonly kind: 'bucket'; readonly count: number }): void;
   /** Commit explicit per-document spans from one contiguous reading-order
-   *  gesture. Reissues detail consumers; baseline evidence remains resident.
+   *  gesture. Reissues detail consumers; baseline results remain resident.
    *  Null clears. */
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   runInventory(): void;
@@ -854,28 +777,15 @@ export interface AppState {
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
   setKeynessDirection(side: 'a' | 'b'): void;
   setKeynessPage(side: 'a' | 'b', offset: number): void;
-  openKeynessEvidence(key: string, side: 'a' | 'b'): boolean;
-  closeKeynessEvidence(): void;
   setFocusedDoc(doc: string): void;
   setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
-  /** Adopt a reading position and load its bounded passage without changing
-   *  concordance intent or issuing a KWIC query. */
-  showEvidenceAt(doc: string, token: number): void;
   clearScrub(): void;
-  pinPassage(doc: string, token: number, origin?: 'evidence' | 'reader' | null): void;
-  removePin(id: string): void;
-  setPinNote(id: string, note: string): void;
-  retryPin(id: string): void;
-  focusPin(id: string): void;
-  clearPinFeedback(origin?: 'evidence' | 'reader' | null): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
   runReader(): void;
-  /** Internal/publicly harmless revalidation invoked only on snapshot change. */
-  revalidatePins(): void;
   runQueries(): void;
   /** (Re)issue the focused doc's outline query. Called on snapshot change and
    *  when the focused doc changes; independent of the term-series flow. */
@@ -905,17 +815,8 @@ export interface AppState {
   /** Reopen analysis on the SAME lifetime session (post-error retry). */
   retryAnalysis(): void;
   clearCommandError(): void;
-  saveNamedSelection(name: string): void;
-  /** Validate and show a saved range as evidence without changing analysis
-   * scope or durable research state. */
-  previewNamedSelection(id: string): void;
-  applyNamedSelection(id: string): void;
-  removeNamedSelection(id: string): void;
   reloadResearch(): void;
   overwriteResearch(): void;
-  createShareUrl(baseUrl?: string): string;
-  importShareLink(value: string): void;
-  clearResearchNotice(): void;
   /** Internal restoration seam used by the durable controller. */
   restoreResearch(state: ResearchStateV1): void;
 }
@@ -1032,35 +933,6 @@ function retainTrendTokenCounts(
   return next;
 }
 
-function selectionCheckFor(
-  row: CompileAnchorRowV1 | undefined,
-): SelectionCheck {
-  switch (row?.status) {
-    case 'ok':
-      return { status: 'ok', doc: row.anchor.doc, tokens: row.tokens };
-    case 'text-mismatch':
-      return {
-        status: 'text-mismatch',
-        message: 'The document text changed; this saved range needs review.',
-      };
-    case 'missing-doc':
-      return {
-        status: 'missing-doc',
-        message: 'This saved range’s document is unavailable.',
-      };
-    case 'empty':
-      return {
-        status: 'empty',
-        message: 'No current token overlaps this saved character range.',
-      };
-    default:
-      return {
-        status: 'error',
-        message: 'The saved range could not be checked.',
-      };
-  }
-}
-
 /** The focused doc for the incoming session state: preserve the current focus
  *  while it remains a ready member of the snapshot, otherwise pick the first
  *  ready doc in DECLARED project order (never analysis-completion order). Null
@@ -1076,12 +948,12 @@ function resolveFocusedDoc(prev: string | null, next: SessionState): string | nu
 
 function projectTextRows(state: AppState): readonly {
   readonly doc: string;
-  readonly text: string;
+  readonly text: TextHash;
   readonly title: string;
 }[] {
   return (state.projectSession?.project.data.docs ?? []).map((entry) => ({
     doc: entry.doc,
-    text: entry.extraction.text,
+    text: entry.extraction.text as TextHash,
     title: entry.meta.title,
   }));
 }
@@ -1096,10 +968,10 @@ function researchStateFromApp(
   const hashOf = new Map(rows.map((row) => [row.doc, row.text]));
   const readyDocs = state.snapshot?.readyDocs ?? project.data.order;
   const sides = keynessSelections(state.keynessView, readyDocs);
-  const hashes = (docs: readonly string[]): CharAnchorV1['text'][] =>
+  const hashes = (docs: readonly string[]): TextHash[] =>
     [...new Set(docs.flatMap((doc) => {
       const hash = hashOf.get(doc);
-      return hash === undefined ? [] : [hash as CharAnchorV1['text']];
+      return hash === undefined ? [] : [hash];
     }))];
   const { prefixNfc, ...frequency } = state.frequencyView;
   return {
@@ -1113,8 +985,6 @@ function researchStateFromApp(
     kwicEnabled: state.notebook.groups
       .filter((group) => state.kwicEnabledSeries.has(group.id))
       .map((group) => group.id),
-    selections: state.savedSelections,
-    pins: state.durablePins,
     views: {
       trend: {
         schema: 'texttrends/trend-view/2',
@@ -1160,33 +1030,6 @@ export function researchSemanticKey(state: AppState): string | null {
   return canonicalJson({ ...research, revision: 1 });
 }
 
-function durablePinFor(
-  state: AppState,
-  pin: Extract<PinnedSnippet, { readonly kind: 'ready' }>,
-): SavedPinV1 | null {
-  const doc = projectTextRows(state).find((row) => row.doc === pin.anchor.doc);
-  if (!doc) return null;
-  const start = pin.evidence.docCharsUtf16.start
-    + pin.evidence.anchorCharsUtf16.start;
-  const end = pin.evidence.docCharsUtf16.start
-    + pin.evidence.anchorCharsUtf16.end;
-  return {
-    id: pin.id,
-    note: '',
-    anchor: {
-      doc: pin.anchor.doc,
-      text: doc.text as CharAnchorV1['text'],
-      chars: { start, end },
-    },
-    captured: pin.tracks.map((track) => ({
-      seriesId: track.seriesId,
-      groupId: track.groupId,
-      identity: track.identity,
-      label: track.label,
-    })),
-  };
-}
-
 /** One query-intent lane: latest-wins ownership plus the in-flight transport
  *  cancels it may best-effort clean up. Superseding is ONE operation, so no
  *  call site can cancel without invalidating or invalidate without cancelling. */
@@ -1215,7 +1058,7 @@ class QueryLane {
   }
 }
 
-function routeFromUrl(url: string): { readonly place: Place; readonly evidence: EvidenceTier } {
+function routeFromUrl(url: string): { readonly place: Place } {
   try {
     return parseRoute(new URL(url, 'https://texttrends.invalid/').search);
   } catch {
@@ -1225,7 +1068,7 @@ function routeFromUrl(url: string): { readonly place: Place; readonly evidence: 
 
 function urlWithRoute(
   url: string,
-  route: { readonly place: Place; readonly evidence: EvidenceTier },
+  route: { readonly place: Place },
 ): string {
   let parsed: URL;
   try {
@@ -1250,29 +1093,6 @@ function restoreFocusTo(id: string): void {
   const focus = () => document.getElementById(id)?.focus({ preventScroll: true });
   if (typeof requestAnimationFrame === 'function') requestAnimationFrame(focus);
   else queueMicrotask(focus);
-}
-
-function historyHash(url: string): string {
-  try {
-    return new URL(url, 'https://texttrends.invalid/').hash;
-  } catch {
-    return '';
-  }
-}
-
-function withoutHistoryHash(url: string): string {
-  try {
-    const parsed = new URL(url, 'https://texttrends.invalid/');
-    return `${parsed.pathname}${parsed.search}`;
-  } catch {
-    return '/';
-  }
-}
-
-function evidenceForLayers(layers: readonly Layer[]): EvidenceTier {
-  if (layers.some((layer) => layer.kind === 'reader')) return 'reader';
-  if (layers.some((layer) => layer.kind === 'sheet')) return 'sheet';
-  return 'none';
 }
 
 export function createAppRuntime(
@@ -1314,46 +1134,17 @@ export function createAppRuntime(
   const keynessBLane = new QueryLane(scope);
   const keynessInventoryALane = new QueryLane(scope);
   const keynessInventoryBLane = new QueryLane(scope);
-  const keynessEvidenceLane = new QueryLane(scope);
   // On-demand authoring intents (edit-context + line-excerpt), each its own
   // lane; superseded on a snapshot change.
   const editContextLane = new QueryLane(scope);
   const lineExcerptLane = new QueryLane(scope);
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
-  // Next/Previous cannot race with trends, passage, pins, or one another.
+  // Next/Previous cannot race with trends or one another.
   const readerLane = new QueryLane(scope);
-  const selectionLane = new QueryLane(scope);
-  // Preview is evidence navigation, not selection authoring. Keeping it on an
-  // independent lane prevents a preview from cancelling a save/apply action
-  // or adopting the linked analysis scope.
-  const previewSelectionLane = new QueryLane(scope);
-  const pinRestoreLane = new QueryLane(scope);
-  // The scrub lane fences the passage pump's RESULTS; the pump's one-active +
-  // one-pending slot machinery below stays bespoke (it is a scheduler, not a
-  // latest-wins request), so it is a bare lane without tracked cancels.
-  const scrubOps = new LatestOperation(scope);
-  // Pins are independent intents: keyed ownership prevents pin B from
-  // superseding pin A, while the shared scope still fences runtime teardown.
-  const pinOps = new KeyedLatestOperation<string>(scope);
-  const pinCancels = new Map<string, () => void>();
-  const pinRequests = new Map<
-    string,
-    {
-      readonly wire: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[];
-      readonly tracks: readonly CapturedTrack[];
-    }
-  >();
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
   let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
   let kwicCenterTimer: ReturnType<typeof setTimeout> | null = null;
-  // Scrub scheduling: ONE active passage request plus ONE replaceable pending
-  // target — pointer motion never queues and never cancel-storms the worker.
-  let passageActiveCancel: (() => void) | null = null;
-  let passagePending: {
-    readonly target: ScrubTarget;
-    readonly resetKwicOnFailure: boolean;
-  } | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -1376,14 +1167,11 @@ export function createAppRuntime(
   let researchPausedKey: string | null = null;
   let loadResearchForProject = (_project: string): void => undefined;
   let saveResearchNow = (_overwrite = false): void => undefined;
-  let restoreDurablePins = (): void => undefined;
   let historyTraversalPending = false;
   let pendingBackFocusTo: string | null = null;
 
   // Route and layer state is initialized before the store so the first React
-  // snapshot and the current history entry cannot disagree. A deep evidence
-  // route first installs a zero-layer base entry, then pushes its layer: Back
-  // remains inside the workbench.
+  // snapshot and the current history entry cannot disagree.
   const MAX_LAYER_REGISTRY_ENTRIES = 128;
   const layerRegistry = new Map<string, Layer>();
   const rememberLayer = (layer: Layer, retain: readonly Layer[] = []): void => {
@@ -1404,39 +1192,15 @@ export function createAppRuntime(
     layerRegistry.set(id, layer);
     return layer;
   };
-  const incomingShare = historyPort !== null
-    && historyHash(historyPort.url).startsWith('#s=');
   const bootRoute = historyPort === null
     ? DEFAULT_ROUTE
-    : incomingShare
-      ? { place: 'findings' as const, evidence: 'none' as const }
-      : routeFromUrl(historyPort.url);
+    : routeFromUrl(historyPort.url);
   let initialLayers: readonly Layer[] = [];
-  let initialEvidence: EvidenceTier = 'none';
   if (historyPort !== null) {
     historyPort.replace(
       historyStateFor([]),
-      urlWithRoute(historyPort.url, { place: bootRoute.place, evidence: 'none' }),
+      urlWithRoute(historyPort.url, bootRoute),
     );
-    // A sheet can honestly boot without selected evidence. A reader cannot:
-    // its target is a snapshot-bound document/cursor held only in the
-    // in-memory layer registry, never in the URL.
-    if (bootRoute.evidence === 'sheet') {
-      const deepLayer: Layer = {
-        kind: bootRoute.evidence,
-        id: newLayerId(),
-        target: Object.freeze({ source: 'route', evidence: bootRoute.evidence }),
-        returnFocusTo: `place-${bootRoute.place}-heading`,
-        ...(bootRoute.evidence === 'sheet' ? { ui: { detent: 'peek' as const } } : {}),
-      };
-      initialLayers = pushLayerStack([], deepLayer);
-      initialEvidence = bootRoute.evidence;
-      rememberLayer(deepLayer, initialLayers);
-      historyPort.push(
-        historyStateFor(initialLayers),
-        urlWithRoute(historyPort.url, bootRoute),
-      );
-    }
   }
 
   const store = create<AppState>((set, get) => {
@@ -1459,11 +1223,10 @@ export function createAppRuntime(
       layers: readonly Layer[],
       options: { readonly preserveReaderNavigation?: boolean } = {},
     ): void => {
-      const evidenceTier = evidenceForLayers(layers);
       if (historyPort !== null) {
         historyPort[mode](
           historyStateFor(layers),
-          urlWithRoute(historyPort.url, { place, evidence: evidenceTier }),
+          urlWithRoute(historyPort.url, { place }),
         );
       }
       const current = get();
@@ -1472,7 +1235,6 @@ export function createAppRuntime(
       if (readerChanged) readerLane.supersede();
       set((state) => ({
         place,
-        evidenceTier,
         layers,
         notebookError: place === state.place ? state.notebookError : null,
         readerPlace,
@@ -1773,243 +1535,9 @@ export function createAppRuntime(
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
       pairs.every(([id, ident]) => identityOf(id) === ident);
 
-    const replacePin = (
-      id: string,
-      replace: (pin: PinnedSnippet) => PinnedSnippet,
-    ): void => {
-      set((state) => ({
-        pins: state.pins.map((pin) => pin.id === id ? replace(pin) : pin),
-      }));
-    };
-
-    const upsertDurableReadyPin = (
-      ready: Extract<PinnedSnippet, { readonly kind: 'ready' }>,
-    ): void => {
-      set((state) => {
-        const durable = durablePinFor(state, ready);
-        if (!durable) return {};
-        const sameAnchor = (candidate: SavedPinV1): boolean =>
-          candidate.anchor.doc === durable.anchor.doc &&
-          candidate.anchor.text === durable.anchor.text &&
-          candidate.anchor.chars.start === durable.anchor.chars.start &&
-          candidate.anchor.chars.end === durable.anchor.chars.end;
-        const existing = state.durablePins.find(sameAnchor);
-        const next = existing
-          ? { ...durable, id: existing.id, note: existing.note }
-          : durable;
-        return {
-          durablePins: [
-            ...state.durablePins.filter(
-              (candidate) => candidate.id !== next.id && !sameAnchor(candidate),
-            ),
-            next,
-          ].slice(-MAX_PINNED_SNIPPETS),
-          pinRestoreIssues: state.pinRestoreIssues.filter(
-            (issue) => issue.pin.id !== existing?.id,
-          ),
-        };
-      });
-    };
-
-    /** Issue one independently-owned pin passage request. Deliberately no
-     * live semantic-identity guard: the pending arm already captured the
-     * semantics this result truthfully describes. */
-    const issuePin = (
-      id: string,
-      anchor: PinAnchor,
-      tracks: readonly CapturedTrack[],
-      wire: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
-    ): void => {
-      const issuedKey = snapKey(get().snapshot);
-      const lease = pinOps.begin(
-        id,
-        () => snapKey(get().snapshot) === issuedKey,
-        () => get().pins.some((pin) => pin.id === id),
-      );
-      pinRequests.set(id, { wire, tracks });
-      const handle = client.query(anchor.snapshot, {
-        op: 'passage',
-        request: {
-          doc: anchor.doc,
-          centerToken: anchor.token,
-          maxTokens: PASSAGE_MAX_TOKENS,
-          tracks: wire,
-        },
-      });
-      pinCancels.set(id, handle.cancel);
-      const releaseCancel = () => {
-        if (pinCancels.get(id) === handle.cancel) pinCancels.delete(id);
-      };
-      void handle.result
-        .then((data) => {
-          releaseCancel();
-          if (!lease.isCurrent()) return;
-          if (data.op !== 'passage') {
-            replacePin(id, (pin) => ({ ...pin, kind: 'error', message: 'unexpected pin result' }));
-            return;
-          }
-          const evidence = evidenceFrom(data.passage, anchor.token);
-          if (evidence === null) {
-            replacePin(id, (pin) => ({ ...pin, kind: 'error', message: 'passage did not contain the pinned token' }));
-            return;
-          }
-          const ready: Extract<PinnedSnippet, { readonly kind: 'ready' }> = {
-            kind: 'ready',
-            id,
-            anchor,
-            tracks,
-            evidence,
-          };
-          replacePin(id, () => ready);
-          upsertDurableReadyPin(ready);
-        })
-        .catch((e: unknown) => {
-          releaseCancel();
-          if (isCancelled(e) || !lease.isCurrent()) return;
-          replacePin(id, (pin) => ({
-            kind: 'error',
-            id: pin.id,
-            anchor: pin.anchor,
-            tracks: pin.tracks,
-            message: queryErrorMessage(e),
-          }));
-        });
-    };
-
-    /** The doc's token extent, from retained corpus geometry or a ready trend. */
-    const docTokenCountOf = (doc: string): number | null => {
-      const retained = get().corpusTokenCounts.get(doc);
-      if (retained !== undefined) return retained;
-      for (const [, state] of get().trends) {
-        if (state.status !== 'ready') continue;
-        const d = state.trend.order.indexOf(doc);
-        if (d >= 0) return state.trend.docTokenCount[d] ?? null;
-      }
-      return null;
-    };
-
-    /** Would a fetch centered at `token` produce the block we already hold? */
-    const blockServes = (passage: PassageBlockState, target: ScrubTarget): boolean => {
-      if (passage.result.doc !== target.doc) return false;
-      const { start, end } = passage.result.tokens;
-      if (target.token < start || target.token >= end) return false;
-      const tc = docTokenCountOf(target.doc);
-      if (tc !== null && !passage.result.truncatedByCharCap) {
-        // Exact: the block a refetch would serve (same construction as the
-        // kernel) — identical block means the fetch is pure waste.
-        const es = Math.max(0, Math.min(target.token - (PASSAGE_MAX_TOKENS >> 1), tc - PASSAGE_MAX_TOKENS));
-        const ee = Math.min(tc, es + PASSAGE_MAX_TOKENS);
-        if (es === start && ee === end) return true;
-      }
-      // Guard band: local navigation until the target nears a block edge.
-      const lo = start === 0 ? start : start + SCRUB_GUARD_TOKENS;
-      const hi = end - SCRUB_GUARD_TOKENS;
-      return target.token >= lo && target.token < hi;
-    };
-
-    const pumpPassage = () => {
-      if (passageActiveCancel !== null) return; // active request finishes first
-      const intent = passagePending;
-      if (!intent) return;
-      passagePending = null;
-      const { target } = intent;
-      const { snapshot, series } = get();
-      // Passage is reading evidence and the wire contract explicitly admits
-      // zero tracks. An empty notebook removes marks; it must not make a saved
-      // range or other reading target impossible to inspect.
-      if (!snapshot) return;
-      const tracks = trackSpecs(series);
-      if (tracks === null) return; // a group vanished mid-intent: superseded
-      const issuedKey = snapKey(snapshot);
-      const lease = scrubOps.begin(
-        () => snapKey(get().snapshot) === issuedKey,
-        () => identitiesCurrent(tracks.identities),
-      );
-      const handle = client.query(snapshot.snapshot, {
-        op: 'passage',
-        request: {
-          doc: target.doc,
-          centerToken: target.token,
-          maxTokens: PASSAGE_MAX_TOKENS,
-          tracks: tracks.wire,
-        },
-      });
-      passageActiveCancel = handle.cancel;
-      const current = () => lease.isCurrent();
-      /** Only the CURRENT owner of the active slot may clear it and pump —
-       *  a structurally superseded request's late settlement must not free
-       *  the slot out from under its replacement. */
-      const settleOwnership = () => {
-        if (passageActiveCancel !== handle.cancel) return false;
-        passageActiveCancel = null;
-        return true;
-      };
-      void handle.result
-        .then((data) => {
-          if (!settleOwnership()) return;
-          if (data.op === 'passage' && current()) {
-            set({
-              passage: {
-                snapshot: snapshot.snapshot,
-                tracks: tracks.captured,
-                result: data.passage,
-              },
-            });
-          }
-          pumpPassage(); // a newer target may be parked in the pending slot
-        })
-        .catch((e: unknown) => {
-          if (!settleOwnership()) return;
-          if (!isCancelled(e) && current()) {
-            // A rejected center (stale geometry) or failed read: drop the
-            // scrub rather than display a block that does not match it. Only
-            // raw chart scrubbing owns concordance intent; an Evidence-only
-            // adoption must never issue a KWIC query on its failure path.
-            const scrub = get().scrub;
-            const targetStillCurrent =
-              scrub?.doc === target.doc && scrub.token === target.token;
-            if (targetStillCurrent) {
-              set({ passage: null, scrub: null });
-              if (intent.resetKwicOnFailure) {
-                resetKwicCenter();
-                runKwic();
-              }
-            }
-          }
-          pumpPassage();
-        });
-    };
-
-    /** Adopt one validated reading target into the shared Evidence tier.
-     *  Returns whether the reading position changed; passage loading remains
-     *  one-active/one-replaceable and is deliberately independent of KWIC. */
-    const adoptEvidenceTarget = (
-      target: ScrubTarget,
-      resetKwicOnFailure: boolean,
-    ): boolean => {
-      const { snapshot, passage } = get();
-      if (
-        !snapshot
-        || !snapshot.readyDocs.includes(target.doc)
-        || !Number.isSafeInteger(target.token)
-        || target.token < 0
-      ) return false;
-      const tokenCount = docTokenCountOf(target.doc);
-      if (tokenCount !== null && target.token >= tokenCount) return false;
-
-      const prev = get().scrub;
-      const changed = !prev || prev.doc !== target.doc || prev.token !== target.token;
-      if (changed) set({ scrub: target });
-      if (!passage || !blockServes(passage, target)) {
-        passagePending = { target, resetKwicOnFailure };
-        pumpPassage();
-      }
-      return changed;
-    };
-
     /** Reissue only the two trend result lanes after a bin-policy change.
-     * Dispersion, KWIC, passage, and inventory do not depend on trend bins and
-     * must remain resident. */
+     * Dispersion, KWIC, and inventory do not depend on trend bins and must
+     * remain resident. */
     const runTrendLanesOnly = () => {
       trendLane.supersede();
       selectedTrendLane.supersede();
@@ -2297,7 +1825,7 @@ export function createAppRuntime(
       const { series, kwicEnabledSeries, concordanceView } = get();
       if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
       // Collocate sorts deliberately do not depend on reading position. Raw
-      // evidence navigation therefore leaves their resident ordering intact;
+      // occurrence navigation therefore leaves their resident ordering intact;
       // returning to proximity adopts the live scrub in one explicit reissue.
       if (concordanceView.sort !== 'proximity') return;
       kwicLane.supersede(); // any in-flight KWIC result was under the old center — drop it
@@ -2350,7 +1878,7 @@ export function createAppRuntime(
      *  UUID, matching identity, and concordance membership. Reissue decisions
      *  compare THIS — a mutation that leaves it unchanged (muting a solo'd-out
      *  group, editing an unprojected one, appending while soloed) must not
-     *  cancel or recompute live evidence (ruling invariant 2, review-C). */
+     *  cancel or recompute live results (ruling invariant 2, review-C). */
     const effectiveIntentKey = (
       nb: QueryNotebookV1,
       series: readonly SeriesIntent[],
@@ -2454,14 +1982,7 @@ export function createAppRuntime(
       loadError: null,
       commandError: null,
       researchPersistence: { phase: 'idle' },
-      savedSelections: [],
-      selectionChecks: new Map(),
-      durablePins: [],
-      pinRestoreIssues: [],
-      selectionError: null,
-      shareNotice: null,
       place: bootRoute.place,
-      evidenceTier: initialEvidence,
       layers: initialLayers,
       setPlace(place) {
         if (!PLACES.includes(place) || place === get().place) return;
@@ -2474,46 +1995,6 @@ export function createAppRuntime(
         const layers = pushLayerStack(get().layers, next);
         rememberLayer(next, layers);
         writeNavigation('push', place, layers);
-      },
-      setEvidenceTier(tier, returnFocusTo = `place-${get().place}-heading`) {
-        if (!EVIDENCE_TIERS.includes(tier) || tier === get().evidenceTier) return;
-        if (tier === 'none') {
-          // Closing and demotion share the browser's one stack. popstate is
-          // the only code path that mutates the visible layer state.
-          requestBack();
-          return;
-        }
-        // Reader requires a resolved snapshot/doc/cursor intent. A bare tier
-        // would create an invisible URL-only layer; openReader is the sole
-        // promotion path.
-        if (tier === 'reader') return;
-        if (get().evidenceTier === 'reader') {
-          if (get().layers.at(-2)?.kind === 'sheet') {
-            requestBack();
-            return;
-          }
-          // A hand-authored/deep bare reader has no prior sheet to reveal.
-          // Demotion replaces its active depth with the requested sheet.
-          const sheet = freshLayer(
-            'sheet',
-            Object.freeze({ source: 'route', evidence: 'sheet' }),
-            returnFocusTo,
-            { detent: 'peek' },
-          );
-          const layers = replaceTopLayer(get().layers, sheet);
-          rememberLayer(sheet, layers);
-          writeNavigation('replace', get().place, layers);
-          return;
-        }
-        const next = freshLayer(
-          tier,
-          Object.freeze({ source: 'route', evidence: tier }),
-          returnFocusTo,
-          tier === 'sheet' ? { detent: 'peek' } : undefined,
-        );
-        const layers = pushLayerStack(get().layers, next);
-        rememberLayer(next, layers);
-        writeNavigation('push', get().place, layers);
       },
       pushLayer(kind, target, returnFocusTo, ui) {
         const next = freshLayer(kind, target, returnFocusTo, ui);
@@ -2579,7 +2060,6 @@ export function createAppRuntime(
       keynessB: null,
       keynessInventoryA: null,
       keynessInventoryB: null,
-      keynessEvidence: null,
       trendView: 'series',
       trendBins: DEFAULT_TREND_BINS,
       trendMeasure: DEFAULT_TREND_MEASURE,
@@ -2590,12 +2070,6 @@ export function createAppRuntime(
       lineExcerpt: null,
       sectionMarks: false,
       scrub: null,
-      passage: null,
-      pins: [],
-      focusedPinId: null,
-      pinError: null,
-      pinAnnouncement: null,
-      pinFeedbackOrigin: null,
       readerPlace: null,
       readerPage: null,
       readerNavigation: null,
@@ -2608,7 +2082,7 @@ export function createAppRuntime(
         );
         const parsed = parseQuickAdd(input, newId, Math.max(0, room), state.notebook.groups);
         if (parsed.error !== null) {
-          // ATOMIC refusal: the existing notebook and its evidence stand
+          // ATOMIC refusal: the existing notebook and its results stand
           // untouched beside the message (append-only — a refused add never
           // clears anything).
           set({ inputError: parsed.error });
@@ -2657,7 +2131,7 @@ export function createAppRuntime(
         const changed = groupIdentity(edited) !== groupIdentity(g);
         const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? edited : x)) };
         // A semantic edit preserves the UUID but invalidates and reissues the
-        // evidence (invariant 3); an identity-neutral edit reissues nothing.
+        // results (invariant 3); an identity-neutral edit reissues nothing.
         adoptNotebook({ notebook }, { reissue: changed });
       },
 
@@ -2867,199 +2341,32 @@ export function createAppRuntime(
       },
 
       setScrub(target) {
-        const changed = adoptEvidenceTarget(target, true);
+        const { snapshot, corpusTokenCounts } = get();
+        const tokenCount = corpusTokenCounts.get(target.doc);
+        if (
+          !snapshot
+          || !snapshot.readyDocs.includes(target.doc)
+          || !Number.isSafeInteger(target.token)
+          || target.token < 0
+          || (tokenCount !== undefined && target.token >= tokenCount)
+        ) return;
+        const previous = get().scrub;
+        const changed =
+          previous?.doc !== target.doc || previous.token !== target.token;
         const alreadySettled =
           kwicCenter?.doc === target.doc
           && kwicCenter.token === target.token
           && kwicCenter.origin === undefined;
         if (!changed && alreadySettled) return;
+        if (changed) set({ scrub: target });
         scheduleKwicCenter(target); // debounced concordance re-centre on the axis
       },
 
-      showEvidenceAt(doc, token) {
-        adoptEvidenceTarget({ doc, token }, false);
-      },
-
       clearScrub() {
-        // Presentational hide only — the loaded block stays as a warm cache
-        // for the next scrub; pending work is dropped.
-        passagePending = null;
         set({ scrub: null });
         // The concordance falls back to reading order immediately.
         resetKwicCenter();
         runKwic();
-      },
-
-      pinPassage(doc, token, origin = null) {
-        const { snapshot, pins, passage, series } = get();
-        if (
-          !snapshot
-          || !snapshot.readyDocs.includes(doc)
-          || !Number.isSafeInteger(token)
-          || token < 0
-        ) return;
-        const tokenCount = docTokenCountOf(doc);
-        if (tokenCount !== null && token >= tokenCount) return;
-        const anchor: PinAnchor = { snapshot: snapshot.snapshot, doc, token };
-        const duplicate = pins.find((pin) => samePinAnchor(pin.anchor, anchor));
-        if (duplicate) {
-          set({
-            focusedPinId: duplicate.id,
-            pinError: null,
-            pinAnnouncement: 'That position is already saved; focused the existing excerpt.',
-            pinFeedbackOrigin: origin,
-          });
-          return;
-        }
-        if (pins.length >= MAX_PINNED_SNIPPETS) {
-          const capacity = pinCapacity(pins.length);
-          set({
-            pinError: capacity.reason,
-            pinAnnouncement: null,
-            pinFeedbackOrigin: origin,
-          });
-          return;
-        }
-        const request = trackSpecs(series);
-        if (request === null) return;
-        const id = newId();
-        if (canReusePassage(passage, anchor, snapshot.snapshot, request.captured)) {
-          const evidence = evidenceFrom(passage.result, token);
-          if (evidence !== null) {
-            const ready: PinnedSnippet = Object.freeze({
-              kind: 'ready',
-              id,
-              anchor: Object.freeze(anchor),
-              tracks: request.captured,
-              evidence,
-            });
-            set({
-              pins: [...pins, ready],
-              focusedPinId: id,
-              pinError: null,
-              pinAnnouncement: 'Saved the loaded excerpt to Findings.',
-              pinFeedbackOrigin: origin,
-            });
-            upsertDurableReadyPin(
-              ready as Extract<PinnedSnippet, { readonly kind: 'ready' }>,
-            );
-            return;
-          }
-        }
-        const pending: PinnedSnippet = Object.freeze({
-          kind: 'pending',
-          id,
-          anchor: Object.freeze(anchor),
-          tracks: request.captured,
-        });
-        set({
-          pins: [...pins, pending],
-          focusedPinId: id,
-          pinError: null,
-          pinAnnouncement: 'Saving excerpt to Findings.',
-          pinFeedbackOrigin: origin,
-        });
-        issuePin(id, anchor, request.captured, request.wire);
-      },
-
-      removePin(id) {
-        const removed = get().pins.find((pin) => pin.id === id);
-        const durable = removed?.kind === 'ready'
-          ? durablePinFor(get(), removed)
-          : null;
-        try {
-          pinCancels.get(id)?.();
-        } catch {
-          // Best-effort transport cleanup; ownership invalidation is authority.
-        }
-        pinCancels.delete(id);
-        pinRequests.delete(id);
-        pinOps.invalidate(id);
-        set((state) => {
-          const index = state.pins.findIndex((pin) => pin.id === id);
-          const pins = state.pins.filter((pin) => pin.id !== id);
-          const neighbour =
-            index < 0 || pins.length === 0
-              ? null
-              : pins[Math.min(index, pins.length - 1)]?.id ?? null;
-          return {
-            pins,
-            durablePins: state.durablePins.filter((candidate) =>
-              candidate.id !== id &&
-              !(
-                durable !== null &&
-                candidate.anchor.doc === durable.anchor.doc &&
-                candidate.anchor.text === durable.anchor.text &&
-                candidate.anchor.chars.start === durable.anchor.chars.start &&
-                candidate.anchor.chars.end === durable.anchor.chars.end
-              )),
-            pinRestoreIssues: state.pinRestoreIssues.filter(
-              (issue) => issue.pin.id !== id,
-            ),
-            focusedPinId: state.focusedPinId === id ? neighbour : state.focusedPinId,
-            pinError: null,
-            pinAnnouncement: 'Removed saved excerpt.',
-            pinFeedbackOrigin: null,
-          };
-        });
-      },
-
-      setPinNote(id, note) {
-        const normalized = note.normalize('NFC').slice(0, 2_000);
-        const pin = get().pins.find(
-          (candidate): candidate is Extract<PinnedSnippet, { readonly kind: 'ready' }> =>
-            candidate.id === id && candidate.kind === 'ready',
-        );
-        if (!pin) return;
-        const durable = durablePinFor(get(), pin);
-        if (!durable) return;
-        set((state) => ({
-          durablePins: state.durablePins.map((candidate) =>
-            (
-              candidate.id === id ||
-              (
-                candidate.anchor.doc === durable.anchor.doc &&
-                candidate.anchor.text === durable.anchor.text &&
-                candidate.anchor.chars.start === durable.anchor.chars.start &&
-                candidate.anchor.chars.end === durable.anchor.chars.end
-              )
-            )
-              ? { ...candidate, note: normalized }
-              : candidate),
-        }));
-      },
-
-      retryPin(id) {
-        const pin = get().pins.find((candidate) => candidate.id === id);
-        const request = pinRequests.get(id);
-        if (!pin || pin.kind !== 'error' || !request) return;
-        replacePin(id, () => ({
-          kind: 'pending',
-          id: pin.id,
-          anchor: pin.anchor,
-          tracks: pin.tracks,
-        }));
-        set({
-          focusedPinId: id,
-          pinError: null,
-          pinAnnouncement: 'Retrying saved excerpt.',
-          pinFeedbackOrigin: null,
-        });
-        issuePin(id, pin.anchor, request.tracks, request.wire);
-      },
-
-      focusPin(id) {
-        if (!get().pins.some((pin) => pin.id === id)) return;
-        set({
-          focusedPinId: id,
-          pinAnnouncement: 'Focused saved excerpt.',
-          pinFeedbackOrigin: null,
-        });
-      },
-
-      clearPinFeedback(origin) {
-        if (origin !== undefined && get().pinFeedbackOrigin !== origin) return;
-        set({ pinError: null, pinAnnouncement: null, pinFeedbackOrigin: null });
       },
 
       openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
@@ -3212,50 +2519,6 @@ export function createAppRuntime(
         );
       },
 
-      revalidatePins() {
-        const state = get();
-        const liveSnapshot = state.snapshot?.snapshot ?? null;
-        const readyDocs = state.snapshot?.readyDocs ?? [];
-        const dead = state.pins.filter(
-          (pin) =>
-            pin.anchor.snapshot !== liveSnapshot
-            || !readyDocs.includes(pin.anchor.doc),
-        );
-        for (const pin of dead) {
-          try {
-            pinCancels.get(pin.id)?.();
-          } catch {
-            // Lease invalidation below remains authoritative.
-          }
-          pinCancels.delete(pin.id);
-          pinRequests.delete(pin.id);
-          pinOps.invalidate(pin.id);
-        }
-        const readerLive =
-          state.readerPlace !== null
-          && state.readerPlace.snapshot === liveSnapshot
-          && readyDocs.includes(state.readerPlace.doc);
-        if (dead.length > 0) {
-          const deadIds = new Set(dead.map((pin) => pin.id));
-          set({
-            pins: state.pins.filter((pin) => !deadIds.has(pin.id)),
-            focusedPinId: deadIds.has(state.focusedPinId ?? '') ? null : state.focusedPinId,
-            pinError: null,
-            pinAnnouncement: dead.length > 0 ? 'Cleared pins from the replaced snapshot.' : state.pinAnnouncement,
-            pinFeedbackOrigin: null,
-          });
-        }
-        if (!readerLive && state.readerPlace !== null) {
-          const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
-          const layers = readerIndex < 0
-            ? state.layers
-            : state.layers.slice(0, readerIndex);
-          // Snapshot invalidation is store-driven, not a user Back intent:
-          // consume the now-unresolvable current entry in place.
-          writeNavigation('replace', state.place, layers);
-        }
-      },
-
       runQueries() {
         const { snapshot, series, trendBins } = get();
         // Reader highlights use the CURRENT semantic active-track projection;
@@ -3264,20 +2527,12 @@ export function createAppRuntime(
         get().runReader();
         // Trend intent changed: ALWAYS cancel superseded work, clear to
         // pending, and invalidate the epoch — even when the new intent runs
-        // no query (round 2: a blank input must not relabel old evidence).
+        // no query.
         trendLane.supersede(); // even a no-query outcome supersedes in-flight work
-        // The loaded passage block and any in-flight/pending fetch belong to
-        // the OLD series set / snapshot — marks would be stale evidence. The
-        // scrub POSITION is kept; a fresh block is fetched below if possible.
-        scrubOps.invalidate();
-        passageActiveCancel?.();
-        passageActiveCancel = null;
-        passagePending = null;
         // A pending scrub-settle belongs to the old series/snapshot; drop it so
         // it cannot fire a stale center after this reissue. runKwic below uses
         // the last settled center (degrading to reading order if its doc departed).
         if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
-        set({ passage: null });
         dispersionLane.supersede();
         // A published snapshot replacement invalidates the (snapshot-bound)
         // linked range; runSelected below clears the overlays with it.
@@ -3293,13 +2548,8 @@ export function createAppRuntime(
           selectedDispersionLane.supersede();
           set({ trends: new Map(), scrub: null, dispersion: null, selectedTrends: new Map(), selectedDispersion: null });
           resetKwicCenter(); // the axis is gone — no stale center may resurrect
-          runKwic(); // clears or re-targets the evidence panel consistently
+          runKwic(); // clears or re-targets the concordance consistently
           return;
-        }
-        const scrub = get().scrub;
-        if (scrub) {
-          passagePending = { target: scrub, resetKwicOnFailure: true };
-          pumpPassage();
         }
 
         const issuedSnapshot = snapshot.snapshot;
@@ -3629,9 +2879,7 @@ export function createAppRuntime(
             offsetA: 0,
             offsetB: 0,
           },
-          keynessEvidence: null,
         });
-        keynessEvidenceLane.supersede();
         get().runKeyness();
       },
 
@@ -3657,9 +2905,7 @@ export function createAppRuntime(
             offsetA: 0,
             offsetB: 0,
           },
-          keynessEvidence: null,
         });
-        keynessEvidenceLane.supersede();
         get().runKeyness();
       },
 
@@ -3696,8 +2942,7 @@ export function createAppRuntime(
             offsetB: 0,
           };
         }
-        set({ keynessView: next, keynessEvidence: null });
-        keynessEvidenceLane.supersede();
+        set({ keynessView: next });
         get().runKeyness();
       },
 
@@ -3778,117 +3023,6 @@ export function createAppRuntime(
             : { ...view, offsetB: offset },
         });
         runKeynessTable(side);
-      },
-
-      openKeynessEvidence(key, side) {
-        keynessEvidenceLane.supersede();
-        if (side !== 'a' && side !== 'b') {
-          set({ keynessEvidence: null });
-          return false;
-        }
-        const { snapshot, keynessView } = get();
-        const pair = snapshot
-          ? keynessSelections(keynessView, snapshot.readyDocs)
-          : null;
-        if (!snapshot || !pair) {
-          set({ keynessEvidence: null });
-          return false;
-        }
-        const label = key.normalize('NFC');
-        const group = {
-          id: 'keyness-evidence',
-          name: label,
-          members: [{
-            id: 'keyness-evidence-member',
-            kind: 'token' as const,
-            surface: label,
-            match: {
-              case: 'sensitive' as const,
-              diacritics: 'sensitive' as const,
-            },
-          }],
-          countOverlaps: false,
-        };
-        try {
-          validateNotebookGroup(group);
-        } catch {
-          set({ keynessEvidence: null });
-          return false;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedView = keynessView;
-        const issuedSelection = keynessSideSelectionKey(
-          issuedView,
-          snapshot.readyDocs,
-          side,
-        );
-        const lease = keynessEvidenceLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => {
-            const live = get();
-            return live.snapshot !== null
-              && keynessSideSelectionKey(
-                live.keynessView,
-                live.snapshot.readyDocs,
-                side,
-              ) === issuedSelection;
-          },
-        );
-        set({
-          keynessEvidence: {
-            snapshot: snapshot.snapshot,
-            side,
-            key: label,
-            state: { status: 'pending' },
-          },
-        });
-        issueOn(
-          keynessEvidenceLane,
-          snapshot.snapshot,
-          {
-            op: 'kwic',
-            selection: pair[side],
-            tracks: [{
-              seriesId: `keyness-${side}`,
-              group: coreGroupOf(group),
-            }],
-            request: {
-              contextTokens: 6,
-              sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-              page: { offset: 0, limit: 50 },
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'kwic') return;
-            set({
-              keynessEvidence: {
-                snapshot: snapshot.snapshot,
-                side,
-                key: label,
-                state: {
-                  status: 'ready',
-                  total: data.total,
-                  rows: data.rows,
-                },
-              },
-            });
-          },
-          (message) => set({
-            keynessEvidence: {
-              snapshot: snapshot.snapshot,
-              side,
-              key: label,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-        return true;
-      },
-
-      closeKeynessEvidence() {
-        keynessEvidenceLane.supersede();
-        set({ keynessEvidence: null });
       },
 
       setFrequencySort(by) {
@@ -4071,7 +3205,7 @@ export function createAppRuntime(
         if (!state.snapshot?.readyDocs.includes(doc)) return;
         let queryIntentChanged = false;
         // A DELIBERATE click outside the active range clears the range first
-        // (visibly — the shading and overlays drop) so the clicked evidence
+        // (visibly — the shading and overlays drop) so the clicked occurrence
         // can appear in the range-scoped concordance (ruling §2).
         const sel = state.linkedSelection;
         if (sel !== null && !selectionContains(sel, doc, token)) {
@@ -4088,7 +3222,7 @@ export function createAppRuntime(
           set({ kwicEnabledSeries: next });
           queryIntentChanged = true;
         }
-        // IMMEDIATE evidence: cancel any pending debounce and adopt the
+        // IMMEDIATE navigation: cancel any pending debounce and adopt the
         // position as the concordance center (like the chip toggle path).
         if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         kwicCenter = origin ? { doc, token, origin: 'bucket', bucketCount: origin.count } : { doc, token };
@@ -4224,152 +3358,6 @@ export function createAppRuntime(
       clearCommandError() {
         set({ commandError: null });
       },
-      saveNamedSelection(name) {
-        selectionLane.supersede();
-        const normalized = name.trim().normalize('NFC');
-        const state = get();
-        if (normalized.length < 1 || normalized.length > 256) {
-          set({ selectionError: 'A saved selection needs a name of at most 256 characters.' });
-          return;
-        }
-        if (state.savedSelections.length >= RESEARCH_MAX_SELECTIONS) {
-          set({ selectionError: `Saved selections are limited to ${RESEARCH_MAX_SELECTIONS}.` });
-          return;
-        }
-        const selection = state.linkedSelection;
-        const snapshot = state.snapshot;
-        if (!selection || !snapshot || selection.snapshot !== snapshot.snapshot) {
-          set({ selectionError: 'Select a token range before saving it.' });
-          return;
-        }
-        if (selection.ranges.length !== 1) {
-          set({ selectionError: 'A range across books can be analysed but cannot yet be saved as one finding.' });
-          return;
-        }
-        const range = selection.ranges[0]!;
-        const issuedKey = snapKey(snapshot);
-        const lease = selectionLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().linkedSelection === selection,
-        );
-        set({ selectionError: null });
-        issueOn(
-          selectionLane,
-          snapshot.snapshot,
-          {
-            op: 'anchor-tokens',
-            request: {
-              method: 'anchor-tokens/1',
-              doc: range.doc,
-              tokens: range.tokens,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'anchor-tokens') return;
-            set((live) => ({
-              savedSelections: [
-                ...live.savedSelections,
-                {
-                  id: newId(),
-                  name: normalized,
-                  anchor: data.result.anchor,
-                },
-              ],
-              selectionError: null,
-            }));
-          },
-          (message) => set({ selectionError: message }),
-        );
-      },
-      previewNamedSelection(id) {
-        previewSelectionLane.supersede();
-        const state = get();
-        const saved = state.savedSelections.find((candidate) => candidate.id === id);
-        const snapshot = state.snapshot;
-        if (!saved || !snapshot) return;
-        const issuedKey = snapKey(snapshot);
-        const lease = previewSelectionLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().savedSelections.some((candidate) => candidate.id === id),
-        );
-        issueOn(
-          previewSelectionLane,
-          snapshot.snapshot,
-          {
-            op: 'compile-anchor',
-            request: { method: 'compile-anchor/1', anchors: [saved.anchor] },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'compile-anchor') return;
-            const row = data.result.rows[0];
-            const check = selectionCheckFor(row);
-            set((live) => ({
-              selectionChecks: new Map(live.selectionChecks).set(id, check),
-            }));
-            if (check.status === 'ok') {
-              get().showEvidenceAt(check.doc, check.tokens.start);
-            }
-          },
-          (message) => set((live) => ({
-            selectionChecks: new Map(live.selectionChecks).set(id, {
-              status: 'error',
-              message,
-            }),
-          })),
-        );
-      },
-      applyNamedSelection(id) {
-        selectionLane.supersede();
-        const state = get();
-        const saved = state.savedSelections.find((candidate) => candidate.id === id);
-        const snapshot = state.snapshot;
-        if (!saved || !snapshot) return;
-        const issuedKey = snapKey(snapshot);
-        const lease = selectionLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().savedSelections.some((candidate) => candidate.id === id),
-        );
-        issueOn(
-          selectionLane,
-          snapshot.snapshot,
-          {
-            op: 'compile-anchor',
-            request: { method: 'compile-anchor/1', anchors: [saved.anchor] },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'compile-anchor') return;
-            const row = data.result.rows[0];
-            const check = selectionCheckFor(row);
-            set((live) => ({
-              selectionChecks: new Map(live.selectionChecks).set(id, check),
-            }));
-            if (check.status !== 'ok') return;
-            get().setLinkedSelection({
-              snapshot: snapshot.snapshot,
-              ranges: [{ doc: check.doc, tokens: check.tokens }],
-            });
-          },
-          (message) => set((live) => ({
-            selectionChecks: new Map(live.selectionChecks).set(id, {
-              status: 'error',
-              message,
-            }),
-          })),
-        );
-      },
-      removeNamedSelection(id) {
-        set((state) => ({
-          savedSelections: state.savedSelections.filter(
-            (selection) => selection.id !== id,
-          ),
-          selectionChecks: new Map(
-            [...state.selectionChecks].filter(([selectionId]) => selectionId !== id),
-          ),
-        }));
-      },
       reloadResearch() {
         const project = get().projectSession?.project.id;
         if (project) loadResearchForProject(project);
@@ -4377,101 +3365,7 @@ export function createAppRuntime(
       overwriteResearch() {
         saveResearchNow(true);
       },
-      createShareUrl(baseUrl) {
-        const state = get();
-        const research = researchStateFromApp(state, 1);
-        const groupIndex = new Map(
-          research.notebook.groups.map((group, index) => [group.id, index]),
-        );
-        const share: ShareLinkV1 = {
-          s: 1,
-          n: research.notebook,
-          a: research.active.map((id) => groupIndex.get(id)!).filter(
-            (index) => index !== undefined,
-          ),
-          k: research.kwicEnabled.map((id) => groupIndex.get(id)!).filter(
-            (index) => index !== undefined,
-          ),
-          v: {
-            t: research.views.trend,
-            i: research.views.inventory,
-            y: research.views.keyness,
-          },
-          x: projectTextRows(state).map((row) => ({
-            d: row.doc,
-            h: row.text,
-            ...(row.title === '' ? {} : { t: row.title.normalize('NFC').slice(0, 256) }),
-          })),
-          ...(research.selections.length === 0
-            ? {}
-            : { r: research.selections.map((selection) => selection.anchor) }),
-        };
-        const fallback = historyPort?.url ?? 'https://texttrends.invalid/';
-        return shareUrlFor(share, baseUrl ?? fallback);
-      },
-      importShareLink(value) {
-        try {
-          const share = decodeShareLink(value);
-          const state = get();
-          const current = researchStateFromApp(state, 1);
-          const rows = projectTextRows(state);
-          const matched = matchShareDocuments(share, rows);
-          const groupId = (index: number): string | null =>
-            share.n.groups[index]?.id ?? null;
-          const active = share.a.flatMap((index) => {
-            const id = groupId(index);
-            return id === null ? [] : [id];
-          });
-          const kwicEnabled = share.k.flatMap((index) => {
-            const id = groupId(index);
-            return id === null ? [] : [id];
-          });
-          const focusedSender = share.v.t?.focusedDoc ?? null;
-          const focusedHash = share.x.find((doc) => doc.d === focusedSender)?.h;
-          const focusedDoc = focusedHash === undefined
-            ? null
-            : rows.find((row) => row.text === focusedHash)?.doc ?? null;
-          const imported: ResearchStateV1 = {
-            ...current,
-            notebook: share.n,
-            active,
-            kwicEnabled,
-            selections: matched.anchors.map((anchor, index) => ({
-              id: newId(),
-              name: `Shared selection ${index + 1}`,
-              anchor,
-            })),
-            views: {
-              trend: share.v.t === undefined
-                ? current.views.trend
-                : { ...share.v.t, focusedDoc },
-              inventory: share.v.i ?? current.views.inventory,
-              keyness: share.v.y ?? current.views.keyness,
-            },
-          };
-          get().restoreResearch(imported);
-          if (historyPort !== null && historyHash(historyPort.url).startsWith('#s=')) {
-            const routed = urlWithRoute(historyPort.url, {
-              place: get().place,
-              evidence: get().evidenceTier,
-            });
-            historyPort.replace(historyPort.state, withoutHistoryHash(routed));
-          }
-          set({
-            shareNotice: matched.unmatchedDocuments.length === 0
-              ? `Imported shared research state; ${matched.matchedDocuments} document${matched.matchedDocuments === 1 ? '' : 's'} matched.`
-              : `Imported shared research state; ${matched.unmatchedDocuments.length} document${matched.unmatchedDocuments.length === 1 ? '' : 's'} did not match: ${matched.unmatchedDocuments.join(', ')}`,
-          });
-        } catch (error) {
-          set({ shareNotice: `Could not import share link: ${msg(error)}` });
-        }
-      },
-      clearResearchNotice() {
-        set({ selectionError: null, shareNotice: null });
-      },
       restoreResearch(research) {
-        selectionLane.supersede();
-        previewSelectionLane.supersede();
         const state = get();
         const fittedRestoredTrendBins = fitTrendBinsToCorpus(
           state,
@@ -4542,13 +3436,6 @@ export function createAppRuntime(
             offsetA: 0,
             offsetB: 0,
           },
-          savedSelections: research.selections,
-          selectionChecks: new Map(),
-          durablePins: research.pins,
-          pinRestoreIssues: [],
-          pins: [],
-          focusedPinId: null,
-          selectionError: null,
           removedGroups: [],
         });
         adoptNotebook(
@@ -4563,7 +3450,6 @@ export function createAppRuntime(
         get().runInventory();
         get().runFrequency();
         get().runKeyness();
-        restoreDurablePins();
       },
     };
   });
@@ -4593,27 +3479,21 @@ export function createAppRuntime(
         staleReader = true;
       }
     }
-    const evidenceTier = evidenceForLayers(layers);
     const readerChanged = !sameReaderPlace(previous.readerPlace, readerPlace);
     if (readerChanged) readerLane.supersede();
     store.setState((state) => ({
       place: route.place,
-      evidenceTier,
       layers,
       notebookError: route.place === state.place ? state.notebookError : null,
       readerPlace,
       readerPage: readerChanged ? null : state.readerPage,
       readerNavigation: readerChanged ? null : state.readerNavigation,
     }));
-    const normalizedUrl = urlWithRoute(historyPort.url, {
-      place: route.place,
-      evidence: evidenceTier,
-    });
+    const normalizedUrl = urlWithRoute(historyPort.url, { place: route.place });
     if (
       !parsed.valid
       || reconciled.truncated
       || staleReader
-      || route.evidence !== evidenceTier
       || relativeHistoryUrl(historyPort.url) !== normalizedUrl
     ) {
       historyPort.replace(historyStateFor(layers), normalizedUrl);
@@ -4659,71 +3539,9 @@ export function createAppRuntime(
     researchScheduling = false;
   };
 
-  restoreDurablePins = (): void => {
-    pinRestoreLane.supersede();
-    const state = store.getState();
-    const snapshot = state.snapshot;
-    if (!snapshot || state.durablePins.length === 0) {
-      if (state.durablePins.length === 0) {
-        store.setState({ pinRestoreIssues: [] });
-      }
-      return;
-    }
-    const issuedPins = state.durablePins;
-    const issuedKey = snapKey(snapshot);
-    const lease = pinRestoreLane.ops.begin(
-      () => snapKey(store.getState().snapshot) === issuedKey,
-      () => store.getState().durablePins === issuedPins,
-    );
-    const handle = client.query(snapshot.snapshot, {
-      op: 'compile-anchor',
-      request: {
-        method: 'compile-anchor/1',
-        anchors: issuedPins.map((pin) => pin.anchor),
-      },
-    });
-    pinRestoreLane.track(handle.cancel);
-    void handle.result.then((data) => {
-      if (!lease.isCurrent() || data.op !== 'compile-anchor') return;
-      const issues: PinRestoreIssue[] = [];
-      for (let index = 0; index < issuedPins.length; index++) {
-        const pin = issuedPins[index]!;
-        const row = data.result.rows[index];
-        if (row?.status === 'ok') {
-          store.getState().pinPassage(row.anchor.doc, row.tokens.start);
-          continue;
-        }
-        const reason = row?.status ?? 'error';
-        issues.push({
-          pin,
-          reason,
-          message: reason === 'text-mismatch'
-            ? 'document text changed'
-            : reason === 'missing-doc'
-              ? 'document is unavailable'
-              : reason === 'empty'
-                ? 'no current token overlaps this character anchor'
-                : 'anchor restoration failed',
-        });
-      }
-      store.setState({ pinRestoreIssues: issues });
-    }).catch((error: unknown) => {
-      if (isCancelled(error) || !lease.isCurrent()) return;
-      store.setState({
-        pinRestoreIssues: issuedPins.map((pin) => ({
-          pin,
-          reason: 'error',
-          message: msg(error),
-        })),
-      });
-    });
-  };
-
   loadResearchForProject = (project: string): void => {
     if (!session || disposed) return;
-    const replacingProject = researchProject !== null && researchProject !== project;
     clearResearchTimer();
-    pinRestoreLane.supersede();
     researchLoadCancel?.();
     researchSaveCancel?.();
     researchLoadCancel = null;
@@ -4736,14 +3554,6 @@ export function createAppRuntime(
     researchLastKey = null;
     conflictRevision = null;
     researchPausedKey = null;
-    if (replacingProject) {
-      store.setState({
-        savedSelections: [],
-        selectionChecks: new Map(),
-        durablePins: [],
-        pinRestoreIssues: [],
-      });
-    }
     const startKey = researchSemanticKey(store.getState());
     store.setState({ researchPersistence: { phase: 'loading' } });
     const handle = session.loadResearch();
@@ -4917,9 +3727,6 @@ export function createAppRuntime(
         : store.getState().removedGroups,
     });
     if (prevProject !== next.project.id) {
-      if (store.getState().selectionChecks.size > 0) {
-        store.setState({ selectionChecks: new Map() });
-      }
       loadResearchForProject(next.project.id);
     }
     if (prevKey !== nextKey) {
@@ -4928,34 +3735,46 @@ export function createAppRuntime(
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
-      selectionLane.supersede();
-      previewSelectionLane.supersede();
-      pinRestoreLane.supersede();
-      keynessEvidenceLane.supersede();
       if (
         store.getState().editContext !== null ||
-        store.getState().lineExcerpt !== null ||
-        store.getState().keynessEvidence !== null
+        store.getState().lineExcerpt !== null
       ) {
         store.setState({
           editContext: null,
           lineExcerpt: null,
-          keynessEvidence: null,
-          selectionChecks: new Map(),
         });
-      } else if (store.getState().selectionChecks.size > 0) {
-        store.setState({ selectionChecks: new Map() });
       }
-      store.getState().revalidatePins();
+      const live = store.getState();
+      const readerLive =
+        live.readerPlace !== null
+        && live.readerPlace.snapshot === (live.snapshot?.snapshot ?? null)
+        && (live.snapshot?.readyDocs.includes(live.readerPlace.doc) ?? false);
+      if (!readerLive && live.readerPlace !== null) {
+        const readerIndex = live.layers.findIndex((layer) => layer.kind === 'reader');
+        const layers = readerIndex < 0
+          ? live.layers
+          : live.layers.slice(0, readerIndex);
+        // Snapshot invalidation is store-driven, not a user Back intent:
+        // consume the now-unresolvable current entry in place.
+        if (historyPort !== null) {
+          historyPort.replace(
+            historyStateFor(layers),
+            urlWithRoute(historyPort.url, { place: live.place }),
+          );
+        }
+        store.setState({
+          layers,
+          readerPlace: null,
+          readerPage: null,
+          readerNavigation: null,
+        });
+      }
       store.getState().runQueries();
       store.getState().runStructure();
       store.getState().runInventory();
       store.getState().runFrequency();
       store.getState().runTfidf();
       store.getState().runKeyness();
-      if (researchHydrated && researchProject === next.project.id) {
-        restoreDurablePins();
-      }
     }
   };
 
@@ -4989,8 +3808,8 @@ export function createAppRuntime(
       // Close the ownership scope FIRST: every outstanding lease goes dead, so
       // a late settlement (even one whose cancel is never acknowledged) can no
       // longer write to the store. Then best-effort transport cleanup: cancel
-      // every in-flight query, drop the pending passage slot, and stop the
-      // debounce timer so it cannot mint a query after disposal.
+      // every in-flight query and stop the debounce timer so it cannot mint a
+      // query after disposal.
       scope.close();
       trendLane.supersede();
       kwicLane.supersede();
@@ -5005,49 +3824,28 @@ export function createAppRuntime(
       keynessBLane.supersede();
       keynessInventoryALane.supersede();
       keynessInventoryBLane.supersede();
-      keynessEvidenceLane.supersede();
       editContextLane.supersede();
       lineExcerptLane.supersede();
       readerLane.supersede();
-      selectionLane.supersede();
-      previewSelectionLane.supersede();
-      pinRestoreLane.supersede();
       const state = store.getState();
       const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
       if (readerIndex >= 0 || state.readerPlace !== null) {
         const layers = readerIndex < 0
           ? state.layers
           : state.layers.slice(0, readerIndex);
-        const evidenceTier = evidenceForLayers(layers);
         if (historyPort !== null) {
           historyPort.replace(
             historyStateFor(layers),
-            urlWithRoute(historyPort.url, {
-              place: state.place,
-              evidence: evidenceTier,
-            }),
+            urlWithRoute(historyPort.url, { place: state.place }),
           );
         }
         store.setState({
           layers,
-          evidenceTier,
           readerPlace: null,
           readerPage: null,
           readerNavigation: null,
         });
       }
-      passageActiveCancel?.();
-      passageActiveCancel = null;
-      passagePending = null;
-      for (const cancel of pinCancels.values()) {
-        try {
-          cancel();
-        } catch {
-          // Scope closure already killed ownership; transport is best effort.
-        }
-      }
-      pinCancels.clear();
-      pinRequests.clear();
       if (kwicCenterTimer !== null) {
         clearTimeout(kwicCenterTimer);
         kwicCenterTimer = null;

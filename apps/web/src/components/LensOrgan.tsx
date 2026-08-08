@@ -5,7 +5,7 @@ import { useApp } from '../lib/store-instance.ts';
 
 function hrefFor(place: Place): string {
   if (typeof location === 'undefined') return `?p=${place}`;
-  return `${routeSearch(location.search, { place, evidence: 'none' })}${location.hash}`;
+  return `${routeSearch(location.search, { place })}${location.hash}`;
 }
 
 export function LensOrgan() {

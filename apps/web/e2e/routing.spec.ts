@@ -44,12 +44,13 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
   await scope.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
   await expectOnlyCanonicalPlace(page, 'corpus');
-  await scope.getByRole('button', { name: 'Findings', exact: true }).click();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=findings$/);
+  await page.getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Compare', exact: true }).click();
+  await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
   await page.goBack();
   await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
   await page.goForward();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=findings$/);
+  await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
 
   const queryOps = (await trace(page)).events.filter((event) =>
     event.seq > reloadMark

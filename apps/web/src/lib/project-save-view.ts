@@ -5,11 +5,10 @@ export interface ProjectSaveView {
   readonly label: string;
   readonly canSave: boolean;
   readonly attention: boolean;
-  readonly showCorpusPointer: boolean;
+  readonly showStatus: boolean;
 }
 
-/** One presentation authority for project durability. Corpus and Findings may
- * place different controls, but they must describe the same projected state. */
+/** One presentation authority for project durability. */
 export function projectSaveView(project: ProjectView | null): ProjectSaveView {
   if (project === null) {
     return {
@@ -17,22 +16,22 @@ export function projectSaveView(project: ProjectView | null): ProjectSaveView {
       label: 'Project status is loading.',
       canSave: false,
       attention: false,
-      showCorpusPointer: false,
+      showStatus: false,
     };
   }
   if (project.kind === 'builtin') {
     return {
       kind: 'builtin',
-      label: 'Built-in corpus is read-only; research notes still save locally.',
+      label: 'Built-in corpus is read-only; analysis settings still save locally.',
       canSave: false,
       attention: false,
-      showCorpusPointer: false,
+      showStatus: false,
     };
   }
   const base = {
     kind: 'user' as const,
     canSave: project.saveable,
-    showCorpusPointer: project.dirty || project.save.phase !== 'idle',
+    showStatus: true,
   };
   switch (project.save.phase) {
     case 'saving':

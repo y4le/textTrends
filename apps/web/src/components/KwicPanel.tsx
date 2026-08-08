@@ -1,5 +1,5 @@
 /**
- * Concordance is an evidence table, not a miniature chart. Its aligned mode
+ * Concordance is a source-context table, not a miniature chart. Its aligned mode
  * keeps every node on one locked vertical axis inside a single horizontal
  * port; reading mode trades that alignment for wrapped, complete context.
  */
@@ -45,7 +45,6 @@ export function KwicPanel({
   const setSort = useApp((state) => state.setConcordanceSort);
   const setContext = useApp((state) => state.setConcordanceContext);
   const setReading = useApp((state) => state.setConcordanceReading);
-  const showEvidenceAt = useApp((state) => state.showEvidenceAt);
   const openReader = useApp((state) => state.openReader);
   const presentation = usePresentation();
 
@@ -139,7 +138,6 @@ export function KwicPanel({
     const row = rows[index];
     if (!row) return;
     setActiveKey(row.key);
-    showEvidenceAt(row.doc, row.pos);
     rowRefs.current.get(row.key)?.scrollIntoView({
       block: 'nearest',
       inline: 'nearest',
@@ -231,6 +229,7 @@ export function KwicPanel({
                 else rowRefs.current.delete(row.key);
               }}
               data-active={row.key === activeKey || undefined}
+              data-series-label={row.label}
             >
               <td className="kwic-left-context source-text">
                 <span aria-hidden="true">{row.leftShown}</span>
@@ -284,6 +283,7 @@ export function KwicPanel({
           }}
           className="kwic-reading-row"
           data-active={row.key === activeKey || undefined}
+          data-series-label={row.label}
         >
           <p className="kwic-reading-source">
             <span style={{ color: slotColor(row.slot) }}>{row.label}</span>

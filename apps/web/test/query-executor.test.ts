@@ -431,40 +431,6 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     });
   });
 
-  it('answers passage with marks, per-token extents, and a center span', async () => {
-    const { h, snap } = await ready();
-    await h.send({ t: 'query', job: 25, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 3, maxTokens: 200, tracks: [{ seriesId: 's1', group: wolfGroup }] } } });
-    const r = h.last('result');
-    expect(r.data.op).toBe('passage');
-    if (r.data.op === 'passage') {
-      const p = r.data.passage;
-      expect(p.text).toBe('the wolf ran far. a wolf slept');
-      expect(p.marks.length).toBe(2);
-      expect(p.marks.every((m) => m.seriesId === 's1')).toBe(true);
-      expect(p.marks.map((m) => p.text.slice(m.charsUtf16.start, m.charsUtf16.end))).toEqual(['wolf', 'wolf']);
-    }
-  });
-
-  it('rejects an out-of-range passage center as REQUEST_INVALID, and duplicate track ids at the wire', async () => {
-    const { h, snap } = await ready('only four tokens here');
-    await h.send({ t: 'query', job: 26, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 40, maxTokens: 10, tracks: [] } } });
-    expect(h.last('error').code).toBe('REQUEST_INVALID'); // kernel range check
-    await h.send({ t: 'query', job: 27, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 'dup', group: wolfGroup }, { seriesId: 'dup', group: { ...wolfGroup, id: 'g9' } }] } } });
-    expect(h.last('error').code).toBe('PARSE_FAILED'); // duplicate seriesId rejected by the narrower
-  });
-
-  it('a passage track with a kernel-invalid group (duplicate member ids) is REQUEST_INVALID, matching the trend path', async () => {
-    const { h, snap } = await ready('the wolf ran');
-    await h.send({ t: 'query', job: 28, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'token', surface: 'x', match: FOLD }, { id: 'p', kind: 'token', surface: 'y', match: FOLD }], countOverlaps: false } }] } } });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    // The empty phrase that previously exercised this path is now refused at
-    // the wire (TERM_GROUP_LIMITS_V1).
-    await h.send({ t: 'query', job: 29, snapshot: snap, query: { op: 'passage', request: { doc: 'a', centerToken: 1, maxTokens: 10, tracks: [{ seriesId: 's-bad', group: { id: 'g-bad', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false } }] } } });
-    expect(h.last('error').code).toBe('PARSE_FAILED');
-  });
-
-
-
   it('re-ingesting a document replaces its resolver cache atomically', async () => {
     const h = harness();
     const spec = await docSpec('a', 'wolf');

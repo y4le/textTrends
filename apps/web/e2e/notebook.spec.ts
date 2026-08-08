@@ -2,8 +2,8 @@
  * Slice-1 commit E acceptance (recorded ruling §4E): the query notebook in
  * the real browser over a tiny deterministic imported corpus. Proves:
  * - a MULTI-MEMBER group (alias + phrase + prefix, authored through the
- *   editor's draft/Apply flow) drives trends, KWIC, and the passage lane as
- *   OR alternatives, with the complete phrase span in the concordance node;
+ *   editor's draft/Apply flow) drives trends and concordance as OR
+ *   alternatives, with the complete phrase span in the concordance node;
  * - mute removes the track globally while the CONCORDANCE chips stay an
  *   orthogonal filter; solo restores state exactly; zero-hit is a real,
  *   visible ready state;
@@ -38,8 +38,12 @@ async function rowNodes(page: Page): Promise<{ term: string; node: string }[]> {
   const n = await trs.count();
   const out: { term: string; node: string }[] = [];
   for (let i = 0; i < n; i++) {
-    const tds = trs.nth(i).locator('td');
-    out.push({ term: (await tds.nth(0).innerText()).trim(), node: (await tds.nth(3).innerText()).trim() });
+    const row = trs.nth(i);
+    const tds = row.locator('td');
+    out.push({
+      term: (await row.getAttribute('data-series-label')) ?? '',
+      node: (await tds.nth(1).innerText()).trim(),
+    });
   }
   return out;
 }
@@ -110,23 +114,6 @@ test('a multi-member group (alias + phrase + prefix) authored in the editor driv
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 4', exact: true })).toBeVisible();
 
-  // The PASSAGE lane runs under the same authored group: scrub the axis,
-  // wait for the job-correlated passage result, and assert the FULL phrase
-  // span renders as ONE merged occurrence mark ('dire wolf', not a fragment).
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  const pMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await scrubber.press('End');
-  await expect
-    .poll(async () => {
-      const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > pMark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'passage');
-      if (q.length === 0) return 'no fresh passage query';
-      const res = t.events.filter((e) => e.seq > pMark && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
-      return res.length > 0 ? 'answered' : 'no result';
-    }, { timeout: 30_000 })
-    .toBe('answered');
-  await expect(page.locator('span[style*="border-bottom"]').filter({ hasText: /^dire wolf$/ })).toBeVisible();
 });
 
 test('a case-SENSITIVE member distinguishes what the folded default merges', async ({ page }) => {
@@ -178,18 +165,6 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   await gotoPlace(page, 'trends');
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
 
-  // Load a passage BEFORE muting so the muted interval is observed on live
-  // passage evidence too: scrub to the end — the tiny corpus fits one block,
-  // so dire@9 and the wolf occurrences all carry marks.
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  const scrubMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await scrubber.press('End');
-  await awaitFreshAnswered(page, scrubMark);
-  const markSpan = (text: string) =>
-    page.locator('span[style*="border-bottom"]').filter({ hasText: new RegExp(`^${text}$`) });
-  await expect(markSpan('dire').first()).toBeVisible();
-
   // Mute dire GLOBALLY and observe the muted interval itself: its term bucket
   // becomes unavailable for focus and the fresh reissued burst carries exactly the
   // two remaining tracks (wolf + absentterm) — a mute that only flipped the
@@ -202,11 +177,6 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   await expect(direChip).toBeDisabled();
   const mutedBurst = await awaitFreshAnswered(page, muteMark);
   expect(mutedBurst.filter((q) => q.op === 'trend').length).toBe(2);
-  // The RESIDENT passage was invalidated and refetched WITHOUT the muted
-  // track: dire's mark is gone, wolf's remains (review-E round 2).
-  expect(mutedBurst.some((q) => q.op === 'passage')).toBe(true);
-  await expect(markSpan('dire')).toBeHidden();
-  await expect(markSpan('wolf').first()).toBeVisible();
   // Unmute: the track RETURNS (fresh burst of three) and its concordance
   // toggle survived the round-trip OFF.
   const unmuteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -215,7 +185,6 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   await expect(direChip).toBeEnabled();
   const unmutedBurst = await awaitFreshAnswered(page, unmuteMark);
   expect(unmutedBurst.filter((q) => q.op === 'trend').length).toBe(3);
-  await expect(markSpan('dire').first()).toBeVisible(); // the passage mark RETURNS
   await gotoPlace(page, 'concordance');
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   await gotoPlace(page, 'trends');

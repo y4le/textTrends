@@ -21,12 +21,18 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
+const e2ePort = Number.parseInt(process.env.TT_E2E_PORT ?? '4173', 10);
+if (!Number.isSafeInteger(e2ePort) || e2ePort < 1 || e2ePort > 65_535) {
+  throw new RangeError('TT_E2E_PORT must be an integer from 1 through 65535');
+}
+const e2eOrigin = `http://127.0.0.1:${e2ePort}`;
+
 export default defineConfig({
   testDir: './e2e',
   timeout: 90_000,
   forbidOnly: !!process.env.CI,
   use: {
-    baseURL: 'http://127.0.0.1:4173/textTrends/',
+    baseURL: `${e2eOrigin}/textTrends/`,
     trace: 'retain-on-failure',
   },
   projects: [
@@ -37,7 +43,7 @@ export default defineConfig({
     },
     {
       name: 'webkit-compact',
-      testMatch: /(viewport|reader-modes|compact-trends|compact-barcode|compact-concordance|compact-corpus|compact-vocabulary|compact-compare|compact-findings)\.spec\.ts/,
+      testMatch: /(viewport|reader-modes|compact-trends|compact-barcode|compact-concordance|compact-corpus|compact-vocabulary|compact-compare)\.spec\.ts/,
       use: { ...devices['iPhone 14'] },
       retries: process.env.CI ? 1 : 0,
     },
@@ -50,8 +56,8 @@ export default defineConfig({
     },
   ],
   webServer: {
-    command: 'pnpm build:e2e && pnpm preview --host 127.0.0.1 --port 4173 --strictPort',
-    url: 'http://127.0.0.1:4173/textTrends/',
+    command: `pnpm build:e2e && pnpm preview --host 127.0.0.1 --port ${e2ePort} --strictPort`,
+    url: `${e2eOrigin}/textTrends/`,
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
   },

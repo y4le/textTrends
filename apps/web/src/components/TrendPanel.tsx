@@ -19,10 +19,8 @@
  *
  * The chart spans its container's full width (the app gives it the viewport)
  * via a measured ResizeObserver width; the axis position under the pointer /
- * keyboard scrubber drives the PassageLine beneath — the actual book text at
- * that position, occurrence marks in series colors. Pointer motion is
- * rAF-coalesced and deduplicated; the store fetches passage blocks and
- * navigates locally inside them.
+ * keyboard scrubber drives the shared reading cursor and concordance center.
+ * Pointer motion is rAF-coalesced and deduplicated.
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
@@ -52,7 +50,6 @@ import {
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
 import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
-import { PassageLine } from './PassageLine.tsx';
 import {
   commitRange,
   selectionTokenCount,
@@ -114,7 +111,7 @@ type StagePointerTarget =
     });
 
 export function TrendPanel() {
-  // Deliberately NO `scrub`/`passage` subscription here: those update once per
+  // Deliberately NO `scrub` subscription here: it updates once per
   // pointer animation frame, and this component's render rebuilds every path,
   // hover rect, label, and totals row. The ScrubSurface child owns the
   // per-frame state; this panel re-renders only on data/view/focus/resize
@@ -136,7 +133,7 @@ export function TrendPanel() {
   const pushLayer = useApp((s) => s.pushLayer);
   const replaceLayer = useApp((s) => s.replaceLayer);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
-  const showEvidenceAt = useApp((s) => s.showEvidenceAt);
+  const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const geometry = trendGeometryFor(presentation.width);
@@ -274,13 +271,13 @@ export function TrendPanel() {
     openExact = false,
   ) => {
     if (!target) return;
+    setScrub({ doc: target.doc, token: target.token });
     centerKwicAt(
       track.seriesId,
       target.doc,
       target.token,
       target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
     );
-    showEvidenceAt(target.doc, target.token);
     if (openExact && target.kind === 'occurrence' && dispersion) {
       openReader({
         snapshot: dispersion.snapshot,
@@ -594,15 +591,15 @@ export function TrendPanel() {
 
 /**
  * The per-frame half of the trend panel: the ONLY component that subscribes
- * to `scrub`/`passage` (which update once per pointer animation frame). It
+ * to `scrub` (which updates once per pointer animation frame). It
  * owns the slider container (pointer + keyboard + ARIA), the moving chart
  * cursor — an absolutely-positioned overlay div, NOT an SVG line, so cursor
- * motion never re-renders the chart — and the passage/caption/hint area.
+ * motion never re-renders the chart or its caption/hint area.
  *
  * The chart SVG arrives as `children`, created by the non-rendering outer
  * panel, so every scrub-frame render here hands React the SAME element and
  * the chart subtree is skipped entirely. The load-bearing invariant is
- * "TrendPanel does not subscribe to scrub/passage and its child element is
+ * "TrendPanel does not subscribe to scrub and its child element is
  * stable across child-local updates" — the views' React.memo is secondary
  * protection, not the contract (their props may legitimately change identity
  * whenever the outer panel really re-renders).
@@ -647,9 +644,7 @@ function ScrubSurface({
   children: React.ReactNode;
 }) {
   const scrub = useApp((s) => s.scrub);
-  const passage = useApp((s) => s.passage);
   const setScrub = useApp((s) => s.setScrub);
-  const pinPassage = useApp((s) => s.pinPassage);
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
@@ -754,13 +749,6 @@ function ScrubSurface({
       setRangeDraft(cancelRange());
       return;
     }
-    if ((e.key === 'p' || e.key === 'P') && preview === null) {
-      if (scrub && scrubDocOrdinal >= 0) {
-        e.preventDefault();
-        pinPassage(scrub.doc, scrub.token, 'evidence');
-      }
-      return;
-    }
     if (
       (e.key === 's' || e.key === 'S')
       && preview === null
@@ -838,14 +826,6 @@ function ScrubSurface({
     if (next) setScrub(next);
   };
 
-  const passageServes =
-    scrub !== null &&
-    passage !== null &&
-    snapshot !== null &&
-    passage.snapshot === snapshot.snapshot &&
-    passage.result.doc === scrub.doc &&
-    scrub.token >= passage.result.tokens.start &&
-    scrub.token < passage.result.tokens.end;
   const scrubTitle = scrub ? titleByDoc.get(scrub.doc) ?? scrub.doc : '';
   const scrubCaption = scrub && scrubDocOrdinal >= 0
     ? `${scrubTitle} · token ${(scrub.token + 1).toLocaleString()} of ${(docTokenCount[scrubDocOrdinal] ?? 0).toLocaleString()}`
@@ -1234,16 +1214,7 @@ function ScrubSurface({
           />
         )}
       </div>
-      {scrub && passageServes && scrubX !== null ? (
-        <PassageLine
-          passage={passage.result}
-          token={scrub.token}
-          crosshairX={scrubX}
-          series={series}
-          focusedSeries={focusedSeries}
-          caption={scrubCaption}
-        />
-      ) : scrub ? (
+      {scrub ? (
         <div
           style={{
             display: 'flex',
@@ -1257,7 +1228,7 @@ function ScrubSurface({
             margin: 'var(--space-2) 0 0',
           }}
         >
-          <span>{scrubCaption} · loading text…</span>
+          <span>{scrubCaption}</span>
         </div>
       ) : (
         <p
@@ -1269,8 +1240,8 @@ function ScrubSurface({
             margin: 'var(--space-2) 0 0',
           }}
         >
-          hover or focus the chart to read the text at any position — arrows step by
-          token, shift+arrows by 5, PageUp/Down by bin · press P to save an excerpt · press S to select a range
+          hover or focus the chart to set the reading position — arrows step by
+          token, shift+arrows by 5, PageUp/Down by bin · press S to select a range
         </p>
       )}
       <p

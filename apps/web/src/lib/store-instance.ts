@@ -53,7 +53,6 @@ function pendingAnalyses(): number {
     state.keynessB?.state,
     state.keynessInventoryA?.state,
     state.keynessInventoryB?.state,
-    state.keynessEvidence?.state,
     state.structure?.state,
     state.editContext?.state,
     state.lineExcerpt?.state,
@@ -64,8 +63,7 @@ function pendingAnalyses(): number {
     ...state.selectedTrends.values(),
   ];
   return direct.filter((item) => item?.status === 'pending').length
-    + maps.filter((item) => item.status === 'pending').length
-    + state.pins.filter((pin) => pin.kind === 'pending').length;
+    + maps.filter((item) => item.status === 'pending').length;
 }
 
 export const resumeMonitor = createResumeMonitor(window, () => {

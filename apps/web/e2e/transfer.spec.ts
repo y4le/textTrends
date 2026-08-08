@@ -56,7 +56,8 @@ test('trend results transfer their buffers; the resident index survives', async 
   // per series + KWIC) must deliver, and the claim is DATA-LEVEL — a
   // detached resident postings array could still yield an empty-but-
   // successful result, so the exact-totals corpus row must show Watson's
-  // exact corpus total (568 token matches under the default recipe).
+  // exact corpus total (551 token matches under the checked-in corpus and
+  // default recipe).
   const markBeforeRequery = (await trace(page)).events.at(-1)!.seq;
   await submitAndAwaitFreshResults(page, 'watson');
   // The Watson COUNT cell specifically (cell 0 is the row header's sibling
@@ -65,7 +66,7 @@ test('trend results transfer their buffers; the resident index survives', async 
   // corpus under the default recipe, computed via the same fold semantics.
   const corpusRow = page.getByRole('row', { name: /^corpus/ });
   await expect(corpusRow).toBeVisible();
-  await expect(corpusRow.getByRole('cell').nth(1)).toHaveText('568');
+  await expect(corpusRow.getByRole('cell').nth(1)).toHaveText('551');
   const t = await trace(page);
   // SNAPSHOT_UNKNOWN is the DESIGNED supersede signal for queries racing
   // progressive snapshot publication (the store reissues); any OTHER error

@@ -41,12 +41,11 @@ import {
   DEFAULT_INDEX_RECIPE,
   TERM_GROUP_LIMITS_V1,
   type NumericTrend,
-  type PassageResult,
   type ResearchStateV1,
 } from '@texttrends/core';
 import { researchState } from './support/research-fixtures.ts';
 
-// ── A fake QueryClient that records issued trend/KWIC/passage queries. ──
+// ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
   snapshot: string;
   term: string;
@@ -102,12 +101,10 @@ function fakeQueryClient() {
     issued,
     trends: () => issued.filter((q) => q.op === 'trend'),
     kwics: () => issued.filter((q) => q.op === 'kwic'),
-    passages: () => issued.filter((q) => q.op === 'passage'),
     structures: () => issued.filter((q) => q.op === 'structure'),
     editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
     lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
-    compiles: () => issued.filter((q) => q.op === 'compile-anchor'),
     inventories: () => issued.filter(
       (q) => q.op === 'inventory'
         && (q.query as { request?: { sections?: boolean } }).request?.sections === true,
@@ -366,22 +363,6 @@ function fakeTrend(marker: number): NumericTrend {
   };
 }
 
-function fakePassage(start: number, end: number, center: number, doc = 'a'): PassageResult {
-  const count = end - start;
-  return {
-    doc,
-    centerToken: center,
-    tokens: { start, end },
-    docCharsUtf16: { start: 0, end: count },
-    text: ' '.repeat(count),
-    tokenStartsUtf16: Array.from({ length: count }, (_, i) => i),
-    tokenEndsUtf16: Array.from({ length: count }, (_, i) => i + 1),
-    centerCharsUtf16: { start: center - start, end: center - start + 1 },
-    marks: [],
-    truncatedByCharCap: false,
-  };
-}
-
 function fakeReaderPage(
   start: number,
   end: number,
@@ -532,15 +513,6 @@ describe('workbench route and history authority', () => {
     expect(runtime.useApp.getState().popLayer()).toBe(false);
     expect(history.backs).toBe(0);
     expect(history.leftApp).toBe(0);
-
-    runtime.useApp.getState().setEvidenceTier('sheet');
-    history.deferBack = true;
-    expect(runtime.useApp.getState().popLayer()).toBe(true);
-    expect(runtime.useApp.getState().popLayer()).toBe(false);
-    expect(history.backs).toBe(1);
-    expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
-    history.flushBack();
-    expect(runtime.useApp.getState().evidenceTier).toBe('none');
     runtime.dispose();
   });
 
@@ -577,7 +549,7 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('installs a Back-safe base for deep sheet routes and restores forward by id', () => {
+  it('strips legacy evidence keys without creating history layers', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
       '/textTrends/?foreign=a+b&p=corpus&e=sheet#kept',
@@ -589,32 +561,12 @@ describe('workbench route and history authority', () => {
 
     expect(runtime.useApp.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'sheet',
-      layers: [{ kind: 'sheet' }],
-    });
-    expect(history.entries).toHaveLength(2);
-    expect(history.entries[0]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus#kept');
-    expect(history.entries[1]?.url)
-      .toBe('/textTrends/?foreign=a+b&p=corpus&e=sheet#kept');
-
-    history.back();
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
-      evidenceTier: 'none',
       layers: [],
     });
-    history.forward();
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
-      evidenceTier: 'sheet',
-      layers: [{ kind: 'sheet' }],
-    });
+    expect(history.entries).toHaveLength(1);
+    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#kept');
     expect(q.issued).toHaveLength(0);
-
     runtime.dispose();
-    history.back();
-    expect(runtime.useApp.getState().evidenceTier).toBe('sheet');
   });
 
   it('normalizes an unresolvable deep reader route to the place base', () => {
@@ -629,7 +581,6 @@ describe('workbench route and history authority', () => {
 
     expect(runtime.useApp.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'none',
       layers: [],
       readerPlace: null,
     });
@@ -639,22 +590,21 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('routes an incoming share fragment to the Findings base without opening evidence', () => {
+  it('leaves foreign fragments opaque while normalizing owned route keys', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=compare&e=sheet#s=payload',
+      '/textTrends/?foreign=a+b&p=compare&e=sheet#foreign-payload',
     );
     const runtime = createAppRuntime(q.client, {
       history,
       newLayerId: layerIds(),
     });
     expect(runtime.useApp.getState()).toMatchObject({
-      place: 'findings',
-      evidenceTier: 'none',
+      place: 'compare',
       layers: [],
     });
     expect(history.url).toBe(
-      '/textTrends/?foreign=a+b&p=findings#s=payload',
+      '/textTrends/?foreign=a+b&p=compare#foreign-payload',
     );
     expect(history.entries).toHaveLength(1);
     expect(q.issued).toHaveLength(0);
@@ -685,16 +635,14 @@ describe('workbench route and history authority', () => {
 
     store.getState().setPlace('corpus');
     assertFenced();
-    store.getState().setEvidenceTier('sheet', 'open-evidence');
-    assertFenced();
     store.getState().pushLayer(
       'row-detail',
       { term: 'Holmes', note: 'private target' },
       'vocabulary-row',
     );
     assertFenced();
-    const sheet = store.getState().layers.find((layer) => layer.kind === 'sheet')!;
-    store.getState().setLayerUI(sheet.id, { detent: 'half' });
+    const detail = store.getState().layers.at(-1)!;
+    store.getState().setLayerUI(detail.id, { detent: 'half' });
     assertFenced();
     store.getState().replaceLayer(
       'row-detail',
@@ -703,38 +651,27 @@ describe('workbench route and history authority', () => {
     );
     assertFenced();
 
-    expect(history.pushes).toBe(3);
-    expect(history.url).toBe('/textTrends/?foreign=%2f&p=corpus&e=sheet');
+    expect(history.pushes).toBe(2);
+    expect(history.url).toBe('/textTrends/?foreign=%2f&p=corpus');
     expect(JSON.stringify(history.state)).not.toMatch(
       /Holmes|Moriarty|private|token|vocabulary-row|local-scroll/,
     );
 
     store.getState().popLayer();
-    expect(store.getState().layers.at(-1)?.kind).toBe('sheet');
-    store.getState().setEvidenceTier('none');
+    expect(store.getState().layers.at(-1)?.kind).toBe('place');
     expect(store.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'none',
       layers: [{ kind: 'place' }],
     });
     assertFenced();
 
     const navigation = {
       place: store.getState().place,
-      evidenceTier: store.getState().evidenceTier,
       layers: store.getState().layers,
     };
     store.getState().restoreResearch(researchState(BUILTIN_SHERLOCK_ID, 4));
     expect(store.getState()).toMatchObject(navigation);
 
-    const shared = store.getState().createShareUrl(
-      'https://example.test/textTrends/?p=corpus',
-    );
-    const layerState = history.state;
-    history.restore(layerState, `${history.url}${new URL(shared).hash}`);
-    store.getState().importShareLink(shared);
-    expect(history.url).not.toContain('#s=');
-    expect(history.state).toBe(layerState);
     runtime.dispose();
   });
 
@@ -747,7 +684,6 @@ describe('workbench route and history authority', () => {
     });
     const store = runtime.useApp;
     store.getState().setPlace('corpus');
-    store.getState().setEvidenceTier('sheet');
     const live = store.getState().layers;
     history.restore({
       tt: {
@@ -761,46 +697,15 @@ describe('workbench route and history authority', () => {
 
     expect(store.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'sheet',
       layers: live,
     });
-    expect(history.url).toBe('/textTrends/?p=corpus&e=sheet');
+    expect(history.url).toBe('/textTrends/?p=corpus');
     expect(history.state).toEqual({
       tt: {
         v: 1,
         layers: live.map(({ kind, id }) => ({ kind, id })),
       },
     });
-    runtime.dispose();
-  });
-
-  it('demotes a governed reader to a real sheet at the same history depth', () => {
-    const q = fakeQueryClient();
-    const history = new FakeHistoryPort('/textTrends/?p=trends');
-    const runtime = createAppRuntime(q.client, {
-      history,
-      newLayerId: layerIds(),
-    });
-    const store = runtime.useApp;
-    const port = new FakeSessionPort();
-    runtime.attachSession(port);
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().openReader({
-      snapshot: 's1',
-      doc: 'a',
-      token: 1,
-      from: 'kwic',
-    });
-    const entries = history.entries.length;
-    const backs = history.backs;
-    store.getState().setEvidenceTier('sheet');
-    expect(store.getState()).toMatchObject({
-      evidenceTier: 'sheet',
-      layers: [{ kind: 'sheet' }],
-    });
-    expect(history.entries).toHaveLength(entries);
-    expect(history.backs).toBe(backs);
-    expect(history.url).toBe('/textTrends/?p=trends&e=sheet');
     runtime.dispose();
   });
 
@@ -812,7 +717,6 @@ describe('workbench route and history authority', () => {
       newLayerId: layerIds(),
     });
     const store = runtime.useApp;
-    store.getState().setEvidenceTier('sheet');
     const oldest = history.state as {
       readonly tt: { readonly v: 1; readonly layers: readonly unknown[] };
     };
@@ -823,7 +727,6 @@ describe('workbench route and history authority', () => {
     history.restore(oldest, '/textTrends/?p=trends&e=sheet');
     expect(store.getState()).toMatchObject({
       place: 'trends',
-      evidenceTier: 'none',
       layers: [],
     });
     expect(history.url).toBe('/textTrends/?p=trends');
@@ -1005,165 +908,6 @@ describe('the session bridge', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('previews a saved range as evidence without changing linked or durable scope', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().restoreResearch({
-      ...researchState(BUILTIN_SHERLOCK_ID, 1),
-      selections: [{
-        id: 'range-a',
-        name: 'Opening',
-        anchor: {
-          doc: 'a',
-          text: 'sha256:text' as never,
-          chars: { start: 0, end: 12 },
-        },
-      }],
-    });
-    const durable = researchSemanticKey(f.store.getState());
-    const passageCount = f.passages().length;
-    expect(f.store.getState().series).toEqual([]);
-
-    f.store.getState().previewNamedSelection('range-a');
-    expect(f.compiles()).toHaveLength(1);
-    f.compiles()[0]!.resolve({
-      op: 'compile-anchor',
-      result: {
-        method: 'compile-anchor/1',
-        rows: [{
-          status: 'ok',
-          anchor: {
-            doc: 'a',
-            text: 'sha256:text' as never,
-            chars: { start: 0, end: 12 },
-          },
-          tokens: { start: 2, end: 5 },
-        }],
-      },
-    });
-    await flush();
-
-    expect(f.store.getState().selectionChecks.get('range-a')).toEqual({
-      status: 'ok',
-      doc: 'a',
-      tokens: { start: 2, end: 5 },
-    });
-    expect(f.store.getState().linkedSelection).toBeNull();
-    expect(researchSemanticKey(f.store.getState())).toBe(durable);
-    expect(f.passages()).toHaveLength(passageCount + 1);
-    expect((f.passages().at(-1)!.query as {
-      request: { doc: string; centerToken: number; tracks: readonly unknown[] };
-    }).request).toMatchObject({ doc: 'a', centerToken: 2, tracks: [] });
-    f.runtime.dispose();
-  });
-
-  it('applies saved ranges explicitly and keeps compile failures on their row', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().restoreResearch({
-      ...researchState(BUILTIN_SHERLOCK_ID, 1),
-      selections: [{
-        id: 'range-a',
-        name: 'Opening',
-        anchor: {
-          doc: 'a',
-          text: 'sha256:text' as never,
-          chars: { start: 0, end: 12 },
-        },
-      }],
-    });
-
-    f.store.getState().previewNamedSelection('range-a');
-    f.compiles().at(-1)!.resolve({
-      op: 'compile-anchor',
-      result: {
-        method: 'compile-anchor/1',
-        rows: [{
-          status: 'text-mismatch',
-          anchor: {
-            doc: 'a',
-            text: 'sha256:text' as never,
-            chars: { start: 0, end: 12 },
-          },
-          expected: 'sha256:text',
-          actual: 'sha256:changed',
-        }],
-      },
-    });
-    await flush();
-    expect(f.store.getState().selectionChecks.get('range-a')).toMatchObject({
-      status: 'text-mismatch',
-    });
-    expect(f.store.getState().selectionError).toBeNull();
-    expect(f.passages()).toHaveLength(0);
-
-    f.store.getState().applyNamedSelection('range-a');
-    f.compiles().at(-1)!.resolve({
-      op: 'compile-anchor',
-      result: {
-        method: 'compile-anchor/1',
-        rows: [{
-          status: 'ok',
-          anchor: {
-            doc: 'a',
-            text: 'sha256:text' as never,
-            chars: { start: 0, end: 12 },
-          },
-          tokens: { start: 1, end: 4 },
-        }],
-      },
-    });
-    await flush();
-    expect(f.store.getState().linkedSelection).toEqual({
-      snapshot: 's1',
-      ranges: [{ doc: 'a', tokens: { start: 1, end: 4 } }],
-    });
-    expect(f.store.getState().selectionChecks.get('range-a')?.status).toBe('ok');
-
-    f.port.publishSnapshot('g2', 's2', ['a']);
-    expect(f.store.getState().selectionChecks.size).toBe(0);
-    f.runtime.dispose();
-  });
-
-  it('fences a saved-range preview when its row is removed', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().restoreResearch({
-      ...researchState(BUILTIN_SHERLOCK_ID, 1),
-      selections: [{
-        id: 'range-a',
-        name: 'Opening',
-        anchor: {
-          doc: 'a',
-          text: 'sha256:text' as never,
-          chars: { start: 0, end: 12 },
-        },
-      }],
-    });
-    f.store.getState().previewNamedSelection('range-a');
-    const compile = f.compiles().at(-1)!;
-    f.store.getState().removeNamedSelection('range-a');
-    compile.resolve({
-      op: 'compile-anchor',
-      result: {
-        method: 'compile-anchor/1',
-        rows: [{
-          status: 'ok',
-          anchor: {
-            doc: 'a',
-            text: 'sha256:text' as never,
-            chars: { start: 0, end: 12 },
-          },
-          tokens: { start: 1, end: 4 },
-        }],
-      },
-    });
-    await flush();
-    expect(f.store.getState().selectionChecks.size).toBe(0);
-    expect(f.passages()).toHaveLength(0);
-    f.runtime.dispose();
   });
 
   it('seeds the current session state on attach, before any publication', () => {
@@ -1968,82 +1712,16 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().inputError).toBeNull();
   });
 
-  it('scrub: first target fetches a passage block with one track per series', () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes, moriarty');
-    f.store.getState().setScrub({ doc: 'a', token: 500 });
-    const issued = f.passages();
-    expect(issued.length).toBe(1);
-    const q = issued[0]!.query as { request: { doc: string; centerToken: number; tracks: { seriesId: string }[] } };
-    expect(q.request.doc).toBe('a');
-    expect(q.request.centerToken).toBe(500);
-    expect(q.request.tracks.map((t) => t.seriesId)).toEqual(
-      f.store.getState().series.map((s) => s.id),
-    );
-  });
-
-  it('showEvidenceAt loads the shared passage without re-centering or querying KWIC', async () => {
+  it('scrub adopts a valid reading position and re-centers the concordance', () => {
     vi.useFakeTimers();
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().quickAdd('holmes');
       const kwicCount = f.kwics().length;
-
-      f.store.getState().showEvidenceAt('a', 500);
-      expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 500 });
-      expect(f.passages()).toHaveLength(1);
-      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 2);
-      expect(f.kwics()).toHaveLength(kwicCount);
-
-      const passage = f.passages()[0]!;
-      vi.useRealTimers();
-      passage.resolve({
-        op: 'passage',
-        passage: fakePassage(400, 600, 500),
-      });
-      await flush();
-      expect(f.store.getState().passage?.result.doc).toBe('a');
-      expect(f.kwics()).toHaveLength(kwicCount);
-    } finally {
-      vi.useRealTimers();
-    }
-  });
-
-  it('showEvidenceAt refuses invalid targets and its passage failure never issues KWIC', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().quickAdd('holmes');
-    const kwicCount = f.kwics().length;
-
-    f.store.getState().showEvidenceAt('missing', 1);
-    f.store.getState().showEvidenceAt('a', -1);
-    f.store.getState().showEvidenceAt('a', Number.MAX_SAFE_INTEGER + 1);
-    expect(f.passages()).toHaveLength(0);
-    expect(f.store.getState().scrub).toBeNull();
-
-    f.store.getState().showEvidenceAt('a', 7);
-    f.passages()[0]!.reject(new Error('passage unavailable'));
-    await flush();
-    expect(f.store.getState().scrub).toBeNull();
-    expect(f.store.getState().passage).toBeNull();
-    expect(f.kwics()).toHaveLength(kwicCount);
-  });
-
-  it('a later chart activation can re-center a position first adopted as Evidence-only', () => {
-    vi.useFakeTimers();
-    try {
-      const f = harness();
-      f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().quickAdd('holmes');
-      const kwicCount = f.kwics().length;
-
-      f.store.getState().showEvidenceAt('a', 25);
-      vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 2);
-      expect(f.kwics()).toHaveLength(kwicCount);
 
       f.store.getState().setScrub({ doc: 'a', token: 25 });
+      expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 25 });
       vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS);
       expect(f.kwics()).toHaveLength(kwicCount + 1);
       const request = f.kwics().at(-1)!.query as {
@@ -2053,71 +1731,6 @@ describe('store query intent discipline', () => {
     } finally {
       vi.useRealTimers();
     }
-  });
-
-  it('scrub: moves inside the guard band are purely local; edge moves refetch', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes');
-    f.store.getState().setScrub({ doc: 'a', token: 500 });
-    f.passages()[0]!.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
-    await flush();
-    expect(f.store.getState().passage).not.toBeNull();
-    f.store.getState().setScrub({ doc: 'a', token: 510 });
-    f.store.getState().setScrub({ doc: 'a', token: 450 });
-    expect(f.passages().length).toBe(1); // both inside [428, 572) — no fetch
-    f.store.getState().setScrub({ doc: 'a', token: 590 }); // within block, past the guard
-    expect(f.passages().length).toBe(2);
-  });
-
-  it('scrub: one active request plus one replaceable pending — motion never queues', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes');
-    f.store.getState().setScrub({ doc: 'a', token: 500 });
-    expect(f.passages().length).toBe(1);
-    f.store.getState().setScrub({ doc: 'a', token: 900 });
-    f.store.getState().setScrub({ doc: 'a', token: 1200 });
-    f.store.getState().setScrub({ doc: 'a', token: 1500 });
-    expect(f.passages().length).toBe(1);
-    f.passages()[0]!.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
-    await flush();
-    expect(f.passages().length).toBe(2);
-    const q = f.passages()[1]!.query as { request: { centerToken: number } };
-    expect(q.request.centerToken).toBe(1500);
-  });
-
-  it('scrub: an input change invalidates the block, refetches for the kept position, and a stale in-flight block cannot land', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes');
-    f.store.getState().setScrub({ doc: 'a', token: 500 });
-    const first = f.passages()[0]!; // left IN FLIGHT across the input change
-    f.store.getState().quickAdd('holmes, watson'); // marks are stale — new tracks needed
-    expect(first.cancelled).toBe(true);
-    expect(f.store.getState().passage).toBeNull();
-    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 500 }); // position kept
-    const refetch = f.passages().at(-1)!;
-    expect(refetch).not.toBe(first);
-    const q = refetch.query as { request: { tracks: { seriesId: string }[] } };
-    expect(q.request.tracks.length).toBe(2);
-    first.resolve({ op: 'passage', passage: fakePassage(0, 200, 100) });
-    await flush();
-    expect(f.store.getState().passage).toBeNull();
-    refetch.resolve({ op: 'passage', passage: fakePassage(400, 600, 500) });
-    await flush();
-    expect(f.store.getState().passage).not.toBeNull();
-  });
-
-  it('scrub: a rejected center clears the scrub instead of showing a mismatched block', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes');
-    f.store.getState().setScrub({ doc: 'a', token: 99999 });
-    f.passages()[0]!.reject(new Error('REQUEST_INVALID: centerToken 99999 outside [0, 5000)'));
-    await flush();
-    expect(f.store.getState().scrub).toBeNull();
-    expect(f.store.getState().passage).toBeNull();
   });
 
   it('manifest byte lengths, source hashes, and text hashes match the shipped assets', async () => {
@@ -2410,16 +2023,13 @@ describe('query notebook — identity discipline', () => {
     expect(f.store.getState().trends.get(g.id)).toBeDefined(); // results retained
   });
 
-  it('a member edit preserves the UUID, changes semantic identity, and reissues trend+KWIC+passage', async () => {
+  it('a member edit preserves the UUID, changes semantic identity, and reissues trend and concordance', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
-    f.store.getState().setScrub({ doc: 'a', token: 5 }); // arm a passage intent
-    await flush();
     const trendsBefore = f.trends().length;
     const kwicsBefore = f.kwics().length;
-    const passagesBefore = f.passages().length;
     f.store.getState().setGroupMembers(g.id, [
       { id: g.members[0]!.id, kind: 'token', surface: 'holmes', match: { case: 'folded', diacritics: 'folded' } },
       { id: 'm-alias', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
@@ -2427,11 +2037,9 @@ describe('query notebook — identity discipline', () => {
     expect(groupsOf(f)[0]!.id).toBe(g.id); // UUID stable (invariant 3)
     expect(f.trends().length).toBeGreaterThan(trendsBefore);
     expect(f.kwics().length).toBeGreaterThan(kwicsBefore);
-    expect(f.passages().length).toBeGreaterThan(passagesBefore);
     // The EXACT authored spec reaches EVERY operation's wire request — the
     // COMPLETE group value (ids, kinds, match modes, countOverlaps), deep-equal
-    // against the authored expectation, on trend AND kwic AND passage. A
-    // trackSpecs reconstruction/defaulting regression fails all three.
+    // against the authored expectation on trend and concordance.
     const authored = {
       id: g.id,
       members: [
@@ -2444,8 +2052,6 @@ describe('query notebook — identity discipline', () => {
     expect(trendWire).toEqual(authored);
     const kwicWire = (f.kwics().filter((t) => !t.cancelled).at(-1)!.query as { tracks: { seriesId: string; group: unknown }[] }).tracks;
     expect(kwicWire).toEqual([{ seriesId: g.id, group: authored }]);
-    const passWire = (f.passages().filter((t) => !t.cancelled).at(-1)!.query as { request: { tracks: { seriesId: string; group: unknown }[] } }).request.tracks;
-    expect(passWire).toEqual([{ seriesId: g.id, group: authored }]);
   });
 
   it('an identity-NEUTRAL member apply (same semantics) reissues nothing', () => {
@@ -2476,21 +2082,6 @@ describe('query notebook — identity discipline', () => {
     await flush();
     expect(f.store.getState().trends.get(g.id)!.status).toBe('pending'); // never adopted
     expect(f.store.getState().kwic!.state.status).toBe('pending');
-  });
-
-  it('a SEMANTIC-ONLY stale settlement cannot commit — passage', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().quickAdd('holmes');
-    const g = f.store.getState().notebook.groups[0]!;
-    f.store.getState().setScrub({ doc: 'a', token: 5 });
-    await flush();
-    const passage = f.passages().filter((t) => !t.cancelled).at(-1)!;
-    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEdit(g)] } });
-    expect(passage.cancelled).toBe(false);
-    passage.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
-    await flush();
-    expect(f.store.getState().passage).toBeNull(); // never adopted
   });
 
   it('rejects an invalid member set with one bounded notebookError and NO state change or reissue', () => {
@@ -2814,7 +2405,7 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().linkedSelection).toBeNull();
   });
 
-  it('keeps cross-book analysis active when the single-anchor findings schema cannot save it', () => {
+  it('keeps cross-book analysis active as transient linked scope', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const selection = {
@@ -2825,11 +2416,7 @@ describe('linked token-range selection (slice-2 commit E)', () => {
       ],
     };
     f.store.getState().setLinkedSelection(selection);
-    f.store.getState().saveNamedSelection('Across the boundary');
-    expect(f.store.getState().selectionError)
-      .toBe('A range across books can be analysed but cannot yet be saved as one finding.');
     expect(f.store.getState().linkedSelection).toEqual(selection);
-    expect(f.issued.filter((query) => query.op === 'anchor-tokens')).toHaveLength(0);
   });
 
   it('a snapshot replacement clears the (snapshot-bound) selection with its overlays', () => {
@@ -2924,244 +2511,6 @@ describe('linked token-range selection (slice-2 commit E)', () => {
   });
 });
 
-describe('served evidence provenance (slice-2 F foundation)', () => {
-  it('records the issuing snapshot and ordered track identities on every resident evidence slice', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().quickAdd('holmes');
-    const series = f.store.getState().series[0]!;
-    expect(f.store.getState().kwic?.snapshot).toBe('s1');
-    expect(f.store.getState().dispersion?.snapshot).toBe('s1');
-
-    f.store.getState().setScrub({ doc: 'a', token: 5 });
-    const passage = f.passages().at(-1)!;
-    passage.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
-    await flush();
-    const held = f.store.getState().passage!;
-    expect(held.snapshot).toBe('s1');
-    expect(held.result.doc).toBe('a');
-    expect(held.tracks).toEqual([expect.objectContaining({
-      seriesId: series.id,
-      groupId: series.id,
-      label: 'holmes',
-      styleSlot: series.styleSlot,
-    })]);
-    expect(held.tracks[0]!.identity).toEqual(expect.any(String));
-
-    f.port.publishSnapshot('g1', 's2', ['a']);
-    expect(f.store.getState().passage).toBeNull();
-    expect(f.store.getState().kwic?.snapshot).toBe('s2');
-    expect(f.store.getState().dispersion?.snapshot).toBe('s2');
-  });
-});
-
-describe('independent pinned passage intents (slice-2 F)', () => {
-  const setup = () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().quickAdd('holmes');
-    return f;
-  };
-  const centerOf = (issued: Issued) =>
-    (issued.query as { request: { centerToken: number } }).request.centerToken;
-
-  it('records and clears the surface that owns live pin feedback', () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 2, 'reader');
-    expect(f.store.getState()).toMatchObject({
-      pinFeedbackOrigin: 'reader',
-      pinAnnouncement: 'Saving excerpt to Findings.',
-    });
-    f.store.getState().clearPinFeedback('evidence');
-    expect(f.store.getState().pinFeedbackOrigin).toBe('reader');
-    f.store.getState().clearPinFeedback('reader');
-    expect(f.store.getState()).toMatchObject({
-      pinFeedbackOrigin: null,
-      pinAnnouncement: null,
-      pinError: null,
-    });
-  });
-
-  it('captures issue-time semantics and resolves a bounded passage without cancelling peers', async () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 2);
-    f.store.getState().pinPassage('a', 7);
-    expect(f.store.getState().pins.map((pin) => pin.kind)).toEqual(['pending', 'pending']);
-    const [a, b] = f.passages().slice(-2);
-    expect(a!.cancelled).toBe(false);
-    expect(b!.cancelled).toBe(false);
-    expect(centerOf(a!)).toBe(2);
-    expect(centerOf(b!)).toBe(7);
-    expect((a!.query as { request: { maxTokens: number } }).request.maxTokens).toBe(200);
-
-    b!.resolve({ op: 'passage', passage: fakePassage(0, 10, 7) });
-    a!.resolve({ op: 'passage', passage: fakePassage(0, 10, 2) });
-    await flush();
-    const pins = f.store.getState().pins;
-    expect(pins.map((pin) => pin.anchor.token)).toEqual([2, 7]); // insertion order
-    expect(pins.map((pin) => pin.kind)).toEqual(['ready', 'ready']);
-    expect(pins[0]!.tracks[0]).toEqual(expect.objectContaining({
-      label: 'holmes',
-      seriesId: f.store.getState().notebook.groups[0]!.id,
-    }));
-  });
-
-  it('reuses only a containing resident passage and treats end as exclusive', async () => {
-    const f = setup();
-    f.store.getState().setScrub({ doc: 'a', token: 5 });
-    f.passages().at(-1)!.resolve({ op: 'passage', passage: fakePassage(0, 10, 5) });
-    await flush();
-    const before = f.passages().length;
-    f.store.getState().pinPassage('a', 9);
-    expect(f.passages()).toHaveLength(before);
-    expect(f.store.getState().pins[0]!.kind).toBe('ready');
-    f.store.getState().pinPassage('a', 10);
-    expect(f.passages()).toHaveLength(before + 1);
-  });
-
-  it('focuses duplicates, visibly refuses a ninth item, and counts pending pins toward the cap', () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 0);
-    const first = f.store.getState().pins[0]!;
-    const afterFirst = f.passages().length;
-    f.store.getState().pinPassage('a', 0);
-    expect(f.passages()).toHaveLength(afterFirst);
-    expect(f.store.getState().pins).toHaveLength(1);
-    expect(f.store.getState().focusedPinId).toBe(first.id);
-    expect(f.store.getState().pinAnnouncement).toMatch(/already saved/);
-    for (let token = 1; token < 8; token++) f.store.getState().pinPassage('a', token);
-    const eight = f.store.getState().pins;
-    const requests = f.passages().length;
-    f.store.getState().pinPassage('a', 8);
-    expect(f.store.getState().pins).toBe(eight);
-    expect(f.passages()).toHaveLength(requests);
-    expect(f.store.getState().pinError).toMatch(/limited to 8/);
-  });
-
-  it('removing a pending pin cancels it and a raced late result cannot resurrect it', async () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 3);
-    const pin = f.store.getState().pins[0]!;
-    const request = f.passages().at(-1)!;
-    f.store.getState().removePin(pin.id);
-    expect(request.cancelled).toBe(true);
-    expect(f.store.getState().pins).toEqual([]);
-    request.resolve({ op: 'passage', passage: fakePassage(0, 10, 3) });
-    await flush();
-    expect(f.store.getState().pins).toEqual([]);
-  });
-
-  it('removes a quarantined durable pin and its restore issue without a live pin', () => {
-    const f = setup();
-    const pin = {
-      id: 'quarantined',
-      note: 'Needs repair',
-      anchor: {
-        doc: 'a',
-        text: 'a'.repeat(64) as never,
-        chars: { start: 2, end: 8 },
-      },
-      captured: [],
-    };
-    f.store.setState({
-      durablePins: [pin],
-      pinRestoreIssues: [{
-        pin,
-        reason: 'text-mismatch',
-        message: 'document text changed',
-      }],
-    });
-    f.store.getState().removePin(pin.id);
-    expect(f.store.getState().durablePins).toEqual([]);
-    expect(f.store.getState().pinRestoreIssues).toEqual([]);
-  });
-
-  it('retries an error under the pin request’s captured semantics', async () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 4);
-    const first = f.passages().at(-1)!;
-    first.reject(new Error('temporary failure'));
-    await flush();
-    const pin = f.store.getState().pins[0]!;
-    expect(pin.kind).toBe('error');
-    const group = f.store.getState().notebook.groups[0]!;
-    const member = group.members[0]!;
-    if (member.kind !== 'token') throw new Error('quick-add must create a token');
-    f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
-    f.store.getState().retryPin(pin.id);
-    const retry = f.passages().at(-1)!;
-    expect(retry).not.toBe(first);
-    expect((retry.query as {
-      request: { tracks: { group: { members: { surface: string }[] } }[] };
-    }).request.tracks[0]!.group.members[0]!.surface).toBe('holmes');
-    retry.resolve({ op: 'passage', passage: fakePassage(0, 10, 4) });
-    await flush();
-    expect(f.store.getState().pins[0]!.kind).toBe('ready');
-  });
-
-  it('moves focus ownership to the neighbouring pin when the focused one is removed', () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 1);
-    f.store.getState().pinPassage('a', 2);
-    const [first, second] = f.store.getState().pins;
-    f.store.getState().focusPin(first!.id);
-    f.store.getState().removePin(first!.id);
-    expect(f.store.getState().focusedPinId).toBe(second!.id);
-  });
-
-  it('snapshot replacement cancels/clears pins and the reader place; notebook changes do neither', async () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 1);
-    const pending = f.passages().at(-1)!;
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
-    expect(f.store.getState().readerPlace).not.toBeNull();
-    expect(f.store.getState().layers.at(-1)?.kind).toBe('reader');
-    f.store.getState().renameGroup(f.store.getState().notebook.groups[0]!.id, 'Detective');
-    expect(f.store.getState().pins).toHaveLength(1);
-    expect(pending.cancelled).toBe(false);
-    f.port.publishSnapshot('g1', 's2', ['a']);
-    expect(pending.cancelled).toBe(true);
-    expect(f.store.getState().pins).toEqual([]);
-    expect(f.store.getState().readerPlace).toBeNull();
-    expect(f.store.getState().layers.some((layer) => layer.kind === 'reader')).toBe(false);
-    pending.resolve({ op: 'passage', passage: fakePassage(0, 10, 1) });
-    await flush();
-    expect(f.store.getState().pins).toEqual([]);
-  });
-
-  it('fences reader opens by served snapshot and pins without clearing linked selection', () => {
-    const f = setup();
-    f.store.getState().setLinkedSelection({
-      snapshot: 's1',
-      ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
-    });
-    f.store.getState().pinPassage('a', 1);
-    expect(f.store.getState().linkedSelection).not.toBeNull();
-    f.store.getState().openReader({ snapshot: 'old', doc: 'a', token: 1, from: 'pin' });
-    expect(f.store.getState().readerPlace).toBeNull();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'pin' });
-    expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'around', token: 1 });
-    expect(f.store.getState().layers.at(-1)?.kind).toBe('reader');
-    f.store.getState().closeReader();
-    expect(f.store.getState().readerPlace).toBeNull();
-    expect(f.store.getState().layers.some((layer) => layer.kind === 'reader')).toBe(false);
-  });
-
-  it('dispose cancels every pending pin and fences late settlements', async () => {
-    const f = setup();
-    f.store.getState().pinPassage('a', 1);
-    f.store.getState().pinPassage('a', 2);
-    const requests = f.passages().slice(-2);
-    f.runtime.dispose();
-    expect(requests.every((request) => request.cancelled)).toBe(true);
-    for (const [i, request] of requests.entries()) {
-      request.resolve({ op: 'passage', passage: fakePassage(0, 10, i + 1) });
-    }
-    await flush();
-    expect(f.store.getState().pins.every((pin) => pin.kind === 'pending')).toBe(true);
-  });
-});
-
 describe('latest-wins full reader intent (slice-2 H)', () => {
   const setup = () => {
     const f = harness();
@@ -3185,7 +2534,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1',
       doc: 'a',
       token: 1,
-      from: 'passage',
+      from: 'kwic',
     });
     const request = q.readers().at(-1)!;
     request.resolve(fakeReaderPage(0, 4));
@@ -3201,11 +2550,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     const navigation = store.getState().readerNavigation;
     const pushes = history.pushes;
 
-    expect(store.getState()).toMatchObject({
-      evidenceTier: 'reader',
-      readerPage: page,
-      readerNavigation: navigation,
-    });
+    expect(store.getState()).toMatchObject({ readerPage: page, readerNavigation: navigation });
     expect(store.getState().readerPlace).not.toBeNull();
     expect(researchSemanticKey(store.getState())).toBe(semantic);
     expect(q.issued).toHaveLength(issued);
@@ -3224,7 +2569,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1',
       doc: 'a',
       token: 2,
-      from: 'passage',
+      from: 'barcode',
     });
     expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
     runtime.dispose();
@@ -3247,43 +2592,39 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       'reader-origin',
     );
     expect(store.getState()).toMatchObject({
-      evidenceTier: 'reader',
       readerPlace: { doc: 'a', cursor: { kind: 'around', token: 1 } },
       layers: [{ kind: 'reader', returnFocusTo: 'reader-origin' }],
     });
     expect(history.entries).toHaveLength(2);
-    expect(history.url).toBe('/textTrends/?p=trends&e=reader');
+    expect(history.url).toBe('/textTrends/?p=trends');
     const firstLayer = store.getState().layers[0]!.id;
 
     store.getState().openReader(
-      { snapshot: 's1', doc: 'a', token: 2, from: 'pin' },
+      { snapshot: 's1', doc: 'a', token: 2, from: 'barcode' },
       'second-reader-origin',
     );
     expect(history.entries).toHaveLength(2);
     expect(store.getState().layers).toHaveLength(1);
     expect(store.getState().layers[0]!.id).not.toBe(firstLayer);
     expect(store.getState().readerPlace).toMatchObject({
-      from: 'pin',
+      from: 'barcode',
       cursor: { kind: 'around', token: 2 },
     });
 
     store.getState().closeReader();
     expect(store.getState()).toMatchObject({
-      evidenceTier: 'none',
       readerPlace: null,
       layers: [],
     });
     history.forward();
     expect(store.getState()).toMatchObject({
-      evidenceTier: 'reader',
-      readerPlace: { from: 'pin', cursor: { kind: 'around', token: 2 } },
+      readerPlace: { from: 'barcode', cursor: { kind: 'around', token: 2 } },
       layers: [{ kind: 'reader' }],
     });
 
     store.getState().setPlace('corpus');
     expect(store.getState()).toMatchObject({
       place: 'corpus',
-      evidenceTier: 'none',
       readerPlace: null,
       layers: [{ kind: 'place' }],
     });
@@ -3304,7 +2645,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1',
       doc: 'a',
       token: 1,
-      from: 'passage',
+      from: 'kwic',
     });
     const backs = history.backs;
     const replaces = history.replaces;
@@ -3314,7 +2655,6 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(history.replaces).toBe(replaces + 1);
     expect(history.url).toBe('/textTrends/?p=trends');
     expect(runtime.useApp.getState()).toMatchObject({
-      evidenceTier: 'none',
       readerPlace: null,
       layers: [],
     });
@@ -3357,7 +2697,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('rapid cursor replacements cancel and reject an older page that arrives last', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'pin' });
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'barcode' });
     const around = f.readers().at(-1)!;
     around.resolve(fakeReaderPage(4, 8));
     await flush();
@@ -3385,7 +2725,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
   it('rename is presentation-only; semantic and active-track changes reissue highlights', () => {
     const f = setup();
     const group = f.store.getState().notebook.groups[0]!;
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'passage' });
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'kwic' });
     const first = f.readers().at(-1)!;
     const count = f.readers().length;
 
@@ -3735,12 +3075,10 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
   });
 
-  it('table-only view changes do not strand inventory headers or evidence', async () => {
+  it('table-only view changes do not strand inventory headers', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const inventories = f.keynessInventories();
-    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
-    const evidence = f.kwics().at(-1)!;
     const semantic = researchSemanticKey(f.store.getState());
     const before = f.store.getState().keynessView;
     f.store.getState().applyKeynessSettings({
@@ -3767,15 +3105,12 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
     expect(researchSemanticKey(f.store.getState())).not.toBe(semantic);
     expect(inventories.every((issued) => !issued.cancelled)).toBe(true);
-    expect(evidence.cancelled).toBe(false);
 
     inventories[0]!.resolve(fakeInventoryResult(4));
     inventories[1]!.resolve(fakeInventoryResult(5));
-    evidence.resolve({ op: 'kwic', total: 0, rows: [] });
     await flush();
     expect(f.store.getState().keynessInventoryA?.state.status).toBe('ready');
     expect(f.store.getState().keynessInventoryB?.state.status).toBe('ready');
-    expect(f.store.getState().keynessEvidence?.state.status).toBe('ready');
   });
 
   it('toggles only one durable direction and refuses invalid shared settings', () => {
@@ -3935,47 +3270,6 @@ describe('dueling keyness query intent (slice-4)', () => {
       a: { docs: ['a', 'c'] },
       b: { docs: ['b'] },
     });
-  });
-
-  it('opens exact concordance evidence on one side without changing the brush', async () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
-    const request = f.kwics().at(-1)!;
-    const query = request.query as {
-      selection: { docs: string[] };
-      tracks: { group: { members: { surface: string; match: unknown }[] } }[];
-    };
-    expect(query.selection.docs).toEqual(['b']);
-    expect(query.tracks[0]!.group.members[0]).toMatchObject({
-      surface: 'Wolf',
-      match: { case: 'sensitive', diacritics: 'sensitive' },
-    });
-    expect(f.store.getState().linkedSelection).toBeNull();
-    request.resolve({ op: 'kwic', total: 0, rows: [] });
-    await flush();
-    expect(f.store.getState().keynessEvidence).toMatchObject({
-      side: 'b',
-      key: 'Wolf',
-      state: { status: 'ready', total: 0, rows: [] },
-    });
-  });
-
-  it('reports evidence admission and fences it on snapshot replacement', () => {
-    const f = harness();
-    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(false);
-    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
-    const request = f.kwics().at(-1)!;
-    expect(f.store.getState().openKeynessEvidence('', 'b')).toBe(false);
-    expect(request.cancelled).toBe(true);
-    expect(f.store.getState().keynessEvidence).toBeNull();
-
-    expect(f.store.getState().openKeynessEvidence('Wolf', 'b')).toBe(true);
-    const replacement = f.kwics().at(-1)!;
-    f.port.publishSnapshot('g2', 's2', ['a', 'b']);
-    expect(replacement.cancelled).toBe(true);
-    expect(f.store.getState().keynessEvidence).toBeNull();
   });
 
   it('reconciles departed documents on the next snapshot', () => {

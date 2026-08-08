@@ -1,6 +1,6 @@
 /**
  * Slice-4 acceptance journey: explicit two-book keyness, side-restricted
- * concordance evidence, inversion on swap, and independence from the trend
+ * comparison inversion on swap and independence from the trend
  * surface's transient linked brush.
  */
 
@@ -53,7 +53,7 @@ async function awaitOps(
   }, { timeout: 30_000 }).toBe('answered');
 }
 
-test('slice 4: A-key/B-key → side evidence → swap inversion → brush independence', async ({ page }) => {
+test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'corpus');
@@ -104,38 +104,6 @@ test('slice 4: A-key/B-key → side evidence → swap inversion → brush indepe
   const detail = page.getByRole('region', { name: 'Compare detail: forest, side A' });
   await expect(detail.locator('dt')).toHaveCount(11);
   await expect(detail).toContainText(`log₂ ratio${(positive >= 0 ? '+' : '')}${positive}`);
-  await expect(detail).toContainText('Evidence is restricted to side A');
-  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await detail
-    .getByRole('button', { name: 'show evidence' })
-    .click();
-  await awaitOps(page, mark, ['kwic']);
-  await page.getByRole('button', { name: 'Inspect', exact: true }).click();
-  const evidenceSheet = page.getByRole('dialog', { name: 'Evidence sheet' });
-  const evidence = evidenceSheet.getByRole('table', { name: 'Comparison occurrence evidence' });
-  await expect(evidence).toBeVisible();
-  await expect(evidence.locator('tbody tr').first()).toContainText('alpha');
-  await expect(evidence.locator('tbody')).not.toContainText('beta');
-  const occurrences = page.locator('.comparison-occurrences');
-  await expect(occurrences).toHaveAttribute(
-    'aria-label',
-    'Occurrences of “forest” restricted to side A: alpha',
-  );
-  await occurrences.getByRole('button', { name: 'inspect' }).first().click();
-  await expect(evidenceSheet).toContainText('alpha');
-
-  const read = occurrences.getByRole('button', { name: 'Read' }).first();
-  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await read.click();
-  await awaitOps(page, mark, ['reader-page']);
-  await expect(page.getByRole('main', { name: /Reader: alpha/ })).toBeVisible();
-  await page.goBack();
-  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
-  await expect(read).toBeFocused();
-  await occurrences.getByRole('button', { name: 'dismiss' }).click();
-  await expect(occurrences).toHaveCount(0);
-  await evidenceSheet.getByRole('button', { name: 'Close Evidence sheet' }).click();
-  await expect(evidenceSheet).toHaveCount(0);
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Swap keyness sides' }).click();

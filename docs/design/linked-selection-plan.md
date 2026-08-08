@@ -26,6 +26,11 @@ forward/back → baseline restoration. Durable pins/selections, notebook
 persistence, and char-anchor migration remain deliberately deferred to the
 versioned share/persistence slice.
 
+**SUPERSEDED IN PART (2026-08-07).** The pin, bounded-passage, and durable
+range/excerpt provisions below are retained only as implementation history.
+Those systems have been removed. Linked selection, dispersion, direct
+Concordance/barcode navigation, and the full Reader remain current.
+
 ---
 
 Ruling: approve Slice 2, and treat it as the trigger for the deferred F1 gate now. The slice is not complete without all four product outcomes: a bounded dispersion barcode, one linked range selection propagated to analytical detail, pinnable passage evidence, and a genuinely page-through-the-document reader. It is acceptable to land pins and click-through before the reader as intermediate commits; it is not acceptable to defer the reader to another slice while calling Slice 2 complete.

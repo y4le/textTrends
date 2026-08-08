@@ -4,6 +4,20 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-07 — Retire retained excerpts and Findings
+
+The owner removed the Evidence surface, saved excerpts and ranges, live and
+durable pins, URL sharing, passage/anchor worker operations, and the Findings
+place. Source reading now flows directly from Concordance or exact barcode
+occurrences into Reader. Reader position and linked range selection remain
+transient; durable research state is limited to the notebook and analysis-view
+settings. Project saving and conflict handling live in Corpus.
+
+Old decisions below remain historical provenance where useful, but their
+Evidence, Findings, excerpt, pin, range-persistence, and sharing provisions are
+superseded by this decision. The current interface contract is
+`docs/design/workbench-ux.md`.
+
 ## 2026-08-02 — Barcode embedded in trend geometry
 
 The owner moved dispersion from a separate strip into the bottom of the trend
@@ -34,7 +48,7 @@ the outer document scroll-locked while it is open. This makes tablet behavior
 match phone behavior and prevents iPad Safari from moving the Reader partly
 off-screen through page-level scrolling.
 
-## 2026-07-30 — Cross-device workbench UX
+## 2026-07-30 — Cross-device workbench UX (partly superseded)
 
 The owner approved replacing the implementation-order long page with a
 cross-device research workbench and required mobile to be a first-class
@@ -71,7 +85,7 @@ The controlling product decisions are:
 8. Preserve the 90 kB entry budget and add no router, sheet, gesture, or UI-kit
    dependency for the shell.
 
-## 2026-07-30 — Slices 3, 4, and durable research state
+## 2026-07-30 — Slices 3, 4, and durable research state (partly superseded)
 
 The owner approved proceeding with ROI-ranked phases 2, 3, and 4 and ratified
 the six product recommendations raised by the governing Claude Opus planning
@@ -89,7 +103,5 @@ ruling (Parley request `req_consult_a2002d56c2327772`, session
 6. Place Poisson bursts after Slice 4 rather than inside the corpus dashboard
    or keyness slice.
 
-The implementation contracts are
-`docs/design/corpus-dashboard-plan.md`,
-`docs/design/keyness-plan.md`, and
-`docs/design/research-state-plan.md`.
+The surviving implementation contracts are
+`docs/design/corpus-dashboard-plan.md` and `docs/design/keyness-plan.md`.

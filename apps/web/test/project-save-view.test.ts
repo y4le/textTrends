@@ -39,12 +39,12 @@ describe('project save view', () => {
     })).toMatchObject({
       kind: 'builtin',
       label: expect.stringContaining('read-only'),
-      showCorpusPointer: false,
+      showStatus: false,
     });
     expect(projectSaveView(user()).label).toBe('Project revision 2 is saved.');
     expect(projectSaveView(user({ dirty: true }))).toMatchObject({
       label: 'Project revision 2 has unsaved changes.',
-      showCorpusPointer: true,
+      showStatus: true,
     });
     expect(projectSaveView(user({ baseRevision: 0 })).label)
       .toBe('Imported project has not been saved.');

@@ -70,40 +70,6 @@ export interface ProvenanceInput {
     readonly resultA: KeynessResultV1 | null;
     readonly resultB: KeynessResultV1 | null;
   };
-  readonly findings: {
-    readonly ranges: readonly {
-      readonly id: string;
-      readonly name: string;
-      readonly document: string;
-      readonly charStart: number;
-      readonly charEnd: number;
-      readonly textHash: string;
-      readonly status: string;
-    }[];
-    readonly pins: readonly {
-      readonly id: string;
-      readonly note: string;
-      readonly document: string;
-      readonly charStart: number | null;
-      readonly charEnd: number | null;
-      readonly textHash: string | null;
-      readonly token: number;
-      readonly capturedTracks: readonly string[];
-      readonly status: string;
-    }[];
-    readonly issues: readonly {
-      readonly id: string;
-      readonly note: string;
-      readonly document: string;
-      readonly charStart: number;
-      readonly charEnd: number;
-      readonly textHash: string;
-      readonly status: string;
-    }[];
-    readonly sharePolicy: string;
-    readonly researchStatus: string;
-    readonly projectStatus: string;
-  };
 }
 
 export interface ResultTable {
@@ -282,30 +248,6 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
   };
 }
 
-function findingsMethod(input: ProvenanceInput): ProvenanceMethod {
-  const checked = input.findings.ranges.filter(
-    (range) => range.status !== 'not checked in this session',
-  ).length;
-  return {
-    method: 'research log',
-    parameters: [
-      parameter('saved ranges', String(input.findings.ranges.length)),
-      parameter('ranges checked in this session', String(checked)),
-      parameter('saved excerpts', String(input.findings.pins.length)),
-      parameter('anchors needing review', String(input.findings.issues.length)),
-      parameter('share policy', input.findings.sharePolicy),
-      parameter('research persistence', input.findings.researchStatus),
-      parameter('project persistence', input.findings.projectStatus),
-    ],
-    limitations: [
-      'This is a current-state register, not an event history.',
-      'Saved records do not retain place, focus, cursor, or live selection.',
-      'Saved-range checks are session-only and clear when the snapshot changes.',
-      'The governed result table excludes captured excerpt text.',
-    ],
-  };
-}
-
 export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV1 {
   let methods: readonly ProvenanceMethod[] = [];
   let resident = false;
@@ -331,9 +273,6 @@ export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV
   ) {
     methods = [keynessMethod(input)];
     resident = true;
-  } else if (place === 'findings') {
-    methods = [findingsMethod(input)];
-    resident = input.snapshot !== null;
   }
 
   return {
@@ -496,61 +435,6 @@ export function resultTableFor(
         ],
       };
     }
-  }
-  if (place === 'findings') {
-    return {
-      title: 'Findings research log',
-      columns: [
-        'kind',
-        'id',
-        'name_or_note',
-        'document',
-        'char_start',
-        'char_end',
-        'text_hash',
-        'token',
-        'captured_tracks',
-        'status',
-      ],
-      rows: [
-        ...input.findings.ranges.map((range) => [
-          'saved_range',
-          range.id,
-          range.name,
-          range.document,
-          range.charStart,
-          range.charEnd,
-          range.textHash,
-          null,
-          '',
-          range.status,
-        ] as const),
-        ...input.findings.pins.map((pin) => [
-          'pinned_evidence',
-          pin.id,
-          pin.note,
-          pin.document,
-          pin.charStart,
-          pin.charEnd,
-          pin.textHash,
-          pin.token,
-          pin.capturedTracks.join(' | '),
-          pin.status,
-        ] as const),
-        ...input.findings.issues.map((issue) => [
-          'anchor_review',
-          issue.id,
-          issue.note,
-          issue.document,
-          issue.charStart,
-          issue.charEnd,
-          issue.textHash,
-          null,
-          '',
-          issue.status,
-        ] as const),
-      ],
-    };
   }
   return null;
 }

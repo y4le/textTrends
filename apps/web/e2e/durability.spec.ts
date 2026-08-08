@@ -60,13 +60,12 @@ test('user-data unavailable: persist, retry (File-retained), and save each fail;
 
   // (3) Save fails with its OWN fresh PERSISTENCE_UNAVAILABLE + visible state.
   const mark3 = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
   await awaitUserDataError(page, mark3, 'project-save', 'PERSISTENCE_UNAVAILABLE');
-  await expect(page.getByRole('region', { name: 'Findings attention' })
-    .getByText(/Project save failed \(PERSISTENCE_UNAVAILABLE\)/)).toBeVisible({
+  await expect(page.getByText(/Project save failed \(PERSISTENCE_UNAVAILABLE\)/)).toBeVisible({
     timeout: 30_000,
   });
 

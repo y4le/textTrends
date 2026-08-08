@@ -21,9 +21,6 @@ export interface ScopeInput {
   readonly inventory: InventoryState | null;
   readonly linkedSelection: TokenRangeSelectionV1 | null;
   readonly titleByDoc: ReadonlyMap<string, string>;
-  readonly pins: {
-    readonly needingReview: number;
-  };
   readonly loadingPhase: string | null;
 }
 
@@ -120,11 +117,6 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   if (tokensInScope !== null) segments.push(`${number.format(tokensInScope)} tokens`);
   if (range) segments.push(range.label);
   segments.push(readyText);
-  if (input.pins.needingReview > 0) {
-    segments.push(
-      `${input.pins.needingReview} ${input.pins.needingReview === 1 ? 'anchor needs' : 'anchors need'} review`,
-    );
-  }
   if (partial) segments.push('partial corpus');
   if (exception) segments.push(exception);
 

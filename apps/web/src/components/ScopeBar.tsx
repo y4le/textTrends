@@ -9,7 +9,6 @@ export function ScopeBar() {
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const projectSession = useApp((state) => state.projectSession);
-  const pinRestoreIssues = useApp((state) => state.pinRestoreIssues);
   const loadingPhase = useApp((state) => state.loadingPhase);
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
   const setLinkedSelection = useApp((state) => state.setLinkedSelection);
@@ -37,9 +36,6 @@ export function ScopeBar() {
         inventory,
         linkedSelection,
         titleByDoc,
-        pins: {
-          needingReview: pinRestoreIssues.length,
-        },
         loadingPhase: bootstrapPhase === 'initializing'
           ? 'preparing the built-in project…'
           : loadingPhase,
@@ -51,7 +47,6 @@ export function ScopeBar() {
       inventory,
       linkedSelection,
       loadingPhase,
-      pinRestoreIssues.length,
       place,
       project,
       snapshot,
@@ -175,13 +170,6 @@ export function ScopeBar() {
             )}
           </span>
         ))}
-        <button
-          className="scope-organ-link coarse-target scope-findings-link"
-          type="button"
-          onClick={() => setPlace('findings')}
-        >
-          Findings
-        </button>
         <button
           id="global-method-open"
           className="scope-organ-link coarse-target scope-method-link"

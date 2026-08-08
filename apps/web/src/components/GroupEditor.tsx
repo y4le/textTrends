@@ -250,7 +250,7 @@ export function GroupEditor({
       </label>
       <p id={`overlap-help-${group.id}`} style={{ margin: 0, color: 'var(--fg-muted)' }}>
         off: overlapping aliases/phrases count once — on: every member match
-        counts, which can intentionally double-count overlapping evidence
+        counts, which can intentionally double-count overlapping matches
       </p>
       {error && <p role="alert" style={{ color: 'var(--accent-text)', margin: 0 }}>{error}</p>}
       <div className="group-editor-actions" style={{ display: 'flex', gap: 'var(--space-2)' }}>

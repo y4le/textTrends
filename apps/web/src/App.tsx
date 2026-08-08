@@ -23,14 +23,8 @@ const TrendsPlace = lazy(() =>
 const ConcordancePlace = lazy(() =>
   import('./places/ConcordancePlace.tsx').then(({ ConcordancePlace: placeBody }) => ({ default: placeBody })),
 );
-const FindingsPlace = lazy(() =>
-  import('./places/FindingsPlace.tsx').then(({ FindingsPlace: placeBody }) => ({ default: placeBody })),
-);
 const QuerySurface = lazy(() =>
   import('./components/QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
-);
-const EvidenceSurface = lazy(() =>
-  import('./components/EvidenceSurface.tsx').then(({ EvidenceSurface: surface }) => ({ default: surface })),
 );
 const MethodSurface = lazy(() =>
   import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
@@ -73,7 +67,6 @@ function ActivePlace({ place }: { readonly place: Place }) {
     case 'concordance': return <ConcordancePlace />;
     case 'vocabulary': return <VocabularyPlace />;
     case 'compare': return <ComparePlace />;
-    case 'findings': return <FindingsPlace />;
     default: {
       const exhaustive: never = place;
       return exhaustive;
@@ -227,15 +220,6 @@ export function App() {
             <ActivePlace place={place} />
           </PlaceSurface>
         </div>
-        <Suspense
-          fallback={(
-            <aside className="evidence-region" aria-label="Evidence">
-              <p className="region-placeholder">loading Evidence…</p>
-            </aside>
-          )}
-        >
-          <EvidenceSurface />
-        </Suspense>
       </div>
       <Suspense fallback={null}>
         <MethodSurface place={place} />

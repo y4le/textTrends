@@ -172,8 +172,8 @@ function BarcodeCanvas({
           for (const segment of track.segmentsByDocOrdinal[bucketOrdinal] ?? []) {
             const x0 = edgeX(d, segment.t0);
             const x1 = edgeX(d, segment.t1);
-            const evidenceAlpha = segment.kind === 'tick' ? 1 : 0.15 + 0.85 * segment.intensity;
-            ctx.globalAlpha = evidenceAlpha * focusDim * (context ? 0.25 : 1);
+            const markAlpha = segment.kind === 'tick' ? 1 : 0.15 + 0.85 * segment.intensity;
+            ctx.globalAlpha = markAlpha * focusDim * (context ? 0.25 : 1);
             ctx.fillRect(x0, y, Math.max(1, x1 - x0), trackHeight);
           }
         };

@@ -1,6 +1,4 @@
 import {
-  anchorTokens,
-  compileAnchors,
   dispersionTransferBuffers,
   inventoryTransferBuffers,
   INVENTORY_MAX_SECTIONS,
@@ -198,7 +196,7 @@ interface GenerationStateV4 {
    *  binding module; dropped with the generation. */
   readonly binding: BindingSession;
   /** The generation-bound query executor (slice-2 ruling §B): owns trend/
-   *  kwic/passage execution, resolver reuse, and the shared occurrence cache.
+   *  query execution, resolver reuse, and the shared occurrence cache.
    *  Fed a fresh read-only view at every publication; dies with the
    *  generation. The engine keeps job/cancel/emission authority. */
   readonly executor: QueryExecutor;
@@ -1364,65 +1362,14 @@ export class WorkerEngineV4 {
       return;
     }
 
-    if (q.op === 'anchor-tokens') {
-      const ref = snapshot.docs.find((candidate) => candidate.doc === q.request.doc);
-      const resident = gen.ready.get(q.request.doc);
-      if (!ref || !resident) {
-        this.emitError('DEPENDENCY_MISSING', {
-          job,
-          message: `document '${q.request.doc}' is not resident`,
-          recoverable: true,
-        });
-        return;
-      }
-      const result = anchorTokens(
-        snapshot,
-        ref,
-        resident.shard,
-        q.request.tokens,
-      );
-      this.queryGate(job, gen, snapshotId);
-      this.emit({
-        v: PROTOCOL_VERSION_V4,
-        t: 'result',
-        job,
-        snapshot: snapshot.id,
-        data: { op: 'anchor-tokens', result },
-      });
-      return;
-    }
-
-    if (q.op === 'compile-anchor') {
-      const shards = new Map(
-        [...gen.ready].map(([doc, ready]) => [doc, ready.shard]),
-      ) as unknown as Parameters<typeof compileAnchors>[1];
-      const result = compileAnchors(snapshot, shards, q.request.anchors);
-      this.queryGate(job, gen, snapshotId);
-      this.emit({
-        v: PROTOCOL_VERSION_V4,
-        t: 'result',
-        job,
-        snapshot: snapshot.id,
-        data: { op: 'compile-anchor', result },
-      });
-      return;
-    }
-
     // The generation-bound executor runs the analysis ops (slice-2 ruling §B);
     // this engine keeps job ownership, the injected checkpoint (yield + gate),
     // and a FINAL gate immediately before every emit.
     const checkpoint = () => this.queryCheckpoint(job, gen, snapshotId);
 
-    if (q.op === 'passage') {
-      const passage = await gen.executor.passage(q.request, checkpoint);
-      this.queryGate(job, gen, snapshotId);
-      this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'passage', passage } });
-      return;
-    }
-
     if (q.op === 'reader-page') {
-      // Like passage, the reader is a CONTEXT surface rather than an
-      // analytical-detail selection consumer. The wire has no selection
+      // Reader is a context surface rather than an analytical-detail
+      // selection consumer. The wire has no selection
       // degree of freedom: build the canonical base selection here so a
       // linked range can never silently filter reader marks.
       const selection = await resolveSelection(snapshot, {

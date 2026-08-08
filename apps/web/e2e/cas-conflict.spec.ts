@@ -22,12 +22,11 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
   await awaitReadyCount(page, 1);
 
   // Save revision 1.
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByRole('region', { name: 'Findings', exact: true })
-    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   const saved = await readUserProject(page);
   expect(saved?.revision).toBe(1);
@@ -48,7 +47,7 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
 
   // Save from base 1: the worker's CAS sees stored revision 2 → REVISION_CONFLICT.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
   await expect

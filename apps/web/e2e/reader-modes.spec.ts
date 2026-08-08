@@ -7,16 +7,11 @@ async function openReader(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
-  const setupMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-  const read = page.getByRole('button', { name: 'Open passage in reader' });
+  await page.getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Concordance', exact: true }).click();
+  const read = page.getByRole('table', { name: 'Concordance' })
+    .getByRole('button').first();
   await expect(read).toBeVisible();
-  await expect.poll(async () => (await trace(page)).events.some(
-    (event) => event.seq > setupMark && event.direction === 'to-worker'
-      && event.t === 'query' && event.op === 'kwic',
-  )).toBe(true);
   await read.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
@@ -60,9 +55,6 @@ async function expectReaderFillsViewport(
 }
 
 test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ page }) => {
-  // Exercise the same direct passage action in both browser projects. The
-  // compact presentation intentionally nests Read under Inspect, which is a
-  // separate contract and would make this chunk-loading test test two things.
   await page.setViewportSize({ width: 1440, height: 900 });
   const dist = fileURLToPath(new URL('../dist/assets/', import.meta.url));
   const readerChunk = readdirSync(dist).find(
@@ -77,10 +69,10 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   }));
   await page.goto('./');
   await awaitAllReady(page);
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-  await page.getByRole('button', { name: 'Open passage in reader' }).click();
+  await page.getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('link', { name: 'Concordance', exact: true }).click();
+  await page.getByRole('table', { name: 'Concordance' })
+    .getByRole('button').first().click();
   const fallback = page.getByRole('main', { name: /Reader:/ });
   await expect(fallback.getByRole('status')).toHaveText('loading reader…');
   await fallback.getByRole('button', { name: 'back', exact: true }).click();
@@ -95,22 +87,10 @@ test('Reader has one full-viewport presentation without mode or background work'
   await expect(reader).not.toHaveAttribute('role', 'dialog');
   await expect(reader.getByRole('group', { name: 'Reader width' })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
-  await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(0);
   await expect(page.locator('.app-header')).toHaveCount(0);
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
-
-  const historyWithReader = await page.evaluate(() => history.length);
-  const urlWithReader = page.url();
-  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await reader.getByRole('button', { name: /Save reader excerpt at token/ }).click();
-  await expect(reader.getByRole('status')).toContainText(
-    'Saved the loaded excerpt to Findings.',
-  );
-  expect(await page.evaluate(() => history.length)).toBe(historyWithReader);
-  expect(page.url()).toBe(urlWithReader);
-  expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
 
   await page.goBack();
   await expect(reader).toHaveCount(0);

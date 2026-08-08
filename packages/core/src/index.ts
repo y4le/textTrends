@@ -45,37 +45,22 @@ export {
   type QueryNotebookV1,
 } from './project/notebook.ts';
 export {
-  RESEARCH_MAX_PINS,
-  RESEARCH_MAX_SELECTIONS,
   TREND_RATE_DENOMINATORS,
   TREND_SMOOTHING_WINDOWS,
-  parseCharAnchor,
   parseInventoryResearchView,
   parseKeynessResearchView,
   parseResearchState,
   parseTrendResearchView,
   reconcileResearchState,
   upgradeStoredResearchState,
-  type CharAnchorV1,
   type InventoryViewV1,
   type KeynessViewV1,
   type ResearchStateV1,
-  type SavedPinTrackV1,
-  type SavedPinV1,
-  type SavedSelectionV1,
   type TrendMeasureV2,
   type TrendRateDenominator,
   type TrendResearchViewV2,
   type TrendSmoothingWindow,
 } from './project/research-state.ts';
-export {
-  SHARE_MAX_ANCHORS,
-  SHARE_MAX_DOCUMENTS,
-  SHARE_MAX_TITLE_UNITS,
-  parseShareLink,
-  type ShareDocumentV1,
-  type ShareLinkV1,
-} from './project/share.ts';
 export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,
@@ -153,21 +138,6 @@ export {
   type ReaderPageResult,
   type ReaderTrackIdentity,
 } from './ops/reader.ts';
-export {
-  materializePassage,
-  PASSAGE_MAX_TOKENS,
-  planPassage,
-  type PassageRequest,
-  type PassageResult,
-} from './ops/passage.ts';
-export {
-  anchorTokens,
-  compileAnchors,
-  COMPILE_ANCHOR_MAX_ITEMS,
-  type AnchorTokensResultV1,
-  type CompileAnchorRowV1,
-  type CompileAnchorsResultV1,
-} from './ops/anchors.ts';
 export {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,

@@ -20,14 +20,10 @@ describe('parseRoute', () => {
     ];
     for (const search of hostile) {
       expect(() => parseRoute(search)).not.toThrow();
-      expect(['corpus', 'trends', 'concordance', 'vocabulary', 'compare', 'findings'])
+      expect(['corpus', 'trends', 'concordance', 'vocabulary', 'compare'])
         .toContain(parseRoute(search).place);
-      expect(['none', 'sheet', 'reader']).toContain(parseRoute(search).evidence);
     }
-    expect(parseRoute('?p=trends&p=corpus&e=reader&e=sheet')).toEqual({
-      place: 'trends',
-      evidence: 'reader',
-    });
+    expect(parseRoute('?p=trends&p=corpus&e=reader&e=sheet')).toEqual({ place: 'trends' });
     expect(parseRoute('?p=<script>&e=modal')).toEqual(DEFAULT_ROUTE);
   });
 });
@@ -36,15 +32,15 @@ describe('routeSearch', () => {
   it('preserves foreign segments byte-for-byte and in order', () => {
     expect(routeSearch(
       '?utm=a+b&x=%2f&p=corpus&x=two%20words&e=sheet&blank',
-      { place: 'compare', evidence: 'reader' },
-    )).toBe('?utm=a+b&x=%2f&x=two%20words&blank&p=compare&e=reader');
+      { place: 'compare' },
+    )).toBe('?utm=a+b&x=%2f&x=two%20words&blank&p=compare');
   });
 
   it('writes a stable minimal owned form and is idempotent', () => {
     const routes: readonly RouteV1[] = [
-      { place: 'trends', evidence: 'none' },
-      { place: 'corpus', evidence: 'sheet' },
-      { place: 'findings', evidence: 'reader' },
+      { place: 'trends' },
+      { place: 'corpus' },
+      { place: 'compare' },
     ];
     for (const route of routes) {
       const once = routeSearch('?foreign=%2F&p=bad&e=bad', route);
@@ -57,8 +53,7 @@ describe('routeSearch', () => {
 
   it('cannot serialize hostile runtime values through owned keys', () => {
     const hostile = {
-      place: 'Holmes & p=findings',
-      evidence: 'reader&note=secret',
+      place: 'Holmes & p=unknown',
     } as unknown as RouteV1;
     const search = routeSearch('?term=kept%20foreign', hostile);
     expect(search).toBe('?term=kept%20foreign&p=trends');

@@ -104,7 +104,6 @@ export function ComparePanel() {
   const applySettings = useApp((state) => state.applyKeynessSettings);
   const setDirection = useApp((state) => state.setKeynessDirection);
   const setPage = useApp((state) => state.setKeynessPage);
-  const openEvidence = useApp((state) => state.openKeynessEvidence);
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
   const popLayer = useApp((state) => state.popLayer);
@@ -244,19 +243,6 @@ export function ComparePanel() {
       compareRowControlId(side, row.typeId),
     );
   };
-  const showRowEvidence = (side: 'a' | 'b', row: KeynessRowV1) => {
-    if (topLayer?.id !== renderedLayer?.id) return;
-    if (!openEvidence(row.key, side)) return;
-    if (presentation.width !== 'wide') {
-      pushLayer(
-        'sheet',
-        Object.freeze({ surface: 'evidence' }),
-        compareRowControlId(side, row.typeId),
-        { detent: 'tall' },
-      );
-    }
-  };
-
   const sideControl = (side: 'a' | 'b') => {
     const isRest = view.mode === 'document-rest' && view.restOn === side;
     const doc = side === 'a' ? view.documentA : view.documentB;
@@ -354,7 +340,7 @@ export function ComparePanel() {
                   : null;
               })}
               <p role="note">
-                No confidence intervals are available; inspect exact evidence
+                No confidence intervals are available; inspect exact occurrences
                 before interpreting small differences.
               </p>
             </div>
@@ -421,7 +407,6 @@ export function ComparePanel() {
               scale={scale}
               rowTarget={rowTarget}
               onRow={openRow}
-              onEvidence={showRowEvidence}
               onPage={setPage}
               compact={compact}
             />

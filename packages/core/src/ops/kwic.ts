@@ -4,7 +4,7 @@
  * `kwic/2` merges up to `MAX_KWIC_TRACKS` term groups into ONE globally-ordered
  * concordance and can order by proximity to an axis position. Two layers, as in
  * `kwic/1`: the NUMERIC kernel plans, orders, and pages over per-track
- * occurrences and emits char spans + member evidence tagged by TRACK ORDINAL; a
+ * occurrences and emits char spans + contributing members tagged by TRACK ORDINAL; a
  * separate materializer slices verified texts for exactly the paged rows and
  * binds the public series/group identity. UI identities never enter the numeric
  * kernel; text is sliced only for the ≤ KWIC_MAX_PAGE paged rows.
@@ -58,7 +58,7 @@ export interface NumericKwicRow {
   readonly docOrdinal: number;
   readonly pos: number;
   readonly spanTokens: number;
-  /** Contributing member ordinals — occurrence evidence, preserved. */
+  /** Contributing member ordinals, preserved. */
   readonly members: readonly number[];
   readonly leftCharStart: number;
   readonly nodeCharStart: number;
@@ -335,14 +335,14 @@ export interface KwicTrackIdentity {
 }
 
 export interface KwicRow {
-  /** The track that produced this row — self-describing evidence when several
+  /** The track that produced this row — self-describing identity when several
    *  groups share one result. */
   readonly seriesId: string;
   readonly groupId: string;
   readonly doc: string;
   readonly pos: number;
   readonly members: readonly number[];
-  /** Stable evidence span in the doc's extracted text (contract KwicResult). */
+  /** Stable occurrence span in the doc's extracted text (contract KwicResult). */
   readonly node: { readonly start: number; readonly end: number };
   readonly left: string;
   readonly nodeText: string;

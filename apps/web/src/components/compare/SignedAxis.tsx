@@ -37,7 +37,6 @@ function AxisRow({
   scale,
   expanded,
   onOpen,
-  onEvidence,
   compact,
 }: {
   readonly row: KeynessRowV1;
@@ -46,7 +45,6 @@ function AxisRow({
   readonly scale: CompareScale;
   readonly expanded: boolean;
   readonly onOpen: () => void;
-  readonly onEvidence: () => void;
   readonly compact: boolean;
 }) {
   const width = compareBarPercent(row.logRatio, scale.maximum);
@@ -95,7 +93,6 @@ function AxisRow({
               row={row}
               side={side}
               view={view}
-              onEvidence={onEvidence}
             />
           </td>
         </tr>
@@ -111,7 +108,6 @@ function SideRows({
   scale,
   rowTarget,
   onRow,
-  onEvidence,
   compact,
 }: {
   readonly side: 'a' | 'b';
@@ -120,7 +116,6 @@ function SideRows({
   readonly scale: CompareScale;
   readonly rowTarget: CompareRowTarget | null;
   readonly onRow: (row: KeynessRowV1) => void;
-  readonly onEvidence: (row: KeynessRowV1) => void;
   readonly compact: boolean;
 }) {
   const offset = sideOffset(view, side);
@@ -180,7 +175,6 @@ function SideRows({
           scale={scale}
           expanded={expanded}
           onOpen={() => onRow(row)}
-          onEvidence={() => onEvidence(row)}
           compact={compact}
         />
       );
@@ -275,7 +269,6 @@ export function SignedAxis({
   scale,
   rowTarget,
   onRow,
-  onEvidence,
   onPage,
   compact,
 }: {
@@ -285,7 +278,6 @@ export function SignedAxis({
   readonly scale: CompareScale;
   readonly rowTarget: CompareRowTarget | null;
   readonly onRow: (side: 'a' | 'b', row: KeynessRowV1) => void;
-  readonly onEvidence: (side: 'a' | 'b', row: KeynessRowV1) => void;
   readonly onPage: (side: 'a' | 'b', offset: number) => void;
   readonly compact: boolean;
 }) {
@@ -330,7 +322,6 @@ export function SignedAxis({
             scale={scale}
             rowTarget={rowTarget}
             onRow={(row) => onRow('a', row)}
-            onEvidence={(row) => onEvidence('a', row)}
             compact={compact}
           />
           <SideRows
@@ -340,7 +331,6 @@ export function SignedAxis({
             scale={scale}
             rowTarget={rowTarget}
             onRow={(row) => onRow('b', row)}
-            onEvidence={(row) => onEvidence('b', row)}
             compact={compact}
           />
         </table>

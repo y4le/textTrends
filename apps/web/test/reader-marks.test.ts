@@ -1,12 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import {
-  displayPassageText,
-  segmentPassageMarks,
-} from '../src/lib/passage-marks.ts';
+import { segmentReaderMarks } from '../src/lib/reader-marks.ts';
 
-describe('passage mark presentation', () => {
+describe('Reader mark presentation', () => {
   it('partitions overlapping marks and caller boundaries deterministically', () => {
-    expect(segmentPassageMarks(
+    expect(segmentReaderMarks(
       10,
       [
         { seriesId: 'a', start: 1, end: 6 },
@@ -25,15 +22,8 @@ describe('passage mark presentation', () => {
   });
 
   it('clamps malformed mark bounds without emitting empty segments', () => {
-    expect(segmentPassageMarks(3, [
+    expect(segmentReaderMarks(3, [
       { seriesId: 'a', start: -4, end: 8 },
     ])).toEqual([{ start: 0, end: 3, seriesIds: ['a'] }]);
-  });
-
-  it('replaces display whitespace one code unit at a time', () => {
-    const source = 'a\nb\r\tc\u0085d\u2028e\u2029f';
-    const shown = displayPassageText(source);
-    expect(shown).toBe('a b  c d e f');
-    expect(shown).toHaveLength(source.length);
   });
 });

@@ -14,8 +14,6 @@ export function researchState(
     },
     active: [],
     kwicEnabled: [],
-    selections: [],
-    pins: [],
     views: {
       trend: {
         schema: 'texttrends/trend-view/2',

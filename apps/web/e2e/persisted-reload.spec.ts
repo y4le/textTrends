@@ -57,12 +57,11 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
   // Persist the source durably, THEN CAS-save the project (§12.6 ordering).
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByRole('region', { name: 'Findings', exact: true })
-    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   // Durable user-data records exist, and survive a db2 clear (isolation).
   const before = await userDataCounts(page);
@@ -122,12 +121,11 @@ test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing re
   await awaitReadyCount(page, 1);
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'findings');
+  await gotoPlace(page, 'corpus');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
-  await expect(page.getByRole('region', { name: 'Findings', exact: true })
-    .getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
 
   await mutatePersistedSources(page);
   await clearArtifactStores(page);

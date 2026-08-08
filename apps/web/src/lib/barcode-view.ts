@@ -21,7 +21,7 @@ export interface BarcodeTickVM {
   /** Document-local token span [t0, t1) — t1 ≥ t0 + 1. */
   readonly t0: number;
   readonly t1: number;
-  /** Index into the track's exact arrays — the click-through evidence id. */
+  /** Index into the track's exact arrays — the click-through occurrence id. */
   readonly ordinal: number;
 }
 
@@ -124,7 +124,7 @@ export function barcodeTracks(
   });
 }
 
-/** The evidence a token-space barcode activation targets. Exact fine-pointer
+/** The occurrence a token-space barcode activation targets. Exact fine-pointer
  *  clicks first use the bounded snap index above; this resolver remains
  *  authoritative for density cells and token-addressed consumers.
  *  - exact: the covering tick (tie rule above), else the NEAREST tick in the
@@ -267,7 +267,7 @@ export function bucketActivationAt(
   return null;
 }
 
-/** Stable evidence identity captured at pointer-down. The current track list
+/** Stable occurrence identity captured at pointer-down. The current track list
  * may be presentation-reordered before pointer-up, so resolution is by
  * series id rather than the row ordinal that happened to be under the
  * pointer. */
@@ -304,7 +304,7 @@ export function resolveCapturedBarcodeTarget(
     : { kind: 'scrub', doc: captured.doc, token: captured.rawToken };
 }
 
-/** Walk a track's evidence RELATIVE to the current center, in reading order
+/** Walk a track's occurrences RELATIVE to the current center, in reading order
  *  across the projection order carried by the track: exact tracks step ticks; density tracks step NONZERO
  *  buckets (kind 'bucket', midpoint targets) — the keyboard path for both
  *  representations (review-D: density must be operable without a pointer). */
@@ -393,8 +393,8 @@ export function selectedBarcodeTotalText(
 
 /** The concordance caption for a served center — PURE so the announced text
  *  is unit-pinned. A bucket center names its honest hit count and, when the
- *  first served row is off the midpoint, the distance (synthesis evidence
- *  rule: evidence for the indicated position is never silently swapped). */
+ *  first served row is off the midpoint, the distance (the occurrence for the
+ *  indicated position is never silently swapped). */
 export function kwicCaptionText(
   center: { readonly doc: string; readonly token: number; readonly origin?: 'bucket'; readonly bucketCount?: number } | null,
   firstRowPos: number | null,

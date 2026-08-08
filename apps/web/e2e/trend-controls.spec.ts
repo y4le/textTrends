@@ -4,6 +4,11 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 test('Trends solely owns chapter marks and the preference survives its Corpus route', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
+  // Progressive ingestion may initially focus whichever book became ready
+  // first. Choose the first declared book explicitly because this contract
+  // requires a detected top-level outline.
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Document to preview').selectOption({ index: 0 });
   await gotoPlace(page, 'trends');
 
   const chapterMarks = page.getByRole('checkbox', {

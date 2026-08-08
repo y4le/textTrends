@@ -1,11 +1,11 @@
 /**
  * reader-page/1 kernel — the full-document, one-document-at-a-time, cursor-
  * paged reader (slice-2 ruling §3/§G). A reader page is NOT a repeated
- * passage block: passage centers are not stable pages, and char-cap
+ * source block: arbitrary centers are not stable pages, and char-cap
  * shrinkage makes naïve next/previous arithmetic overlap or skip text. This
  * kernel owns the paging contract so the client never does cursor math.
  *
- * Layering follows passage/KWIC exactly: `planReaderPage` is numeric
+ * Layering follows KWIC exactly: `planReaderPage` is numeric
  * (offsets only, no text; track identity by ORDINAL), `materializeReaderPage`
  * binds authenticated text via the BoundTexts discipline.
  *
@@ -36,7 +36,7 @@
  * - Marks are projected from caller-supplied per-track `NumericOccurrences`
  *   (the SHARED occurrence cache) by binary-searching this document's
  *   slice — the kernel never re-matches text, so `countOverlaps`, merged
- *   spans, and member evidence keep one semantic and an occurrence that
+ *   spans, and contributing members keep one semantic and an occurrence that
  *   begins before the page but intersects it is found. Intersection is
  *   (start < pageEnd && start + span > pageStart); a cross-page occurrence
  *   is served CLIPPED with explicit `clippedStart`/`clippedEnd`, never
@@ -71,13 +71,13 @@ export type ReaderCursor =
 export type ReaderCappedBy = 'tokens' | 'text' | null;
 
 export interface ReaderPageMark {
-  /** Self-describing evidence identity bound from the ordered request tracks. */
+  /** Self-describing occurrence identity bound from the ordered request tracks. */
   readonly seriesId: string;
   readonly groupId: string;
   /** ABSOLUTE document-local token span of the FULL occurrence (unclipped —
    *  occurrence identity survives page edges; a click opens the full KWIC row). */
   readonly tokens: { readonly start: number; readonly end: number };
-  /** Contributing member ordinals (CSR slice — evidence never dropped). */
+  /** Contributing member ordinals (CSR slice — contributors never dropped). */
   readonly members: readonly number[];
   /** Half-open UTF-16 offsets RELATIVE to `text`, CLIPPED to the page. */
   readonly charsUtf16: { readonly start: number; readonly end: number };
@@ -135,7 +135,7 @@ export interface NumericReaderPagePlan {
   readonly markCharEndUtf16: Uint32Array;
   readonly markClippedStart: Uint8Array; // 0 | 1
   readonly markClippedEnd: Uint8Array;
-  /** CSR member evidence per mark (length = marks + 1). */
+  /** CSR contributing members per mark (length = marks + 1). */
   readonly markMemberOffsets: Uint32Array;
   readonly markMemberOrdinals: Uint32Array;
   readonly marksTruncated: boolean;
@@ -269,7 +269,7 @@ export function planReaderPage(
 
   // Tracks are validated ONCE here, immediately before mark projection —
   // after the document/cursor/cap checks above (their error precedence over
-  // a bad notebook payload is contractual, mirroring passage's discipline).
+  // a bad notebook payload is contractual, mirroring KWIC's discipline).
   // ZERO tracks is first-class — reading must not depend on the notebook.
   if (tracks.length > READER_MAX_TRACKS) {
     throw new RangeError(`reader accepts at most ${READER_MAX_TRACKS} tracks`);
@@ -353,7 +353,7 @@ export function planReaderPage(
   }
 
   // Render order, then the HONEST mark cap: keep the first READER_MAX_MARKS
-  // and say so — a page never silently hides evidence.
+  // and say so — a page never silently hides occurrences.
   collected.sort(
     (a, b) =>
       a.charStart - b.charStart ||
@@ -414,7 +414,7 @@ export function planReaderPage(
 }
 
 /** Materialize the plan against VERIFIED texts, mapping track ordinals back
- *  to caller series/group identities exactly as KWIC and passage do. */
+ *  to caller series/group identities exactly as KWIC does. */
 export function materializeReaderPage(
   snapshot: CorpusSnapshotV1,
   plan: NumericReaderPagePlan,

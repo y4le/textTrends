@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 import {
   COMPACT_QUERY,
   WIDE_QUERY,
@@ -47,7 +47,6 @@ for (const viewport of viewports) {
     expect(size).toBeGreaterThanOrEqual(16);
     await page.getByRole('button', { name: 'Cancel' }).click();
     await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(1);
-    await expect(page.getByRole('complementary', { name: 'Evidence' })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toHaveCount(1);
     await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(0);
   });
@@ -95,8 +94,8 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
 
 test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
   for (const viewport of [
-    { width: 768, height: 1024, areas: '"queries" "place" "evidence"' },
-    { width: 1440, height: 900, areas: '"queries" "place" "evidence"' },
+    { width: 768, height: 1024, areas: '"queries" "place"' },
+    { width: 1440, height: 900, areas: '"queries" "place"' },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('./');
@@ -188,57 +187,6 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await page.getByRole('button', { name: 'Cancel' }).click();
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
-});
-
-test('shell Evidence owns the one live passage action set', async ({ page }) => {
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await page.goto('./');
-  await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
-  await page.getByLabel('Create project from files').setInputFiles({
-    name: 'evidence.txt',
-    mimeType: 'text/plain',
-    buffer: Buffer.from('Holmes found exact evidence in this passage.', 'utf8'),
-  });
-  await awaitReadyCount(page, 1);
-  await gotoPlace(page, 'trends');
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-
-  await expect(page.getByRole('button', { name: 'Open passage in reader' })).toBeVisible({
-    timeout: 30_000,
-  });
-  const evidence = page.getByRole('complementary', { name: 'Evidence' });
-  await expect(evidence).not.toContainText('No passage selected');
-  await expect(evidence).toContainText('evidence · token 1');
-  await expect(page.getByRole('button', { name: /Save excerpt at token/ })).toHaveCount(1);
-  await expect(page.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(1);
-  await evidence.getByRole('button', { name: 'Open passage in reader' }).click();
-  const reader = page.getByRole('main', { name: /Reader: evidence/ });
-  await expect(reader).toBeVisible();
-  await reader.getByRole('button', { name: 'back', exact: true }).click();
-  await expect(evidence.getByRole('button', { name: 'Open passage in reader' })).toBeFocused();
-});
-
-test('compact Evidence keeps Save immediate and moves Read into Inspect', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
-  await page.goto('./');
-  await awaitAllReady(page);
-  const scrubber = page.getByRole('slider', { name: /reading position/i });
-  await scrubber.focus();
-  await scrubber.press('Home');
-
-  const strip = page.getByRole('complementary', { name: 'Evidence' });
-  await expect(strip.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
-  await expect(strip.getByRole('button', { name: 'Inspect', exact: true })).toBeVisible();
-  await expect(strip.getByRole('button', { name: 'Open passage in reader' })).toHaveCount(0);
-  await expect(strip.getByRole('button', { name: 'Method', exact: true })).toHaveCount(0);
-
-  await strip.getByRole('button', { name: 'Inspect', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Evidence sheet' });
-  await expect(sheet.getByRole('button', { name: /Save excerpt at token/ })).toBeVisible();
-  await expect(sheet.getByRole('button', { name: 'Open passage in reader' })).toBeVisible();
 });
 
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {

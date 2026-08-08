@@ -2,7 +2,7 @@
  * The generation-bound query executor (slice-2 ruling §B — the F1 just-in-time
  * extraction, landed BEFORE the first new QueryOp).
  *
- * OWNS: trend/kwic/passage execution, resolver REUSE (per-doc, per-match-mode,
+ * OWNS: analysis-query execution, resolver REUSE (per-doc, per-match-mode,
  * rebuilt when a commit replaces a shard), and the shared query-derived
  * occurrence cache (the Phase-E discipline, verbatim).
  *
@@ -20,7 +20,6 @@
 
 import {
   buildResolver,
-  checkedResolverFor,
   documentTermCounts,
   DISPERSION_EXACT_MAX,
   packDensityTrack,
@@ -34,11 +33,9 @@ import {
   kwicPage,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
-  materializePassage,
   modeKey,
   occurrences,
   occurrencePayloadBytes,
-  planPassage,
   trend,
   type CorpusSnapshotV1,
   type DocumentIndexV1,
@@ -47,7 +44,6 @@ import {
   type MatchMode,
   type NumericOccurrences,
   type NumericTrend,
-  type PassageResult,
   type ReadyDocument,
   type Resolver,
   type ResolvedSelection,
@@ -141,13 +137,6 @@ interface OccurrenceCacheEntry {
   readonly snapshot: CorpusSnapshotV1['id'];
   readonly bytes: number;
   readonly value: NumericOccurrences;
-}
-
-export interface PassageQuery {
-  readonly doc: string;
-  readonly centerToken: number;
-  readonly maxTokens: number;
-  readonly tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[];
 }
 
 export class QueryExecutor {
@@ -445,23 +434,6 @@ export class QueryExecutor {
       request,
       checkpoint,
     );
-  }
-
-  async passage(q: PassageQuery, checkpoint: QueryCheckpoint): Promise<PassageResult> {
-    const { snapshot, boundTexts, ready: readyMap } = this.published();
-    const ready = readyMap.get(q.doc);
-    if (!ready) throw new DependencyError('shard', q.doc);
-    const ref = snapshot.docs.find((r) => r.doc === q.doc);
-    if (!ref) throw new RangeError(`'${q.doc}' is not a member of the snapshot`);
-    const byMode = new Map<string, Resolver>();
-    for (const track of q.tracks) {
-      for (const member of track.group.members) byMode.set(modeKey(member.match), await this.resolverFor(q.doc, member.match));
-    }
-    await checkpoint();
-    const resolverFor = checkedResolverFor(q.doc, ref.index, ready.shard, byMode);
-    const plan = planPassage(snapshot, q.doc, ready.shard, resolverFor, q.tracks.map((t) => t.group), q.centerToken, q.maxTokens);
-    await checkpoint();
-    return materializePassage(snapshot, plan, boundTexts, q.tracks);
   }
 
   async trend(
