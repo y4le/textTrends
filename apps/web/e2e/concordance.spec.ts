@@ -27,20 +27,23 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
     .toBe('answered');
 }
 
-/** The term-column label of each concordance row, top to bottom. */
+/** The node text of each concordance row, top to bottom. */
 async function rowTerms(page: Page): Promise<string[]> {
-  return page.getByRole('table', { name: 'Concordance' }).locator('tbody tr td:first-child').allInnerTexts();
+  return page.getByRole('table', { name: 'Concordance' }).locator('tbody tr .kwic-node').allInnerTexts();
 }
 
-/** Each concordance row's term + right-context (the 5th cell) — enough to
+/** Each concordance row's node + right-context — enough to
  *  distinguish two occurrences of the SAME term (fox@10's right is 'fled'). */
 async function rowDetails(page: Page): Promise<{ term: string; right: string }[]> {
   const trs = page.getByRole('table', { name: 'Concordance' }).locator('tbody tr');
   const n = await trs.count();
   const out: { term: string; right: string }[] = [];
   for (let i = 0; i < n; i++) {
-    const tds = trs.nth(i).locator('td');
-    out.push({ term: (await tds.nth(0).innerText()).trim(), right: await tds.nth(4).innerText() });
+    const row = trs.nth(i);
+    out.push({
+      term: (await row.locator('.kwic-node').innerText()).trim(),
+      right: await row.locator('.kwic-right-context').innerText(),
+    });
   }
   return out;
 }
@@ -65,15 +68,11 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
-  // Labels come from document METADATA (meta.title), never the raw doc id — a
-  // user project's ids are UUIDs, so an id leak regresses to UUID fragments.
-  // The imported doc's title is the extension-stripped file name: 'beasts'.
-  const bookCells = await page
-    .getByRole('table', { name: 'Concordance' })
-    .locator('tbody tr td:nth-child(2)')
-    .allInnerTexts();
-  expect(bookCells.length).toBeGreaterThan(0);
-  for (const cell of bookCells) expect(cell.trim()).toBe('beasts');
+  // A single-book corpus keeps only token progress in the rightmost column.
+  await expect(page.getByRole('table', { name: 'Concordance' })
+    .getByRole('columnheader', { name: 'token', exact: true })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Concordance' })
+    .locator('tbody .kwic-book').first()).toHaveText(/^\d+ \/ \d+$/);
   // The trend summary labels the book by reading-order ordinal + title.
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('table', { name: /exact totals by book/i }).getByText('1 · beasts')).toBeVisible();

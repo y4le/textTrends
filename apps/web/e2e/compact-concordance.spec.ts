@@ -60,7 +60,7 @@ test('compact Concordance keeps alignment optional and evidence operable', async
       && event.direction === 'to-worker'
       && event.t === 'query',
   )).toEqual([]);
-  const firstLeft = table.locator('tbody tr').first().locator('td').nth(2);
+  const firstLeft = table.locator('tbody tr').first().locator('.kwic-left-context');
   const shown = firstLeft.locator('[aria-hidden="true"]');
   const complete = firstLeft.locator('.visually-hidden');
   await expect(shown).not.toHaveText('');

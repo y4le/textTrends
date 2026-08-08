@@ -14,6 +14,7 @@ import {
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { kwicCaptionText } from '../lib/barcode-view.ts';
+import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import {
   concordanceMethodLine,
   concordanceRows,
@@ -33,6 +34,9 @@ export function KwicPanel({
   const kwic = useApp((state) => state.kwic);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const snapshot = useApp((state) => state.snapshot);
+  const inventory = useApp((state) => state.inventory);
+  const trends = useApp((state) => state.trends);
+  const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const selection = useApp((state) => state.linkedSelection);
   const series = useApp((state) => state.series);
   const enabled = useApp((state) => state.kwicEnabledSeries);
@@ -111,6 +115,20 @@ export function KwicPanel({
   const scope = selection
     ? `selected range in ${titleOf(selection.doc)}`
     : `${snapshot?.readyDocs.length ?? 0} ready book${snapshot?.readyDocs.length === 1 ? '' : 's'}`;
+  const multipleBooks = (snapshot?.readyDocs.length ?? 0) > 1;
+  const tokenCountsByDoc = new Map(
+    (snapshot?.readyDocs ?? []).map((doc) => [
+      doc,
+      fullTokensByDoc(doc, { corpusTokenCounts, inventory, trends }),
+    ]),
+  );
+  const tokenPosition = (row: ConcordanceRowVM) => {
+    const total = tokenCountsByDoc.get(row.doc);
+    return `${(row.pos + 1).toLocaleString()} / ${total?.toLocaleString() ?? '—'}`;
+  };
+  const sourcePosition = (row: ConcordanceRowVM) => multipleBooks
+    ? `${row.title} · ${tokenPosition(row)}`
+    : tokenPosition(row);
   const activeIndex = activeKey === null
     ? -1
     : rows.findIndex((row) => row.key === activeKey);
@@ -189,25 +207,21 @@ export function KwicPanel({
           Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
         </caption>
         <colgroup>
-          <col className="kwic-col-term" />
-          <col className="kwic-col-book" />
           <col className="kwic-col-left" />
           <col className="kwic-col-node" />
           <col className="kwic-col-right" />
-          <col className="kwic-col-action" />
+          <col className={`kwic-col-book${multipleBooks ? ' kwic-col-book-multiple' : ''}`} />
         </colgroup>
         <thead>
           <tr>
-            <th scope="col">term</th>
-            <th scope="col">book</th>
-            <th scope="col">left context</th>
-            <th ref={nodeHeadingRef} scope="col">node</th>
+            <th className="kwic-left-heading" scope="col">left context</th>
+            <th ref={nodeHeadingRef} className="kwic-node-heading" scope="col">node</th>
             <th scope="col">right context</th>
-            <th scope="col">evidence</th>
+            <th scope="col">{multipleBooks ? 'book · token' : 'token'}</th>
           </tr>
         </thead>
         <tbody>
-          {rows.map((row, index) => (
+          {rows.map((row) => (
             <tr
               key={row.key}
               ref={(element) => {
@@ -216,13 +230,6 @@ export function KwicPanel({
               }}
               data-active={row.key === activeKey || undefined}
             >
-              <td
-                title={row.label}
-                style={{ color: slotColor(row.slot) }}
-              >
-                {row.label}
-              </td>
-              <td title={row.title}>{row.title}</td>
               <td className="kwic-left-context">
                 <span aria-hidden="true">{row.leftShown}</span>
                 <span className="visually-hidden">{row.leftFull}</span>
@@ -242,14 +249,16 @@ export function KwicPanel({
                 <span aria-hidden="true">{row.rightShown}</span>
                 <span className="visually-hidden">{row.rightFull}</span>
               </td>
-              <td>
-                <button
-                  type="button"
-                  aria-label={`Show evidence for ${row.nodeText} in ${row.title}`}
-                  onClick={() => activate(index)}
-                >
-                  Evidence
-                </button>
+              <td className="kwic-book" title={sourcePosition(row)}>
+                <span className="kwic-book-content">
+                  {multipleBooks && (
+                    <>
+                      <span className="kwic-book-title">{row.title}</span>
+                      <span aria-hidden="true">·</span>
+                    </>
+                  )}
+                  <span className="kwic-token-position">{tokenPosition(row)}</span>
+                </span>
               </td>
             </tr>
           ))}
@@ -264,7 +273,7 @@ export function KwicPanel({
       <p className="kwic-caption">
         Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
       </p>
-      {rows.map((row, index) => (
+      {rows.map((row) => (
         <div
           key={row.key}
           ref={(element) => {
@@ -276,7 +285,7 @@ export function KwicPanel({
         >
           <p className="kwic-reading-source">
             <span style={{ color: slotColor(row.slot) }}>{row.label}</span>
-            {' · '}{row.title}
+            {' · '}{sourcePosition(row)}
           </p>
           <p className="kwic-reading-context">
             {row.leftFull}{' '}
@@ -291,13 +300,6 @@ export function KwicPanel({
             </button>
             {' '}{row.rightFull}
           </p>
-          <button
-            type="button"
-            aria-label={`Show evidence for ${row.nodeText} in ${row.title}`}
-            onClick={() => activate(index)}
-          >
-            Evidence
-          </button>
         </div>
       ))}
     </div>

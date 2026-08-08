@@ -1611,8 +1611,7 @@ canvas {
 .kwic-controls select,
 .kwic-controls button,
 .kwic-result-actions button,
-.kwic-table button,
-.kwic-reading-row > button {
+.kwic-table button {
   min-block-size: 40px;
 }
 
@@ -1648,8 +1647,7 @@ canvas {
 }
 
 .kwic-controls button,
-.kwic-result-actions button,
-.kwic-reading-row > button {
+.kwic-result-actions button {
   padding-inline: var(--space-2);
 }
 
@@ -1722,12 +1720,12 @@ canvas {
   text-align: start;
 }
 
-.kwic-col-term {
+.kwic-col-book {
   inline-size: 14ch;
 }
 
-.kwic-col-book {
-  inline-size: 14ch;
+.kwic-col-book-multiple {
+  inline-size: 30ch;
 }
 
 .kwic-col-left,
@@ -1737,10 +1735,6 @@ canvas {
 
 .kwic-col-node {
   inline-size: 18ch;
-}
-
-.kwic-col-action {
-  inline-size: 12ch;
 }
 
 .kwic-table th,
@@ -1760,19 +1754,49 @@ canvas {
   text-align: start;
 }
 
+.kwic-table thead .kwic-node-heading {
+  text-align: center;
+}
+
+.kwic-table thead .kwic-left-heading {
+  text-align: right;
+}
+
 .kwic-table tbody th {
   font-weight: 400;
   text-align: start;
 }
 
-.kwic-table tbody td:nth-child(2),
 .kwic-left-context {
   color: var(--fg-muted);
   text-align: end;
 }
 
-.kwic-right-context {
+.kwic-right-context,
+.kwic-book {
   color: var(--fg-muted);
+}
+
+.kwic-book {
+  text-align: end;
+}
+
+.kwic-book-content {
+  display: flex;
+  min-inline-size: 0;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 0.75ch;
+}
+
+.kwic-book-title {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.kwic-token-position {
+  flex: 0 0 auto;
 }
 
 .kwic-node {
@@ -1802,7 +1826,7 @@ canvas {
 
 .kwic-reading-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: var(--space-1) var(--space-2);
   padding-block: var(--space-2);
   border-block-start: 1px solid var(--rule);
@@ -1826,11 +1850,6 @@ canvas {
   overflow-wrap: anywhere;
   font-family: var(--font-mono);
   font-size: var(--text-sm);
-}
-
-.kwic-reading-row > button {
-  grid-column: 2;
-  grid-row: 1 / span 2;
 }
 
 .kwic-skeleton {
@@ -2420,9 +2439,7 @@ canvas {
   .kwic-term-chips button,
   .kwic-controls select,
   .kwic-controls button,
-  .kwic-result-actions button,
-  .kwic-table td:last-child button,
-  .kwic-reading-row > button {
+  .kwic-result-actions button {
     min-block-size: 44px;
     font-size: var(--text-sm);
   }
@@ -2450,16 +2467,6 @@ canvas {
 
   .kwic-result-actions button:last-child {
     margin-inline-start: auto;
-  }
-
-  .kwic-reading-row {
-    grid-template-columns: minmax(0, 1fr);
-  }
-
-  .kwic-reading-row > button {
-    grid-column: 1;
-    grid-row: auto;
-    justify-self: start;
   }
 
   .query-region {
