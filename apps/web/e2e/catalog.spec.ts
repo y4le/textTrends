@@ -97,6 +97,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   await rows.nth(0).getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
   await expect(page.getByText('A Study in Scarlet')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Files on this device' })).toContainText(`${BOOK}.epub`);
   expect(apiRequests).toEqual([]);
   expect(rawRequests[0]).toBe(`${RAW_BASE}/content.opf`);
   expect(new Set(rawRequests.slice(1))).toEqual(

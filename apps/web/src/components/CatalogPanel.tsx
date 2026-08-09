@@ -11,13 +11,16 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useApp } from '../lib/store-instance.ts';
 import { catalogSections, type CatalogSectionBook } from '../lib/catalog-view.ts';
+import type { LocalFileInput } from '../lib/local-library.ts';
 import { loadStandardEbooksCatalog, type StandardEbooksCatalog } from '../lib/standard-ebooks-catalog.ts';
 import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
 
-export function CatalogPanel() {
-  const importFiles = useApp((s) => s.importFiles);
+export function CatalogPanel({
+  onAcquire,
+}: {
+  readonly onAcquire: (files: readonly LocalFileInput[], signal: AbortSignal) => Promise<void>;
+}) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
@@ -65,10 +68,13 @@ export function CatalogPanel() {
     try {
       const { bytes } = await downloadEbookArchive(book.name, controller.signal);
       if (controller.signal.aborted || !mounted.current) return;
-      // A re-readable FileLike: ingest transfers/detaches the buffer it is
-      // handed, and persist / retry / warm re-extraction read the source again,
-      // so hand out a FRESH copy on every call rather than one shared buffer.
-      importFiles([{ name: `${book.name}.epub`, size: bytes.byteLength, arrayBuffer: async () => bytes.slice().buffer }]);
+      // The local library and ingest pipeline both read this source. Hand each
+      // read a fresh buffer because worker ingestion transfers its copy.
+      await onAcquire([{
+        name: `${book.name}.epub`,
+        size: bytes.byteLength,
+        arrayBuffer: async () => bytes.slice().buffer,
+      }], controller.signal);
     } catch (e) {
       if (controller.signal.aborted || !mounted.current) return;
       setError(`Could not add “${book.title}”: ${e instanceof Error ? e.message : String(e)}`);
@@ -104,7 +110,7 @@ export function CatalogPanel() {
         disabled={adding !== null}
         style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', cursor: adding ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
       >
-        {adding === book.name ? 'adding…' : 'add'}
+        {adding === book.name ? 'saving…' : 'add'}
       </button>
     </li>
   );
