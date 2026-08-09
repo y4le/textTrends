@@ -56,7 +56,7 @@ async function awaitOps(
 test('slice 3: corpus → focus → vocabulary → concordance → linked range → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
@@ -64,14 +64,14 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
 
-  await expect(page.getByRole('heading', { name: 'Corpus' })).toBeVisible({ timeout: 30_000 });
-  const documents = page.getByRole('table', { name: 'Corpus documents' });
-  await expect(documents.locator(':scope > tbody > tr:not([data-book-detail])')).toHaveCount(2);
-  await expect(page.getByRole('img', { name: /Vocabulary growth to/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible({ timeout: 30_000 });
+  const documents = page.getByRole('table', { name: 'Book analysis' });
+  await expect(documents.locator(':scope > tbody > tr[data-catalog-book]')).toHaveCount(2);
 
   const betaRow = documents.getByRole('row', { name: /beta/ });
-  const baselineTokens = await betaRow.locator('.corpus-selected-tokens').innerText();
+  const baselineTokens = await betaRow.locator('.catalog-book-tokens .selectable-stat').innerText();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
+  await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Focused-book section profile' })).toHaveCount(0);
   await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toHaveCount(0);
 
@@ -116,9 +116,9 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
     (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
   );
   expect(selectionEvents.some((event) => event.op === 'tfidf-sections')).toBe(false);
-  await gotoPlace(page, 'corpus');
-  await expect(page.getByText(/Showing the linked selected range/)).toBeVisible();
-  await expect(betaRow.locator('.corpus-selected-tokens')).not.toHaveText(baselineTokens);
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByText(/across the active range/)).toBeVisible();
+  await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText(baselineTokens);
   await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
   await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
 
@@ -126,7 +126,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['inventory', 'freq-list']);
-  await gotoPlace(page, 'corpus');
-  await expect(betaRow.locator('.corpus-selected-tokens')).toHaveText(baselineTokens);
-  await expect(page.getByText(/Showing the linked selected range/)).toHaveCount(0);
+  await gotoPlace(page, 'catalog');
+  await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).toHaveText(baselineTokens);
+  await expect(page.getByText(/across the active range/)).toHaveCount(0);
 });

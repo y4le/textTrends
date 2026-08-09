@@ -14,8 +14,8 @@
  * smoothing are presentation settings; count is a separate unsmoothed view. Series identity
  * is color + dash + chips/direct labels — never color alone. The plot holds
  * until every non-failed series resolves so the shared scale never jumps.
- * Exact values live in the per-book summary table (counts and rates are
- * summed/recomputed, never averaged from bin rates).
+ * Exact per-book values live in Catalog; this surface stays focused on shape,
+ * distribution, and reading-position interaction.
  *
  * The chart spans its container's full width (the app gives it the viewport)
  * via a measured ResizeObserver width; the axis position under the pointer /
@@ -150,7 +150,6 @@ export function TrendPanel() {
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const geometry = trendGeometryFor(presentation.width);
-  const [showAllTotals, setShowAllTotals] = useState(false);
 
   // Callback ref, not a RefObject: the container mounts only after the trend
   // results settle, so a mount-time effect would observe nothing. The ref is
@@ -358,28 +357,6 @@ export function TrendPanel() {
     bookXFromTokenEdge(t, plotW, geo.docTokenCount[focusedDocOrdinal] ?? 0),
   );
 
-  // Per-book / corpus exact totals (sums of counts and denominators — never
-  // averages of rates).
-  const bookCount = (t: NumericTrend, d: number) => {
-    let c = 0;
-    const rows = trendRowsForDoc(t, d);
-    for (let row = rows.start; row < rows.end; row++) c += t.count[row] as number;
-    return c;
-  };
-  const bookTokens = (d: number) => {
-    let n = 0;
-    const rows = trendRowsForDoc(geo, d);
-    for (let row = rows.start; row < rows.end; row++) n += geo.binTokens[row] as number;
-    return n;
-  };
-  const totalTokens = docs.reduce((s, _, d) => s + bookTokens(d), 0);
-  const compactTotals = presentation.width === 'compact';
-  const totalsSeries = compactTotals && !showAllTotals
-    ? [ready.find((item) => item.intent.id === focusedSeries) ?? ready[0]!]
-    : ready;
-  const compactTotalsLabel = totalsSeries[0]?.intent.label ?? '';
-  const totalsDenominator = trendMeasure.kind === 'rate' ? trendMeasure.denominator : 10_000;
-
   const binLine = trendBins.mode === 'per-doc'
     ? `${trendBins.count} equal bins per book`
     : `${trendBins.count.toLocaleString()} tokens per bin`;
@@ -503,108 +480,6 @@ export function TrendPanel() {
         axisLabel={trendView === 'series' ? 'occurrences' : 'occurrences · within each book'}
         onActivate={activateBarcode}
       />
-      {compactTotals && ready.length > 1 && (
-        <div
-          role="group"
-          aria-label="Exact totals columns"
-          style={{
-            alignItems: 'center',
-            display: 'flex',
-            gap: 'var(--space-2)',
-            marginTop: 'var(--space-2)',
-          }}
-        >
-          <span style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-            {showAllTotals ? `${ready.length} query columns` : `${compactTotalsLabel} column`}
-          </span>
-          <button
-            type="button"
-            aria-pressed={showAllTotals}
-            onClick={() => setShowAllTotals((current) => !current)}
-            style={{
-              ...SMALL_BUTTON_STYLE,
-              minHeight: 44,
-            }}
-          >
-            {showAllTotals ? 'show focused query totals' : 'show all query totals'}
-          </button>
-        </div>
-      )}
-      <div
-        className="horizontal-data-port"
-        role="region"
-        tabIndex={0}
-        aria-label="Scrollable exact totals table"
-      >
-        <table
-          style={{
-            fontFamily: 'var(--font-mono)',
-            fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
-            borderCollapse: 'collapse',
-            marginTop: 'var(--space-3)',
-          }}
-        >
-        <caption style={{ textAlign: 'left', color: 'var(--fg-muted)', paddingBottom: 'var(--space-1)' }}>
-          {compactTotals
-            ? showAllTotals
-              ? `Exact totals by book — all query columns (count · rate per ${totalsDenominator.toLocaleString()} tokens).`
-              : `Exact totals by book — ${compactTotalsLabel} (count · rate per ${totalsDenominator.toLocaleString()} tokens). Focus another term to show its column.`
-            : `Exact totals by book (count · rate per ${totalsDenominator.toLocaleString()} tokens)`}
-        </caption>
-        <thead>
-          <tr style={{ color: 'var(--fg-muted)' }}>
-            <th scope="col" style={{ textAlign: 'left', fontWeight: 400 }}>book</th>
-            <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>tokens</th>
-            {totalsSeries.map((r) => (
-              <th key={r.intent.id} scope="col" colSpan={2} style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch' }}>
-                {r.intent.label}
-              </th>
-            ))}
-          </tr>
-          <tr style={{ color: 'var(--fg-muted)' }}>
-            <th aria-hidden="true" />
-            <th aria-hidden="true" />
-            {totalsSeries.map((r) => (
-              <SubHeads key={r.intent.id} denominator={totalsDenominator} />
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {docs.map((doc, d) => {
-            const title = titles[d] ?? doc;
-            const tokens = bookTokens(d);
-            return (
-              <tr key={doc} style={{ borderTop: '1px solid var(--rule)' }}>
-                <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch', whiteSpace: 'nowrap' }}>
-                  {`${d + 1} · ${title}`}
-                </th>
-                <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
-                  {tokens.toLocaleString()}
-                </td>
-                {totalsSeries.map((r) => {
-                  const c = bookCount(r.trend, d);
-                  return (
-                    <Cells key={r.intent.id} count={c} rate={tokens === 0 ? 0 : (c / tokens) * totalsDenominator} />
-                  );
-                })}
-              </tr>
-            );
-          })}
-          <tr style={{ borderTop: '1px solid var(--rule-strong)' }}>
-            <th scope="row" style={{ textAlign: 'left', fontWeight: 400, paddingRight: '1ch' }}>corpus</th>
-            <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch', color: 'var(--fg-muted)' }}>
-              {totalTokens.toLocaleString()}
-            </td>
-            {totalsSeries.map((r) => {
-              const c = docs.reduce((s, _, d) => s + bookCount(r.trend, d), 0);
-              return (
-                <Cells key={r.intent.id} count={c} rate={totalTokens === 0 ? 0 : (c / totalTokens) * totalsDenominator} />
-              );
-            })}
-          </tr>
-        </tbody>
-        </table>
-      </div>
     </section>
   );
 }
@@ -1347,26 +1222,6 @@ function ScrubSurface({
         </div>
       )}
     </div>
-  );
-}
-
-function SubHeads({ denominator }: { readonly denominator: number }) {
-  return (
-    <>
-      <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 0 0 1ch' }}>n</th>
-      <th scope="col" style={{ textAlign: 'right', fontWeight: 400, padding: '0 1ch 0 0.5ch' }}>
-        /{denominator.toLocaleString()}
-      </th>
-    </>
-  );
-}
-
-function Cells({ count, rate }: { count: number; rate: number }) {
-  return (
-    <>
-      <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 0 0 1ch' }}>{count}</td>
-      <td className="selectable-stat" style={{ textAlign: 'right', padding: '0 1ch 0 0.5ch' }}>{rate.toFixed(1)}</td>
-    </>
   );
 }
 

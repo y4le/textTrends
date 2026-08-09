@@ -35,7 +35,7 @@ async function awaitUserDataError(page: import('@playwright/test').Page, mark: n
 test('user-data unavailable: persist, retry (File-retained), and save each fail; analysis unaffected', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'novel.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
@@ -60,7 +60,7 @@ test('user-data unavailable: persist, retry (File-retained), and save each fail;
 
   // (3) Save fails with its OWN fresh PERSISTENCE_UNAVAILABLE + visible state.
   const mark3 = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();

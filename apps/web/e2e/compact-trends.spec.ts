@@ -47,10 +47,8 @@ for (const viewport of [
     );
     expect(strokes).toEqual([2]);
 
-    const totals = page.getByRole('table', { name: /exact totals by book/i });
-    await expect(totals).toBeVisible();
-    await expect(totals.locator('caption')).toContainText('Holmes');
-    await expect(totals.locator('thead')).not.toContainText('Moriarty');
+    await expect(page.getByRole('table', { name: /exact totals by book/i })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Catalog', exact: true })).toBeVisible();
 
     const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
     await page
@@ -61,20 +59,8 @@ for (const viewport of [
       [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),
     );
     expect(focusedStrokes).toEqual([2, 3.5]);
-    await expect(totals.locator('caption')).toContainText('Moriarty');
-    await expect(totals.locator('thead')).not.toContainText('Holmes');
     expect((await trace(page)).events.filter((event) =>
       event.seq > beforeFocus
-      && event.direction === 'to-worker'
-      && event.t === 'query')).toEqual([]);
-
-    const beforeAll = (await trace(page)).events.at(-1)?.seq ?? -1;
-    await page.getByRole('button', { name: 'show all query totals' }).click();
-    await expect(totals.locator('caption')).toContainText('all query columns');
-    await expect(totals.locator('thead')).toContainText('Holmes');
-    await expect(totals.locator('thead')).toContainText('Moriarty');
-    expect((await trace(page)).events.filter((event) =>
-      event.seq > beforeAll
       && event.direction === 'to-worker'
       && event.t === 'query')).toEqual([]);
 

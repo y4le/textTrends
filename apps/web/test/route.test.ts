@@ -14,24 +14,25 @@ describe('parseRoute', () => {
       '?p=',
       '?p=unknown&e=modal',
       '?p=%',
-      '?p=trends&p=corpus&e=reader&e=sheet',
+      '?p=trends&p=catalog&e=reader&e=sheet',
       '?p=<script>&e=reader%00&term=Holmes',
       'not even a query',
     ];
     for (const search of hostile) {
       expect(() => parseRoute(search)).not.toThrow();
-      expect(['corpus', 'trends', 'concordance', 'vocabulary', 'compare'])
+      expect(['catalog', 'trends', 'concordance', 'vocabulary', 'compare'])
         .toContain(parseRoute(search).place);
     }
-    expect(parseRoute('?p=trends&p=corpus&e=reader&e=sheet')).toEqual({ place: 'trends' });
+    expect(parseRoute('?p=trends&p=catalog&e=reader&e=sheet')).toEqual({ place: 'trends' });
     expect(parseRoute('?p=<script>&e=modal')).toEqual(DEFAULT_ROUTE);
+    expect(parseRoute('?p=corpus')).toEqual(DEFAULT_ROUTE);
   });
 });
 
 describe('routeSearch', () => {
   it('preserves foreign segments byte-for-byte and in order', () => {
     expect(routeSearch(
-      '?utm=a+b&x=%2f&p=corpus&x=two%20words&e=sheet&blank',
+      '?utm=a+b&x=%2f&p=catalog&x=two%20words&e=sheet&blank',
       { place: 'compare' },
     )).toBe('?utm=a+b&x=%2f&x=two%20words&blank&p=compare');
   });
@@ -39,7 +40,7 @@ describe('routeSearch', () => {
   it('writes a stable minimal owned form and is idempotent', () => {
     const routes: readonly RouteV1[] = [
       { place: 'trends' },
-      { place: 'corpus' },
+      { place: 'catalog' },
       { place: 'compare' },
     ];
     for (const route of routes) {

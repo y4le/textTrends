@@ -88,7 +88,7 @@ export function StructurePanel({
   useEffect(() => {
     if (editorTarget === null || editorTargetValid || stalePopRequested.current) return;
     stalePopRequested.current = true;
-    document.getElementById('place-corpus-heading')?.focus({ preventScroll: true });
+    document.getElementById('place-catalog-heading')?.focus({ preventScroll: true });
     popLayer();
   }, [editorTarget, editorTargetValid, popLayer]);
 

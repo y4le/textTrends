@@ -8,7 +8,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 test('trend results transfer their buffers; the resident index survives', async ({ page }) => {
   await page.goto('./');
@@ -64,9 +64,10 @@ test('trend results transfer their buffers; the resident index survives', async 
   // token denominator, which is itself multi-digit and must not satisfy
   // this assertion — review round 3): exact known value for the bundled
   // corpus under the default recipe, computed via the same fold semantics.
+  await gotoPlace(page, 'catalog');
   const corpusRow = page.getByRole('row', { name: /^corpus/ });
   await expect(corpusRow).toBeVisible();
-  await expect(corpusRow.getByRole('cell').nth(1)).toHaveText('551');
+  await expect(corpusRow.getByRole('cell').nth(1).locator('.selectable-stat')).toHaveText(/^551 ·/);
   const t = await trace(page);
   // SNAPSHOT_UNKNOWN is the DESIGNED supersede signal for queries racing
   // progressive snapshot publication (the store reissues); any OTHER error

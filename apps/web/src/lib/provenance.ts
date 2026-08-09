@@ -252,7 +252,7 @@ export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV
   let methods: readonly ProvenanceMethod[] = [];
   let resident = false;
 
-  if (place === 'corpus' && input.inventory) {
+  if (place === 'catalog' && input.inventory) {
     methods = [inventoryMethod(input.inventory)];
     resident = true;
   } else if (place === 'trends' && input.trends.length > 0) {

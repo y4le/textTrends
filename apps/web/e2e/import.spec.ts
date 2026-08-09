@@ -43,7 +43,7 @@ async function assertTransferred(page: import('@playwright/test').Page, sinceSeq
 test('import → transfer → save → reload → load → reattach', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page); // built-in Sherlock is the read-only default
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await expect(page.getByText('built-in corpus (read-only)')).toBeVisible();
 
@@ -58,7 +58,7 @@ test('import → transfer → save → reload → load → reattach', async ({ p
   await expect(page.getByText(`attached · ${DOC_NAME}`)).toBeVisible({ timeout: 30_000 });
 
   // ── CAS-save it (revision 1). ──
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -68,7 +68,7 @@ test('import → transfer → save → reload → load → reattach', async ({ p
   await clearArtifactStores(page);
   await page.reload();
   await awaitAllReady(page); // the built-in cold-reboots into the empty db2
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // ── Load the saved project: the external source is now genuinely missing. ──
   await page.getByRole('button', { name: 'Load saved project' }).click();

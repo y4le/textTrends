@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 
 test('Trend settings separate result geometry from resident presentation', async ({ page }) => {
   await page.goto('./');
@@ -45,6 +45,10 @@ test('Trend settings separate result geometry from resident presentation', async
   expect(displayQueries).toEqual([]);
   await expect(page.getByText(/rate per 100,000 tokens · 250 tokens per bin · 5-bin rolling mean · raw behind/)).toBeVisible();
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
+  await sheet.getByRole('button', { name: 'Close Method & settings sheet' }).click();
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('table', { name: /Book analysis · full corpus/ })
+    .getByRole('columnheader', { name: /\/100,000/ }).first()).toBeVisible();
 });
 
 test('Method exposes visible, copyable provenance and result text', async ({ page }) => {

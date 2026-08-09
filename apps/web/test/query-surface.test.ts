@@ -22,7 +22,7 @@ describe('query surface', () => {
   it('limits the compact encoding key to Trends and Concordance', () => {
     expect(placeUsesQueryEncoding('trends')).toBe(true);
     expect(placeUsesQueryEncoding('concordance')).toBe(true);
-    expect(placeUsesQueryEncoding('corpus')).toBe(false);
+    expect(placeUsesQueryEncoding('catalog')).toBe(false);
     expect(placeUsesQueryEncoding('vocabulary')).toBe(false);
     expect(placeUsesQueryEncoding('compare')).toBe(false);
   });

@@ -132,7 +132,7 @@ export function ScopeBar() {
                   <button
                     className="scope-organ-link coarse-target"
                     type="button"
-                    onClick={() => setPlace('corpus')}
+                    onClick={() => setPlace('catalog')}
                   >
                     {segment}
                   </button>

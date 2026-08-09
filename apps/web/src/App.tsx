@@ -8,8 +8,8 @@ import { PLACE_HEADING, type Place } from './lib/places.ts';
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
 );
-const CorpusPlace = lazy(() =>
-  import('./places/CorpusPlace.tsx').then(({ CorpusPlace: placeBody }) => ({ default: placeBody })),
+const CatalogPlace = lazy(() =>
+  import('./places/CatalogPlace.tsx').then(({ CatalogPlace: placeBody }) => ({ default: placeBody })),
 );
 const VocabularyPlace = lazy(() =>
   import('./places/VocabularyPlace.tsx').then(({ VocabularyPlace: placeBody }) => ({ default: placeBody })),
@@ -65,7 +65,7 @@ function PlaceSurface({
 
 function ActivePlace({ place }: { readonly place: Place }) {
   switch (place) {
-    case 'corpus': return <CorpusPlace />;
+    case 'catalog': return <CatalogPlace />;
     case 'trends': return <TrendsPlace />;
     case 'concordance': return <ConcordancePlace />;
     case 'vocabulary': return <VocabularyPlace />;

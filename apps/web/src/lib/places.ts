@@ -1,7 +1,7 @@
 /** Canonical workbench destinations. Routing lands later; this module is the
  * pure vocabulary shared by Scope, Method, and the future shell. */
 export const PLACES = [
-  'corpus',
+  'catalog',
   'trends',
   'concordance',
   'vocabulary',
@@ -20,7 +20,7 @@ export const LENS_PLACES = [
 export const DEFAULT_PLACE: Place = 'trends';
 
 export const PLACE_HEADING: Readonly<Record<Place, string>> = Object.freeze({
-  corpus: 'Corpus',
+  catalog: 'Catalog',
   trends: 'Trends',
   concordance: 'Concordance',
   vocabulary: 'Vocabulary',

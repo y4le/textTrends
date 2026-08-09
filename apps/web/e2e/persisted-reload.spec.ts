@@ -48,7 +48,7 @@ async function mutatePersistedSources(page: import('@playwright/test').Page): Pr
 test('a persisted source warm-reopens after a db2 clear; user data stays isolated', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'hound.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
@@ -57,7 +57,7 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
   // Persist the source durably, THEN CAS-save the project (§12.6 ordering).
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -73,7 +73,7 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
   // Reload (the built-in cold-reboots into the empty db2), then Load saved.
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Load saved project' }).click();
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
@@ -112,7 +112,7 @@ test('a persisted source warm-reopens after a db2 clear; user data stays isolate
 test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing repair; reattach heals it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // Import, persist, save — then corrupt the durable copy in place and force a
   // cold-cache reload so the warm reopen must read the damaged bytes.
@@ -121,7 +121,7 @@ test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing re
   await awaitReadyCount(page, 1);
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -131,7 +131,7 @@ test('a SAME-LENGTH mutation of the persisted copy surfaces as damage needing re
   await clearArtifactStores(page);
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByRole('button', { name: 'Load saved project' }).click();
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
 

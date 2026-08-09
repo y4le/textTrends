@@ -4,15 +4,14 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 test('Scope states resident corpus truth and follows the committed range', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   const scope = page.getByRole('region', { name: 'Scope' });
   await expect(scope.getByText('Sherlock Holmes', { exact: true })).toBeVisible();
   await expect(scope.getByText('6/6 books ready', { exact: true })).toBeVisible();
 
   const dashboardTokens = await page
-    .getByRole('heading', { name: 'Corpus' })
-    .locator('..')
+    .locator('.catalog-summary')
     .locator('dt', { hasText: /^tokens$/ })
     .locator('..')
     .locator('dd')

@@ -9,7 +9,7 @@ const book = (prefix: string) => Array.from(
 test('a reading-order drag selects across a book boundary', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from(book('a'), 'utf-8') },
     { name: 'beta.txt', mimeType: 'text/plain', buffer: Buffer.from(book('b'), 'utf-8') },
@@ -38,15 +38,15 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await page.getByRole('button', { name: 'by book', exact: true }).click();
   await expect(page.locator('[data-range-selection-segment="true"]')).toHaveCount(2);
 
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(page.getByRole('button', {
     name: /alpha token .* → beta token .* across 2 books — review linked range in Trends/i,
   })).toBeVisible();
-  const rows = page.getByRole('table', { name: 'Corpus documents' })
-    .locator(':scope > tbody > tr:not([data-book-detail])');
+  const rows = page.getByRole('table', { name: 'Book analysis' })
+    .locator(':scope > tbody > tr[data-catalog-book]');
   await expect(rows).toHaveCount(2);
   for (const row of await rows.all()) {
-    await expect(row.locator('.corpus-selected-tokens')).not.toHaveText('0');
+    await expect(row.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText('0');
   }
 
   await gotoPlace(page, 'concordance');

@@ -13,7 +13,7 @@ import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
 test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // FF FE + UTF-16LE code units. The heading is recognized on the DECODED text.
   const text = '# Chapter A\n\nthe wolf ran far over the hill.\n';
@@ -32,7 +32,7 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
 test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a C1 control', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // 0x92 (1252 ') and 0x81 (1252 → U+0081, a C1 control) are BOTH lone
   // continuation bytes → the file is not valid UTF-8 → 1252 fallback. 1252 is

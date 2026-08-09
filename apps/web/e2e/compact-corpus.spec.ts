@@ -31,27 +31,33 @@ for (const viewport of [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
 ]) {
-  test(`compact Corpus keeps one truthful inventory at ${viewport.width}px`, async ({ page }) => {
+  test(`compact Catalog keeps one truthful book analysis at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
     await awaitAllReady(page);
-    await gotoPlace(page, 'corpus');
+    await gotoPlace(page, 'catalog');
 
-    const table = page.getByRole('table', { name: 'Corpus documents' });
-    const documentRows = table.locator(':scope > tbody > tr[data-corpus-document]');
+    const table = page.getByRole('table', { name: 'Book analysis' });
+    const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
     await expect(table).toBeVisible();
-    await expect(table.getByRole('columnheader')).toHaveCount(12);
+    await expect(table.getByRole('columnheader')).toHaveCount(5);
     await expect(documentRows).toHaveCount(6);
-    await expect(table.getByRole('rowheader')).toHaveCount(6);
-    await expect(documentRows.first().getByRole('rowheader')).toHaveAttribute('aria-colindex', '1');
-    await expect(documentRows.first().locator('.corpus-readiness')).toHaveAttribute('aria-colindex', '2');
-    await expect(documentRows.first().locator('.corpus-tokens')).toHaveAttribute('aria-colindex', '3');
-    await expect(documentRows.first().locator('.corpus-rhythm')).toHaveAttribute('aria-colindex', '11');
-    await expect(documentRows.first().locator('.corpus-scope')).toHaveAttribute('aria-colindex', '12');
+    await expect(table.getByRole('rowheader')).toHaveCount(7);
+    await expect(table.getByRole('columnheader', { name: 'book' })).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: 'tokens' })).toBeVisible();
+    await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
     await expect(table.locator('[aria-current="true"]')).toHaveCount(1);
-    await expect(documentRows.first().locator('.corpus-readiness')).toHaveText('ready');
-    await expect(documentRows.first().locator('.corpus-tokens')).toContainText('tokens');
-    await expect(documentRows.first().locator('[data-detail-only]').first()).toBeHidden();
+    await expect(documentRows.first().locator('.catalog-book-tokens')).toContainText('tokens');
+    await expect(documentRows.first().locator('.catalog-term-total')).toContainText('Holmes');
+
+    const totalsMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+    await page.getByRole('button', { name: 'show all query totals' }).click();
+    await expect(table.getByRole('columnheader')).toHaveCount(6);
+    await expect(table.getByRole('columnheader', { name: /Moriarty/ })).toBeVisible();
+    expect((await trace(page)).events.filter((event) =>
+      event.seq > totalsMark
+      && event.direction === 'to-worker'
+      && event.t === 'query')).toEqual([]);
 
     const title = documentRows.first().getByRole('button').first();
     await expect(title).toHaveAttribute('aria-expanded', 'false');
@@ -84,21 +90,21 @@ for (const viewport of [
   });
 }
 
-test('wide Corpus preserves all twelve inventory columns and additive detail', async ({ page }) => {
+test('wide Catalog keeps useful comparison columns and additive detail', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
-  const table = page.getByRole('table', { name: 'Corpus documents' });
-  const documentRows = table.locator(':scope > tbody > tr[data-corpus-document]');
-  await expect(table.getByRole('columnheader')).toHaveCount(12);
+  const table = page.getByRole('table', { name: 'Book analysis' });
+  const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
+  await expect(table.getByRole('columnheader')).toHaveCount(6);
   await expect(documentRows).toHaveCount(6);
-  await expect(documentRows.first().locator('[data-detail-only]').first()).toBeVisible();
-  await expect(documentRows.first().locator('.corpus-readiness')).toHaveText('ready');
+  await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: /Moriarty/ })).toBeVisible();
 
   await documentRows.first().getByRole('button').first().click();
-  await expect(page.getByRole('region', { name: 'Inventory' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Measurements' })).toBeVisible();
   await expect(documentRows).toHaveCount(6);
   await expectNoBodyOverflow(page);
 });
@@ -107,7 +113,7 @@ test('compact chapter editing preserves its draft and nested Back contract acros
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'mobile chapters.md',
     mimeType: 'text/markdown',
@@ -115,8 +121,8 @@ test('compact chapter editing preserves its draft and nested Back contract acros
   });
   await awaitReadyCount(page, 1);
 
-  const table = page.getByRole('table', { name: 'Corpus documents' });
-  const row = table.locator(':scope > tbody > tr[data-corpus-document]').first();
+  const table = page.getByRole('table', { name: 'Book analysis' });
+  const row = table.locator(':scope > tbody > tr[data-catalog-book]').first();
   const title = row.getByRole('button').first();
   await title.click();
   const book = page.getByRole('region', { name: /Book detail:/ });
@@ -181,7 +187,7 @@ test('wide book title closes its nested editor and detail without a dead history
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'wide chapters.md',
     mimeType: 'text/markdown',
@@ -189,8 +195,8 @@ test('wide book title closes its nested editor and detail without a dead history
   });
   await awaitReadyCount(page, 1);
 
-  const row = page.getByRole('table', { name: 'Corpus documents' })
-    .locator(':scope > tbody > tr[data-corpus-document]')
+  const row = page.getByRole('table', { name: 'Book analysis' })
+    .locator(':scope > tbody > tr[data-catalog-book]')
     .first();
   const title = row.getByRole('button').first();
   await title.click();

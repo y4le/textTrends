@@ -47,7 +47,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
     && event.op === 'reader-page');
   expect(footerQueries.length).toBeGreaterThan(0);
 
-  for (const place of ['concordance', 'vocabulary', 'compare', 'corpus'] as const) {
+  for (const place of ['concordance', 'vocabulary', 'compare', 'catalog'] as const) {
     await gotoPlace(page, place);
     await expect(footer).toBeVisible();
   }
@@ -62,7 +62,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
 test('an exact footer barcode tick centers Concordance without opening Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'footer-ticks.txt',
     mimeType: 'text/plain',
@@ -87,7 +87,7 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
 test('status and sparkline double-clicks open Reader at their raw corpus points', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'footer-reader.txt',
     mimeType: 'text/plain',
@@ -133,7 +133,7 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
 test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'footer-snap.txt',
     mimeType: 'text/plain',

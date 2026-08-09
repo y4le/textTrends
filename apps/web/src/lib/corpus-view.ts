@@ -18,7 +18,7 @@ function encodedDocId(doc: string): string {
 }
 
 export function bookTitleControlId(doc: string): string {
-  return `corpus-book-title-${encodedDocId(doc)}`;
+  return `catalog-book-title-${encodedDocId(doc)}`;
 }
 
 export function bookDetailRegionId(doc: string): string {

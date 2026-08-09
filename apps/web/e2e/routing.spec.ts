@@ -42,13 +42,13 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
 
   const scope = page.getByRole('region', { name: 'Scope' });
   await scope.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
-  await expectOnlyCanonicalPlace(page, 'corpus');
+  await expect(page).toHaveURL(/\?foreign=%2f&p=catalog$/);
+  await expectOnlyCanonicalPlace(page, 'catalog');
   await page.getByRole('navigation', { name: 'Analysis lenses' })
     .getByRole('link', { name: 'Compare', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=corpus$/);
+  await expect(page).toHaveURL(/\?foreign=%2f&p=catalog$/);
   await page.goForward();
   await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
 
@@ -64,7 +64,7 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
   await awaitAllReady(page);
   await expectOnlyCanonicalPlace(page, 'vocabulary');
   await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Corpus documents' })).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Book analysis' })).toHaveCount(0);
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page

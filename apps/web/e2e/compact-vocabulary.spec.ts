@@ -220,7 +220,7 @@ test('a many-section Vocabulary profile stays inside a compact page', async ({ p
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const markdown = Array.from(
     { length: 90 },
     (_, index) => `# Chapter ${index + 1}\n\nword${index} repeats repeats.\n`,

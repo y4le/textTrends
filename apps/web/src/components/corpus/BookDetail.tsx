@@ -45,11 +45,13 @@ function RhythmDetailMark({ view }: { readonly view: BookDetailVM }) {
 export function BookDetail({
   view,
   growth,
+  measurementScope,
   onClose,
   onScopeMessage,
 }: {
   readonly view: BookDetailVM;
   readonly growth: Parameters<typeof GrowthCurve>[0]['growth'] | null;
+  readonly measurementScope: 'full book' | 'active range';
   readonly onClose: () => void;
   readonly onScopeMessage: (message: string | null) => void;
 }) {
@@ -78,7 +80,8 @@ export function BookDetail({
       </header>
 
       <section aria-labelledby={inventoryHeadingId}>
-        <h4 id={inventoryHeadingId}>Inventory</h4>
+        <h4 id={inventoryHeadingId}>Measurements</h4>
+        <p className="book-detail-scope">These measurements describe the {measurementScope}.</p>
         <dl className="book-detail-stats">
           {[
             ['selected / full tokens', `${number.format(stats.selectedTokens)} / ${number.format(stats.fullTokens)}`],
@@ -88,7 +91,7 @@ export function BookDetail({
             ['sentences / paragraphs', `${number.format(stats.sentences)} / ${number.format(stats.paragraphs)}`],
             ['sentence mean / median / p90', `${value(stats.sentenceMean)} / ${value(stats.sentenceMedian)} / ${value(stats.sentenceP90)}`],
             ['paragraph mean', value(stats.paragraphMean)],
-            ['TTR', value(stats.ttr)],
+            ['TTR', `${value(stats.ttr)} (descriptive and length-dependent)`],
             ['MATTR', `${value(stats.mattr)}${stats.mattrIsPlainTtr ? ' (plain TTR in a short run)' : ''}`],
             ['UTF-16 span', number.format(stats.charsUtf16)],
           ].map(([label, exact]) => (
@@ -110,8 +113,7 @@ export function BookDetail({
             ? <p>Vocabulary growth is unavailable for this result.</p>
             : (
                 <p>
-                  The visible growth curve describes the current corpus scope.
-                  Use the scope action above to compute it for this book.
+                  Use the scope action above to compute vocabulary growth for this book.
                 </p>
               )}
       </section>

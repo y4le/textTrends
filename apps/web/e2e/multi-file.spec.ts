@@ -20,7 +20,7 @@ function fixtures() {
 test('multi-file import transfers every source and finalizes in selection order', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   const files = fixtures();
   const lengths = files.map((f) => f.len);

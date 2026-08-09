@@ -9,7 +9,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, DOC_COUNT, events, SHERLOCK, trace, trackCorpusRequests } from './helpers.ts';
+import { awaitAllReady, DOC_COUNT, events, gotoPlace, SHERLOCK, trace, trackCorpusRequests } from './helpers.ts';
 
 test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc order, monotone snapshots', async ({ page, baseURL }) => {
   const corpusRequests = trackCorpusRequests(page);
@@ -78,9 +78,10 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   expect(counts).toEqual([...counts].sort((a, b) => a - b));
   expect(counts.at(-1)).toBe(DOC_COUNT);
 
-  // UI completion through accessible semantics: the trend surface, the
-  // exact-totals table with both default series, and concordance rows.
+  // UI completion through accessible semantics: the trend surface and the
+  // Catalog book table with both default series.
   await expect(page.locator('svg').first()).toBeVisible();
-  await expect(page.getByRole('table').first()).toBeVisible();
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('table', { name: 'Book analysis' })).toBeVisible();
   await expect(page.getByText(/Holmes/i).first()).toBeVisible();
 });

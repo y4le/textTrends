@@ -123,12 +123,12 @@ export function CatalogPanel({
         aria-expanded={open}
         style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)', background: 'none', border: '1px solid var(--rule)', padding: '2px 0.75ch', cursor: 'pointer' }}
       >
-        {open ? '▾' : '▸'} Standard Ebooks catalog
+        {open ? '▾' : '▸'} Standard Ebooks library
       </button>
 
       {open && loadError !== null && (
         <p style={{ ...label, marginTop: 'var(--space-2)', color: 'var(--accent-text)' }}>
-          Could not load the catalog: {loadError}{' '}
+          Could not load the Standard Ebooks library: {loadError}{' '}
           <button
             type="button"
             onClick={() => {
@@ -143,7 +143,7 @@ export function CatalogPanel({
       )}
 
       {open && loadError === null && catalog === null && (
-        <p style={{ ...label, marginTop: 'var(--space-2)' }}>loading catalog…</p>
+        <p style={{ ...label, marginTop: 'var(--space-2)' }}>loading Standard Ebooks library…</p>
       )}
 
       {open && catalog !== null && (
@@ -153,7 +153,7 @@ export function CatalogPanel({
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="filter by title, author, or series"
-            aria-label="Filter the Standard Ebooks catalog"
+            aria-label="Filter the Standard Ebooks library"
             style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', padding: '2px 0.75ch', width: '100%', boxSizing: 'border-box' }}
           />
 

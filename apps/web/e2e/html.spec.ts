@@ -33,7 +33,7 @@ const MESSY_HTML = `<!DOCTYPE html>
 test('a non-well-formed HTML file imports, extracts body text, analyzes, and outlines headings', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'owls.html',
@@ -55,7 +55,7 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   expect(rows).toBeGreaterThanOrEqual(2); // "barnowl" appears in body + migration list
 
   // Headings became a chapter outline.
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const chapters = page.getByRole('region', { name: 'Chapter structure' });
   await expect(chapters.getByText('Owl Field Notes', { exact: true })).toBeVisible();
   await expect(chapters.getByText('Migration', { exact: true })).toBeVisible();

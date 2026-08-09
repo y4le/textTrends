@@ -1,5 +1,5 @@
 /**
- * The baked Standard Ebooks catalog in the real browser: browsing makes NO
+ * The baked Standard Ebooks library in the real browser: browsing makes NO
  * external network requests (no api.github.com, no standardebooks.org — the
  * snapshot is fetched as a hashed same-origin JSON asset on first open), a
  * complete series renders in position order from the checked-in snapshot,
@@ -73,14 +73,14 @@ test('the baked catalog browses offline, renders series in order, and adds from 
 
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // Browsing is purely the baked snapshot: open the catalog and see a series
   // render complete and position-ordered with NO external catalog traffic
   // (the snapshot itself is a same-origin JSON asset, invisible to these
   // external-route interceptors; its on-demand timing is asserted in the
   // retry test and its payload separation in the build-shape test).
-  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
+  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
   await expect(series).toBeVisible();
   const rows = series.getByRole('listitem');
@@ -133,8 +133,8 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
-  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
+  await gotoPlace(page, 'catalog');
+  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await page
     .getByRole('list', { name: 'Sherlock Holmes series' })
     .getByRole('listitem')
@@ -198,8 +198,8 @@ test('a repeat add after reload is served from the IndexedDB cache: zero raw req
 
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
-  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
+  await gotoPlace(page, 'catalog');
+  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
   await series.getByRole('listitem').nth(0).getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
@@ -231,8 +231,8 @@ test('a repeat add after reload is served from the IndexedDB cache: zero raw req
 
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
-  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
+  await gotoPlace(page, 'catalog');
+  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await page
     .getByRole('list', { name: 'Sherlock Holmes series' })
     .getByRole('listitem')
@@ -364,10 +364,10 @@ test('the catalog asset loads on demand, and a failed fetch shows a genuinely re
   });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   expect(aborted, 'no catalog asset request before the panel opens').toBe(0);
-  await page.getByRole('button', { name: /Standard Ebooks catalog/ }).click();
-  await expect(page.getByText(/Could not load the catalog/)).toBeVisible();
+  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
+  await expect(page.getByText(/Could not load the Standard Ebooks library/)).toBeVisible();
   expect(aborted).toBe(1);
 
   await page.unroute(catalogAsset);

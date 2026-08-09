@@ -489,9 +489,9 @@ describe('workbench route and history authority', () => {
     const store = runtime.useApp;
 
     store.setState({ notebookError: 'first refusal' });
-    store.getState().setPlace('corpus');
+    store.getState().setPlace('catalog');
     expect(store.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       notebookError: null,
     });
 
@@ -520,7 +520,7 @@ describe('workbench route and history authority', () => {
 
   it('closes a governed parent and its nested child in one Back traversal', () => {
     const q = fakeQueryClient();
-    const history = new FakeHistoryPort('/textTrends/?p=corpus');
+    const history = new FakeHistoryPort('/textTrends/?p=catalog');
     const runtime = createAppRuntime(q.client, {
       history,
       newLayerId: layerIds(),
@@ -554,7 +554,7 @@ describe('workbench route and history authority', () => {
   it('strips legacy evidence keys without creating history layers', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=corpus&e=sheet#kept',
+      '/textTrends/?foreign=a+b&p=catalog&e=sheet#kept',
     );
     const runtime = createAppRuntime(q.client, {
       history,
@@ -562,11 +562,11 @@ describe('workbench route and history authority', () => {
     });
 
     expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       layers: [],
     });
     expect(history.entries).toHaveLength(1);
-    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#kept');
+    expect(history.url).toBe('/textTrends/?foreign=a+b&p=catalog#kept');
     expect(q.issued).toHaveLength(0);
     runtime.dispose();
   });
@@ -574,7 +574,7 @@ describe('workbench route and history authority', () => {
   it('normalizes an unresolvable deep reader route to the place base', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=corpus&e=reader#kept',
+      '/textTrends/?foreign=a+b&p=catalog&e=reader#kept',
     );
     const runtime = createAppRuntime(q.client, {
       history,
@@ -582,12 +582,12 @@ describe('workbench route and history authority', () => {
     });
 
     expect(runtime.useApp.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       layers: [],
       readerPlace: null,
     });
     expect(history.entries).toHaveLength(1);
-    expect(history.url).toBe('/textTrends/?foreign=a+b&p=corpus#kept');
+    expect(history.url).toBe('/textTrends/?foreign=a+b&p=catalog#kept');
     expect(q.issued).toHaveLength(0);
     runtime.dispose();
   });
@@ -635,7 +635,7 @@ describe('workbench route and history authority', () => {
       expect(store.getState().researchPersistence.phase).toBe('saved');
     };
 
-    store.getState().setPlace('corpus');
+    store.getState().setPlace('catalog');
     assertFenced();
     store.getState().pushLayer(
       'row-detail',
@@ -654,7 +654,7 @@ describe('workbench route and history authority', () => {
     assertFenced();
 
     expect(history.pushes).toBe(2);
-    expect(history.url).toBe('/textTrends/?foreign=%2f&p=corpus');
+    expect(history.url).toBe('/textTrends/?foreign=%2f&p=catalog');
     expect(JSON.stringify(history.state)).not.toMatch(
       /Holmes|Moriarty|private|token|vocabulary-row|local-scroll/,
     );
@@ -662,7 +662,7 @@ describe('workbench route and history authority', () => {
     store.getState().popLayer();
     expect(store.getState().layers.at(-1)?.kind).toBe('place');
     expect(store.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       layers: [{ kind: 'place' }],
     });
     assertFenced();
@@ -685,7 +685,7 @@ describe('workbench route and history authority', () => {
       newLayerId: layerIds(),
     });
     const store = runtime.useApp;
-    store.getState().setPlace('corpus');
+    store.getState().setPlace('catalog');
     const live = store.getState().layers;
     history.restore({
       tt: {
@@ -695,13 +695,13 @@ describe('workbench route and history authority', () => {
           { kind: 'reader', id: '00000000-0000-4000-8000-999999999999' },
         ],
       },
-    }, '/textTrends/?p=corpus&e=reader');
+    }, '/textTrends/?p=catalog&e=reader');
 
     expect(store.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       layers: live,
     });
-    expect(history.url).toBe('/textTrends/?p=corpus');
+    expect(history.url).toBe('/textTrends/?p=catalog');
     expect(history.state).toEqual({
       tt: {
         v: 1,
@@ -723,7 +723,7 @@ describe('workbench route and history authority', () => {
       readonly tt: { readonly v: 1; readonly layers: readonly unknown[] };
     };
     for (let index = 0; index < 200; index += 1) {
-      store.getState().setPlace(index % 2 === 0 ? 'corpus' : 'trends');
+      store.getState().setPlace(index % 2 === 0 ? 'catalog' : 'trends');
     }
 
     history.restore(oldest, '/textTrends/?p=trends&e=sheet');
@@ -2778,9 +2778,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       layers: [{ kind: 'reader' }],
     });
 
-    store.getState().setPlace('corpus');
+    store.getState().setPlace('catalog');
     expect(store.getState()).toMatchObject({
-      place: 'corpus',
+      place: 'catalog',
       readerPlace: null,
       layers: [{ kind: 'place' }],
     });

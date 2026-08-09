@@ -56,7 +56,7 @@ function fixtureEpub(): Buffer {
 test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub',
@@ -82,7 +82,7 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
   // structure, not a Markdown/heading text scan). The outline renders each
   // title in its own element (exact match), distinct from concordance cells
   // that merely contain the words.
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const chapters = page.getByRole('region', { name: 'Chapter structure' });
   await expect(chapters.getByText('Chapter One', { exact: true })).toBeVisible();
   await expect(chapters.getByText('Chapter Two', { exact: true })).toBeVisible();
@@ -96,7 +96,7 @@ test('an EPUB imports, extracts body text, analyzes, and shows a chapter outline
 test('a persisted EPUB warm-reopens after the artifact cache is cleared', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
@@ -108,7 +108,7 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   // source bytes (a text rescan cannot rebuild epub structure).
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -117,7 +117,7 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   await clearArtifactStores(page);
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByRole('button', { name: 'Load saved project' }).click();
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -132,7 +132,7 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   await input.press('Enter');
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(page.getByRole('region', { name: 'Chapter structure' })
     .getByText('Chapter Two', { exact: true })).toBeVisible();
 });
@@ -140,7 +140,7 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
 test('a persisted EPUB re-extracts from source when only its text artifact survives (partial cache)', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
@@ -149,7 +149,7 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
 
   await page.getByRole('button', { name: 'persist' }).click();
   await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -175,7 +175,7 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
 
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByRole('button', { name: 'Load saved project' }).click();
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -187,7 +187,7 @@ test('a persisted EPUB re-extracts from source when only its text artifact survi
   await input.press('Enter');
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(page.getByRole('region', { name: 'Chapter structure' })
     .getByText('Chapter Two', { exact: true })).toBeVisible();
 });

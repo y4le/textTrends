@@ -525,26 +525,117 @@ canvas {
   overscroll-behavior-inline: contain;
 }
 
-.corpus-inventory-port {
-  max-inline-size: 100%;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
+.catalog-book-analysis {
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--rule-strong);
 }
 
-.corpus-inventory {
+.catalog-book-analysis > h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.catalog-analysis-scope,
+.catalog-analysis-note,
+.book-detail-scope {
+  margin: var(--space-1) 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.catalog-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  margin-block: var(--space-2);
+}
+
+.catalog-summary dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.catalog-summary dd {
+  margin: 0;
+  font-family: var(--font-mono);
+}
+
+.catalog-analysis-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin-block: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.catalog-analysis-table {
   inline-size: 100%;
+  min-inline-size: max-content;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
-.corpus-inventory th,
-.corpus-inventory td {
+.catalog-analysis-table caption {
+  padding-block-end: var(--space-1);
+  color: var(--fg-muted);
+  text-align: start;
+}
+
+.catalog-analysis-table th,
+.catalog-analysis-table td {
+  padding: 0.4rem 1ch;
   vertical-align: top;
+  text-align: end;
 }
 
-.corpus-document-row[data-focused] > .corpus-title {
+.catalog-analysis-table thead th {
+  color: var(--fg-muted);
+  font-weight: 400;
+  white-space: nowrap;
+}
+
+.catalog-analysis-table th:first-child {
+  padding-inline-start: 0;
+  text-align: start;
+}
+
+.catalog-analysis-table tbody > tr {
+  border-block-start: 1px solid var(--rule);
+}
+
+.catalog-analysis-table tbody > .catalog-corpus-row {
+  border-block-start-color: var(--rule-strong);
+}
+
+.catalog-book-row[data-focused] > .catalog-book-title {
   box-shadow: inset 2px 0 0 var(--accent-text);
 }
 
-.corpus-compact-token-label {
+.catalog-book-title > button {
+  border: 0;
+  color: var(--fg);
+  background: none;
+  font: inherit;
+  text-align: start;
+  cursor: pointer;
+}
+
+.catalog-book-ordinal,
+.catalog-term-rate,
+.catalog-term-unit {
+  color: var(--fg-muted);
+}
+
+.catalog-term-unit {
+  display: block;
+  font-size: 0.85em;
+}
+
+.catalog-cell-label {
   display: none;
 }
 
@@ -1858,17 +1949,21 @@ canvas {
     min-block-size: 0;
   }
 
-  .corpus-inventory-port {
+  .catalog-analysis-port {
     overflow: visible;
   }
 
-  .corpus-inventory,
-  .corpus-inventory tbody {
+  .catalog-analysis-table {
+    min-inline-size: 0;
+  }
+
+  .catalog-analysis-table,
+  .catalog-analysis-table tbody {
     display: block;
     inline-size: 100%;
   }
 
-  .corpus-inventory thead {
+  .catalog-analysis-table thead {
     position: absolute;
     inline-size: 1px;
     block-size: 1px;
@@ -1880,28 +1975,33 @@ canvas {
     border: 0;
   }
 
-  .corpus-document-row {
+  .catalog-analysis-table caption {
+    display: block;
+    inline-size: 100%;
+  }
+
+  .catalog-book-row {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto auto;
+    grid-template-columns: minmax(0, 1fr) auto;
     align-items: center;
-    gap: 2px var(--space-2);
+    gap: var(--space-1) var(--space-2);
     inline-size: 100%;
     padding-block: var(--space-2);
     border-block-end: 1px solid var(--rule);
   }
 
-  .corpus-document-row > .corpus-title {
+  .catalog-book-row > .catalog-book-title {
     grid-column: 1 / -1;
     min-inline-size: 0;
     padding: 0;
     box-shadow: none;
   }
 
-  .corpus-document-row[data-focused] > .corpus-title {
+  .catalog-book-row[data-focused] > .catalog-book-title {
     box-shadow: inset 2px 0 0 var(--accent-text);
   }
 
-  .corpus-title > button {
+  .catalog-book-title > button {
     display: block;
     inline-size: 100%;
     min-block-size: 44px;
@@ -1915,7 +2015,7 @@ canvas {
     white-space: nowrap;
   }
 
-  .corpus-document-row > td {
+  .catalog-book-row > td {
     display: block;
     min-inline-size: 0;
     padding: 0;
@@ -1923,56 +2023,81 @@ canvas {
     white-space: nowrap;
   }
 
-  .corpus-document-row > [data-detail-only] {
-    display: none;
-  }
-
-  .corpus-readiness {
-    grid-column: 1;
+  .catalog-cell-label {
+    display: inline;
     color: var(--fg-muted);
   }
 
-  .corpus-readiness::after {
-    content: ' ·';
-  }
-
-  .corpus-tokens {
-    grid-column: 2;
+  .catalog-book-tokens {
+    grid-column: 1;
     overflow: hidden;
     text-overflow: ellipsis;
   }
 
-  .corpus-selected-tokens,
-  .corpus-token-separator {
-    display: none;
+  .catalog-book-tokens .catalog-cell-label::after {
+    content: ': ';
   }
 
-  .corpus-compact-token-label {
+  .catalog-term-total {
+    grid-column: 1 / -1;
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-2);
+    border-block-start: 1px dotted var(--rule);
+    padding-block-start: var(--space-1) !important;
+    text-align: end;
+  }
+
+  .catalog-term-total .catalog-term-unit {
     display: inline;
   }
 
-  .corpus-rhythm {
-    grid-column: 3;
+  .catalog-book-rhythm {
+    grid-column: 1;
   }
 
-  .corpus-scope {
-    grid-column: 4;
+  .catalog-book-scope {
+    grid-column: 2;
   }
 
-  .corpus-scope > button {
+  .catalog-book-scope > button {
     min-block-size: 44px;
     padding-inline: var(--space-1);
   }
 
-  .corpus-inventory > tbody > tr[data-book-detail] {
+  .catalog-analysis-table > tbody > tr[data-book-detail] {
     display: block;
     inline-size: 100%;
   }
 
-  .corpus-inventory > tbody > tr[data-book-detail] > td {
+  .catalog-analysis-table > tbody > tr[data-book-detail] > td {
     display: block;
     inline-size: 100%;
     padding: 0;
+  }
+
+  .catalog-corpus-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-2);
+    padding-block: var(--space-2);
+  }
+
+  .catalog-corpus-row > * {
+    display: block;
+    padding: 0 !important;
+  }
+
+  .catalog-corpus-row > th {
+    grid-column: 1;
+  }
+
+  .catalog-corpus-row > td:nth-last-child(-n + 2) {
+    display: none;
+  }
+
+  .catalog-corpus-row > td:nth-child(2) .catalog-cell-label::after {
+    content: ': ';
   }
 
   .book-detail {

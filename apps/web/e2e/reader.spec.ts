@@ -27,7 +27,7 @@ async function importCorpus(
   text: string,
   expectedReady: number,
 ): Promise<void> {
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,

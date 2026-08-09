@@ -15,14 +15,14 @@ const DOC_TEXT = '# Alpha\n\nthe wolf ran far over the hill.\n\n# Beta\n\na wolf
 test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites the durable record', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   await page.getByLabel('Create project from files').setInputFiles({ name: 'novel.md', mimeType: 'text/markdown', buffer: Buffer.from(DOC_TEXT, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Save revision 1.
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const save = page.getByRole('button', { name: 'Save project' });
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
@@ -36,7 +36,7 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
   await setUserProjectRevision(page, saved!.id, 2);
 
   // A local structure correction dirties the project at the stale base 1.
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByRole('button', { name: 'edit chapters' }).click();
   await expect(page.getByLabel('Editable chapters')).toBeVisible({ timeout: 30_000 });
   const firstTitle = page.locator('input[aria-label^="Title for"]').first();
@@ -47,7 +47,7 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
 
   // Save from base 1: the worker's CAS sees stored revision 2 → REVISION_CONFLICT.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(save).toBeEnabled({ timeout: 30_000 });
   await save.click();
   await expect
@@ -64,7 +64,7 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
 
   // The UI names the conflicting revision; the local correction survives.
   await expect(page.getByText('Project conflict: the saved project moved to revision 2.').first()).toBeVisible();
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(page.getByRole('region', { name: 'Chapter structure' })
     .getByText('Renamed Alpha', { exact: true })).toBeVisible();
 

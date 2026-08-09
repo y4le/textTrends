@@ -96,7 +96,7 @@ test('a corrupt cached structure warns, recomposes only structure, and re-persis
   await page.goto('./');
   await awaitAllReady(page);
   await awaitCacheSettled(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // Capture the exact key + deterministic original, then tamper the root range
   // (an inner invariant) — awaiting the WRITE TRANSACTION's completion.

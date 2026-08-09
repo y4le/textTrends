@@ -51,7 +51,7 @@ async function rowDetails(page: Page): Promise<{ term: string; right: string }[]
 test('the concordance merges all terms nearest the axis and toggles a term off', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -73,14 +73,15 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
     .getByRole('columnheader', { name: 'token', exact: true })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Concordance' })
     .locator('tbody .kwic-book').first()).toHaveText(/^\d+ \/ \d+$/);
-  // The trend summary labels the book by reading-order ordinal + title.
-  await gotoPlace(page, 'trends');
-  await expect(page.getByRole('table', { name: /exact totals by book/i }).getByText('1 · beasts')).toBeVisible();
+  // Catalog labels the book by reading-order ordinal + title alongside exact totals.
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('table', { name: 'Book analysis' }).getByText('1 · beasts')).toBeVisible();
 
   // Move the axis to the END via the KEYBOARD scrubber (token 12 of 12). The
   // concordance re-centres: the nearest hit is the LAST fox (fox@10, right
   // context 'fled'), then wolf@7, fox@4, wolf@1 — proving the End-key center and
   // the merged proximity order, not merely "a fox is first".
+  await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await scrubber.focus();
   const mark1 = (await trace(page)).events.at(-1)?.seq ?? -1;

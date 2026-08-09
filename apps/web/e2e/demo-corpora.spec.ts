@@ -6,7 +6,7 @@ test('the private built-in picker switches among TXT corpora with useful starter
   const requests = trackCorpusRequests(page);
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   const picker = page.getByLabel('Demo corpus');
   await expect(picker).toHaveValue('builtin/sherlock');

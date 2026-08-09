@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, submitAndAwaitFreshResults, trace, trackCorpusRequests } from './helpers.ts';
+import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, gotoPlace, submitAndAwaitFreshResults, trace, trackCorpusRequests } from './helpers.ts';
 
 test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready barrier', async ({ page }) => {
   await page.goto('./');
@@ -49,9 +49,10 @@ test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready b
   expect(barriers[0]!.missingCount).toBe(0);
   expect(barriers[0]!.readyCount).toBe(DOC_COUNT);
 
-  // The rehydrated corpus answers: trend surface, totals, and concordance.
+  // The rehydrated corpus answers in both Trends and Catalog.
   await expect(page.locator('svg').first()).toBeVisible();
-  await expect(page.getByRole('table').first()).toBeVisible();
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('table', { name: 'Book analysis' })).toBeVisible();
 
   // A NEW query against the rehydrated index — awaited by its own fresh
   // job's result, never satisfied by pre-reload evidence.

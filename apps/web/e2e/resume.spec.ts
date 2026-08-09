@@ -35,7 +35,7 @@ test('Vocabulary notebook refusals are visible at the action and cleared on depa
     'deactivate a group before adding this frequency-table term',
   );
 
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await expect(page.getByRole('alert')).toHaveCount(0);
 });
 

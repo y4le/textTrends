@@ -20,7 +20,7 @@ const CORPUS = Array.from(
 test('touch reads by default and commits only through explicit range mode', async ({ page, context }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'touch-range.txt',
     mimeType: 'text/plain',

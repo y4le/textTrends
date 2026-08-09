@@ -92,7 +92,7 @@ export function TrendsPlace() {
           {markView.bookLabel && (
             <button
               type="button"
-              onClick={() => setPlace('corpus')}
+              onClick={() => setPlace('catalog')}
               style={{
                 background: 'none',
                 border: 0,
@@ -128,6 +128,19 @@ export function TrendsPlace() {
           </Suspense>
         )}
       </div>
+      {series.length > 0 && (
+        <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
+          Exact totals by book are in{' '}
+          <button
+            type="button"
+            className="method-inline-action"
+            onClick={() => setPlace('catalog')}
+          >
+            Catalog
+          </button>
+          .
+        </p>
+      )}
     </>
   );
 }

@@ -7,7 +7,7 @@ test('Trends solely owns chapter marks and the preference survives its Corpus ro
   // Progressive ingestion may initially focus whichever book became ready
   // first. Choose the first declared book explicitly because this contract
   // requires a detected top-level outline.
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Document to preview').selectOption({ index: 0 });
   await gotoPlace(page, 'trends');
 
@@ -28,7 +28,7 @@ test('Trends solely owns chapter marks and the preference survives its Corpus ro
     && event.t === 'query')).toEqual([]);
 
   await page.getByRole('button', { name: /change chapter-mark book, currently/i }).click();
-  await expect(page).toHaveURL(/[?&]p=corpus(?:&|$)/);
+  await expect(page).toHaveURL(/[?&]p=catalog(?:&|$)/);
   await expect(page.getByLabel('Document to preview')).toBeVisible();
   await expect(page.getByRole('checkbox', {
     name: 'Mark top-level chapters on the chart',

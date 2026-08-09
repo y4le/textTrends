@@ -16,7 +16,7 @@ const BOOK_MD = '# Alpha\n\nthe wolf ran far over the hill.\n\n# Beta\n\na wolf 
 async function importBook(page: Page): Promise<void> {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'book.md', mimeType: 'text/markdown', buffer: Buffer.from(BOOK_MD, 'utf-8') });
   await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -80,7 +80,7 @@ async function assertLateHashChangesNothing(page: Page, stableSnapshot: string, 
   await releaseDigestGate(page);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf'); // task-queue barrier after the late settlement
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   const t = await trace(page);
   expect(t.dropped).toBe(0);
   expect(t.events.filter((e) => e.seq > releaseMark && e.direction === 'to-worker' && e.t === 'begin-generation')).toEqual([]);

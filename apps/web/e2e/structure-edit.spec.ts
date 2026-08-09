@@ -19,7 +19,7 @@ function mdFile() {
 test('import md → edit a chapter title → apply → correction round-trips', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page); // built-in Sherlock is the read-only default
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
 
   // ── Create a user project from a Markdown file with two chapters. ──
   await page.getByLabel('Create project from files').setInputFiles(mdFile());
@@ -52,7 +52,7 @@ test('import md → edit a chapter title → apply → correction round-trips', 
 test('the editor can add a fresh chapter row', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'corpus');
+  await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles(mdFile());
   await expect(page.getByRole('region', { name: 'Chapter structure' })
     .getByText('Alpha', { exact: true })).toBeVisible({ timeout: 30_000 });

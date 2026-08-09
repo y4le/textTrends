@@ -304,8 +304,8 @@ test('scrollable analytical tables expose named regions', async ({ page }) => {
   await awaitAllReady(page);
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('region', { name: 'Scrollable concordance table' })).toBeVisible();
-  await gotoPlace(page, 'trends');
-  await expect(page.getByRole('region', { name: 'Scrollable exact totals table' })).toBeVisible();
+  await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('region', { name: 'Scrollable book analysis table' })).toBeVisible();
 });
 
 test('coarse input sizing does not inflate dense concordance rows', async ({ browser }) => {
