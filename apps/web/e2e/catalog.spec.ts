@@ -103,6 +103,13 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   expect(new Set(rawRequests.slice(1))).toEqual(
     new Set([`${RAW_BASE}/text/chapter-1.xhtml`, `${RAW_BASE}/text/chapter-2.xhtml`]),
   );
+
+  // Re-acquiring the same deterministic archive neither duplicates the local
+  // record nor activates a second copy of the same source.
+  await rows.nth(0).getByRole('button', { name: 'add' }).click();
+  await expect(page.getByRole('list', { name: 'Files on this device' }).getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByRole('list', { name: 'Documents' }).getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByText(/already saved.*already active/)).toBeVisible();
 });
 
 test('leaving the catalog aborts its owned add and never imports after unmount', async ({ page }) => {

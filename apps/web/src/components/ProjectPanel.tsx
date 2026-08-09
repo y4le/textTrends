@@ -6,6 +6,7 @@ import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react'
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import {
+  localFileIdentity,
   localLibrary,
   type LocalFileInput,
   type LocalLibraryItem,
@@ -82,10 +83,14 @@ export function ProjectPanel({
   const clearCommandError = useApp((s) => s.clearCommandError);
 
   const importRef = useRef<HTMLInputElement>(null);
+  const activeIdentityRef = useRef<ReadonlySet<string>>(new Set());
+  const pendingActivationRef = useRef(new Set<string>());
+  const sawPendingImportsRef = useRef(false);
   const [library, setLibrary] = useState<readonly LocalLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
   const [libraryBusy, setLibraryBusy] = useState(false);
+  const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'library' | 'active' | null>(null);
 
   const refreshLibrary = useCallback(async (clearError = true) => {
@@ -125,15 +130,57 @@ export function ProjectPanel({
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
   const canReorder = !isBuiltin && pendingImports.length === 0 && finalizedDocs.length > 1;
+  activeIdentityRef.current = new Set(finalizedDocs.map((doc) => localFileIdentity(doc.source.format, doc.source.hash)));
+  if (pendingImports.length > 0) sawPendingImportsRef.current = true;
+  else if (sawPendingImportsRef.current) {
+    pendingActivationRef.current.clear();
+    sawPendingImportsRef.current = false;
+  }
+
+  const activateUnique = (files: readonly LocalFileInput[], items: readonly LocalLibraryItem[]): number => {
+    const unique: LocalFileInput[] = [];
+    const queuedIdentities: string[] = [];
+    let duplicates = 0;
+    for (let index = 0; index < items.length; index += 1) {
+      const item = items[index]!;
+      const identity = localFileIdentity(item.format, item.contentHash);
+      if (activeIdentityRef.current.has(identity) || pendingActivationRef.current.has(identity)) {
+        duplicates += 1;
+        continue;
+      }
+      pendingActivationRef.current.add(identity);
+      queuedIdentities.push(identity);
+      unique.push(files[index]!);
+    }
+    if (unique.length > 0) {
+      importFiles(unique);
+      if ((useApp.getState().projectSession?.imports.length ?? 0) === 0) {
+        for (const identity of queuedIdentities) pendingActivationRef.current.delete(identity);
+      }
+    }
+    return duplicates;
+  };
+
+  const duplicateNotice = (saved: number, active: number): string | null => {
+    const parts: string[] = [];
+    if (saved > 0) parts.push(`${saved} already saved`);
+    if (active > 0) parts.push(`${active} already active`);
+    return parts.length === 0 ? null : `${parts.join(' · ')} — no duplicate added`;
+  };
 
   const acquire = async (files: readonly LocalFileInput[], activate = true, signal?: AbortSignal) => {
     if (files.length === 0 || libraryBusy) return;
     setLibraryBusy(true);
     setLibraryError(null);
+    setLibraryNotice(null);
     try {
-      await localLibrary.add(files);
+      const results = await localLibrary.add(files);
       await refreshLibrary();
-      if (activate && signal?.aborted !== true) importFiles(files);
+      const savedDuplicates = results.filter((result) => !result.added).length;
+      const activeDuplicates = activate && signal?.aborted !== true
+        ? activateUnique(files, results.map((result) => result.item))
+        : 0;
+      if (signal?.aborted !== true) setLibraryNotice(duplicateNotice(savedDuplicates, activeDuplicates));
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
       await refreshLibrary(false); // quota failures may have committed earlier files
@@ -145,11 +192,27 @@ export function ProjectPanel({
 
   const activateSaved = async (id: string) => {
     if (libraryBusy) return;
+    const item = library.find((candidate) => candidate.id === id);
+    if (item === undefined) {
+      setLibraryError('that saved file no longer exists');
+      return;
+    }
+    const identity = localFileIdentity(item.format, item.contentHash);
+    if (activeIdentityRef.current.has(identity) || pendingActivationRef.current.has(identity)) {
+      setLibraryNotice('1 already active — no duplicate added');
+      return;
+    }
+    pendingActivationRef.current.add(identity);
     setLibraryBusy(true);
     setLibraryError(null);
+    setLibraryNotice(null);
     try {
       importFiles([await localLibrary.file(id)]);
+      if ((useApp.getState().projectSession?.imports.length ?? 0) === 0) {
+        pendingActivationRef.current.delete(identity);
+      }
     } catch (error) {
+      pendingActivationRef.current.delete(identity);
       setLibraryError(error instanceof Error ? error.message : String(error));
     } finally {
       setLibraryBusy(false);
@@ -293,6 +356,7 @@ export function ProjectPanel({
             Drop files here to save them. Drag a saved file to the active corpus to use it.
           </p>
           {libraryError && <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>{libraryError}</p>}
+          {libraryNotice && <p role="status" style={{ color: 'var(--fg-muted)', margin: 'var(--space-1) 0 0' }}>{libraryNotice}</p>}
           {libraryLoading && <p role="status" style={{ color: 'var(--fg-muted)' }}>loading saved files…</p>}
           {!libraryLoading && library.length === 0 && (
             <p style={{ color: 'var(--fg-muted)', margin: 'var(--space-2) 0 0' }}>No saved files yet.</p>

@@ -22,9 +22,21 @@ test('local files persist, drag into the active corpus, reorder, and delete inde
   await expect(saved.getByRole('listitem')).toHaveCount(2);
   await expect(activePanel.getByRole('list', { name: 'Documents' }).getByRole('listitem')).toHaveCount(6);
 
+  // A second acquisition of the same format + bytes reuses the saved record.
+  await localPanel.evaluate((target) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['alpha alpha'], 'another-alpha.txt', { type: 'text/plain' }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect(saved.getByRole('listitem')).toHaveCount(2);
+  await expect(localPanel.getByRole('status')).toContainText('already saved');
+
   // A saved-file drag activates a fresh user corpus; a second drag appends.
   await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activePanel);
   await awaitReadyCount(page, 1);
+  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activePanel);
+  await expect(activePanel.getByRole('list', { name: 'Documents' }).getByRole('listitem')).toHaveCount(1);
+  await expect(localPanel.getByRole('status')).toContainText('already active');
   await saved.getByRole('listitem').filter({ hasText: 'beta.md' }).dragTo(activePanel);
   await awaitReadyCount(page, 2);
 
