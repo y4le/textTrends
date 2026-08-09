@@ -84,7 +84,7 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible({ timeout: 15_000 });
 });
 
-test('double-clicking the footer sparkline opens Reader at that corpus point', async ({ page }) => {
+test('double-clicking outside the footer strip still opens Reader at that corpus point', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'corpus');
@@ -98,17 +98,12 @@ test('double-clicking the footer sparkline opens Reader at that corpus point', a
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
-  const sparkline = footer.locator('.footer-sparkline');
-  await expect(sparkline).toBeVisible();
-  const sliderBox = await slider.boundingBox();
-  const sparklineBox = await sparkline.boundingBox();
-  if (!sliderBox || !sparklineBox) throw new Error('footer sparkline has no layout box');
+  const status = footer.locator('.footer-reading-status');
+  const statusBox = await status.boundingBox();
+  if (!statusBox) throw new Error('footer status has no layout box');
 
-  await slider.dblclick({
-    position: {
-      x: sliderBox.width * (5.5 / 9),
-      y: sparklineBox.y - sliderBox.y + sparklineBox.height / 2,
-    },
+  await status.dblclick({
+    position: { x: statusBox.width * (5.5 / 9), y: statusBox.height / 2 },
   });
 
   const reader = page.getByRole('main', { name: /Reader: footer-reader/ });
@@ -116,4 +111,34 @@ test('double-clicking the footer sparkline opens Reader at that corpus point', a
   await expect(reader.getByText('saw', { exact: true })).toHaveCSS('font-weight', '600');
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();
+});
+
+test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Create project from files').setInputFiles({
+    name: 'footer-snap.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const band = footer.locator('canvas[data-barcode-band="series"]');
+  const box = await band.boundingBox();
+  if (!box) throw new Error('footer barcode has no layout box');
+
+  // Four pixels before wolf@1 maps to token 0 on the raw axis, but remains
+  // inside the exact barcode's eight-pixel snap tolerance.
+  await band.dblclick({ position: { x: box.width * (1 / 9) - 4, y: 3 } });
+
+  const reader = page.getByRole('main', { name: /Reader: footer-snap/ });
+  await expect(reader).toBeVisible();
+  const wolves = reader.locator('.source-text').getByText('wolf', { exact: true });
+  await expect(wolves).toHaveCount(2);
+  await expect(wolves.first()).toHaveCSS('font-weight', '600');
+  await expect(wolves.last()).not.toHaveCSS('font-weight', '600');
 });

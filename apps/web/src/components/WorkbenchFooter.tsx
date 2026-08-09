@@ -254,7 +254,7 @@ function FooterInteractive({
     if (!box || box.width <= 0) return null;
     return {
       x: Math.max(0, Math.min(box.width - 0.001, event.clientX - box.left)),
-      y: Math.max(0, event.clientY - box.top),
+      y: event.clientY - box.top,
     };
   };
   const rawTarget = (x: number) => {
@@ -327,7 +327,25 @@ function FooterInteractive({
   };
 
   return (
-    <>
+    <div
+      className="footer-interactive"
+      onDoubleClick={(event) => {
+        if ((event.target as Element).closest('button, a')) return;
+        const point = localPoint(event);
+        if (!point || snapshot === null) return;
+        const snapped = activationAt(point.x, point.y)?.activation ?? null;
+        const target = snapped ?? rawTarget(point.x);
+        if (!target) return;
+        event.preventDefault();
+        setScrub({ doc: target.doc, token: target.token });
+        openReader({
+          snapshot: snapshot.snapshot,
+          doc: target.doc,
+          token: target.token,
+          from: 'footer',
+        }, 'corpus-footer-position');
+      }}
+    >
       <FooterPassage
         passage={passage}
         scrub={scrub}
@@ -353,25 +371,6 @@ function FooterInteractive({
           : 'no position'}
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
-        onDoubleClick={(event) => {
-          const point = localPoint(event);
-          if (
-            !point
-            || point.y < stripTop
-            || point.y >= stripTop + geometry.seriesHeight
-            || snapshot === null
-          ) return;
-          const target = rawTarget(point.x);
-          if (!target) return;
-          event.preventDefault();
-          setScrub({ doc: target.doc, token: target.token });
-          openReader({
-            snapshot: snapshot.snapshot,
-            doc: target.doc,
-            token: target.token,
-            from: 'footer',
-          }, 'corpus-footer-position');
-        }}
         onPointerEnter={(event) => {
           if (presentation.pointer === 'coarse' || event.pointerType !== 'mouse') return;
           onFinePointerEnter();
@@ -495,7 +494,7 @@ function FooterInteractive({
           />
         )}
       </div>
-    </>
+    </div>
   );
 }
 
