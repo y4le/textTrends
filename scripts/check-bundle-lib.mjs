@@ -2,7 +2,7 @@
  * Production-bundle contract checks (Phase H). The H0/G optimization work
  * ratified an ARCHITECTURE for the shipped bundle — an entry under a hard
  * gzip budget, the Standard Ebooks catalog as a fetched asset (never inlined
- * into a script), the SE cache/archive client and the worker's parser
+ * into a script), the SE archive client and the worker's parser
  * runtimes as lazy chunks — and this module makes those claims executable.
  * CI runs the CLI wrapper (scripts/check-bundle.mjs) against the real
  * `apps/web/dist`; this library is pure over an in-memory file map so the
@@ -95,7 +95,6 @@ export function checkBundle(files, catalogSource) {
   // ---- role chunks ---------------------------------------------------------
   const entryPath = unique(files, /^assets\/index-[^/]+\.js$/, 'entry', failures);
   const workerPath = unique(files, /^assets\/index\.worker-[^/]+\.js$/, 'worker base', failures);
-  const cachePath = unique(files, /^assets\/standard-ebooks-cache-[^/]+\.js$/, 'SE cache client', failures);
   const archivePath = unique(files, /^assets\/archive-[^/]+\.js$/, 'SE archive client', failures);
   const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
@@ -104,6 +103,7 @@ export function checkBundle(files, catalogSource) {
   const methodSurfacePath = unique(files, /^assets\/MethodSurface-[^/]+\.js$/, 'Method region', failures);
   const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
   const footerPath = unique(files, /^assets\/WorkbenchFooter-[^/]+\.js$/, 'Reading footer', failures);
+  const localLibraryPath = unique(files, /^assets\/local-library-[^/]+\.js$/, 'local library', failures);
   const placePaths = new Map(
     PLACE_CHUNKS.map(([place, re]) => [
       place,
@@ -131,6 +131,7 @@ export function checkBundle(files, catalogSource) {
       [methodSurfacePath, 'Method'],
       [querySurfacePath, 'Query'],
       [footerPath, 'Reading footer'],
+      [localLibraryPath, 'local library'],
     ]) {
       if (!path) continue;
       const name = path.replace('assets/', '');
@@ -196,23 +197,21 @@ export function checkBundle(files, catalogSource) {
     }
   }
 
-  // ---- main-thread lazy chain ---------------------------------------------
+  // ---- Standard Ebooks archive stays behind the Catalog place ------------
   const catalogPlacePath = placePaths.get('Catalog');
-  if (entryPath && catalogPlacePath && cachePath && archivePath) {
+  if (entryPath && catalogPlacePath && archivePath) {
     const entryText = files.get(entryPath).toString('utf8');
     const catalogPlaceText = files.get(catalogPlacePath).toString('utf8');
     const catalogPlaceStatic = staticImports(catalogPlaceText);
-    const cacheName = cachePath.replace('assets/', '');
     const archiveName = archivePath.replace('assets/', '');
-    if (references(entryText, cacheName)) failures.push(`${entryPath}: references ${cacheName} — the SE cache client must load only through the Catalog place`);
-    if (catalogPlaceStatic.has(cacheName)) failures.push(`${catalogPlacePath}: statically imports ${cacheName} — the SE cache client must stay lazy`);
-    if (!references(catalogPlaceText, cacheName)) failures.push(`${catalogPlacePath}: no reference to ${cacheName} — the lazy SE cache edge is gone`);
-    if (references(entryText, archiveName) || references(catalogPlaceText, archiveName)) {
-      failures.push(`main-thread route chunks reference ${archiveName} — the archive client must load only through the cache chunk`);
+    if (references(entryText, archiveName)) {
+      failures.push(`${entryPath}: references ${archiveName} — the archive client must load only through the Catalog place`);
     }
-    const cacheText = files.get(cachePath).toString('utf8');
-    if (staticImports(cacheText).has(archiveName)) failures.push(`${cachePath}: statically imports ${archiveName} — the archive client must stay lazy`);
-    if (!references(cacheText, archiveName)) failures.push(`${cachePath}: no reference to ${archiveName} — the lazy archive edge is gone`);
+    if (catalogPlaceStatic.has(archiveName)) {
+      failures.push(`${catalogPlacePath}: statically imports ${archiveName} — the archive client must stay lazy`);
+    } else if (!references(catalogPlaceText, archiveName)) {
+      failures.push(`${catalogPlacePath}: no reference to ${archiveName} — the lazy archive edge is gone`);
+    }
   }
 
   // ---- worker split --------------------------------------------------------

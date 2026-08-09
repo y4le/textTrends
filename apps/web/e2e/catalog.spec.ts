@@ -15,8 +15,7 @@
 
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { expect, test, type Page } from '@playwright/test';
-import { SE_ARCHIVE_CACHE_DB_NAME } from '../src/lib/standard-ebooks-cache.ts';
+import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
 
 const BOOK = 'arthur-conan-doyle_a-study-in-scarlet';
@@ -153,98 +152,6 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await expect(page.getByText(/Could not add/)).toHaveCount(0);
 });
 
-/** Count of records in the app-owned archive-cache database, from page
- *  context (raw IDB — nothing here touches app internals). */
-async function cachedArchiveCount(page: Page): Promise<number> {
-  return page.evaluate(async (dbName) => {
-    const db = await new Promise<IDBDatabase>((resolve, reject) => {
-      const req = indexedDB.open(dbName);
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => reject(req.error);
-    });
-    try {
-      return await new Promise<number>((resolve, reject) => {
-        const req = db.transaction('archives', 'readonly').objectStore('archives').count();
-        req.onsuccess = () => resolve(req.result);
-        req.onerror = () => reject(req.error);
-      });
-    } finally {
-      db.close();
-    }
-  }, dbName);
-}
-const dbName = SE_ARCHIVE_CACHE_DB_NAME;
-
-test('a repeat add after reload is served from the IndexedDB cache: zero raw requests, no archive chunk', async ({ page }) => {
-  // The Phase F commit 3 ruling's exact scenario. FIRST add: raw fixtures
-  // populate the cache. Then a fresh SESSION over the same origin (reload
-  // keeps IndexedDB), with EVERY raw.githubusercontent request aborted AND
-  // the archive-assembly chunk itself aborted — the same add must still
-  // succeed, proving the bytes AND the code path came from the cache: a
-  // verified fresh hit needs neither the network nor the archive chunk.
-  const rawRequests: string[] = [];
-  await page.route('https://raw.githubusercontent.com/**', (route) => {
-    const url = route.request().url();
-    rawRequests.push(url);
-    if (url === `${RAW_BASE}/content.opf`) return route.fulfill({ contentType: 'text/plain', body: OPF });
-    if (url === `${RAW_BASE}/text/part-1.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: part('Part One', 'The lattimer word appears here.') });
-    }
-    if (url === `${RAW_BASE}/text/part-2.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: part('Part Two', 'The lattimer word appears again.') });
-    }
-    return route.abort();
-  });
-
-  await page.goto('./');
-  await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
-  const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
-  await series.getByRole('listitem').nth(0).getByRole('button', { name: 'add' }).click();
-  await awaitReadyCount(page, 1);
-  expect(rawRequests.length).toBeGreaterThan(0); // the first add really downloaded
-  expect(await cachedArchiveCount(page)).toBe(1); // and populated the cache
-
-  // The archive-assembly chunk, identified by its content marker in the
-  // emitted dist/ (built by the webServer command before any spec runs).
-  const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-  const archiveChunk = readdirSync(`${dist}assets/`).find(
-    (f) => f.endsWith('.js') && readFileSync(`${dist}assets/${f}`, 'utf8').includes('application/epub+zip'),
-  );
-  expect(archiveChunk, 'dist names the archive-assembly chunk').toBeTruthy();
-
-  // Fresh session, same origin (IndexedDB survives a reload). From here on,
-  // EVERY raw request and any archive-chunk load would abort — and thereby
-  // fail the add — so the success below is the cache-hit proof.
-  await page.unroute('https://raw.githubusercontent.com/**');
-  const secondRawRequests: string[] = [];
-  await page.route('https://raw.githubusercontent.com/**', (route) => {
-    secondRawRequests.push(route.request().url());
-    return route.abort();
-  });
-  const archiveChunkRequests: string[] = [];
-  await page.route(`**/assets/${archiveChunk}`, (route) => {
-    archiveChunkRequests.push(route.request().url());
-    return route.abort();
-  });
-
-  await page.reload();
-  await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
-  await page
-    .getByRole('list', { name: 'Sherlock Holmes series' })
-    .getByRole('listitem')
-    .nth(0)
-    .getByRole('button', { name: 'add' })
-    .click();
-  await awaitReadyCount(page, 1);
-  await expect(page.getByText('A Study in Scarlet')).toBeVisible();
-  expect(secondRawRequests, 'the cached add made ZERO raw requests').toEqual([]);
-  expect(archiveChunkRequests, 'a fresh cache hit never loads the archive chunk').toEqual([]);
-});
-
 test('build shape: the catalog snapshot bytes live outside every script', () => {
   // PAYLOAD SEPARATION half of the lazy-load guard (Phase A ruling): the
   // webServer command builds dist/ before any spec runs, so the emitted
@@ -313,40 +220,6 @@ test('build shape: the archive assembly is one lazy chunk and the root client sh
     const carriers = [...scripts.entries()].filter(([, s]) => s.includes(rootMarker)).map(([f]) => f);
     expect(carriers, `root-client marker ${JSON.stringify(rootMarker)} must ship in no chunk`).toEqual([]);
   }
-});
-
-test('build shape: the archive CACHE is its own lazy chunk; the entry ships neither the cache nor idb', () => {
-  // The Phase F commit 3 lazy contract: the facade dynamically imports the
-  // cache module, which dynamically imports the archive assembly — so the
-  // ENTRY chunk must carry neither, and the cache chunk must not carry the
-  // assembly (a fresh hit pays for neither zip nor xml). Markers are literals
-  // that survive minification: the cache database name (written only by the
-  // cache module) and 'continuePrimaryKey' (an idb-library method-name string
-  // — the WORKER bundles idb too, so this marker is asserted on the entry
-  // only).
-  const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-  const entry = readFileSync(`${dist}index.html`, 'utf8').match(/assets\/([^"]+\.js)/)?.[1];
-  expect(entry, 'index.html names its entry script').toBeTruthy();
-  const scripts = new Map(
-    readdirSync(`${dist}assets/`)
-      .filter((f) => f.endsWith('.js'))
-      .map((f) => [f, readFileSync(`${dist}assets/${f}`, 'utf8')] as const),
-  );
-
-  for (const marker of [SE_ARCHIVE_CACHE_DB_NAME, 'continuePrimaryKey']) {
-    expect(
-      scripts.get(entry!)!.includes(marker),
-      `entry chunk must not carry the cache/idb marker ${JSON.stringify(marker)}`,
-    ).toBe(false);
-  }
-
-  const cacheCarriers = [...scripts.entries()].filter(([, s]) => s.includes(SE_ARCHIVE_CACHE_DB_NAME)).map(([f]) => f);
-  expect(cacheCarriers, 'exactly one chunk carries the archive cache').toHaveLength(1);
-  expect(cacheCarriers[0], 'the cache is a lazy (non-entry) chunk').not.toBe(entry);
-  expect(
-    scripts.get(cacheCarriers[0]!)!.includes('application/epub+zip'),
-    'the cache chunk must not carry the archive assembly — a fresh hit loads no zip/xml machinery',
-  ).toBe(false);
 });
 
 test('the catalog asset loads on demand, and a failed fetch shows a genuinely retryable error', async ({ page }) => {

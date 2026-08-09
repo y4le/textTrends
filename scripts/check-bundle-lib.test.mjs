@@ -29,10 +29,10 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CatalogPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CatalogPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";const library="assets/local-library-LLLL.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
-  put('assets/CatalogPlace-1111.js', 'const cache=()=>import("./standard-ebooks-cache-CCCC.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
+  put('assets/CatalogPlace-1111.js', 'const archive=()=>import("./archive-RRRR.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
   put('assets/TrendsPlace-2222.js', 'export const Trends=1;');
   put('assets/ConcordancePlace-3333.js', 'export const Concordance=1;');
   put('assets/VocabularyPlace-4444.js', 'export const Vocabulary=1;');
@@ -41,7 +41,7 @@ function syntheticDist() {
   put('assets/MethodSurface-UUUU.js', 'const summary="assets/MethodSummary-MMMM.js";export const MethodSurface=1;');
   put('assets/QuerySurface-QQQQ.js', 'export const QuerySurface=1;');
   put('assets/WorkbenchFooter-FFFF.js', 'export const WorkbenchFooter=1;');
-  put('assets/standard-ebooks-cache-CCCC.js', 'const lazy=()=>import("./archive-RRRR.js");export{lazy};');
+  put('assets/local-library-LLLL.js', 'export const localLibrary=1;');
   put('assets/archive-RRRR.js', 'export const archive=1;');
   put('assets/index.worker-WWWW.js', 'const epub=()=>import(`./extract-EEEE.js`);const html=()=>import(`./dist-DDDD.js`);');
   put('assets/extract-EEEE.js', 'export const extract=1;');
@@ -94,29 +94,29 @@ describe('bundle contract', () => {
     assert.ok(run(d.files).failures.some((f) => f.includes('embedded in a script')));
   });
 
-  it('a statically imported SE cache client (dead lazy edge) fails', () => {
+  it('a statically imported SE archive client (dead lazy edge) fails', () => {
     const d = syntheticDist();
     d.put(
       'assets/CatalogPlace-1111.js',
-      'import{lazy}from"./standard-ebooks-cache-CCCC.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+      'import{archive}from"./archive-RRRR.js";fetch("assets/standard-ebooks-catalog-JJJJ.json");',
     );
     assert.ok(run(d.files).failures.some((f) =>
-      f.includes('CatalogPlace-1111.js: statically imports standard-ebooks-cache-CCCC.js'),
+      f.includes('CatalogPlace-1111.js: statically imports archive-RRRR.js'),
     ));
     // Quote style is emitted-code detail — a single-quoted static import is
     // the same prohibited eager edge.
     const d2 = syntheticDist();
     d2.put(
       'assets/CatalogPlace-1111.js',
-      "import{lazy}from'./standard-ebooks-cache-CCCC.js';new Worker(new URL('assets/index.worker-WWWW.js',import.meta.url));",
+      "import{archive}from'./archive-RRRR.js';fetch('assets/standard-ebooks-catalog-JJJJ.json');",
     );
-    assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports standard-ebooks-cache-CCCC.js')));
+    assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports archive-RRRR.js')));
   });
 
   it('an entry that references the archive client directly fails', () => {
     const d = syntheticDist();
     d.put('assets/index-AAAA.js', d.files.get('assets/index-AAAA.js').toString() + ';import("./archive-RRRR.js")');
-    assert.ok(run(d.files).failures.some((f) => f.includes('reference archive-RRRR.js')));
+    assert.ok(run(d.files).failures.some((f) => f.includes('references archive-RRRR.js')));
   });
 
   it('a missing or duplicated place chunk fails', () => {
@@ -227,9 +227,31 @@ describe('bundle contract', () => {
     assert.ok(run(d3.files).failures.some((f) => f.includes('Reading footer region must stay lazy')));
   });
 
-  it('a cache chunk without the lazy archive edge fails', () => {
+  it('a missing, unreferenced, or statically imported local library fails', () => {
     const d = syntheticDist();
-    d.put('assets/standard-ebooks-cache-CCCC.js', 'export const lazy=1;');
+    d.files.delete('assets/local-library-LLLL.js');
+    assert.ok(run(d.files).failures.some((f) => f.includes('local library')));
+
+    const d2 = syntheticDist();
+    d2.put(
+      'assets/index-AAAA.js',
+      d2.files.get('assets/index-AAAA.js').toString()
+        .replace('const library="assets/local-library-LLLL.js";', ''),
+    );
+    assert.ok(run(d2.files).failures.some((f) => f.includes('lazy local library region edge is gone')));
+
+    const d3 = syntheticDist();
+    d3.put(
+      'assets/index-AAAA.js',
+      d3.files.get('assets/index-AAAA.js').toString()
+        + ';import"./local-library-LLLL.js";',
+    );
+    assert.ok(run(d3.files).failures.some((f) => f.includes('local library region must stay lazy')));
+  });
+
+  it('a Catalog place without the lazy archive edge fails', () => {
+    const d = syntheticDist();
+    d.put('assets/CatalogPlace-1111.js', 'fetch("assets/standard-ebooks-catalog-JJJJ.json");');
     assert.ok(run(d.files).failures.some((f) => f.includes('lazy archive edge is gone')));
   });
 

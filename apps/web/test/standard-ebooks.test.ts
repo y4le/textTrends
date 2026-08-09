@@ -6,10 +6,8 @@
  * the @texttrends/standard-ebooks package; here we prove the app wraps the
  * ARCHIVE SUBPATH (never the root client — the streaming, yield-between-chunks
  * assembly lives behind `@texttrends/standard-ebooks/archive`) and classifies
- * failures for the UI. The facade now routes through the IndexedDB cache
- * module (standard-ebooks-cache.ts); this environment has NO indexedDB, so
- * the cache degrades to the uncached pass-through — cache behavior itself is
- * proven in standard-ebooks-cache.test.ts against fake-indexeddb.
+ * failures for the UI. The downloaded archive is handed to the canonical
+ * local library, which owns durable storage and deduplication.
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 

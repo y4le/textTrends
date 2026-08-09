@@ -6,15 +6,12 @@
  * downloaded by repository name from raw.githubusercontent.com (a
  * CORS-accessible origin, unlike the standardebooks.org release download)
  * and repackaged into a `.epub` in the browser, ready to ingest exactly like
- * an uploaded file — through a cache-first IndexedDB layer
- * (standard-ebooks-cache.ts): a verified fresh hit answers from storage with
- * NO network traffic at all. Only the `@texttrends/standard-ebooks/archive`
- * subpath is imported — never the root client, whose catalog/release
- * machinery the app has no use for — and dynamically, ONLY on a cache
- * miss/refresh, so the archive assembly (+ zip/xml libraries) stays out of
- * the initial bundle AND out of a cache-served add; the cache module itself
- * is also a lazy chunk, loaded on first add. The build-shape and cached-add
- * e2e tests (catalog.spec.ts) hold all of these properties.
+ * an uploaded file. Only the `@texttrends/standard-ebooks/archive` subpath is
+ * imported — never the root client, whose catalog/release machinery the app
+ * has no use for — and dynamically, so archive assembly (+ zip/xml libraries)
+ * stays out of the initial bundle. The resulting source is stored in the
+ * canonical local library, which owns durable storage and content-hash
+ * deduplication.
  */
 
 export class CatalogError extends Error {
@@ -31,8 +28,8 @@ function mapError(e: unknown): CatalogError {
 
 /**
  * Download a catalog book's source and repackage it into `.epub` bytes ready
- * to ingest exactly like an uploaded file — cache-first, CORS-clean end to
- * end. Library/cache errors surface as coded CatalogErrors (ABORTED,
+ * to ingest exactly like an uploaded file, CORS-clean end to end. Library
+ * errors surface as coded CatalogErrors (ABORTED,
  * NETWORK_ERROR, HTTP_ERROR, RATE_LIMITED, CAP_EXCEEDED, INVALID_*).
  */
 export async function downloadEbookArchive(
@@ -40,8 +37,15 @@ export async function downloadEbookArchive(
   signal?: AbortSignal,
 ): Promise<{ readonly bytes: Uint8Array; readonly title: string }> {
   try {
-    const cache = await import('./standard-ebooks-cache.ts');
-    return await cache.downloadEbookArchiveCached(name, signal);
+    if (signal?.aborted) {
+      throw Object.assign(new Error('Standard Ebooks download aborted'), { code: 'ABORTED' });
+    }
+    const archive = await import('@texttrends/standard-ebooks/archive');
+    const { bytes, metadata } = await archive.downloadEbookArchive(
+      name,
+      signal ? { signal } : {},
+    );
+    return { bytes, title: metadata.title };
   } catch (e) {
     throw mapError(e);
   }
