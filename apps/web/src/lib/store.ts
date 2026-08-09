@@ -578,10 +578,8 @@ export interface AppState {
    */
   popLayer(count?: number, returnFocusTo?: string): boolean;
 
-  /** The query notebook (slice-1 ruling): the authoritative ordered group
-   *  list. Session-only in this slice — deliberately NOT persisted anywhere
-   *  (a hand-authored notebook is class-1 user data; durability arrives with
-   *  the versioned share/persistence slice, never an ad hoc stash). */
+  /** The authoritative ordered group list, persisted in the current
+   *  browser-local workspace. */
   notebook: QueryNotebookV1;
   /** Membership = the group participates in the comparison (trends, Reader
    *  marks, and concordance eligibility). Order is notebook order. Never silently
@@ -598,8 +596,8 @@ export interface AppState {
    *  set, over-limit name). Cleared by the next successful notebook action. */
   notebookError: string | null;
   /** Session undo for explicit term deletion. No style slot is retained;
-   * undo re-enters normal slot reconciliation. Cleared across research or
-   * project identity changes. */
+   * undo re-enters normal slot reconciliation. Cleared across workspace
+   * identity changes. */
   removedGroups: readonly RemovedNotebookGroup[];
   /** The EFFECTIVE active comparison, in notebook order (solo-projected) —
    *  the stored projection every panel and query lane consumes. */

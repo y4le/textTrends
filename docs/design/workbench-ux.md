@@ -32,7 +32,7 @@ There are five stable places:
 
 | Place | Governing question | Contents |
 |---|---|---|
-| Catalog | What texts make up this study? | local files, active order, source repair, book measurements, exact totals, project save |
+| Catalog | What texts make up this study? | local library, active order, book measurements, exact totals |
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
 | Concordance | What contexts contain the terms? | merged KWIC table, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
@@ -49,8 +49,7 @@ The query string owns one presentation key:
 |---|---|---|
 | Place | `?p=` | `catalog`, `trends`, `concordance`, `vocabulary`, `compare` |
 
-Legacy `e` parameters are discarded during route normalization. Terms, source
-text, notes, and other research data never enter the query string.
+Terms, source text, and workspace data never enter the query string.
 
 ## Governing composition
 
@@ -69,8 +68,8 @@ duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There are no permanent
 desktop side rails. One fixed corpus-reading footer carries transient source
-position, passage, trend, progress, and dispersion context; it is not a Method
-or Evidence surface. **Method & settings** opens the sole shared sheet surface;
+position, passage, trend, progress, and dispersion context. **Method &
+settings** opens the sole shared sheet surface;
 governed row details remain separate history layers.
 
 ### Scope organ
@@ -151,8 +150,7 @@ for multi-book corpora and `token / total` when only one book is present.
 Activating a concordance node opens Reader directly. Exact barcode occurrence
 controls in Trends open Reader. The footer's barcode centers Concordance in
 place, while its current passage and a footer double-click open Reader at the
-current or clicked position. There is no saved excerpt, pinned passage,
-durable range, or comparison-occurrence sheet.
+current or clicked position.
 
 ## Method and trend settings
 
@@ -173,8 +171,8 @@ container, and locks the outer document. It retains one identity and DOM across
 viewport changes and exposes page navigation, occurrence navigation, page
 status, query highlights, and an explicit Back path.
 
-Reader position and highlights are transient. The persisted research record
-contains notebook and analysis-view settings, not excerpts or source ranges.
+Reader position and highlights are transient. The workspace contains notebook
+and analysis-view settings, not reading position.
 
 ## Responsive, accessibility, and history contracts
 
@@ -193,17 +191,16 @@ contains notebook and analysis-view settings, not excerpts or source ranges.
 
 ## Persistence and release gates
 
-Research restore applies notebook and analysis-view state before queries
-continue. The deletion undo stack and Reader navigation are transient. Import
-is preview then explicit replace. Two-tab compare-and-swap conflicts require
-explicit overwrite.
+Workspace restore applies notebook and analysis-view state before queries
+continue. The deletion undo stack and Reader navigation are transient. Local
+files are deduplicated by content identity; workspace writes are
+last-write-wins, with no multi-tab edit model.
 
 The design remains complete while these gates hold:
 
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
 2. one Terms bar and one active place at every width;
-3. no persistent side rails or Method/Evidence footer beyond the transient
-   corpus-reading instrument;
+3. no persistent side rails beyond the transient corpus-reading instrument;
 4. 44px compact/coarse controls and keyboard-operable equivalents;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;

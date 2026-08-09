@@ -107,9 +107,7 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ v, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: new ArrayBuffer(4) })).not.toBeNull();
     expect(parseToWorkerV4({ v, t: 'ingest', job: 2, generation: 'g', doc: 'a', bytes: [1, 2] })).toBeNull();
     expect(parseToWorkerV4({ v, t: 'cancel', job: 3 })).not.toBeNull();
-    // The retired direct-excerpt op is an unknown tag now — PARSE_FAILED at the
-    // wire, exactly like any tag the protocol never knew.
-    expect(parseToWorkerV4({ v, t: 'excerpt', job: 4, snapshot: 's', doc: 'a', charStart: 0, charEnd: 2 })).toBeNull();
+    expect(parseToWorkerV4({ v, t: 'unknown-op', job: 4 })).toBeNull();
   });
 
   it('rejects non-finite/negative/fractional/UNSAFE envelope quantities (byteLength, textLength, job)', () => {

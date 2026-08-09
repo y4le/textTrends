@@ -62,13 +62,13 @@ export function parseRoute(search: string): RouteV1 {
 /**
  * Replace only the route keys the app owns. Foreign query segments are copied
  * byte-for-byte and in their original order; owned keys are emitted once in a
- * stable canonical order. The retired `e` key is discarded from old links.
+ * stable canonical order.
  */
 export function routeSearch(search: string, next: RouteV1): string {
   const place = isPlace(next.place) ? next.place : DEFAULT_PLACE;
   const foreign = segments(search).filter((segment) => {
     const key = entry(segment).key;
-    return key !== 'p' && key !== 'e';
+    return key !== 'p';
   });
   const canonical = [...foreign, `p=${place}`];
   return `?${canonical.join('&')}`;

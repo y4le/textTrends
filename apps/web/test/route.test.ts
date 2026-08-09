@@ -12,10 +12,10 @@ describe('parseRoute', () => {
       '',
       '?',
       '?p=',
-      '?p=unknown&e=modal',
+      '?p=unknown&foreign=modal',
       '?p=%',
-      '?p=trends&p=catalog&e=reader&e=sheet',
-      '?p=<script>&e=reader%00&term=Holmes',
+      '?p=trends&p=catalog&foreign=reader',
+      '?p=<script>&term=Holmes',
       'not even a query',
     ];
     for (const search of hostile) {
@@ -23,8 +23,8 @@ describe('parseRoute', () => {
       expect(['catalog', 'trends', 'concordance', 'vocabulary', 'compare'])
         .toContain(parseRoute(search).place);
     }
-    expect(parseRoute('?p=trends&p=catalog&e=reader&e=sheet')).toEqual({ place: 'trends' });
-    expect(parseRoute('?p=<script>&e=modal')).toEqual(DEFAULT_ROUTE);
+    expect(parseRoute('?p=trends&p=catalog&foreign=reader')).toEqual({ place: 'trends' });
+    expect(parseRoute('?p=<script>&foreign=modal')).toEqual(DEFAULT_ROUTE);
     expect(parseRoute('?p=corpus')).toEqual(DEFAULT_ROUTE);
   });
 });
@@ -32,9 +32,9 @@ describe('parseRoute', () => {
 describe('routeSearch', () => {
   it('preserves foreign segments byte-for-byte and in order', () => {
     expect(routeSearch(
-      '?utm=a+b&x=%2f&p=catalog&x=two%20words&e=sheet&blank',
+      '?utm=a+b&x=%2f&p=catalog&x=two%20words&opaque=sheet&blank',
       { place: 'compare' },
-    )).toBe('?utm=a+b&x=%2f&x=two%20words&blank&p=compare');
+    )).toBe('?utm=a+b&x=%2f&x=two%20words&opaque=sheet&blank&p=compare');
   });
 
   it('writes a stable minimal owned form and is idempotent', () => {
@@ -44,12 +44,12 @@ describe('routeSearch', () => {
       { place: 'compare' },
     ];
     for (const route of routes) {
-      const once = routeSearch('?foreign=%2F&p=bad&e=bad', route);
+      const once = routeSearch('?foreign=%2F&p=bad', route);
       expect(routeSearch(once, route)).toBe(once);
       expect(parseRoute(once)).toEqual(route);
     }
     expect(routeSearch('', DEFAULT_ROUTE)).toBe('?p=trends');
-    expect(routeSearch('?e=sheet', DEFAULT_ROUTE)).toBe('?p=trends');
+    expect(routeSearch('?foreign=sheet', DEFAULT_ROUTE)).toBe('?foreign=sheet&p=trends');
   });
 
   it('cannot serialize hostile runtime values through owned keys', () => {

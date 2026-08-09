@@ -1,7 +1,5 @@
 /**
- * The query notebook — the durable-SHAPED (but in slice 1 session-only) model
- * behind the term-group UI, per the recorded slice-1 planner ruling
- * (docs/design/term-groups-plan.md).
+ * The query notebook behind the term-group UI.
  *
  * Two identities with different jobs (ruling invariant 1):
  * - `NotebookGroupV1.id` is a stable UUID — pure UI/notebook identity. Rename
@@ -13,10 +11,8 @@
  *
  * The notebook is presentation + authoring state; the core query spec is
  * derived per issue via `coreGroupOf`. `name`, activation, and solo NEVER
- * enter the wire spec. The schema string exists so the eventual durable/
- * share serialization (a later slice) starts versioned; nothing persists it
- * in slice 1 (ruling: a hand-authored notebook is class-1 user data — no ad
- * hoc localStorage/IDB stash beside the project store).
+ * enter the wire spec. The versioned schema is persisted inside the one
+ * browser-local workspace.
  */
 
 import {
@@ -27,7 +23,7 @@ import {
   type NotebookGroupV1,
 } from '@texttrends/core';
 
-// Durable/share admission lives in core. Keep this app module as the stable
+// Durable admission lives in core. Keep this app module as the stable
 // import boundary for UI code while retaining only app editing/style helpers.
 export {
   EMPTY_NOTEBOOK,

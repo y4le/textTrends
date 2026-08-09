@@ -1,24 +1,23 @@
 # Current roadmap
 
-This is the reconciliation index for the current tree as of 2026-08-07. The
+This is the reconciliation index for the current tree as of 2026-08-09. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
 feature plans explain how the tree arrived here, but may describe superseded
 UI shapes.
 
 ## Shipped
 
-- **One browser-local project pipeline:** TXT, Markdown, HTML/XHTML, and EPUB
+- **One browser-local workspace pipeline:** TXT, Markdown, HTML/XHTML, and EPUB
   extraction feed one versioned snapshot/index engine (`packages/core`,
-  `packages/extractors`, and `apps/web/src/worker`). Durable project and
-  research state use browser storage with explicit repair/reattachment paths.
+  `packages/extractors`, and `apps/web/src/worker`). One content-addressed local
+  library and one last-write-wins workspace own durable browser state.
 - **Five reachable workbench places:** Catalog, Trends, Concordance,
   Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
   active-corpus management, term groups, linked selections, frequency,
-  keyness, project saving, and method surfaces.
+  keyness, workspace restore, and method surfaces.
 - **Direct reading paths:** all workbench places share a transient corpus-order
   footer with current source, all-book trends, progress, and adaptive
-  dispersion. It shares token geometry with KWIC and the full-page Reader;
-  there is no saved excerpt or Findings surface.
+  dispersion. It shares token geometry with KWIC and the full-page Reader.
 - **Bounded analysis results:** occurrence construction now has typed hard
   caps, the worker cache has simultaneous entry/byte ceilings, and publishing
   a new snapshot releases old occurrence entries. Cap failures remain visible

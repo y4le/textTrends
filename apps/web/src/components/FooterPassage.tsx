@@ -38,7 +38,7 @@ function splitAt(
 }
 
 /** One clipped, selectable line of authenticated source text. This is a
- * transient readout, not a saved excerpt or Evidence surface. */
+ * transient readout. */
 export function FooterPassage({
   passage,
   scrub,

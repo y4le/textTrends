@@ -1,7 +1,7 @@
 /**
  * Global corpus-order reading instrument. Passage, sparkline, progress, and
  * barcode share one declared-sequence token axis. It is absent in Reader and
- * never persists excerpts or ranges.
+ * keeps reading position transient.
  */
 
 import {

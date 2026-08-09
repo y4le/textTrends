@@ -85,17 +85,10 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
 });
 
 test('unknown places normalize quietly to Trends', async ({ page }) => {
-  await page.goto('./?foreign=kept&p=obsolete&e=modal');
+  await page.goto('./?foreign=kept&p=obsolete');
   await expect(page).toHaveURL(/\?foreign=kept&p=trends$/);
   await expect(page.getByRole('link', { name: 'Trends', exact: true }))
     .toHaveAttribute('aria-current', 'page');
-});
-
-test('an unresolvable deep Reader route normalizes to its canonical place', async ({ page }) => {
-  await page.goto('./?foreign=kept&p=compare&e=reader');
-  await expect(page).toHaveURL(/\?foreign=kept&p=compare$/);
-  await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeVisible();
-  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
 test('compact Lens keeps four complete destinations in portrait and landscape', async ({ page }) => {

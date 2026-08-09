@@ -494,51 +494,10 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('strips legacy evidence keys without creating history layers', () => {
-    const q = fakeQueryClient();
-    const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=catalog&e=sheet#kept',
-    );
-    const runtime = createAppRuntime(q.client, {
-      history,
-      newLayerId: layerIds(),
-    });
-
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'catalog',
-      layers: [],
-    });
-    expect(history.entries).toHaveLength(1);
-    expect(history.url).toBe('/textTrends/?foreign=a+b&p=catalog#kept');
-    expect(q.issued).toHaveLength(0);
-    runtime.dispose();
-  });
-
-  it('normalizes an unresolvable deep reader route to the place base', () => {
-    const q = fakeQueryClient();
-    const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=catalog&e=reader#kept',
-    );
-    const runtime = createAppRuntime(q.client, {
-      history,
-      newLayerId: layerIds(),
-    });
-
-    expect(runtime.useApp.getState()).toMatchObject({
-      place: 'catalog',
-      layers: [],
-      readerPlace: null,
-    });
-    expect(history.entries).toHaveLength(1);
-    expect(history.url).toBe('/textTrends/?foreign=a+b&p=catalog#kept');
-    expect(q.issued).toHaveLength(0);
-    runtime.dispose();
-  });
-
   it('leaves foreign fragments opaque while normalizing owned route keys', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort(
-      '/textTrends/?foreign=a+b&p=compare&e=sheet#foreign-payload',
+      '/textTrends/?foreign=a+b&p=compare&opaque=sheet#foreign-payload',
     );
     const runtime = createAppRuntime(q.client, {
       history,
@@ -549,7 +508,7 @@ describe('workbench route and history authority', () => {
       layers: [],
     });
     expect(history.url).toBe(
-      '/textTrends/?foreign=a+b&p=compare#foreign-payload',
+      '/textTrends/?foreign=a+b&opaque=sheet&p=compare#foreign-payload',
     );
     expect(history.entries).toHaveLength(1);
     expect(q.issued).toHaveLength(0);
@@ -638,7 +597,7 @@ describe('workbench route and history authority', () => {
           { kind: 'reader', id: '00000000-0000-4000-8000-999999999999' },
         ],
       },
-    }, '/textTrends/?p=catalog&e=reader');
+    }, '/textTrends/?p=catalog');
 
     expect(store.getState()).toMatchObject({
       place: 'catalog',
@@ -669,7 +628,7 @@ describe('workbench route and history authority', () => {
       store.getState().setPlace(index % 2 === 0 ? 'catalog' : 'trends');
     }
 
-    history.restore(oldest, '/textTrends/?p=trends&e=sheet');
+    history.restore(oldest, '/textTrends/?p=trends');
     expect(store.getState()).toMatchObject({
       place: 'trends',
       layers: [],
@@ -736,7 +695,7 @@ describe('the session bridge', () => {
     }
   });
 
-  it('surfaces a workspace write failure and retries without revision conflicts', async () => {
+  it('surfaces a workspace write failure and retries the latest state', async () => {
     vi.useFakeTimers();
     try {
       const workspace = new FakeWorkspaceStore();

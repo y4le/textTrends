@@ -41,10 +41,3 @@ test('an open Method sheet remains governed across widths', async ({ page }) => 
   await page.setViewportSize({ width: 768, height: 1024 });
   await expect(sheet).toBeVisible();
 });
-
-test('legacy sheet query keys are removed without opening a surface', async ({ page }) => {
-  await page.goto('./?p=trends&e=sheet');
-  await awaitAllReady(page);
-  await expect(page).toHaveURL(/\\?p=trends$/);
-  await expect(page.getByRole('dialog')).toHaveCount(0);
-});

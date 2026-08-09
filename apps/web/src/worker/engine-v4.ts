@@ -637,9 +637,8 @@ export class WorkerEngineV4 {
    * its transferred source bytes against the project transfer cap. This runs
    * SYNCHRONOUSLY (no await since the document was claimed), so two interleaved
    * ingests cannot both observe a pre-charge total and both slip the cap — the
-   * second sees the first's charge. `transferredBytes` is 0 for a warm re-
-   * extraction of a persisted source (no main-thread transfer occurred). An
-   * idempotent re-accept of the SAME identity returns false and re-charges
+   * second sees the first's charge. An idempotent re-accept of the SAME
+   * identity returns false and re-charges
    * nothing. Throws CapError if the charge would cross the project cap.
    */
   private freezeAccepted(token: DocWorkToken, identity: AcceptedIdentity, transferredBytes: number): boolean {

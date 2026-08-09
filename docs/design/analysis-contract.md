@@ -122,20 +122,20 @@ statistics operation and no unbounded occurrence transport.
 
 ## Persistence
 
-Persistence has three distinct responsibilities:
+Persistence has two owners:
 
-1. The local file library stores source files by content identity and dedupes
-   repeated additions.
-2. Durable user data stores source records, a `texttrends/project/2` manifest,
-   and research state with compare-and-swap revisions.
-3. The disposable artifact database
-   `texttrends-artifacts-provisional-db3` stores verified text and document
-   indexes. It can always be discarded and rebuilt.
+1. `texttrends-library` stores content-addressed source files and exactly one
+   current workspace. File deletion and workspace reconciliation share an
+   atomic transaction, so deleting an active source removes every document
+   backed by it. Workspace writes are last-write-wins; there is no multi-tab
+   edit or conflict model.
+2. `texttrends-artifacts-provisional-db3` stores disposable verified text and
+   document indexes. It can always be discarded and rebuilt from library or
+   bundled source bytes.
 
-The project manifest contains document metadata, source provenance,
-extraction identity, order, and the corpus index recipe. Research state stores
-the notebook plus trend, inventory, and keyness views. Reader position, linked
-selection, current passage, and navigation history are transient.
+The workspace stores corpus references and order, document metadata, notebook
+groups, and analysis-view settings. Reader position, linked selection, current
+passage, and navigation history are transient.
 
 Pre-alpha schemas are deliberately strict. Unsupported old records fail
 cleanly instead of being silently upgraded or partially interpreted.
@@ -149,12 +149,12 @@ cleanly instead of being silently upgraded or partially interpreted.
   mutable cache authority.
 - Cached artifacts are shallow-checked by storage adapters and deeply admitted
   by the engine or core validator.
-- Source and artifact persistence failures degrade analysis safely and surface
-  bounded warnings; authored project conflicts require explicit resolution.
+- Missing library sources are reconciled before a workspace opens. Artifact
+  persistence failures degrade analysis safely and surface bounded warnings.
 
 ## Change rule
 
 Any change that alters extracted text, token geometry, query meaning, durable
 shape, or result ordering must change the responsible recipe, method, schema,
 or database identity. Presentation-only changes must not issue analysis work
-or mutate durable research state.
+or mutate the durable workspace.

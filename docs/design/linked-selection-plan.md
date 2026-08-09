@@ -70,7 +70,7 @@ Click semantics:
 
 - An exact tick centers the existing merged KWIC immediately at its exact `(doc, start)`; no 150 ms hover debounce.
 - A density bucket centers KWIC at the bucket midpoint. The UI says “nearest occurrence to this bucket” and reports distance when the first row is not at the midpoint, consistent with the synthesis evidence rule.
-- Multiple exact occurrences at the same start remain multiple entries/counts even if they paint the same pixel. KWIC remains the detailed evidence surface.
+- Multiple exact occurrences at the same start remain multiple entries/counts even if they paint the same pixel. KWIC remains the detailed context surface.
 
 Render the strip on 2D canvas with an HTML/SVG overlay for document bounds, labels, focus, and the selection. Never create one DOM node per occurrence. Provide an accessible per-track/document summary and Previous/Next occurrence controls in exact mode; density mode exposes bucket totals and the same nearest-KWIC action.
 
@@ -90,7 +90,9 @@ interface TokenRangeSelectionV1 {
 
 It is snapshot-bound and contains one explicit, nonempty, half-open span for each book crossed by the reading-order gesture. The first and last books contribute their selected tails/heads; intermediate nonempty books are included in full. Capture the current generation/snapshot identity in the owning store intent even if the public shape stores only the snapshot ID. Clear it on snapshot publication/replacement, project reset, or removal of any participating document. Rename/member changes do not clear it.
 
-Do not persist this object and do not call it a `Brush`. The durable contract object is char-anchored with `TextHash` precisely so tokenizer/recipe changes can be handled honestly. The current saved-range schema contains one anchor and therefore accepts only a one-book linked range; a cross-book range remains fully analysable but saving it as one finding requires a future multi-anchor research-state schema. A future compile must reject a text-hash mismatch rather than guessing. Token coordinates from an old snapshot are never durable authority.
+Do not persist this object and do not call it a `Brush`. It is valid only for
+the snapshot that minted its token geometry and is cleared when that snapshot
+changes. Token coordinates from an old snapshot are never durable authority.
 
 Create one pure `detailSelection(snapshot, linkedSelection)` builder:
 

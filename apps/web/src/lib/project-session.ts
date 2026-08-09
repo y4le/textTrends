@@ -494,8 +494,8 @@ export class ProjectSession {
     }
     this.snapshot = null;
     this.analysis = { phase: 'loading', detail: null };
-    // Evidence is per-generation: a doc not re-extracted this generation (warm
-    // text/shard reopen) has unknown counts, never carried-over stale ones.
+    // Diagnostics are per-generation: a doc not re-extracted this generation
+    // (warm text/shard reopen) has unknown counts, never stale carried-over ones.
     this.extractionDiagnostics.clear();
     this.publish();
 
@@ -662,7 +662,7 @@ export class ProjectSession {
     });
     const p = this.pending.get(info.doc);
     if (!p) {
-      this.publish(); // a finalized doc's re-extraction — surface its evidence
+      this.publish(); // a finalized doc's re-extraction — surface diagnostics
       return;
     }
     if (p.generation !== info.generation || p.ingestJob !== info.job) return; // stale (same-doc retry / prior generation)
@@ -922,10 +922,10 @@ export class ProjectSession {
 
   private resetToEmptyUser(): void {
     // Ownership change: the cached publication, the generation-local
-    // evidence, AND the outgoing generation's snapshot/analysis belong to the
+    // diagnostics, AND the outgoing generation's snapshot/analysis belong to the
     // OUTGOING project — all retired synchronously, before `stage` publishes
     // (the review-b2/b2b findings: waiting for the async generation start
-    // leaked the old evidence record, snapshot, and analysis phase under the
+    // leaked the old diagnostics, snapshot, and analysis phase under the
     // new project, and late old-generation events could repopulate them).
     this.lastState = null;
     this.extractionDiagnostics.clear();

@@ -42,7 +42,7 @@ describe('query surface', () => {
       groupId: 'group-1',
     });
     expect(queryEditorTarget({ surface: 'query-editor', mode: 'group' })).toBeNull();
-    expect(queryEditorTarget({ surface: 'evidence', mode: 'group', groupId: 'x' }))
+    expect(queryEditorTarget({ surface: 'other', mode: 'group', groupId: 'x' }))
       .toBeNull();
   });
 

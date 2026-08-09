@@ -1,7 +1,7 @@
 /**
- * Query-notebook admission shared by durable research records, share links,
- * and the app editor. Core is the only semantic/shape authority; UI modules
- * may add editing helpers but must not duplicate this parser.
+ * Query-notebook admission shared by the durable workspace and app editor.
+ * Core is the only semantic/shape authority; UI modules may add editing
+ * helpers but must not duplicate this parser.
  */
 
 import { exactArray, exactRecord } from '../contract/guards.ts';

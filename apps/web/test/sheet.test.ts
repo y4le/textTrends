@@ -13,13 +13,13 @@ const layer = (target: unknown, detent?: 'peek' | 'half' | 'tall'): Layer => ({
 describe('sheet presentation target', () => {
   it('admits only the Method surface', () => {
     expect(sheetTarget({ surface: 'method' })).toEqual({ surface: 'method' });
-    expect(sheetTarget({ surface: 'evidence' })).toBeNull();
+    expect(sheetTarget({ surface: 'other' })).toBeNull();
     expect(sheetTarget({ surface: 'queries' })).toBeNull();
     expect(sheetTarget(null)).toBeNull();
   });
 
   it('rejects legacy route targets and defaults a missing detent to peek', () => {
-    expect(sheetSurface(layer({ source: 'route', evidence: 'sheet' }))).toBeNull();
+    expect(sheetSurface(layer({ source: 'route', target: 'sheet' }))).toBeNull();
     expect(sheetDetent(layer({ surface: 'method' }))).toBe('peek');
     expect(sheetSurface(undefined)).toBeNull();
   });
