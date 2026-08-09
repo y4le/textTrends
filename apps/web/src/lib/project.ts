@@ -84,7 +84,7 @@ export interface BuiltinCorpusOption {
 
 /** Presentation + bootstrap vocabulary for the bundled demo picker. */
 export const BUILTIN_CORPORA: readonly BuiltinCorpusOption[] = [
-  { id: BUILTIN_SHERLOCK_ID, sourceDirectory: 'sherlock', label: 'Sherlock Holmes', defaultTerms: 'Holmes, Moriarty' },
+  { id: BUILTIN_SHERLOCK_ID, sourceDirectory: 'sherlock', label: 'Sherlock Holmes', defaultTerms: 'Holmes, Watson, Moriarty' },
   { id: BUILTIN_ASOIF_ID, sourceDirectory: 'asoif', label: 'A Song of Ice and Fire', defaultTerms: 'Jon, Tyrion, Daenerys' },
   { id: BUILTIN_LOTR_ID, sourceDirectory: 'lotr', label: 'The Lord of the Rings', defaultTerms: 'Frodo, Gandalf, Sauron' },
 ];

@@ -27,11 +27,11 @@ for (const viewport of [
     const scrubber = page.getByRole('slider', { name: /reading position/i });
     const seriesChart = page.locator('svg[data-trend-view="series"]');
     await expect(seriesChart).toBeVisible();
-    // 132px plot + 3px band gap + two 7px compact barcode rows + 8px tail.
-    expect((await seriesChart.boundingBox())?.height).toBe(157);
+    // 132px plot + 3px band gap + three 7px compact barcode rows + 8px tail.
+    expect((await seriesChart.boundingBox())?.height).toBe(164);
     const barcodeBand = scrubber.locator('canvas[data-barcode-band="series"]');
     await expect(barcodeBand).toHaveCount(1);
-    expect((await barcodeBand.boundingBox())?.height).toBe(14);
+    expect((await barcodeBand.boundingBox())?.height).toBe(21);
     expect(await scrubber.evaluate((node) => getComputedStyle(node).touchAction)).toBe('pan-y');
 
     await expect.poll(async () => {

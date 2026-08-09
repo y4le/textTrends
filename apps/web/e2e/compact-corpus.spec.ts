@@ -40,7 +40,8 @@ for (const viewport of [
 
     const totalsMark = (await trace(page)).events.at(-1)?.seq ?? -1;
     await page.getByRole('button', { name: 'show all query totals' }).click();
-    await expect(table.getByRole('columnheader')).toHaveCount(6);
+    await expect(table.getByRole('columnheader')).toHaveCount(7);
+    await expect(table.getByRole('columnheader', { name: /Watson/ })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: /Moriarty/ })).toBeVisible();
     expect((await trace(page)).events.filter((event) =>
       event.seq > totalsMark
@@ -79,9 +80,10 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
 
   const table = page.getByRole('table', { name: 'Book analysis' });
   const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
-  await expect(table.getByRole('columnheader')).toHaveCount(6);
+  await expect(table.getByRole('columnheader')).toHaveCount(7);
   await expect(documentRows).toHaveCount(6);
   await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
+  await expect(table.getByRole('columnheader', { name: /Watson/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Moriarty/ })).toBeVisible();
 
   await documentRows.first().getByRole('button').first().click();

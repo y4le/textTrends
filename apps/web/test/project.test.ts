@@ -19,6 +19,11 @@ import {
 const builtin = () => sherlockProjectData();
 
 describe('bundled corpora', () => {
+  it('starts Sherlock with a three-term comparison', () => {
+    const sherlock = BUILTIN_CORPORA.find((corpus) => corpus.id === BUILTIN_SHERLOCK_ID);
+    expect(sherlock?.defaultTerms).toBe('Holmes, Watson, Moriarty');
+  });
+
   it('builds every demo in declared order with bundled TXT sources', async () => {
     const fixtures = {
       [BUILTIN_SHERLOCK_ID]: SHERLOCK,
