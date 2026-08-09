@@ -11,6 +11,7 @@ import {
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
   parseWorkspace,
+  reconcileWorkspaceDocuments,
   sourceFormatForFilename,
   type SourceFormat,
   type WorkspaceV1,
@@ -64,10 +65,38 @@ export interface LocalLibraryAddResult {
   readonly added: boolean;
 }
 
+export type WorkspaceReadResult =
+  | { readonly kind: 'absent' }
+  | { readonly kind: 'ready'; readonly workspace: WorkspaceV1 }
+  | { readonly kind: 'corrupt'; readonly reason: string };
+
+export interface LocalLibraryDeleteResult {
+  /** Every active workspace document that referenced the deleted source. */
+  readonly removedDocuments: readonly string[];
+  /** True when clear() discarded an unreadable workspace while resetting. */
+  readonly workspaceReset: boolean;
+}
+
+export class LocalLibraryWorkspaceCorruptError extends Error {
+  constructor(readonly reason: string) {
+    super(`the current workspace is damaged: ${reason}`);
+    this.name = 'LocalLibraryWorkspaceCorruptError';
+  }
+}
+
 /** Source bytes can legitimately be interpreted under different formats, so
  * dedupe exact content within a format rather than collapsing those recipes. */
 export function localFileIdentity(format: SourceFormat, contentHash: string): string {
   return `${format}:${contentHash}`;
+}
+
+function abortQuietly(transaction: { abort(): void }): void {
+  try {
+    transaction.abort();
+  } catch {
+    // The transaction may already have failed or completed; preserve the
+    // operation's original error rather than replacing it with InvalidStateError.
+  }
 }
 
 function supportedFiles(files: readonly LocalFileInput[]): readonly SourceFormat[] {
@@ -164,7 +193,6 @@ export class BrowserLocalLibrary {
   async add(files: readonly LocalFileInput[]): Promise<readonly LocalLibraryAddResult[]> {
     const formats = supportedFiles(files);
     const db = await this.open();
-    await this.currentRecords(db);
     const results: LocalLibraryAddResult[] = [];
     for (let index = 0; index < files.length; index += 1) {
       const file = files[index]!;
@@ -201,7 +229,6 @@ export class BrowserLocalLibrary {
 
   async file(id: string): Promise<LocalFileInput> {
     const db = await this.open();
-    await this.currentRecords(db);
     const record: unknown = await db.get('files', id);
     if (!validCurrentRecord(record) || record.id !== id) {
       throw new Error(record === undefined ? 'that saved file no longer exists' : 'that saved local file is damaged');
@@ -215,17 +242,97 @@ export class BrowserLocalLibrary {
     };
   }
 
-  async delete(id: string): Promise<void> {
-    await (await this.open()).delete('files', id);
+  async delete(id: string): Promise<LocalLibraryDeleteResult> {
+    const db = await this.open();
+    const tx = db.transaction(['files', 'workspace'], 'readwrite');
+    // idb creates tx.done eagerly. Observe its rejection even when this method
+    // aborts before reaching the normal await below.
+    void tx.done.catch(() => {});
+    let removedDocuments: readonly string[] = [];
+    try {
+      const storedWorkspace: unknown = await tx.objectStore('workspace').get(CURRENT_WORKSPACE);
+      if (storedWorkspace !== undefined) {
+        let workspace: WorkspaceV1;
+        try {
+          workspace = parseWorkspace(storedWorkspace);
+        } catch (error) {
+          throw new LocalLibraryWorkspaceCorruptError(
+            error instanceof Error ? error.message : String(error),
+          );
+        }
+        if (workspace.corpus.kind === 'library') {
+          removedDocuments = workspace.corpus.docs
+            .filter((doc) => doc.library === id)
+            .map((doc) => doc.doc);
+          if (removedDocuments.length > 0) {
+            const removed = new Set(removedDocuments);
+            const corpus = {
+              kind: 'library' as const,
+              order: workspace.corpus.order.filter((doc) => !removed.has(doc)),
+              docs: workspace.corpus.docs.filter((doc) => !removed.has(doc.doc)),
+            };
+            const reconciled = reconcileWorkspaceDocuments(
+              { ...workspace, corpus },
+              new Set(corpus.order),
+            );
+            await tx.objectStore('workspace').put(parseWorkspace(reconciled), CURRENT_WORKSPACE);
+          }
+        }
+      }
+      await tx.objectStore('files').delete(id);
+      await tx.done;
+    } catch (error) {
+      abortQuietly(tx);
+      throw error;
+    }
+    return { removedDocuments, workspaceReset: false };
   }
 
-  async clear(): Promise<void> {
-    await (await this.open()).clear('files');
+  async clear(): Promise<LocalLibraryDeleteResult> {
+    const db = await this.open();
+    const tx = db.transaction(['files', 'workspace'], 'readwrite');
+    void tx.done.catch(() => {});
+    let removedDocuments: readonly string[] = [];
+    let workspaceReset = false;
+    try {
+      const workspaceStore = tx.objectStore('workspace');
+      const storedWorkspace: unknown = await workspaceStore.get(CURRENT_WORKSPACE);
+      if (storedWorkspace !== undefined) {
+        let workspace: WorkspaceV1 | null;
+        try {
+          workspace = parseWorkspace(storedWorkspace);
+        } catch {
+          workspace = null;
+          workspaceReset = true;
+          await workspaceStore.delete(CURRENT_WORKSPACE);
+        }
+        if (workspace?.corpus.kind === 'library') {
+          removedDocuments = [...workspace.corpus.order];
+          const corpus = { kind: 'library' as const, order: [], docs: [] };
+          const reconciled = reconcileWorkspaceDocuments({ ...workspace, corpus }, new Set<string>());
+          await workspaceStore.put(parseWorkspace(reconciled), CURRENT_WORKSPACE);
+        }
+      }
+      await tx.objectStore('files').clear();
+      await tx.done;
+    } catch (error) {
+      abortQuietly(tx);
+      throw error;
+    }
+    return { removedDocuments, workspaceReset };
   }
 
-  async loadWorkspace(): Promise<WorkspaceV1 | null> {
+  async loadWorkspace(): Promise<WorkspaceReadResult> {
     const value: unknown = await (await this.open()).get('workspace', CURRENT_WORKSPACE);
-    return value === undefined ? null : parseWorkspace(value);
+    if (value === undefined) return { kind: 'absent' };
+    try {
+      return { kind: 'ready', workspace: parseWorkspace(value) };
+    } catch (error) {
+      return {
+        kind: 'corrupt',
+        reason: error instanceof Error ? error.message : String(error),
+      };
+    }
   }
 
   async saveWorkspace(workspace: WorkspaceV1): Promise<void> {

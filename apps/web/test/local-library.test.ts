@@ -2,7 +2,11 @@ import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it } from 'vitest';
 import { EMPTY_NOTEBOOK, type WorkspaceV1 } from '@texttrends/core';
-import { BrowserLocalLibrary, localFileIdentity } from '../src/lib/local-library.ts';
+import {
+  BrowserLocalLibrary,
+  LocalLibraryWorkspaceCorruptError,
+  localFileIdentity,
+} from '../src/lib/local-library.ts';
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory() as unknown as typeof indexedDB;
@@ -119,8 +123,153 @@ describe('BrowserLocalLibrary', () => {
     await first.close();
 
     const reopened = new BrowserLocalLibrary(name);
-    expect(await reopened.loadWorkspace()).toEqual(expected);
+    expect(await reopened.loadWorkspace()).toEqual({ kind: 'ready', workspace: expected });
     expect(new TextDecoder().decode(await (await reopened.file(saved.id)).arrayBuffer())).toBe('workspace prose');
+    await reopened.close();
+  });
+
+  it('distinguishes an absent workspace from a damaged one', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    expect(await library.loadWorkspace()).toEqual({ kind: 'absent' });
+    await library.close();
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('workspace', 'readwrite');
+      tx.objectStore('workspace').put({ schema: 'damaged' }, 'current');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    database.close();
+
+    const reopened = new BrowserLocalLibrary(name);
+    expect(await reopened.loadWorkspace()).toMatchObject({
+      kind: 'corrupt',
+      reason: expect.stringMatching(/workspace|schema/),
+    });
+    await reopened.close();
+  });
+
+  it('atomically removes every active document backed by a deleted file', async () => {
+    const library = new BrowserLocalLibrary(`local-library-${crypto.randomUUID()}`);
+    const saved = (await library.add([file('novel.txt', 'shared source')]))[0]!.item;
+    const active = workspace(saved.id);
+    if (active.corpus.kind !== 'library') throw new Error('fixture must be library-backed');
+    await library.saveWorkspace({
+      ...active,
+      corpus: {
+        kind: 'library',
+        order: ['doc-1', 'doc-2'],
+        docs: [
+          active.corpus.docs[0]!,
+          {
+            ...active.corpus.docs[0]!,
+            doc: 'doc-2',
+            meta: { ...active.corpus.docs[0]!.meta, title: 'Second reading' },
+          },
+        ],
+      },
+      views: {
+        ...active.views,
+        compare: { ...active.views.compare, documentB: 'doc-2' },
+      },
+    });
+
+    expect(await library.delete(saved.id)).toEqual({
+      removedDocuments: ['doc-1', 'doc-2'],
+      workspaceReset: false,
+    });
+    expect(await library.list()).toEqual([]);
+    const loaded = await library.loadWorkspace();
+    expect(loaded.kind).toBe('ready');
+    if (loaded.kind !== 'ready' || loaded.workspace.corpus.kind !== 'library') {
+      throw new Error('workspace should remain library-backed');
+    }
+    expect(loaded.workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
+    expect(loaded.workspace.views.trend.focusedDoc).toBeNull();
+    expect(loaded.workspace.views.compare.documentA).toBeNull();
+    expect(loaded.workspace.views.compare.documentB).toBeNull();
+    await library.close();
+  });
+
+  it('clears library sources without changing a built-in workspace', async () => {
+    const library = new BrowserLocalLibrary(`local-library-${crypto.randomUUID()}`);
+    await library.add([file('novel.txt', 'library prose')]);
+    const builtin: WorkspaceV1 = {
+      ...workspace(`txt:${'a'.repeat(64)}`),
+      corpus: { kind: 'builtin', id: 'sherlock' },
+    };
+    await library.saveWorkspace(builtin);
+    expect(await library.clear()).toEqual({ removedDocuments: [], workspaceReset: false });
+    expect(await library.list()).toEqual([]);
+    expect(await library.loadWorkspace()).toEqual({ kind: 'ready', workspace: builtin });
+    await library.close();
+  });
+
+  it('clears every active library document together with the catalog', async () => {
+    const library = new BrowserLocalLibrary(`local-library-${crypto.randomUUID()}`);
+    const [first, second] = await library.add([
+      file('first.txt', 'first'),
+      file('second.txt', 'second'),
+    ]);
+    const active = workspace(first!.item.id);
+    if (active.corpus.kind !== 'library') throw new Error('fixture must be library-backed');
+    await library.saveWorkspace({
+      ...active,
+      corpus: {
+        kind: 'library',
+        order: ['doc-1', 'doc-2'],
+        docs: [
+          active.corpus.docs[0]!,
+          { ...active.corpus.docs[0]!, doc: 'doc-2', library: second!.item.id },
+        ],
+      },
+    });
+
+    expect(await library.clear()).toEqual({
+      removedDocuments: ['doc-1', 'doc-2'],
+      workspaceReset: false,
+    });
+    const loaded = await library.loadWorkspace();
+    expect(loaded.kind === 'ready' ? loaded.workspace.corpus : null).toEqual({
+      kind: 'library',
+      order: [],
+      docs: [],
+    });
+    expect(await library.list()).toEqual([]);
+    await library.close();
+  });
+
+  it('refuses a single delete but permits a full reset when the workspace is damaged', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const library = new BrowserLocalLibrary(name);
+    const saved = (await library.add([file('novel.txt', 'recoverable bytes')]))[0]!.item;
+    await library.close();
+
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(name, 1);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    await new Promise<void>((resolve, reject) => {
+      const tx = database.transaction('workspace', 'readwrite');
+      tx.objectStore('workspace').put({ schema: 'damaged' }, 'current');
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+    database.close();
+
+    const reopened = new BrowserLocalLibrary(name);
+    await expect(reopened.delete(saved.id)).rejects.toBeInstanceOf(LocalLibraryWorkspaceCorruptError);
+    expect((await reopened.list()).map((item) => item.id)).toEqual([saved.id]);
+    expect(await reopened.clear()).toEqual({ removedDocuments: [], workspaceReset: true });
+    expect(await reopened.list()).toEqual([]);
+    expect(await reopened.loadWorkspace()).toEqual({ kind: 'absent' });
     await reopened.close();
   });
 
