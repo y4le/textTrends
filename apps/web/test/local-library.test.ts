@@ -1,7 +1,8 @@
 import 'fake-indexeddb/auto';
 import { IDBFactory } from 'fake-indexeddb';
 import { beforeEach, describe, expect, it } from 'vitest';
-import { BrowserLocalLibrary } from '../src/lib/local-library.ts';
+import { EMPTY_NOTEBOOK, type WorkspaceV1 } from '@texttrends/core';
+import { BrowserLocalLibrary, localFileIdentity } from '../src/lib/local-library.ts';
 
 beforeEach(() => {
   globalThis.indexedDB = new IDBFactory() as unknown as typeof indexedDB;
@@ -15,6 +16,50 @@ function file(name: string, text: string) {
     type: 'text/plain',
     lastModified: 123,
     arrayBuffer: async () => bytes.slice().buffer,
+  };
+}
+
+function workspace(library: string): WorkspaceV1 {
+  return {
+    schema: 'texttrends/workspace/1',
+    corpus: {
+      kind: 'library',
+      order: ['doc-1'],
+      docs: [{
+        doc: 'doc-1',
+        library,
+        meta: { title: 'Novel', language: 'en', tags: [] },
+      }],
+    },
+    notebook: EMPTY_NOTEBOOK,
+    active: [],
+    kwicEnabled: [],
+    views: {
+      trend: {
+        mode: 'series',
+        focusedDoc: 'doc-1',
+        bins: { mode: 'per-doc', count: 40 },
+        measure: { kind: 'rate', denominator: 10_000, smoothing: 0, showRaw: true },
+      },
+      frequency: {
+        minCount: 1,
+        minDocFreq: 1,
+        classes: ['lexical'],
+        sort: { by: 'count', dir: -1 },
+        pageSize: 100,
+      },
+      compare: {
+        mode: 'documents',
+        documentA: 'doc-1',
+        documentB: null,
+        restOn: 'b',
+        minCountTotal: 1,
+        minDocFreqTotal: 1,
+        classes: ['lexical'],
+        sort: { by: 'logRatio', dirA: -1, dirB: 1 },
+        pageSize: 100,
+      },
+    },
   };
 }
 
@@ -57,45 +102,26 @@ describe('BrowserLocalLibrary', () => {
     await library.close();
   });
 
-  it('lazily hashes version-1 records and consolidates existing duplicates', async () => {
-    const name = `local-library-${crypto.randomUUID()}`;
-    const bytes = new TextEncoder().encode('legacy duplicate').buffer;
-    const database = await new Promise<IDBDatabase>((resolve, reject) => {
-      const request = indexedDB.open(name, 1);
-      request.onupgradeneeded = () => {
-        const store = request.result.createObjectStore('files', { keyPath: 'id' });
-        store.createIndex('addedAt', 'addedAt');
-      };
-      request.onsuccess = () => resolve(request.result);
-      request.onerror = () => reject(request.error);
-    });
-    await new Promise<void>((resolve, reject) => {
-      const tx = database.transaction('files', 'readwrite');
-      const store = tx.objectStore('files');
-      for (const [id, name, addedAt] of [['old-a', 'first.txt', 1], ['old-b', 'second.txt', 2]] as const) {
-        store.put({
-          schema: 'texttrends/local-file/1',
-          id,
-          name,
-          size: bytes.byteLength,
-          type: 'text/plain',
-          lastModified: 0,
-          addedAt,
-          bytes: bytes.slice(0),
-        });
-      }
-      tx.oncomplete = () => resolve();
-      tx.onerror = () => reject(tx.error);
-    });
-    database.close();
-
-    const library = new BrowserLocalLibrary(name);
-    const items = await library.list();
-    expect(items).toHaveLength(1);
-    expect(items[0]).toMatchObject({ name: 'first.txt', format: 'txt' });
-    const duplicate = await library.add([file('third.txt', 'legacy duplicate')]);
-    expect(duplicate).toEqual([{ item: items[0], added: false }]);
+  it('uses the format and source hash as the direct stable identity', async () => {
+    const library = new BrowserLocalLibrary(`local-library-${crypto.randomUUID()}`);
+    const saved = (await library.add([file('novel.txt', 'identity')]))[0]!.item;
+    expect(saved.id).toBe(localFileIdentity('txt', saved.contentHash));
+    expect(saved.id).not.toContain('source/');
     await library.close();
+  });
+
+  it('round-trips the current workspace independently of source bytes', async () => {
+    const name = `local-library-${crypto.randomUUID()}`;
+    const first = new BrowserLocalLibrary(name);
+    const saved = (await first.add([file('novel.txt', 'workspace prose')]))[0]!.item;
+    const expected = workspace(saved.id);
+    await first.saveWorkspace(expected);
+    await first.close();
+
+    const reopened = new BrowserLocalLibrary(name);
+    expect(await reopened.loadWorkspace()).toEqual(expected);
+    expect(new TextDecoder().decode(await (await reopened.file(saved.id)).arrayBuffer())).toBe('workspace prose');
+    await reopened.close();
   });
 
   it('rejects unsupported files before reading or storing any selection', async () => {

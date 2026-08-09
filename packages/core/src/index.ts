@@ -61,6 +61,23 @@ export {
   type TrendSmoothingWindow,
 } from './project/research-state.ts';
 export {
+  WORKSPACE_MAX_ID_UNITS,
+  WORKSPACE_SCHEMA,
+  WORKSPACE_TREND_RATE_DENOMINATORS,
+  WORKSPACE_TREND_SMOOTHING_WINDOWS,
+  parseWorkspace,
+  reconcileWorkspaceDocuments,
+  type WorkspaceCompareViewV1,
+  type WorkspaceCorpusV1,
+  type WorkspaceDocumentMetaV1,
+  type WorkspaceFrequencyViewV1,
+  type WorkspaceLibraryDocumentV1,
+  type WorkspaceTrendMeasureV1,
+  type WorkspaceTrendViewV1,
+  type WorkspaceV1,
+  type WorkspaceWarmTextV1,
+} from './project/workspace.ts';
+export {
   DEFAULT_INDEX_RECIPE,
   hashIndexRecipe,
   isIndexRecipeProvisional,
