@@ -13,7 +13,7 @@
  *
  * The ENGINE retains job ownership, active/cancelled bookkeeping, generation/
  * snapshot validation, error mapping, transfer-list emission, and a final
- * gate immediately before every emit. Ingest and user-data stay
+ * gate immediately before every emit. Ingest stays
  * engine/handler concerns — this is deliberately
  * not a generic worker framework.
  */

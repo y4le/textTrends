@@ -4,10 +4,9 @@
  * death in a browser is Milestone 6 Playwright scope.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { WorkerClient, UserDataClientError, type GenerationReady, type ProjectLoadResult, type SourceReadyInfo } from '../src/lib/client.ts';
+import { WorkerClient, type GenerationReady, type SourceReadyInfo } from '../src/lib/client.ts';
 import { PROTOCOL_VERSION_V4 } from '../src/worker/protocol-v4.ts';
 import { DEFAULT_INDEX_RECIPE } from '@texttrends/core';
-import { researchState } from './support/research-fixtures.ts';
 
 class FakeWorker {
   static instances: FakeWorker[] = [];
@@ -48,10 +47,8 @@ describe('WorkerClient close()', () => {
   it('rejects every pending request typed, terminates the Worker, and is NOT revivable', async () => {
     const client = new WorkerClient();
     const query = client.query('snap', { op: 'trend' } as never);
-    const load = client.projectLoad('p');
     client.close();
     await expect(query.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_TERMINATED' });
-    await expect(load.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'WORKER_TERMINATED' });
     expect(FakeWorker.instances.at(-1)!.terminated).toBe(true);
     // Unlike restart exhaustion, openGeneration must NOT revive a closed
     // client — teardown (disposal/HMR) is terminal.
@@ -150,7 +147,7 @@ describe('WorkerClient restart machinery', () => {
         generation: 'gen-retry',
         snapshot: null,
         readyDocs: [],
-        missing: [],
+        missingDocs: [],
       },
     });
     const ready: GenerationReady = await open.result;
@@ -188,7 +185,7 @@ describe('WorkerClient restart machinery', () => {
     revived.onmessage?.({
       data: {
         v: PROTOCOL_VERSION_V4, t: 'generation-ready', job: posted.job,
-        generation: 'gen-retry-2', snapshot: null, readyDocs: [], missing: [],
+        generation: 'gen-retry-2', snapshot: null, readyDocs: [], missingDocs: [],
       },
     });
     await expect(open.result).resolves.toMatchObject({ generation: 'gen-retry-2' });
@@ -209,7 +206,7 @@ describe('WorkerClient restart machinery', () => {
     first.onmessage?.({
       data: {
         v: PROTOCOL_VERSION_V4, t: 'generation-ready', job: posted.job,
-        generation: 'gen-1', snapshot: null, readyDocs: [], missing: [],
+        generation: 'gen-1', snapshot: null, readyDocs: [], missingDocs: [],
       },
     });
     // No pending entry may have been resurrected by the stale message.
@@ -220,7 +217,7 @@ describe('WorkerClient restart machinery', () => {
 describe('WorkerClient v4 wire', () => {
   const spec = (doc: string) => ({
     doc, language: 'en',
-    source: { byteLength: 8, format: 'txt' as const, availability: 'external' as const },
+    source: { byteLength: 8, format: 'txt' as const },
     extraction: { recipe: {} as never, recipeHash: 'er' },
   });
 
@@ -236,7 +233,7 @@ describe('WorkerClient v4 wire', () => {
     expect((posted.docs[0] as { doc: string }).doc).toBe('a');
   });
 
-  it('propagates the structured MissingWarmDocV4 array from the barrier', async () => {
+  it('propagates the source-byte misses from the warm-open barrier', async () => {
     const client = new WorkerClient();
     const worker = FakeWorker.instances[0]!;
     const open = client.openGeneration('g', [spec('a')], DEFAULT_INDEX_RECIPE);
@@ -244,11 +241,11 @@ describe('WorkerClient v4 wire', () => {
     worker.onmessage?.({
       data: {
         v: PROTOCOL_VERSION_V4, t: 'generation-ready', job, generation: 'g', snapshot: null,
-        readyDocs: [], missing: [{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }],
+        readyDocs: [], missingDocs: ['a'],
       },
     });
     const ready = await open.result;
-    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }]);
+    expect(ready.missingDocs).toEqual(['a']);
   });
 
   it('an unrelated document publication does NOT retire a live re-ingest job (no error is swallowed)', () => {
@@ -354,140 +351,8 @@ describe('WorkerClient v4 wire', () => {
     worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'error', job, generation: 'g', code: 'INTERNAL', message: 'index blew up', recoverable: true } });
     expect(errors).toEqual(['INTERNAL: index blew up']);
   });
-});
 
-describe('WorkerClient user-data seam (v4)', () => {
-  const manifest = { schema: 'texttrends/project/1', id: 'p', revision: 3 } as never;
-
-  it('projectLoad resolves loaded/missing and rejects a typed user-data error', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const loaded = client.projectLoad('p');
-    const job1 = (worker.posted.at(-1) as { job: number; t: string; project: string }).job;
-    expect((worker.posted.at(-1) as { t: string }).t).toBe('project-load');
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'project-loaded', job: job1, project: 'p', manifest } });
-    await expect(loaded.result).resolves.toEqual({ kind: 'loaded', manifest } as ProjectLoadResult);
-
-    const missing = client.projectLoad('q');
-    const job2 = (worker.posted.at(-1) as { job: number }).job;
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'project-missing', job: job2, project: 'q' } });
-    await expect(missing.result).resolves.toEqual({ kind: 'missing' } as ProjectLoadResult);
-
-    const corrupt = client.projectLoad('bad');
-    const job3 = (worker.posted.at(-1) as { job: number }).job;
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'user-data-error', job: job3, code: 'DATA_CORRUPT', message: 'invalid manifest' } });
-    await expect(corrupt.result).rejects.toBeInstanceOf(UserDataClientError);
-    await expect(corrupt.result).rejects.toMatchObject({ code: 'DATA_CORRUPT' });
-  });
-
-  it('projectSave resolves the committed revision and surfaces REVISION_CONFLICT with currentRevision', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const saved = client.projectSave(manifest, 2);
-    const job1 = (worker.posted.at(-1) as { job: number }).job;
-    const post = worker.posted.at(-1) as { t: string; expectedRevision: number; project: string };
-    expect(post.t).toBe('project-save');
-    expect(post.expectedRevision).toBe(2);
-    expect(post.project).toBe('p');
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'project-saved', job: job1, project: 'p', revision: 3 } });
-    await expect(saved.result).resolves.toEqual({ revision: 3 });
-
-    const conflict = client.projectSave(manifest, 2);
-    const job2 = (worker.posted.at(-1) as { job: number }).job;
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'user-data-error', job: job2, code: 'REVISION_CONFLICT', message: 'stale', currentRevision: 5 } });
-    await expect(conflict.result).rejects.toMatchObject({ code: 'REVISION_CONFLICT', currentRevision: 5 });
-  });
-
-  it('loads and saves correlated research-state acknowledgements', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const state = researchState('builtin/sherlock', 1);
-
-    const load = client.researchLoad(state.project);
-    const loadPost = worker.posted.at(-1) as {
-      t: string;
-      job: number;
-      project: string;
-    };
-    expect(loadPost).toMatchObject({
-      t: 'research-load',
-      project: state.project,
-    });
-    worker.onmessage?.({
-      data: {
-        v: PROTOCOL_VERSION_V4,
-        t: 'research-loaded',
-        job: loadPost.job,
-        project: state.project,
-        state,
-      },
-    });
-    await expect(load.result).resolves.toEqual({ kind: 'loaded', state });
-
-    const save = client.researchSave(state, 0);
-    const savePost = worker.posted.at(-1) as {
-      t: string;
-      job: number;
-      project: string;
-      expectedRevision: number;
-      state: unknown;
-    };
-    expect(savePost).toMatchObject({
-      t: 'research-save',
-      project: state.project,
-      expectedRevision: 0,
-      state,
-    });
-    worker.onmessage?.({
-      data: {
-        v: PROTOCOL_VERSION_V4,
-        t: 'research-saved',
-        job: savePost.job,
-        project: state.project,
-        revision: 1,
-      },
-    });
-    await expect(save.result).resolves.toEqual({ revision: 1 });
-  });
-
-  it('sourcePersist TRANSFERS the bytes and resolves only on the durable ack', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const bytes = new ArrayBuffer(16);
-    const persist = client.sourcePersist('deadbeef', bytes);
-    const post = worker.posted.at(-1) as { t: string; sourceHash: string; job: number };
-    expect(post.t).toBe('source-persist');
-    expect(post.sourceHash).toBe('deadbeef');
-    expect(worker.transfers.at(-1)).toEqual([bytes]); // transferred, not cloned
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'source-persisted', job: post.job, sourceHash: 'deadbeef' } });
-    await expect(persist.result).resolves.toBeUndefined();
-  });
-
-  it('a user-data request is cancellable: cancel posts a job cancel and the worker ack rejects it', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const load = client.projectLoad('p');
-    const job = (worker.posted.at(-1) as { job: number }).job;
-    load.cancel();
-    const cancelPost = worker.posted.at(-1) as { t: string; job: number };
-    expect(cancelPost).toMatchObject({ t: 'cancel', job });
-    // The worker acknowledges the cancel before its durable read completes.
-    worker.onmessage?.({ data: { v: PROTOCOL_VERSION_V4, t: 'cancelled', job } });
-    // The rejection is the TYPED discriminant (code), not a message contract.
-    await expect(load.result).rejects.toMatchObject({ name: 'WorkerClientError', code: 'CANCELLED' });
-  });
-
-  it('a synchronous postMessage failure rejects the request and leaves NO dangling pending entry', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    worker.postMessage = () => { throw new DOMException('detached', 'DataCloneError'); };
-    const persist = client.sourcePersist('h', new ArrayBuffer(4));
-    await expect(persist.result).rejects.toThrow('WORKER_POST_FAILED');
-    // No leaked resolver: a late (impossible) ack would find nothing to settle.
-    expect((client as unknown as { pending: Map<number, unknown> }).pending.size).toBe(0);
-  });
-
-  it('surfaces source-ready as a fully correlated SourceReadyInfo (wire extractionRecipe -> extractionRecipeHash)', () => {
+  it('surfaces source-ready as a fully correlated SourceReadyInfo', () => {
     const client = new WorkerClient();
     const worker = FakeWorker.instances[0]!;
     const infos: SourceReadyInfo[] = [];
@@ -503,25 +368,5 @@ describe('WorkerClient user-data seam (v4)', () => {
     expect(infos).toHaveLength(1);
     expect(infos[0]).toMatchObject({ job: 7, generation: 'g', doc: 'a', extractionRecipeHash: 'erh', text: 'th', textLengthUtf16: 10, suspiciousControlCount: 2 });
     expect(infos[0]!.source.hash).toBe('sh');
-  });
-
-  it('rejects every in-flight user-data request when the worker dies', async () => {
-    const client = new WorkerClient();
-    const worker = FakeWorker.instances[0]!;
-    const load = client.projectLoad('p');
-    const save = client.projectSave(manifest, 2);
-    const persist = client.sourcePersist('h', new ArrayBuffer(4));
-    worker.onerror?.(new Event('error')); // death: pending all reject
-    await expect(load.result).rejects.toThrow('WORKER_RESTARTED');
-    await expect(save.result).rejects.toThrow('WORKER_RESTARTED');
-    await expect(persist.result).rejects.toThrow('WORKER_RESTARTED');
-  });
-
-  it('a dead client rejects user-data requests immediately', async () => {
-    const client = new WorkerClient();
-    for (let i = 0; i < 4; i++) FakeWorker.instances.at(-1)!.onerror?.(new Event('error')); // exhaust → dead
-    await expect(client.projectLoad('p').result).rejects.toThrow('WORKER_TERMINATED');
-    await expect(client.projectSave(manifest, 2).result).rejects.toThrow('WORKER_TERMINATED');
-    await expect(client.sourcePersist('h', new ArrayBuffer(4)).result).rejects.toThrow('WORKER_TERMINATED');
   });
 });

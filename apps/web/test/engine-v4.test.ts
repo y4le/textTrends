@@ -1,10 +1,9 @@
 /**
  * WorkerEngineV4 lifecycle/race suite. Exercises ingestion, cache admission,
- * publication, cancellation, and user-data routing over injected boundaries.
+ * publication and cancellation over injected boundaries.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION_V4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
-import type { UserDataStore } from '../src/worker/user-data-store.ts';
 import { begin, buf, coldIngest, FOLD, harness, utf8, wolfGroup, type Harness } from './support/engine-harness.ts';
 import { buildDocSpec as docSpec, extractLiteral as extractDocument } from './support/spec-fixtures.ts';
 import {
@@ -14,7 +13,6 @@ import {
   INGEST_CAPS_V0,
   defaultExtractionRecipes,
   hashExtractionRecipe,
-  hashSourceBytes,
 } from '@texttrends/core';
 
 // D1 wiring seam: pass-through spies on the shard-binding entry points, so the
@@ -68,7 +66,7 @@ describe('generation resolution and plan validation', () => {
     // A fresh import: source only, with no expected text identity.
     const fresh = async (doc: string, byteLength: number): Promise<GenerationDocSpecV4> => ({
       doc, language: 'en',
-      source: { byteLength, format: 'txt', availability: 'external' },
+      source: { byteLength, format: 'txt' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
     });
     // Three 30 MiB fresh imports: source sum (90 MiB) is under the 128 MiB
@@ -91,7 +89,7 @@ describe('generation resolution and plan validation', () => {
     const recipes = await defaultExtractionRecipes();
     const b: GenerationDocSpecV4 = {
       doc: 'b', language: 'en',
-      source: { byteLength: 8, format: 'txt', availability: 'external' },
+      source: { byteLength: 8, format: 'txt' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
     };
     await begin(h, [a, b]);
@@ -190,7 +188,7 @@ describe('cold ingest', () => {
     const spec = await docSpec('a', '# Part I\n\nthe wolf ran far\n\n# Part II\n\na wolf slept', { format: 'md' });
     await begin(h, [spec]);
     const ready = h.last('generation-ready');
-    expect(ready.missing.map((m) => m.doc)).toEqual(['a']);
+    expect(ready.missingDocs).toEqual(['a']);
     await coldIngest(h, 'g', 'a', '# Part I\n\nthe wolf ran far\n\n# Part II\n\na wolf slept', 10);
     const published = h.last('snapshot-published');
     expect(published.readyDocs).toEqual(['a']);
@@ -219,7 +217,7 @@ describe('cold ingest', () => {
     const recipes = await defaultExtractionRecipes();
     const spec: GenerationDocSpecV4 = {
       doc: 'a', language: 'en',
-      source: { byteLength: 16, format: 'txt', availability: 'external' },
+      source: { byteLength: 16, format: 'txt' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
     };
     await begin(h, [spec]);
@@ -246,7 +244,7 @@ describe('cold ingest', () => {
     const recipes = await defaultExtractionRecipes();
     const spec: GenerationDocSpecV4 = {
       doc: 'a', language: 'en',
-      source: { byteLength: 16, format: 'txt', availability: 'external' },
+      source: { byteLength: 16, format: 'txt' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
     };
     await begin(h, [spec]);
@@ -275,7 +273,7 @@ describe('warm reopen (deep admission across text and index)', () => {
     await begin(h, [spec], 'warm');
     const ready = h.last('generation-ready');
     expect(ready.readyDocs).toEqual(['a']);
-    expect(ready.missing).toEqual([]);
+    expect(ready.missingDocs).toEqual([]);
     expect(h.all('progress').length).toBe(0); // pure admission
     expect(h.all('snapshot-published').length).toBe(1);
   });
@@ -295,84 +293,6 @@ describe('warm reopen (deep admission across text and index)', () => {
     expect(h.last('generation-ready').readyDocs).toEqual(['a']);
   });
 
-});
-
-describe('persisted source re-extraction', () => {
-  it('re-extracts a persisted source when no text is cached (no network fetch)', async () => {
-    const h = harness();
-    const text = 'the wolf ran far over the hill';
-    const bytes = utf8(text);
-    const sourceHash = await hashSourceBytes(bytes);
-    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: bytes.length, bytes: bytes.buffer as ArrayBuffer });
-    const spec = await docSpec('a', text, { availability: 'persisted' });
-    await begin(h, [spec], 'warm');
-    const ready = h.last('generation-ready');
-    expect(ready.readyDocs).toEqual(['a']);
-    expect(ready.missing).toEqual([]);
-    const phases = h.all('progress').map((p) => p.phase);
-    expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'compose']);
-  });
-
-  it('a SAME-LENGTH byte mutation of the persisted copy is classified source-corrupt, not rehydrate-failed', async () => {
-    const h = harness();
-    const text = 'the wolf ran far over the hill';
-    const bytes = utf8(text);
-    const sourceHash = await hashSourceBytes(bytes);
-    // Store bytes of the RIGHT length under the RIGHT key that do not hash to
-    // it — the envelope check (schema/length) passes; the warm path's
-    // PRE-EXTRACTION content-hash authentication catches it. That is a
-    // DAMAGED DURABLE COPY needing repair.
-    const mutated = utf8('the wolf ran far over the hilL');
-    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
-    const spec = await docSpec('a', text, { availability: 'persisted' });
-    await begin(h, [spec], 'warm');
-    const ready = h.last('generation-ready');
-    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-    // Not an EXTRACTION_MISMATCH terminal error, and no cache-vocabulary warning.
-    expect(h.all('error').some((e) => e.code === 'EXTRACTION_MISMATCH')).toBe(false);
-    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
-  });
-
-  it('a same-length mutation that is UNDECODABLE is still source-corrupt — authentication precedes extraction', async () => {
-    const h = harness();
-    const text = 'the wolf ran far over the hill';
-    const bytes = utf8(text);
-    const sourceHash = await hashSourceBytes(bytes);
-    // Same length, right key, but the bytes begin with a UTF-8 BOM followed by
-    // a malformed sequence — decoding would FAIL, so a post-extraction hash
-    // check could never run (track-S review mutation). The pre-extraction
-    // authentication must classify it as a damaged durable copy regardless.
-    const mutated = new Uint8Array(bytes.length);
-    mutated.set([0xef, 0xbb, 0xbf, 0xff, 0xfe, 0x80], 0);
-    await h.userStore.putSource({ schema: 'texttrends/source/1', hash: sourceHash, byteLength: mutated.length, bytes: mutated.buffer as ArrayBuffer });
-    const spec = await docSpec('a', text, { availability: 'persisted' });
-    await begin(h, [spec], 'warm');
-    const ready = h.last('generation-ready');
-    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-  });
-
-  it('a corrupt persisted source is reported and RETAINED (never auto-deleted)', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'the wolf ran far', { availability: 'persisted' });
-    const corruptStore: UserDataStore = {
-      getProject: () => Promise.resolve({ kind: 'miss' }),
-      putProject: () => Promise.reject(new Error('n/a')),
-      getResearch: () => Promise.resolve({ kind: 'miss' }),
-      putResearch: () => Promise.reject(new Error('n/a')),
-      getSource: () => Promise.resolve({ kind: 'corrupt', reason: 'bytes do not match' }),
-      putSource: () => Promise.resolve(),
-      close: () => undefined,
-    };
-    h.setUserData(() => Promise.resolve({ kind: 'ok', store: corruptStore }));
-    await begin(h, [spec], 'warm');
-    const ready = h.last('generation-ready');
-    // Retention (never auto-delete the user's only durable copy) is enforced by
-    // the type system now: UserDataStore has no delete operation at all.
-    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'source-corrupt' }]);
-    // Durable damage travels ONLY on the warm-miss reason (class-1 repair),
-    // never through the artifact-CACHE warning vocabulary (pass-2 Track S2).
-    expect(h.all('warning').some((w) => w.code === 'CACHE_CORRUPT')).toBe(false);
-  });
 });
 
 describe('supersession and the commit gate', () => {
@@ -432,7 +352,7 @@ describe('supersession and the commit gate', () => {
     expect(h.store.writes.text).toBe(2);
   });
 
-  it('generation-ready.missing excludes a document accepted in-flight by a concurrent ingest', async () => {
+  it('generation-ready.missingDocs excludes a document accepted in-flight by a concurrent ingest', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far');
     // A concurrent ingest lands DURING the warm probe's text read for the same
@@ -444,7 +364,7 @@ describe('supersession and the commit gate', () => {
     const ready = h.last('generation-ready');
     // The doc is READY, not a byte miss — the warm claim was superseded, and
     // the accepted-in-flight document is excluded from `missing`.
-    expect(ready.missing.find((m) => m.doc === 'a')).toBeUndefined();
+    expect(ready.missingDocs).not.toContain('a');
     expect(ready.readyDocs).toContain('a');
     expect(h.all('snapshot-published').length).toBe(1);
   });
@@ -478,43 +398,13 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
   const { txt } = await defaultExtractionRecipes();
   return {
     doc, language: 'en',
-    source: { byteLength, format: 'txt', availability: 'external' },
+    source: { byteLength, format: 'txt' },
     extraction: { recipe: txt, recipeHash: await hashExtractionRecipe(txt) },
   };
 }
 
 const innerShards = (h: Harness) =>
   (h.store.inner as unknown as { shards: Map<string, { lengths8: Uint8Array; startsUtf16: Uint32Array }> }).shards;
-
-describe('user-data lane ROUTING (behavior lives in user-data-handler.test.ts)', () => {
-  // Compact dispatch proofs: each operation reaches its lane through the
-  // engine envelope and answers with that lane's discriminants — the seam
-  // the eventual UserDataHandler extraction must keep (slice-2 ruling §A).
-  it('source-persist dispatches and acknowledges through the user-data lane', async () => {
-    const h = harness();
-    const bytes = buf('routing bytes');
-    const sourceHash = await hashSourceBytes(new Uint8Array(buf('routing bytes')));
-    await h.send({ t: 'source-persist', job: 1, sourceHash, bytes });
-    expect(h.last('source-persisted').sourceHash).toBe(sourceHash);
-  });
-
-  it('project-load dispatches: an absent project answers project-missing', async () => {
-    const h = harness();
-    await h.send({ t: 'project-load', job: 2, project: 'absent' });
-    expect(h.last('project-missing').project).toBe('absent');
-  });
-
-  it('project-save dispatches: a wire-valid but inadmissible manifest answers on the USER-DATA error channel', async () => {
-    const h = harness();
-    await h.send({
-      t: 'project-save', job: 3, project: 'p',
-      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
-      expectedRevision: 0,
-    });
-    const err = h.last('user-data-error');
-    expect(err.job).toBe(3); // the lane answered, on its own channel
-  });
-});
 
 describe('protocol narrowing and dispatch (v4)', () => {
   it('rejects a protocol version mismatch with PROTOCOL_VERSION', async () => {
@@ -932,7 +822,7 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
     const extracted = await extractDocument(bomBytes, recipes.txt);
     const spec: GenerationDocSpecV4 = {
       doc: 'a', language: 'en',
-      source: { expectedHash: extracted.artifact.source, byteLength: bomBytes.length, format: 'txt', availability: 'external' },
+      source: { expectedHash: extracted.artifact.source, byteLength: bomBytes.length, format: 'txt' },
       extraction: {
         recipe: recipes.txt,
         recipeHash: await hashExtractionRecipe(recipes.txt),
@@ -941,7 +831,7 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
       },
     };
     await begin(h, [spec]); // nothing cached — the barrier reports a byte miss
-    expect(h.last('generation-ready').missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }]);
+    expect(h.last('generation-ready').missingDocs).toEqual(['a']);
     const spy = spyTextDigests(text);
     try {
       await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: bomBytes.buffer as ArrayBuffer });
@@ -968,7 +858,7 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
       await begin(h, [spec], 'warm');
       const ready = h.last('generation-ready');
       expect(ready.readyDocs).toEqual(['a']);
-      expect(ready.missing).toEqual([]);
+      expect(ready.missingDocs).toEqual([]);
       expect(h.all('progress').length).toBe(0); // pure admission — exact hit
       // ONE digest: verifyText(storedText, expectedHash) at admission; the
       // cached-extraction admission and the commit bind consume the proof.

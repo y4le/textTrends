@@ -182,7 +182,7 @@ async function prepareImport(session: ProjectSession, client: FakeClient, files:
     generation: open.generation,
     snapshot: null,
     readyDocs: [],
-    missing: open.docs.map((doc) => ({ doc: doc.doc, need: 'source-bytes', reason: 'source-miss' })),
+    missingDocs: open.docs.map((doc) => doc.doc),
   });
   await settle();
   return { open, docs: open.docs.map((doc) => doc.doc) };
@@ -228,7 +228,7 @@ describe('generation and source resolution', () => {
     const { session, client, bundledGets } = makeSession(builtin([bundledDoc('book', 7)]));
     session.start();
     const open = client.lastOpen();
-    open.resolve({ generation: open.generation, snapshot: null, readyDocs: [], missing: [{ doc: 'book', need: 'source-bytes', reason: 'source-miss' }] });
+    open.resolve({ generation: open.generation, snapshot: null, readyDocs: [], missingDocs: ['book'] });
     await settle();
     expect(bundledGets).toEqual(['book']);
     expect(client.ingests.at(-1)).toMatchObject({ generation: open.generation, doc: 'book' });
@@ -272,7 +272,7 @@ describe('generation and source resolution', () => {
     const { docs } = await finalizeImport(normal.session, normal.client, [file]);
     normal.client.restart(false);
     const reopen = normal.client.lastOpen();
-    reopen.resolve({ generation: reopen.generation, snapshot: null, readyDocs: [], missing: [{ doc: docs[0]!, need: 'source-bytes', reason: 'source-miss' }] });
+    reopen.resolve({ generation: reopen.generation, snapshot: null, readyDocs: [], missingDocs: [docs[0]!] });
     await settle();
     expect(normal.client.ingests.at(-1)).toMatchObject({ generation: reopen.generation, doc: docs[0] });
 
@@ -283,7 +283,7 @@ describe('generation and source resolution', () => {
     bad.client.restart(false);
     const badOpen = bad.client.lastOpen();
     const before = bad.client.ingests.length;
-    badOpen.resolve({ generation: badOpen.generation, snapshot: null, readyDocs: [], missing: [{ doc: imported.docs[0]!, need: 'source-bytes', reason: 'source-miss' }] });
+    badOpen.resolve({ generation: badOpen.generation, snapshot: null, readyDocs: [], missingDocs: [imported.docs[0]!] });
     await settle();
     expect(bad.client.ingests).toHaveLength(before);
     expect(bad.session.getState().sources[imported.docs[0]!]!.phase).toBe('error');

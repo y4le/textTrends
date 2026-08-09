@@ -38,7 +38,6 @@ import {
 import type {
   GenerationDocSpecV4,
   SourceFormat,
-  WarmMissReasonV4,
 } from '../shared/analysis-contract.ts';
 import type {
   GenerationReady,
@@ -524,7 +523,7 @@ export class ProjectSession {
       .then((ready) => {
         if (this.disposed || attempt !== this.genAttempt) return;
         this.activeOpenCancel = null;
-        for (const miss of ready.missing) void this.resolveMiss(generation, attempt, miss.doc, miss.reason);
+        for (const doc of ready.missingDocs) void this.resolveMiss(generation, attempt, doc);
       })
       .catch((e: unknown) => {
         if (this.disposed || attempt !== this.genAttempt) return;
@@ -544,13 +543,12 @@ export class ProjectSession {
         expectedHash: p.contentHash,
         byteLength: p.byteLength,
         format: p.format,
-        availability: 'external',
       },
       extraction: { recipe: recipes.extraction, recipeHash: recipes.extractionRecipeHash },
     };
   }
 
-  private async resolveMiss(generation: string, attempt: number, doc: string, _reason: WarmMissReasonV4): Promise<void> {
+  private async resolveMiss(generation: string, attempt: number, doc: string): Promise<void> {
     if (this.disposed || attempt !== this.genAttempt || generation !== this.generation) return;
     const pending = this.pending.get(doc);
     if (pending) {

@@ -30,7 +30,7 @@ function docSpec(overrides: Record<string, unknown> = {}) {
   return {
     doc: 'a',
     language: 'en',
-    source: { expectedHash: 'sh', byteLength: 10, format: 'txt', availability: 'bundled' },
+    source: { expectedHash: 'sh', byteLength: 10, format: 'txt' },
     extraction: {
       recipe: extractionRecipes.txt,
       recipeHash: 'erec',
@@ -73,14 +73,14 @@ describe('parseToWorkerV4 envelope', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
     for (const format of SOURCE_FORMAT_IDS) {
       const spec = docSpec({
-        source: { byteLength: 10, format, availability: 'bundled' },
+        source: { byteLength: 10, format },
         extraction: { recipe: extractionRecipes[format], recipeHash: 'e' },
       });
       expect(parseToWorkerV4({ ...base, docs: [spec] }), format).not.toBeNull();
       expect(SOURCE_FORMATS[format].extractionKind === 'literal' || SOURCE_FORMATS[format].extractionKind === 'transformed').toBe(true);
     }
     // An unknown format is rejected at the membership check.
-    const unknown = docSpec({ source: { byteLength: 10, format: 'pdf', availability: 'bundled' } });
+    const unknown = docSpec({ source: { byteLength: 10, format: 'pdf' } });
     expect(parseToWorkerV4({ ...base, docs: [unknown] })).toBeNull();
   });
 
@@ -89,14 +89,13 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: undefined })] })).toBeNull();
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ extraction: undefined })] })).toBeNull();
     // Bad discriminant scalars.
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: 1, format: 'pdf', availability: 'bundled' } })] })).toBeNull();
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: 1, format: 'txt', availability: 'nope' } })] })).toBeNull();
+    expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: 1, format: 'pdf' } })] })).toBeNull();
   });
 
   it('optional extraction identity fields may be absent but must be typed when present', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
     const noOptionals = docSpec({
-      source: { byteLength: 10, format: 'txt', availability: 'external' },
+      source: { byteLength: 10, format: 'txt' },
       extraction: { recipe: extractionRecipes.md, recipeHash: 'erec' },
     });
     expect(parseToWorkerV4({ ...base, docs: [noOptionals] })).not.toBeNull();
@@ -118,42 +117,9 @@ describe('parseToWorkerV4 envelope', () => {
     for (const n of BAD_QUANTITIES) {
       const why = String(n);
       // A poisoned declared byteLength/textLength would corrupt the cap-preflight total.
-      expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: n, format: 'txt', availability: 'bundled' } })] }), why).toBeNull();
+      expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: n, format: 'txt' } })] }), why).toBeNull();
       expect(parseToWorkerV4({ ...base, docs: [docSpec({ extraction: { recipe: extractionRecipes.txt, recipeHash: 'e', expectedTextLengthUtf16: n } })] }), why).toBeNull();
       expect(parseToWorkerV4({ v, t: 'cancel', job: n }), why).toBeNull();
-    }
-  });
-
-  it('narrows the user-data operation map distinctly from analysis ops', () => {
-    expect(parseToWorkerV4({ v, t: 'project-load', job: 5, project: 'p' })).not.toBeNull();
-    expect(parseToWorkerV4({ v, t: 'project-save', job: 6, project: 'p', manifest: {}, expectedRevision: 0 })).not.toBeNull();
-    expect(parseToWorkerV4({ v, t: 'project-save', job: 6, project: 'p', expectedRevision: 0 })).toBeNull(); // no manifest
-    expect(parseToWorkerV4({ v, t: 'source-persist', job: 7, sourceHash: 'h', bytes: new ArrayBuffer(2) })).not.toBeNull();
-    expect(parseToWorkerV4({ v, t: 'source-persist', job: 7, sourceHash: 'h', bytes: 'nope' })).toBeNull();
-    expect(parseToWorkerV4({ v, t: 'research-load', job: 8, project: 'p' })).not.toBeNull();
-    expect(parseToWorkerV4({
-      v,
-      t: 'research-save',
-      job: 9,
-      project: 'p',
-      state: {},
-      expectedRevision: 0,
-    })).not.toBeNull();
-    expect(parseToWorkerV4({
-      v,
-      t: 'research-save',
-      job: 9,
-      project: 'p',
-      expectedRevision: 0,
-    })).toBeNull();
-  });
-
-  it('rejects invalid CAS revisions (only a positive safe integer or the 0 create sentinel)', () => {
-    const ok = { v, t: 'project-save', job: 6, project: 'p', manifest: {} };
-    expect(parseToWorkerV4({ ...ok, expectedRevision: 0 })).not.toBeNull();
-    expect(parseToWorkerV4({ ...ok, expectedRevision: 3 })).not.toBeNull();
-    for (const bad of [-1, 1.5, NaN, Infinity, Number.MAX_SAFE_INTEGER + 1]) {
-      expect(parseToWorkerV4({ ...ok, expectedRevision: bad }), String(bad)).toBeNull();
     }
   });
 

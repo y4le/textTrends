@@ -28,9 +28,8 @@ function docBytes(): ArrayBuffer {
   return encoder.encode(DOC_TEXT).buffer as ArrayBuffer;
 }
 
-/** A real v4 spec for the synthetic ASCII document — `availability: 'external'`
- *  (the harness holds and supplies the bytes; no bundled URL, no persisted
- *  source), with independently computed source/text/recipe hashes. */
+/** A real v4 spec for the synthetic ASCII document, with independently
+ *  computed source/text/recipe hashes. */
 async function probeSpec(doc: string): Promise<GenerationDocSpecV4> {
   const { txt } = await defaultExtractionRecipes();
   const bytes = encoder.encode(DOC_TEXT);
@@ -42,7 +41,7 @@ async function probeSpec(doc: string): Promise<GenerationDocSpecV4> {
   return {
     doc,
     language: 'en',
-    source: { expectedHash, byteLength: bytes.length, format: 'txt', availability: 'external' },
+    source: { expectedHash, byteLength: bytes.length, format: 'txt' },
     extraction: { recipe: txt, recipeHash, expectedText },
   };
 }

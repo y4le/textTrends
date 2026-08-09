@@ -56,7 +56,6 @@ export async function buildDocSpec(
   text: string,
   opts: {
     format?: 'txt' | 'md';
-    availability?: 'bundled' | 'persisted' | 'external';
   } = {},
 ): Promise<GenerationDocSpecV4> {
   const canon = await canonicalRecipeHashes();
@@ -67,7 +66,7 @@ export async function buildDocSpec(
   return {
     doc,
     language: 'en',
-    source: { expectedHash: extracted.artifact.source, byteLength: bytes.length, format, availability: opts.availability ?? 'external' },
+    source: { expectedHash: extracted.artifact.source, byteLength: bytes.length, format },
     extraction: {
       recipe,
       recipeHash: format === 'md' ? canon.mdRecipeHash : canon.txtRecipeHash,

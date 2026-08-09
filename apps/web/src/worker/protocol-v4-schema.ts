@@ -14,7 +14,6 @@ import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRe
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
-const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);
 // Closed literal unions the kernels accept — a wire caller must not smuggle
 // an unsupported coordinate/sort key through as a "trusted" request.
 const COORDINATES = new Set(['document-relative', 'declared-sequence']);
@@ -53,8 +52,7 @@ function narrowDocSpec(d: unknown): boolean {
   const s = d.source;
   if (
     !isRecord(s) || (s.expectedHash !== undefined && !isStr(s.expectedHash)) ||
-    !isCount(s.byteLength) || !isSourceFormat(s.format) ||
-    !AVAILABILITY.has(s.availability as string)
+    !isCount(s.byteLength) || !isSourceFormat(s.format)
   ) {
     return false;
   }
@@ -368,27 +366,6 @@ export function parseToWorkerV4(m: unknown): ToWorkerV4 | null {
       return isCount(m.job) && isStr(m.snapshot) && narrowQueryV4(m.query) ? (m as unknown as ToWorkerV4) : null;
     case 'cancel':
       return isCount(m.job) ? (m as unknown as ToWorkerV4) : null;
-    case 'project-load':
-      return isCount(m.job) && isStr(m.project) ? (m as unknown as ToWorkerV4) : null;
-    case 'project-save':
-      // expectedRevision is a CAS token: a positive safe integer, or 0 (the
-      // sole create sentinel) — a fractional/negative/NaN value is
-      // REQUEST_INVALID, not a misleading revision conflict.
-      return isCount(m.job) && isStr(m.project) &&
-        Number.isSafeInteger(m.expectedRevision) && (m.expectedRevision as number) >= 0 && 'manifest' in m
-        ? (m as unknown as ToWorkerV4) : null;
-    case 'research-load':
-      return isCount(m.job) && isStr(m.project)
-        ? (m as unknown as ToWorkerV4) : null;
-    case 'research-save':
-      return isCount(m.job) && isStr(m.project) &&
-        Number.isSafeInteger(m.expectedRevision) &&
-        (m.expectedRevision as number) >= 0 &&
-        'state' in m
-        ? (m as unknown as ToWorkerV4) : null;
-    case 'source-persist':
-      return isCount(m.job) && isStr(m.sourceHash) && m.bytes instanceof ArrayBuffer
-        ? (m as unknown as ToWorkerV4) : null;
     default:
       return null;
   }

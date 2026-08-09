@@ -16,7 +16,6 @@ import type {
   KwicRequest,
   KwicRow,
   NumericTrend,
-  SourceAvailability,
   SourceFormat,
   TermGroupSpec,
   TrendRequest,
@@ -29,9 +28,8 @@ import type {
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
- *  redeclared so it can never drift from the extractor's authority. The same
- *  goes for `SourceAvailability` (the manifest's vocabulary). */
-export type { SourceAvailability, SourceFormat };
+ *  redeclared so it can never drift from the extractor's authority. */
+export type { SourceFormat };
 
 export type BuildPhaseV4 = 'decode' | 'extract' | 'segment' | 'index' | 'compose';
 
@@ -47,7 +45,6 @@ export interface GenerationDocSpecV4 {
     readonly expectedHash?: string;
     readonly byteLength: number;
     readonly format: SourceFormat;
-    readonly availability: SourceAvailability;
   };
   readonly extraction: {
     readonly recipe: ExtractionRecipeProvisional;
@@ -55,20 +52,6 @@ export interface GenerationDocSpecV4 {
     readonly expectedText?: string;
     readonly expectedTextLengthUtf16?: number;
   };
-}
-
-/** Why a document still needs its bytes and what dependency is missing. */
-export type WarmMissReasonV4 =
-  | 'source-not-persisted'
-  | 'source-miss'
-  | 'source-corrupt'
-  | 'text-miss'
-  | 'rehydrate-failed';
-
-export interface MissingWarmDocV4 {
-  readonly doc: string;
-  readonly need: 'source-bytes';
-  readonly reason: WarmMissReasonV4;
 }
 
 /** One concordance track: a series identity + the term group that matched. */

@@ -1760,15 +1760,10 @@ describe('real ProjectSession composes with the store bridge', () => {
       onSourceReady: () => undefined,
       onRestart: () => undefined,
       openGeneration: (generation: string) => ({
-        result: Promise.resolve({ generation, snapshot: `${generation}#snap`, readyDocs: ['d1'], missing: [] }),
+        result: Promise.resolve({ generation, snapshot: `${generation}#snap`, readyDocs: ['d1'], missingDocs: [] }),
         cancel: () => undefined,
       }),
       ingest: () => ({ job: 1 }),
-      projectLoad: () => ({ result: Promise.resolve({ kind: 'missing' as const }), cancel: () => undefined }),
-      projectSave: () => ({ result: Promise.resolve({ revision: 1 }), cancel: () => undefined }),
-      researchLoad: () => ({ result: Promise.resolve({ kind: 'missing' as const }), cancel: () => undefined }),
-      researchSave: () => ({ result: Promise.resolve({ revision: 1 }), cancel: () => undefined }),
-      sourcePersist: () => ({ result: Promise.resolve(), cancel: () => undefined }),
     };
     const session = new ProjectSession(builtinProject(data), {
       client,

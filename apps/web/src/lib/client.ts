@@ -15,36 +15,18 @@
 
 import type {
   IndexRecipeProvisional,
-  ProjectManifestV2,
-  ResearchStateV1,
   SourceDescriptorV1,
 } from '@texttrends/core';
 import type {
   FromWorkerV4,
   GenerationDocSpecV4,
-  MissingWarmDocV4,
   QueryOpV4,
   QueryResultDataV4,
   ToWorkerV4,
-  UserDataErrorCodeV4,
   WorkerErrorCodeV4,
 } from '../worker/protocol-v4.ts';
 import { PROTOCOL_VERSION_V4 } from '../worker/protocol-v4.ts';
 import type { ProtocolTraceSink } from './trace.ts';
-
-/** A durable user-data failure surfaced as a typed rejection (never an
- *  analysis error): the code plus, for a CAS conflict, the revision actually
- *  stored so the caller can rebase. */
-export class UserDataClientError extends Error {
-  readonly code: UserDataErrorCodeV4;
-  readonly currentRevision?: number;
-  constructor(code: UserDataErrorCodeV4, message: string, currentRevision?: number) {
-    super(message);
-    this.name = 'UserDataClientError';
-    this.code = code;
-    if (currentRevision !== undefined) this.currentRevision = currentRevision;
-  }
-}
 
 /** Transport-lifecycle failure codes for analysis-lane rejections. */
 export type WorkerClientFailureCode =
@@ -57,8 +39,7 @@ export type WorkerClientFailureCode =
 /** A typed transport/lifecycle rejection from the analysis lane. `code` is the
  *  control-flow discriminant — message text is presentation only and must never
  *  be compared. A worker analysis error additionally carries its wire code in
- *  `analysisCode`. Durable user-data failures stay `UserDataClientError`: their
- *  codes (and `currentRevision`) are domain data, not transport lifecycle. */
+ *  `analysisCode`. */
 export class WorkerClientError extends Error {
   readonly code: WorkerClientFailureCode;
   readonly analysisCode?: WorkerErrorCodeV4;
@@ -75,18 +56,6 @@ export class WorkerClientError extends Error {
  *  read 'cancelled' is a real error). */
 export const isCancelled = (e: unknown): boolean =>
   e instanceof WorkerClientError && e.code === 'CANCELLED';
-
-/** Resolution of projectLoad: the WORKER-VALIDATED manifest (the worker is
- *  the sole durable-admission authority — it deep-validates before
- *  emitting), or a miss. Corrupt/unavailable rejects with a
- *  UserDataClientError (DATA_CORRUPT / PERSISTENCE_UNAVAILABLE). */
-export type ProjectLoadResult =
-  | { readonly kind: 'loaded'; readonly manifest: ProjectManifestV2 }
-  | { readonly kind: 'missing' };
-
-export type ResearchLoadResult =
-  | { readonly kind: 'loaded'; readonly state: ResearchStateV1 }
-  | { readonly kind: 'missing' };
 
 /** The correlated extraction event: the source/text identities a
  *  manifest needs, retaining job + generation + doc so a superseded or retried
@@ -123,13 +92,12 @@ export interface IngestProgress {
 }
 
 /** Resolution of openGeneration: warm rehydration finished; exactly
- *  `missing` still need their bytes ingested (each with its typed reason —
- *  preserved for the loader, which fetches only `source-bytes` misses). */
+ *  `missingDocs` still need their source bytes ingested. */
 export interface GenerationReady {
   readonly generation: string;
   readonly snapshot: string | null;
   readonly readyDocs: readonly string[];
-  readonly missing: readonly MissingWarmDocV4[];
+  readonly missingDocs: readonly string[];
 }
 
 /** Bounded automatic restarts — a deterministic startup fault must not
@@ -138,12 +106,7 @@ const MAX_WORKER_RESTARTS = 3;
 
 type Pending =
   | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
-  | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void }
-  | { kind: 'project-load'; resolve: (r: ProjectLoadResult) => void; reject: (e: Error) => void }
-  | { kind: 'project-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
-  | { kind: 'research-load'; resolve: (r: ResearchLoadResult) => void; reject: (e: Error) => void }
-  | { kind: 'research-save'; resolve: (r: { revision: number }) => void; reject: (e: Error) => void }
-  | { kind: 'source-persist'; resolve: () => void; reject: (e: Error) => void };
+  | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void };
 
 export class WorkerClient {
   private worker: Worker;
@@ -257,7 +220,6 @@ export class WorkerClient {
       ...('code' in m ? { code: m.code } : {}),
       ...('data' in m ? { op: m.data.op } : {}),
       ...('readyDocs' in m ? { readyCount: m.readyDocs.length } : {}),
-      ...('missing' in m ? { missingCount: m.missing.length } : {}),
       ...('missingDocs' in m ? { missingCount: m.missingDocs.length } : {}),
     });
     switch (m.t) {
@@ -291,7 +253,7 @@ export class WorkerClient {
             generation: m.generation,
             snapshot: m.snapshot,
             readyDocs: m.readyDocs,
-            missing: m.missing,
+            missingDocs: m.missingDocs,
           });
         }
         return;
@@ -334,8 +296,7 @@ export class WorkerClient {
         // Storage health is non-fatal by contract — never routed into
         // ingest-failure or query rejection paths. The codes are all
         // artifact-CACHE degradation (cold recomputes, never data loss), so a
-        // console warning is the whole surface; durable user-data failures
-        // arrive as typed UserDataClientError rejections instead.
+        // console warning is the whole surface.
         console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
         return;
       case 'source-ready':
@@ -354,67 +315,13 @@ export class WorkerClient {
           suspiciousControlCount: m.suspiciousControlCount,
         });
         return;
-      // User-data acknowledgements/errors — resolve/reject the correlated
-      // pending request; an uncorrelated ack (a superseded/replaced request) is
-      // dropped.
-      case 'project-loaded': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'project-load') { this.pending.delete(m.job); p.resolve({ kind: 'loaded', manifest: m.manifest }); }
-        return;
-      }
-      case 'project-missing': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'project-load') { this.pending.delete(m.job); p.resolve({ kind: 'missing' }); }
-        return;
-      }
-      case 'project-saved': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'project-save') { this.pending.delete(m.job); p.resolve({ revision: m.revision }); }
-        return;
-      }
-      case 'research-loaded': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'research-load') {
-          this.pending.delete(m.job);
-          p.resolve({ kind: 'loaded', state: m.state });
-        }
-        return;
-      }
-      case 'research-missing': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'research-load') {
-          this.pending.delete(m.job);
-          p.resolve({ kind: 'missing' });
-        }
-        return;
-      }
-      case 'research-saved': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'research-save') {
-          this.pending.delete(m.job);
-          p.resolve({ revision: m.revision });
-        }
-        return;
-      }
-      case 'source-persisted': {
-        const p = this.pending.get(m.job);
-        if (p?.kind === 'source-persist') { this.pending.delete(m.job); p.resolve(); }
-        return;
-      }
-      case 'user-data-error': {
-        const p = this.pending.get(m.job);
-        if (p) { this.pending.delete(m.job); p.reject(new UserDataClientError(m.code, m.message, m.currentRevision)); }
-        return;
-      }
     }
   }
 
   private post(message: ToWorkerV4, transfer?: Transferable[]): void {
     // Detachment is synchronous: byteLength before vs after the post proves
-    // a real transfer (0 after) rather than a structured clone — for both
-    // ingest AND source-persist (a persist RETRY posting again is the
-    // browser-observable proof the private File was retained and re-read).
-    const bytes = message.t === 'ingest' || message.t === 'source-persist' ? message.bytes : null;
+    // a real transfer (0 after) rather than a structured clone.
+    const bytes = message.t === 'ingest' ? message.bytes : null;
     const before = bytes?.byteLength;
     if (transfer) this.worker.postMessage(message, transfer);
     else this.worker.postMessage(message);
@@ -505,81 +412,9 @@ export class WorkerClient {
     return { job };
   }
 
-  /** Load a durable project by id. Resolves `loaded` with the WORKER-VALIDATED
-   *  manifest or `missing`; rejects UserDataClientError on a corrupt record or
-   *  unavailable storage. Cancellable before the worker's read/deep validation
-   *  completes. */
-  projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void } {
-    return this.request<ProjectLoadResult>(
-      (job, resolve, reject) => {
-        this.pending.set(job, { kind: 'project-load', resolve, reject });
-        this.post({ v: PROTOCOL_VERSION_V4, t: 'project-load', job, project });
-      },
-    );
-  }
-
-  /** Save a manifest by compare-and-swap. The WORKER deep-validates it at its
-   *  trust boundary before any durable write (an invalid one rejects
-   *  REQUEST_INVALID). Resolves with the committed revision; rejects
-   *  UserDataClientError (REVISION_CONFLICT carries the stored
-   *  `currentRevision`). Cancellable before the durable write begins. */
-  projectSave(manifest: ProjectManifestV2, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
-    return this.request<{ revision: number }>(
-      (job, resolve, reject) => {
-        this.pending.set(job, { kind: 'project-save', resolve, reject });
-        this.post({ v: PROTOCOL_VERSION_V4, t: 'project-save', job, project: manifest.id, manifest, expectedRevision });
-      },
-    );
-  }
-
-  researchLoad(project: string): {
-    result: Promise<ResearchLoadResult>;
-    cancel: () => void;
-  } {
-    return this.request<ResearchLoadResult>((job, resolve, reject) => {
-      this.pending.set(job, { kind: 'research-load', resolve, reject });
-      this.post({
-        v: PROTOCOL_VERSION_V4,
-        t: 'research-load',
-        job,
-        project,
-      });
-    });
-  }
-
-  researchSave(
-    state: ResearchStateV1,
-    expectedRevision: number,
-  ): { result: Promise<{ revision: number }>; cancel: () => void } {
-    return this.request<{ revision: number }>((job, resolve, reject) => {
-      this.pending.set(job, { kind: 'research-save', resolve, reject });
-      this.post({
-        v: PROTOCOL_VERSION_V4,
-        t: 'research-save',
-        job,
-        project: state.project,
-        state,
-        expectedRevision,
-      });
-    });
-  }
-
-  /** Persist opted-in source bytes durably (content-addressed). The bytes are
-   *  TRANSFERRED; the worker re-hashes and verifies them against `sourceHash`.
-   *  Resolves only after the durable write commits; rejects UserDataClientError.
-   *  Cancellable before the durable write begins (a truthful ack wins after). */
-  sourcePersist(sourceHash: string, bytes: ArrayBuffer): { result: Promise<void>; cancel: () => void } {
-    return this.request<void>(
-      (job, resolve, reject) => {
-        this.pending.set(job, { kind: 'source-persist', resolve, reject });
-        this.post({ v: PROTOCOL_VERSION_V4, t: 'source-persist', job, sourceHash, bytes }, [bytes]);
-      },
-    );
-  }
-
   /**
    * The ONE correlation+cancel harness for every request/response operation
-   * (analysis queries, generation opens, user-data ops): assign a job, set up
+   * (analysis queries and generation opens): assign a job, set up
    * the pending resolver, POST inside a guard that deletes the exact entry and
    * rejects typed WORKER_POST_FAILED if postMessage throws synchronously
    * (never leaking a pending resolver or throwing from the public method), and

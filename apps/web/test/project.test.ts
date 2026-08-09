@@ -62,7 +62,6 @@ describe('generation specs', () => {
       expectedHash: SHERLOCK[0]!.sourceHash,
       byteLength: SHERLOCK[0]!.bytes,
       format: 'txt',
-      availability: 'bundled',
     });
     expect(specs[0]!.extraction).toMatchObject({
       expectedText: SHERLOCK[0]!.textHash,

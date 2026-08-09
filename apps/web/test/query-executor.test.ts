@@ -50,7 +50,7 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
   const { txt } = await defaultExtractionRecipes();
   return {
     doc, language: 'en',
-    source: { byteLength, format: 'txt', availability: 'external' },
+    source: { byteLength, format: 'txt' },
     extraction: { recipe: txt, recipeHash: await hashExtractionRecipe(txt) },
   };
 }

@@ -116,7 +116,6 @@ export function generationSpecsFromProject(data: ProjectDataV1): GenerationDocSp
         expectedHash: doc.source.hash,
         byteLength: doc.source.byteLength,
         format: doc.source.format,
-        availability: doc.sourceAvailability === 'bundled' ? 'bundled' : 'external',
       },
       extraction: {
         recipe: doc.extraction.recipe,

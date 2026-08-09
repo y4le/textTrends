@@ -2,13 +2,12 @@
  * The shared WorkerEngineV4 test harness (slice-2 ruling §A seam alignment):
  * the FilterStore (hide/corrupt/hook any artifact class), the message-
  * recording engine wrapper, and the begin/ingest drivers — moved VERBATIM
- * from engine-v4.test.ts so the user-data suite can drive the same engine
- * without duplicating the seam. Behavior is unchanged.
+ * from engine-v4.test.ts so focused suites can drive the same engine without
+ * duplicating the seam. Behavior is unchanged.
  */
 
-import { WorkerEngineV4, type UserDataAccess, type UserDataProvider } from '../../src/worker/engine-v4.ts';
+import { WorkerEngineV4 } from '../../src/worker/engine-v4.ts';
 import { InMemoryArtifactStore, type ArtifactStore, type CacheRead } from '../../src/worker/store.ts';
-import { InMemoryUserDataStore } from '../../src/worker/user-data-store.ts';
 import { PROTOCOL_VERSION_V4, type FromWorkerV4, type GenerationDocSpecV4 } from '../../src/worker/protocol-v4.ts';
 import { DEFAULT_INDEX_RECIPE, INGEST_CAPS_V0, type IngestCapsV0 } from '@texttrends/core';
 
@@ -58,8 +57,6 @@ export interface Harness {
   messages: FromWorkerV4[];
   transferLists: (readonly Transferable[] | undefined)[];
   store: FilterStore;
-  userStore: InMemoryUserDataStore;
-  setUserData(p: UserDataProvider): void;
   /** Fires on every emitted message — deliver interleaved messages here. */
   onEmit(cb: ((m: FromWorkerV4) => void) | null): void;
   /** Fires on every yieldControl checkpoint (auto mode) — interleave here. */
@@ -78,15 +75,12 @@ export function harness(caps: IngestCapsV0 = INGEST_CAPS_V0, sharedStore?: Filte
   const messages: FromWorkerV4[] = [];
   const transferLists: (readonly Transferable[] | undefined)[] = [];
   const store = sharedStore ?? new FilterStore(new InMemoryArtifactStore());
-  const userStore = new InMemoryUserDataStore();
-  let provider: UserDataProvider = () => Promise.resolve({ kind: 'ok', store: userStore } as UserDataAccess);
   let auto = true;
   let emitCb: ((m: FromWorkerV4) => void) | null = null;
   let yieldCb: (() => void | Promise<void>) | null = null;
   const pending: (() => void)[] = [];
   const engine = new WorkerEngineV4(
     store,
-    () => provider(),
     (m, transfers) => { messages.push(m); transferLists.push(transfers); emitCb?.(m); },
     async () => {
       if (yieldCb) await yieldCb();
@@ -99,8 +93,6 @@ export function harness(caps: IngestCapsV0 = INGEST_CAPS_V0, sharedStore?: Filte
     messages,
     transferLists,
     store,
-    userStore,
-    setUserData: (p) => { provider = p; },
     onEmit: (cb) => { emitCb = cb; },
     onYield: (cb) => { yieldCb = cb; },
     manual: () => { auto = false; },

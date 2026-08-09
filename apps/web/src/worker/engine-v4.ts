@@ -20,21 +20,17 @@ import { QueryExecutor } from './query-executor.ts';
  *   because a `ReadyDocument`-identity guard is insufficient while warm probing,
  *   extraction and indexing overlap BEFORE any ready
  *   document exists;
- * - a SEPARATE user-data lane (project load/save, source persist) over an
- *   injected access provider, emitting only user-data acknowledgements/errors.
  *
  * The M4/M5 lifecycle guarantees are preserved across the longer pipeline:
  * generation replacement is synchronous and IS invalidation; publication is a
  * single guarded path serialized through a composition mutex; queries carry the
- * snapshot identity; cache writes are best-effort AFTER publication; a durable
- * source is never repair-deleted.
+ * snapshot identity; cache writes are best-effort AFTER publication.
  */
 
 import {
   CapError,
   DependencyError,
   INGEST_CAPS_V0,
-  hashSourceBytes,
   bindShardsIncremental,
   bindTextsVerified,
   createBindingSession,
@@ -73,10 +69,8 @@ import {
   type BuildPhaseV4,
   type FromWorkerV4,
   type GenerationDocSpecV4,
-  type MissingWarmDocV4,
   type QueryOpV4,
   type StorageWarningCodeV4,
-  type WarmMissReasonV4,
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
@@ -85,11 +79,6 @@ import type { ArtifactStore, DocumentIndexCacheKey } from './store.ts';
 
 type EmitV4 = (message: FromWorkerV4, transfers?: readonly Transferable[]) => void;
 type Yield = () => Promise<void>;
-
-// The durable user-data seam types live with the extracted handler; re-export
-// so the worker shell and tests keep one engine import.
-export type { UserDataAccess, UserDataProvider } from './user-data-handler.ts';
-import { UserDataHandler, type UserDataProvider } from './user-data-handler.ts';
 
 /** Bail-out sentinels caught at the dispatch boundary and swallowed:
  *  CANCELLED aborts the whole job (a `cancelled`/error was already emitted);
@@ -137,7 +126,6 @@ interface ResolvedDocPlan {
   readonly extractionRecipeHash: string;
   readonly expectedText?: string | undefined;
   readonly expectedSourceHash?: string | undefined;
-  readonly sourcePersisted: boolean;
 }
 
 interface GenerationStateV4 {
@@ -197,7 +185,7 @@ interface PrepareInput {
 
 type WarmProbe =
   | { readonly kind: 'prepare'; readonly cheap: boolean; readonly input: PrepareInput }
-  | { readonly kind: 'needs-bytes'; readonly reason: WarmMissReasonV4 }
+  | { readonly kind: 'needs-bytes' }
   | { readonly kind: 'mismatch'; readonly message: string };
 
 /**
@@ -231,8 +219,6 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
 
 export class WorkerEngineV4 {
   private readonly store: ArtifactStore;
-  private readonly userData: UserDataProvider;
-  private readonly userDataHandler: UserDataHandler;
   private readonly emit: EmitV4;
   private readonly yieldControl: Yield;
   private generation: GenerationStateV4 | null = null;
@@ -244,20 +230,11 @@ export class WorkerEngineV4 {
    *  values to exercise the aggregate-cap paths without near-limit buffers. */
   private readonly caps: IngestCapsV0;
 
-  constructor(store: ArtifactStore, userData: UserDataProvider, emit: EmitV4, yieldControl: Yield, caps: IngestCapsV0 = INGEST_CAPS_V0) {
+  constructor(store: ArtifactStore, emit: EmitV4, yieldControl: Yield, caps: IngestCapsV0 = INGEST_CAPS_V0) {
     this.store = store;
-    this.userData = userData;
     this.emit = emit;
     this.yieldControl = yieldControl;
     this.caps = caps;
-    // The user-data lane is a separate subsystem (own error channel, no
-    // generation state) — the engine keeps only job bookkeeping and dispatch.
-    this.userDataHandler = new UserDataHandler({
-      provider: userData,
-      maxSourceBytesPerFile: caps.maxSourceBytesPerFile,
-      isCancelled: (job) => this.cancelledJobs.has(job),
-      emit: (m) => this.emit(m),
-    });
   }
 
   /** The per-document extraction limits `extractSource` enforces — the output
@@ -299,13 +276,6 @@ export class WorkerEngineV4 {
           return;
         case 'cancel':
           if (this.activeJobs.has(message.job)) this.cancelledJobs.add(message.job);
-          return;
-        case 'project-load':
-        case 'project-save':
-        case 'research-load':
-        case 'research-save':
-        case 'source-persist':
-          await this.userDataHandler.handle(message);
           return;
         default: {
           // Unreachable: parseToWorkerV4 maps every unknown tag to null and
@@ -368,7 +338,7 @@ export class WorkerEngineV4 {
 
     // Warm resolution: classify every doc, batch exact + cheap into ONE
     // snapshot, stream expensive rebuilds, then fire the barrier.
-    const misses: MissingWarmDocV4[] = [];
+    const missingDocs: string[] = [];
     const cheapBatch: { prepared: PreparedDocument; token: DocWorkToken }[] = [];
     const expensive: { plan: ResolvedDocPlan; input: PrepareInput; token: DocWorkToken }[] = [];
 
@@ -382,7 +352,7 @@ export class WorkerEngineV4 {
         this.gate(job, gen);
         if (!this.owns(token)) continue; // an ingest superseded this warm claim
         if (probe.kind === 'needs-bytes') {
-          misses.push({ doc, need: 'source-bytes', reason: probe.reason });
+          missingDocs.push(doc);
         } else if (probe.kind === 'mismatch') {
           // A terminal identity failure — bytes cannot repair it; report and
           // do NOT list it as a byte miss (no refetch loop).
@@ -400,7 +370,7 @@ export class WorkerEngineV4 {
         if (!this.emitTerminalWarmFailure(e, job, generation)) {
           // A failed warm attempt falls back to the byte path; a real fault
           // will surface with full context on the cold ingest.
-          misses.push({ doc, need: 'source-bytes', reason: 'rehydrate-failed' });
+          missingDocs.push(doc);
         }
       }
     }
@@ -426,7 +396,7 @@ export class WorkerEngineV4 {
         if (e === SUPERSEDED) continue;
         if (e === CANCELLED) throw e;
         if (!this.emitTerminalWarmFailure(e, job, generation)) {
-          misses.push({ doc: work.plan.doc, need: 'source-bytes', reason: 'rehydrate-failed' });
+          missingDocs.push(work.plan.doc);
         }
       }
     }
@@ -435,7 +405,7 @@ export class WorkerEngineV4 {
     // concurrent ingest committed OR accepted-in-flight must NOT appear in
     // `missing` — the invariant is "exactly the docs that still need bytes".
     this.gate(job, gen);
-    const outstanding = misses.filter((m) => !gen.ready.has(m.doc) && gen.work.get(m.doc)?.accepted === undefined);
+    const outstanding = missingDocs.filter((doc) => !gen.ready.has(doc) && gen.work.get(doc)?.accepted === undefined);
     this.emit({
       v: PROTOCOL_VERSION_V4,
       t: 'generation-ready',
@@ -443,7 +413,7 @@ export class WorkerEngineV4 {
       generation,
       snapshot: gen.snapshot?.id ?? null,
       readyDocs: gen.snapshot === null ? [] : gen.snapshot.docs.map((d) => d.doc),
-      missing: outstanding,
+      missingDocs: outstanding,
     });
   }
 
@@ -497,7 +467,6 @@ export class WorkerEngineV4 {
         extractionRecipeHash: spec.extraction.recipeHash,
         expectedText: spec.extraction.expectedText,
         expectedSourceHash: spec.source.expectedHash,
-        sourcePersisted: spec.source.availability === 'persisted',
       });
     }
     if (sourceBytesTotal > this.caps.maxProjectSourceBytes) {
@@ -528,18 +497,16 @@ export class WorkerEngineV4 {
   private async probeWarmDocument(job: number, plan: ResolvedDocPlan, token: DocWorkToken): Promise<WarmProbe> {
     const gen = token.generation;
     if (plan.expectedText === undefined) {
-      // No text identity to rehydrate from — the only warm source is persisted
-      // bytes (re-extracted below); otherwise bytes are required.
-      return this.probeFromSource(job, plan, token, 'text-miss');
+      return { kind: 'needs-bytes' };
     }
     const read = await this.store.getText(plan.expectedText);
     this.docGate(job, token);
-    if (read.kind === 'miss') return this.probeFromSource(job, plan, token, 'text-miss');
+    if (read.kind === 'miss') return { kind: 'needs-bytes' };
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' is corrupt (${read.reason}); deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
       this.docGate(job, token);
-      return this.probeFromSource(job, plan, token, 'text-miss');
+      return { kind: 'needs-bytes' };
     }
     // The stored text must HASH to its asserted identity — a record under the
     // right key proves nothing about its content. The warm path's ONE text
@@ -557,7 +524,7 @@ export class WorkerEngineV4 {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' does not hash to its key; deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
       this.docGate(job, token);
-      return this.probeFromSource(job, plan, token, 'text-miss');
+      return { kind: 'needs-bytes' };
     }
     const textHash = plan.expectedText;
 
@@ -568,91 +535,6 @@ export class WorkerEngineV4 {
       kind: 'prepare',
       cheap: shard !== undefined,
       input: shard === undefined ? { verified } : { verified, shard },
-    };
-  }
-
-  /** Warm resolution from a PERSISTED source only: re-extract the durable bytes
-   *  (never a network fetch), then prepare from the extracted text. A corrupt
-   *  durable source is reported and RETAINED (it may be the user's only copy). */
-  private async probeFromSource(
-    job: number,
-    plan: ResolvedDocPlan,
-    token: DocWorkToken,
-    missReason: WarmMissReasonV4,
-  ): Promise<WarmProbe> {
-    const gen = token.generation;
-    // Not a persisted source (external/bundled) — the client must supply bytes;
-    // the reason is why the disposable extraction/text cache could not serve it.
-    if (!plan.sourcePersisted || plan.expectedSourceHash === undefined) {
-      return { kind: 'needs-bytes', reason: missReason };
-    }
-    const access = await this.userData();
-    this.docGate(job, token);
-    // Durable store unavailable — still need bytes, for the disposable reason.
-    if (access.kind !== 'ok') return { kind: 'needs-bytes', reason: missReason };
-    let read;
-    try {
-      read = await access.store.getSource(plan.expectedSourceHash);
-    } catch {
-      return { kind: 'needs-bytes', reason: 'source-not-persisted' };
-    }
-    this.docGate(job, token);
-    if (read.kind === 'miss') return { kind: 'needs-bytes', reason: 'source-miss' };
-    if (read.kind === 'corrupt') {
-      // Durable damage is CLASS-1 user data needing repair — it is reported
-      // through the warm-miss reason (→ the session's SourceRepairReason),
-      // NEVER through the artifact-CACHE warning vocabulary, whose contract
-      // says "disposable; recompute" (pass-2 Track S2). The record is retained.
-      return { kind: 'needs-bytes', reason: 'source-corrupt' };
-    }
-    // AUTHENTICATE BEFORE EXTRACTING (track-S review): the envelope check
-    // proves schema/length only. Hash the stored bytes now, so EVERY content
-    // mismatch — including one that would make decoding/parsing fail or blow
-    // an extraction cap — reaches the repairable persisted-corrupt path
-    // instead of degrading to rehydrate-failed or a terminal error.
-    // `rehydrate-failed` is reserved for an AUTHENTIC source the current
-    // extractor can no longer reproduce.
-    const storedHash = await hashSourceBytes(new Uint8Array(read.value.bytes));
-    this.docGate(job, token);
-    if (storedHash !== plan.expectedSourceHash) {
-      return { kind: 'needs-bytes', reason: 'source-corrupt' };
-    }
-    // Re-extract the durable bytes as if freshly ingested. Determinism means
-    // the extraction reproduces the manifest's TextHash.
-    // Same ONE extraction runtime the cold path uses; only the FAILURE POLICY
-    // differs here (warm re-extraction of an already-hash-verified source): a cap
-    // becomes a CapError the warm loop maps to CAP_EXCEEDED, while a decode/parse
-    // failure downgrades to a byte miss (the warm loop's rehydrate-failed
-    // fallback) rather than a terminal error. The afterPhase hook runs this doc's
-    // generation/ownership gate at the phase boundary.
-    let extracted;
-    try {
-      extracted = await extractSource(new Uint8Array(read.value.bytes), plan.extractionRecipe, this.extractionLimits(), {
-        onPhaseStart: (phase) => this.progress(job, gen.generation, phase, plan.doc),
-        afterPhase: () => this.docGate(job, token),
-      });
-    } catch (e) {
-      if (e instanceof ExtractionFailure) {
-        if (e.code === 'CAP_EXCEEDED') throw new CapError(`persisted source for '${plan.doc}' extracts past a cap`);
-        // Decode/parse failure on a persisted source is NOT terminal — a plain
-        // error routes the warm loop to its rehydrate-failed byte-miss fallback.
-        throw new Error(`persisted source for '${plan.doc}' failed to re-extract: ${e.message}`);
-      }
-      throw e; // SUPERSEDED / CANCELLED from the gate
-    }
-    this.docGate(job, token);
-    const identity = { source: extracted.artifact.source, text: extracted.artifact.text };
-    // The source bytes were hash-authenticated BEFORE extraction, so a
-    // text drift here is a terminal EXTRACTION_MISMATCH
-    // (deterministic re-extraction contradiction), never a byte miss.
-    this.assertAssertedIdentity(plan, identity, true);
-    // A re-extracted persisted source performed NO main-thread transfer.
-    this.freezeAccepted(token, identity, 0);
-    this.emitSourceReady(job, gen.generation, plan, extracted);
-    return {
-      kind: 'prepare',
-      cheap: false,
-      input: { verified: extracted.verified },
     };
   }
 
@@ -1235,8 +1117,8 @@ export class WorkerEngineV4 {
   /**
    * The ONE classification of a warm-path failure as TERMINAL (emitted, never
    * listed as a byte miss. Returns false for everything
-   * else, which the caller degrades to a `rehydrate-failed` byte miss — that
-   * DELIBERATELY includes RangeError, unlike `mapError` (a warm attempt may
+   * else, which the caller degrades to a source-byte miss. That DELIBERATELY
+   * includes RangeError, unlike `mapError` (a warm attempt may
    * fall back to the byte path; the cold ingest surfaces the real fault with
    * full context).
    */
