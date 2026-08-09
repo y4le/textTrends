@@ -25,7 +25,6 @@ import type {
   QueryOpV4,
   QueryResultDataV4,
 } from '../shared/analysis-contract.ts';
-import type { StorageWarningCode } from '../shared/storage-contract.ts';
 
 export const PROTOCOL_VERSION_V4 = 4;
 
@@ -44,8 +43,12 @@ export type {
   WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 
-/** The artifact-cache health vocabulary is the storage contract's. */
-export type StorageWarningCodeV4 = StorageWarningCode;
+/** Artifact-cache health degradation emitted on the worker wire. */
+export type StorageWarningCodeV4 =
+  | 'CACHE_UNAVAILABLE'
+  | 'CACHE_READ_FAILED'
+  | 'CACHE_WRITE_FAILED'
+  | 'CACHE_CORRUPT';
 
 export type WorkerErrorCodeV4 =
   | 'PROTOCOL_VERSION'

@@ -16,8 +16,13 @@
  *   type must not claim more trust than the boundary has earned.
  */
 
-import type { CacheRead } from '../shared/storage-contract.ts';
 import type { DocumentIndexV1 } from '@texttrends/core';
+
+/** A disposable cache read: hit, miss, or a present-but-invalid record. */
+export type CacheRead<T> =
+  | { readonly kind: 'miss' }
+  | { readonly kind: 'hit'; readonly value: T }
+  | { readonly kind: 'corrupt'; readonly reason: string };
 
 /** Identity tuple for a cached document index. `segmenter` is the canonical
  *  hex hash of the fingerprint, never the fingerprint object. */
@@ -28,10 +33,8 @@ export interface DocumentIndexCacheKey {
   readonly segmenter: string;
 }
 
-export type { CacheRead } from '../shared/storage-contract.ts';
-
 /**
- * Class-3 disposable artifact storage (content-addressed, recomputable).
+ * Disposable artifact storage (content-addressed, recomputable).
  * getShard returns `unknown`: the store validates only its own envelope; the
  * ENGINE is the authority for artifact ABI.
  */

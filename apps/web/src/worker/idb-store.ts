@@ -24,7 +24,7 @@
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
 import { isRecord } from '@texttrends/core';
 import type { DocumentIndexV1 } from '@texttrends/core';
-import type { StorageWarningCode } from '../shared/storage-contract.ts';
+import type { StorageWarningCodeV4 as StorageWarningCode } from './protocol-v4.ts';
 import {
   InMemoryArtifactStore,
   type ArtifactStore,
