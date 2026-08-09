@@ -42,6 +42,82 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   const warmBarrierAt = events(warm, { direction: 'from-worker', t: 'generation-ready' })[0]!.at;
   const warmReopenMs = warmBarrierAt - warmBeginAt;
 
+  // Footer passage latency after the intentional one-time hover-entry dwell.
+  // The observer distinguishes the retained stale page from the fresh page,
+  // while protocol stamps split scheduling, worker, and DOM-settle time on the
+  // same main-thread performance clock.
+  const footerSlider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const footerBox = await footerSlider.boundingBox();
+  if (!footerBox) throw new Error('footer slider has no layout box');
+  await page.mouse.move(footerBox.x + footerBox.width * 0.12, footerBox.y + 5);
+  await expect(page.getByRole('button', { name: /Open reader at .* token/ })).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.evaluate(() => {
+    const footer = document.querySelector('.workbench-footer');
+    if (!footer) throw new Error('footer is not mounted');
+    const scope = window as unknown as {
+      __ttFooterPassageProbe?: { armed: boolean; startedAt: number; settledAt: number | null };
+    };
+    scope.__ttFooterPassageProbe = { armed: false, startedAt: 0, settledAt: null };
+    new MutationObserver(() => {
+      const probe = scope.__ttFooterPassageProbe;
+      const passage = footer.querySelector('.footer-passage');
+      if (
+        probe?.armed
+        && passage
+        && !passage.classList.contains('footer-passage-stale')
+        && passage.querySelector('#footer-passage-node')
+      ) {
+        probe.settledAt = performance.now();
+        probe.armed = false;
+      }
+    }).observe(footer, { attributes: true, childList: true, subtree: true });
+  });
+  const footerPassageSamples: Array<{
+    pointerToQueryMs: number;
+    workerMs: number;
+    resultToDomMs: number;
+    totalMs: number;
+  }> = [];
+  for (const ratio of [0.31, 0.55, 0.79, 0.43, 0.68]) {
+    const beforeSeq = (await trace(page)).events.at(-1)?.seq ?? -1;
+    const startedAt = await page.evaluate(() => {
+      const probe = (window as unknown as {
+        __ttFooterPassageProbe: { armed: boolean; startedAt: number; settledAt: number | null };
+      }).__ttFooterPassageProbe;
+      probe.startedAt = performance.now();
+      probe.settledAt = null;
+      probe.armed = true;
+      return probe.startedAt;
+    });
+    await page.mouse.move(footerBox.x + footerBox.width * ratio, footerBox.y + 5);
+    await expect.poll(() => page.evaluate(() => (
+      window as unknown as { __ttFooterPassageProbe: { settledAt: number | null } }
+    ).__ttFooterPassageProbe.settledAt)).not.toBeNull();
+    const settledAt = await page.evaluate(() => (
+      window as unknown as { __ttFooterPassageProbe: { settledAt: number } }
+    ).__ttFooterPassageProbe.settledAt);
+    const t = await trace(page);
+    const post = t.events.find((event) => event.seq > beforeSeq
+      && event.direction === 'to-worker'
+      && event.t === 'query'
+      && event.op === 'reader-page');
+    const result = post
+      ? t.events.find((event) => event.seq > beforeSeq
+          && event.direction === 'from-worker'
+          && event.t === 'result'
+          && event.job === post.job)
+      : undefined;
+    if (!post || !result) throw new Error('footer passage trace did not settle a correlated query');
+    footerPassageSamples.push({
+      pointerToQueryMs: post.at - startedAt,
+      workerMs: result.at - post.at,
+      resultToDomMs: settledAt - result.at,
+      totalMs: settledAt - startedAt,
+    });
+  }
+
   // Query latency samples through the real UI (trend + kwic per input).
   const queryLatencies: number[] = [];
   for (const terms of ['watson', 'moriarty', 'adler', 'lestrade', 'baskerville']) {
@@ -82,6 +158,7 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     coldFirstT1Ms,
     coldAllReadyMs,
     warmReopenMs,
+    footerPassageSamples,
     queryLatencies,
     cancelAckMs: acks,
     cancelAckP95Ms: p95,
@@ -94,9 +171,17 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     body: JSON.stringify(record, null, 2),
     contentType: 'application/json',
   });
-  console.log(`[bench] cold barrier ${coldBarrierMs.toFixed(0)}ms · first T1 ${coldFirstT1Ms.toFixed(0)}ms · all ready ${coldAllReadyMs.toFixed(0)}ms · warm reopen ${warmReopenMs.toFixed(0)}ms · cancel p95 ${p95.toFixed(1)}ms (${acks.length} acks)`);
+  const footerTotals = footerPassageSamples.map((sample) => sample.totalMs).sort((a, b) => a - b);
+  const footerMedian = footerTotals[Math.floor(footerTotals.length / 2)]!;
+  const medianOf = (field: keyof (typeof footerPassageSamples)[number]) => {
+    const values = footerPassageSamples.map((sample) => sample[field]).sort((a, b) => a - b);
+    return values[Math.floor(values.length / 2)]!;
+  };
+  console.log(`[bench] cold barrier ${coldBarrierMs.toFixed(0)}ms · first T1 ${coldFirstT1Ms.toFixed(0)}ms · all ready ${coldAllReadyMs.toFixed(0)}ms · warm reopen ${warmReopenMs.toFixed(0)}ms · footer passage ${footerMedian.toFixed(1)}ms median (${medianOf('pointerToQueryMs').toFixed(1)} schedule + ${medianOf('workerMs').toFixed(1)} worker + ${medianOf('resultToDomMs').toFixed(1)} DOM) · cancel p95 ${p95.toFixed(1)}ms (${acks.length} acks)`);
 
   // Cancellation acknowledgement budget: p95 < 250ms.
   expect(acks.length).toBeGreaterThanOrEqual(20);
   expect(p95).toBeLessThan(250);
+  expect(footerPassageSamples.every((sample) => Object.values(sample).every(Number.isFinite)))
+    .toBe(true);
 });

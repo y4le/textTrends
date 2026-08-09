@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
+  advanceFooterShuttle,
   corpusProgress,
+  FOOTER_SHUTTLE_MAX_FRAME_MS,
+  FOOTER_SHUTTLE_MAX_OFFSET_PX,
+  footerShuttleRate,
   footerBlockSize,
   footerGeometryFor,
   footerPassageDisplay,
@@ -55,6 +59,42 @@ describe('reading footer view', () => {
     expect(corpusProgress(layout, 1, 0)).toBeNull();
   });
 
+  it('maps drag offset to a bounded signed reading rate', () => {
+    expect(footerShuttleRate(0, 20)).toBe(0);
+    expect(footerShuttleRate(FOOTER_SHUTTLE_MAX_OFFSET_PX, 20)).toBe(50);
+    expect(footerShuttleRate(-FOOTER_SHUTTLE_MAX_OFFSET_PX * 2, 20)).toBe(-50);
+    expect(footerShuttleRate(4, 20)).toBeCloseTo(50 / 144);
+    expect(footerShuttleRate(Number.NaN, 20)).toBe(0);
+  });
+
+  it('advances continuously across books and clamps corpus edges and long frames', () => {
+    const layout = sequenceLayoutFor(['a', 'empty', 'b'], (doc) => (
+      doc === 'a' ? 3 : doc === 'b' ? 4 : 0
+    ));
+    expect(advanceFooterShuttle(layout, 2.5, 10, 100)).toEqual({
+      position: 3.5,
+      docOrdinal: 2,
+      token: 0,
+    });
+    expect(advanceFooterShuttle(layout, 3.5, -10, 100)).toEqual({
+      position: 2.5,
+      docOrdinal: 0,
+      token: 2,
+    });
+    expect(advanceFooterShuttle(layout, 0.5, -100, 100)).toEqual({
+      position: 0.5,
+      docOrdinal: 0,
+      token: 0,
+    });
+    expect(advanceFooterShuttle(layout, 6.5, 100, 100)).toEqual({
+      position: 6.5,
+      docOrdinal: 2,
+      token: 3,
+    });
+    expect(advanceFooterShuttle(layout, 0.5, 10, FOOTER_SHUTTLE_MAX_FRAME_MS * 10))
+      .toEqual({ position: 1.5, docOrdinal: 0, token: 1 });
+  });
+
   it('formats compact, partial, and failure status honestly', () => {
     expect(footerStatusText(null)).toBe('no reading position');
     expect(footerStatusText({
@@ -87,7 +127,7 @@ describe('reading footer view', () => {
     expect(footerPassageServes(state, { doc: 'a', token: 10 }, 's1', () => 'changed')).toBe(false);
   });
 
-  it('keeps an authenticated page aligned to its own anchor while the target is outside it', () => {
+  it('holds stale source at a page edge or its validated anchor', () => {
     const resident = page(10, 20);
     const state = {
       snapshot: 's1',
@@ -101,13 +141,21 @@ describe('reading footer view', () => {
       stale: false,
     });
     expect(footerPassageDisplay(state, { doc: 'a', token: 80 }, 's1')).toMatchObject({
+      token: 19,
+      stale: true,
+    });
+    expect(footerPassageDisplay(state, { doc: 'a', token: 0 }, 's1')).toMatchObject({
+      token: 10,
+      stale: true,
+    });
+    expect(footerPassageDisplay(state, { doc: 'b', token: 80 }, 's1')).toMatchObject({
       token: 14,
       stale: true,
     });
     expect(footerPassageDisplay({
       ...state,
       page: { ...resident, anchor: { token: 80, relToken: 70, charsUtf16: { start: 70, end: 71 } } },
-    }, { doc: 'a', token: 80 }, 's1')).toMatchObject({
+    }, { doc: 'b', token: 80 }, 's1')).toMatchObject({
       token: 10,
       stale: true,
     });

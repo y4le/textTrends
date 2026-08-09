@@ -165,3 +165,26 @@ policy exists yet to measure at the 10M/50M tiers. Peak transient worker memory
 (structured clone + binding copies) needs a manual Chrome trace/heap profile;
 the standard Performance API cannot attribute it. These move forward with the
 user-ingest milestone, where corpora larger than the bundle first become real.
+
+## 2026-08-09 — footer passage scheduling, dev machine (Linux, headless Chromium)
+
+The footer passage path now has a permanent non-gating browser sample in
+`apps/web/e2e/timings.bench.spec.ts`. After the intentional one-time 120 ms
+fine-pointer entry dwell is armed, five widely separated corpus positions are
+timed on one main-thread clock from pointer sample to query post, correlated
+worker result, and fresh passage DOM. The bundled six-book Sherlock corpus and
+the production-shaped e2e build are used; medians remain machine-local and do
+not establish a CI budget.
+
+| Passage path | Before | After |
+|---|---:|---:|
+| Continued cross-page scrub, pointer → fresh DOM | 128–134 ms | **14.9 ms median** |
+| After breakdown | ~127–133 ms scheduling + ~0.5–0.7 ms worker + ~1.1–1.4 ms DOM | **10.4 ms scheduling + 2.9 ms worker + 1.4 ms DOM** |
+
+The before sample was a direct browser measurement of the former 120 ms
+trailing passage debounce. The after sample is the checked-in benchmark run
+after removing that redundant timer; pointer samples remain frame-coalesced and
+the passage lane remains single-flight/latest-pending. The worker difference is
+ordinary run-to-run/corpus-cache variation at this scale, not a kernel change.
+The first hover still intentionally waits 120 ms before taking over global
+focus, but no longer stacks a second 120 ms passage delay after that dwell.

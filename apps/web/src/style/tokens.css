@@ -2891,6 +2891,10 @@ canvas {
   touch-action: pan-y;
 }
 
+.footer-strip[data-shuttling='true'] {
+  cursor: ew-resize;
+}
+
 .footer-strip:focus-visible {
   outline: 1px solid var(--fg);
   outline-offset: -1px;

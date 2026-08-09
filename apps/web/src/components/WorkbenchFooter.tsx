@@ -20,10 +20,13 @@ import {
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import {
+  advanceFooterShuttle,
   corpusProgress,
+  FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
   footerBlockSize,
   footerGeometryFor,
   footerPassageDisplay,
+  footerShuttleRate,
   footerStatusText,
   sequenceLayoutFor,
   type FooterGeometry,
@@ -60,6 +63,7 @@ import { FooterPassage } from './FooterPassage.tsx';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
+const FOOTER_SHUTTLE_ARIA_INTERVAL_MS = 1_000;
 
 interface FooterSeries {
   readonly id: string;
@@ -189,16 +193,41 @@ function FooterInteractive({
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const openReader = useApp((state) => state.openReader);
   const sliderRef = useRef<HTMLDivElement | null>(null);
+  const docsRef = useRef(docs);
+  const layoutRef = useRef(layout);
+  docsRef.current = docs;
+  layoutRef.current = layout;
   const pointerSample = useRef<{ readonly doc: string; readonly token: number } | null>(null);
   const frame = useRef<number | null>(null);
+  const shuttleFrame = useRef<number | null>(null);
+  const suppressDoubleClickUntil = useRef(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverReady = useRef(false);
+  const [visiblePassageTokens, setVisiblePassageTokens] = useState(
+    FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
+  );
+  const visiblePassageTokensRef = useRef(visiblePassageTokens);
+  visiblePassageTokensRef.current = visiblePassageTokens;
+  const [shuttleOffsetPx, setShuttleOffsetPx] = useState<number | null>(null);
+  const shuttleRate = shuttleOffsetPx === null
+    ? null
+    : footerShuttleRate(shuttleOffsetPx, visiblePassageTokens);
+  const ariaScrubLatest = useRef(scrub);
+  const ariaScrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const ariaShuttleActive = useRef(false);
+  const [ariaScrub, setAriaScrub] = useState(scrub);
   const pointerTap = useRef<{
     readonly pointerId: number;
+    readonly pointerType: string;
     readonly x: number;
     readonly y: number;
     readonly barcode: CapturedBarcodeTarget | null;
+    readonly anchorTarget: { readonly doc: string; readonly token: number } | null;
     moved: boolean;
+    mode: 'tap' | 'shuttle';
+    offsetPx: number;
+    position: number | null;
+    lastFrameAt: number | null;
   } | null>(null);
   const docOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
   const progress = scrub && docOrdinal >= 0
@@ -219,7 +248,15 @@ function FooterInteractive({
     ? seriesXFromToken(passageDocOrdinal, passageView.token, width, layout)
     : crosshairX;
   const title = scrub ? titles.get(scrub.doc) ?? scrub.doc : '';
-  const status = footerStatusText(progress && scrub ? {
+  const announcedScrub = shuttleRate === null ? scrub : (ariaScrub ?? scrub);
+  const ariaDocOrdinal = announcedScrub ? docs.indexOf(announcedScrub.doc) : -1;
+  const ariaProgress = announcedScrub && ariaDocOrdinal >= 0
+    ? corpusProgress(layout, ariaDocOrdinal, announcedScrub.token)
+    : null;
+  const ariaTitle = announcedScrub
+    ? titles.get(announcedScrub.doc) ?? announcedScrub.doc
+    : '';
+  const baseStatus = footerStatusText(progress && scrub ? {
     compact: presentation.width === 'compact',
     partial,
     docOrdinal,
@@ -231,6 +268,12 @@ function FooterInteractive({
     pending: pending || passage?.state.status === 'pending',
     failed,
   } : null);
+  const shuttleStatus = shuttleRate === null
+    ? ''
+    : Math.abs(shuttleRate) < 0.05
+      ? ' · reading paused · drag farther to set pace'
+      : ` · reading ${shuttleRate > 0 ? '→' : '←'} ${Math.abs(shuttleRate).toFixed(1)} tokens/s · release to pause`;
+  const status = `${baseStatus}${shuttleStatus}`;
   const honestyQualifier = [
     partial ? 'partial corpus' : '',
     pending ? 'computing' : failed > 0
@@ -252,9 +295,70 @@ function FooterInteractive({
       if (pointerSample.current) setScrub(pointerSample.current);
     });
   }, [setScrub]);
+
+  useEffect(() => {
+    ariaScrubLatest.current = scrub;
+    if (shuttleRate === null) {
+      if (ariaScrubTimer.current !== null) {
+        clearTimeout(ariaScrubTimer.current);
+        ariaScrubTimer.current = null;
+      }
+      if (ariaShuttleActive.current) setAriaScrub(scrub);
+      ariaShuttleActive.current = false;
+      return;
+    }
+    if (!ariaShuttleActive.current) setAriaScrub(scrub);
+    ariaShuttleActive.current = true;
+    ariaScrubTimer.current ??= setTimeout(() => {
+      ariaScrubTimer.current = null;
+      setAriaScrub(ariaScrubLatest.current);
+    }, FOOTER_SHUTTLE_ARIA_INTERVAL_MS);
+  }, [scrub, shuttleRate]);
+
+  const stopShuttle = useCallback(() => {
+    if (shuttleFrame.current !== null) {
+      cancelAnimationFrame(shuttleFrame.current);
+      shuttleFrame.current = null;
+    }
+    setShuttleOffsetPx(null);
+  }, []);
+
+  const runShuttle = useCallback(() => {
+    if (shuttleFrame.current !== null) return;
+    const tick = (at: number) => {
+      shuttleFrame.current = null;
+      const tap = pointerTap.current;
+      if (!tap || tap.mode !== 'shuttle' || tap.position === null) return;
+      const rate = footerShuttleRate(tap.offsetPx, visiblePassageTokensRef.current);
+      const firstFrame = tap.lastFrameAt === null;
+      const elapsed = firstFrame ? 0 : at - tap.lastFrameAt!;
+      tap.lastFrameAt = at;
+      const previousPosition = tap.position;
+      const next = advanceFooterShuttle(layoutRef.current, tap.position, rate, elapsed);
+      if (next) {
+        tap.position = next.position;
+        const doc = docsRef.current[next.docOrdinal];
+        const current = useApp.getState().scrub;
+        if (doc && (current?.doc !== doc || current.token !== next.token)) {
+          setScrub({ doc, token: next.token });
+        }
+      }
+      if (
+        rate !== 0
+        && (firstFrame || next?.position !== previousPosition)
+        && pointerTap.current?.mode === 'shuttle'
+      ) {
+        shuttleFrame.current = requestAnimationFrame(tick);
+      }
+    };
+    shuttleFrame.current = requestAnimationFrame(tick);
+  }, [setScrub]);
+
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
+    if (shuttleFrame.current !== null) cancelAnimationFrame(shuttleFrame.current);
     if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
+    if (ariaScrubTimer.current !== null) clearTimeout(ariaScrubTimer.current);
   }, []);
   const attachSlider = useCallback((element: HTMLDivElement | null) => {
     sliderRef.current = element;
@@ -365,6 +469,10 @@ function FooterInteractive({
     <div
       className="footer-interactive"
       onDoubleClick={(event) => {
+        if (Date.now() < suppressDoubleClickUntil.current) {
+          event.preventDefault();
+          return;
+        }
         if ((event.target as Element).closest('button, a')) return;
         const point = localPoint(event);
         if (!point || snapshot === null) return;
@@ -403,6 +511,7 @@ function FooterInteractive({
         crosshairX={passageX}
         coarse={presentation.pointer === 'coarse'}
         widthClass={presentation.width}
+        onVisibleTokensChange={setVisiblePassageTokens}
       />
       <div className="footer-reading-status" title={status}>{status}</div>
       <div
@@ -415,9 +524,10 @@ function FooterInteractive({
         aria-valuemin={0}
         aria-valuemax={Math.max(0, layout.totalTokens - 1)}
         aria-valuenow={progress?.globalToken ?? 0}
-        aria-valuetext={progress && scrub
-          ? `${title} · token ${(scrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[docOrdinal] ?? 0).toLocaleString()} · ${progress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}`
+        aria-valuetext={ariaProgress && announcedScrub
+          ? `${ariaTitle} · token ${(announcedScrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[ariaDocOrdinal] ?? 0).toLocaleString()} · ${ariaProgress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}${shuttleRate === null ? '' : ` · reading ${shuttleRate >= 0 ? 'forward' : 'backward'} at ${Math.abs(shuttleRate).toFixed(1)} tokens per second`}`
           : 'no position'}
+        data-shuttling={shuttleRate === null ? undefined : 'true'}
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
         onPointerEnter={(event) => {
@@ -452,6 +562,31 @@ function FooterInteractive({
             if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) >= 4) {
               tap.moved = true;
             }
+            if (
+              tap.moved
+              && tap.pointerType === 'mouse'
+              && presentation.pointer !== 'coarse'
+              && tap.anchorTarget !== null
+            ) {
+              if (tap.mode === 'tap') {
+                tap.mode = 'shuttle';
+                const d = docs.indexOf(tap.anchorTarget.doc);
+                tap.position = d >= 0
+                  ? (layout.bases[d] ?? 0) + tap.anchorTarget.token + 0.5
+                  : null;
+                tap.lastFrameAt = null;
+                pointerSample.current = null;
+                if (frame.current !== null) {
+                  cancelAnimationFrame(frame.current);
+                  frame.current = null;
+                }
+                setScrub(tap.anchorTarget);
+              }
+              tap.offsetPx = event.clientX - tap.x;
+              setShuttleOffsetPx(tap.offsetPx);
+              runShuttle();
+              event.preventDefault();
+            }
             return;
           }
           if (presentation.pointer === 'coarse' || event.buttons !== 0) return;
@@ -470,12 +605,18 @@ function FooterInteractive({
           const point = localPoint(event);
           pointerTap.current = {
             pointerId: event.pointerId,
+            pointerType: event.pointerType,
             x: event.clientX,
             y: event.clientY,
             barcode: point && event.pointerType === 'mouse'
               ? captureBarcodeAt(point.x, point.y, true)
               : null,
+            anchorTarget: point ? rawTarget(point.x) : null,
             moved: false,
+            mode: 'tap',
+            offsetPx: 0,
+            position: null,
+            lastFrameAt: null,
           };
         }}
         onPointerUp={(event) => {
@@ -484,6 +625,12 @@ function FooterInteractive({
           pointerTap.current = null;
           if (event.currentTarget.hasPointerCapture(event.pointerId)) {
             event.currentTarget.releasePointerCapture(event.pointerId);
+          }
+          if (tap.mode === 'shuttle') {
+            stopShuttle();
+            suppressDoubleClickUntil.current = Date.now() + 500;
+            event.preventDefault();
+            return;
           }
           if (tap.moved) return;
           const resolution = tap.barcode
@@ -514,6 +661,7 @@ function FooterInteractive({
         onPointerCancel={(event) => {
           if (pointerTap.current?.pointerId === event.pointerId) {
             pointerTap.current = null;
+            stopShuttle();
           }
           hoverReady.current = false;
           pointerSample.current = null;
@@ -524,6 +672,12 @@ function FooterInteractive({
           if (frame.current !== null) {
             cancelAnimationFrame(frame.current);
             frame.current = null;
+          }
+        }}
+        onLostPointerCapture={(event) => {
+          if (pointerTap.current?.pointerId === event.pointerId) {
+            pointerTap.current = null;
+            stopShuttle();
           }
         }}
       >

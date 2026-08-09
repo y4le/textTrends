@@ -59,6 +59,45 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   await expect(footer).toBeVisible();
 });
 
+test('a mouse drag shuttles through source continuously and release pauses', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const box = await slider.boundingBox();
+  if (!box) throw new Error('footer slider has no layout box');
+  const anchorX = box.x + box.width * 0.3;
+  const y = box.y + 5;
+
+  await page.mouse.move(anchorX, y);
+  await expect(page.getByRole('button', { name: /Open reader at .* token/ })).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.mouse.down();
+  await page.mouse.move(anchorX + 24, y);
+  await expect(slider).toHaveAttribute('data-shuttling', 'true');
+  const anchored = Number(await slider.getAttribute('aria-valuenow'));
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')), {
+    timeout: 5_000,
+  }).toBeGreaterThan(anchored);
+
+  await page.mouse.up();
+  await expect(slider).not.toHaveAttribute('data-shuttling', 'true');
+  const paused = Number(await slider.getAttribute('aria-valuenow'));
+  await page.waitForTimeout(300);
+  expect(Number(await slider.getAttribute('aria-valuenow'))).toBe(paused);
+
+  // Native click/dblclick synthesis after real drags must never open Reader.
+  for (let i = 0; i < 2; i++) {
+    await page.mouse.move(anchorX, y);
+    await page.mouse.down();
+    await page.mouse.move(anchorX + 12, y);
+    await page.waitForTimeout(60);
+    await page.mouse.up();
+  }
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+});
+
 test('an exact footer barcode tick centers Concordance without opening Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);

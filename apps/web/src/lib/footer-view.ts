@@ -4,6 +4,11 @@ import type { CapturedTrack } from './track-legend.ts';
 import type { TrendGeometry } from './trend-compact.ts';
 import { barcodeBandHeight, type SequenceLayout } from './trend-geometry.ts';
 
+export const FOOTER_SHUTTLE_MAX_OFFSET_PX = 48;
+export const FOOTER_SHUTTLE_MAX_WINDOWS_PER_SECOND = 2.5;
+export const FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS = 20;
+export const FOOTER_SHUTTLE_MAX_FRAME_MS = 100;
+
 export interface FooterGeometry extends TrendGeometry {
   readonly passageHeight: number;
   readonly statusHeight: number;
@@ -104,6 +109,65 @@ export function sequenceLayoutFor(
   return { bases, tokenCounts, totalTokens };
 }
 
+/** Signed reading rate for the explicit footer drag-shuttle. The quadratic
+ * curve gives precise control near the press point and a bounded skim rate at
+ * larger offsets. A "window" is the number of source tokens visibly fitting
+ * in the passage lane. */
+export function footerShuttleRate(
+  offsetPx: number,
+  visibleTokens: number,
+): number {
+  if (!Number.isFinite(offsetPx) || !Number.isFinite(visibleTokens) || visibleTokens <= 0) {
+    return 0;
+  }
+  const normalized = Math.min(1, Math.abs(offsetPx) / FOOTER_SHUTTLE_MAX_OFFSET_PX);
+  return Math.sign(offsetPx)
+    * visibleTokens
+    * FOOTER_SHUTTLE_MAX_WINDOWS_PER_SECOND
+    * normalized ** 2;
+}
+
+export interface FooterShuttleAdvance {
+  /** Fractional declared-sequence position, expressed at token centres. */
+  readonly position: number;
+  readonly docOrdinal: number;
+  readonly token: number;
+}
+
+/** Advance a fractional reading position through declared document order.
+ * Long background-frame gaps are capped so switching tabs never skips source;
+ * corpus edges clamp rather than wrapping. */
+export function advanceFooterShuttle(
+  layout: SequenceLayout,
+  position: number,
+  rateTokensPerSecond: number,
+  elapsedMs: number,
+): FooterShuttleAdvance | null {
+  if (
+    layout.totalTokens <= 0
+    || !Number.isFinite(position)
+    || !Number.isFinite(rateTokensPerSecond)
+    || !Number.isFinite(elapsedMs)
+  ) return null;
+  const boundedElapsed = Math.max(0, Math.min(FOOTER_SHUTTLE_MAX_FRAME_MS, elapsedMs));
+  const next = Math.max(
+    0.5,
+    Math.min(
+      layout.totalTokens - 0.5,
+      position + rateTokensPerSecond * boundedElapsed / 1_000,
+    ),
+  );
+  const globalToken = Math.floor(next);
+  for (let d = 0; d < layout.tokenCounts.length; d++) {
+    const count = layout.tokenCounts[d] ?? 0;
+    const base = layout.bases[d] ?? 0;
+    if (count > 0 && globalToken >= base && globalToken < base + count) {
+      return { position: next, docOrdinal: d, token: globalToken - base };
+    }
+  }
+  return null;
+}
+
 export interface FooterProgress {
   readonly globalToken: number;
   readonly ratio: number;
@@ -177,8 +241,9 @@ export interface FooterPassageDisplay {
 }
 
 /** Resolve the honest resident source presentation independently of request
- * status. A stale page aligns to its authenticated request anchor, never to a
- * scrub token whose text it does not contain. */
+ * status. A stale page holds at the nearest authenticated page edge while the
+ * cursor crosses it; unrelated-document seeks fall back to the validated
+ * request anchor. It never aligns to text the resident page does not contain. */
 export function footerPassageDisplay(
   passage: FooterPassageLike | null,
   target: { readonly doc: string; readonly token: number } | null,
@@ -192,11 +257,15 @@ export function footerPassageDisplay(
   const anchor = page.anchor?.token;
   const token = serves
     ? target.token
-    : Number.isSafeInteger(anchor)
+    : page.doc === target.doc && target.token >= page.tokens.end
+      ? page.tokens.end - 1
+      : page.doc === target.doc && target.token < page.tokens.start
+        ? page.tokens.start
+        : Number.isSafeInteger(anchor)
         && anchor! >= page.tokens.start
         && anchor! < page.tokens.end
-      ? anchor!
-      : page.tokens.start;
+          ? anchor!
+          : page.tokens.start;
   return { page, token, stale: !serves };
 }
 

@@ -35,6 +35,18 @@ pinned Claude Opus planner through Parley (request
 `req_consult_774ced41afcab047`, artifact
 `art_sha256_509e1efd128bc65e29c7352f4591f5c39c6fa23c9e01d0caa7b44564064daff1`).
 
+The later performance pass removed the redundant passage debounce while
+retaining frame coalescing and single-flight delivery. Because an absolute
+corpus axis cannot spatially expose every token of a long book, fine-pointer
+dragging now provides an explicit time-based reading shuttle: offset controls
+bounded reading rate, the cursor remains tied to the displayed token, and
+release pauses. Hover seeking, unmoved clicks, barcode activation, and
+double-click Reader targets remain absolute. The design was developed with an
+explicitly pinned Claude Opus planner through Parley (requests
+`req_consult_fcf58840756d3ec5` and `req_consult_74ebce271aa7c433`, artifacts
+`art_sha256_a255426783351f3ba4d86e9f3163f70f51fd75d64a9bf7c55a769eb28ee6e0ec`
+and `art_sha256_82ea70944cd693abfb7797df42f937f16b4f4f4eeace168c8d4880da76cd8049`).
+
 ## 2026-08-02 — Barcode embedded in trend geometry
 
 The owner moved dispersion from a separate strip into the bottom of the trend

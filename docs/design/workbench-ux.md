@@ -129,7 +129,15 @@ portrait Lens dock and to the right of the compact-landscape rail. The source
 line is a transient `reader-page/1` window. Pointer samples are frame-coalesced;
 its independent single-flight lane issues the newest unserved position
 immediately, retains the last authenticated page while the next is in flight,
-and saves no text or range. Fine-pointer
+and saves no text or range. Absolute hover continues to seek the shared corpus
+axis. A fine-pointer press-and-drag instead acts as an explicit reading
+shuttle: horizontal distance from the press point controls a bounded token
+rate, the truthful cursor advances through declared book order while the
+pointer is held, and release pauses at the exact displayed token. This
+time-based gesture can traverse the whole corpus without being limited by a
+many-tokens-per-pixel absolute scale; at slower rates it exposes each successive
+token, while the maximum rate is intentionally a skim. An unmoved click keeps
+its existing barcode/raw activation. Fine-pointer
 hover requires a brief entry dwell before it moves global focus and snaps to a
 nearby exact barcode occurrence; density hover remains at the raw corpus
 position. Coarse input gets a 44px strip and a 44px passage action that opens

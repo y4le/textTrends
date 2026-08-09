@@ -48,6 +48,7 @@ export function FooterPassage({
   crosshairX,
   coarse,
   widthClass,
+  onVisibleTokensChange,
 }: {
   readonly passage: FooterPassageState | null;
   readonly scrub: ScrubTarget | null;
@@ -56,11 +57,13 @@ export function FooterPassage({
   readonly crosshairX: number | null;
   readonly coarse: boolean;
   readonly widthClass: WidthClass;
+  readonly onVisibleTokensChange: (tokens: number) => void;
 }) {
   const openReader = useApp((state) => state.openReader);
   const retryPassage = useApp((state) => state.runFooterPassage);
   const focusedSeries = useApp((state) => state.focusedSeries);
   const beforeRef = useRef<HTMLSpanElement | null>(null);
+  const passageRef = useRef<HTMLElement | null>(null);
   const [canvasFont, setCanvasFont] = useState('');
   const view = footerPassageDisplay(passage, scrub, snapshot);
   const page = view?.page ?? null;
@@ -89,6 +92,18 @@ export function FooterPassage({
     const next = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
     setCanvasFont((current) => current === next ? current : next);
   }, [coarse, page, widthClass]);
+
+  useLayoutEffect(() => {
+    if (!page || !passageRef.current || canvasFont === '' || display === '') return;
+    const pageWidth = measuredTextWidth(display, canvasFont);
+    if (pageWidth <= 0 || passageRef.current.clientWidth <= 0) return;
+    const pageTokens = page.tokens.end - page.tokens.start;
+    const visible = Math.max(
+      1,
+      Math.min(pageTokens, Math.round(pageTokens * passageRef.current.clientWidth / pageWidth)),
+    );
+    onVisibleTokensChange(visible);
+  }, [canvasFont, display, onVisibleTokensChange, page]);
 
   const centerOffset = useMemo(() => measuredTextWidth(
     display.slice(0, centerStart),
@@ -193,6 +208,7 @@ export function FooterPassage({
 
   return coarse && !stale ? (
     <button
+      ref={(element) => { passageRef.current = element; }}
       id="footer-passage-node"
       type="button"
       className="footer-passage footer-passage-coarse source-text"
@@ -203,6 +219,7 @@ export function FooterPassage({
     </button>
   ) : (
     <div
+      ref={(element) => { passageRef.current = element; }}
       className={`footer-passage source-text${stateClass}`}
       aria-busy={passage?.state.status === 'pending'}
     >
