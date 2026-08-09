@@ -46,11 +46,11 @@ import {
   projectedBarcodeTracks,
 } from '../lib/trend-stage.ts';
 import {
-  bucketActivationAt,
-  snapBarcodeIndex,
-  type BarcodeActivation,
+  captureBarcodePointerTarget,
+  resolveCapturedBarcodeTarget,
   type BarcodeSnapIndex,
   type BarcodeTrackVM,
+  type CapturedBarcodeTarget,
 } from '../lib/barcode-view.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -195,6 +195,7 @@ function FooterInteractive({
     readonly pointerId: number;
     readonly x: number;
     readonly y: number;
+    readonly barcode: CapturedBarcodeTarget | null;
     moved: boolean;
   } | null>(null);
   const docOrdinal = scrub ? docs.indexOf(scrub.doc) : -1;
@@ -262,10 +263,12 @@ function FooterInteractive({
     const doc = at ? docs[at.d] : undefined;
     return at && doc ? { ...at, doc } : null;
   };
-  const activationAt = (x: number, y: number): {
-    readonly track: BarcodeTrackVM;
-    readonly activation: BarcodeActivation;
-  } | null => {
+  const captureBarcodeAt = (
+    x: number,
+    y: number,
+    allowExactSnap: boolean,
+    ensureExactIndexes = false,
+  ): CapturedBarcodeTarget | null => {
     const barcodeY = y - stripTop - geometry.seriesHeight - geometry.barcodeBandGap;
     const stride = geometry.barcodeTrackHeight + geometry.barcodeTrackGap;
     const row = stride > 0 ? Math.floor(barcodeY / stride) : -1;
@@ -279,14 +282,32 @@ function FooterInteractive({
       || rowOffset < 0
       || rowOffset >= geometry.barcodeTrackHeight
     ) return null;
-    const exactIndexes = track.representation === 'exact' && snapIndexes.length === 0
+    const exactIndexes = allowExactSnap
+      && ensureExactIndexes
+      && track.representation === 'exact'
+      && snapIndexes.length === 0
       ? projectedBarcodeSnapIndexes(tracks)
       : snapIndexes;
-    const activation = track.representation === 'exact'
-      ? snapBarcodeIndex(exactIndexes[row]?.[target.d] ?? null, x, (d, token) =>
-          seriesXFromTokenEdge(d, token, width, layout))
-      : bucketActivationAt(track, target.doc, target.token);
-    return activation ? { track, activation } : null;
+    return captureBarcodePointerTarget(
+      tracks,
+      exactIndexes,
+      {
+        trackRow: row,
+        docOrdinal: target.d,
+        doc: target.doc,
+        rawToken: target.token,
+        px: x,
+      },
+      (d, token) => seriesXFromTokenEdge(d, token, width, layout),
+      allowExactSnap,
+    );
+  };
+  const pointerTargetAt = (x: number, y: number, ensureExactIndexes = false) => {
+    const raw = rawTarget(x);
+    if (!raw) return null;
+    const captured = captureBarcodeAt(x, y, true, ensureExactIndexes);
+    const snapped = captured?.exactActivation;
+    return snapped ? { ...raw, doc: snapped.doc, token: snapped.token } : raw;
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -333,8 +354,20 @@ function FooterInteractive({
         if ((event.target as Element).closest('button, a')) return;
         const point = localPoint(event);
         if (!point || snapshot === null) return;
-        const snapped = activationAt(point.x, point.y)?.activation ?? null;
-        const target = snapped ?? rawTarget(point.x);
+        const captured = captureBarcodeAt(
+          point.x,
+          point.y,
+          presentation.pointer !== 'coarse',
+          true,
+        );
+        const resolution = captured
+          ? resolveCapturedBarcodeTarget(tracks, captured)
+          : null;
+        const target = resolution?.kind === 'activation'
+          ? resolution.activation
+          : resolution?.kind === 'scrub'
+            ? resolution
+            : rawTarget(point.x);
         if (!target) return;
         event.preventDefault();
         setScrub({ doc: target.doc, token: target.token });
@@ -377,7 +410,7 @@ function FooterInteractive({
           hoverReady.current = false;
           if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
           const point = localPoint(event);
-          const target = point ? rawTarget(point.x) : null;
+          const target = point ? pointerTargetAt(point.x, point.y, true) : null;
           pointerSample.current = target ? { doc: target.doc, token: target.token } : null;
           hoverTimer.current = setTimeout(() => {
             hoverTimer.current = null;
@@ -407,7 +440,9 @@ function FooterInteractive({
           }
           if (presentation.pointer === 'coarse' || event.buttons !== 0) return;
           const point = localPoint(event);
-          const target = point ? rawTarget(point.x) : null;
+          const target = point
+            ? pointerTargetAt(point.x, point.y, !hoverReady.current)
+            : null;
           if (!target) return;
           const sample = { doc: target.doc, token: target.token };
           if (hoverReady.current) schedule(sample);
@@ -416,10 +451,19 @@ function FooterInteractive({
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0) return;
           event.currentTarget.setPointerCapture(event.pointerId);
+          const point = localPoint(event);
           pointerTap.current = {
             pointerId: event.pointerId,
             x: event.clientX,
             y: event.clientY,
+            barcode: point && event.pointerType === 'mouse'
+              ? captureBarcodeAt(
+                  point.x,
+                  point.y,
+                  presentation.pointer !== 'coarse',
+                  true,
+                )
+              : null,
             moved: false,
           };
         }}
@@ -431,24 +475,28 @@ function FooterInteractive({
             event.currentTarget.releasePointerCapture(event.pointerId);
           }
           if (tap.moved) return;
-          const point = localPoint(event);
-          if (!point) return;
-          const activation = presentation.pointer !== 'coarse'
-            && event.pointerType === 'mouse'
-            ? activationAt(point.x, point.y)
+          const resolution = tap.barcode
+            ? resolveCapturedBarcodeTarget(tracks, tap.barcode)
             : null;
-          if (activation) {
-            setScrub({ doc: activation.activation.doc, token: activation.activation.token });
+          if (resolution?.kind === 'activation') {
+            const { activation, track } = resolution;
+            setScrub({ doc: activation.doc, token: activation.token });
             centerKwicAt(
-              activation.track.seriesId,
-              activation.activation.doc,
-              activation.activation.token,
-              activation.activation.kind === 'bucket'
-                ? { kind: 'bucket', count: activation.activation.bucketCount ?? 0 }
+              track.seriesId,
+              activation.doc,
+              activation.token,
+              activation.kind === 'bucket'
+                ? { kind: 'bucket', count: activation.bucketCount ?? 0 }
                 : undefined,
             );
             return;
           }
+          if (resolution?.kind === 'scrub') {
+            setScrub({ doc: resolution.doc, token: resolution.token });
+            return;
+          }
+          const point = localPoint(event);
+          if (!point) return;
           const target = rawTarget(point.x);
           if (target) setScrub({ doc: target.doc, token: target.token });
         }}

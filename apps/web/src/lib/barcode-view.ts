@@ -278,6 +278,39 @@ export interface CapturedBarcodeTarget {
   readonly exactActivation: BarcodeActivation | null;
 }
 
+/** Capture the stable, token-space identity used by the Trends barcode before
+ * activation. Both rendered barcodes call this authority so exact proximity,
+ * document-boundary ownership, and later density resolution cannot drift. */
+export function captureBarcodePointerTarget(
+  tracks: readonly BarcodeTrackVM[],
+  snapIndexes: readonly (readonly (BarcodeSnapIndex | null)[])[],
+  sample: {
+    readonly trackRow: number;
+    readonly docOrdinal: number;
+    readonly doc: string;
+    readonly rawToken: number;
+    readonly px: number;
+  },
+  xAtEdge: (docOrdinal: number, token: number) => number,
+  allowExactSnap = true,
+): CapturedBarcodeTarget | null {
+  const track = tracks[sample.trackRow];
+  if (!track || track.docOrder[sample.docOrdinal] !== sample.doc) return null;
+  const exactActivation = allowExactSnap && track.representation === 'exact'
+    ? snapBarcodeIndex(
+        snapIndexes[sample.trackRow]?.[sample.docOrdinal] ?? null,
+        sample.px,
+        xAtEdge,
+      )
+    : null;
+  return {
+    trackId: track.seriesId,
+    doc: sample.doc,
+    rawToken: sample.rawToken,
+    exactActivation,
+  };
+}
+
 export type CapturedBarcodeResolution =
   | {
       readonly kind: 'activation';

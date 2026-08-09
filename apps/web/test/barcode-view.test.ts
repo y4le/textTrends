@@ -5,7 +5,19 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1 } from '@texttrends/core';
-import { barcodeTracks, bucketActivationAt, buildBarcodeSnapIndexes, kwicCaptionText, orderTracks, resolveCapturedBarcodeTarget, selectedBarcodeTotalText, snapBarcodeIndex, stepTarget, trackSummaryText } from '../src/lib/barcode-view.ts';
+import {
+  barcodeTracks,
+  bucketActivationAt,
+  buildBarcodeSnapIndexes,
+  captureBarcodePointerTarget,
+  kwicCaptionText,
+  orderTracks,
+  resolveCapturedBarcodeTarget,
+  selectedBarcodeTotalText,
+  snapBarcodeIndex,
+  stepTarget,
+  trackSummaryText,
+} from '../src/lib/barcode-view.ts';
 
 const exactResult = (): DispersionResultV1 => ({
   method: 'dispersion/1',
@@ -246,6 +258,49 @@ describe('orderTracks — the resident strip follows a query-free reorder', () =
 });
 
 describe('captured barcode identity', () => {
+  it('captures the shared exact snap and density raw target before resolving either barcode', () => {
+    const exactTracks = barcodeTracks(exactResult(), ['a', 'b']);
+    const exactIndexes = exactTracks.map((track) => buildBarcodeSnapIndexes(track));
+    const exact = captureBarcodePointerTarget(
+      exactTracks,
+      exactIndexes,
+      { trackRow: 0, docOrdinal: 0, doc: 'a', rawToken: 3, px: 32 },
+      (_d, token) => token * 10,
+    );
+    expect(exact).toEqual({
+      trackId: 's1',
+      doc: 'a',
+      rawToken: 3,
+      exactActivation: { kind: 'occurrence', doc: 'a', token: 4 },
+    });
+    expect(resolveCapturedBarcodeTarget(exactTracks, exact!)).toMatchObject({
+      kind: 'activation',
+      activation: { kind: 'occurrence', doc: 'a', token: 4 },
+    });
+
+    const densityTracks = barcodeTracks(densityResult(), ['a']);
+    const density = captureBarcodePointerTarget(
+      densityTracks,
+      [],
+      { trackRow: 0, docOrdinal: 0, doc: 'a', rawToken: 60, px: 60 },
+      (_d, token) => token,
+    );
+    expect(resolveCapturedBarcodeTarget(densityTracks, density!)).toMatchObject({
+      kind: 'activation',
+      activation: { kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 },
+    });
+  });
+
+  it('rejects a document ordinal that does not belong to the rendered track', () => {
+    const tracks = barcodeTracks(exactResult(), ['a', 'b']);
+    expect(captureBarcodePointerTarget(
+      tracks,
+      tracks.map((track) => buildBarcodeSnapIndexes(track)),
+      { trackRow: 0, docOrdinal: 0, doc: 'b', rawToken: 1, px: 10 },
+      (_d, token) => token * 10,
+    )).toBeNull();
+  });
+
   it('resolves by the pointer-down series id after rows reorder', () => {
     const [wolf] = barcodeTracks(exactResult(), ['a', 'b']);
     const fox = { ...wolf!, seriesId: 'fox', groupId: 'fox' };

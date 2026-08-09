@@ -27,7 +27,13 @@ import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useStat
 import type { NumericTrend, TrendMeasureV2 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { BarcodeBand, BarcodeLegend } from './BarcodeStrip.tsx';
-import { resolveCapturedBarcodeTarget, snapBarcodeIndex, type BarcodeActivation, type BarcodeTrackVM } from '../lib/barcode-view.ts';
+import {
+  captureBarcodePointerTarget,
+  resolveCapturedBarcodeTarget,
+  type BarcodeActivation,
+  type BarcodeSnapIndex,
+  type BarcodeTrackVM,
+} from '../lib/barcode-view.ts';
 import { slotColor, slotDash } from '../lib/series-style.ts';
 import {
   bookXFromToken,
@@ -261,10 +267,6 @@ export function TrendPanel() {
   // the old ad-hoc fallback (d * count[d]) was NOT a prefix sum and would have
   // silently mislaid every x-position had it ever run.
   const bases = layout.bases;
-  const snapBarcode = (trackRow: number, d: number, px: number): BarcodeActivation | null =>
-    presentation.pointer === 'coarse'
-      ? null
-      : snapBarcodeIndex(snapIndexes[trackRow]?.[d] ?? null, px, edgeX);
   const activateBarcode = (
     track: BarcodeTrackVM,
     target: BarcodeActivation | null,
@@ -417,7 +419,9 @@ export function TrendPanel() {
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
         barcodeTracks={tracks}
-        snapBarcode={snapBarcode}
+        barcodeSnapIndexes={snapIndexes}
+        barcodeEdgeX={edgeX}
+        allowBarcodeSnap={presentation.pointer !== 'coarse'}
         hitSpec={hitSpec}
         onBarcodeActivate={activateBarcode}
         barcodeBand={(
@@ -618,7 +622,9 @@ function ScrubSurface({
   barcodeHeight,
   rowPitch,
   barcodeTracks,
-  snapBarcode,
+  barcodeSnapIndexes,
+  barcodeEdgeX,
+  allowBarcodeSnap,
   hitSpec,
   onBarcodeActivate,
   barcodeBand,
@@ -637,7 +643,9 @@ function ScrubSurface({
   barcodeHeight: number;
   rowPitch: number;
   barcodeTracks: readonly BarcodeTrackVM[];
-  snapBarcode: (trackRow: number, d: number, px: number) => BarcodeActivation | null;
+  barcodeSnapIndexes: readonly (readonly (BarcodeSnapIndex | null)[])[];
+  barcodeEdgeX: (docOrdinal: number, token: number) => number;
+  allowBarcodeSnap: boolean;
   hitSpec: TrendStageSpec;
   onBarcodeActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
   barcodeBand: React.ReactNode;
@@ -698,18 +706,29 @@ function ScrubSurface({
       rawToken: hit.token,
       zone: 'plot',
     };
-    const track = barcodeTracks[hit.trackRow];
-    if (!track) return null;
-    const snapped = allowSnap ? snapBarcode(hit.trackRow, hit.d, px) : null;
+    const captured = captureBarcodePointerTarget(
+      barcodeTracks,
+      barcodeSnapIndexes,
+      {
+        trackRow: hit.trackRow,
+        docOrdinal: hit.d,
+        doc,
+        rawToken: hit.token,
+        px,
+      },
+      barcodeEdgeX,
+      allowSnap && allowBarcodeSnap,
+    );
+    if (!captured) return null;
     return {
       d: hit.d,
       doc,
-      token: snapped?.token ?? hit.token,
+      token: captured.exactActivation?.token ?? hit.token,
       rawToken: hit.token,
       zone: 'barcode',
       trackRow: hit.trackRow,
-      trackId: track.seriesId,
-      snapActivation: snapped,
+      trackId: captured.trackId,
+      snapActivation: captured.exactActivation,
     };
   };
 

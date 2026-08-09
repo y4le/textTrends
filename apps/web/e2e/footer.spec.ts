@@ -127,12 +127,16 @@ test('a footer barcode double-click snaps to a nearby exact reference before ope
   await submitAndAwaitFreshResults(page, 'wolf');
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const band = footer.locator('canvas[data-barcode-band="series"]');
   const box = await band.boundingBox();
   if (!box) throw new Error('footer barcode has no layout box');
 
   // Four pixels before wolf@1 maps to token 0 on the raw axis, but remains
   // inside the exact barcode's eight-pixel snap tolerance.
+  await page.mouse.move(box.x + box.width * (1 / 9) - 4, box.y + 3);
+  await page.waitForTimeout(150); // footer entry dwell arms the shared index
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await band.dblclick({ position: { x: box.width * (1 / 9) - 4, y: 3 } });
 
   const reader = page.getByRole('main', { name: /Reader: footer-snap/ });

@@ -129,6 +129,8 @@ hover requires a brief entry dwell before it moves global focus; coarse input
 gets a 44px strip and a 44px passage action that opens Reader. Double-clicking
 any footer lane opens Reader directly at that corpus position; in a barcode
 lane, a nearby exact occurrence or occupied density cell supplies the target.
+The Trends and footer barcodes share one captured-target resolver, including
+the exact proximity threshold, overlap tie-break, and density midpoint rules.
 
 ## Concordance and direct reading
 
