@@ -337,6 +337,7 @@ class FakeSessionPort implements SessionPort {
   createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
   appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
+  removeDocument(doc: string): void { this.record('removeDocument', [doc]); }
   editMeta(doc: string, patch: MetaPatch): void { this.record('editMeta', [doc, patch]); }
   setLanguage(doc: string, language: string): void { this.record('setLanguage', [doc, language]); }
   setStructureOverride(doc: string, override: unknown): void { this.record('setStructureOverride', [doc, override]); }
@@ -1003,6 +1004,7 @@ describe('the session bridge', () => {
     const { store, port } = harness();
     const s = store.getState();
     s.removeImport('d');
+    s.removeDocument('d');
     s.editMeta('d', { title: 't' });
     s.setLanguage('d', 'fr');
     s.setStructureOverride('d', null);
@@ -1013,7 +1015,7 @@ describe('the session bridge', () => {
     s.reattach('d', { name: 'f.txt', size: 1, arrayBuffer: async () => new ArrayBuffer(1) });
     s.retryAnalysis();
     expect(port.calls.map((c) => c.method)).toEqual([
-      'loadResearch', 'removeImport', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
+      'loadResearch', 'removeImport', 'removeDocument', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
     ]);
   });
 

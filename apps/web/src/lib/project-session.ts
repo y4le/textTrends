@@ -595,6 +595,28 @@ export class ProjectSession {
     this.startGeneration();
   }
 
+  /** Remove a finalized document from the active user corpus. Its reusable
+   * browser-library copy (if any) is owned by the acquisition library and is
+   * deliberately untouched. */
+  removeDocument(doc: string): void {
+    this.assertUserCommand('removeDocument');
+    if (!this.finalized.has(doc)) return;
+    this.persistOps.invalidate(doc);
+    this.reattachOps.invalidate(doc);
+    this.correctionOps.invalidate(doc);
+    this.finalized.delete(doc);
+    this.order = this.order.filter((id) => id !== doc);
+    this.persistIntent.delete(doc);
+    this.attached.delete(doc);
+    this.sourceStatus.delete(doc);
+    this.reattachStatus.delete(doc);
+    this.sourceEvidence.delete(doc);
+    this.corrections.delete(doc);
+    this.touch();
+    this.data = this.materialize();
+    this.startGeneration();
+  }
+
   // ── Commands: metadata / order ──────────────────────────────────────────────
 
   /** Edit descriptive metadata (title/author/year/tags). Dirties the project

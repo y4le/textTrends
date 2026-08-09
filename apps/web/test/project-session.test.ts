@@ -629,6 +629,17 @@ describe('metadata vs generation-reopening edits (invariant 8)', () => {
     expect(client.opens.length).toBe(opensAfterImport + 2); // reopen
     expect(session.getState().project.data.order).toEqual([docs[1]!, docs[0]!]);
   });
+
+  it('removes a finalized document and reopens in the remaining declared order', async () => {
+    const { session, client } = makeSession(builtin());
+    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10), fakeFile('b.txt', 11)]);
+    const opensAfterImport = client.opens.length;
+    session.removeDocument(docs[0]!);
+    expect(session.getState().project.data.order).toEqual([docs[1]!]);
+    expect(session.getState().project.data.docs.map((doc) => doc.doc)).toEqual([docs[1]!]);
+    expect(session.getState().project.dirty).toBe(true);
+    expect(client.opens).toHaveLength(opensAfterImport + 1);
+  });
 });
 
 describe('source evidence projection (§12.4)', () => {

@@ -593,6 +593,7 @@ export interface SessionPort {
   createUserProject(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   appendFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   removeImport(doc: string): void;
+  removeDocument(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
   setStructureOverride(doc: string, override: StructureOverrideV1 | null): void;
@@ -821,6 +822,7 @@ export interface AppState {
   openBuiltinCorpus(id: BuiltinCorpusId): void;
   importFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
   removeImport(doc: string): void;
+  removeDocument(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
   /** Author (`override`) or discard (`null`) a doc's chapter-structure
@@ -3508,6 +3510,9 @@ export function createAppRuntime(
       },
       removeImport(doc) {
         command((s) => s.removeImport(doc));
+      },
+      removeDocument(doc) {
+        command((s) => s.removeDocument(doc));
       },
       editMeta(doc, patch) {
         command((s) => s.editMeta(doc, patch));
