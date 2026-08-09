@@ -14,6 +14,7 @@ import {
   useState,
   type CSSProperties,
   type KeyboardEvent,
+  type MouseEvent,
   type PointerEvent,
   type ReactNode,
 } from 'react';
@@ -184,6 +185,7 @@ function FooterInteractive({
   const snapshot = useApp((state) => state.snapshot);
   const setScrub = useApp((state) => state.setScrub);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
+  const openReader = useApp((state) => state.openReader);
   const sliderRef = useRef<HTMLDivElement | null>(null);
   const pointerSample = useRef<{ readonly doc: string; readonly token: number } | null>(null);
   const frame = useRef<number | null>(null);
@@ -245,7 +247,9 @@ function FooterInteractive({
     containerRef(element);
   }, [containerRef]);
 
-  const localPoint = (event: PointerEvent<HTMLDivElement>) => {
+  const localPoint = (
+    event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>,
+  ) => {
     const box = sliderRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0) return null;
     return {
@@ -335,6 +339,7 @@ function FooterInteractive({
       />
       <div className="footer-reading-status" title={status}>{status}</div>
       <div
+        id="corpus-footer-position"
         ref={attachSlider}
         className="footer-strip"
         role="slider"
@@ -348,6 +353,25 @@ function FooterInteractive({
           : 'no position'}
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
+        onDoubleClick={(event) => {
+          const point = localPoint(event);
+          if (
+            !point
+            || point.y < stripTop
+            || point.y >= stripTop + geometry.seriesHeight
+            || snapshot === null
+          ) return;
+          const target = rawTarget(point.x);
+          if (!target) return;
+          event.preventDefault();
+          setScrub({ doc: target.doc, token: target.token });
+          openReader({
+            snapshot: snapshot.snapshot,
+            doc: target.doc,
+            token: target.token,
+            from: 'footer',
+          }, 'corpus-footer-position');
+        }}
         onPointerEnter={(event) => {
           if (presentation.pointer === 'coarse' || event.pointerType !== 'mouse') return;
           onFinePointerEnter();

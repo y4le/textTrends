@@ -126,7 +126,8 @@ portrait Lens dock and to the right of the compact-landscape rail. The source
 line is a transient `reader-page/1` window; rapid scrubbing is debounced, a
 serving canonical page is reused, and no text or range is saved. Fine-pointer
 hover requires a brief entry dwell before it moves global focus; coarse input
-gets a 44px strip and a 44px passage action that opens Reader.
+gets a 44px strip and a 44px passage action that opens Reader. Double-clicking
+the fine-pointer sparkline opens Reader directly at that corpus position.
 
 ## Concordance and direct reading
 
@@ -137,8 +138,9 @@ for multi-book corpora and `token / total` when only one book is present.
 
 Activating a concordance node opens Reader directly. Exact barcode occurrence
 controls in Trends open Reader. The footer's barcode centers Concordance in
-place, while its current passage is the footer's Reader door. There is no saved
-excerpt, pinned passage, durable range, or comparison-occurrence sheet.
+place, while its current passage and a sparkline double-click open Reader at
+the current or clicked position. There is no saved excerpt, pinned passage,
+durable range, or comparison-occurrence sheet.
 
 ## Method and trend settings
 

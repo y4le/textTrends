@@ -83,3 +83,37 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
   await gotoPlace(page, 'concordance');
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible({ timeout: 15_000 });
 });
+
+test('double-clicking the footer sparkline opens Reader at that corpus point', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'corpus');
+  await page.getByLabel('Create project from files').setInputFiles({
+    name: 'footer-reader.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'trends');
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const sparkline = footer.locator('.footer-sparkline');
+  await expect(sparkline).toBeVisible();
+  const sliderBox = await slider.boundingBox();
+  const sparklineBox = await sparkline.boundingBox();
+  if (!sliderBox || !sparklineBox) throw new Error('footer sparkline has no layout box');
+
+  await slider.dblclick({
+    position: {
+      x: sliderBox.width * (5.5 / 9),
+      y: sparklineBox.y - sliderBox.y + sparklineBox.height / 2,
+    },
+  });
+
+  const reader = page.getByRole('main', { name: /Reader: footer-reader/ });
+  await expect(reader).toBeVisible();
+  await expect(reader.getByText('saw', { exact: true })).toHaveCSS('font-weight', '600');
+  await reader.getByRole('button', { name: 'back' }).click();
+  await expect(slider).toBeFocused();
+});
