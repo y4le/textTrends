@@ -2,8 +2,8 @@
 
 This is the reconciliation index for the current tree as of 2026-08-09. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
-feature plans explain how the tree arrived here, but may describe superseded
-UI shapes.
+the other retained design documents record current product decisions,
+measurement gates, and method contracts.
 
 ## Shipped
 

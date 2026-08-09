@@ -1,7 +1,7 @@
 /*
  * Design tokens — the single source of visual truth.
  *
- * Tufte-derived system (see docs/research/synthesis.md §4): information
+ * Tufte-derived system (see docs/design/workbench-ux.md): information
  * density, hairline rules over boxes, one accent, type carries hierarchy,
  * mono for data. No shadows, gradients, or decorative cards.
  */

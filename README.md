@@ -7,14 +7,15 @@ service.
 
 The current workbench supports:
 
-- TXT, Markdown, HTML/XHTML, and EPUB projects, plus the bundled Sherlock
+- TXT, Markdown, HTML/XHTML, and EPUB corpora, plus the bundled Sherlock
   Holmes corpus;
 - a persistent local file catalog with ordered active corpora;
 - vocabulary frequency, document dispersion, comparison, and keyness;
 - term-group trends, exact-or-density dispersion barcodes, linked ranges, and
   a merged keyword-in-context concordance;
 - a full-page canonical-text Reader with query highlights; and
-- durable project, notebook, and analysis-view settings.
+- one durable workspace containing the active corpus, notebook, and
+  analysis-view settings.
 
 The optional Standard Ebooks catalog is the one deliberate content-network
 path: opening the catalog loads a baked same-origin index, and adding a title
@@ -24,8 +25,8 @@ results remain browser-local.
 **Status: active rewrite.** The current architecture is functional and covered
 by unit and browser suites, while publication hardening and a hermetic external
 dependency remain open. See the [current roadmap](docs/design/current-roadmap.md)
-for the shipped/in-progress/deferred boundary. Older design documents are
-decision records, not necessarily descriptions of the current UI.
+for the shipped/in-progress/deferred boundary. The retained design documents
+describe current contracts and decisions rather than implementation history.
 
 ## Repository layout
 
@@ -34,8 +35,7 @@ decision records, not necessarily descriptions of the current UI.
 - `packages/core` — environment-independent indexing and analysis kernels
 - `packages/extractors` — lazy TXT/Markdown/HTML/EPUB extraction boundary
 - `packages/cli` — Node portability and benchmark harness
-- `docs/design` — contracts, executed plans, decisions, and current roadmap
-- `docs/research` — product and visualization research inputs
+- `docs/design` — current contracts, decisions, benchmarks, and roadmap
 - `text` — development corpora; read `text/README.md` before redistribution
 
 The root workspace currently enrolls a sibling `../standard_ebooks` checkout.

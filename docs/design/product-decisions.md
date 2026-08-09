@@ -4,6 +4,14 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-09 — Code-native analytical graphics
+
+Analytical graphics are built directly with React SVG or canvas and the shared
+CSS system. A D3 module may be introduced as a pure geometry or scale function
+when it earns its weight, but no general chart runtime owns rendering or
+interaction. This keeps exact token geometry, accessibility, responsive
+adaptation, and source-navigation semantics in one application-owned model.
+
 ## 2026-08-08 — One global corpus-reading footer
 
 The owner restored a fixed reading footer across all five workbench places.

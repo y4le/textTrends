@@ -1,8 +1,7 @@
 /**
- * Pure notebook-model helpers (slice-1 commit B, recorded ruling in
- * docs/design/term-groups-plan.md). Store-level behavior (actions,
- * projections, reissue policy) lives in store.test.ts; these prove the
- * pure functions' contracts directly.
+ * Pure notebook-model helpers from the slice-1 notebook ruling. Store-level
+ * behavior (actions, projections, reissue policy) lives in store.test.ts;
+ * these prove the pure functions' contracts directly.
  */
 import { describe, expect, it } from 'vitest';
 import {

@@ -1,5 +1,5 @@
 // texttrends CLI — Node benchmark/portability harness over @texttrends/core
-// (per the portable-core decision, synthesis §8.10): prove the core runs
+// The portability harness proves the core runs
 // headlessly and measure it. Runs on Node's native type stripping (invoke as
 // `node packages/cli/src/main.ts`); a built distributable with a `bin` entry
 // comes later with real subcommands.

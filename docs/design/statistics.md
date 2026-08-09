@@ -199,7 +199,7 @@ results). Bins partition each document's lexical tokens per the selected
 true `binTokens`, never padded. Occurrence de-duplication within a term group follows
 the group's `countOverlaps` (overlap identity = covered-token union).
 
-## Smoothing (overlay only — §8.7)
+## Smoothing (overlay only)
 
 Default trend is the unsmoothed equal-token-bin rate. The overlay is a centered
 rolling mean of bin values with window named in the UI and provenance; edges use

@@ -12,7 +12,7 @@
  *   tokens within the bin's span — the denominator never claims unselected
  *   text. Bins with zero selected tokens report rate 0 with binTokens 0.
  * - Output is unsmoothed raw counts + per-10k rates with true denominators;
- *   smoothing is a presentation-layer overlay (synthesis §8.7).
+ *   smoothing is a presentation-layer overlay (statistics.md §Smoothing).
  */
 
 import type { NumericOccurrences } from './occurrences.ts';

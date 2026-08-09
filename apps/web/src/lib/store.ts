@@ -1,5 +1,5 @@
 /**
- * UI state — zustand, per synthesis §8. Only handles, metadata, and bounded
+ * UI state — zustand. Only handles, metadata, and bounded
  * results live here; corpus arrays and texts stay worker-side.
  *
  * Commit 7c (the atomic listener cutover, per the recorded 7c integration
@@ -14,7 +14,7 @@
  * they are
  * request/response operations, not competing listeners.
  *
- * Query-notebook intent (slice-1 ruling, docs/design/term-groups-plan.md):
+ * Query-notebook intent (slice-1 notebook ruling):
  * the authoritative query model is an ordered notebook of term GROUPS, each
  * a stable UUID + display name + authored core members. The comparison is
  * the ≤MAX_SERIES ACTIVE groups (solo temporarily narrows to one); `series`

@@ -65,8 +65,23 @@ the index build could already own the high-water mark, making that delta
 incapable of measuring occurrence memory. That number and its memory-based
 conclusion are superseded by the phase-signalled samples above.
 
-Preliminary observations against the synthesis (§6) hypotheses. These are two real
-corpus points, not the formal 1M/10M/50M synthetic tiers (which join the suite with
+## WASM promotion gate
+
+Add a WebAssembly implementation only when all three conditions hold:
+
+- an optimized TypeScript implementation misses a written user-facing budget;
+- profiling shows that pass consumes at least roughly 25% of the affected path;
+  and
+- a vertical prototype improves representative end-to-end work by at least 2×
+  or reduces peak memory by at least 30%.
+
+The first plausible candidates are isolated heavy kernels such as n-grams,
+MinHash/LSH, or clustering—not KWIC or basic counts. Replacing the portable
+TypeScript core with Rust requires both a product need for a native core and a
+successful end-to-end spike; implementation-language preference is not a gate.
+
+Preliminary observations against the original performance hypotheses. These are two
+real corpus points, not the formal 1M/10M/50M synthetic tiers (which join the suite with
 the worker adapter) — treat extrapolations below as estimates, not evidence of a
 satisfied budget.
 
@@ -105,8 +120,8 @@ Readings (preliminary):
   and ~750 MB of retained typed arrays — the compute is comfortable; the memory
   suggests the 50M tier will need the contract's per-document lifecycle (not all
   shards resident at once) or sharded eviction. The formal tiers plus a
-  browser-worker measurement must confirm both before the §8.10 WASM tripwires are
-  declared safe, though nothing here approaches them.
+  browser-worker measurement must confirm both before the WASM promotion gate
+  can be considered, though nothing here approaches it.
 
 ## 2026-07-20 — first real-browser baseline (M6 Playwright suite), dev machine (Linux, headless Chromium 149)
 

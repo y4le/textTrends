@@ -36,7 +36,11 @@ There are five stable places:
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
 | Concordance | What contexts contain the terms? | merged KWIC table, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
-| Compare | What distinguishes explicit A and B? | keyness controls, rankings, confidence intervals, row detail |
+| Compare | What distinguishes explicit A and B? | keyness controls, effect and G² rankings, exact counts, row detail |
+
+Compare reports log-ratio effect alongside signed G² and the underlying counts
+and document ranges. No confidence intervals are available; the interface says
+so rather than implying precision the analysis contract does not provide.
 
 Catalog is reached through the **Scope** organ. Trends, Concordance, Vocabulary,
 and Compare form the **Lens** organ. Compact portrait bottom-docks the four Lens

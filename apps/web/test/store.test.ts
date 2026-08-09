@@ -1750,9 +1750,8 @@ describe('real ProjectSession composes with the store bridge', () => {
   });
 });
 
-// ── Slice-1 commit B: the query-notebook state machine (recorded ruling,
-//    docs/design/term-groups-plan.md). UI lands in later commits; these prove
-//    the model invariants through the store actions alone. ──
+// ── The query-notebook state machine from the slice-1 notebook ruling. These
+//    prove the model invariants through the store actions alone. ──
 describe('query notebook — identity discipline', () => {
   const groupsOf = (f: ReturnType<typeof harness>) => f.store.getState().notebook.groups;
 
