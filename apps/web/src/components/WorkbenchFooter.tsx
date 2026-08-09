@@ -15,7 +15,6 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
-  type PointerEvent,
   type ReactNode,
 } from 'react';
 import type { NumericTrend } from '@texttrends/core';
@@ -46,6 +45,7 @@ import {
   projectedBarcodeTracks,
 } from '../lib/trend-stage.ts';
 import {
+  barcodeReaderTarget,
   captureBarcodePointerTarget,
   resolveCapturedBarcodeTarget,
   type BarcodeSnapIndex,
@@ -180,6 +180,7 @@ function FooterInteractive({
   readonly onFinePointerEnter: () => void;
 }) {
   const presentation = usePresentation();
+  const allowExactSnap = presentation.pointer !== 'coarse';
   const scrub = useApp((state) => state.scrub);
   const passage = useApp((state) => state.footerPassage);
   const snapshot = useApp((state) => state.snapshot);
@@ -248,9 +249,7 @@ function FooterInteractive({
     containerRef(element);
   }, [containerRef]);
 
-  const localPoint = (
-    event: PointerEvent<HTMLDivElement> | MouseEvent<HTMLDivElement>,
-  ) => {
+  const localPoint = (event: MouseEvent<HTMLDivElement>) => {
     const box = sliderRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0) return null;
     return {
@@ -266,7 +265,6 @@ function FooterInteractive({
   const captureBarcodeAt = (
     x: number,
     y: number,
-    allowExactSnap: boolean,
     ensureExactIndexes = false,
   ): CapturedBarcodeTarget | null => {
     const barcodeY = y - stripTop - geometry.seriesHeight - geometry.barcodeBandGap;
@@ -302,10 +300,14 @@ function FooterInteractive({
       allowExactSnap,
     );
   };
-  const pointerTargetAt = (x: number, y: number, ensureExactIndexes = false) => {
+  const pointerTargetAt = (
+    x: number,
+    y: number,
+    ensureExactIndexes = false,
+  ) => {
     const raw = rawTarget(x);
     if (!raw) return null;
-    const captured = captureBarcodeAt(x, y, true, ensureExactIndexes);
+    const captured = captureBarcodeAt(x, y, ensureExactIndexes);
     const snapped = captured?.exactActivation;
     return snapped ? { ...raw, doc: snapped.doc, token: snapped.token } : raw;
   };
@@ -354,23 +356,25 @@ function FooterInteractive({
         if ((event.target as Element).closest('button, a')) return;
         const point = localPoint(event);
         if (!point || snapshot === null) return;
-        const captured = captureBarcodeAt(
-          point.x,
-          point.y,
-          presentation.pointer !== 'coarse',
-          true,
-        );
+        const captured = captureBarcodeAt(point.x, point.y, true);
         const resolution = captured
           ? resolveCapturedBarcodeTarget(tracks, captured)
           : null;
-        const target = resolution?.kind === 'activation'
-          ? resolution.activation
-          : resolution?.kind === 'scrub'
-            ? resolution
-            : rawTarget(point.x);
+        const raw = rawTarget(point.x);
+        const target = barcodeReaderTarget(resolution, raw);
         if (!target) return;
         event.preventDefault();
+        // Preserve the clicked reading position when Back restores the footer;
+        // Reader navigation itself intentionally uses the same exact target.
         setScrub({ doc: target.doc, token: target.token });
+        if (
+          resolution?.kind === 'activation'
+          && resolution.activation.kind === 'bucket'
+        ) {
+          // Supersede the two constituent click activations: the Reader and
+          // Concordance should settle on the same honest raw corpus point.
+          centerKwicAt(resolution.track.seriesId, target.doc, target.token);
+        }
         openReader({
           snapshot: snapshot.snapshot,
           doc: target.doc,
@@ -457,12 +461,7 @@ function FooterInteractive({
             x: event.clientX,
             y: event.clientY,
             barcode: point && event.pointerType === 'mouse'
-              ? captureBarcodeAt(
-                  point.x,
-                  point.y,
-                  presentation.pointer !== 'coarse',
-                  true,
-                )
+              ? captureBarcodeAt(point.x, point.y, true)
               : null,
             moved: false,
           };

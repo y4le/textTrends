@@ -70,6 +70,17 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(footerSlider).toBeVisible();
 
+  // A mouse on a coarse-presentation device still gets the whole-footer
+  // double-click door and focus restoration.
+  const footerBox = await footerSlider.boundingBox();
+  if (!footerBox) throw new Error('footer slider has no layout box');
+  await footerSlider.dblclick({
+    position: { x: footerBox.width * 0.63, y: footerBox.height / 2 },
+  });
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: 'back' }).click();
+  await expect(footerSlider).toBeFocused();
+
   const captions = [await scrubber.getAttribute('aria-valuetext')];
   await gotoPlace(page, 'concordance');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;

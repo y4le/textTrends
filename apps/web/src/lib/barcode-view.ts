@@ -141,6 +141,13 @@ export interface BarcodeActivation {
   readonly bucketCount?: number;
 }
 
+/** Reader may claim an exact occurrence anchor, never a density midpoint. */
+export function barcodeReaderActivation(
+  activation: BarcodeActivation | null,
+): BarcodeActivation | null {
+  return activation?.kind === 'occurrence' ? activation : null;
+}
+
 /** Width-independent index used by the graph's hover pipeline. It is built
  * only for exact tracks: density cells are aggregates and must never
  * masquerade as a snap target. Pixel projection happens during lookup, so a
@@ -278,19 +285,21 @@ export interface CapturedBarcodeTarget {
   readonly exactActivation: BarcodeActivation | null;
 }
 
+export interface BarcodePointerSample {
+  readonly trackRow: number;
+  readonly docOrdinal: number;
+  readonly doc: string;
+  readonly rawToken: number;
+  readonly px: number;
+}
+
 /** Capture the stable, token-space identity used by the Trends barcode before
  * activation. Both rendered barcodes call this authority so exact proximity,
  * document-boundary ownership, and later density resolution cannot drift. */
 export function captureBarcodePointerTarget(
   tracks: readonly BarcodeTrackVM[],
   snapIndexes: readonly (readonly (BarcodeSnapIndex | null)[])[],
-  sample: {
-    readonly trackRow: number;
-    readonly docOrdinal: number;
-    readonly doc: string;
-    readonly rawToken: number;
-    readonly px: number;
-  },
+  sample: BarcodePointerSample,
   xAtEdge: (docOrdinal: number, token: number) => number,
   allowExactSnap = true,
 ): CapturedBarcodeTarget | null {
@@ -335,6 +344,22 @@ export function resolveCapturedBarcodeTarget(
   return activation
     ? { kind: 'activation', track, activation }
     : { kind: 'scrub', doc: captured.doc, token: captured.rawToken };
+}
+
+/** Resolve a barcode gesture into an honest Reader coordinate. Exact
+ * occurrences may supply their snapped target; density buckets fall back to
+ * the raw corpus point because their midpoint is not an occurrence. */
+export function barcodeReaderTarget(
+  resolution: CapturedBarcodeResolution | null,
+  raw: { readonly doc: string; readonly token: number } | null,
+): { readonly doc: string; readonly token: number } | null {
+  if (resolution?.kind === 'scrub') {
+    return { doc: resolution.doc, token: resolution.token };
+  }
+  if (resolution?.kind === 'activation') {
+    return barcodeReaderActivation(resolution.activation) ?? raw;
+  }
+  return raw;
 }
 
 /** Walk a track's occurrences RELATIVE to the current center, in reading order

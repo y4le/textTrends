@@ -125,12 +125,21 @@ and the resident multi-track dispersion barcode. It sits above the compact
 portrait Lens dock and to the right of the compact-landscape rail. The source
 line is a transient `reader-page/1` window; rapid scrubbing is debounced, a
 serving canonical page is reused, and no text or range is saved. Fine-pointer
-hover requires a brief entry dwell before it moves global focus; coarse input
-gets a 44px strip and a 44px passage action that opens Reader. Double-clicking
-any footer lane opens Reader directly at that corpus position; in a barcode
-lane, a nearby exact occurrence or occupied density cell supplies the target.
+hover requires a brief entry dwell before it moves global focus and snaps to a
+nearby exact barcode occurrence; density hover remains at the raw corpus
+position. Coarse input gets a 44px strip and a 44px passage action that opens
+Reader. Double-clicking any non-control footer area opens Reader directly at
+that corpus position. In an exact barcode lane, a nearby occurrence supplies
+the target; in a density lane, Reader stays at the raw clicked position because
+an aggregate midpoint is not an exact source reference. The coarse passage
+button remains a direct action for the current position.
+
 The Trends and footer barcodes share one captured-target resolver, including
-the exact proximity threshold, overlap tie-break, and density midpoint rules.
+the exact proximity threshold, overlap tie-break, document ownership, and
+density midpoint rules. Density midpoints may center Concordance, but neither
+barcode presents them as exact Reader occurrences. A footer density
+double-click supersedes its constituent bucket clicks so Concordance, Reader,
+and the reading cursor settle on the same raw corpus position.
 
 ## Concordance and direct reading
 

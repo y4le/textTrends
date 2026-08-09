@@ -6,6 +6,8 @@
 import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1 } from '@texttrends/core';
 import {
+  barcodeReaderActivation,
+  barcodeReaderTarget,
   barcodeTracks,
   bucketActivationAt,
   buildBarcodeSnapIndexes,
@@ -277,17 +279,63 @@ describe('captured barcode identity', () => {
       kind: 'activation',
       activation: { kind: 'occurrence', doc: 'a', token: 4 },
     });
+    expect(barcodeReaderActivation(exact!.exactActivation)).toEqual({
+      kind: 'occurrence',
+      doc: 'a',
+      token: 4,
+    });
+    const unsnappedExact = captureBarcodePointerTarget(
+      exactTracks,
+      exactIndexes,
+      { trackRow: 0, docOrdinal: 0, doc: 'a', rawToken: 3, px: 32 },
+      (_d, token) => token * 10,
+      false,
+    );
+    expect(unsnappedExact?.exactActivation).toBeNull();
+    expect(resolveCapturedBarcodeTarget(exactTracks, unsnappedExact!)).toEqual({
+      kind: 'scrub',
+      doc: 'a',
+      token: 3,
+    });
 
     const densityTracks = barcodeTracks(densityResult(), ['a']);
-    const density = captureBarcodePointerTarget(
+    const densityWithSnap = captureBarcodePointerTarget(
       densityTracks,
       [],
       { trackRow: 0, docOrdinal: 0, doc: 'a', rawToken: 60, px: 60 },
       (_d, token) => token,
     );
-    expect(resolveCapturedBarcodeTarget(densityTracks, density!)).toMatchObject({
+    expect(densityWithSnap?.exactActivation).toBeNull();
+    const density = captureBarcodePointerTarget(
+      densityTracks,
+      [],
+      { trackRow: 0, docOrdinal: 0, doc: 'a', rawToken: 60, px: 60 },
+      (_d, token) => token,
+      false,
+    );
+    const densityResolution = resolveCapturedBarcodeTarget(densityTracks, density!);
+    expect(densityResolution).toMatchObject({
       kind: 'activation',
       activation: { kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 },
+    });
+    expect(barcodeReaderActivation(
+      densityResolution.kind === 'activation' ? densityResolution.activation : null,
+    )).toBeNull();
+    expect(barcodeReaderTarget(densityResolution, { doc: 'a', token: 60 })).toEqual({
+      doc: 'a',
+      token: 60,
+    });
+    expect(barcodeReaderTarget(
+      resolveCapturedBarcodeTarget(exactTracks, exact!),
+      { doc: 'a', token: 3 },
+    )).toMatchObject({ doc: 'a', token: 4 });
+    expect(barcodeReaderTarget(
+      resolveCapturedBarcodeTarget(exactTracks, unsnappedExact!),
+      { doc: 'a', token: 99 },
+    )).toEqual({ doc: 'a', token: 3 });
+    expect(barcodeReaderTarget(null, { doc: 'a', token: 7 })).toEqual({
+      doc: 'a',
+      token: 7,
     });
   });
 

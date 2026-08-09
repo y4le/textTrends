@@ -84,7 +84,7 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
   await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible({ timeout: 15_000 });
 });
 
-test('double-clicking outside the footer strip still opens Reader at that corpus point', async ({ page }) => {
+test('status and sparkline double-clicks open Reader at their raw corpus points', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'corpus');
@@ -95,6 +95,7 @@ test('double-clicking outside the footer strip still opens Reader at that corpus
   });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'wolf');
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -111,6 +112,22 @@ test('double-clicking outside the footer strip still opens Reader at that corpus
   await expect(reader.getByText('saw', { exact: true })).toHaveCSS('font-weight', '600');
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();
+
+  const sliderBox = await slider.boundingBox();
+  const sparklineBox = await footer.locator('.footer-sparkline').boundingBox();
+  if (!sliderBox || !sparklineBox) throw new Error('footer sparkline has no layout box');
+  // This point is four pixels before wolf@1. A barcode lane would snap to
+  // wolf, while the sparkline must retain the raw token 0 target (`the`).
+  await slider.dblclick({
+    position: {
+      x: sliderBox.width * (1 / 9) - 4,
+      y: sparklineBox.y - sliderBox.y + sparklineBox.height / 2,
+    },
+  });
+  await expect(reader).toBeVisible();
+  const articles = reader.locator('.source-text').getByText('the', { exact: true });
+  await expect(articles).toHaveCount(1);
+  await expect(articles.first()).toHaveCSS('font-weight', '600');
 });
 
 test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {
@@ -135,7 +152,7 @@ test('a footer barcode double-click snaps to a nearby exact reference before ope
   // Four pixels before wolf@1 maps to token 0 on the raw axis, but remains
   // inside the exact barcode's eight-pixel snap tolerance.
   await page.mouse.move(box.x + box.width * (1 / 9) - 4, box.y + 3);
-  await page.waitForTimeout(150); // footer entry dwell arms the shared index
+  // The retrying assertion spans the footer's 120ms entry dwell.
   await expect(slider).toHaveAttribute('aria-valuenow', '1');
   await band.dblclick({ position: { x: box.width * (1 / 9) - 4, y: 3 } });
 
