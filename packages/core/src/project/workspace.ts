@@ -24,14 +24,17 @@ export const WORKSPACE_MAX_ID_UNITS = 256;
 const WORKSPACE_MAX_META_UNITS = 512;
 const SOURCE_HASH = /^[0-9a-f]{64}$/u;
 
-export const WORKSPACE_TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
-export const WORKSPACE_TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
+export const TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
+export const TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
+
+export type TrendRateDenominator = (typeof TREND_RATE_DENOMINATORS)[number];
+export type TrendSmoothingWindow = (typeof TREND_SMOOTHING_WINDOWS)[number];
 
 export type WorkspaceTrendMeasureV1 =
   | {
       readonly kind: 'rate';
-      readonly denominator: (typeof WORKSPACE_TREND_RATE_DENOMINATORS)[number];
-      readonly smoothing: 0 | (typeof WORKSPACE_TREND_SMOOTHING_WINDOWS)[number];
+      readonly denominator: TrendRateDenominator;
+      readonly smoothing: 0 | TrendSmoothingWindow;
       readonly showRaw: boolean;
     }
   | { readonly kind: 'count' };
@@ -241,7 +244,7 @@ function parseCorpus(value: unknown): WorkspaceCorpusV1 {
   return { kind: 'library', order, docs };
 }
 
-function parseTrendView(value: unknown): WorkspaceTrendViewV1 {
+export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
   if (!exactRecord(value, ['mode', 'focusedDoc', 'bins', 'measure'])) {
     throw new RangeError('trend view must be exact');
   }
@@ -268,8 +271,8 @@ function parseTrendView(value: unknown): WorkspaceTrendViewV1 {
   } else if (
     exactRecord(value.measure, ['kind', 'denominator', 'smoothing', 'showRaw'])
     && value.measure.kind === 'rate'
-    && WORKSPACE_TREND_RATE_DENOMINATORS.includes(value.measure.denominator as never)
-    && (value.measure.smoothing === 0 || WORKSPACE_TREND_SMOOTHING_WINDOWS.includes(value.measure.smoothing as never))
+    && TREND_RATE_DENOMINATORS.includes(value.measure.denominator as never)
+    && (value.measure.smoothing === 0 || TREND_SMOOTHING_WINDOWS.includes(value.measure.smoothing as never))
     && typeof value.measure.showRaw === 'boolean'
   ) {
     measure = value.measure as unknown as WorkspaceTrendMeasureV1;
@@ -369,7 +372,7 @@ export function parseWorkspace(value: unknown): WorkspaceV1 {
     active,
     kwicEnabled,
     views: {
-      trend: parseTrendView(value.views.trend),
+      trend: parseWorkspaceTrendView(value.views.trend),
       frequency: parseFrequencyView(value.views.frequency),
       compare: parseCompareView(value.views.compare),
     },

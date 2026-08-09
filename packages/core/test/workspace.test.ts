@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { EMPTY_NOTEBOOK } from '../src/project/notebook.ts';
 import {
   parseWorkspace,
+  parseWorkspaceTrendView,
   reconcileWorkspaceDocuments,
   type WorkspaceV1,
 } from '../src/project/workspace.ts';
@@ -92,6 +93,25 @@ describe('workspace admission', () => {
         }],
       },
     })).toThrow(/warm text hint/);
+  });
+
+  it('validates the live trend settings contract directly', () => {
+    const trend = validWorkspace().views.trend;
+    expect(parseWorkspaceTrendView(trend)).toEqual(trend);
+    expect(() => parseWorkspaceTrendView({
+      ...trend,
+      bins: { mode: 'per-doc', count: 3 },
+    })).toThrow(/trend bins/);
+    expect(() => parseWorkspaceTrendView({
+      ...trend,
+      measure: { kind: 'count', smoothing: 3 },
+    })).toThrow(/trend measure/);
+    expect(() => parseWorkspaceTrendView({
+      ...trend,
+      measure: {
+        kind: 'rate', denominator: 10_000, smoothing: 4, showRaw: false,
+      },
+    })).toThrow(/trend measure/);
   });
 
   it('reconciles presentation references against the opened corpus', () => {

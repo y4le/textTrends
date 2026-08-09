@@ -47,26 +47,13 @@ export {
 export {
   TREND_RATE_DENOMINATORS,
   TREND_SMOOTHING_WINDOWS,
-  parseInventoryResearchView,
-  parseKeynessResearchView,
-  parseResearchState,
-  parseTrendResearchView,
-  reconcileResearchState,
-  type InventoryViewV1,
-  type KeynessViewV1,
-  type ResearchStateV1,
-  type TrendMeasureV2,
-  type TrendRateDenominator,
-  type TrendResearchViewV3,
-  type TrendSmoothingWindow,
-} from './project/research-state.ts';
-export {
   WORKSPACE_MAX_ID_UNITS,
   WORKSPACE_SCHEMA,
-  WORKSPACE_TREND_RATE_DENOMINATORS,
-  WORKSPACE_TREND_SMOOTHING_WINDOWS,
   parseWorkspace,
+  parseWorkspaceTrendView,
   reconcileWorkspaceDocuments,
+  type TrendRateDenominator,
+  type TrendSmoothingWindow,
   type WorkspaceCompareViewV1,
   type WorkspaceCorpusV1,
   type WorkspaceDocumentMetaV1,
@@ -244,10 +231,3 @@ export {
   stripSourceExtension,
 } from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
-export {
-  validateProjectManifest,
-  type DocumentMetaV1,
-  type ProjectDocV1,
-  type ProjectManifestV2,
-  type SourceAvailability,
-} from './project/manifest.ts';

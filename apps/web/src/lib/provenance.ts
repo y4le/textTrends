@@ -3,7 +3,7 @@ import type {
   InventoryResultV1,
   KeynessResultV1,
   NumericTrend,
-  TrendMeasureV2,
+  WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
 import type {
   FrequencyViewV1,
@@ -53,7 +53,7 @@ export interface ProvenanceInput {
   readonly linkedSelection: TokenRangeSelectionV1 | null;
   readonly inventory: InventoryResultV1 | null;
   readonly trends: readonly ProvenanceTrend[];
-  readonly trendMeasure: TrendMeasureV2;
+  readonly trendMeasure: WorkspaceTrendMeasureV1;
   readonly concordance: {
     readonly resident: boolean;
     readonly enabledTracks: number;

@@ -54,7 +54,7 @@ import {
   FREQUENCY_PREFIX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
   MAX_KWIC_TRACKS,
-  parseTrendResearchView,
+  parseWorkspaceTrendView,
   READER_MAX_TOKENS,
   TREND_MAX_ROWS,
   termGroupIdentity,
@@ -62,8 +62,8 @@ import {
   type NumericTrend,
   type TermGroupSpec,
   type TrendBinsSpecV1,
-  type TrendMeasureV2,
   type WorkspaceDocumentMetaV1,
+  type WorkspaceTrendMeasureV1,
   type WorkspaceV1,
 } from '@texttrends/core';
 import {
@@ -189,7 +189,7 @@ export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
   mode: 'per-doc',
   count: 40,
 });
-export const DEFAULT_TREND_MEASURE: TrendMeasureV2 = Object.freeze({
+export const DEFAULT_TREND_MEASURE: WorkspaceTrendMeasureV1 = Object.freeze({
   kind: 'rate',
   denominator: 10_000,
   smoothing: 0,
@@ -465,7 +465,7 @@ export type TrendView = 'series' | 'by-book';
 
 export interface TrendSettingsInput {
   readonly bins: TrendBinsSpecV1;
-  readonly measure: TrendMeasureV2;
+  readonly measure: WorkspaceTrendMeasureV1;
 }
 
 export type TrendSettingsOutcome = 'applied' | 'unchanged' | 'rejected';
@@ -644,7 +644,7 @@ export interface AppState {
    * reissue only baseline + selected trend lanes; measure changes query
    * nothing. */
   trendBins: TrendBinsSpecV1;
-  trendMeasure: TrendMeasureV2;
+  trendMeasure: WorkspaceTrendMeasureV1;
   /** Resident explanation for automatic geometry normalization or a corpus
    * that cannot satisfy the bounded trend protocol. */
   trendSettingsNotice: string | null;
@@ -2321,8 +2321,7 @@ export function createAppRuntime(
         const state = get();
         let admitted;
         try {
-          admitted = parseTrendResearchView({
-            schema: 'texttrends/trend-view/3',
+          admitted = parseWorkspaceTrendView({
             mode: state.trendView,
             focusedDoc: state.focusedDoc,
             bins: input.bins,

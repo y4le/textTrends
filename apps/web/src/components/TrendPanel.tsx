@@ -24,7 +24,7 @@
  */
 
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { NumericTrend, TrendMeasureV2 } from '@texttrends/core';
+import type { NumericTrend, WorkspaceTrendMeasureV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { BarcodeBand, BarcodeLegend } from './BarcodeStrip.tsx';
 import {
@@ -1229,7 +1229,7 @@ const SeriesView = memo(function SeriesView({
   titles: readonly string[];
   bases: readonly number[];
   maxValue: number;
-  measure: TrendMeasureV2;
+  measure: WorkspaceTrendMeasureV1;
   plotW: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
@@ -1457,7 +1457,7 @@ const ByBookView = memo(function ByBookView({
   docs: readonly string[];
   titles: readonly string[];
   maxValue: number;
-  measure: TrendMeasureV2;
+  measure: WorkspaceTrendMeasureV1;
   plotW: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;

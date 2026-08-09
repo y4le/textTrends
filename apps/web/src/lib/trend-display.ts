@@ -1,6 +1,6 @@
 import type {
   NumericTrend,
-  TrendMeasureV2,
+  WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
 
 /** Presentation values derived from immutable kernel output. Display choices
@@ -8,7 +8,7 @@ import type {
  * resident-data transforms over the exact result. */
 export function trendDisplayValues(
   trend: NumericTrend,
-  measure: TrendMeasureV2,
+  measure: WorkspaceTrendMeasureV1,
 ): Float64Array {
   if (measure.kind === 'count') {
     return Float64Array.from(trend.count);
@@ -66,14 +66,14 @@ export function smoothTrendValues(
 
 export function trendRawValues(
   trend: NumericTrend,
-  measure: TrendMeasureV2,
+  measure: WorkspaceTrendMeasureV1,
 ): Float64Array {
   if (measure.kind === 'count') return Float64Array.from(trend.count);
   const scale = measure.denominator / 10_000;
   return Float64Array.from(trend.ratePer10k, (value) => value * scale);
 }
 
-export function trendMeasureUnit(measure: TrendMeasureV2): string {
+export function trendMeasureUnit(measure: WorkspaceTrendMeasureV1): string {
   return measure.kind === 'count'
     ? 'count'
     : `/${measure.denominator.toLocaleString()}`;
