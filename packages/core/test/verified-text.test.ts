@@ -26,8 +26,6 @@ import { bindShards, bindTexts, bindTextsVerified, type BoundShards } from '../s
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
 import { defaultExtractionRecipes } from '../src/extract/extraction.ts';
 import { extractDocument } from './support/extract-document.ts';
-import { validateExtractionArtifact, validateExtractionArtifactVerified } from '../src/extract/validate.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 
 /** Available in every supported runtime; core's ambient globals deliberately
  *  exclude it (environment-agnostic package), so the TEST declares it. */
@@ -51,7 +49,7 @@ async function boundWorld(texts: Record<string, string>): Promise<{
     const text = texts[id] as string;
     const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
     shards.set(id, shard);
-    ready.set(id, await makeReadyDocument(id, shard, rootOnlyV2(text, shard.text)));
+    ready.set(id, await makeReadyDocument(id, shard));
   }
   const snapshot = await composeSnapshot(GEN, ids, ready);
   const bound = await bindShards(snapshot, shards);
@@ -172,22 +170,6 @@ describe('forgery rejection (WeakMap authentication, not the type brand)', () =>
     }
   });
 
-  it('validateExtractionArtifactVerified rejects every forgery', async () => {
-    const recipes = await defaultExtractionRecipes();
-    const doc = await extractDocument(utf8(TEXT), recipes.txt);
-    const key = { source: doc.artifact.source, recipe: doc.artifact.recipe };
-    for (const [name, forged] of await forgeries()) {
-      await expect(
-        validateExtractionArtifactVerified(doc.artifact, key, recipes.txt, forged),
-        name,
-      ).rejects.toThrow(/unauthenticated/);
-    }
-    // The authentic capability, by contrast, admits the artifact it describes.
-    await expect(
-      validateExtractionArtifactVerified(doc.artifact, key, recipes.txt, doc.verified),
-    ).resolves.toBeDefined();
-  });
-
   it('no exported API mints from a caller-claimed hash without hashing (module-surface proof)', () => {
     // The module exports EXACTLY the one factory and the two accessors —
     // there is no "trust this (text, hash) pair" constructor to reach.
@@ -249,21 +231,6 @@ describe('verified fast-lane invariants beyond authentication', () => {
     ).resolves.toBeDefined();
   });
 
-  it('validateExtractionArtifactVerified still rejects a capability for other text and a length lie', async () => {
-    const recipes = await defaultExtractionRecipes();
-    const doc = await extractDocument(utf8(TEXT), recipes.txt);
-    const key = { source: doc.artifact.source, recipe: doc.artifact.recipe };
-    const otherVerified = await verifyText('some other text');
-    await expect(
-      validateExtractionArtifactVerified(doc.artifact, key, recipes.txt, otherVerified),
-    ).rejects.toThrow(/does not describe the supplied text/);
-    const lengthLie = { ...doc.artifact, textLengthUtf16: TEXT.length + 1 };
-    await expect(
-      validateExtractionArtifactVerified(lengthLie, key, recipes.txt, doc.verified),
-    ).rejects.toThrow(/does not describe the supplied text/);
-    // The plain entry (self-verifying) still admits with the raw string.
-    await expect(validateExtractionArtifact(doc.artifact, key, recipes.txt, TEXT)).resolves.toBeDefined();
-  });
 });
 
 describe('performance contract: ONE text digest per pipeline', () => {
@@ -283,7 +250,6 @@ describe('performance contract: ONE text digest per pipeline', () => {
     const ready = await makeReadyDocument(
       'a' as ProjectDocId,
       shard,
-      rootOnlyV2(TEXT, shard.text),
     );
     const snapshot = await composeSnapshot(GEN, ['a' as ProjectDocId], new Map([['a' as ProjectDocId, ready]]));
     const bound = await bindShards(snapshot, new Map([['a', shard]]));

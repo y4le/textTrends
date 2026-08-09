@@ -52,13 +52,12 @@ export {
   parseResearchState,
   parseTrendResearchView,
   reconcileResearchState,
-  upgradeStoredResearchState,
   type InventoryViewV1,
   type KeynessViewV1,
   type ResearchStateV1,
   type TrendMeasureV2,
   type TrendRateDenominator,
-  type TrendResearchViewV2,
+  type TrendResearchViewV3,
   type TrendSmoothingWindow,
 } from './project/research-state.ts';
 export {
@@ -75,7 +74,7 @@ export {
   validateShardStructure,
   type DocumentIndexV1,
 } from './index/build.ts';
-export { bindSectionId, hashSegmenterFingerprint } from './contract/identity.ts';
+export { hashSegmenterFingerprint } from './contract/identity.ts';
 export {
   composeSnapshot,
   makeReadyDocument,
@@ -166,7 +165,6 @@ export {
   INVENTORY_MAX_GROWTH_POINTS,
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-  INVENTORY_MAX_SECTIONS,
   INVENTORY_MAX_VOCAB_TYPES,
   INVENTORY_MIN_GROWTH_POINTS,
   INVENTORY_SCAN_CHUNK,
@@ -177,9 +175,6 @@ export {
   type InventoryRequestV1,
   type InventoryResultV1,
   type InventoryRhythmV1,
-  type InventorySectionInputV1,
-  type InventorySectionRowV1,
-  type InventorySectionsV1,
   type InventoryTotalsV1,
 } from './ops/inventory.ts';
 export {
@@ -196,20 +191,6 @@ export {
   type FrequencyTokenClassV1,
 } from './ops/frequency.ts';
 export {
-  tfidfSections,
-  TFIDF_MAX_MIN_SECTION_TOKENS,
-  TFIDF_MAX_SECTIONS,
-  TFIDF_MAX_TOP_K,
-  TFIDF_MAX_VOCAB_TYPES,
-  TFIDF_SCAN_CHUNK,
-  type TfidfCheckpoint,
-  type TfidfLabelV1,
-  type TfidfSectionInputV1,
-  type TfidfSectionResultRowV1,
-  type TfidfSectionsRequestV1,
-  type TfidfSectionsResultV1,
-} from './ops/tfidf-sections.ts';
-export {
   firstSelectionOverlap,
   keyness,
   KEYNESS_SCAN_CHUNK,
@@ -223,12 +204,9 @@ export {
 } from './ops/keyness.ts';
 export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
 export { DecodeError, decodeSource } from './extract/decode.ts';
-export { hashStructureCandidates, type StructureCandidateV1 } from './extract/candidates.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,
-  deriveCandidatesFromText,
-  type CandidateBundle,
   epubExtractionRecipe,
   finalizeExtraction,
   hashExtractionRecipe,
@@ -249,41 +227,10 @@ export {
   stripSourceExtension,
 } from './extract/formats.ts';
 export { INGEST_CAPS_V0, type IngestCapsV0 } from './contract/ingest-caps.ts';
-export { STRUCTURE_LIMITS_V0 } from './contract/structure-limits.ts';
-export { lineWindowAround } from './extract/lines.ts';
 export {
-  ROOT_KEY,
-  StructureCapError,
-  StructureError,
-  type CharRange,
-  type StructureSectionRecordV2,
-} from './structure/sections.ts';
-export {
-  DEFAULT_STRUCTURE_RECIPE,
-  buildDetectedSections,
-  composeStructure,
-  emptyOverride,
-  hashStructureOverride,
-  hashStructureRecipe,
-  isStructureOverrideV1,
-  isStructureRecipeProvisional,
-  overrideFromEditedOutline,
-  type EditableSectionValue,
-  type StructureArtifactV2,
-  type StructureOverrideV1,
-  type StructureRecipeProvisional,
-} from './structure/build.ts';
-export { projectSections, type TokenRange } from './structure/project.ts';
-export {
-  validateExtractionArtifactVerified,
-  validateStructureArtifactV2,
-} from './extract/validate.ts';
-export {
-  upgradeStoredManifest,
   validateProjectManifest,
   type DocumentMetaV1,
-  type PersistedOverride,
   type ProjectDocV1,
-  type ProjectManifestV1,
+  type ProjectManifestV2,
   type SourceAvailability,
 } from './project/manifest.ts';

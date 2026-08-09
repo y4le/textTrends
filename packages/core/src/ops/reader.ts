@@ -47,9 +47,8 @@
 
 import { CapError } from '../contract/brands.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
-import { tokenEndChar } from '../index/build.ts';
+import { lowerBound, tokenEndChar } from '../index/build.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
-import { lowerBound } from '../structure/project.ts';
 import { internalTextOf, type BoundTexts } from './binding.ts';
 import { MAX_KWIC_TRACKS } from './kwic.ts';
 import { TERM_GROUP_LIMITS_V1, type NumericOccurrences } from './occurrences.ts';

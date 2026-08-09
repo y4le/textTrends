@@ -364,7 +364,7 @@ Unchanged, do not re-litigate:
 - **Corpus rights** (ASOIF/LOTR still tracked), **Standard Ebooks
   hermeticity/npm publish**, and **LICENSE/README/deploy hardening** are P0
   publication gates but **owner-scheduled**, not slice work
-  (`docs/design/corpus-inventory.md`, `simplification-plan.md` P2/P3).
+  (`docs/design/corpus-inventory.md` and the current roadmap).
 - The branch is **not merged to master** — the owner merges.
 - `docs/design/backlog.md` holds opportunistic items (the non-group
   `.every` hole-skipping sweep in `protocol-v4-schema.ts`, a current-roadmap

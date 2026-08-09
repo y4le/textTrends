@@ -222,7 +222,6 @@ describe('WorkerClient v4 wire', () => {
     doc, language: 'en',
     source: { byteLength: 8, format: 'txt' as const, availability: 'external' as const },
     extraction: { recipe: {} as never, recipeHash: 'er' },
-    structure: { recipe: {} as never, recipeHash: 'sr', override: { kind: 'none' as const } },
   });
 
   it('begin-generation posts v4 with an `indexRecipe` field and the v4 spec array', () => {
@@ -245,11 +244,11 @@ describe('WorkerClient v4 wire', () => {
     worker.onmessage?.({
       data: {
         v: PROTOCOL_VERSION_V4, t: 'generation-ready', job, generation: 'g', snapshot: null,
-        readyDocs: [], missing: [{ doc: 'a', need: 'source-bytes', reason: 'extraction-miss' }],
+        readyDocs: [], missing: [{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }],
       },
     });
     const ready = await open.result;
-    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'extraction-miss' }]);
+    expect(ready.missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }]);
   });
 
   it('an unrelated document publication does NOT retire a live re-ingest job (no error is swallowed)', () => {
@@ -497,12 +496,12 @@ describe('WorkerClient user-data seam (v4)', () => {
       data: {
         v: PROTOCOL_VERSION_V4, t: 'source-ready', job: 7, generation: 'g', doc: 'a',
         source: { hash: 'sh', byteLength: 10, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
-        extractionRecipe: 'erh', text: 'th', textLengthUtf16: 10, candidates: 'ch',
+        extractionRecipe: 'erh', text: 'th', textLengthUtf16: 10,
         decoderReplacementCount: 0, suspiciousControlCount: 2,
       },
     });
     expect(infos).toHaveLength(1);
-    expect(infos[0]).toMatchObject({ job: 7, generation: 'g', doc: 'a', extractionRecipeHash: 'erh', text: 'th', textLengthUtf16: 10, candidates: 'ch', suspiciousControlCount: 2 });
+    expect(infos[0]).toMatchObject({ job: 7, generation: 'g', doc: 'a', extractionRecipeHash: 'erh', text: 'th', textLengthUtf16: 10, suspiciousControlCount: 2 });
     expect(infos[0]!.source.hash).toBe('sh');
   });
 

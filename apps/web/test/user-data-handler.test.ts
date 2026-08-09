@@ -44,7 +44,7 @@ describe('user-data lane', () => {
   it('project-load deep-validates the durable manifest and maps a corrupt record to DATA_CORRUPT', async () => {
     const h = harness();
     // Seed a structurally-plausible but invalid manifest (bad hashes).
-    await h.userStore.putProject({ schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' } as never, 0);
+    await h.userStore.putProject({ schema: 'texttrends/project/2', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' } as never, 0);
     await h.send({ t: 'project-load', job: 1, project: 'p' });
     expect(h.last('user-data-error').code).toBe('DATA_CORRUPT');
   });
@@ -72,7 +72,7 @@ describe('user-data lane', () => {
     // reach putProject and fail this test (mutation-sensitive by construction).
     await h.send({
       t: 'project-save', job: 9, project: 'p',
-      manifest: { schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
+      manifest: { schema: 'texttrends/project/2', id: 'p', revision: 1, order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'wrong' },
       expectedRevision: 0,
     });
     const err = h.last('user-data-error');
@@ -131,7 +131,7 @@ describe('user-data lane', () => {
     // A valid manifest so validation SUCCEEDS — the post-validation cancel check
     // (not the earlier post-read check) is what must win here.
     const manifest = {
-      schema: 'texttrends/project/1', id: 'p', revision: 1, order: [], docs: [],
+      schema: 'texttrends/project/2', id: 'p', revision: 1, order: [], docs: [],
       indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: await hashIndexRecipe(DEFAULT_INDEX_RECIPE),
     };
     await h.userStore.putProject(manifest as never, 0);

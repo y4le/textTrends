@@ -1,7 +1,6 @@
 /**
- * Slice-3 acceptance journey: bounded corpus inventory, book focus, section
- * comparison, vocabulary ranking/concordance admission, linked range
- * recomputation, and selection-independent chapter labels.
+ * Slice-3 acceptance journey: bounded corpus inventory, book focus,
+ * vocabulary ranking/concordance admission, and linked-range recomputation.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -72,14 +71,8 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   const baselineTokens = await betaRow.locator('.catalog-book-tokens .selectable-stat').innerText();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Focused-book section profile' })).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toHaveCount(0);
 
   await gotoPlace(page, 'vocabulary');
-  await expect(page.getByRole('img', { name: /section vocabulary strip for beta/ })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Focused-book chapter labels' })).toBeVisible();
-  await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
-  await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'DP', exact: true }).click();
   await awaitOps(page, mark, ['freq-list']);
@@ -112,15 +105,9 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('Enter');
   await awaitOps(page, mark, ['inventory', 'freq-list']);
-  const selectionEvents = (await trace(page)).events.filter(
-    (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
-  );
-  expect(selectionEvents.some((event) => event.op === 'tfidf-sections')).toBe(false);
   await gotoPlace(page, 'catalog');
   await expect(page.getByText(/across the active range/)).toBeVisible();
   await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText(baselineTokens);
-  await expect(page.getByText('Sea', { exact: true }).last()).toBeVisible();
-  await expect(page.getByText('Sky', { exact: true }).last()).toBeVisible();
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await gotoPlace(page, 'trends');

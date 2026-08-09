@@ -1,14 +1,10 @@
 import {
   dispersionTransferBuffers,
   inventoryTransferBuffers,
-  INVENTORY_MAX_SECTIONS,
-  type InventorySectionInputV1,
 } from '@texttrends/core';
 import { QueryExecutor } from './query-executor.ts';
 /**
- * WorkerEngineV4 — the ingest/structure worker lifecycle (contract §12.8;
- * "Commit 6 design of record" and the "6b/6c boundary ruling" in
- * docs/design/ingest-structure-plan.md). This is the PRODUCTION analysis
+ * WorkerEngineV4 — the production ingest and analysis worker lifecycle.
  * engine: index.worker.ts constructs it (6c wire cutover), and the v3 engine
  * has been removed. It landed first (6b) as an unused, isolated module so the
  * new state machine could be reviewed on its own before the atomic cutover.
@@ -17,14 +13,13 @@ import { QueryExecutor } from './query-executor.ts';
  * - a resolved, immutable per-document PLAN computed once at generation start,
  *   with every caller-supplied hash RECOMPUTED (a hash is an admission check
  *   and a lookup accelerator, never authority);
- * - a three-stage artifact pipeline (extraction → index → structure) with deep
+ * - an extraction → index artifact pipeline with deep
  *   admission of every cached record crossing the `unknown` boundary;
- * - honest decode/extract/segment/index/structure/compose progress;
+ * - honest decode/extract/segment/index/compose progress;
  * - per-document work CLAIMS (generation-object identity + a monotonic epoch),
  *   because a `ReadyDocument`-identity guard is insufficient while warm probing,
- *   extraction, indexing, and structure building overlap BEFORE any ready
+ *   extraction and indexing overlap BEFORE any ready
  *   document exists;
- * - a snapshot-bound `structure` query echoing both bound artifact identities;
  * - a SEPARATE user-data lane (project load/save, source persist) over an
  *   injected access provider, emitting only user-data acknowledgements/errors.
  *
@@ -39,41 +34,29 @@ import {
   CapError,
   DependencyError,
   INGEST_CAPS_V0,
-  bindSectionId,
   hashSourceBytes,
   bindShardsIncremental,
   bindTextsVerified,
   createBindingSession,
-  buildDetectedSections,
   composeSnapshot,
-  composeStructure,
   createDocumentIndexVerified,
-  deriveCandidatesFromText,
-  emptyOverride,
-  lineWindowAround,
   fingerprint,
   firstSelectionOverlap,
   hashExtractionRecipe,
   hashIndexRecipe,
   hashSegmenterFingerprint,
-  hashStructureOverride,
-  hashStructureRecipe,
   makeReadyDocument,
-  projectSections,
   resolveSelection,
   segmentVerified,
   tokenEndChar,
-  validateExtractionArtifactVerified,
   validateExtractionRecipe,
   validateShardStructure,
-  validateStructureArtifactV2,
   verifiedHashOf,
   verifiedTextOf,
   verifyText,
   type BindingSession,
   type BoundShards,
   type BoundTexts,
-  type CandidateBundle,
   type IngestCapsV0,
   type CorpusSnapshotV1,
   type DocumentIndexV1,
@@ -81,15 +64,8 @@ import {
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
   type ReadyDocument,
-  StructureCapError,
-  StructureError,
   type SourceDescriptorV1,
-  type StructureArtifactV2,
-  type StructureOverrideV1,
-  type StructureRecipeProvisional,
-  type StructureSectionRecordV2,
   type TextHash,
-  type TokenRange,
   type VerifiedText,
 } from '@texttrends/core';
 import {
@@ -98,17 +74,14 @@ import {
   type FromWorkerV4,
   type GenerationDocSpecV4,
   type MissingWarmDocV4,
-  type OverrideInputV4,
-  type EditSectionRow,
   type QueryOpV4,
   type StorageWarningCodeV4,
   type WarmMissReasonV4,
-  type WireSection,
   type WorkerErrorCodeV4,
 } from './protocol-v4.ts';
 import { parseToWorkerV4 } from './protocol-v4-schema.ts';
 import { extractSource, ExtractionFailure, type ExtractionLimits } from '@texttrends/extractors';
-import type { ArtifactStore, DocumentIndexCacheKey, ExtractionCacheKey, StructureCacheKey } from './store.ts';
+import type { ArtifactStore, DocumentIndexCacheKey } from './store.ts';
 
 type EmitV4 = (message: FromWorkerV4, transfers?: readonly Transferable[]) => void;
 type Yield = () => Promise<void>;
@@ -124,9 +97,7 @@ import { UserDataHandler, type UserDataProvider } from './user-data-handler.ts';
 const CANCELLED = Symbol('cancelled');
 const SUPERSEDED = Symbol('superseded');
 
-/** A precise terminal identity failure (maps to EXTRACTION_MISMATCH): a
- *  deterministic candidate reconstruction contradicts an asserted identity, so
- *  refetching bytes cannot repair it. */
+/** A precise terminal identity failure (maps to EXTRACTION_MISMATCH). */
 class ExtractionMismatchError extends Error {
   constructor(message: string) {
     super(message);
@@ -134,13 +105,12 @@ class ExtractionMismatchError extends Error {
   }
 }
 
-/** The document's frozen meaning within a generation — set once a source/text/
- *  candidate identity is accepted, and it SURVIVES epoch increments: the epoch
+/** The document's frozen meaning within a generation — set once a source/text
+ *  identity is accepted, and it SURVIVES epoch increments: the epoch
  *  says which async task may act; accepted identity says what the document IS. */
 interface AcceptedIdentity {
   readonly source?: string; // SourceHash, only from a real source extraction
   readonly text: string; // TextHash
-  readonly candidates: string; // StructureCandidateHash
 }
 
 interface DocWorkSlot {
@@ -165,11 +135,7 @@ interface ResolvedDocPlan {
   readonly effectiveLocale: string;
   readonly extractionRecipe: ExtractionRecipeProvisional;
   readonly extractionRecipeHash: string;
-  readonly structureRecipe: StructureRecipeProvisional;
-  readonly structureRecipeHash: string;
-  readonly override: OverrideInputV4;
   readonly expectedText?: string | undefined;
-  readonly expectedCandidates?: string | undefined;
   readonly expectedSourceHash?: string | undefined;
   readonly sourcePersisted: boolean;
 }
@@ -200,23 +166,6 @@ interface GenerationStateV4 {
    *  Fed a fresh read-only view at every publication; dies with the
    *  generation. The engine keeps job/cancel/emission authority. */
   readonly executor: QueryExecutor;
-  /** Doc-independent section→token projections, keyed [StructureHash, IndexArtifactHash]. */
-  readonly tokenViews: Map<string, readonly TokenRange[]>;
-  /** Bounded ephemeral DETECTED-table cache for the edit-context query, keyed
-   *  [TextHash, CandidateHash, StructureRecipeHash] — never persisted (ruling §2). */
-  readonly detectedTables: Map<string, readonly StructureSectionRecordV2[]>;
-  /** Per-generation SectionId binding cache (Phase D ruling, workstream D4).
-   *  Section ids depend only on (doc, lineageKey) and are DELIBERATELY stable
-   *  across snapshots within a generation, so both structure query paths share
-   *  one cache dropped with the generation. NESTED maps, doc → lineage key —
-   *  neither identifier contract forbids '\0', so a delimiter-joined string
-   *  key would not be collision-free. The value is the PENDING promise, stored
-   *  synchronously on first request so concurrent queries deduplicate the same
-   *  digest; a rejection evicts exactly that promise (identity-compared) so a
-   *  later request retries without clobbering a concurrent replacement.
-   *  Unbounded on purpose: the section cap is 2,048/doc and the map dies with
-   *  the generation (ruling: no LRU, no semaphore). */
-  readonly sectionIds: Map<string, Map<string, Promise<string>>>;
   /** Incremented only on a successful commit — an explicit staged-base guard. */
   publicationEpoch: number;
   /** Running ACTUAL totals (not just declared) enforced against the project
@@ -226,8 +175,7 @@ interface GenerationStateV4 {
   transferredSourceBytes: number;
 }
 
-/** A fully prepared document ready for the single publication path, plus the
- *  disposable cache keys/artifacts to persist AFTER it commits. */
+/** A fully prepared document ready for the single publication path. */
 interface PreparedDocument {
   readonly doc: string;
   readonly text: string;
@@ -237,18 +185,6 @@ interface PreparedDocument {
   readonly ready: ReadyDocument;
   readonly shard: DocumentIndexV1;
   readonly shardKey: DocumentIndexCacheKey;
-  readonly structureKey: StructureCacheKey;
-  readonly structureArtifact: StructureArtifactV2;
-  /** Only present when THIS build performed a real source extraction. */
-  readonly extraction?: { readonly artifact: ExtractionArtifactV1; readonly key: ExtractionCacheKey } | undefined;
-}
-
-/** Everything a warm probe admitted from the cache for one document. */
-interface AdmittedParts {
-  readonly candidates?: CandidateBundle;
-  readonly extraction?: { readonly artifact: ExtractionArtifactV1; readonly key: ExtractionCacheKey };
-  readonly shard?: DocumentIndexV1;
-  readonly structure?: StructureArtifactV2;
 }
 
 /** The verified inputs prepareFromText builds the remaining artifacts from.
@@ -256,8 +192,7 @@ interface AdmittedParts {
  *  per document (cold: at extraction; warm: at the stored-text check). */
 interface PrepareInput {
   readonly verified: VerifiedText;
-  readonly candidateHash: string;
-  readonly parts: AdmittedParts;
+  readonly shard?: DocumentIndexV1;
 }
 
 type WarmProbe =
@@ -293,14 +228,6 @@ function effectiveLocale(recipe: IndexRecipeProvisional, language: string): stri
   return language !== '' ? language : recipe.locale.fallback;
 }
 
-/** The composite key for a doc-independent section→token projection. */
-const tokenViewKey = (structure: string, index: string): string => `${structure}\u0000${index}`;
-
-
-
-/** Hard ceiling on a line-excerpt window so a caller cannot request an
- *  unbounded slice of a pathological physical line (§4). */
-const LINE_EXCERPT_MAX_CHARS = 4096;
 
 export class WorkerEngineV4 {
   private readonly store: ArtifactStore;
@@ -429,9 +356,6 @@ export class WorkerEngineV4 {
       boundTexts: null,
       binding: createBindingSession(),
       executor: new QueryExecutor(indexRecipe),
-      tokenViews: new Map(),
-      detectedTables: new Map(),
-      sectionIds: new Map(),
       publicationEpoch: 0,
       transferredSourceBytes: 0,
     };
@@ -549,24 +473,6 @@ export class WorkerEngineV4 {
       if (spec.source.format !== extractionRecipe.format) {
         throw new RangeError(`document '${spec.doc}' source format disagrees with its extraction recipe`);
       }
-      const structureRecipe = spec.structure.recipe; // narrowed to a valid provisional by parseToWorkerV4
-      const structureRecipeHash = await hashStructureRecipe(structureRecipe);
-      this.gate(job, gen);
-      if (structureRecipeHash !== spec.structure.recipeHash) {
-        throw new RangeError(`document '${spec.doc}' structure recipeHash does not match its recipe`);
-      }
-      if (spec.structure.override.kind === 'active') {
-        // The override value was narrowed by parseToWorkerV4; recompute its
-        // hash now (base-identity agreement waits until text/candidates exist).
-        const overrideHash = await hashStructureOverride(spec.structure.override.value);
-        this.gate(job, gen);
-        if (overrideHash !== spec.structure.override.hash) {
-          throw new RangeError(`document '${spec.doc}' active override hash does not match its value`);
-        }
-        if (spec.structure.override.value.baseRecipe !== spec.structure.recipeHash) {
-          throw new RangeError(`document '${spec.doc}' active override baseRecipe disagrees with the structure recipe`);
-        }
-      }
       if (spec.source.byteLength > this.caps.maxSourceBytesPerFile) {
         throw new CapError(`document '${spec.doc}' source of ${spec.source.byteLength} bytes exceeds the per-file cap`);
       }
@@ -589,11 +495,7 @@ export class WorkerEngineV4 {
         effectiveLocale: effectiveLocale(gen.indexRecipe, spec.language),
         extractionRecipe,
         extractionRecipeHash: spec.extraction.recipeHash,
-        structureRecipe,
-        structureRecipeHash: spec.structure.recipeHash,
-        override: spec.structure.override,
         expectedText: spec.extraction.expectedText,
-        expectedCandidates: spec.extraction.expectedCandidates,
         expectedSourceHash: spec.source.expectedHash,
         sourcePersisted: spec.source.availability === 'persisted',
       });
@@ -622,29 +524,22 @@ export class WorkerEngineV4 {
   // 2. Warm probe / admission
   // -------------------------------------------------------------------------
 
-  /**
-   * Classify a document for warm reopen WITHOUT building anything: verify any
-   * cached text against its asserted identity, discover the candidate identity
-   * (from `expectedCandidates`, a valid extraction record, or a deterministic
-   * rescan), and admit any valid cached shard/structure. A structurally valid
-   * artifact whose identity contradicts an assertion is a terminal `mismatch`,
-   * not corruption — never deleted, never refetched.
-   */
+  /** Verify cached text and admit its index shard without rebuilding. */
   private async probeWarmDocument(job: number, plan: ResolvedDocPlan, token: DocWorkToken): Promise<WarmProbe> {
     const gen = token.generation;
     if (plan.expectedText === undefined) {
       // No text identity to rehydrate from — the only warm source is persisted
       // bytes (re-extracted below); otherwise bytes are required.
-      return this.probeFromSource(job, plan, token, 'extraction-miss');
+      return this.probeFromSource(job, plan, token, 'text-miss');
     }
     const read = await this.store.getText(plan.expectedText);
     this.docGate(job, token);
-    if (read.kind === 'miss') return this.probeFromSource(job, plan, token, 'extraction-miss');
+    if (read.kind === 'miss') return this.probeFromSource(job, plan, token, 'text-miss');
     if (read.kind === 'corrupt') {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' is corrupt (${read.reason}); deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
       this.docGate(job, token);
-      return this.probeFromSource(job, plan, token, 'extraction-miss');
+      return this.probeFromSource(job, plan, token, 'text-miss');
     }
     // The stored text must HASH to its asserted identity — a record under the
     // right key proves nothing about its content. The warm path's ONE text
@@ -662,78 +557,18 @@ export class WorkerEngineV4 {
       this.warnStorage('CACHE_CORRUPT', `stored text for '${plan.doc}' does not hash to its key; deleted`, gen.generation);
       await this.store.deleteText(plan.expectedText).catch(() => undefined);
       this.docGate(job, token);
-      return this.probeFromSource(job, plan, token, 'extraction-miss');
+      return this.probeFromSource(job, plan, token, 'text-miss');
     }
     const textHash = plan.expectedText;
 
-    // Discover the candidate identity + (when needed) the candidate list.
-    const parts: { -readonly [K in keyof AdmittedParts]?: AdmittedParts[K] } = {};
-    let candidateHash: string;
-    if (plan.expectedCandidates !== undefined) {
-      candidateHash = plan.expectedCandidates;
-      // A valid cached extraction record can carry the candidate LIST (avoids a
-      // rescan when structure must be composed). It is evidence, not required —
-      // BUT a genuine extraction whose candidate identity contradicts the
-      // asserted `expectedCandidates` is a TERMINAL manifest mismatch, not a
-      // reason to fall through and rebuild (which would loop on a byte refetch).
-      if (plan.expectedSourceHash !== undefined) {
-        const admitted = await this.admitCachedExtraction(job, plan, token, plan.expectedSourceHash, verified);
-        if (admitted) {
-          if (admitted.artifact.candidateHash !== candidateHash) {
-            return { kind: 'mismatch', message: `document '${plan.doc}' extracted candidates do not match the asserted identity` };
-          }
-          parts.extraction = admitted;
-          parts.candidates = { candidates: admitted.artifact.candidates, candidateHash: admitted.artifact.candidateHash };
-        }
-      }
-    } else {
-      // No asserted candidate identity — reconstruct it deterministically from
-      // the verified text (the current recipes define candidates as a pure
-      // function of decoded text + recipe).
-      const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
-      this.docGate(job, token);
-      candidateHash = bundle.candidateHash;
-      parts.candidates = bundle;
-    }
-
-    // Admit a cached structure artifact for the exact identity tuple.
-    const { overrideHash } = await this.resolveOverride(plan, textHash, candidateHash);
-    this.docGate(job, token);
-    const structureKey: StructureCacheKey = {
-      schema: 'texttrends/structure/2',
-      text: textHash,
-      candidates: candidateHash,
-      recipe: plan.structureRecipeHash,
-      override: overrideHash,
-    };
-    const structure = await this.admitCachedStructure(job, plan, token, structureKey, text.length);
-    if (structure) parts.structure = structure;
-
-    // Admit a cached shard for the full identity tuple.
     const shardKey = await this.shardKeyFor(gen, plan.effectiveLocale, textHash);
     this.docGate(job, token);
     const shard = await this.admitCachedShard(job, plan, token, shardKey, text);
-    if (shard) parts.shard = shard;
-
-    // A source-reconstructed recipe (epub/html) CANNOT rebuild its candidates
-    // from the joined text. If the candidate list is unavailable (the extraction
-    // artifact was not admitted) AND structure still needs composing, re-extract
-    // the persisted source rather than fall into prepareFromText's text-only
-    // reconstructor, which rejects source recipes (Codex review). With structure
-    // admitted the list is not needed, so a text-only prepare is still correct.
-    if (
-      plan.extractionRecipe.candidateReconstruction === 'source' &&
-      parts.candidates === undefined && parts.structure === undefined
-    ) {
-      return this.probeFromSource(job, plan, token, 'extraction-miss');
-    }
-
-    // A text-only path with no candidate list defers the identity check to
-    // prepareFromText, which reconstructs candidates and throws a terminal
-    // ExtractionMismatchError if they contradict `expectedCandidates`.
-    // Cheap = no index rebuild required (the shard was admitted). An exact hit
-    // (shard + structure) and a structure-only reconstruction are both cheap.
-    return { kind: 'prepare', cheap: parts.shard !== undefined, input: { verified, candidateHash, parts } };
+    return {
+      kind: 'prepare',
+      cheap: shard !== undefined,
+      input: shard === undefined ? { verified } : { verified, shard },
+    };
   }
 
   /** Warm resolution from a PERSISTED source only: re-extract the durable bytes
@@ -782,12 +617,8 @@ export class WorkerEngineV4 {
     if (storedHash !== plan.expectedSourceHash) {
       return { kind: 'needs-bytes', reason: 'source-corrupt' };
     }
-    // Re-extract the durable bytes as if freshly ingested. A source-dependent
-    // (epub/html) recipe re-runs the CONTAINER/markup extractor — the joined
-    // text alone cannot rebuild its spine/heading candidates — while a literal
-    // recipe decodes. Determinism means the re-extraction reproduces the
-    // manifest's TextHash + candidate hash; a mismatch surfaces downstream as
-    // EXTRACTION_MISMATCH.
+    // Re-extract the durable bytes as if freshly ingested. Determinism means
+    // the extraction reproduces the manifest's TextHash.
     // Same ONE extraction runtime the cold path uses; only the FAILURE POLICY
     // differs here (warm re-extraction of an already-hash-verified source): a cap
     // becomes a CapError the warm loop maps to CAP_EXCEEDED, while a decode/parse
@@ -810,90 +641,19 @@ export class WorkerEngineV4 {
       throw e; // SUPERSEDED / CANCELLED from the gate
     }
     this.docGate(job, token);
-    const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
+    const identity = { source: extracted.artifact.source, text: extracted.artifact.text };
     // The source bytes were hash-authenticated BEFORE extraction, so a
-    // text/candidate drift here is a terminal EXTRACTION_MISMATCH
+    // text drift here is a terminal EXTRACTION_MISMATCH
     // (deterministic re-extraction contradiction), never a byte miss.
     this.assertAssertedIdentity(plan, identity, true);
     // A re-extracted persisted source performed NO main-thread transfer.
     this.freezeAccepted(token, identity, 0);
     this.emitSourceReady(job, gen.generation, plan, extracted);
-    const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: extracted.artifact.source, recipe: plan.extractionRecipeHash };
     return {
       kind: 'prepare',
       cheap: false,
-      input: {
-        verified: extracted.verified,
-        candidateHash: extracted.artifact.candidateHash,
-        parts: {
-          extraction: { artifact: extracted.artifact, key },
-          candidates: { candidates: extracted.artifact.candidates, candidateHash: extracted.artifact.candidateHash },
-        },
-      },
+      input: { verified: extracted.verified },
     };
-  }
-
-  /** Admit a cached extraction record against its key + the verified text. A
-   *  record that fails deep admission is genuinely corrupt storage (its own ABI
-   *  is broken, or it does not describe the verified text): warn and repair-
-   *  delete the exact record under the document gate. The candidate identity is
-   *  then reconstructed from the verified text; a manifest-level candidate
-   *  contradiction is judged by the caller, not here. */
-  private async admitCachedExtraction(
-    job: number,
-    plan: ResolvedDocPlan,
-    token: DocWorkToken,
-    sourceHash: string,
-    verified: VerifiedText,
-  ): Promise<{ artifact: ExtractionArtifactV1; key: ExtractionCacheKey } | undefined> {
-    const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: sourceHash, recipe: plan.extractionRecipeHash };
-    const read = await this.store.getExtraction(key);
-    this.docGate(job, token);
-    if (read.kind === 'miss') return undefined;
-    if (read.kind === 'corrupt') {
-      this.warnStorage('CACHE_CORRUPT', `cached extraction for '${plan.doc}' failed the envelope check (${read.reason}); deleted`, token.generation.generation);
-      await this.store.deleteExtraction(key).catch(() => undefined);
-      return undefined;
-    }
-    try {
-      const artifact = await validateExtractionArtifactVerified(read.value, key, plan.extractionRecipe, verified);
-      return { artifact, key };
-    } catch (e) {
-      // Ownership FIRST — a supersession during deep admission must not warn or
-      // delete a record the new owner may have replaced.
-      this.docGate(job, token);
-      this.warnStorage('CACHE_CORRUPT', `cached extraction for '${plan.doc}' failed deep admission (${e instanceof Error ? e.message : String(e)}); deleted`, token.generation.generation);
-      await this.store.deleteExtraction(key).catch(() => undefined);
-      return undefined;
-    }
-  }
-
-  /** Admit a cached structure artifact for the exact key against the text length. */
-  private async admitCachedStructure(
-    job: number,
-    plan: ResolvedDocPlan,
-    token: DocWorkToken,
-    key: StructureCacheKey,
-    textLength: number,
-  ): Promise<StructureArtifactV2 | undefined> {
-    const read = await this.store.getStructure(key);
-    this.docGate(job, token);
-    if (read.kind === 'miss') return undefined;
-    if (read.kind === 'corrupt') {
-      this.warnStorage('CACHE_CORRUPT', `cached structure for '${plan.doc}' failed the envelope check (${read.reason}); deleted`, token.generation.generation);
-      await this.store.deleteStructure(key).catch(() => undefined);
-      return undefined;
-    }
-    try {
-      return await validateStructureArtifactV2(read.value, { text: key.text, candidates: key.candidates, recipe: key.recipe, override: key.override }, textLength);
-    } catch (e) {
-      // Ownership FIRST — a supersession during the (awaited) deep admission
-      // must not warn or delete a record the new owner may have replaced.
-      this.docGate(job, token);
-      this.warnStorage('CACHE_CORRUPT', `cached structure for '${plan.doc}' failed deep admission (${e instanceof Error ? e.message : String(e)}); deleted`, token.generation.generation);
-      await this.store.deleteStructure(key).catch(() => undefined);
-      return undefined;
-    }
   }
 
   /** Admit a cached shard: verify the full ABI, identity tuple, and that
@@ -942,15 +702,13 @@ export class WorkerEngineV4 {
   // -------------------------------------------------------------------------
 
   /**
-   * Build the remaining artifacts for a verified text: the shard (segment +
-   * index) if not admitted, and the structure (compose) if not admitted,
-   * deriving candidates on demand for a text-only path. Emits only the phases
+   * Build the index shard for a verified text if it was not admitted. Emits only the phases
    * whose work it actually performs. Returns a fully prepared document plus the
    * disposable cache keys to persist AFTER it commits.
    */
   private async prepareFromText(job: number, plan: ResolvedDocPlan, input: PrepareInput, token: DocWorkToken): Promise<PreparedDocument> {
     const gen = token.generation;
-    const { verified, candidateHash } = input;
+    const { verified } = input;
     const text = verifiedTextOf(verified);
     const textHash: string = verifiedHashOf(verified);
 
@@ -958,7 +716,7 @@ export class WorkerEngineV4 {
     // text identity, so no pipeline stage re-digests the text.
     const shardKey = await this.shardKeyFor(gen, plan.effectiveLocale, textHash);
     this.docGate(job, token);
-    let shard = input.parts.shard;
+    let shard = input.shard;
     if (!shard) {
       this.progress(job, gen.generation, 'segment', plan.doc);
       const batch = await segmentVerified(verified, plan.effectiveLocale);
@@ -968,39 +726,7 @@ export class WorkerEngineV4 {
       await this.docCheckpoint(job, token);
     }
 
-    // Structure.
-    const { override, overrideHash } = await this.resolveOverride(plan, textHash, candidateHash);
-    this.docGate(job, token);
-    const structureKey: StructureCacheKey = {
-      schema: 'texttrends/structure/2',
-      text: textHash,
-      candidates: candidateHash,
-      recipe: plan.structureRecipeHash,
-      override: overrideHash,
-    };
-    let structure = input.parts.structure;
-    if (!structure) {
-      let candidates = input.parts.candidates;
-      if (!candidates) {
-        // A text-only path with no candidate list: reconstruct it (honest
-        // `extract` work) and hold it to the asserted identity.
-        this.progress(job, gen.generation, 'extract', plan.doc);
-        candidates = await deriveCandidatesFromText(text, plan.extractionRecipe);
-        await this.docCheckpoint(job, token);
-        if (candidates.candidateHash !== candidateHash) {
-          throw new ExtractionMismatchError(`document '${plan.doc}' reconstructed candidates do not match the asserted identity`);
-        }
-      }
-      this.progress(job, gen.generation, 'structure', plan.doc);
-      structure = composeStructure(text, candidates.candidates, plan.structureRecipe, override, {
-        text: textHash,
-        candidates: candidateHash,
-        recipe: plan.structureRecipeHash,
-        override: overrideHash,
-      });
-    }
-
-    const ready = await makeReadyDocument(plan.doc as Parameters<typeof makeReadyDocument>[0], shard, structure);
+    const ready = await makeReadyDocument(plan.doc as Parameters<typeof makeReadyDocument>[0], shard);
     this.docGate(job, token);
     return {
       doc: plan.doc,
@@ -1009,25 +735,7 @@ export class WorkerEngineV4 {
       ready,
       shard,
       shardKey,
-      structureKey,
-      structureArtifact: structure,
-      extraction: input.parts.extraction,
     };
-  }
-
-  /** Resolve the effective override + its hash once text/candidate identities
-   *  are known. `none` derives the canonical empty override; `active` verifies
-   *  its base identities agree with the now-known text/candidates. */
-  private async resolveOverride(plan: ResolvedDocPlan, textHash: string, candidateHash: string): Promise<{ override: StructureOverrideV1; overrideHash: string }> {
-    if (plan.override.kind === 'none') {
-      const override = emptyOverride(textHash, candidateHash, plan.structureRecipeHash);
-      return { override, overrideHash: await hashStructureOverride(override) };
-    }
-    const value = plan.override.value;
-    if (value.text !== textHash || value.candidates !== candidateHash || value.baseRecipe !== plan.structureRecipeHash) {
-      throw new RangeError(`document '${plan.doc}' active override base identities do not match the extracted text/candidates`);
-    }
-    return { override: value, overrideHash: plan.override.hash };
   }
 
   private async shardKeyFor(gen: GenerationStateV4, language: string, textHash: string): Promise<DocumentIndexCacheKey> {
@@ -1041,7 +749,7 @@ export class WorkerEngineV4 {
   }
 
   /**
-   * Freeze the first accepted source/text/candidate identity for a document
+   * Freeze the first accepted source/text identity for a document
    * (a later same-generation attempt with a DIFFERENT identity is rejected —
    * it must not change what the document means in place) AND, atomically, charge
    * its transferred source bytes against the project transfer cap. This runs
@@ -1058,7 +766,7 @@ export class WorkerEngineV4 {
       // Compare the FULL identity including source — two byte streams that
       // decode to identical text (e.g. UTF-8 with and without a BOM) still have
       // different source bytes and must not silently replace one another.
-      if (slot.accepted.source !== identity.source || slot.accepted.text !== identity.text || slot.accepted.candidates !== identity.candidates) {
+      if (slot.accepted.source !== identity.source || slot.accepted.text !== identity.text) {
         throw new IdentityConflictError(`document '${token.doc}' was already accepted with a different identity in this generation`);
       }
       return false; // idempotent re-accept of the same identity — no re-charge
@@ -1074,7 +782,7 @@ export class WorkerEngineV4 {
 
   /** A delivered/extracted identity must agree with any asserted expectation.
    *  `sourceVerified` is true on a WARM re-extraction from persisted bytes,
-   *  where the source hash has ALREADY matched its key. There, a text/candidate
+   *  where the source hash has ALREADY matched its key. There, a text
    *  drift is extraction nondeterminism / recipe drift — a terminal
    *  EXTRACTION_MISMATCH — NOT a different source (Codex review). On a COLD
    *  ingest of fresh user bytes, a text drift means wrong bytes → SOURCE_MISMATCH. */
@@ -1085,9 +793,6 @@ export class WorkerEngineV4 {
     if (plan.expectedText !== undefined && identity.text !== plan.expectedText) {
       const message = `document '${plan.doc}' text hashed to ${identity.text.slice(0, 16)}… but the generation asserted ${plan.expectedText.slice(0, 16)}…`;
       throw sourceVerified ? new ExtractionMismatchError(message) : new SourceMismatchError(message);
-    }
-    if (plan.expectedCandidates !== undefined && identity.candidates !== plan.expectedCandidates) {
-      throw new ExtractionMismatchError(`document '${plan.doc}' candidates hashed to ${identity.candidates.slice(0, 16)}… but the generation asserted ${plan.expectedCandidates.slice(0, 16)}…`);
     }
   }
 
@@ -1138,7 +843,7 @@ export class WorkerEngineV4 {
     }
     this.docGate(job, token);
 
-    const identity = { source: extracted.artifact.source, text: extracted.artifact.text, candidates: extracted.artifact.candidateHash };
+    const identity = { source: extracted.artifact.source, text: extracted.artifact.text };
     // Assert against declared identities BEFORE freezing/emitting, then freeze —
     // a second same-generation ingest with different bytes is rejected, and the
     // transferred bytes are charged atomically against the project transfer cap.
@@ -1147,14 +852,8 @@ export class WorkerEngineV4 {
     this.freezeAccepted(token, identity, bytes.byteLength);
     this.emitSourceReady(job, generation, plan, extracted);
 
-    const key: ExtractionCacheKey = { schema: 'texttrends/extraction/1', source: extracted.artifact.source, recipe: plan.extractionRecipeHash };
     const prepared = await this.prepareFromText(job, plan, {
       verified: extracted.verified,
-      candidateHash: extracted.artifact.candidateHash,
-      parts: {
-        extraction: { artifact: extracted.artifact, key },
-        candidates: { candidates: extracted.artifact.candidates, candidateHash: extracted.artifact.candidateHash },
-      },
     }, token);
     this.docGate(job, token);
     this.progress(job, generation, 'compose', doc);
@@ -1177,7 +876,6 @@ export class WorkerEngineV4 {
       extractionRecipe: plan.extractionRecipeHash,
       text: a.text,
       textLengthUtf16: a.textLengthUtf16,
-      candidates: a.candidateHash,
       decoderReplacementCount: a.evidence.decoderReplacementCount,
       suspiciousControlCount: a.evidence.suspiciousControlCount,
     });
@@ -1189,17 +887,17 @@ export class WorkerEngineV4 {
 
   /**
    * The single publication path (ingest AND warm reopen): serialized through
-   * the composition mutex. Candidate documents whose token is no longer owned
-   * are discarded; if a candidate is superseded WHILE composing (an ingest
+   * the composition mutex. Documents whose token is no longer owned
+   * are discarded; if a document is superseded WHILE composing (an ingest
    * bumped its epoch), the staged snapshot is discarded and recomposed around
-   * the still-owned candidates — a stale item can never be filtered out AFTER a
+   * the still-owned documents — a stale item can never be filtered out AFTER a
    * snapshot was composed around it.
    */
   private commitDocuments(job: number, gen: GenerationStateV4, items: readonly { prepared: PreparedDocument; token: DocWorkToken }[]): Promise<readonly PreparedDocument[]> {
     const run = this.composing.then<readonly PreparedDocument[]>(async () => {
       this.gate(job, gen);
       // Recompose loop: converges because each iteration drops at least one
-      // superseded candidate, and a candidate never re-enters.
+      // superseded document, and a document never re-enters.
       for (;;) {
         const owned = items.filter((i) => this.owns(i.token));
         if (owned.length === 0) return []; // nothing left to publish
@@ -1258,7 +956,7 @@ export class WorkerEngineV4 {
         const boundTexts = await bindTextsVerified(snapshot, bound, nextTexts);
 
         // SYNCHRONOUS commit gate: recheck job, generation, the staged base,
-        // and EVERY currently-owned candidate token — INCLUDING cap-rejected
+        // and EVERY currently-owned document token — INCLUDING cap-rejected
         // ones. If a concurrent ingest claimed a rejected document during
         // composition, recompose: the next iteration drops that token before
         // reselecting, so a stale owner never emits a duplicate CAP_EXCEEDED for
@@ -1292,7 +990,7 @@ export class WorkerEngineV4 {
         // committed (never on a recompose that will be retried).
         for (const doc of rejected) this.emitError('CAP_EXCEEDED', { job, generation: gen.generation, message: `document '${doc}' would exceed the project text cap`, recoverable: true });
         // Only the documents that ACTUALLY committed may have their disposable
-        // artifacts persisted — a candidate dropped during composition or by the
+        // artifacts persisted — a document dropped during composition or by the
         // cap must not leave cache records for an unpublished build.
         return included.map((i) => i.prepared);
       }
@@ -1307,11 +1005,7 @@ export class WorkerEngineV4 {
     const writes: Promise<unknown>[] = [
       this.store.putText(prepared.ready.shard.text, prepared.text),
       this.store.putShard(prepared.shardKey, prepared.shard),
-      this.store.putStructure(prepared.structureKey, prepared.structureArtifact),
     ];
-    // Only persist a COMPLETE extraction artifact from a real source extraction
-    // — never fabricate one from a text-only candidate reconstruction.
-    if (prepared.extraction) writes.push(this.store.putExtraction(prepared.extraction.key, prepared.extraction.artifact));
     void Promise.all(writes).catch(() => {
       // A write that fails after the generation was replaced must not emit a
       // warning attributed to the current (different) generation.
@@ -1346,21 +1040,6 @@ export class WorkerEngineV4 {
       return;
     }
     const snapshot = gen.snapshot;
-
-    if (q.op === 'structure') {
-      await this.queryStructure(job, gen, snapshot, q.request.doc);
-      return;
-    }
-
-    if (q.op === 'structure-edit-context') {
-      await this.queryStructureEditContext(job, gen, snapshot, q.request.doc);
-      return;
-    }
-
-    if (q.op === 'line-excerpt') {
-      this.queryLineExcerpt(job, gen, snapshot, q.request.doc, q.request.anchor, q.request.maxChars);
-      return;
-    }
 
     // The generation-bound executor runs the analysis ops (slice-2 ruling §B);
     // this engine keeps job ownership, the injected checkpoint (yield + gate),
@@ -1397,32 +1076,6 @@ export class WorkerEngineV4 {
             cappedBy: page.cappedBy, marks: page.marks, marksTruncated: page.marksTruncated,
           },
         },
-      });
-      return;
-    }
-
-    if (q.op === 'tfidf-sections') {
-      const sections = await this.analysisSectionInputs(
-        job,
-        gen,
-        snapshot,
-        q.request.doc,
-        'TF-IDF query',
-      );
-      if (!sections) return;
-      await checkpoint();
-      const tfidf = await gen.executor.tfidfSections(
-        q.request,
-        sections,
-        checkpoint,
-      );
-      this.queryGate(job, gen, snapshotId);
-      this.emit({
-        v: PROTOCOL_VERSION_V4,
-        t: 'result',
-        job,
-        snapshot: snapshot.id,
-        data: { op: 'tfidf-sections', tfidf },
       });
       return;
     }
@@ -1502,29 +1155,9 @@ export class WorkerEngineV4 {
     }
 
     if (q.op === 'inventory') {
-      const sections: InventorySectionInputV1[] = [];
-      if (q.request.sections) {
-        for (const doc of selection.spec.docs) {
-          const rows = await this.analysisSectionInputs(
-            job,
-            gen,
-            snapshot,
-            doc,
-            'inventory query',
-          );
-          if (!rows) return;
-          // Keep at most cap+1 inputs: core uses the sentinel row to disclose
-          // truncation, while the engine stops hashing/binding later docs.
-          const remaining = INVENTORY_MAX_SECTIONS + 1 - sections.length;
-          sections.push(...rows.slice(0, remaining));
-          await checkpoint();
-          if (sections.length > INVENTORY_MAX_SECTIONS) break;
-        }
-      }
       const data = await gen.executor.inventory(
         selection,
         q.request,
-        sections,
         checkpoint,
       );
       this.queryGate(job, gen, snapshotId);
@@ -1561,284 +1194,6 @@ export class WorkerEngineV4 {
     const { total, rows } = await gen.executor.kwic(selection, q.tracks, q.request, checkpoint);
     this.queryGate(job, gen, snapshotId);
     this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'kwic', total, rows } });
-  }
-
-  /**
-   * Resolve a structure-bearing document for a snapshot-bound query: the
-   * snapshot ref, the resident ready document (whose identities must still be
-   * the ones the ref names), and its V2 artifact. Emits the appropriate typed
-   * error and returns null when the binding cannot be served — the ONE copy of
-   * this correctness-sensitive prologue for both structure queries.
-   */
-  private resolveStructureDoc(
-    job: number,
-    gen: GenerationStateV4,
-    snapshot: CorpusSnapshotV1,
-    doc: string,
-    what: string,
-  ): { ref: CorpusSnapshotV1['docs'][number]; ready: ReadyDocument; artifact: StructureArtifactV2 } | null {
-    const ref = snapshot.docs.find((r) => r.doc === doc);
-    if (!ref) {
-      this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
-      return null;
-    }
-    const ready = gen.ready.get(doc);
-    if (!ready) throw new DependencyError('shard', doc);
-    // The resident document must still be the one the snapshot ref names.
-    if (ready.index !== ref.index || ready.structure !== ref.structure) {
-      this.emitError('SNAPSHOT_UNKNOWN', { job, message: `${what} is bound to a superseded document`, recoverable: true });
-      return null;
-    }
-    const artifact = ready.structureArtifact;
-    if (artifact.schema !== 'texttrends/structure/2') {
-      this.emitError('REQUEST_INVALID', { job, message: `document '${doc}' has no chapter structure`, recoverable: true });
-      return null;
-    }
-    return { ref, ready, artifact };
-  }
-
-  /** The memoized token-range projection for a resolved structure doc. */
-  private tokenRangesFor(
-    gen: GenerationStateV4,
-    ref: CorpusSnapshotV1['docs'][number],
-    ready: ReadyDocument,
-    artifact: StructureArtifactV2,
-  ): readonly TokenRange[] {
-    const viewKey = tokenViewKey(ref.structure, ref.index);
-    let ranges = gen.tokenViews.get(viewKey);
-    if (!ranges) {
-      ranges = projectSections(artifact.sections, ready.shard.startsUtf16);
-      gen.tokenViews.set(viewKey, ranges);
-    }
-    return ranges;
-  }
-
-  /** The (doc, lineageKey) → SectionId binding, memoized on `gen.sectionIds`
-   *  (see the field's contract). The pending promise is installed BEFORE any
-   *  await so overlapping structure/edit-context queries share one digest. */
-  private cachedSectionId(gen: GenerationStateV4, doc: string, lineageKey: string): Promise<string> {
-    let byKey = gen.sectionIds.get(doc);
-    if (!byKey) {
-      byKey = new Map();
-      gen.sectionIds.set(doc, byKey);
-    }
-    const hit = byKey.get(lineageKey);
-    if (hit) return hit;
-    const scope = byKey;
-    const pending: Promise<string> = bindSectionId(doc, lineageKey).catch((e: unknown) => {
-      // Evict ONLY this promise so a later request retries; a concurrent
-      // replacement (installed after this one was evicted) must survive.
-      if (scope.get(lineageKey) === pending) scope.delete(lineageKey);
-      throw e;
-    });
-    scope.set(lineageKey, pending);
-    return pending;
-  }
-
-  /** Bind lineage keys → project-scoped SectionIds and materialize the keyed
-   *  section rows (parents translated). All missing bindings are launched in
-   *  parallel (ruling D4: ~345 ms sequential vs ~35 ms parallel at the 2,048
-   *  section cap; WebCrypto schedules its own work — no concurrency bound).
-   *  Gates after the awaited bindings; the caller gates again before emitting. */
-  private async bindSectionRows(
-    job: number,
-    gen: GenerationStateV4,
-    snapshotId: string,
-    doc: string,
-    artifact: StructureArtifactV2,
-    ranges: readonly TokenRange[],
-  ): Promise<{ key: string; section: WireSection; tokens: TokenRange }[]> {
-    const ids = await Promise.all(artifact.sections.map((s) => this.cachedSectionId(gen, doc, s.key)));
-    const idByKey = new Map<string, string>();
-    artifact.sections.forEach((s, i) => idByKey.set(s.key, ids[i]!));
-    this.queryGate(job, gen, snapshotId);
-    return artifact.sections.map((s, i) => ({
-      key: s.key,
-      section: {
-        id: idByKey.get(s.key)!,
-        doc,
-        origin: s.origin,
-        ...(s.parent === undefined ? {} : { parent: idByKey.get(s.parent)! }),
-        level: s.level,
-        ...(s.title === undefined ? {} : { title: s.title }),
-        chars: { start: s.chars.start, end: s.chars.end },
-      },
-      tokens: ranges[i]!,
-    }));
-  }
-
-  /** Project a structure into the shared section-input shape consumed by the
-   * vocabulary-wide inventory and selection-independent TF-IDF operations. */
-  private async analysisSectionInputs(
-    job: number,
-    gen: GenerationStateV4,
-    snapshot: CorpusSnapshotV1,
-    doc: string,
-    what: string,
-  ): Promise<InventorySectionInputV1[] | null> {
-    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, what);
-    if (!resolved) return null;
-    const { ref, ready, artifact } = resolved;
-    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
-    const rows = await this.bindSectionRows(
-      job,
-      gen,
-      snapshot.id,
-      doc,
-      artifact,
-      ranges,
-    );
-    return rows.map((row) => ({
-      id: row.section.id,
-      doc,
-      level: row.section.level,
-      ...(row.section.title === undefined ? {} : { title: row.section.title }),
-      tokens: row.tokens,
-    }));
-  }
-
-  /**
-   * The snapshot-bound structure query (§12.7, engine-v4 consult §Q5.4). Bound
-   * to the current snapshot OBJECT — a successful generation gate alone is
-   * insufficient because an incremental publication can supersede the snapshot
-   * within the same generation. Requires the ready document's identities to
-   * still equal the snapshot ref's, projects sections to token ranges (cached
-   * doc-independently by [StructureHash, IndexArtifactHash]), binds section ids
-   * deterministically from doc + lineage key, and echoes both bound identities.
-   */
-  private async queryStructure(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
-    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, 'structure query');
-    if (!resolved) return;
-    const { ref, ready, artifact } = resolved;
-    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
-    await this.queryCheckpoint(job, gen, snapshot.id);
-
-    const keyed = await this.bindSectionRows(job, gen, snapshot.id, doc, artifact, ranges);
-    const rows = keyed.map(({ section, tokens }) => ({ section, tokens }));
-
-    this.queryGate(job, gen, snapshot.id);
-    this.emit({
-      v: PROTOCOL_VERSION_V4,
-      t: 'result',
-      job,
-      snapshot: snapshot.id,
-      data: { op: 'structure', structure: { doc, structure: ref.structure, index: ref.index, rows } },
-    });
-  }
-
-  /**
-   * The authoring-context query (§12.3, ruling §2). Unlike the cheap structure
-   * read, this re-derives the DETECTED baseline the correction UI diffs against
-   * — candidate values from resident text + the extraction recipe, verified
-   * against the admitted candidate identity, then `buildDetectedSections` — and
-   * memoizes it per [TextHash, CandidateHash, StructureRecipeHash] (bounded,
-   * never persisted). Echoes the base identities + effective override hash and
-   * both artifact identities, and carries the current composed rows (bound id +
-   * lineage key + token range) so the UI can render while it edits.
-   */
-  private async queryStructureEditContext(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string): Promise<void> {
-    const resolved = this.resolveStructureDoc(job, gen, snapshot, doc, 'edit context');
-    if (!resolved) return;
-    const { ref, ready, artifact } = resolved;
-    const plan = gen.plans.get(doc);
-    const residentText = gen.texts.get(doc);
-    if (!plan || residentText === undefined) throw new DependencyError('text', doc);
-    const text = verifiedTextOf(residentText);
-
-    // Detected baseline: reconstruct candidates from resident text and verify
-    // they still hash to the admitted identity (a nondeterminism/corruption
-    // guard), then build the detected table. Memoized per identity triple.
-    const cacheKey = `${artifact.text}\u0000${artifact.candidates}\u0000${artifact.recipe}`;
-    let detected = gen.detectedTables.get(cacheKey);
-    if (!detected) {
-      const bundle = await deriveCandidatesFromText(text, plan.extractionRecipe);
-      if (bundle.candidateHash !== artifact.candidates) {
-        this.emitError('EXTRACTION_MISMATCH', { job, message: `document '${doc}' reconstructed candidates do not match the artifact`, recoverable: false });
-        return;
-      }
-      detected = buildDetectedSections(text, bundle.candidates, plan.structureRecipe);
-      // Bound the ephemeral cache (at most one entry per project doc).
-      if (gen.detectedTables.size >= this.caps.maxDocsPerProject) {
-        const oldest = gen.detectedTables.keys().next().value;
-        if (oldest !== undefined) gen.detectedTables.delete(oldest);
-      }
-      gen.detectedTables.set(cacheKey, detected);
-    }
-    await this.queryCheckpoint(job, gen, snapshot.id);
-
-    // Token ranges for the CURRENT composed sections (same projection + cache
-    // as the plain structure query).
-    const ranges = this.tokenRangesFor(gen, ref, ready, artifact);
-    this.queryGate(job, gen, snapshot.id);
-
-    const current = await this.bindSectionRows(job, gen, snapshot.id, doc, artifact, ranges);
-    const detectedRows: EditSectionRow[] = detected.map((s) => ({
-      key: s.key,
-      origin: s.origin,
-      ...(s.parent === undefined ? {} : { parent: s.parent }),
-      level: s.level,
-      ...(s.title === undefined ? {} : { title: s.title }),
-      chars: { start: s.chars.start, end: s.chars.end },
-    }));
-
-    this.queryGate(job, gen, snapshot.id);
-    this.emit({
-      v: PROTOCOL_VERSION_V4,
-      t: 'result',
-      job,
-      snapshot: snapshot.id,
-      data: {
-        op: 'structure-edit-context',
-        context: {
-          doc,
-          structure: ref.structure,
-          index: ref.index,
-          base: { text: artifact.text, candidates: artifact.candidates, baseRecipe: artifact.recipe },
-          override: artifact.override,
-          detected: detectedRows,
-          current,
-        },
-      },
-    });
-  }
-
-  /** The bounded source line around a char anchor (§4). Synchronous and cheap —
-   *  a `maxChars`-bounded window (hard-capped so a caller cannot request an
-   *  unbounded slice), never splitting a surrogate pair. */
-  private queryLineExcerpt(job: number, gen: GenerationStateV4, snapshot: CorpusSnapshotV1, doc: string, anchor: number, maxChars: number): void {
-    const ref = snapshot.docs.find((r) => r.doc === doc);
-    if (!ref) {
-      this.emitError('REQUEST_INVALID', { job, message: `'${doc}' is not a member of the snapshot`, recoverable: true });
-      return;
-    }
-    const residentText = gen.texts.get(doc);
-    if (residentText === undefined) {
-      this.emitError('DEPENDENCY_MISSING', { job, message: `text for '${doc}' is not resident`, recoverable: true });
-      return;
-    }
-    const text = verifiedTextOf(residentText);
-    if (!Number.isInteger(anchor) || anchor < 0 || anchor > text.length) {
-      this.emitError('REQUEST_INVALID', { job, message: `invalid line anchor ${anchor}`, recoverable: true });
-      return;
-    }
-    if (!Number.isFinite(maxChars)) {
-      // Defence in depth: the schema already rejects a non-finite budget, but a
-      // NaN budget here would defeat the window's stopping comparisons.
-      this.emitError('REQUEST_INVALID', { job, message: `invalid line-excerpt budget ${maxChars}`, recoverable: true });
-      return;
-    }
-    const bounded = Math.min(Math.max(1, Math.floor(maxChars)), LINE_EXCERPT_MAX_CHARS);
-    const w = lineWindowAround(text, anchor, bounded);
-    this.emit({
-      v: PROTOCOL_VERSION_V4,
-      t: 'result',
-      job,
-      snapshot: snapshot.id,
-      data: {
-        op: 'line-excerpt',
-        excerpt: { doc, chars: { start: w.start, end: w.end }, text: w.text, truncatedStart: w.truncatedStart, truncatedEnd: w.truncatedEnd },
-      },
-    });
   }
 
   // -------------------------------------------------------------------------
@@ -1879,8 +1234,7 @@ export class WorkerEngineV4 {
 
   /**
    * The ONE classification of a warm-path failure as TERMINAL (emitted, never
-   * listed as a byte miss — a refetch cannot repair a candidate contradiction,
-   * a cap violation, or a malformed override). Returns false for everything
+   * listed as a byte miss. Returns false for everything
    * else, which the caller degrades to a `rehydrate-failed` byte miss — that
    * DELIBERATELY includes RangeError, unlike `mapError` (a warm attempt may
    * fall back to the byte path; the cold ingest surfaces the real fault with
@@ -1891,14 +1245,8 @@ export class WorkerEngineV4 {
       this.emitError('EXTRACTION_MISMATCH', { job, generation, message: e.message, recoverable: true });
       return true;
     }
-    if (e instanceof CapError || e instanceof StructureCapError) {
+    if (e instanceof CapError) {
       this.emitError('CAP_EXCEEDED', { job, generation, message: e.message, recoverable: true });
-      return true;
-    }
-    if (e instanceof StructureError) {
-      // A malformed override / invalid table is TERMINAL — bytes cannot
-      // repair it, so it is never downgraded to a rehydrate miss.
-      this.emitError('REQUEST_INVALID', { job, generation, message: e.message, recoverable: true });
       return true;
     }
     return false;
@@ -1949,11 +1297,6 @@ function mapError(e: unknown): { code: WorkerErrorCodeV4; message: string } {
   if (e instanceof CapError) return { code: 'CAP_EXCEEDED', message };
   if (e instanceof SourceMismatchError || e instanceof IdentityConflictError) return { code: 'SOURCE_MISMATCH', message };
   if (e instanceof ExtractionMismatchError) return { code: 'EXTRACTION_MISMATCH', message };
-  // A section-count violation is a cap; any other structural violation (bad
-  // override, over-long key, collision, malformed table) is a request fault.
-  // Subclass BEFORE base so a StructureCapError never falls through to REQUEST_INVALID.
-  if (e instanceof StructureCapError) return { code: 'CAP_EXCEEDED', message };
-  if (e instanceof StructureError) return { code: 'REQUEST_INVALID', message };
   if (e instanceof RangeError) return { code: 'REQUEST_INVALID', message };
   return { code: 'INTERNAL', message };
 }

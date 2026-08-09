@@ -19,7 +19,6 @@ import { termCountRangeKey } from './term-counts.ts';
 export const INVENTORY_MAX_RHYTHM_BINS_PER_DOC = 256;
 export const INVENTORY_MIN_GROWTH_POINTS = 16;
 export const INVENTORY_MAX_GROWTH_POINTS = 1_024;
-export const INVENTORY_MAX_SECTIONS = 2_048;
 export const INVENTORY_MAX_MATTR_WINDOW = 2_000;
 export const INVENTORY_SCAN_CHUNK = 65_536;
 /** One dense Uint32 count table is at most ~8 MiB. */
@@ -29,7 +28,6 @@ export interface InventoryRequestV1 {
   readonly method: 'inventory/1';
   readonly rhythmBinsPerDoc: number;
   readonly growthPoints: number;
-  readonly sections: boolean;
   readonly mattrWindow: number;
 }
 
@@ -85,27 +83,6 @@ export interface InventoryGrowthV1 {
   readonly documentEnds: readonly number[];
 }
 
-export interface InventorySectionInputV1 {
-  readonly id: string;
-  readonly doc: string;
-  readonly level: number;
-  readonly title?: string;
-  readonly tokens: TokenRangeSpan;
-}
-
-export interface InventorySectionRowV1 extends InventorySectionInputV1 {
-  readonly selectedTokens: number;
-  readonly sentences: number;
-  readonly sentenceMean: number | null;
-  readonly types: number;
-}
-
-export interface InventorySectionsV1 {
-  readonly rows: readonly InventorySectionRowV1[];
-  /** True when more declared-order rows existed than the result cap admits. */
-  readonly truncated: boolean;
-}
-
 export interface InventoryDocumentInputV1 {
   readonly ref: CorpusDocRef;
   readonly shard: DocumentIndexV1;
@@ -120,7 +97,6 @@ export interface InventoryResultV1 {
   readonly documents: readonly InventoryDocumentRowV1[];
   readonly rhythm: InventoryRhythmV1 | null;
   readonly growth: InventoryGrowthV1 | null;
-  readonly sections: InventorySectionsV1 | null;
   readonly missingDocs: readonly string[];
   readonly mattrWindow: number;
 }
@@ -160,9 +136,6 @@ function validateRequest(request: InventoryRequestV1): void {
     throw new RangeError(
       `mattrWindow must be an integer in [1, ${INVENTORY_MAX_MATTR_WINDOW}]`,
     );
-  }
-  if (typeof request.sections !== 'boolean') {
-    throw new RangeError('sections must be boolean');
   }
 }
 
@@ -388,68 +361,11 @@ async function buildGrowth(
   };
 }
 
-async function buildSections(
-  selection: ResolvedSelection,
-  byDoc: ReadonlyMap<string, InventoryDocumentInputV1>,
-  sectionInputs: readonly InventorySectionInputV1[],
-  reusableCounts: Uint32Array,
-  checkpoint: InventoryCheckpoint,
-): Promise<InventorySectionsV1> {
-  const truncated = sectionInputs.length > INVENTORY_MAX_SECTIONS;
-  const admittedInputs = sectionInputs.slice(0, INVENTORY_MAX_SECTIONS);
-  reusableCounts.fill(0);
-  let stamp = 0;
-  const rows: InventorySectionRowV1[] = [];
-  for (const section of admittedInputs) {
-    const input = byDoc.get(section.doc);
-    if (!input || !selection.docSet.has(input.ref.doc)) continue;
-    const { start, end } = section.tokens;
-    if (
-      !Number.isSafeInteger(start) ||
-      !Number.isSafeInteger(end) ||
-      start < 0 ||
-      start > end ||
-      end > input.ref.tokenCount
-    ) {
-      throw new RangeError(`invalid section range [${start}, ${end}) for '${section.doc}'`);
-    }
-    const runs = runsFor(selection, input.ref, section.tokens);
-    const selectedTokens = runs.reduce((sum, run) => sum + run.end - run.start, 0);
-    const sentences = collectUnits(input.shard.sentenceBounds, runs);
-    stamp++;
-    if (stamp === 0xffff_ffff) {
-      reusableCounts.fill(0);
-      stamp = 1;
-    }
-    let types = 0;
-    for (const run of runs) {
-      for (let position = run.start; position < run.end; position++) {
-        const local = input.shard.tokenTypeIds[position] as number;
-        const corpus = input.ref.localToCorpusType[local] as number;
-        if (reusableCounts[corpus] !== stamp) {
-          reusableCounts[corpus] = stamp;
-          types++;
-        }
-      }
-    }
-    rows.push({
-      ...section,
-      selectedTokens,
-      sentences: sentences.count,
-      sentenceMean: mean(sentences),
-      types,
-    });
-    await checkpoint();
-  }
-  return { rows, truncated };
-}
-
 export async function inventory(
   snapshot: CorpusSnapshotV1,
   selection: ResolvedSelection,
   inputs: readonly InventoryDocumentInputV1[],
   request: InventoryRequestV1,
-  sectionInputs: readonly InventorySectionInputV1[],
   checkpoint: InventoryCheckpoint,
 ): Promise<InventoryResultV1> {
   validateRequest(request);
@@ -467,10 +383,8 @@ export async function inventory(
   ) {
     throw new RangeError('inventory inputs must follow exact selection order');
   }
-  const byDoc = new Map<string, InventoryDocumentInputV1>();
   for (const input of inputs) {
     validateInput(snapshot, selection, input);
-    byDoc.set(input.ref.doc, input);
   }
 
   const totalCounts = new Uint32Array(snapshot.vocabulary.keys.length);
@@ -594,17 +508,6 @@ export async function inventory(
   const growth = request.growthPoints === 0
     ? null
     : await buildGrowth(snapshot, selection, inputs, request.growthPoints, checkpoint);
-  const sections = request.sections
-    ? await buildSections(
-        selection,
-        byDoc,
-        sectionInputs,
-        // `types`/`hapax` were finalized above, so the section pass may reuse
-        // and clear this otherwise-dead dense buffer as a generation stamp.
-        totalCounts,
-        checkpoint,
-      )
-    : null;
   await checkpoint();
 
   const totals: InventoryTotalsV1 = {
@@ -639,7 +542,6 @@ export async function inventory(
           sentenceMedian: Float64Array.from(rhythmSentenceMedian),
         },
     growth,
-    sections,
     missingDocs: [...snapshot.missingDocs],
     mattrWindow: request.mattrWindow,
   };

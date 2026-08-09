@@ -58,12 +58,10 @@ test('a corrupt cached shard warns, rebuilds locally, and the repair persists', 
   // snapshot, the rebuilt document adds a second.
   const segmented = events(t, { direction: 'from-worker', t: 'progress', phase: 'segment' });
   expect(segmented.map((e) => e.doc)).toEqual([victim.doc]);
-  // The verified text, candidates, and structure were all still valid — only
-  // the shard was corrupt — so the victim must NOT re-decode, re-extract, or
-  // recompose structure. The rebuild is segment/index only.
+  // The verified text was still valid — only the shard was corrupt — so the
+  // victim must NOT re-decode or re-extract. The rebuild is segment/index only.
   expect(events(t, { direction: 'from-worker', t: 'progress', phase: 'decode' })).toEqual([]);
   expect(events(t, { direction: 'from-worker', t: 'progress', phase: 'extract' })).toEqual([]);
-  expect(events(t, { direction: 'from-worker', t: 'progress', phase: 'structure' })).toEqual([]);
   const published = events(t, { direction: 'from-worker', t: 'snapshot-published' });
   expect(published.length).toBe(2);
   expect(published[0]!.readyCount).toBe(DOC_COUNT - 1);

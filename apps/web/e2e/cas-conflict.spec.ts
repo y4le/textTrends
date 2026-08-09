@@ -1,9 +1,9 @@
 /**
  * Commit 9b — a REAL compare-and-swap conflict. Save revision 1, then advance
  * ONLY the stored manifest's revision to 2 directly in IndexedDB (as another tab
- * would), make a local structure correction, and save from the older base. The
+ * would), add a local file, and save from the older base. The
  * worker reports REVISION_CONFLICT (currentRevision 2), the UI shows the
- * conflict, the local correction stays visible and dirty, and the durable record
+ * conflict, the local file stays visible and dirty, and the durable record
  * still holds revision 2 with its pre-existing payload — never overwritten.
  */
 
@@ -35,15 +35,14 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
   // Another tab advanced the durable revision to 2 (only the revision changes).
   await setUserProjectRevision(page, saved!.id, 2);
 
-  // A local structure correction dirties the project at the stale base 1.
+  // Adding a second local file dirties the project at the stale base 1.
   await gotoPlace(page, 'catalog');
-  await page.getByRole('button', { name: 'edit chapters' }).click();
-  await expect(page.getByLabel('Editable chapters')).toBeVisible({ timeout: 30_000 });
-  const firstTitle = page.locator('input[aria-label^="Title for"]').first();
-  await firstTitle.fill('Renamed Alpha');
-  await page.getByRole('region', { name: 'Chapter structure' })
-    .getByRole('button', { name: 'apply', exact: true }).click();
-  await expect(page.getByText('your chapter correction is applied.')).toBeVisible({ timeout: 30_000 });
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'companion.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('the fox crossed the quiet field.\n', 'utf-8'),
+  });
+  await awaitReadyCount(page, 2);
 
   // Save from base 1: the worker's CAS sees stored revision 2 → REVISION_CONFLICT.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -62,11 +61,12 @@ test('a stale CAS base is refused with REVISION_CONFLICT and never overwrites th
     }, { timeout: 30_000, message: 'the stale save did not conflict' })
     .toBe('conflict');
 
-  // The UI names the conflicting revision; the local correction survives.
+  // The UI names the conflicting revision; the local addition survives.
   await expect(page.getByText('Project conflict: the saved project moved to revision 2.').first()).toBeVisible();
   await gotoPlace(page, 'catalog');
-  await expect(page.getByRole('region', { name: 'Chapter structure' })
-    .getByText('Renamed Alpha', { exact: true })).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Book analysis' })
+    .locator(':scope > tbody > tr[data-catalog-book]')).toHaveCount(2);
+  await expect(page.getByText('companion', { exact: true }).first()).toBeVisible();
 
   // The durable record is untouched: still revision 2 with its original payload.
   const after = await readUserProject(page);

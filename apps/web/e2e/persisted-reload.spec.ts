@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, clearArtifactStores, gotoPlace, submitAndAwaitFreshResults, trace, USER_DATA_DB, userDataCounts } from './helpers.ts';
 
-const DOC_TEXT = `# Chapter One\n\n${'the wolf ran far over the hill. '.repeat(60)}`;
+const DOC_TEXT = `Field notes\n\n${'the wolf ran far over the hill. '.repeat(60)}`;
 
 /** Flip one byte of every persisted source IN PLACE (same length, same key) —
  *  the envelope check cannot catch this; the warm path's pre-extraction

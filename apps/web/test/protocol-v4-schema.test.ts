@@ -9,9 +9,7 @@ import { parseToWorkerV4, narrowQueryV4 } from '../src/worker/protocol-v4-schema
 import { PROTOCOL_VERSION_V4 } from '../src/worker/protocol-v4.ts';
 import {
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
-  emptyOverride,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
   TERM_GROUP_LIMITS_V1,
@@ -24,8 +22,6 @@ import {
   FREQUENCY_PAGE_MAX,
   FREQUENCY_PREFIX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
-  TFIDF_MAX_MIN_SECTION_TOKENS,
-  TFIDF_MAX_TOP_K,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -40,12 +36,6 @@ function docSpec(overrides: Record<string, unknown> = {}) {
       recipeHash: 'erec',
       expectedText: 'th',
       expectedTextLengthUtf16: 10,
-      expectedCandidates: 'ch',
-    },
-    structure: {
-      recipe: DEFAULT_STRUCTURE_RECIPE,
-      recipeHash: 'srec',
-      override: { kind: 'none' },
     },
     ...overrides,
   };
@@ -72,7 +62,7 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ v, t: 'bogus' })).toBeNull();
   });
 
-  it('accepts a well-formed begin-generation carrying full recipe/override values', () => {
+  it('accepts a well-formed begin-generation carrying full recipe values', () => {
     const msg = { v, t: 'begin-generation', job: 1, generation: 'g', docs: [docSpec()], indexRecipe: DEFAULT_INDEX_RECIPE };
     expect(parseToWorkerV4(msg)).not.toBeNull();
   });
@@ -94,11 +84,10 @@ describe('parseToWorkerV4 envelope', () => {
     expect(parseToWorkerV4({ ...base, docs: [unknown] })).toBeNull();
   });
 
-  it('rejects a doc spec missing source/extraction/structure sub-shapes', () => {
+  it('rejects a doc spec missing source or extraction sub-shapes', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: undefined })] })).toBeNull();
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ extraction: undefined })] })).toBeNull();
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: undefined })] })).toBeNull();
     // Bad discriminant scalars.
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: 1, format: 'pdf', availability: 'bundled' } })] })).toBeNull();
     expect(parseToWorkerV4({ ...base, docs: [docSpec({ source: { byteLength: 1, format: 'txt', availability: 'nope' } })] })).toBeNull();
@@ -181,57 +170,10 @@ describe('parseToWorkerV4 envelope', () => {
     })).toBeNull();
   });
 
-  const struct = (override: unknown) => ({ recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: 'r', override });
-
-  it('accepts both override forms: none and a well-formed active correction', () => {
-    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'none' }) })] })).not.toBeNull();
-    const active = { kind: 'active', value: emptyOverride('t', 'c', 'r'), hash: 'oh' };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct(active) })] })).not.toBeNull();
-  });
-
-  it('rejects malformed override inputs (bad kind, extra fields, incomplete active value)', () => {
-    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
-    // Unknown kind, none-with-extra, active missing hash, active with a bad value.
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'bogus' }) })] })).toBeNull();
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'none', extra: 1 }) })] })).toBeNull();
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: emptyOverride('t', 'c', 'r') }) })] })).toBeNull();
-    const badValue = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'add', key: 'x', value: {} }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: badValue, hash: 'h' }) })] })).toBeNull();
-    // A duplicate-target active value is non-canonical.
-    const dupValue = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'remove', target: 'x' }, { op: 'remove', target: 'x' }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: dupValue, hash: 'h' }) })] })).toBeNull();
-  });
-
-  it('the override wrapper is held to exact/plain discipline (symbols, non-enumerable, prototype, accessors)', () => {
-    const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
-    const reject = (override: unknown) =>
-      expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct(override) })] })).toBeNull();
-    reject({ kind: 'none', [Symbol('x')]: 1 });
-    const nonEnum = { kind: 'none' };
-    Object.defineProperty(nonEnum, 'extra', { value: 1, enumerable: false });
-    reject(nonEnum);
-    const inheritedNone = Object.create({ kind: 'none' });
-    (inheritedNone as { extra: number }).extra = 1;
-    reject(inheritedNone);
-    const active = emptyOverride('t', 'c', 'r');
-    const inheritedHash = Object.create({ hash: 'h' });
-    Object.assign(inheritedHash, { kind: 'active', value: active });
-    reject(inheritedHash);
-    const getterValue: Record<string, unknown> = { kind: 'active', hash: 'h' };
-    Object.defineProperty(getterValue, 'value', { get: () => active, enumerable: true });
-    reject(getterValue);
-  });
-
   it('rejects UNSUPPORTED recipe identities and EXTRA fields (one operation, one identity)', () => {
     const base = { v, t: 'begin-generation', job: 1, generation: 'g', indexRecipe: DEFAULT_INDEX_RECIPE };
     expect(parseToWorkerV4({ ...base, indexRecipe: {}, docs: [docSpec()] })).toBeNull();
     expect(parseToWorkerV4({ ...base, indexRecipe: { ...DEFAULT_INDEX_RECIPE, futurePolicy: 'x' }, docs: [docSpec()] })).toBeNull();
-    const badStructRecipe = { ...DEFAULT_STRUCTURE_RECIPE, evidenceOrder: ['unsupported-policy'] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: { recipe: badStructRecipe, recipeHash: 'r', override: { kind: 'none' } } })] })).toBeNull();
-    // Extra field on an active override change hashes differently yet applies the same.
-    const extraChange = { schema: 'texttrends/structure-override/1', text: 't', candidates: 'c', baseRecipe: 'r', changes: [{ op: 'remove', target: 'x', ignored: true }] };
-    expect(parseToWorkerV4({ ...base, docs: [docSpec({ structure: struct({ kind: 'active', value: extraChange, hash: 'h' }) })] })).toBeNull();
   });
 });
 
@@ -239,13 +181,10 @@ describe('narrowQueryV4', () => {
   const kwicReq = { contextTokens: 6, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } };
   const kwicTracks = [{ seriesId: 's1', group: wolfGroup }];
 
-  it('accepts trend, concordance, and structure with complete request fields', () => {
+  it('accepts trend and concordance with complete request fields', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'fixed-tokens', count: 250 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
-    expect(narrowQueryV4({ op: 'structure', request: { doc: 'a' } })).toBe(true);
-    expect(narrowQueryV4({ op: 'structure-edit-context', request: { doc: 'a' } })).toBe(true);
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 10, maxChars: 200 } })).toBe(true);
     // kwic accepts an optional axis center and multiple tracks.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }, { seriesId: 's2', group: wolfGroup }], request: { ...kwicReq, center: { doc: 'a', token: 3 } } })).toBe(true);
     // A valid selection with well-formed ranges.
@@ -266,15 +205,6 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: 'x' } } })).toBe(false);
     // The forbidden dual shape: a valid `tracks` alongside a contradictory legacy `group`.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, group: wolfGroup, request: kwicReq })).toBe(false);
-    expect(narrowQueryV4({ op: 'structure', request: {} })).toBe(false);
-    expect(narrowQueryV4({ op: 'structure-edit-context', request: {} })).toBe(false);
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 'x', maxChars: 1 } })).toBe(false);
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 1 } })).toBe(false);
-    // Non-finite budgets/anchors are rejected: a NaN budget would defeat the
-    // window's stopping comparisons and return an unbounded slice.
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 5, maxChars: NaN } })).toBe(false);
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: NaN, maxChars: 100 } })).toBe(false);
-    expect(narrowQueryV4({ op: 'line-excerpt', request: { doc: 'a', anchor: 5, maxChars: Infinity } })).toBe(false);
     expect(narrowQueryV4({ op: 'bogus' })).toBe(false);
     // Exact match-mode enums (a bogus value must not silently mean sensitive).
     const badMatch = { ...wolfGroup, members: [{ id: 'm', kind: 'token', surface: 'w', match: { case: 'x', diacritics: 'folded' } }] };
@@ -399,7 +329,6 @@ describe('narrowQueryV4', () => {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
         growthPoints: 0,
-        sections: false,
         mattrWindow: 500,
         ...request,
       },
@@ -409,14 +338,12 @@ describe('narrowQueryV4', () => {
       rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
       growthPoints: INVENTORY_MAX_GROWTH_POINTS,
       mattrWindow: INVENTORY_MAX_MATTR_WINDOW,
-      sections: true,
     })).toBe(true);
     expect(query({ rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC + 1 })).toBe(false);
     expect(query({ growthPoints: INVENTORY_MIN_GROWTH_POINTS - 1 })).toBe(false);
     expect(query({ growthPoints: INVENTORY_MAX_GROWTH_POINTS + 1 })).toBe(false);
     expect(query({ mattrWindow: 0 })).toBe(false);
     expect(query({ mattrWindow: INVENTORY_MAX_MATTR_WINDOW + 1 })).toBe(false);
-    expect(query({ sections: 'yes' })).toBe(false);
     expect(query({ method: 'inventory/2' })).toBe(false);
     expect(query({ extra: true })).toBe(false);
     expect(narrowQueryV4({
@@ -426,7 +353,6 @@ describe('narrowQueryV4', () => {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
         growthPoints: 0,
-        sections: false,
         mattrWindow: 500,
       },
       extra: true,
@@ -465,32 +391,6 @@ describe('narrowQueryV4', () => {
     expect(query({ dispersion: 'yes' })).toBe(false);
     expect(query({ sort: { by: 'dp', dir: -1 }, dispersion: false })).toBe(false);
     expect(query({ sort: { by: 'dpNorm', dir: -1 }, dispersion: false })).toBe(false);
-  });
-
-  it('tfidf-sections/1 has no selection degree of freedom and pins topK', () => {
-    const query = (over: Record<string, unknown> = {}, selection?: unknown) => narrowQueryV4({
-      op: 'tfidf-sections',
-      ...(selection === undefined ? {} : { selection }),
-      request: {
-        method: 'tfidf-sections/1',
-        doc: 'a',
-        level: 1,
-        minSectionTokens: 50,
-        topK: 5,
-        ...over,
-      },
-    });
-    expect(query()).toBe(true);
-    expect(query({ level: 1, topK: TFIDF_MAX_TOP_K })).toBe(true);
-    expect(query({}, { docs: ['a'] })).toBe(false);
-    expect(query({ doc: '' })).toBe(false);
-    expect(query({ minSectionTokens: 0 })).toBe(false);
-    expect(query({ minSectionTokens: TFIDF_MAX_MIN_SECTION_TOKENS + 1 })).toBe(false);
-    expect(query({ topK: 0 })).toBe(false);
-    expect(query({ topK: TFIDF_MAX_TOP_K + 1 })).toBe(false);
-    expect(query({ level: undefined })).toBe(false);
-    expect(query({ level: -1 })).toBe(false);
-    expect(query({ extra: true })).toBe(false);
   });
 
   it('keyness/1 pins two selections, methods, filters, sort, side, and page window', () => {
@@ -588,7 +488,6 @@ describe('narrowQueryV4', () => {
           method: 'inventory/1',
           rhythmBinsPerDoc: n,
           growthPoints: 0,
-          sections: false,
           mattrWindow: 500,
         },
       }), why).toBe(false);

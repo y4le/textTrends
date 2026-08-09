@@ -6,7 +6,7 @@ Status: preimplementation decision record for Stage 4 of
 ## Product law
 
 Vocabulary remains the canonical home for ranked types, frequency filters,
-per-type statistics, focused-book section summaries, and chapter labels. It
+per-type statistics and focused-book document measurements. It
 does not duplicate Corpus inventory or Concordance evidence.
 
 The frequency result contract is `freq-list/1`
@@ -110,12 +110,9 @@ is active. A row uses the same disclosure button and additive detail as
 compact, so actions have one canonical DOM location rather than a second
 wide-only action column.
 
-Focused-book section profile and chapter labels remain below the frequency
-catalog. Their ownership and query behavior do not change. Their compact
-presentation does: the section strip is clipped within a 100%-wide named
-figure while its complete text remains in the accessible label, and the exact
-five-column table receives a named horizontal data port. Chapter labels wrap.
-This makes the whole Vocabulary place satisfy the no-body-overflow gate.
+Focused-book document measurements remain available from Catalog. This keeps
+Vocabulary focused on its bounded frequency table and makes the whole place
+satisfy the no-body-overflow gate.
 
 ## Governed layers and focus
 
@@ -256,10 +253,7 @@ The existing exact-term laws remain:
 - notebook duplicate/cap refusal retains its existing exact identity behavior;
   successful Concordance routing is explicitly new and Back restores the open
   Vocabulary detail (but not an unapplied draft), while refusal does not route;
-- focused section profile and chapter labels still render below the catalog.
-  A many-section fixture proves the strip and exact-value port cannot overflow
-  the body; the complete exact values live in the adjacent named disclosure
-  rather than the strip's compact count label.
+- a large-vocabulary fixture proves the result table cannot overflow the body.
 
 ### Real WebKit compact project
 

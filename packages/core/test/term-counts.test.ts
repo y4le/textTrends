@@ -6,7 +6,6 @@ import { documentTermCounts, termCountRangeKey } from '../src/ops/term-counts.ts
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument } from '../src/snapshot/compose.ts';
 import { resolveSelection } from '../src/snapshot/selection.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 
 const GEN = 'term-counts' as BuildGeneration;
 
@@ -25,7 +24,6 @@ async function corpus(texts: readonly [string, string][]) {
       await makeReadyDocument(
         doc as ProjectDocId,
         shard,
-        rootOnlyV2(text, shard.text),
       ),
     );
   }

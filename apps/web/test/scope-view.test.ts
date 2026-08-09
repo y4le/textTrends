@@ -28,7 +28,6 @@ const inventoryResult = (
   documents: [],
   rhythm: null,
   growth: null,
-  sections: null,
   missingDocs,
   mattrWindow: 500,
 });

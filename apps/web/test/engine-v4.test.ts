@@ -1,11 +1,6 @@
 /**
- * WorkerEngineV4 lifecycle/race suite (commit 6b). Exercises the ingest/
- * structure worker in isolation over the injected ArtifactStore, UserData
- * provider, and yield seam — the same discipline as the v3 engine suite, plus
- * the new failure modes from the "Commit 6 design of record": override
- * derivation/verification, deep warm admission across the three artifact
- * stages, honest progress, per-document work claims, the snapshot-bound
- * structure query, and the separate user-data lane.
+ * WorkerEngineV4 lifecycle/race suite. Exercises ingestion, cache admission,
+ * publication, cancellation, and user-data routing over injected boundaries.
  */
 import { describe, expect, it, vi } from 'vitest';
 import { PROTOCOL_VERSION_V4, type GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
@@ -13,19 +8,13 @@ import type { UserDataStore } from '../src/worker/user-data-store.ts';
 import { begin, buf, coldIngest, FOLD, harness, utf8, wolfGroup, type Harness } from './support/engine-harness.ts';
 import { buildDocSpec as docSpec, extractLiteral as extractDocument } from './support/spec-fixtures.ts';
 import {
-  bindSectionId,
   bindShardsIncremental,
   createBindingSession,
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
   defaultExtractionRecipes,
-  emptyOverride,
   hashExtractionRecipe,
   hashSourceBytes,
-  hashStructureOverride,
-  hashStructureRecipe,
-  type StructureOverrideV1,
 } from '@texttrends/core';
 
 // D1 wiring seam: pass-through spies on the shard-binding entry points, so the
@@ -47,15 +36,6 @@ vi.mock('@texttrends/core', async (importOriginal) => {
 
 
 describe('generation resolution and plan validation', () => {
-  it('rejects an active override whose claimed hash does not match its value (before any warm work)', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'the wolf ran far');
-    const bad: GenerationDocSpecV4 = { ...spec, structure: { ...spec.structure, override: { kind: 'active', value: emptyOverride(spec.extraction.expectedText!, spec.extraction.expectedCandidates!, spec.structure.recipeHash), hash: 'wrong-hash' } } };
-    await begin(h, [bad]);
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    expect(h.all('generation-ready').length).toBe(0);
-  });
-
   it('recomputes recipe hashes and rejects a mismatch', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far');
@@ -85,12 +65,11 @@ describe('generation resolution and plan validation', () => {
 
   it('enforces the project caps for FRESH imports that carry no text assertion (byteLength bounds text)', async () => {
     const recipes = await defaultExtractionRecipes();
-    // A fresh import: source only, no extraction/expectedText/expectedCandidates.
+    // A fresh import: source only, with no expected text identity.
     const fresh = async (doc: string, byteLength: number): Promise<GenerationDocSpecV4> => ({
       doc, language: 'en',
       source: { byteLength, format: 'txt', availability: 'external' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
     });
     // Three 30 MiB fresh imports: source sum (90 MiB) is under the 128 MiB
     // source cap, but each byteLength bounds its text, so the text total
@@ -114,7 +93,6 @@ describe('generation resolution and plan validation', () => {
       doc: 'b', language: 'en',
       source: { byteLength: 8, format: 'txt', availability: 'external' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
     };
     await begin(h, [a, b]);
     await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
@@ -207,33 +185,19 @@ describe('actual aggregate ingest caps (injected small caps)', () => {
 });
 
 describe('cold ingest', () => {
-  it('a first cold ingest with override:none derives a canonical empty override and answers the structure query', async () => {
+  it('a first cold ingest publishes the document with honest progress', async () => {
     const h = harness();
-    const spec = await docSpec('a', '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept', { format: 'md' });
+    const spec = await docSpec('a', '# Part I\n\nthe wolf ran far\n\n# Part II\n\na wolf slept', { format: 'md' });
     await begin(h, [spec]);
     const ready = h.last('generation-ready');
     expect(ready.missing.map((m) => m.doc)).toEqual(['a']);
-    await coldIngest(h, 'g', 'a', '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept', 10);
+    await coldIngest(h, 'g', 'a', '# Part I\n\nthe wolf ran far\n\n# Part II\n\na wolf slept', 10);
     const published = h.last('snapshot-published');
     expect(published.readyDocs).toEqual(['a']);
 
     // Honest cold progress includes decode and extract.
     const phases = h.all('progress').map((p) => p.phase);
-    expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
-
-    // The structure query echoes both bound identities and returns the outline.
-    await h.send({ t: 'query', job: 20, snapshot: published.snapshot, query: { op: 'structure', request: { doc: 'a' } } });
-    const result = h.last('result');
-    expect(result.data.op).toBe('structure');
-    if (result.data.op === 'structure') {
-      expect(result.data.structure.doc).toBe('a');
-      expect(result.data.structure.structure).toBeTruthy();
-      expect(result.data.structure.index).toBeTruthy();
-      // root + two detected chapters.
-      expect(result.data.structure.rows.length).toBe(3);
-      expect(result.data.structure.rows[0]!.section.origin).toBe('fixed');
-      expect(result.data.structure.rows.some((r) => r.section.title?.includes('Chapter'))).toBe(true);
-    }
+    expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'compose']);
   });
 
   it('emits source-ready with honest decoder evidence and the full descriptor', async () => {
@@ -244,31 +208,9 @@ describe('cold ingest', () => {
     const sr = h.last('source-ready');
     expect(sr.source.hash).toBe(spec.source.expectedHash);
     expect(sr.text).toBe(spec.extraction.expectedText);
-    expect(sr.candidates).toBe(spec.extraction.expectedCandidates);
     expect(sr.decoderReplacementCount).toBe(0);
     if (sr.source.kind !== 'text') throw new Error('expected a text source descriptor');
     expect(sr.source.encoding.hadReplacementChars).toBe(false);
-  });
-
-  it('rejects an active override whose base identities disagree with the extracted text', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'the wolf ran far');
-    const wrongBase = emptyOverride('OTHERTEXTHASH', spec.extraction.expectedCandidates!, spec.structure.recipeHash);
-    const active: GenerationDocSpecV4['structure']['override'] = { kind: 'active', value: wrongBase, hash: await hashStructureOverride(wrongBase) };
-    const withOverride: GenerationDocSpecV4 = { ...spec, structure: { ...spec.structure, override: active } };
-    await begin(h, [withOverride]);
-    await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    expect(h.all('snapshot-published').length).toBe(0);
-  });
-
-  it('a wrong expectedCandidates produces a terminal EXTRACTION_MISMATCH, not a byte miss', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'the wolf ran far');
-    await begin(h, [{ ...spec, extraction: { ...spec.extraction, expectedCandidates: 'deadbeef' } }]);
-    await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
-    expect(h.last('error').code).toBe('EXTRACTION_MISMATCH');
-    expect(h.all('snapshot-published').length).toBe(0);
   });
 
   it('two same-generation ingests with different bytes cannot change the document identity in place', async () => {
@@ -279,7 +221,6 @@ describe('cold ingest', () => {
       doc: 'a', language: 'en',
       source: { byteLength: 16, format: 'txt', availability: 'external' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
     };
     await begin(h, [spec]);
     await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
@@ -307,7 +248,6 @@ describe('cold ingest', () => {
       doc: 'a', language: 'en',
       source: { byteLength: 16, format: 'txt', availability: 'external' },
       extraction: { recipe: recipes.txt, recipeHash: await hashExtractionRecipe(recipes.txt) },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
     };
     await begin(h, [spec]);
     await coldIngest(h, 'g', 'a', 'the wolf ran far', 10); // no BOM
@@ -319,7 +259,7 @@ describe('cold ingest', () => {
   });
 });
 
-describe('warm reopen (deep admission across the three stages)', () => {
+describe('warm reopen (deep admission across text and index)', () => {
   async function coldPass(h: Harness, spec: GenerationDocSpecV4, text: string) {
     await begin(h, [spec], 'cold');
     await coldIngest(h, 'cold', spec.doc, text, 10);
@@ -327,7 +267,7 @@ describe('warm reopen (deep admission across the three stages)', () => {
     h.clear();
   }
 
-  it('an exact warm reopen performs NO decode/extract/segment/index/structure work', async () => {
+  it('an exact warm reopen performs no decode, extract, segment, or index work', async () => {
     const h = harness();
     const text = '# Ch\n\nthe wolf ran far';
     const spec = await docSpec('a', text, { format: 'md' });
@@ -340,22 +280,7 @@ describe('warm reopen (deep admission across the three stages)', () => {
     expect(h.all('snapshot-published').length).toBe(1);
   });
 
-  it('text + shard present, structure missing → composes structure only (one publish, no index work)', async () => {
-    const h = harness();
-    const text = '# Ch\n\nthe wolf ran far';
-    const spec = await docSpec('a', text, { format: 'md' });
-    await coldPass(h, spec, text);
-    h.store.hide.structure = true; // evict just the structure
-    await begin(h, [spec], 'warm');
-    const phases = h.all('progress').map((p) => p.phase);
-    expect(phases).not.toContain('decode');
-    expect(phases).not.toContain('segment');
-    expect(phases).not.toContain('index');
-    expect(phases).toContain('structure');
-    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
-  });
-
-  it('text + structure present, shard missing → rebuilds the shard with no source fetch', async () => {
+  it('text present, shard missing → rebuilds the shard with no source fetch', async () => {
     const h = harness();
     const text = '# Ch\n\nthe wolf ran far';
     const spec = await docSpec('a', text, { format: 'md' });
@@ -370,34 +295,6 @@ describe('warm reopen (deep admission across the three stages)', () => {
     expect(h.last('generation-ready').readyDocs).toEqual(['a']);
   });
 
-  it('text present, extraction record evicted → deterministically reconstructs candidates (honest extract)', async () => {
-    const h = harness();
-    const text = '# Ch\n\nthe wolf ran far';
-    const spec = await docSpec('a', text, { format: 'md' });
-    await coldPass(h, spec, text);
-    h.store.hide.extraction = true; // no cached candidate list
-    h.store.hide.structure = true; // force a structure rebuild that needs candidates
-    await begin(h, [spec], 'warm');
-    const phases = h.all('progress').map((p) => p.phase);
-    expect(phases).not.toContain('decode'); // no source bytes touched
-    expect(phases).toContain('extract'); // candidates reconstructed from text
-    expect(phases).toContain('structure');
-    expect(h.last('generation-ready').readyDocs).toEqual(['a']);
-  });
-
-  it('a cached extraction whose candidate identity contradicts the manifest is a TERMINAL mismatch, not a byte miss', async () => {
-    const h = harness();
-    const text = '# Ch\n\nthe wolf ran far';
-    const spec = await docSpec('a', text, { format: 'md' });
-    await coldPass(h, spec, text);
-    // Warm reopen asserting the WRONG candidate identity while the cached
-    // extraction carries the true one — a stale manifest, not recoverable bytes.
-    const stale: GenerationDocSpecV4 = { ...spec, extraction: { ...spec.extraction, expectedCandidates: 'deadbeef' } };
-    await begin(h, [stale], 'warm');
-    expect(h.last('error').code).toBe('EXTRACTION_MISMATCH');
-    // NOT listed as a byte miss (no refetch loop).
-    expect(h.last('generation-ready').missing.find((m) => m.doc === 'a')).toBeUndefined();
-  });
 });
 
 describe('persisted source re-extraction', () => {
@@ -413,7 +310,7 @@ describe('persisted source re-extraction', () => {
     expect(ready.readyDocs).toEqual(['a']);
     expect(ready.missing).toEqual([]);
     const phases = h.all('progress').map((p) => p.phase);
-    expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
+    expect(phases).toEqual(['decode', 'extract', 'segment', 'index', 'compose']);
   });
 
   it('a SAME-LENGTH byte mutation of the persisted copy is classified source-corrupt, not rehydrate-failed', async () => {
@@ -517,7 +414,7 @@ describe('supersession and the commit gate', () => {
     await coldIngest(h, 'cold', 'b', tb, 11);
     await h.flush();
     h.clear();
-    h.store.writes = { text: 0, shard: 0, structure: 0, extraction: 0 };
+    h.store.writes = { text: 0, shard: 0 };
     h.store.resetReads(); // count text reads within the WARM generation only
     // 'a' is admitted and added to the batch during warm read #1; on warm read
     // #2 (for 'b'), a live ingest for 'a' supersedes the batched warm claim.
@@ -530,10 +427,8 @@ describe('supersession and the commit gate', () => {
     await h.flush();
     expect(hookFired).toBe(true); // the supersession actually interleaved
     expect([...h.last('generation-ready').readyDocs].sort()).toEqual(['a', 'b']);
-    // 'a' was written once — by the live ingest, NOT again by the batch that
-    // dropped it. Old (write-all-prepared) behavior would write 'a' twice, so
-    // the total structure writes would be 3, not 2.
-    expect(h.store.writes.structure).toBe(2);
+    // 'a' was written once — by the live ingest, not again by the batch that
+    // dropped it. Both committed documents account for two text writes total.
     expect(h.store.writes.text).toBe(2);
   });
 
@@ -552,375 +447,6 @@ describe('supersession and the commit gate', () => {
     expect(ready.missing.find((m) => m.doc === 'a')).toBeUndefined();
     expect(ready.readyDocs).toContain('a');
     expect(h.all('snapshot-published').length).toBe(1);
-  });
-});
-
-describe('structure query snapshot binding', () => {
-  it('a structure query bound to a superseded snapshot never emits a stale result', async () => {
-    const h = harness();
-    const a = await docSpec('a', 'the wolf ran far');
-    const b = await docSpec('b', 'a wolf slept');
-    await begin(h, [a, b]);
-    await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
-    const firstSnap = h.last('snapshot-published').snapshot;
-    await coldIngest(h, 'g', 'b', 'a wolf slept', 11); // supersedes the snapshot
-    // A structure query against the OLD snapshot must be refused.
-    await h.send({ t: 'query', job: 20, snapshot: firstSnap, query: { op: 'structure', request: { doc: 'a' } } });
-    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
-  });
-});
-
-describe('authoring context + line excerpt queries (8b)', () => {
-  const MD = '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept';
-
-  it('edit-context echoes base identities + effective override and carries the detected baseline and current rows', async () => {
-    const h = harness();
-    const spec = await docSpec('a', MD, { format: 'md' });
-    await begin(h, [spec]);
-    await coldIngest(h, 'g', 'a', MD, 10);
-    const published = h.last('snapshot-published');
-    await h.send({ t: 'query', job: 30, snapshot: published.snapshot, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
-    const result = h.last('result');
-    expect(result.data.op).toBe('structure-edit-context');
-    if (result.data.op === 'structure-edit-context') {
-      const ctx = result.data.context;
-      expect(ctx.doc).toBe('a');
-      expect(ctx.base.candidates).toBe(spec.extraction.expectedCandidates);
-      expect(ctx.base.baseRecipe).toBe(spec.structure.recipeHash);
-      expect(ctx.base.text).toBeTruthy();
-      expect(ctx.override).toBeTruthy();
-      // Detected baseline: root + two detected chapters, keyed by LINEAGE key.
-      expect(ctx.detected.length).toBe(3);
-      expect(ctx.detected[0]!.key).toBe('root');
-      expect(ctx.detected.some((d) => d.key.startsWith('sec-'))).toBe(true);
-      expect(ctx.detected.some((d) => d.title?.includes('Chapter'))).toBe(true);
-      // Current composed rows: lineage key + bound section id + token range.
-      expect(ctx.current.length).toBe(3);
-      expect(ctx.current[0]!.key).toBe('root');
-      expect(ctx.current[0]!.section.id).toBeTruthy();
-      expect(ctx.current[0]!.section.doc).toBe('a');
-      expect(ctx.current.every((r) => r.tokens.end >= r.tokens.start)).toBe(true);
-    }
-  });
-
-  it('edit-context bound to a superseded snapshot is refused', async () => {
-    const h = harness();
-    const a = await docSpec('a', MD, { format: 'md' });
-    const b = await docSpec('b', 'a wolf slept');
-    await begin(h, [a, b]);
-    await coldIngest(h, 'g', 'a', MD, 10);
-    const firstSnap = h.last('snapshot-published').snapshot;
-    await coldIngest(h, 'g', 'b', 'a wolf slept', 11); // supersedes
-    await h.send({ t: 'query', job: 31, snapshot: firstSnap, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
-    expect(h.last('error').code).toBe('SNAPSHOT_UNKNOWN');
-  });
-
-  it('line-excerpt returns the exact source line untruncated; an out-of-range anchor is REQUEST_INVALID', async () => {
-    const h = harness();
-    const text = 'the wolf ran far';
-    const spec = await docSpec('a', text);
-    await begin(h, [spec]);
-    await coldIngest(h, 'g', 'a', text, 10);
-    const published = h.last('snapshot-published');
-    await h.send({ t: 'query', job: 32, snapshot: published.snapshot, query: { op: 'line-excerpt', request: { doc: 'a', anchor: 4, maxChars: 100 } } });
-    const result = h.last('result');
-    expect(result.data.op).toBe('line-excerpt');
-    if (result.data.op === 'line-excerpt') {
-      expect(result.data.excerpt.doc).toBe('a');
-      expect(result.data.excerpt.text).toBe('the wolf ran far');
-      expect(result.data.excerpt.truncatedStart).toBe(false);
-      expect(result.data.excerpt.truncatedEnd).toBe(false);
-    }
-    await h.send({ t: 'query', job: 33, snapshot: published.snapshot, query: { op: 'line-excerpt', request: { doc: 'a', anchor: 9999, maxChars: 100 } } });
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-  });
-
-  it('a structurally-invalid active override maps to REQUEST_INVALID (not INTERNAL)', async () => {
-    const h = harness();
-    const spec = await docSpec('a', 'the wolf ran far');
-    // Base identities MATCH (so resolveOverride admits it), but the replace
-    // targets a section that does not exist → StructureError in composeStructure.
-    const bad: StructureOverrideV1 = {
-      schema: 'texttrends/structure-override/1',
-      text: spec.extraction.expectedText!,
-      candidates: spec.extraction.expectedCandidates!,
-      baseRecipe: spec.structure.recipeHash,
-      changes: [{ op: 'replace', target: 'sec-404', value: { parent: 'root', level: 1, chars: { start: 1, end: 2 } } }],
-    };
-    const withOverride = { ...spec, structure: { ...spec.structure, override: { kind: 'active', value: bad, hash: await hashStructureOverride(bad) } as const } };
-    await begin(h, [withOverride]);
-    await coldIngest(h, 'g', 'a', 'the wolf ran far', 10);
-    expect(h.last('error').code).toBe('REQUEST_INVALID');
-    expect(h.all('snapshot-published').length).toBe(0);
-  });
-
-  it('an over-cap composed section table maps to CAP_EXCEEDED (not INTERNAL)', async () => {
-    const h = harness();
-    const text = ' '.repeat(5000);
-    const spec = await docSpec('a', text);
-    // 2048 disjoint adds + the root = 2049 sections, one over the 2048 cap.
-    const changes = Array.from({ length: 2048 }, (_, i) => ({
-      op: 'add' as const,
-      key: `u${i}`,
-      value: { parent: 'root', level: 1, chars: { start: i * 2, end: i * 2 + 1 } },
-    }));
-    const over: StructureOverrideV1 = {
-      schema: 'texttrends/structure-override/1',
-      text: spec.extraction.expectedText!,
-      candidates: spec.extraction.expectedCandidates!,
-      baseRecipe: spec.structure.recipeHash,
-      changes,
-    };
-    const withOverride = { ...spec, structure: { ...spec.structure, override: { kind: 'active', value: over, hash: await hashStructureOverride(over) } as const } };
-    await begin(h, [withOverride]);
-    await coldIngest(h, 'g', 'a', text, 10);
-    expect(h.last('error').code).toBe('CAP_EXCEEDED');
-    expect(h.all('snapshot-published').length).toBe(0);
-  });
-});
-
-describe('section-id binding cache (Phase D workstream D4)', () => {
-  const MD = '# Chapter I\n\nthe wolf ran far\n\n# Chapter II\n\na wolf slept';
-  const MD_SECTIONS = 3; // root + two detected chapters
-
-  /** The engine internals this suite must reach: the per-generation cache map
-   *  and the private binding helper (for inputs the wire cannot carry). */
-  interface EngineInternals {
-    generation: { sectionIds: Map<string, Map<string, Promise<string>>> } | null;
-    cachedSectionId(gen: unknown, doc: string, key: string): Promise<string>;
-  }
-  const internals = (h: Harness) => h.engine as unknown as EngineInternals;
-
-  /** Intercept ONLY section-id binding digests, recognized by the versioned
-   *  method tag in the canonical digest input; every other digest passes
-   *  through untouched. `defer` parks each binding until its queued release
-   *  fires; `rejectFirst` fails exactly the first binding. */
-  function spySectionIdDigests(opts: { defer?: boolean; rejectFirst?: boolean } = {}) {
-    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
-    const calls: string[] = [];
-    const releases: (() => void)[] = [];
-    let rejectArmed = opts.rejectFirst === true;
-    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
-      const input = new TextDecoder().decode(args[1]);
-      if (!input.includes('section-id/1')) return realDigest(...args);
-      calls.push(input);
-      if (rejectArmed) { rejectArmed = false; return Promise.reject(new Error('binding digest failed')); }
-      if (!opts.defer) return realDigest(...args);
-      return new Promise<ArrayBuffer>((resolve) => { releases.push(() => resolve(realDigest(...args))); });
-    }) as typeof crypto.subtle.digest);
-    return { calls, releases, restore: () => spy.mockRestore() };
-  }
-
-  /** Pump the event loop until `done` (bounded, so a hung engine FAILS the
-   *  assertion that follows instead of hanging the suite). */
-  async function settle(h: Harness, done: () => boolean, turns = 100) {
-    for (let i = 0; i < turns && !done(); i++) await h.flush();
-  }
-
-  function structureRows(h: Harness, job: number) {
-    const msg = h.all('result').find((m) => m.job === job);
-    if (!msg || msg.data.op !== 'structure') throw new Error(`no structure result for job ${job}`);
-    return msg.data.structure.rows;
-  }
-  function currentRows(h: Harness, job: number) {
-    const msg = h.all('result').find((m) => m.job === job);
-    if (!msg || msg.data.op !== 'structure-edit-context') throw new Error(`no edit-context result for job ${job}`);
-    return msg.data.context.current;
-  }
-
-  async function publishMd(h: Harness, docs: string[], generation = 'g'): Promise<string> {
-    const specs = await Promise.all(docs.map((d) => docSpec(d, MD, { format: 'md' })));
-    await begin(h, specs, generation);
-    for (let i = 0; i < docs.length; i++) await coldIngest(h, generation, docs[i]!, MD, 10 + i);
-    return h.last('snapshot-published').snapshot;
-  }
-
-  it("keys containing '\\0' stay distinct — the nested-map shape admits no joined-string collision", async () => {
-    const h = harness();
-    await begin(h, [await docSpec('a', 'the wolf ran far')]);
-    const engine = internals(h);
-    const gen = engine.generation!;
-    // Joined with '\0' (or any single delimiter) these two pairs collide:
-    // 'a\0b' + 'c' and 'a' + 'b\0c' both flatten to 'a\0b\0c'.
-    const id1 = await engine.cachedSectionId(gen, 'a\u0000b', 'c');
-    const id2 = await engine.cachedSectionId(gen, 'a', 'b\u0000c');
-    expect(id1).not.toBe(id2);
-    expect(id1).toBe(await bindSectionId('a\u0000b', 'c'));
-    expect(id2).toBe(await bindSectionId('a', 'b\u0000c'));
-    // The cache keeps them under distinct outer (document) keys.
-    expect(gen.sectionIds.get('a\u0000b')?.has('c')).toBe(true);
-    expect(gen.sectionIds.get('a')?.has('b\u0000c')).toBe(true);
-  });
-
-  it('the same lineage key in two documents binds to separate ids (no wrong-document reuse)', async () => {
-    const h = harness();
-    const snap = await publishMd(h, ['a', 'b']); // identical text → identical lineage keys
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure', request: { doc: 'b' } } });
-    const rowsA = structureRows(h, 20);
-    const rowsB = structureRows(h, 21);
-    expect(rowsA.length).toBe(MD_SECTIONS);
-    expect(rowsB.length).toBe(MD_SECTIONS);
-    for (let i = 0; i < rowsA.length; i++) {
-      expect(rowsA[i]!.section.doc).toBe('a');
-      expect(rowsB[i]!.section.doc).toBe('b');
-      expect(rowsA[i]!.section.id).not.toBe(rowsB[i]!.section.id); // same key, different doc
-    }
-  });
-
-  it('cross-snapshot reuse: the same (doc, key) across a supersession digests ONCE and keeps its id', async () => {
-    const h = harness();
-    const a = await docSpec('a', MD, { format: 'md' });
-    const b = await docSpec('b', 'a wolf slept');
-    await begin(h, [a, b]);
-    await coldIngest(h, 'g', 'a', MD, 10);
-    const snap1 = h.last('snapshot-published').snapshot;
-    const s = spySectionIdDigests();
-    await h.send({ t: 'query', job: 20, snapshot: snap1, query: { op: 'structure', request: { doc: 'a' } } });
-    expect(s.calls.length).toBe(MD_SECTIONS); // cold: one digest per section
-    await coldIngest(h, 'g', 'b', 'a wolf slept', 11); // supersedes the snapshot, same generation
-    const snap2 = h.last('snapshot-published').snapshot;
-    expect(snap2).not.toBe(snap1);
-    await h.send({ t: 'query', job: 21, snapshot: snap2, query: { op: 'structure', request: { doc: 'a' } } });
-    s.restore();
-    expect(s.calls.length).toBe(MD_SECTIONS); // warm: ZERO new binding digests
-    expect(structureRows(h, 21)).toEqual(structureRows(h, 20)); // ids stable across snapshots
-  });
-
-  it('concurrent structure + edit-context queries share ONE pending digest per key', async () => {
-    const h = harness();
-    const snap = await publishMd(h, ['a']);
-    const s = spySectionIdDigests({ defer: true });
-    const p1 = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    const p2 = h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure-edit-context', request: { doc: 'a' } } });
-    // Let BOTH queries reach their binding phase while every digest is parked.
-    await settle(h, () => s.releases.length >= MD_SECTIONS);
-    await settle(h, () => false, 10); // extra turns: a non-deduplicating engine would digest again
-    expect(s.calls.length).toBe(MD_SECTIONS); // one pending digest per key, shared by both queries
-    s.releases.forEach((r) => r());
-    await Promise.all([p1, p2]);
-    s.restore();
-    const rows = structureRows(h, 20);
-    const current = currentRows(h, 21);
-    expect(current.length).toBe(rows.length);
-    for (let i = 0; i < rows.length; i++) expect(current[i]!.section).toEqual(rows[i]!.section);
-  });
-
-  it('a rejected binding digest is evicted — a retry recomputes ONLY the failed key and succeeds', async () => {
-    const h = harness();
-    const snap = await publishMd(h, ['a']);
-    const s = spySectionIdDigests({ rejectFirst: true });
-    await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    expect(h.all('result').length).toBe(0);
-    expect(h.last('error').code).toBe('INTERNAL');
-    expect(s.calls.length).toBe(MD_SECTIONS); // all were launched; one rejected
-    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    s.restore();
-    // Exactly ONE recomputation: the failed entry was evicted, the survivors reused.
-    expect(s.calls.length).toBe(MD_SECTIONS + 1);
-    const rows = structureRows(h, 21);
-    expect(rows.length).toBe(MD_SECTIONS);
-    expect(rows[0]!.section.id).toBe(await bindSectionId('a', 'root'));
-  });
-
-  it('eviction compares promise identity — a stale rejection cannot evict a concurrent replacement', async () => {
-    const h = harness();
-    await begin(h, [await docSpec('a', 'the wolf ran far')]);
-    const engine = internals(h);
-    const gen = engine.generation!;
-    // The FIRST binding digest is held open so its rejection lands LATE —
-    // after the cache entry has already been dropped and re-created.
-    const realDigest = crypto.subtle.digest.bind(crypto.subtle);
-    let rejectHeld: ((e: Error) => void) | null = null;
-    const spy = vi.spyOn(crypto.subtle, 'digest').mockImplementation(((...args: Parameters<typeof realDigest>) => {
-      if (rejectHeld === null && new TextDecoder().decode(args[1]).includes('section-id/1')) {
-        return new Promise<ArrayBuffer>((_resolve, reject) => { rejectHeld = reject; });
-      }
-      return realDigest(...args);
-    }) as typeof crypto.subtle.digest);
-    const stale = engine.cachedSectionId(gen, 'a', 'root');
-    gen.sectionIds.get('a')!.delete('root'); // the entry is replaced while the digest is in flight
-    const fresh = engine.cachedSectionId(gen, 'a', 'root');
-    expect(fresh).not.toBe(stale);
-    rejectHeld!(new Error('late failure'));
-    await expect(stale).rejects.toThrow('late failure');
-    spy.mockRestore();
-    // The stale rejection must NOT have evicted the replacement.
-    expect(gen.sectionIds.get('a')!.get('root')).toBe(fresh);
-    expect(await fresh).toBe(await bindSectionId('a', 'root'));
-  });
-
-  it('replacing the generation drops the cache; a late old-generation completion cannot answer the new one', async () => {
-    const h = harness();
-    const spec = await docSpec('a', MD, { format: 'md' });
-    await begin(h, [spec], 'g1');
-    await coldIngest(h, 'g1', 'a', MD, 10);
-    const snap1 = h.last('snapshot-published').snapshot;
-    const engine = internals(h);
-    const gen1 = engine.generation!;
-    const s = spySectionIdDigests({ defer: true });
-    // Park a g1 query mid-binding, then replace the generation under it.
-    const p1 = h.send({ t: 'query', job: 20, snapshot: snap1, query: { op: 'structure', request: { doc: 'a' } } });
-    await settle(h, () => s.releases.length >= MD_SECTIONS);
-    expect(s.calls.length).toBe(MD_SECTIONS);
-    await begin(h, [spec], 'g2'); // warm reopen from the cold pass's cache writes
-    const gen2 = engine.generation!;
-    expect(gen2).not.toBe(gen1);
-    expect(gen2.sectionIds.size).toBe(0); // the new generation starts EMPTY
-    const snap2 = h.last('snapshot-published').snapshot;
-    // Release the old generation's digests: the parked query dies at its gate,
-    // and the late completions land ONLY in the dead generation's map.
-    const released = s.releases.length;
-    s.releases.forEach((r) => r());
-    await p1;
-    expect(h.all('result').length).toBe(0);
-    expect(gen2.sectionIds.size).toBe(0);
-    expect(gen1.sectionIds.get('a')!.size).toBe(MD_SECTIONS);
-    // The new generation cannot be answered from the old map: it re-digests.
-    const p2 = h.send({ t: 'query', job: 21, snapshot: snap2, query: { op: 'structure', request: { doc: 'a' } } });
-    await settle(h, () => s.calls.length >= MD_SECTIONS * 2);
-    expect(s.calls.length).toBe(MD_SECTIONS * 2);
-    s.releases.slice(released).forEach((r) => r());
-    await p2;
-    s.restore();
-    expect(structureRows(h, 21).length).toBe(MD_SECTIONS);
-  });
-
-  it('out-of-order digest resolution preserves row order and parent translation', async () => {
-    // Reference rows from an undisturbed engine (binding is deterministic).
-    const ref = harness();
-    const refSnap = await publishMd(ref, ['a']);
-    await ref.send({ t: 'query', job: 20, snapshot: refSnap, query: { op: 'structure', request: { doc: 'a' } } });
-    const expected = structureRows(ref, 20);
-    expect(expected.length).toBe(MD_SECTIONS);
-    expect(expected[1]!.section.parent).toBe(expected[0]!.section.id); // chapters hang off root
-
-    const h = harness();
-    const snap = await publishMd(h, ['a']);
-    const s = spySectionIdDigests({ defer: true });
-    const p = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    await settle(h, () => s.releases.length >= MD_SECTIONS);
-    expect(s.releases.length).toBe(MD_SECTIONS);
-    [...s.releases].reverse().forEach((r) => r()); // resolve LAST-first (root resolves last)
-    await p;
-    s.restore();
-    expect(structureRows(h, 20)).toEqual(expected); // order + parent ids + tokens intact
-  });
-
-  it('all missing bindings START before the first digest resolves (parallel launch)', async () => {
-    const h = harness();
-    const snap = await publishMd(h, ['a']);
-    const s = spySectionIdDigests({ defer: true });
-    const p = h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'structure', request: { doc: 'a' } } });
-    await settle(h, () => s.calls.length >= MD_SECTIONS);
-    // Every binding digest has STARTED while NONE has resolved — a sequential
-    // await-per-row implementation would have started only the first.
-    expect(s.calls.length).toBe(MD_SECTIONS);
-    expect(h.all('result').length).toBe(0);
-    s.releases.forEach((r) => r());
-    await p;
-    s.restore();
-    expect(structureRows(h, 20).length).toBe(MD_SECTIONS);
   });
 });
 
@@ -954,7 +480,6 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
     doc, language: 'en',
     source: { byteLength, format: 'txt', availability: 'external' },
     extraction: { recipe: txt, recipeHash: await hashExtractionRecipe(txt) },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
   };
 }
 
@@ -1413,12 +938,10 @@ describe('single text-hash threading (Phase D / D2 — VerifiedText)', () => {
         recipeHash: await hashExtractionRecipe(recipes.txt),
         expectedText: extracted.artifact.text,
         expectedTextLengthUtf16: extracted.artifact.textLengthUtf16,
-        expectedCandidates: extracted.artifact.candidateHash,
       },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
     };
     await begin(h, [spec]); // nothing cached — the barrier reports a byte miss
-    expect(h.last('generation-ready').missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'extraction-miss' }]);
+    expect(h.last('generation-ready').missing).toEqual([{ doc: 'a', need: 'source-bytes', reason: 'text-miss' }]);
     const spy = spyTextDigests(text);
     try {
       await h.send({ t: 'ingest', job: 10, generation: 'g', doc: 'a', bytes: bomBytes.buffer as ArrayBuffer });

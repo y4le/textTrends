@@ -23,7 +23,7 @@
 import { CapError, type LocalTypeId } from '../contract/brands.ts';
 import { canonicalJson } from '../contract/hash.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
-import { postingsFor } from '../index/build.ts';
+import { lowerBound, postingsFor } from '../index/build.ts';
 import {
   modeKey,
   resolveAffix,
@@ -33,7 +33,6 @@ import {
 } from '../resolve/fold.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import type { ResolvedSelection, TokenRangeSpan } from '../snapshot/selection.ts';
-import { lowerBound } from '../structure/project.ts';
 import { DISPERSION_EXACT_MAX } from './dispersion.ts';
 
 export type { TokenRangeSpan } from '../snapshot/selection.ts';

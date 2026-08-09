@@ -289,9 +289,8 @@ export function seriesXFromToken(
   return (((layout.bases[d] ?? 0) + token + 0.5) / layout.totalTokens) * plotWidth;
 }
 
-/** Token-START edge x pixel on the concatenated axis — a boundary line, NOT a
- *  scrubber (which centers on the token via `seriesXFromToken`). Used for
- *  chapter boundary rules so a mark sits exactly where the section begins. */
+/** Token-edge x pixel on the concatenated axis. Unlike
+ *  `seriesXFromToken`, this does not add a half-token centering offset. */
 export function seriesXFromTokenEdge(
   d: number,
   token: number,
@@ -314,8 +313,7 @@ export function bookXFromToken(token: number, plotWidth: number, tokenCount: num
   return ((token + 0.5) / tokenCount) * plotWidth;
 }
 
-/** Token-START edge x pixel on a single 0..tokenCount row — a boundary line,
- *  NOT a scrubber center. Used for chapter boundary rules in the by-book view. */
+/** Token-edge x pixel on a single 0..tokenCount row. */
 export function bookXFromTokenEdge(token: number, plotWidth: number, tokenCount: number): number {
   if (tokenCount <= 0) return 0;
   return (token / tokenCount) * plotWidth;

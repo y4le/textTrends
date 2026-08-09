@@ -15,8 +15,8 @@ editor + injective evidence keys, 2 rounds), E `27bd162` (browser acceptance,
 Playwright 38/38 (functional + benchmark), bundle contract OK. Deferred per
 the ruling: durable notebook persistence (arrives with the share/persistence
 slice via `parseQueryNotebook`), quote-to-phrase tokenization, and the
-corpus-aware composer (needs a vocabulary QueryOp behind simplification-plan
-F1).
+corpus-aware composer (needs a vocabulary QueryOp behind the shared query
+executor).
 
 ---
 

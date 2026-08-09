@@ -5,8 +5,8 @@
  * (extraction, segmentation, index build, binding — ~48 ms each at the 32M-char
  * cap). This module lets the digest happen ONCE: a boundary that authenticates
  * a text mints a `VerifiedText`, and the verified fast lanes
- * (`segmentVerified`, `createDocumentIndexVerified`, `bindTextsVerified`,
- * `validateExtractionArtifactVerified`) consume the capability's hash instead
+ * (`segmentVerified`, `createDocumentIndexVerified`, and `bindTextsVerified`)
+ * consume the capability's hash instead
  * of re-deriving it.
  *
  * AUTHENTICATION MECHANISM: the module-private WeakMap below — NOT a

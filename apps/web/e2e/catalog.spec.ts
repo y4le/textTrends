@@ -32,8 +32,8 @@ const OPF = `<?xml version="1.0" encoding="utf-8"?>
     <dc:language>en-GB</dc:language>
   </metadata>
   <manifest>
-    <item href="text/chapter-1.xhtml" id="c1" media-type="application/xhtml+xml"/>
-    <item href="text/chapter-2.xhtml" id="c2" media-type="application/xhtml+xml"/>
+    <item href="text/part-1.xhtml" id="c1" media-type="application/xhtml+xml"/>
+    <item href="text/part-2.xhtml" id="c2" media-type="application/xhtml+xml"/>
   </manifest>
   <spine>
     <itemref idref="c1"/>
@@ -41,10 +41,10 @@ const OPF = `<?xml version="1.0" encoding="utf-8"?>
   </spine>
 </package>`;
 
-const chapter = (title: string, text: string) => `<?xml version="1.0" encoding="utf-8"?>
+const part = (title: string, text: string) => `<?xml version="1.0" encoding="utf-8"?>
 <html xmlns="http://www.w3.org/1999/xhtml" xmlns:epub="http://www.idpf.org/2007/ops">
   <head><title>${title}</title></head>
-  <body epub:type="bodymatter"><section epub:type="chapter"><h2>${title}</h2><p>${text}</p></section></body>
+  <body epub:type="bodymatter"><section><h2>${title}</h2><p>${text}</p></section></body>
 </html>`;
 
 test('the baked catalog browses offline, renders series in order, and adds from raw fixtures', async ({ page }) => {
@@ -62,11 +62,11 @@ test('the baked catalog browses offline, renders series in order, and adds from 
     const url = route.request().url();
     rawRequests.push(url);
     if (url === `${RAW_BASE}/content.opf`) return route.fulfill({ contentType: 'text/plain', body: OPF });
-    if (url === `${RAW_BASE}/text/chapter-1.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: chapter('Chapter One', 'The lattimer word appears here.') });
+    if (url === `${RAW_BASE}/text/part-1.xhtml`) {
+      return route.fulfill({ contentType: 'text/plain', body: part('Part One', 'The lattimer word appears here.') });
     }
-    if (url === `${RAW_BASE}/text/chapter-2.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: chapter('Chapter Two', 'The lattimer word appears again.') });
+    if (url === `${RAW_BASE}/text/part-2.xhtml`) {
+      return route.fulfill({ contentType: 'text/plain', body: part('Part Two', 'The lattimer word appears again.') });
     }
     return route.abort();
   });
@@ -101,7 +101,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   expect(apiRequests).toEqual([]);
   expect(rawRequests[0]).toBe(`${RAW_BASE}/content.opf`);
   expect(new Set(rawRequests.slice(1))).toEqual(
-    new Set([`${RAW_BASE}/text/chapter-1.xhtml`, `${RAW_BASE}/text/chapter-2.xhtml`]),
+    new Set([`${RAW_BASE}/text/part-1.xhtml`, `${RAW_BASE}/text/part-2.xhtml`]),
   );
 
   // Re-acquiring the same deterministic archive neither duplicates the local
@@ -187,11 +187,11 @@ test('a repeat add after reload is served from the IndexedDB cache: zero raw req
     const url = route.request().url();
     rawRequests.push(url);
     if (url === `${RAW_BASE}/content.opf`) return route.fulfill({ contentType: 'text/plain', body: OPF });
-    if (url === `${RAW_BASE}/text/chapter-1.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: chapter('Chapter One', 'The lattimer word appears here.') });
+    if (url === `${RAW_BASE}/text/part-1.xhtml`) {
+      return route.fulfill({ contentType: 'text/plain', body: part('Part One', 'The lattimer word appears here.') });
     }
-    if (url === `${RAW_BASE}/text/chapter-2.xhtml`) {
-      return route.fulfill({ contentType: 'text/plain', body: chapter('Chapter Two', 'The lattimer word appears again.') });
+    if (url === `${RAW_BASE}/text/part-2.xhtml`) {
+      return route.fulfill({ contentType: 'text/plain', body: part('Part Two', 'The lattimer word appears again.') });
     }
     return route.abort();
   });

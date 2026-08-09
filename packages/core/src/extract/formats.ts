@@ -1,27 +1,15 @@
 /**
  * The closed, DATA-ONLY source-format catalog — the ONE authority for which
  * source formats exist and their environment-neutral metadata (filename
- * extensions, extraction kind, descriptor source-kind, candidate-reconstruction
- * capability). Every other format decision derives from here: filename →
+ * extensions, extraction kind, and descriptor source-kind). Every other format decision derives from here: filename →
  * format, the wire's membership check, the file-picker accept list, and
  * per-format recipe selection.
  *
  * It holds NO executable dispatch (the EPUB/HTML adapters live in
  * @texttrends/extractors) and NO recipe closures (core owns the default
  * recipes in extraction.ts). This keeps the catalog a plain, frozen data
- * structure the whole app — main thread, worker, and a future CLI — can share.
+ * contract the whole app — main thread, worker, and a future CLI — can share.
  */
-
-/**
- * How a warm reopen may rebuild a format's structure candidates:
- * - `'text'`   — candidates are a pure function of the extracted text (the
- *   Markdown heading scan), reconstructable without the source bytes.
- * - `'source'` — candidates depend on the container/markup itself (an EPUB
- *   spine / HTML heading tree), which the joined text does not carry; a reopen
- *   MUST re-extract the persisted source.
- * Explicit on the recipe (never inferred from a parser id downstream).
- */
-export type CandidateReconstruction = 'text' | 'source';
 
 export interface SourceFormatMetadata {
   /** Lower-case filename extensions (with the leading dot), unique
@@ -32,7 +20,6 @@ export interface SourceFormatMetadata {
   readonly extractionKind: 'literal' | 'transformed';
   /** The `SourceDescriptor` discriminant this format produces. */
   readonly sourceKind: 'text' | 'container' | 'markup';
-  readonly candidateReconstruction: CandidateReconstruction;
 }
 
 /** Freeze the catalog (records AND extension arrays) and assert every extension
@@ -54,10 +41,10 @@ export function defineSourceFormats<T extends Record<string, SourceFormatMetadat
 }
 
 export const SOURCE_FORMATS = defineSourceFormats({
-  txt: { extensions: ['.txt'], extractionKind: 'literal', sourceKind: 'text', candidateReconstruction: 'text' },
-  md: { extensions: ['.md', '.markdown'], extractionKind: 'literal', sourceKind: 'text', candidateReconstruction: 'text' },
-  epub: { extensions: ['.epub'], extractionKind: 'transformed', sourceKind: 'container', candidateReconstruction: 'source' },
-  html: { extensions: ['.html', '.htm', '.xhtml'], extractionKind: 'transformed', sourceKind: 'markup', candidateReconstruction: 'source' },
+  txt: { extensions: ['.txt'], extractionKind: 'literal', sourceKind: 'text' },
+  md: { extensions: ['.md', '.markdown'], extractionKind: 'literal', sourceKind: 'text' },
+  epub: { extensions: ['.epub'], extractionKind: 'transformed', sourceKind: 'container' },
+  html: { extensions: ['.html', '.htm', '.xhtml'], extractionKind: 'transformed', sourceKind: 'markup' },
 });
 
 /** The closed set of supported formats — the discriminant of the recipe union

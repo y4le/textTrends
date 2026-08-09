@@ -29,10 +29,10 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CorpusPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/CatalogPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
-  put('assets/CorpusPlace-1111.js', 'const cache=()=>import("./standard-ebooks-cache-CCCC.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
+  put('assets/CatalogPlace-1111.js', 'const cache=()=>import("./standard-ebooks-cache-CCCC.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
   put('assets/TrendsPlace-2222.js', 'export const Trends=1;');
   put('assets/ConcordancePlace-3333.js', 'export const Concordance=1;');
   put('assets/VocabularyPlace-4444.js', 'export const Vocabulary=1;');
@@ -97,17 +97,17 @@ describe('bundle contract', () => {
   it('a statically imported SE cache client (dead lazy edge) fails', () => {
     const d = syntheticDist();
     d.put(
-      'assets/CorpusPlace-1111.js',
+      'assets/CatalogPlace-1111.js',
       'import{lazy}from"./standard-ebooks-cache-CCCC.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
     );
     assert.ok(run(d.files).failures.some((f) =>
-      f.includes('CorpusPlace-1111.js: statically imports standard-ebooks-cache-CCCC.js'),
+      f.includes('CatalogPlace-1111.js: statically imports standard-ebooks-cache-CCCC.js'),
     ));
     // Quote style is emitted-code detail — a single-quoted static import is
     // the same prohibited eager edge.
     const d2 = syntheticDist();
     d2.put(
-      'assets/CorpusPlace-1111.js',
+      'assets/CatalogPlace-1111.js',
       "import{lazy}from'./standard-ebooks-cache-CCCC.js';new Worker(new URL('assets/index.worker-WWWW.js',import.meta.url));",
     );
     assert.ok(run(d2.files).failures.some((f) => f.includes('statically imports standard-ebooks-cache-CCCC.js')));
@@ -124,8 +124,8 @@ describe('bundle contract', () => {
     d.files.delete('assets/TrendsPlace-2222.js');
     assert.ok(run(d.files).failures.some((f) => f.includes('Trends place')));
     const d2 = syntheticDist();
-    d2.put('assets/CorpusPlace-ZZZZ.js', 'export const duplicate=1;');
-    assert.ok(run(d2.files).failures.some((f) => f.includes('Corpus place') && f.includes('found 2')));
+    d2.put('assets/CatalogPlace-ZZZZ.js', 'export const duplicate=1;');
+    assert.ok(run(d2.files).failures.some((f) => f.includes('Catalog place') && f.includes('found 2')));
   });
 
   it('an entry missing a place edge or importing a place statically fails', () => {

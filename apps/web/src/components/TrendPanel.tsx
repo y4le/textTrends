@@ -56,7 +56,6 @@ import {
   type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
-import { topLevelBoundaryTokens } from '../lib/structure-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import {
   commitRange,
@@ -140,9 +139,6 @@ export function TrendPanel() {
   const trendBins = useApp((s) => s.trendBins);
   const trendMeasure = useApp((s) => s.trendMeasure);
   const focusedSeries = useApp((s) => s.focusedSeries);
-  const focusedDoc = useApp((s) => s.focusedDoc);
-  const structure = useApp((s) => s.structure);
-  const sectionMarks = useApp((s) => s.sectionMarks);
   const pushLayer = useApp((s) => s.pushLayer);
   const replaceLayer = useApp((s) => s.replaceLayer);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
@@ -338,25 +334,6 @@ export function TrendPanel() {
   const strokeFor = (id: string) =>
     id === focusedSeries ? geometry.strokeFocused : geometry.strokeOther;
 
-  // Chapter boundary rules (opt-in): the top-level chapter starts of the ONE
-  // focused document, marked within its span only — parent-root topology, no
-  // barcode of deeper headings, no per-section recomputation. Only used when
-  // the outline result echoes the currently-focused doc and it is on the axis.
-  const focusedDocOrdinal = focusedDoc ? docs.indexOf(focusedDoc) : -1;
-  const boundaryTokens =
-    sectionMarks &&
-    focusedDocOrdinal >= 0 &&
-    structure?.doc === focusedDoc &&
-    structure.state.status === 'ready'
-      ? topLevelBoundaryTokens(structure.state.result.rows)
-      : [];
-  const seriesMarks = boundaryTokens.map((t) =>
-    seriesXFromTokenEdge(focusedDocOrdinal, t, plotW, layout),
-  );
-  const byBookMarks = boundaryTokens.map((t) =>
-    bookXFromTokenEdge(t, plotW, geo.docTokenCount[focusedDocOrdinal] ?? 0),
-  );
-
   const binLine = trendBins.mode === 'per-doc'
     ? `${trendBins.count} equal bins per book`
     : `${trendBins.count.toLocaleString()} tokens per bin`;
@@ -447,7 +424,6 @@ export function TrendPanel() {
             maxValue={maxValue}
             measure={trendMeasure}
             plotW={plotW}
-            sectionMarks={seriesMarks}
             strokeFor={strokeFor}
             geometry={geometry}
             barcodeHeight={barcodeHeight}
@@ -461,8 +437,6 @@ export function TrendPanel() {
             maxValue={maxValue}
             measure={trendMeasure}
             plotW={plotW}
-            sectionMarks={byBookMarks}
-            sectionMarkDoc={focusedDocOrdinal}
             strokeFor={strokeFor}
             geometry={geometry}
             rowPitch={rowPitch}
@@ -1245,7 +1219,6 @@ const SeriesView = memo(function SeriesView({
   maxValue,
   measure,
   plotW,
-  sectionMarks,
   strokeFor,
   geometry,
   barcodeHeight,
@@ -1258,7 +1231,6 @@ const SeriesView = memo(function SeriesView({
   maxValue: number;
   measure: TrendMeasureV2;
   plotW: number;
-  sectionMarks: readonly number[];
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
   barcodeHeight: number;
@@ -1435,22 +1407,6 @@ const SeriesView = memo(function SeriesView({
           </text>
         </g>
       ))}
-      {/* Chapter boundary rules for the focused document (opt-in, top-level
-          only) — dashed and behind the scrubber so the reading cursor stays
-          legible. */}
-      {sectionMarks.map((mx, i) => (
-        <line
-          key={`chapter-${i}`}
-          x1={mx}
-          y1={geometry.topPad}
-          x2={mx}
-          y2={axisY}
-          stroke="var(--rule-strong)"
-          strokeWidth={1}
-          strokeDasharray="2 3"
-          pointerEvents="none"
-        />
-      ))}
       {/* The moving cursor is NOT here: it is ScrubSurface's overlay div, so
           scrubbing never re-renders this SVG. */}
       {__TT_E2E__ && <ChartCommitProbe view="series" />}
@@ -1492,8 +1448,6 @@ const ByBookView = memo(function ByBookView({
   maxValue,
   measure,
   plotW,
-  sectionMarks,
-  sectionMarkDoc,
   strokeFor,
   geometry,
   rowPitch,
@@ -1505,8 +1459,6 @@ const ByBookView = memo(function ByBookView({
   maxValue: number;
   measure: TrendMeasureV2;
   plotW: number;
-  sectionMarks: readonly number[];
-  sectionMarkDoc: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
   rowPitch: number;
@@ -1597,20 +1549,6 @@ const ByBookView = memo(function ByBookView({
                 />
               )),
             )}
-            {sectionMarkDoc === d &&
-              sectionMarks.map((mx, i) => (
-                <line
-                  key={`chapter-${i}`}
-                  x1={mx}
-                  y1={rowY}
-                  x2={mx}
-                  y2={rowY + geometry.rowHeight}
-                  stroke="var(--rule-strong)"
-                  strokeWidth={1}
-                  strokeDasharray="2 3"
-                  pointerEvents="none"
-                />
-              ))}
             {geometry.directLabels && (
               <text
                 x={plotW + 6}

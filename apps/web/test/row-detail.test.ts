@@ -17,11 +17,10 @@ describe('row detail presentation', () => {
     expect(rowDetailSurface([])).toBeNull();
   });
 
-  it('pushes the first detail, nests only structure from a book, and replaces laterally', () => {
+  it('pushes the first detail and replaces laterally', () => {
     const surfaces: readonly RowDetailSurface[] = [
       'query-editor',
       'book-sheet',
-      'structure-editor',
       'vocab-filter',
       'vocab-row',
       'compare-settings',
@@ -30,9 +29,7 @@ describe('row detail presentation', () => {
     for (const next of surfaces) expect(rowDetailWrite(null, next)).toBe('push');
     for (const top of surfaces) {
       for (const next of surfaces) {
-        expect(rowDetailWrite(top, next)).toBe(
-          top === 'book-sheet' && next === 'structure-editor' ? 'push' : 'replace',
-        );
+        expect(rowDetailWrite(top, next)).toBe('replace');
       }
     }
   });

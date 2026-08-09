@@ -14,7 +14,7 @@
  * - `LatestOperation` — the latest UNKEYED operation of a lane wins (save, load,
  *   a store query intent). `begin()` mints an `OwnedOperationLease`.
  * - `KeyedLatestOperation<K>` — the latest operation PER KEY wins, keys
- *   independent (a per-document correction / persist / reattach). `begin()`
+ *   independent (for example, per-document persist / reattach). `begin()`
  *   mints an `OwnedOperationLease`.
  *
  * Guards stay visible at the call site so the result identity (snapshot key,

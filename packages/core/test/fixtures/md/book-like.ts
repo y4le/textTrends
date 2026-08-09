@@ -3,7 +3,7 @@
  *  tests. A TS module so core tests stay platform-pure (no fs). */
 export const BOOK_LIKE_MD = `# The Adventure of the Copper Manuscript
 
-## Chapter I. The Letter
+## Part I. The Letter
 
 It was on a cold morning in March that my friend received the letter which
 began one of the strangest cases in my records. "You will observe," said he,
@@ -12,7 +12,7 @@ began one of the strangest cases in my records. "You will observe," said he,
 I confessed that I could make nothing of it. The writer proposed to call at
 eleven; it was already a quarter to the hour.
 
-## Chapter II. The Visitor
+## Part II. The Visitor
 
 Our visitor proved to be a man of some fifty years, grizzled and stooped,
 with the manner of one who had spent his life among documents rather than

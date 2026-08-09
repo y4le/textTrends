@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { CapError, type BuildGeneration, type ProjectDocId } from '../src/contract/brands.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
 import { occurrencePayloadBytes, occurrences, OCCURRENCE_LIMITS_V1, TERM_GROUP_LIMITS_V1, termGroupIdentity, validateGroup, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
@@ -34,7 +33,7 @@ async function world(texts: Record<string, string>): Promise<World> {
     const byMode = new Map<string, Resolver>();
     for (const mode of MODES) byMode.set(modeKey(mode), await buildResolver(shard, R, mode));
     resolvers.set(id, byMode);
-    ready.set(id, await makeReadyDocument(id, shard, rootOnlyV2(text, shard.text)));
+    ready.set(id, await makeReadyDocument(id, shard));
   }
   const snapshot = await composeSnapshot(GEN, ids, ready);
   const all = await resolveSelection(snapshot, { docs: ids });

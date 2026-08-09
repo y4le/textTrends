@@ -8,7 +8,6 @@ import {
   INVENTORY_MAX_GROWTH_POINTS,
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-  INVENTORY_MAX_SECTIONS,
   INVENTORY_MIN_GROWTH_POINTS,
   type InventoryDocumentInputV1,
   type InventoryRequestV1,
@@ -18,14 +17,12 @@ import { trend } from '../src/ops/trend.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument } from '../src/snapshot/compose.ts';
 import { resolveSelection, type ResolvedSelection } from '../src/snapshot/selection.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 
 const GEN = 'inventory' as BuildGeneration;
 const REQUEST: InventoryRequestV1 = {
   method: 'inventory/1',
   rhythmBinsPerDoc: 2,
   growthPoints: 16,
-  sections: true,
   mattrWindow: 3,
 };
 
@@ -47,7 +44,6 @@ async function fixture(
       await makeReadyDocument(
         doc as ProjectDocId,
         shard,
-        rootOnlyV2(text, shard.text),
       ),
     );
   }
@@ -104,10 +100,6 @@ describe('inventory/1', () => {
       selection,
       inputs,
       REQUEST,
-      [
-        { id: 'a-first', doc: 'a', level: 1, title: 'First', tokens: { start: 0, end: 5 } },
-        { id: 'b-all', doc: 'b', level: 1, title: 'B', tokens: { start: 0, end: 5 } },
-      ],
       async () => {},
     );
 
@@ -141,16 +133,6 @@ describe('inventory/1', () => {
     expect(a.charsUtf16).toBe(
       tokenEndChar(aShard, 5) - (aShard.startsUtf16[1] as number),
     );
-
-    expect(result.sections).toMatchObject({ truncated: false });
-    expect(result.sections?.rows).toHaveLength(2);
-    expect(result.sections?.rows[0]).toMatchObject({
-      id: 'a-first',
-      selectedTokens: 4,
-      sentences: 1,
-      sentenceMean: 2,
-      types: 4,
-    });
   });
 
   it('uses trend/1-identical equal-token geometry and selected denominators', async () => {
@@ -169,8 +151,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputsFor(world, selection),
-      { ...REQUEST, rhythmBinsPerDoc: 4, sections: false },
-      [],
+      { ...REQUEST, rhythmBinsPerDoc: 4 },
       async () => {},
     );
     const baseline = trend(
@@ -205,8 +186,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputsFor(world, selection),
-      { ...REQUEST, rhythmBinsPerDoc: 4, sections: false },
-      [],
+      { ...REQUEST, rhythmBinsPerDoc: 4 },
       async () => {},
     );
     const baseline = trend(
@@ -244,15 +224,12 @@ describe('inventory/1', () => {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
         growthPoints: 0,
-        sections: false,
         mattrWindow: 3,
       },
-      [],
       async () => {},
     );
     expect(result.rhythm).toBeNull();
     expect(result.growth).toBeNull();
-    expect(result.sections).toBeNull();
     expect(result.documents[0]!.mattr).toBe(0.75); // (1×2 + 0.5×2) / 4
     expect(result.documents[0]!.mattrIsPlainTtr).toBe(true);
   });
@@ -269,8 +246,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputsFor(world, selection),
-      { ...REQUEST, sections: false },
-      [],
+      REQUEST,
       async () => {},
     );
     const growth = result.growth!;
@@ -297,8 +273,7 @@ describe('inventory/1', () => {
       world.snapshot,
       selection,
       inputs,
-      { ...REQUEST, sections: false },
-      [],
+      REQUEST,
       checkpoint,
     );
     expect(checkpoint).toHaveBeenCalled();
@@ -321,28 +296,8 @@ describe('inventory/1', () => {
         selection,
         inputs,
         request,
-        [],
         async () => {},
       )).rejects.toThrow(RangeError);
     }
-
-    const bounded = await inventory(
-      world.snapshot,
-      selection,
-      inputs,
-      { ...REQUEST, rhythmBinsPerDoc: 0, growthPoints: 0 },
-      Array.from(
-        { length: INVENTORY_MAX_SECTIONS + 1 },
-        (_, index) => ({
-          id: `section-${index}`,
-          doc: 'a',
-          level: 1,
-          tokens: { start: 0, end: 1 },
-        }),
-      ),
-      async () => {},
-    );
-    expect(bounded.sections?.rows).toHaveLength(INVENTORY_MAX_SECTIONS);
-    expect(bounded.sections?.truncated).toBe(true);
   });
 });

@@ -216,19 +216,19 @@ test('a ready page that omits an open row stale-pops once to a surviving focus t
   await expect(page).toHaveURL(/[?&]p=trends(?:&|$)/);
 });
 
-test('a many-section Vocabulary profile stays inside a compact page', async ({ page }) => {
+test('a large Vocabulary result stays inside a compact page', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
-  const markdown = Array.from(
+  const prose = Array.from(
     { length: 90 },
-    (_, index) => `# Chapter ${index + 1}\n\nword${index} repeats repeats.\n`,
-  ).join('\n');
+    (_, index) => `word${index} repeats repeats.`,
+  ).join(' ');
   await page.getByLabel('Create project from files').setInputFiles({
-    name: 'many sections.md',
-    mimeType: 'text/markdown',
-    buffer: Buffer.from(markdown, 'utf8'),
+    name: 'many words.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(prose, 'utf8'),
   });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'vocabulary');
@@ -242,9 +242,5 @@ test('a many-section Vocabulary profile stays inside a compact page', async ({ p
     .locator('td[data-current-measure]');
   await expect(compactMeasure).toHaveAttribute('data-measure-label', 'DPnorm');
   await expect(compactMeasure).toHaveText('unavailable');
-  await expect(page.getByRole('img', { name: /section vocabulary strip/ })).toBeVisible();
-  await page.getByText('exact section values').click();
-  await expect(page.getByRole('region', { name: 'Exact focused-book section values' }))
-    .toBeVisible();
   await expectNoBodyOverflow(page);
 });

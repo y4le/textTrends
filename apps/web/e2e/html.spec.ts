@@ -2,8 +2,8 @@
  * HTML ingest (Phase 3) in the real browser. Uses DELIBERATELY non-well-formed
  * HTML — unclosed <p>/<li>, void <br>/<img> without self-closing, a <script>
  * that must never run or leak text — to prove the worker uses a real HTML5 tree
- * builder (parse5), not an XML parser: the body text is extracted and analyzed,
- * the <h1>/<h2> become a chapter outline, and the script's contents are absent.
+ * builder (parse5), not an XML parser: the body text is extracted and analyzed
+ * while the script's contents are absent.
  */
 
 import { expect, test } from '@playwright/test';
@@ -30,7 +30,7 @@ const MESSY_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
-test('a non-well-formed HTML file imports, extracts body text, analyzes, and outlines headings', async ({ page }) => {
+test('a non-well-formed HTML file imports, extracts body text, and analyzes it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
@@ -53,12 +53,6 @@ test('a non-well-formed HTML file imports, extracts body text, analyzes, and out
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
   const rows = await page.getByRole('table', { name: 'Concordance' }).locator('tbody tr').count();
   expect(rows).toBeGreaterThanOrEqual(2); // "barnowl" appears in body + migration list
-
-  // Headings became a chapter outline.
-  await gotoPlace(page, 'catalog');
-  const chapters = page.getByRole('region', { name: 'Chapter structure' });
-  await expect(chapters.getByText('Owl Field Notes', { exact: true })).toBeVisible();
-  await expect(chapters.getByText('Migration', { exact: true })).toBeVisible();
 
   // The <script> content never became analyzable text (inert extraction). Wait
   // for the FINAL settled state (no occurrences), not the transient "finding

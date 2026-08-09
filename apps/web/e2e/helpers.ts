@@ -47,7 +47,7 @@ export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): 
   await expect(page.getByText(`${n}/${n} books ready`, { exact: true })).toBeVisible({ timeout });
 }
 
-/** Clear ONLY the disposable artifact stores (db2), preserving durable user
+/** Clear ONLY the disposable artifact stores, preserving durable user
  *  data. Awaits transaction completion before returning (never race a reload). */
 export async function clearArtifactStores(page: Page): Promise<void> {
   await page.evaluate(async (dbName) => {
@@ -327,62 +327,6 @@ export async function submitAndAwaitFreshResults(page: Page, terms: string): Pro
   return fresh;
 }
 
-/**
- * Install a gate around the page realm's `SubtleCrypto.digest` (the main-thread
- * override hash) that holds ONLY the digest whose input carries `marker` — i.e.
- * the specific Apply's override JSON (its distinctive chapter title). Every other
- * digest, stray or not, passes through ungated; the gate disarms once it holds
- * the marked call. This makes A's install continuation deterministically blocked
- * the instant its hash runs — there is no window in which a mis-identified digest
- * could let A install. No sleeps, no app/worker seam.
- */
-export async function installDigestGate(page: Page, marker: string): Promise<void> {
-  await page.evaluate((marker) => {
-    const orig = crypto.subtle.digest.bind(crypto.subtle);
-    let release!: () => void;
-    const held = new Promise<void>((r) => { release = r; });
-    let complete!: () => void;
-    const completed = new Promise<void>((r) => { complete = r; });
-    let consumed = false;
-    const dec = new TextDecoder();
-    const gated = (algo: AlgorithmIdentifier, data: BufferSource): Promise<ArrayBuffer> => {
-      let text = '';
-      try { text = dec.decode(data as ArrayBuffer); } catch { text = ''; }
-      if (!consumed && text.includes(marker)) {
-        consumed = true;
-        crypto.subtle.digest = orig; // disarm only AFTER capturing the marked call
-        return held.then(() => orig(algo, data)).then((res) => { complete(); return res; });
-      }
-      return orig(algo, data); // any other digest runs ungated
-    };
-    crypto.subtle.digest = gated as typeof crypto.subtle.digest;
-    (window as unknown as { __ttDigestGate?: unknown }).__ttDigestGate = { release, completed, consumed: () => consumed };
-  }, marker);
-}
-
-/** True once the gated digest was actually intercepted (the Apply's hash ran). */
-export async function digestGateConsumed(page: Page): Promise<boolean> {
-  return page.evaluate(() => Boolean((window as unknown as { __ttDigestGate?: { consumed(): boolean } }).__ttDigestGate?.consumed()));
-}
-
-/** Release the held digest and DRAIN — wait until the held computation actually
- *  completes, so a deliberately-late hash settlement is fully observed. */
-export async function releaseDigestGate(page: Page): Promise<void> {
-  await page.evaluate(async () => {
-    const g = (window as unknown as { __ttDigestGate?: { release(): void; completed: Promise<void>; consumed(): boolean } }).__ttDigestGate;
-    if (!g) throw new Error('no digest gate installed');
-    if (!g.consumed()) throw new Error('the digest gate was never consumed — no override hash was held');
-    g.release();
-    await g.completed;
-  });
-}
-
-/** The id of the most recent snapshot-published (the current outline identity). */
-export async function latestSnapshot(page: Page): Promise<string | null | undefined> {
-  const t = await trace(page);
-  return t.events.filter((e) => e.direction === 'from-worker' && e.t === 'snapshot-published').at(-1)?.snapshot;
-}
-
 /** Record all corpus asset requests from now on. */
 export function trackCorpusRequests(page: Page): string[] {
   const urls: string[] = [];
@@ -399,11 +343,9 @@ export function trackCorpusRequests(page: Page): string[] {
  * with the authoritative manifest.
  */
 export async function awaitCacheSettled(page: Page): Promise<void> {
-  // Wait for ALL FOUR disposable artifact classes (§Q4): text, shard,
-  // extraction, and structure. Waiting only for text+shard lets a reload race
-  // the best-effort extraction/structure writes and produce a false "warm"
-  // result or a flaky structure reconstruction.
-  const manifest = SHERLOCK.map(({ sourceHash, textHash }) => ({ sourceHash, textHash }));
+  // Wait for both disposable artifact classes: text and shard. This prevents
+  // a reload from racing best-effort writes.
+  const manifest = SHERLOCK.map(({ textHash }) => ({ textHash }));
   await expect
     .poll(
       () =>
@@ -427,16 +369,14 @@ export async function awaitCacheSettled(page: Page): Promise<void> {
                   tx.onsuccess = () => resolve(tx.result as unknown[]);
                   tx.onerror = () => reject(tx.error);
                 });
-              const [texts, shards, extractions, structures] = await Promise.all([
-                count('texts'), count('shards'), count('extractions'), count('structures'),
+              const [texts, shards] = await Promise.all([
+                count('texts'), count('shards'),
               ]);
-              if (texts < docs.length || shards < docs.length || extractions < docs.length || structures < docs.length) {
-                return `texts=${texts} shards=${shards} extractions=${extractions} structures=${structures}`;
+              if (texts < docs.length || shards < docs.length) {
+                return `texts=${texts} shards=${shards}`;
               }
-              const [allShards, allExtractions, allStructures] = await Promise.all([
-                getAll('shards'), getAll('extractions'), getAll('structures'),
-              ]);
-              for (const { sourceHash, textHash } of docs) {
+              const allShards = await getAll('shards');
+              for (const { textHash } of docs) {
                 const text = await new Promise<unknown>((resolve, reject) => {
                   const req = db.transaction('texts', 'readonly').objectStore('texts').get(['texttrends/stored-text/1', textHash]);
                   req.onsuccess = () => resolve(req.result);
@@ -450,14 +390,6 @@ export async function awaitCacheSettled(page: Page): Promise<void> {
                 if (!s || s.schema !== 'texttrends/stored-shard/1') return `shard record for ${textHash.slice(0, 8)} missing`;
                 if (!(s.shard?.tokenTypeIds instanceof Uint32Array)) return 'tokenTypeIds not a Uint32Array after structured clone';
                 if (!(s.shard?.postings?.positions instanceof Uint32Array)) return 'postings.positions not a Uint32Array';
-                // Extraction: keyed by SourceHash; carries the candidate identity.
-                const e = (allExtractions as { schema?: string; artifactSchema?: string; sourceHash: string; artifact?: { candidateHash?: unknown } }[]).find((r) => r.sourceHash === sourceHash);
-                if (!e || e.schema !== 'texttrends/stored-extraction/1' || e.artifactSchema !== 'texttrends/extraction/1') return `extraction record for ${sourceHash.slice(0, 8)} missing`;
-                if (typeof e.artifact?.candidateHash !== 'string') return 'extraction artifact missing candidate identity';
-                // Structure: keyed by TextHash; carries the section array.
-                const st = (allStructures as { schema?: string; artifactSchema?: string; textHash: string; artifact?: { sections?: unknown } }[]).find((r) => r.textHash === textHash);
-                if (!st || st.schema !== 'texttrends/stored-structure/2' || st.artifactSchema !== 'texttrends/structure/2') return `structure record for ${textHash.slice(0, 8)} missing`;
-                if (!Array.isArray(st.artifact?.sections)) return 'structure artifact missing sections array';
               }
               return 'settled';
             } finally {

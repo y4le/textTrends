@@ -7,7 +7,6 @@ import {
 import {
   parseResearchState,
   reconcileResearchState,
-  upgradeStoredResearchState,
   type ResearchStateV1,
 } from '../src/project/research-state.ts';
 
@@ -39,9 +38,8 @@ function state(): ResearchStateV1 {
     kwicEnabled: ['g1'],
     views: {
       trend: {
-        schema: 'texttrends/trend-view/2',
+        schema: 'texttrends/trend-view/3',
         mode: 'series',
-        sectionMarks: true,
         focusedDoc: 'a',
         bins: { mode: 'per-doc', count: 40 },
         measure: {
@@ -87,43 +85,12 @@ describe('core notebook codec', () => {
 });
 
 describe('research-state/1', () => {
-  it('round-trips an exact bounded record and keeps the v1 migration seam pure', () => {
+  it('round-trips an exact bounded record', () => {
     const value = state();
     expect(parseResearchState(value)).toEqual(value);
-    expect(upgradeStoredResearchState(value)).toBe(value);
   });
 
-  it('upgrades the original trend view without changing outer CAS identity', () => {
-    const current = state();
-    const legacy = {
-      ...current,
-      views: {
-        ...current.views,
-        trend: {
-          schema: 'texttrends/trend-view/1',
-          mode: 'by-book',
-          sectionMarks: false,
-          focusedDoc: null,
-        },
-      },
-    };
-    const upgraded = upgradeStoredResearchState(legacy);
-    expect(parseResearchState(upgraded).views.trend).toEqual({
-      schema: 'texttrends/trend-view/2',
-      mode: 'by-book',
-      sectionMarks: false,
-      focusedDoc: null,
-      bins: { mode: 'per-doc', count: 40 },
-      measure: {
-        kind: 'rate',
-        denominator: 10_000,
-        smoothing: 0,
-        showRaw: false,
-      },
-    });
-  });
-
-  it('enforces trend-view/2 bin bounds and discriminated display settings', () => {
+  it('enforces trend-view/3 bin bounds and discriminated display settings', () => {
     const current = state();
     const withTrend = (trend: unknown) => parseResearchState({
       ...current,
@@ -195,14 +162,5 @@ describe('research-state/1', () => {
       ...state(),
       styleSlots: { g1: 0 },
     })).toThrow(/exact v1 record/);
-  });
-
-  it('drops legacy saved ranges and excerpts during stored-state upgrade', () => {
-    const upgraded = upgradeStoredResearchState({
-      ...state(),
-      selections: [{ id: 'legacy-range' }],
-      pins: [{ id: 'legacy-excerpt' }],
-    });
-    expect(upgraded).toEqual(state());
   });
 });

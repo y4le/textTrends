@@ -41,7 +41,6 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
   }],
   rhythm: null,
   growth: null,
-  sections: null,
   missingDocs: [],
   mattrWindow: 500,
 });

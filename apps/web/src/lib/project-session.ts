@@ -32,12 +32,9 @@
 import {
   canonicalJson,
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashIndexRecipe,
-  hashStructureOverride,
-  hashStructureRecipe,
   INGEST_CAPS_V0,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
@@ -47,10 +44,8 @@ import {
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
   type ProjectDocV1,
-  type ProjectManifestV1,
+  type ProjectManifestV2,
   type ResearchStateV1,
-  type StructureOverrideV1,
-  type StructureRecipeProvisional,
 } from '@texttrends/core';
 import type {
   GenerationDocSpecV4,
@@ -98,7 +93,7 @@ export interface ProjectSessionClient {
   ): { result: Promise<GenerationReady>; cancel: () => void };
   ingest(generation: string, doc: string, bytes: ArrayBuffer): { job: number };
   projectLoad(project: string): { result: Promise<ProjectLoadResult>; cancel: () => void };
-  projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void };
+  projectSave(manifest: ProjectManifestV2, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void };
   researchLoad(project: string): { result: Promise<ResearchLoadResult>; cancel: () => void };
   researchSave(state: ResearchStateV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void };
   sourcePersist(sourceHash: string, bytes: ArrayBuffer): { result: Promise<void>; cancel: () => void };
@@ -224,16 +219,6 @@ export interface SourceEvidence {
   readonly suspiciousControlCount: number;
 }
 
-/** The async correction (override authoring) status for a doc (commit 8c). The
- *  override hash is Web-Crypto async, so `setStructureOverride` cannot be a
- *  synchronous mutate-then-reopen like `setLanguage`. Absence means idle; only
- *  in-flight hashing and a rejected attempt are tracked. `stale-base` is a
- *  correction whose base identities no longer match the doc's extraction (the
- *  editor result was superseded by a re-extraction) — never sent to the worker. */
-export type CorrectionStatus =
-  | { readonly phase: 'hashing' }
-  | { readonly phase: 'error'; readonly reason: 'stale-base' | 'invalid'; readonly message: string };
-
 export interface SessionState {
   readonly project: ProjectView;
   readonly analysis: AnalysisPhase;
@@ -242,7 +227,6 @@ export interface SessionState {
   readonly sources: Readonly<Record<string, SourceStatus>>;
   readonly reattach: Readonly<Record<string, ReattachStatus>>;
   readonly sourceEvidence: Readonly<Record<string, SourceEvidence>>;
-  readonly corrections: Readonly<Record<string, CorrectionStatus>>;
 }
 
 /** Thrown by public commands used against an illegal origin/state — a
@@ -264,8 +248,6 @@ export class SessionCommandError extends Error {
 interface ImportRecipes {
   readonly extraction: ExtractionRecipeProvisional;
   readonly extractionRecipeHash: string;
-  readonly structure: StructureRecipeProvisional;
-  readonly structureRecipeHash: string;
 }
 
 /** Recipe staging state: `hashing` until `finishStaging` computes the real
@@ -303,21 +285,10 @@ interface PendingSave {
   readonly payloadEpoch: number;
   readonly expectedRevision: number;
   readonly targetRevision: number;
-  readonly manifest: ProjectManifestV1;
+  readonly manifest: ProjectManifestV2;
 }
 
 const CAPS = INGEST_CAPS_V0;
-
-/** A correction's base identities agree with a doc's CURRENT extraction — the
- *  precondition for installing it as `active` (§12.6). Checked both synchronously
- *  and again after the async hash, since a re-extraction can change them. */
-function overrideMatchesDoc(override: StructureOverrideV1, doc: ProjectDocV1): boolean {
-  return (
-    override.text === doc.extraction.text &&
-    override.candidates === doc.extraction.candidates &&
-    override.baseRecipe === doc.structure.recipeHash
-  );
-}
 
 /** Default document metadata from a filename: the title is the name minus its
  *  known source extension (via the core format catalog); language/tags take
@@ -433,8 +404,6 @@ export class ProjectSession {
   /** Per-generation extraction evidence by doc (§12.4), captured from
    *  `source-ready`; cleared when a new generation begins. */
   private readonly sourceEvidence = new Map<string, SourceEvidence>();
-  /** Per-doc correction status (hashing / rejected). Absence = idle. */
-  private readonly corrections = new Map<string, CorrectionStatus>();
   private readonly persistIntent = new Set<string>();
 
   // ── Source runtime + reattach. ──
@@ -451,11 +420,10 @@ export class ProjectSession {
   // Latest-wins lanes (unkeyed): one save in flight wins, one load wins.
   private readonly saveOps = new LatestOperation(this.scope);
   private readonly loadOps = new LatestOperation(this.scope);
-  // Latest-wins per document: persist, reattach, and correction-hash attempts
+  // Latest-wins per document: persist and reattach attempts
   // supersede only their own doc's prior attempt.
   private readonly persistOps = new KeyedLatestOperation<string>(this.scope);
   private readonly reattachOps = new KeyedLatestOperation<string>(this.scope);
-  private readonly correctionOps = new KeyedLatestOperation<string>(this.scope);
   private saveAgain = false;
   private pendingSave: PendingSave | null = null;
   /** Bumped by every user MUTATION command. A load that resolves after the fence
@@ -603,7 +571,6 @@ export class ProjectSession {
     if (!this.finalized.has(doc)) return;
     this.persistOps.invalidate(doc);
     this.reattachOps.invalidate(doc);
-    this.correctionOps.invalidate(doc);
     this.finalized.delete(doc);
     this.order = this.order.filter((id) => id !== doc);
     this.persistIntent.delete(doc);
@@ -611,7 +578,6 @@ export class ProjectSession {
     this.sourceStatus.delete(doc);
     this.reattachStatus.delete(doc);
     this.sourceEvidence.delete(doc);
-    this.corrections.delete(doc);
     this.touch();
     this.data = this.materialize();
     this.startGeneration();
@@ -642,79 +608,6 @@ export class ProjectSession {
     this.finalized.set(doc, { ...existing, meta: { ...existing.meta, language } });
     this.touch();
     this.startGeneration(); // reopen: tokenization may change
-  }
-
-  /**
-   * Author (or clear) a document's chapter-structure correction (commit 8c,
-   * ruling §4/§5). The override hash is async Web Crypto, so this cannot be a
-   * synchronous mutate-then-reopen like `setLanguage`: a per-doc monotonic
-   * token supersedes an earlier attempt, `hashing`/`error` status is published,
-   * and ONLY the latest hash completion — after RE-checking the base identities
-   * against the THEN-current finalized doc — installs an `active` override and
-   * reopens analysis. A null or zero-change override installs `none`
-   * synchronously and supersedes any pending hash (the needs-review discard).
-   */
-  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void {
-    this.assertUserCommand('setStructureOverride');
-    const existing = this.finalized.get(doc);
-    if (!existing) throw new SessionCommandError(`setStructureOverride: '${doc}' is not a finalized document`);
-    // Supersede any in-flight hash for this doc. The lease's scope covers
-    // project replacement (create/load) during the async hash — a stale hash
-    // must never mutate the new project even when the reloaded doc is
-    // content-identical.
-    this.correctionOps.invalidate(doc);
-
-    // Clear: install `none` (and reopen only if the effective override changes).
-    if (override === null || override.changes.length === 0) {
-      this.corrections.delete(doc);
-      if (existing.structure.override.status !== 'none') {
-        this.finalized.set(doc, { ...existing, structure: { ...existing.structure, override: { status: 'none' } } });
-        this.touch();
-        this.startGeneration();
-      } else {
-        this.publish(); // nothing to reopen — just drop any hashing/error status
-      }
-      return;
-    }
-
-    // Fast reject a correction not authored against the doc's CURRENT extraction
-    // (re-checked authoritatively after the async hash).
-    if (!overrideMatchesDoc(override, existing)) {
-      this.corrections.set(doc, { phase: 'error', reason: 'stale-base', message: 'this correction is stale — re-open the editor' });
-      this.publish();
-      return;
-    }
-
-    this.corrections.set(doc, { phase: 'hashing' });
-    this.publish();
-
-    const lease = this.correctionOps.begin(doc);
-    void (async () => {
-      let hash: string;
-      try {
-        hash = await hashStructureOverride(override);
-      } catch (e) {
-        // A project replacement (scope) OR a newer attempt (lane) invalidates
-        // this: never publish an error into a project this attempt no longer owns.
-        if (!lease.isCurrent()) return;
-        this.corrections.set(doc, { phase: 'error', reason: 'invalid', message: e instanceof Error ? e.message : String(e) });
-        this.publish();
-        return;
-      }
-      if (!lease.isCurrent()) return; // superseded mid-hash
-      const current = this.finalized.get(doc);
-      // Re-check against the THEN-current doc: a re-extraction during the await
-      // may have changed identities — a stale result is rejected, not sent.
-      if (!current || !overrideMatchesDoc(override, current)) {
-        this.corrections.set(doc, { phase: 'error', reason: 'stale-base', message: 'the document changed while saving — re-open the editor' });
-        this.publish();
-        return;
-      }
-      this.corrections.delete(doc);
-      this.finalized.set(doc, { ...current, structure: { ...current.structure, override: { status: 'active', value: override, hash } } });
-      this.touch();
-      this.startGeneration();
-    })();
   }
 
   /** Reorder the declared sequence. Reopens analysis (declared-sequence
@@ -770,7 +663,7 @@ export class ProjectSession {
     // comes back as a typed REQUEST_INVALID rejection below). There is no
     // longer a pre-post await, so this attempt posts in the same task as
     // save(); a worker restart can only interrupt it after it was posted.
-    let manifest: ProjectManifestV1;
+    let manifest: ProjectManifestV2;
     try {
       manifest = manifestForSave({ kind: 'user', data: payloadData, baseRevision: expectedRevision });
     } catch (e) {
@@ -822,7 +715,7 @@ export class ProjectSession {
     }
   }
 
-  private applySaved(targetRevision: number, payloadEpoch: number, acked: ProjectManifestV1): void {
+  private applySaved(targetRevision: number, payloadEpoch: number, acked: ProjectManifestV2): void {
     this.baseRevision = targetRevision;
     this.savedEpoch = payloadEpoch; // edits during the flight leave editEpoch > this ⇒ still dirty
     this.saveState = IDLE_SAVE;
@@ -1023,7 +916,7 @@ export class ProjectSession {
       this.publish();
       return;
     }
-    const manifest: ProjectManifestV1 = loaded.manifest;
+    const manifest: ProjectManifestV2 = loaded.manifest;
     // A valid load must yield to newer local intent, an in-flight save, OR a save
     // that acknowledged during the load — rather than silently discard the newer
     // draft or make a save acknowledgement unobservable.
@@ -1111,7 +1004,6 @@ export class ProjectSession {
       language: p.meta.language,
       source: { byteLength: p.byteLength, format: p.format, availability: 'external' },
       extraction: { recipe: recipes.extraction, recipeHash: recipes.extractionRecipeHash },
-      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { kind: 'none' } },
     };
   }
 
@@ -1263,9 +1155,7 @@ export class ProjectSession {
         recipeHash: info.extractionRecipeHash,
         text: info.text,
         textLengthUtf16: info.textLengthUtf16,
-        candidates: info.candidates,
       },
-      structure: { recipe: recipes.structure, recipeHash: recipes.structureRecipeHash, override: { status: 'none' } },
     };
     this.pending.delete(doc);
     this.finalized.set(doc, finalizedDoc); // `order` already carries `doc` at its selection position
@@ -1486,11 +1376,9 @@ export class ProjectSession {
     const scopeLease = this.scope.lease();
     // One default recipe per catalog format — select `byFormat[format]`, no
     // per-format switch. Hash every catalog format (derived from
-    // SOURCE_FORMAT_IDS so a new format needs no edit here) plus structure/index
-    // in parallel.
+    // SOURCE_FORMAT_IDS so a new format needs no edit here) plus index in parallel.
     const byFormat = await defaultExtractionRecipes();
-    const [structureHash, indexHash, formatHashes] = await Promise.all([
-      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
+    const [indexHash, formatHashes] = await Promise.all([
       hashIndexRecipe(this.indexRecipe),
       Promise.all(SOURCE_FORMAT_IDS.map((f) => hashExtractionRecipe(byFormat[f]))),
     ]);
@@ -1506,8 +1394,6 @@ export class ProjectSession {
       const recipes: ImportRecipes = {
         extraction: chosen.recipe,
         extractionRecipeHash: chosen.hash,
-        structure: DEFAULT_STRUCTURE_RECIPE,
-        structureRecipeHash: structureHash,
       };
       this.pending.set(doc, { ...p, staging: { phase: 'ready', recipes } });
       matched++;
@@ -1565,11 +1451,6 @@ export class ProjectSession {
     this.reattachStatus.clear();
     this.persistOps.clear();
     this.reattachOps.clear();
-    // A pending correction belonged to the OUTGOING project; its status must
-    // not leak into the replacement (the scope invalidation above also drops
-    // any in-flight hash).
-    this.correctionOps.clear();
-    this.corrections.clear();
     this.id = project.data.id;
     this.kind = project.kind;
     this.indexRecipe = project.data.indexRecipe;
@@ -1606,8 +1487,6 @@ export class ProjectSession {
     this.reattachStatus.clear();
     this.persistOps.clear();
     this.reattachOps.clear();
-    this.correctionOps.clear();
-    this.corrections.clear();
     this.finalized.clear();
     this.order = [];
     this.id = USER_PROJECT_ID;
@@ -1677,8 +1556,6 @@ export class ProjectSession {
     const sources = reuseRecord(prev?.sources, this.sourceStatus);
     const reattach = reuseRecord(prev?.reattach, this.reattachStatus);
     const sourceEvidence = reuseRecord(prev?.sourceEvidence, this.sourceEvidence);
-    const corrections = reuseRecord(prev?.corrections, this.corrections);
-
     const next: SessionState =
       prev !== null &&
       prev.project === project &&
@@ -1687,10 +1564,9 @@ export class ProjectSession {
       prev.imports === imports &&
       prev.sources === sources &&
       prev.reattach === reattach &&
-      prev.sourceEvidence === sourceEvidence &&
-      prev.corrections === corrections
+      prev.sourceEvidence === sourceEvidence
         ? prev
-        : { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence, corrections };
+        : { project, analysis: this.analysis, snapshot: this.snapshot, imports, sources, reattach, sourceEvidence };
     this.lastState = next;
     return next;
   }

@@ -14,7 +14,6 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { indexArtifactHash } from '../src/contract/identity.ts';
 import { createDocumentIndex, validateShardStructure, type DocumentIndexV1 } from '../src/index/build.ts';
@@ -74,7 +73,7 @@ interface Doc {
 
 async function docOf(id: string, text: string): Promise<Doc> {
   const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
-  const ready = await makeReadyDocument(id as ProjectDocId, shard, rootOnlyV2(text, shard.text));
+  const ready = await makeReadyDocument(id as ProjectDocId, shard);
   return { id: id as ProjectDocId, text, shard, ready };
 }
 

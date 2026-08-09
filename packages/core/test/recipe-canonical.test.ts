@@ -35,7 +35,6 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
         format: 'txt',
         decoder: decoder(),
         parser: { id: 'txt-literal-v1' },
-        candidateReconstruction: 'text',
       };
     case 'md':
       return {
@@ -43,11 +42,9 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
         format: 'md',
         decoder: decoder(),
         parser: {
-          id: 'markdown-literal-with-heading-scan-v0',
+          id: 'markdown-literal-v1',
           textPolicy: 'preserve-source-markdown',
-          headingScanner: 'markdown-heading-scan-v1',
         },
-        candidateReconstruction: 'text',
       };
     case 'epub':
       return {
@@ -57,9 +54,7 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
           id: 'standard-ebooks-epub-v1',
           partitions: ['frontmatter', 'bodymatter'],
           serializer: 'xhtml-block-collapse-v1',
-          sectioning: 'spine-order-v1',
         },
-        candidateReconstruction: 'source',
       };
     case 'html':
       return {
@@ -70,9 +65,7 @@ async function rawRecipe(format: 'txt' | 'md' | 'epub' | 'html'): Promise<Record
           decoder: decoder(),
           parser: 'parse5-v7',
           serializer: 'html-block-collapse-v1',
-          sectioning: 'heading-order-v1',
         },
-        candidateReconstruction: 'source',
       };
   }
 }
@@ -102,7 +95,6 @@ describe('recipe-hash stability (hard requirement: stored manifests must not mov
   it('input property order cannot move the hash (canonical serialization is key-sorted)', async () => {
     const raw = await rawRecipe('txt');
     const scrambled = {
-      candidateReconstruction: raw.candidateReconstruction,
       parser: raw.parser,
       format: raw.format,
       decoder: raw.decoder,
@@ -171,7 +163,7 @@ describe('weakening risk: async TOCTOU (snapshot before the first await)', () =>
     const canonical = await pending;
     expect(canonical.format).toBe('md');
     if (canonical.format !== 'md') throw new Error('expected md');
-    expect(canonical.parser.id).toBe('markdown-literal-with-heading-scan-v0');
+    expect(canonical.parser.id).toBe('markdown-literal-v1');
     expect(canonical.decoder.windows1252TableHash).toBe(await windows1252TableHash());
     expect('extra' in canonical).toBe(false);
     // And the canonical still hashes as the ORIGINAL valid recipe.

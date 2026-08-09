@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { buildDocumentIndex, createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, DependencyError, type BoundShards, type BoundTexts } from '../src/ops/binding.ts';
@@ -50,7 +49,7 @@ async function world(texts: Record<string, string>, expected?: string[]): Promis
     const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
     shards.set(id, shard);
     resolvers.set(id, new Map([[modeKey(FOLD), await buildResolver(shard, R, FOLD)]]));
-    ready.set(id, await makeReadyDocument(id, shard, rootOnlyV2(text, shard.text)));
+    ready.set(id, await makeReadyDocument(id, shard));
   }
   const snapshot = await composeSnapshot(GEN, (expected ?? ids) as ProjectDocId[], ready);
   const bound = await bindShards(snapshot, shards);
@@ -686,7 +685,7 @@ describe('kwic binding discipline', () => {
     const text = 'a wolf';
     const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
     const ready = new Map([
-      ['a' as ProjectDocId, await makeReadyDocument('a' as ProjectDocId, shard, rootOnlyV2(text, shard.text))],
+      ['a' as ProjectDocId, await makeReadyDocument('a' as ProjectDocId, shard)],
     ]);
     const snapshot = await composeSnapshot(GEN, ['a'] as ProjectDocId[], ready);
     const shardMap = new Map([['a', shard]]);
@@ -765,7 +764,7 @@ describe('kwic binding discipline', () => {
     const text = 'alpha wolf';
     const shard = await createDocumentIndex(text, await segment(text, 'en'), R);
     const ready = new Map([
-      ['a' as ProjectDocId, await makeReadyDocument('a' as ProjectDocId, shard, rootOnlyV2(text, shard.text))],
+      ['a' as ProjectDocId, await makeReadyDocument('a' as ProjectDocId, shard)],
     ]);
     const snapshot = await composeSnapshot(GEN, ['a'] as ProjectDocId[], ready);
     // Corrupt the arrays BEFORE binding: descriptor identity still matches,

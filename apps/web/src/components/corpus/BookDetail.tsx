@@ -7,7 +7,6 @@ import {
 } from '../../lib/corpus-view.ts';
 import { rhythmDescription } from '../../lib/corpus-dashboard-view.ts';
 import { useApp } from '../../lib/store-instance.ts';
-import { StructurePanel } from '../StructurePanel.tsx';
 import { GrowthCurve } from './GrowthCurve.tsx';
 import { OnlyBookButton } from './OnlyBookButton.tsx';
 
@@ -103,7 +102,6 @@ export function BookDetail({
         </dl>
       </section>
 
-      <StructurePanel headingAs="h4" showDocumentControl={false} />
 
       <section aria-labelledby={growthHeadingId}>
         <h4 id={growthHeadingId}>Vocabulary growth</h4>
@@ -143,7 +141,7 @@ export function BookDetail({
 
       <nav aria-label={`Vocabulary destination for ${view.title}`}>
         <button type="button" onClick={() => setPlace('vocabulary')}>
-          Open {view.vocabularyLabel} and this book’s section profile
+          Open {view.vocabularyLabel}
         </button>
       </nav>
     </section>

@@ -1,12 +1,12 @@
 /**
- * UserDataStore — class-1 DURABLE storage (ingest/structure plan §(c);
+ * UserDataStore — class-1 durable storage;
  * contract §12.5/§12.6). Projects and opted-in source bytes live in a
  * SEPARATE database from the disposable artifact cache: its contract is
  * migration, not abandonment, and its writes may FAIL but must never
  * pretend to succeed.
  *
  * SINGLE REVISION AUTHORITY (engine-v4 consult §Q3): the durable project
- * record IS the canonical `ProjectManifestV1`, whose own `revision` is the
+ * record is the canonical project manifest, whose own `revision` is the
  * sole compare-and-swap authority. There is no wrapper carrying a second
  * id/revision — that dual authority is exactly what §E rejected. `putProject`
  * receives an ALREADY-VALIDATED manifest whose `revision` the caller set to
@@ -15,15 +15,15 @@
  *
  * Two capabilities the class-3 ArtifactStore deliberately lacks:
  * - putProject is a COMPARE-AND-SWAP on the manifest's monotonic revision —
- *   two tabs cannot silently last-write-win over metadata or chapter
- *   corrections (a mismatch is REVISION_CONFLICT, surfaced, never swallowed);
+ *   two tabs cannot silently last-write-win over project data (a mismatch is
+ *   REVISION_CONFLICT, surfaced, never swallowed);
  * - reads and writes report typed failure (PERSISTENCE_UNAVAILABLE /
  *   QUOTA_EXCEEDED) instead of degrading to memory, so the UI can stay
  *   visibly unsaved. A CLOSED store rejects rather than masquerading as a
  *   miss — "no durable connection" is not "no project".
  */
 
-import type { ProjectManifestV1, ResearchStateV1 } from '@texttrends/core';
+import type { ProjectManifestV2, ResearchStateV1 } from '@texttrends/core';
 import type { CacheRead } from '../shared/storage-contract.ts';
 
 export type UserDataErrorCode =
@@ -73,7 +73,7 @@ export interface UserDataStore {
    * currentRevision) on a stale expectation, and the typed failure codes on
    * storage errors.
    */
-  putProject(next: ProjectManifestV1, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV1 }>;
+  putProject(next: ProjectManifestV2, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV2 }>;
 
   /** Research state is an independent class-1 record and conflict domain. */
   getResearch(project: string): Promise<CacheRead<unknown>>;
@@ -111,7 +111,9 @@ export function assertRevisionContract(nextRevision: number, expectedRevision: n
 export function projectEnvelopeReason(record: unknown, id: string): string | null {
   if (record === null || typeof record !== 'object') return 'stored project is not an object';
   const r = record as Record<string, unknown>;
-  if (r.schema !== 'texttrends/project/1') return `unknown stored-project schema '${String(r.schema)}'`;
+  if (r.schema !== 'texttrends/project/1' && r.schema !== 'texttrends/project/2') {
+    return `unknown stored-project schema '${String(r.schema)}'`;
+  }
   if (r.id !== id) return 'stored project id disagreement';
   if (typeof r.revision !== 'number' || !Number.isSafeInteger(r.revision) || r.revision < 1) {
     return 'stored project revision is not a positive safe integer';
@@ -148,7 +150,7 @@ export function researchEnvelopeReason(
  *  durable store so conflict/unavailability handling is exercised without
  *  IndexedDB. */
 export class InMemoryUserDataStore implements UserDataStore {
-  private readonly projects = new Map<string, ProjectManifestV1>();
+  private readonly projects = new Map<string, ProjectManifestV2>();
   private readonly research = new Map<string, ResearchStateV1>();
   private readonly sources = new Map<string, StoredSourceV1>();
   private closed = false;
@@ -168,7 +170,7 @@ export class InMemoryUserDataStore implements UserDataStore {
     return reason === null ? { kind: 'hit', value } : { kind: 'corrupt', reason };
   }
 
-  async putProject(next: ProjectManifestV1, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV1 }> {
+  async putProject(next: ProjectManifestV2, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV2 }> {
     assertRevisionContract(next.revision, expectedRevision);
     this.assertOpen();
     const current = this.projects.get(next.id);

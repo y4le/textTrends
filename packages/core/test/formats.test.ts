@@ -23,9 +23,6 @@ describe('the source-format catalog', () => {
       const meta = SOURCE_FORMATS[id];
       expect(meta.extensions.length).toBeGreaterThan(0);
       expect(meta.sourceKind).toBe(EXPECTED_KIND[id]);
-      // literal formats reconstruct candidates from text; transformed from source.
-      const expected = meta.extractionKind === 'literal' ? 'text' : 'source';
-      expect(meta.candidateReconstruction).toBe(expected);
     }
   });
 
@@ -82,26 +79,25 @@ describe('the source-format catalog', () => {
 
   it('defineSourceFormats rejects a case-insensitive extension collision', () => {
     const good = defineSourceFormats({
-      a: { extensions: ['.a'], extractionKind: 'literal', sourceKind: 'text', candidateReconstruction: 'text' },
-      b: { extensions: ['.b'], extractionKind: 'literal', sourceKind: 'text', candidateReconstruction: 'text' },
+      a: { extensions: ['.a'], extractionKind: 'literal', sourceKind: 'text' },
+      b: { extensions: ['.b'], extractionKind: 'literal', sourceKind: 'text' },
     });
     expect(Object.isFrozen(good)).toBe(true);
     const collide = (): Record<string, SourceFormatMetadata> =>
       defineSourceFormats({
-        a: { extensions: ['.dup'], extractionKind: 'literal', sourceKind: 'text', candidateReconstruction: 'text' },
-        b: { extensions: ['.DUP'], extractionKind: 'transformed', sourceKind: 'markup', candidateReconstruction: 'source' },
+        a: { extensions: ['.dup'], extractionKind: 'literal', sourceKind: 'text' },
+        b: { extensions: ['.DUP'], extractionKind: 'transformed', sourceKind: 'markup' },
       });
     expect(collide).toThrow(/duplicate source-format extension/);
   });
 });
 
 describe('default extraction recipes agree with the catalog', () => {
-  it('has a default recipe per format whose format + reconstruction match the catalog', async () => {
+  it('has a default recipe per format', async () => {
     const recipes = await defaultExtractionRecipes();
     for (const id of SOURCE_FORMAT_IDS) {
       const recipe = recipes[id as SourceFormat];
       expect(recipe.format).toBe(id);
-      expect(recipe.candidateReconstruction).toBe(SOURCE_FORMATS[id].candidateReconstruction);
     }
   });
 });

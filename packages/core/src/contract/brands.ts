@@ -10,14 +10,12 @@ declare const brand: unique symbol;
 type Brand<T, B extends string> = T & { readonly [brand]: B };
 
 export type ProjectDocId = Brand<string, 'ProjectDocId'>;
-export type SectionId = Brand<string, 'SectionId'>;
 
 export type LocalTypeId = Brand<number, 'LocalTypeId'>;
 export type DocTokenPos = Brand<number, 'DocTokenPos'>;
 
 export type SourceHash = Brand<string, 'SourceHash'>;
 export type TextHash = Brand<string, 'TextHash'>;
-export type StructureHash = Brand<string, 'StructureHash'>;
 export type IndexArtifactHash = Brand<string, 'IndexArtifactHash'>;
 export type IndexRecipeHash = Brand<string, 'IndexRecipeHash'>;
 export type SelectionHash = Brand<string, 'SelectionHash'>;

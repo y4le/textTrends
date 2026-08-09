@@ -36,9 +36,9 @@ test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready b
   const t = await trace(page);
   const phases = events(t, { direction: 'from-worker', t: 'progress' }).map((e) => e.phase);
   // An exact warm reopen does NO build work of any kind: no decode/extract
-  // (no source touched), no segment/index (shard admitted), no structure
-  // (structure admitted). compose on warm reopen is an implementation choice.
-  expect(phases.filter((p) => p === 'decode' || p === 'extract' || p === 'segment' || p === 'index' || p === 'structure')).toEqual([]);
+  // (no source touched), no segment/index (shard admitted). Compose on warm
+  // reopen is an implementation choice.
+  expect(phases.filter((p) => p === 'decode' || p === 'extract' || p === 'segment' || p === 'index')).toEqual([]);
 
   const published = events(t, { direction: 'from-worker', t: 'snapshot-published' });
   expect(published.length).toBe(1);

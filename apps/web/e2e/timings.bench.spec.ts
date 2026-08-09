@@ -96,7 +96,7 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   });
   console.log(`[bench] cold barrier ${coldBarrierMs.toFixed(0)}ms · first T1 ${coldFirstT1Ms.toFixed(0)}ms · all ready ${coldAllReadyMs.toFixed(0)}ms · warm reopen ${warmReopenMs.toFixed(0)}ms · cancel p95 ${p95.toFixed(1)}ms (${acks.length} acks)`);
 
-  // The one stated budget (phase1-plan): cancel acknowledgement p95 < 250ms.
+  // Cancellation acknowledgement budget: p95 < 250ms.
   expect(acks.length).toBeGreaterThanOrEqual(20);
   expect(p95).toBeLessThan(250);
 });

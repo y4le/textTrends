@@ -8,7 +8,7 @@
  * or artifact replacement produces a new snapshot; nothing is mutated.
  *
  * Identity discipline (review finding): ready records are created only by
- * the async factory below, which computes the index/structure hashes from
+ * the async factory below, which computes the index hash from
  * the artifacts themselves; composition re-verifies every binding (map key,
  * document id, recomputed index hash) so a stale or foreign identity claim
  * can never be hashed into a snapshot ID.
@@ -21,22 +21,10 @@ import {
   type BuildGeneration,
   type IndexArtifactHash,
   type ProjectDocId,
-  type StructureHash,
 } from '../contract/brands.ts';
 import { canonicalJson, sha256Hex } from '../contract/hash.ts';
 import { indexArtifactHash } from '../contract/identity.ts';
-import type { StructureArtifactV2 } from '../structure/build.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
-
-/** The ONE sanctioned structure artifact shape a ReadyDocument carries. (The
- *  root-only V1 lineage is deleted: no persisted path could produce it, and V2
- *  is the only schema the validators admit.) */
-export type ReadyStructure = StructureArtifactV2;
-
-/** Canonical structure hash. */
-export async function structureHashOf(artifact: ReadyStructure): Promise<StructureHash> {
-  return (await sha256Hex(canonicalJson(artifact))) as StructureHash;
-}
 
 declare const brand: unique symbol;
 export type SnapshotVocabularyHash = string & { readonly [brand]: 'SnapshotVocabularyHash' };
@@ -45,30 +33,21 @@ export type SnapshotVocabularyHash = string & { readonly [brand]: 'SnapshotVocab
 export interface ReadyDocument {
   readonly doc: ProjectDocId;
   readonly shard: DocumentIndexV1;
-  /** The structure artifact itself — composition re-verifies its binding. */
-  readonly structureArtifact: ReadyStructure;
   readonly index: IndexArtifactHash;
-  readonly structure: StructureHash;
 }
 
 /**
- * The only sanctioned way to build a ReadyDocument: hashes are computed from
- * the artifacts, and the structure artifact must describe the shard's text.
+ * The only sanctioned way to build a ReadyDocument: its hash is computed from
+ * the index artifact.
  */
 export async function makeReadyDocument(
   doc: ProjectDocId,
   shard: DocumentIndexV1,
-  structure: ReadyStructure,
 ): Promise<ReadyDocument> {
-  if (structure.text !== shard.text) {
-    throw new RangeError('structure artifact describes a different text than the shard');
-  }
   return {
     doc,
     shard,
-    structureArtifact: structure,
     index: await indexArtifactHash(shard),
-    structure: await structureHashOf(structure),
   };
 }
 
@@ -82,7 +61,6 @@ export interface SnapshotVocabularyV1 {
 export interface CorpusDocRef {
   readonly doc: ProjectDocId;
   readonly index: IndexArtifactHash;
-  readonly structure: StructureHash;
   readonly localToCorpusType: Uint32Array;
   readonly sequenceTokenBase: number;
   readonly tokenCount: number;
@@ -112,7 +90,6 @@ async function snapshotId(
       docs: refs.map((r) => ({
         doc: r.doc,
         index: r.index,
-        structure: r.structure,
         base: r.sequenceTokenBase,
         tokens: r.tokenCount,
       })),
@@ -173,28 +150,16 @@ export async function composeSnapshot(
     if (item.doc !== key) {
       throw new RangeError(`ready record for '${key}' claims document id '${item.doc}'`);
     }
-    if (item.structureArtifact.text !== item.shard.text) {
-      throw new RangeError(`structure artifact for '${key}' describes a different text`);
-    }
   }
   const proofs = await Promise.all(
     [...ready.values()].map(async (item) => {
-      // Both digests concurrently WITHIN each document too — awaiting index
-      // before structure would leave an independent digest on every
-      // document's critical path (review-c3-compose finding).
-      const [index, structure] = await Promise.all([
-        indexArtifactHash(item.shard),
-        structureHashOf(item.structureArtifact),
-      ]);
-      return { item, index, structure };
+      const index = await indexArtifactHash(item.shard);
+      return { item, index };
     }),
   );
-  for (const { item, index, structure } of proofs) {
+  for (const { item, index } of proofs) {
     if (index !== item.index) {
       throw new RangeError(`ready record for '${item.doc}' carries a stale index identity`);
-    }
-    if (structure !== item.structure) {
-      throw new RangeError(`ready record for '${item.doc}' carries a stale structure identity`);
     }
   }
 
@@ -233,7 +198,6 @@ export async function composeSnapshot(
     refs.push({
       doc,
       index: item.index,
-      structure: item.structure,
       localToCorpusType,
       sequenceTokenBase: sequenceBase,
       tokenCount,

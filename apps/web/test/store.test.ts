@@ -63,10 +63,10 @@ function fakeQueryClient() {
   const issued: Issued[] = [];
   const client: QueryClient = {
     query: (snapshot, query) => {
-      const q = query as {
+      const q = query as unknown as {
         op: string;
         group?: { id: string; members: { id: string; surface: string }[] };
-        tracks?: { seriesId: string; group: { id: string; members: { id: string; surface: string }[] } }[];
+        tracks?: readonly { seriesId: string; group: { id: string; members: readonly { id: string; surface: string }[] } }[];
         request?: { doc: string; centerToken: number; tracks: { seriesId: string }[] };
       };
       // trend carries `group`; kwic/2 carries `tracks` (first track's group here).
@@ -102,20 +102,16 @@ function fakeQueryClient() {
     issued,
     trends: () => issued.filter((q) => q.op === 'trend'),
     kwics: () => issued.filter((q) => q.op === 'kwic'),
-    structures: () => issued.filter((q) => q.op === 'structure'),
-    editContexts: () => issued.filter((q) => q.op === 'structure-edit-context'),
-    lineExcerpts: () => issued.filter((q) => q.op === 'line-excerpt'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
     inventories: () => issued.filter(
       (q) => q.op === 'inventory'
-        && (q.query as { request?: { sections?: boolean } }).request?.sections === true,
+        && ((q.query as { request?: { rhythmBinsPerDoc?: number } }).request?.rhythmBinsPerDoc ?? 0) > 0,
     ),
     keynessInventories: () => issued.filter(
       (q) => q.op === 'inventory'
-        && (q.query as { request?: { sections?: boolean } }).request?.sections === false,
+        && (q.query as { request?: { rhythmBinsPerDoc?: number } }).request?.rhythmBinsPerDoc === 0,
     ),
     frequencies: () => issued.filter((q) => q.op === 'freq-list'),
-    tfidfs: () => issued.filter((q) => q.op === 'tfidf-sections'),
     keynesses: () => issued.filter((q) => q.op === 'keyness'),
   };
 }
@@ -206,40 +202,6 @@ function layerIds() {
     `00000000-0000-4000-8000-${String(++next).padStart(12, '0')}`;
 }
 
-/** A structure query result echoing the two artifact identities (§12.7). */
-function fakeStructure(doc: string, tops: readonly number[]): QueryResultDataV4 {
-  const rows = [
-    { section: { id: `${doc}:root`, doc, origin: 'fixed' as const, level: 0, chars: { start: 0, end: 1000 } }, tokens: { start: 0, end: 100 } },
-    ...tops.map((t, i) => ({
-      section: { id: `${doc}:c${i}`, doc, origin: 'heuristic' as const, parent: `${doc}:root`, level: 1, title: `Chapter ${i + 1}`, chars: { start: t, end: t + 1 } },
-      tokens: { start: t, end: t + 10 },
-    })),
-  ];
-  return { op: 'structure', structure: { doc, structure: `str-${doc}`, index: `idx-${doc}`, rows } };
-}
-
-function fakeEditContext(doc: string): QueryResultDataV4 {
-  return {
-    op: 'structure-edit-context',
-    context: {
-      doc,
-      structure: `str-${doc}`,
-      index: `idx-${doc}`,
-      base: { text: `t-${doc}`, candidates: `c-${doc}`, baseRecipe: `r-${doc}` },
-      override: `o-${doc}`,
-      detected: [{ key: 'root', origin: 'fixed', level: 0, chars: { start: 0, end: 100 } }],
-      current: [{ key: 'root', section: { id: `${doc}:root`, doc, origin: 'fixed', level: 0, chars: { start: 0, end: 100 } }, tokens: { start: 0, end: 50 } }],
-    },
-  };
-}
-
-function fakeLineExcerpt(doc: string, anchor: number): QueryResultDataV4 {
-  return {
-    op: 'line-excerpt',
-    excerpt: { doc, chars: { start: anchor, end: anchor + 5 }, text: 'hello', truncatedStart: false, truncatedEnd: false },
-  };
-}
-
 // ── A fake SessionPort: a spyable immutable-state emitter. ──
 const BUILTIN_PROJECT: ProjectView = {
   kind: 'builtin',
@@ -267,7 +229,6 @@ function sessionState(
     sources: {},
     reattach: {},
     sourceEvidence: {},
-    corrections: {},
   };
 }
 
@@ -340,7 +301,6 @@ class FakeSessionPort implements SessionPort {
   removeDocument(doc: string): void { this.record('removeDocument', [doc]); }
   editMeta(doc: string, patch: MetaPatch): void { this.record('editMeta', [doc, patch]); }
   setLanguage(doc: string, language: string): void { this.record('setLanguage', [doc, language]); }
-  setStructureOverride(doc: string, override: unknown): void { this.record('setStructureOverride', [doc, override]); }
   reorder(order: readonly string[]): void { this.record('reorder', [order]); }
   save(): void { this.record('save', []); }
   setPersistIntent(doc: string, intent: boolean): void { this.record('setPersistIntent', [doc, intent]); }
@@ -424,7 +384,6 @@ function fakeInventoryResult(
       })),
       rhythm: null,
       growth: null,
-      sections: null,
       missingDocs: [],
       mattrWindow: 500,
     },
@@ -518,7 +477,7 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
-  it('closes a governed parent and its nested child in one Back traversal', () => {
+  it('closes two governed details in one Back traversal', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=catalog');
     const runtime = createAppRuntime(q.client, {
@@ -534,8 +493,8 @@ describe('workbench route and history authority', () => {
     );
     store.getState().pushLayer(
       'row-detail',
-      { surface: 'structure-editor', doc: 'book' },
-      'structure-edit-book',
+      { surface: 'vocab-row', key: 'word' },
+      'vocabulary-word',
     );
     expect(store.getState().layers).toHaveLength(2);
 
@@ -827,9 +786,8 @@ describe('the session bridge', () => {
         views: {
           ...researchState(BUILTIN_SHERLOCK_ID, 3).views,
           trend: {
-            schema: 'texttrends/trend-view/2',
+            schema: 'texttrends/trend-view/3',
             mode: 'by-book',
-            sectionMarks: false,
             focusedDoc: null,
             bins: { mode: 'fixed-tokens', count: 500 },
             measure: {
@@ -1007,7 +965,6 @@ describe('the session bridge', () => {
     s.removeDocument('d');
     s.editMeta('d', { title: 't' });
     s.setLanguage('d', 'fr');
-    s.setStructureOverride('d', null);
     s.reorder(['d']);
     s.setPersistIntent('d', true);
     s.saveProject();
@@ -1015,7 +972,7 @@ describe('the session bridge', () => {
     s.reattach('d', { name: 'f.txt', size: 1, arrayBuffer: async () => new ArrayBuffer(1) });
     s.retryAnalysis();
     expect(port.calls.map((c) => c.method)).toEqual([
-      'loadResearch', 'removeImport', 'removeDocument', 'editMeta', 'setLanguage', 'setStructureOverride', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
+      'loadResearch', 'removeImport', 'removeDocument', 'editMeta', 'setLanguage', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
     ]);
   });
 
@@ -1752,166 +1709,6 @@ describe('store query intent discipline', () => {
   });
 });
 
-// ── The chapter-outline (structure) query intent (commit 8a). Independent of
-// the term series, lease-guarded on (generation,snapshot,doc). ──
-describe('the outline (structure) intent', () => {
-  /** A session state whose project declares `order` (docs left empty — the
-   *  store's focus resolution reads only the order). */
-  function withOrder(snapshot: SnapshotInfo | null, order: readonly string[]): SessionState {
-    return sessionState(snapshot, {
-      project: { data: { id: 'builtin/sherlock', order: [...order], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' } },
-    });
-  }
-
-  it('defaults the focus to the first READY doc in declared order and queries it', () => {
-    const { store, port, structures, trends } = harness(undefined, { seed: true });
-    // Declared order [a,b,c]; only b and c ready, published completion-first.
-    port.emit(withOrder(snap('g1', 's1', ['c', 'b']), ['a', 'b', 'c']));
-    expect(store.getState().focusedDoc).toBe('b'); // declared order, not 'c'
-    const s = structures();
-    expect(s.length).toBe(1);
-    expect((s[0]!.query as { request: { doc: string } }).request.doc).toBe('b');
-    // The term series still queried independently.
-    expect(trends().length).toBeGreaterThan(0);
-  });
-
-  it('issues the outline even with an EMPTY term input', () => {
-    const { store, port, structures } = harness();
-    // The store starts with an EMPTY notebook — no series without a quickAdd.
-    port.emit(withOrder(snap('g1', 's1', ['a']), ['a']));
-    expect(store.getState().series.length).toBe(0);
-    expect(structures().length).toBe(1); // outline is not gated on the series
-  });
-
-  it('writes a ready result and ignores one for a superseded focus', async () => {
-    const { store, port, structures } = harness();
-    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
-    const first = structures()[0]!;
-    // Focus moves to b before a's result arrives.
-    store.getState().setFocusedDoc('b');
-    first.resolve(fakeStructure('a', [400])); // stale focus
-    await flush();
-    expect(store.getState().structure?.doc).toBe('b');
-    expect(store.getState().structure?.state.status).toBe('pending');
-    // b resolves and is written.
-    structures().find((q) => (q.query as { request: { doc: string } }).request.doc === 'b')!.resolve(fakeStructure('b', [500]));
-    await flush();
-    const st = store.getState().structure;
-    expect(st?.doc).toBe('b');
-    expect(st?.state.status).toBe('ready');
-  });
-
-  it('setFocusedDoc reissues ONLY the outline, and rejects a non-ready doc', () => {
-    const { store, port, structures, trends } = harness();
-    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
-    const trendsBefore = trends().filter((q) => !q.cancelled).length;
-    const structuresBefore = structures().length;
-    store.getState().setFocusedDoc('b');
-    expect(store.getState().focusedDoc).toBe('b');
-    expect(structures().length).toBe(structuresBefore + 1); // one more outline query
-    expect(trends().filter((q) => !q.cancelled).length).toBe(trendsBefore); // trends untouched
-    // A doc that is not ready is refused.
-    store.getState().setFocusedDoc('zzz');
-    expect(store.getState().focusedDoc).toBe('b');
-    expect(structures().length).toBe(structuresBefore + 1);
-  });
-
-  it('preserves the focus across an unrelated publication; resets when it leaves the ready set', () => {
-    const { store, port, structures } = harness();
-    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
-    store.getState().setFocusedDoc('b');
-    const countAfterFocus = structures().length;
-    // Same snapshot identity, unrelated state → focus and outline unchanged.
-    port.emit(withOrder(snap('g1', 's1', ['a', 'b']), ['a', 'b']));
-    expect(store.getState().focusedDoc).toBe('b');
-    expect(structures().length).toBe(countAfterFocus);
-    // A NEW snapshot where b is gone → focus falls back to the first ready doc.
-    port.emit(withOrder(snap('g2', 's2', ['a']), ['a', 'b']));
-    expect(store.getState().focusedDoc).toBe('a');
-  });
-
-  it('clears the outline when a null snapshot supersedes it', () => {
-    const { store, port } = harness();
-    port.emit(withOrder(snap('g1', 's1', ['a']), ['a']));
-    expect(store.getState().focusedDoc).toBe('a');
-    port.emit(withOrder(null, ['a']));
-    expect(store.getState().focusedDoc).toBeNull();
-    expect(store.getState().structure).toBeNull();
-  });
-});
-
-// ── On-demand authoring intents (commit 8b): edit-context + line-excerpt, each
-// with its own lease lane and (generation,snapshot,doc) guard, cleared on a snapshot
-// change. The correction editor (8c) drives these. ──
-describe('authoring intents (edit-context + line-excerpt)', () => {
-  it('requestEditContext issues for a ready doc and writes the ready result', async () => {
-    const { store, port, editContexts } = harness();
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().requestEditContext('a');
-    const q = editContexts();
-    expect(q.length).toBe(1);
-    expect((q[0]!.query as { request: { doc: string } }).request.doc).toBe('a');
-    expect(store.getState().editContext?.state.status).toBe('pending');
-    q[0]!.resolve(fakeEditContext('a'));
-    await flush();
-    const ec = store.getState().editContext;
-    expect(ec?.doc).toBe('a');
-    expect(ec?.state.status).toBe('ready');
-    if (ec?.state.status === 'ready') expect(ec.state.context.detected[0]!.key).toBe('root');
-  });
-
-  it('requestEditContext refuses a non-ready doc', () => {
-    const { store, port, editContexts } = harness();
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().requestEditContext('zzz');
-    expect(editContexts().length).toBe(0);
-    expect(store.getState().editContext).toBeNull();
-  });
-
-  it('a superseded edit-context result cannot write', async () => {
-    const { store, port, editContexts } = harness();
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().requestEditContext('a');
-    const stale = editContexts()[0]!;
-    port.publishSnapshot('g2', 's2', ['a']); // new snapshot supersedes
-    stale.resolve(fakeEditContext('a'));
-    await flush();
-    // Cleared by the snapshot change; the stale result did not resurrect it.
-    expect(store.getState().editContext).toBeNull();
-  });
-
-  it('requestLineExcerpt writes a result keyed by doc + anchor', async () => {
-    const { store, port, lineExcerpts } = harness();
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().requestLineExcerpt('a', 42, 200);
-    const q = lineExcerpts();
-    expect(q.length).toBe(1);
-    const req = (q[0]!.query as { request: { doc: string; anchor: number; maxChars: number } }).request;
-    expect(req).toEqual({ doc: 'a', anchor: 42, maxChars: 200 });
-    q[0]!.resolve(fakeLineExcerpt('a', 42));
-    await flush();
-    expect(store.getState().lineExcerpt?.anchor).toBe(42);
-    expect(store.getState().lineExcerpt?.state.status).toBe('ready');
-  });
-
-  it('a snapshot change clears and cancels both authoring intents', () => {
-    const { store, port, editContexts, lineExcerpts } = harness();
-    port.publishSnapshot('g1', 's1', ['a']);
-    store.getState().requestEditContext('a');
-    store.getState().requestLineExcerpt('a', 10, 100);
-    expect(store.getState().editContext).not.toBeNull();
-    expect(store.getState().lineExcerpt).not.toBeNull();
-    port.publishSnapshot('g2', 's2', ['a']);
-    expect(store.getState().editContext).toBeNull();
-    expect(store.getState().lineExcerpt).toBeNull();
-    expect(editContexts()[0]!.cancelled).toBe(true);
-    expect(lineExcerpts()[0]!.cancelled).toBe(true);
-  });
-});
-
-// ── Composition: the real ProjectSession satisfies SessionPort and drives the
-// bridge. The generation-lifecycle races are covered in project-session.test.ts;
-// this only proves the two interfaces compose end to end. ──
 describe('real ProjectSession composes with the store bridge', () => {
   beforeAll(async () => {
     // Warm the shared memoized canonical hashes so startGeneration settles fast.
@@ -1922,20 +1719,17 @@ describe('real ProjectSession composes with the store bridge', () => {
   it('attaching a real session mirrors its analysis + snapshot into the store', async () => {
     const { ProjectSession } = await import('../src/lib/project-session.ts');
     const { builtinProject } = await import('../src/lib/project.ts');
-    const { DEFAULT_STRUCTURE_RECIPE, hashStructureCandidates } = await import('@texttrends/core');
     const { canonicalRecipeHashes } = await import('./support/spec-fixtures.ts');
     const canon = await canonicalRecipeHashes();
     const { txt } = canon.recipes;
-    const [erh, srh, irh] = [canon.txtRecipeHash, canon.structureRecipeHash, canon.indexRecipeHash];
-    const cand = await hashStructureCandidates([]);
+    const [erh, irh] = [canon.txtRecipeHash, canon.indexRecipeHash];
     const doc = {
       doc: 'd1',
       sourceName: 'd1',
       meta: { title: 'D1', language: 'en', tags: [] as string[] },
       source: { kind: 'text' as const, hash: 'srchash', byteLength: 10, format: 'txt' as const, encoding: { detected: 'utf-8' as const, hadReplacementChars: false } },
       sourceAvailability: 'bundled' as const,
-      extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8, candidates: cand },
-      structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: srh, override: { status: 'none' as const } },
+      extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8 },
     };
     const data = { id: 'builtin/x', order: ['d1'], docs: [doc], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: irh };
 
@@ -2961,32 +2755,24 @@ describe('corpus dashboard query intent (slice-3)', () => {
     ranges: [{ doc: 'a', tokens: { start, end } }],
   });
 
-  it('issues inventory, frequency, and focused-document TF-IDF on each snapshot identity', () => {
+  it('issues inventory and frequency on each snapshot identity', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     expect(f.inventories()).toHaveLength(1);
     expect(f.frequencies()).toHaveLength(1);
-    expect(f.tfidfs()).toHaveLength(1);
     expect((f.inventories()[0]!.query as { selection: { docs: string[] } }).selection.docs)
       .toEqual(['a', 'b']);
-    expect((f.tfidfs()[0]!.query as { selection?: unknown }).selection).toBeUndefined();
-    expect((f.tfidfs()[0]!.query as { request: { doc: string; level: number } }).request)
-      .toEqual(expect.objectContaining({ doc: 'a', level: 1 }));
-
     f.port.publishSnapshot('g1', 's2', ['a', 'b']);
     expect(f.inventories()).toHaveLength(2);
     expect(f.frequencies()).toHaveLength(2);
-    expect(f.tfidfs()).toHaveLength(2);
   });
 
-  it('a linked brush reissues inventory and frequency but leaves TF-IDF independent', () => {
+  it('a linked brush reissues inventory and frequency', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    const tfidfCount = f.tfidfs().length;
     f.store.getState().setLinkedSelection(rangeFor(f, 10, 20));
     expect(f.inventories()).toHaveLength(2);
     expect(f.frequencies()).toHaveLength(2);
-    expect(f.tfidfs()).toHaveLength(tfidfCount);
     for (const request of [f.inventories().at(-1)!, f.frequencies().at(-1)!]) {
       expect((request.query as {
         selection: { docs: string[]; ranges: { doc: string; tokens: { start: number; end: number } }[] };
@@ -3046,15 +2832,12 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().frequency?.state.status).toBe('pending');
   });
 
-  it('focus changes only outline and TF-IDF, and add-exact admits sensitive matching', () => {
+  it('focus changes do not reissue corpus vocabulary work, and add-exact admits sensitive matching', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const inventoryCount = f.inventories().length;
     const frequencyCount = f.frequencies().length;
-    const tfidfA = f.tfidfs().at(-1)!;
     f.store.getState().setFocusedDoc('b');
-    expect(tfidfA.cancelled).toBe(true);
-    expect(f.tfidfs()).toHaveLength(2);
     expect(f.inventories()).toHaveLength(inventoryCount);
     expect(f.frequencies()).toHaveLength(frequencyCount);
 

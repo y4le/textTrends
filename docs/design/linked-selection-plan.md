@@ -6,8 +6,8 @@
 recorded below VERBATIM. Commit sequence A–I is the implementation order;
 every commit gets a Codex review-diff. NOTE: this ruling CORRECTS the
 backlog checkpoint — slice 2 (not 3) is the first new QueryOp and triggers
-the simplification-plan F1 QueryExecutor gate plus the staged G2 fixture
-support, before either new operation lands.*
+the QueryExecutor gate plus the staged G2 fixture support, before either new
+operation lands.*
 
 **STATUS: COMPLETE (2026-07-29).** The full slice landed on
 `feature/product-slices`, with every implementation tree reviewed by Claude
@@ -49,7 +49,7 @@ Keep the F1 seam narrow:
 - A generation-bound `QueryExecutor` owns trend/KWIC/passage and then dispersion/reader execution, resolver reuse, and query-derived occurrence caches.
 - It receives a read-only published snapshot view, bound shards/text, a narrow resolver loader, and an injected async checkpoint.
 - The engine retains job ownership, active/cancelled bookkeeping, generation/snapshot validation, error mapping, transfer-list emission, and a final gate immediately before every emit.
-- Structure, structure-edit-context, line-excerpt, ingest, and user-data handling stay in the engine/handlers; do not widen this into a generic worker framework.
+- Ingest and user-data handling stay in the engine/handlers; do not widen this into a generic worker framework.
 - The occurrence cache remains generation-scoped and bounded at five entries. A selected view can evict a full-corpus entry and later recompute it; an in-flight query’s retained reference remains valid.
 
 Use a new operation named `dispersion`, with method/result discriminator `dispersion/1`, rather than a public unbounded `occurrences` op. Its implementation must consume the same `NumericOccurrences` returned by `occurrencesFor`; it must never resolve members or interpret overlap semantics independently.
@@ -125,7 +125,7 @@ When a barcode/reader occurrence outside an active range is deliberately clicked
 Ship a full-document, one-document-at-a-time, cursor-paged reader in this slice. Reject both shortcuts:
 
 - Repeated passage blocks are center windows, not stable pages; char-cap shrinkage makes naïve next/previous arithmetic overlap or skip text.
-- `line-excerpt` is a physical-line authoring aid with no token cursors, term marks, or document paging contract.
+- A raw physical-line window has no stable token cursors, term marks, or document paging contract.
 
 Add a second new operation, `reader-page/1`, after QueryExecutor and dispersion are established. A suitable request is:
 

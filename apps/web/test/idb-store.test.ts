@@ -70,42 +70,6 @@ describe('IdbArtifactStore', () => {
     store.close();
   });
 
-  it('round-trips extractions and structures with schema-bearing compound keys', async () => {
-    const store = await open();
-    const extractionKey = { schema: 'texttrends/extraction/1' as const, source: 'src', recipe: 'erec' };
-    const structureKey = {
-      schema: 'texttrends/structure/2' as const,
-      text: 'th', candidates: 'ch', recipe: 'srec', override: 'oh',
-    };
-    expect((await store.getExtraction(extractionKey)).kind).toBe('miss');
-    await store.putExtraction(extractionKey, { schema: 'texttrends/extraction/1', marker: 1 });
-    const ex = await store.getExtraction(extractionKey);
-    expect(ex.kind).toBe('hit');
-    if (ex.kind === 'hit') expect((ex.value as { marker: number }).marker).toBe(1);
-
-    expect((await store.getStructure(structureKey)).kind).toBe('miss');
-    await store.putStructure(structureKey, { schema: 'texttrends/structure/2', marker: 2 });
-    const st = await store.getStructure(structureKey);
-    expect(st.kind).toBe('hit');
-    if (st.kind === 'hit') expect((st.value as { marker: number }).marker).toBe(2);
-
-    // Every key component discriminates.
-    for (const v of [{ ...extractionKey, source: 'x' }, { ...extractionKey, recipe: 'x' }]) {
-      expect((await store.getExtraction(v)).kind).toBe('miss');
-    }
-    for (const v of [
-      { ...structureKey, text: 'x' }, { ...structureKey, candidates: 'x' },
-      { ...structureKey, recipe: 'x' }, { ...structureKey, override: 'x' },
-    ]) {
-      expect((await store.getStructure(v)).kind).toBe('miss');
-    }
-    await store.deleteExtraction(extractionKey);
-    await store.deleteStructure(structureKey);
-    expect((await store.getExtraction(extractionKey)).kind).toBe('miss');
-    expect((await store.getStructure(structureKey)).kind).toBe('miss');
-    store.close();
-  });
-
   it('persists across store instances over the same database', async () => {
     const first = await open();
     await first.putText('texthash', 'persisted');

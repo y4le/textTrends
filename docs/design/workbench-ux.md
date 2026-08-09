@@ -32,13 +32,13 @@ There are five stable places:
 
 | Place | Governing question | Contents |
 |---|---|---|
-| Corpus | What texts make up this study? | project, catalog, source repair, order, metadata, structure, project save |
-| Trends | Where do tracked terms occur? | trend plate, chapter marks, dispersion, linked range, exact totals |
+| Catalog | What texts make up this study? | local files, active order, source repair, book measurements, exact totals, project save |
+| Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
 | Concordance | What contexts contain the terms? | merged KWIC table, term membership, context, occurrence navigation |
-| Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness, TF-IDF |
+| Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
 | Compare | What distinguishes explicit A and B? | keyness controls, rankings, confidence intervals, row detail |
 
-Corpus is reached through the **Scope** organ. Trends, Concordance, Vocabulary,
+Catalog is reached through the **Scope** organ. Trends, Concordance, Vocabulary,
 and Compare form the **Lens** organ. Compact portrait bottom-docks the four Lens
 destinations; compact landscape uses a left rail. There is no hamburger or
 analytically ambiguous “More” menu.
@@ -47,7 +47,7 @@ The query string owns one presentation key:
 
 | State | Carrier | Values |
 |---|---|---|
-| Place | `?p=` | `corpus`, `trends`, `concordance`, `vocabulary`, `compare` |
+| Place | `?p=` | `catalog`, `trends`, `concordance`, `vocabulary`, `compare` |
 
 Legacy `e` parameters are discarded during route normalization. Terms, source
 text, notes, and other research data never enter the query string.
@@ -76,7 +76,7 @@ governed row details remain separate history layers.
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
-completeness. Its corpus label opens Corpus. **Method & settings** on Trends,
+completeness. Its corpus label opens Catalog. **Method & settings** on Trends,
 and **Method** elsewhere, opens the same contextual sheet.
 
 ### Terms bucket bar
@@ -110,7 +110,7 @@ The trend plate preserves these rules:
 - direct labels where space permits;
 - dispersion rows embedded at the bottom of the plot;
 - an explicit linked-range mode with handles, Cancel, and Use range; and
-- exact per-book and corpus totals beneath the plot.
+- exact graph values through the method/detail surfaces.
 
 Pointer motion and touch reading move a transient cursor. Fine-pointer hover in
 an exact barcode row snaps only within the specified pixel tolerance. Density

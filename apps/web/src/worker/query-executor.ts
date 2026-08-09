@@ -13,8 +13,8 @@
  *
  * The ENGINE retains job ownership, active/cancelled bookkeeping, generation/
  * snapshot validation, error mapping, transfer-list emission, and a final
- * gate immediately before every emit. Structure, edit-context, line-excerpt,
- * ingest, and user-data stay engine/handler concerns — this is deliberately
+ * gate immediately before every emit. Ingest and user-data stay
+ * engine/handler concerns — this is deliberately
  * not a generic worker framework.
  */
 
@@ -56,15 +56,10 @@ import {
   inventory as computeInventory,
   type InventoryRequestV1,
   type InventoryResultV1,
-  type InventorySectionInputV1,
   type InventoryDocumentInputV1,
   frequencyList as computeFrequencyList,
   type FrequencyListRequestV1,
   type FrequencyListResultV1,
-  tfidfSections as computeTfidfSections,
-  type TfidfSectionInputV1,
-  type TfidfSectionsRequestV1,
-  type TfidfSectionsResultV1,
   keyness as computeKeyness,
   type KeynessResultV1,
   type KeynessTableRequestV1,
@@ -353,7 +348,6 @@ export class QueryExecutor {
   async inventory(
     selection: ResolvedSelection,
     request: InventoryRequestV1,
-    sections: readonly InventorySectionInputV1[],
     checkpoint: QueryCheckpoint,
   ): Promise<InventoryResultV1> {
     const { snapshot } = this.published();
@@ -363,7 +357,6 @@ export class QueryExecutor {
       selection,
       inputs,
       request,
-      sections,
       checkpoint,
     );
   }
@@ -392,28 +385,6 @@ export class QueryExecutor {
     const { snapshot } = this.published();
     const inputs = await this.aggregationInputs(selection, checkpoint);
     return computeFrequencyList(snapshot, selection, inputs, request, checkpoint);
-  }
-
-  async tfidfSections(
-    request: TfidfSectionsRequestV1,
-    sections: readonly TfidfSectionInputV1[],
-    checkpoint: QueryCheckpoint,
-  ): Promise<TfidfSectionsResultV1> {
-    const { snapshot, ready } = this.published();
-    const ref = snapshot.docs.find((candidate) => candidate.doc === request.doc);
-    const resident = ready.get(request.doc);
-    if (!ref) throw new RangeError(`document '${request.doc}' is outside the snapshot`);
-    if (!resident) throw new DependencyError('shard', request.doc);
-    const result = await computeTfidfSections(
-      snapshot,
-      ref,
-      resident.shard,
-      sections,
-      request,
-      checkpoint,
-    );
-    await checkpoint();
-    return result;
   }
 
   async keyness(

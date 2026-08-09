@@ -12,11 +12,8 @@ import {
   buildResolver,
   CapError,
   composeSnapshot,
-  composeStructure,
   createDocumentIndex,
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
-  emptyOverride,
   makeReadyDocument,
   modeKey,
   OCCURRENCE_LIMITS_V1,
@@ -224,19 +221,9 @@ async function prepareOccurrenceBenchmark(dir: string): Promise<OccurrenceBenchm
   const shards = new Map<string, DocumentIndexV1>();
   const ready = new Map<string, Awaited<ReturnType<typeof makeReadyDocument>>>();
   for (let i = 0; i < files.length; i++) {
-    const textValue = texts[i] as string;
-    const shard = (await indexFile(files[i] as string, textValue)).shard;
+    const shard = (await indexFile(files[i] as string, texts[i] as string)).shard;
     shards.set(docs[i] as string, shard);
-    const candidates = 'bench-candidates';
-    const recipe = 'bench-structure-recipe';
-    const structure = composeStructure(
-      textValue,
-      [],
-      DEFAULT_STRUCTURE_RECIPE,
-      emptyOverride(shard.text, candidates, recipe),
-      { text: shard.text, candidates, recipe, override: 'bench-override' },
-    );
-    ready.set(docs[i]!, await makeReadyDocument(docs[i]! as never, shard, structure));
+    ready.set(docs[i]!, await makeReadyDocument(docs[i]! as never, shard));
   }
   const snapshot = await composeSnapshot('occurrence-benchmark' as never, docs as never, ready as never);
   const selection = await resolveSelection(snapshot, { docs: docs as never });

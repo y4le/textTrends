@@ -44,7 +44,7 @@ vi.mock('@texttrends/core', async (importOriginal) => {
 
 /** A spec-LITE builder (no expected hashes) for cold-path queries — the doc
  *  is admitted by ingest, not warm claims. */
-import { DEFAULT_STRUCTURE_RECIPE, defaultExtractionRecipes, hashExtractionRecipe, hashStructureRecipe } from '@texttrends/core';
+import { defaultExtractionRecipes, hashExtractionRecipe } from '@texttrends/core';
 import type { GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
 async function freshTxtSpec(doc: string, byteLength: number): Promise<GenerationDocSpecV4> {
   const { txt } = await defaultExtractionRecipes();
@@ -52,7 +52,6 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
     doc, language: 'en',
     source: { byteLength, format: 'txt', availability: 'external' },
     extraction: { recipe: txt, recipeHash: await hashExtractionRecipe(txt) },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: await hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE), override: { kind: 'none' } },
   };
 }
 
@@ -653,11 +652,10 @@ describe('inventory/1 through the executor and engine', () => {
     method: 'inventory/1' as const,
     rhythmBinsPerDoc: 2,
     growthPoints: 16,
-    sections: true,
     mattrWindow: 3,
   };
 
-  it('returns selected totals, structure-backed sections, and fresh transfer buffers', async () => {
+  it('returns selected totals and fresh transfer buffers', async () => {
     const h = harness();
     const a = await docSpec('a', 'one two three. four five six.');
     const b = await docSpec('b', 'missing until later');
@@ -694,9 +692,6 @@ describe('inventory/1 through the executor and engine', () => {
       selectedTokens: 4,
       fullTokens: 6,
     });
-    expect(result.data.inventory.sections).not.toBeNull();
-    expect(result.data.inventory.sections!.rows.length).toBeGreaterThan(0);
-    expect(result.data.inventory.sections!.truncated).toBe(false);
     const transferIndex = h.messages.findIndex(
       (message) => message.t === 'result' && message.job === 20,
     );
@@ -746,7 +741,7 @@ describe('inventory/1 through the executor and engine', () => {
 });
 
 
-describe('frequency and TF-IDF through the executor and engine', () => {
+describe('frequency through the executor and engine', () => {
   it('freq-list/1 shares the Slice-3 document vector with inventory', async () => {
     const h = harness();
     const a = await docSpec('a', 'x x y z');
@@ -769,7 +764,6 @@ describe('frequency and TF-IDF through the executor and engine', () => {
           method: 'inventory/1',
           rhythmBinsPerDoc: 0,
           growthPoints: 0,
-          sections: false,
           mattrWindow: 3,
         },
       },
@@ -799,38 +793,6 @@ describe('frequency and TF-IDF through the executor and engine', () => {
       ['y', 1],
     ]);
     expect(result.data.frequency.rows.every((row) => row.dp === 0 && row.dpNorm === null)).toBe(true);
-  });
-
-  it('tfidf-sections/1 labels eligible Markdown chapters without a selection field', async () => {
-    const h = harness();
-    const text = '# One\napple apple common\n\n# Two\nbanana banana common';
-    const a = await docSpec('a', text, { format: 'md' });
-    await begin(h, [a]);
-    await coldIngest(h, 'g', 'a', text, 10);
-    const snap = h.last('snapshot-published').snapshot;
-    await h.send({
-      t: 'query',
-      job: 50,
-      snapshot: snap,
-      query: {
-        op: 'tfidf-sections',
-        request: {
-          method: 'tfidf-sections/1',
-          doc: 'a',
-          level: 1,
-          minSectionTokens: 1,
-          topK: 5,
-        },
-      },
-    });
-    const result = h.last('result');
-    if (result.data.op !== 'tfidf-sections') throw new Error('expected TF-IDF');
-    expect(result.data.tfidf.eligibleSections).toBeGreaterThanOrEqual(2);
-    const labels = result.data.tfidf.sections.flatMap((section) =>
-      section.labels.map((label) => label.key));
-    expect(labels).toContain('apple');
-    expect(labels).toContain('banana');
-    expect(labels).not.toContain('common');
   });
 });
 

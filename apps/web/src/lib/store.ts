@@ -62,7 +62,6 @@ import {
   type GroupMember,
   type NumericTrend,
   type ResearchStateV1,
-  type StructureOverrideV1,
   type TermGroupSpec,
   type TextHash,
   type TrendBinsSpecV1,
@@ -108,17 +107,13 @@ import {
 } from './operation-lease.ts';
 import type {
   DispersionResultV1,
-  LineExcerptResultV1,
   QueryOpV4,
   QueryResultDataV4,
   ReaderPageResultV1,
-  StructureEditContextV1,
-  StructureQueryResultV1,
   InventoryResultV1,
   FrequencyListResultV1,
   FrequencySortFieldV1,
   FrequencyTokenClassV1,
-  TfidfSectionsResultV1,
   KeynessResultV1,
   KeynessSortFieldV1,
   WireSelectionV4,
@@ -204,8 +199,6 @@ export const DEFAULT_TREND_MEASURE: TrendMeasureV2 = Object.freeze({
 export const INVENTORY_RHYTHM_BINS = 24;
 export const INVENTORY_GROWTH_POINTS = 128;
 export const INVENTORY_MATTR_WINDOW = 500;
-export const TFIDF_SECTION_MIN_TOKENS = 50;
-export const TFIDF_TOP_K = 5;
 
 /** (generation, snapshot) identity — a query result is written only if the live
  *  snapshot still matches this. Snapshot ids are unique per publication; the
@@ -250,43 +243,6 @@ export interface KwicState {
 /** How long the axis position must settle before the concordance re-centers,
  *  so pointer motion never issues a query per frame (fake-clock tested). */
 export const KWIC_CENTER_DEBOUNCE_MS = 150;
-
-/** The focused document's chapter outline (commit 8a, read-only preview). A
- *  request/response query like KWIC — lease-guarded on (generation,snapshot,
- *  doc) — but issued INDEPENDENTLY of the term series so the outline works
- *  with an empty term input. `doc` names the request so a component never
- *  pairs rows with a different focus. A doc with no chapters resolves 'ready'
- *  with only the root row; a real query failure is 'error'. */
-export interface StructureState {
-  readonly doc: string;
-  readonly state:
-    | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly result: StructureQueryResultV1 }
-    | { readonly status: 'error'; readonly message: string };
-}
-
-/** On-demand authoring context for a doc (commit 8b): the DETECTED baseline +
- *  base identities the correction editor (8c) diffs against. Fetched when the
- *  editor opens, lease-guarded on (generation,snapshot,doc), cleared on a
- *  snapshot change. */
-export interface EditContextState {
-  readonly doc: string;
-  readonly state:
-    | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly context: StructureEditContextV1 }
-    | { readonly status: 'error'; readonly message: string };
-}
-
-/** On-demand bounded source line around a section anchor (commit 8b). Keyed by
- *  doc + anchor so a stale result for a prior anchor cannot relabel. */
-export interface LineExcerptState {
-  readonly doc: string;
-  readonly anchor: number;
-  readonly state:
-    | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly excerpt: LineExcerptResultV1 }
-    | { readonly status: 'error'; readonly message: string };
-}
 
 /** The dispersion barcode result for the CURRENT effective comparison —
  *  issued with the trend burst, same guards (slice-2 commit D). */
@@ -359,15 +315,6 @@ export interface FrequencyState {
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly result: FrequencyListResultV1 }
-    | { readonly status: 'error'; readonly message: string };
-}
-
-export interface TfidfState {
-  readonly snapshot: string;
-  readonly doc: string;
-  readonly state:
-    | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly result: TfidfSectionsResultV1 }
     | { readonly status: 'error'; readonly message: string };
 }
 
@@ -596,7 +543,6 @@ export interface SessionPort {
   removeDocument(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
-  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void;
   reorder(order: readonly string[]): void;
   save(): void;
   setPersistIntent(doc: string, intent: boolean): void;
@@ -700,8 +646,6 @@ export interface AppState {
   corpusTokenCounts: ReadonlyMap<string, number>;
   frequencyView: FrequencyViewV1;
   frequency: FrequencyState | null;
-  /** Full-document chapter labels for the focused book. */
-  tfidf: TfidfState | null;
   /** Comparison-owned, brush-independent two-side keyness research intent. */
   keynessView: KeynessViewV1;
   keynessA: KeynessTableState | null;
@@ -717,19 +661,8 @@ export interface AppState {
   /** Resident explanation for automatic geometry normalization or a corpus
    * that cannot satisfy the bounded trend protocol. */
   trendSettingsNotice: string | null;
-  /** The document whose chapter outline is previewed and whose top-level
-   *  boundaries the chart may mark. A real presentation intent (NOT the scrub
-   *  doc or focused series): defaults to the first ready doc in declared
-   *  project order and is preserved while it stays ready. */
+  /** The document currently selected by book-level views. */
   focusedDoc: string | null;
-  /** The focused doc's outline query result (independent of the term series). */
-  structure: StructureState | null;
-  /** On-demand authoring context (the correction editor's detected baseline). */
-  editContext: EditContextState | null;
-  /** On-demand bounded source line around the section anchor under inspection. */
-  lineExcerpt: LineExcerptState | null;
-  /** Opt-in: draw the focused doc's top-level chapter boundaries on the chart. */
-  sectionMarks: boolean;
   scrub: ScrubTarget | null;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
@@ -783,7 +716,6 @@ export interface AppState {
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   runInventory(): void;
   runFrequency(): void;
-  runTfidf(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
   applyFrequencyView(input: FrequencyViewInputV1): void;
   setFrequencyPage(offset: number): void;
@@ -797,7 +729,6 @@ export interface AppState {
   setKeynessDirection(side: 'a' | 'b'): void;
   setKeynessPage(side: 'a' | 'b', offset: number): void;
   setFocusedDoc(doc: string): void;
-  setSectionMarks(on: boolean): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
@@ -807,14 +738,6 @@ export interface AppState {
   runReader(): void;
   runFooterPassage(): void;
   runQueries(): void;
-  /** (Re)issue the focused doc's outline query. Called on snapshot change and
-   *  when the focused doc changes; independent of the term-series flow. */
-  runStructure(): void;
-  /** Fetch the authoring context (detected baseline) for a doc — on demand,
-   *  when the correction editor opens. */
-  requestEditContext(doc: string): void;
-  /** Fetch the bounded source line around a char anchor — on demand. */
-  requestLineExcerpt(doc: string, anchor: number, maxChars: number): void;
 
   // ── Session command wrappers (forward to the one attached session). ──
   /** Import files: create a user project from the built-in origin, or append
@@ -825,9 +748,6 @@ export interface AppState {
   removeDocument(doc: string): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
-  /** Author (`override`) or discard (`null`) a doc's chapter-structure
-   *  correction. The editor computes the declarative override from its draft. */
-  setStructureOverride(doc: string, override: StructureOverrideV1 | null): void;
   reorder(order: readonly string[]): void;
   setPersistIntent(doc: string, intent: boolean): void;
   saveProject(): void;
@@ -1008,9 +928,8 @@ function researchStateFromApp(
       .map((group) => group.id),
     views: {
       trend: {
-        schema: 'texttrends/trend-view/2',
+        schema: 'texttrends/trend-view/3',
         mode: state.trendView,
-        sectionMarks: state.sectionMarks,
         focusedDoc: state.focusedDoc,
         bins: state.trendBins,
         measure: state.trendMeasure,
@@ -1137,9 +1056,6 @@ export function createAppRuntime(
   const scope = new OperationScope();
   const trendLane = new QueryLane(scope);
   const kwicLane = new QueryLane(scope);
-  // Outline query intent — a separate lane from the term series so the preview
-  // survives an empty term input and a focus change reissues only it.
-  const structureLane = new QueryLane(scope);
   // The barcode's dispersion intent — reissued with the trend burst.
   const dispersionLane = new QueryLane(scope);
   // Selected-range overlay lanes — separate latest-wins ownership so a brush
@@ -1149,17 +1065,12 @@ export function createAppRuntime(
   // Vocabulary-wide analytics are independent of notebook query lanes.
   const inventoryLane = new QueryLane(scope);
   const frequencyLane = new QueryLane(scope);
-  const tfidfLane = new QueryLane(scope);
   // Each visible keyness table and comparison-header inventory owns its lane:
   // paging A cannot supersede B, and neither depends on the global brush.
   const keynessALane = new QueryLane(scope);
   const keynessBLane = new QueryLane(scope);
   const keynessInventoryALane = new QueryLane(scope);
   const keynessInventoryBLane = new QueryLane(scope);
-  // On-demand authoring intents (edit-context + line-excerpt), each its own
-  // lane; superseded on a snapshot change.
-  const editContextLane = new QueryLane(scope);
-  const lineExcerptLane = new QueryLane(scope);
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
   const readerLane = new QueryLane(scope);
@@ -1478,7 +1389,6 @@ export function createAppRuntime(
             method: 'inventory/1',
             rhythmBinsPerDoc: 0,
             growthPoints: 0,
-            sections: false,
             mattrWindow: INVENTORY_MATTR_WINDOW,
           },
         },
@@ -2209,7 +2119,6 @@ export function createAppRuntime(
         page: { offset: 0, limit: 100 },
       },
       frequency: null,
-      tfidf: null,
       keynessView: DEFAULT_KEYNESS_VIEW,
       keynessA: null,
       keynessB: null,
@@ -2220,10 +2129,6 @@ export function createAppRuntime(
       trendMeasure: DEFAULT_TREND_MEASURE,
       trendSettingsNotice: null,
       focusedDoc: null,
-      structure: null,
-      editContext: null,
-      lineExcerpt: null,
-      sectionMarks: false,
       scrub: null,
       footerPassage: null,
       readerPlace: null,
@@ -2451,9 +2356,8 @@ export function createAppRuntime(
         let admitted;
         try {
           admitted = parseTrendResearchView({
-            schema: 'texttrends/trend-view/2',
+            schema: 'texttrends/trend-view/3',
             mode: state.trendView,
-            sectionMarks: state.sectionMarks,
             focusedDoc: state.focusedDoc,
             bins: input.bins,
             measure: input.measure,
@@ -2488,12 +2392,6 @@ export function createAppRuntime(
         if (get().focusedDoc === doc) return;
         if (!get().snapshot?.readyDocs.includes(doc)) return; // only a ready doc
         set({ focusedDoc: doc });
-        get().runStructure(); // outline intent only — trend lines are unaffected
-        get().runTfidf(); // full-document chapter labels, independent of brush/notebook
-      },
-
-      setSectionMarks(on) {
-        set({ sectionMarks: on }); // presentation-only
       },
 
       setScrub(target) {
@@ -2862,7 +2760,6 @@ export function createAppRuntime(
               method: 'inventory/1',
               rhythmBinsPerDoc: INVENTORY_RHYTHM_BINS,
               growthPoints: INVENTORY_GROWTH_POINTS,
-              sections: true,
               mattrWindow: INVENTORY_MATTR_WINDOW,
             },
           },
@@ -2973,60 +2870,6 @@ export function createAppRuntime(
               snapshot: snapshot.snapshot,
               selection: issuedSelection,
               view: issuedView,
-              state: { status: 'error', message },
-            },
-          }),
-        );
-      },
-
-      runTfidf() {
-        tfidfLane.supersede();
-        const { snapshot, focusedDoc } = get();
-        if (!snapshot || !focusedDoc || !snapshot.readyDocs.includes(focusedDoc)) {
-          set({ tfidf: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedDoc = focusedDoc;
-        const lease = tfidfLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().focusedDoc === issuedDoc,
-        );
-        set({
-          tfidf: {
-            snapshot: snapshot.snapshot,
-            doc: issuedDoc,
-            state: { status: 'pending' },
-          },
-        });
-        issueOn(
-          tfidfLane,
-          snapshot.snapshot,
-          {
-            op: 'tfidf-sections',
-            request: {
-              method: 'tfidf-sections/1',
-              doc: issuedDoc,
-              level: 1,
-              minSectionTokens: TFIDF_SECTION_MIN_TOKENS,
-              topK: TFIDF_TOP_K,
-            },
-          },
-          lease,
-          (data) => {
-            if (data.op !== 'tfidf-sections') return;
-            set({
-              tfidf: {
-                snapshot: snapshot.snapshot,
-                doc: issuedDoc,
-                state: { status: 'ready', result: data.tfidf },
-              },
-            });
-          },
-          (message) => set({
-            tfidf: {
-              snapshot: snapshot.snapshot,
-              doc: issuedDoc,
               state: { status: 'error', message },
             },
           }),
@@ -3414,78 +3257,6 @@ export function createAppRuntime(
         if (state.concordanceView.sort === 'proximity' || queryIntentChanged) runKwic();
       },
 
-      runStructure() {
-        structureLane.supersede();
-        const { snapshot, focusedDoc } = get();
-        if (!snapshot || !focusedDoc || !snapshot.readyDocs.includes(focusedDoc)) {
-          set({ structure: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const issuedDoc = focusedDoc;
-        // (generation, snapshot, doc): a slow result for a superseded focus or
-        // snapshot must never relabel the current outline.
-        const lease = structureLane.ops.begin(
-          () => snapKey(get().snapshot) === issuedKey,
-          () => get().focusedDoc === issuedDoc,
-        );
-        set({ structure: { doc: focusedDoc, state: { status: 'pending' } } });
-        issueOn(
-          structureLane,
-          snapshot.snapshot,
-          { op: 'structure', request: { doc: focusedDoc } },
-          lease,
-          (data) => {
-            if (data.op === 'structure') set({ structure: { doc: issuedDoc, state: { status: 'ready', result: data.structure } } });
-          },
-          (message) => set({ structure: { doc: issuedDoc, state: { status: 'error', message } } }),
-        );
-      },
-
-      requestEditContext(doc) {
-        editContextLane.supersede();
-        const { snapshot } = get();
-        if (!snapshot || !snapshot.readyDocs.includes(doc)) {
-          set({ editContext: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const lease = editContextLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
-        set({ editContext: { doc, state: { status: 'pending' } } });
-        issueOn(
-          editContextLane,
-          snapshot.snapshot,
-          { op: 'structure-edit-context', request: { doc } },
-          lease,
-          (data) => {
-            if (data.op === 'structure-edit-context') set({ editContext: { doc, state: { status: 'ready', context: data.context } } });
-          },
-          (message) => set({ editContext: { doc, state: { status: 'error', message } } }),
-        );
-      },
-
-      requestLineExcerpt(doc, anchor, maxChars) {
-        lineExcerptLane.supersede();
-        const { snapshot } = get();
-        if (!snapshot || !snapshot.readyDocs.includes(doc)) {
-          set({ lineExcerpt: null });
-          return;
-        }
-        const issuedKey = snapKey(snapshot);
-        const lease = lineExcerptLane.ops.begin(() => snapKey(get().snapshot) === issuedKey);
-        set({ lineExcerpt: { doc, anchor, state: { status: 'pending' } } });
-        issueOn(
-          lineExcerptLane,
-          snapshot.snapshot,
-          { op: 'line-excerpt', request: { doc, anchor, maxChars } },
-          lease,
-          (data) => {
-            if (data.op === 'line-excerpt') set({ lineExcerpt: { doc, anchor, state: { status: 'ready', excerpt: data.excerpt } } });
-          },
-          (message) => set({ lineExcerpt: { doc, anchor, state: { status: 'error', message } } }),
-        );
-      },
-
       // ── Session command wrappers ──────────────────────────────────────────
       openBuiltinCorpus(id) {
         const current = get().projectSession?.project;
@@ -3519,9 +3290,6 @@ export function createAppRuntime(
       },
       setLanguage(doc, language) {
         command((s) => s.setLanguage(doc, language));
-      },
-      setStructureOverride(doc, override) {
-        command((s) => s.setStructureOverride(doc, override));
       },
       reorder(order) {
         command((s) => s.reorder(order));
@@ -3591,7 +3359,6 @@ export function createAppRuntime(
             : restoredTrendBinsChanged
               ? trendGeometryNotice(research.views.trend.bins, restoredTrendBins)
               : null,
-          sectionMarks: research.views.trend.sectionMarks,
           focusedDoc: research.views.trend.focusedDoc,
           frequencyView: {
             schema: 'texttrends/frequency-view/1',
@@ -3887,7 +3654,7 @@ export function createAppRuntime(
     // Resolve the focused doc against the incoming snapshot: keep the current
     // one while it stays ready, else the first ready doc in declared order.
     // Snapshot ids are unique per publication, so an unchanged key means the
-    // ready set (and thus the focus) is stable — the outline never churns on an
+    // ready set (and thus the focus) is stable — the detail view never churns on an
     // unrelated (sources/save) publication.
     const focusedDoc = resolveFocusedDoc(store.getState().focusedDoc, next);
     const keynessView = reconcileKeynessView(
@@ -3916,10 +3683,6 @@ export function createAppRuntime(
       loadResearchForProject(next.project.id);
     }
     if (prevKey !== nextKey) {
-      // The on-demand authoring intents are bound to the old snapshot's
-      // artifacts — cancel and clear them before the outline reissues.
-      editContextLane.supersede();
-      lineExcerptLane.supersede();
       readerLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
@@ -3927,15 +3690,6 @@ export function createAppRuntime(
       if (footerPassageTimer !== null) {
         clearTimeout(footerPassageTimer);
         footerPassageTimer = null;
-      }
-      if (
-        store.getState().editContext !== null ||
-        store.getState().lineExcerpt !== null
-      ) {
-        store.setState({
-          editContext: null,
-          lineExcerpt: null,
-        });
       }
       const live = store.getState();
       const readerLive =
@@ -3963,10 +3717,8 @@ export function createAppRuntime(
         });
       }
       store.getState().runQueries();
-      store.getState().runStructure();
       store.getState().runInventory();
       store.getState().runFrequency();
-      store.getState().runTfidf();
       store.getState().runKeyness();
     }
   };
@@ -4006,19 +3758,15 @@ export function createAppRuntime(
       scope.close();
       trendLane.supersede();
       kwicLane.supersede();
-      structureLane.supersede();
       dispersionLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
       inventoryLane.supersede();
       frequencyLane.supersede();
-      tfidfLane.supersede();
       keynessALane.supersede();
       keynessBLane.supersede();
       keynessInventoryALane.supersede();
       keynessInventoryBLane.supersede();
-      editContextLane.supersede();
-      lineExcerptLane.supersede();
       readerLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;

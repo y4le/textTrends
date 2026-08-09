@@ -24,18 +24,17 @@ describe('extractSource — the one extraction runtime', () => {
     expect(phases).toEqual(['decode', 'extract']); // literal emits both phases
   });
 
-  it('runs the transformed HTML path (extract only) and derives heading candidates', async () => {
+  it('runs the transformed HTML path (extract only)', async () => {
     const phases: string[] = [];
     const { text, artifact } = await extractSource(
-      utf8('<html><body><h1>Chapter One</h1><p>The body text.</p></body></html>'),
+      utf8('<html><body><h1>Field Notes</h1><p>The body text.</p></body></html>'),
       recipes.html,
       LIMITS,
       { onPhaseStart: (p) => phases.push(p) },
     );
-    expect(text).toContain('Chapter One');
+    expect(text).toContain('Field Notes');
     expect(text).toContain('The body text.');
     expect(artifact.descriptor.kind).toBe('markup');
-    expect(artifact.candidates.some((c) => c.title === 'Chapter One')).toBe(true);
     expect(phases).toEqual(['extract']); // transformed has no decode phase
   });
 
@@ -138,12 +137,9 @@ describe('extractSource — the one extraction runtime', () => {
   it('rejects HTML the moment the exact accumulated output crosses the cap at a segment JOIN (boundary pinned both ways)', async () => {
     // Two segments: 'aaaa' (4) + blank-line join (2) + heading segment 'bb' (2) = 8.
     const source = utf8('<p>aaaa</p><h1>bb</h1>');
-    // Exactly at the cap: accepted, byte-identical text + candidate range.
+    // Exactly at the cap: accepted with byte-identical text.
     const at = await extractSource(source, recipes.html, capped(8));
     expect(at.text).toBe('aaaa\n\nbb');
-    expect(at.artifact.candidates).toEqual([
-      { kind: 'html-heading', level: 1, title: 'bb', chars: { start: 6, end: 8 } },
-    ]);
     // One below: the SECOND flush (join + segment) crosses 7 → CAP_EXCEEDED,
     // thrown from the adapter's during-walk accounting (its message template),
     // not the runtime's outer defensive check.
@@ -162,17 +158,13 @@ describe('extractSource — the one extraction runtime', () => {
     expect((err as Error).message).toMatch(/^html extracted text of /);
   });
 
-  it('emits byte-identical text and exact candidate ranges for a below-cap HTML document with headings', async () => {
-    const { text, artifact } = await extractSource(
+  it('emits byte-identical text for a below-cap HTML document with headings', async () => {
+    const { text } = await extractSource(
       utf8('<html><body><h1>One</h1><p>alpha</p><h2>Two</h2><p>beta</p></body></html>'),
       recipes.html,
       LIMITS,
     );
     expect(text).toBe('One\n\nalpha\n\nTwo\n\nbeta');
-    expect(artifact.candidates).toEqual([
-      { kind: 'html-heading', level: 1, title: 'One', chars: { start: 0, end: 10 } },
-      { kind: 'html-heading', level: 2, title: 'Two', chars: { start: 12, end: 21 } },
-    ]);
   });
 
   it('reaches the transformed gate ONLY after adapter success — an adapter DECODE failure short-circuits before it', async () => {

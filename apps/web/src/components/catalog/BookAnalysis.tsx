@@ -22,12 +22,12 @@ import {
   type CatalogTotalValue,
 } from '../../lib/catalog-totals.ts';
 import { fullTokensByDoc } from '../../lib/doc-tokens.ts';
-import { StructurePanel } from '../StructurePanel.tsx';
 import { SMALL_BUTTON_STYLE } from '../chrome.tsx';
 import { usePresentation } from '../PresentationProvider.tsx';
 import { BookDetail } from '../corpus/BookDetail.tsx';
 import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
 import { RhythmMark } from '../corpus/RhythmMark.tsx';
+import { SourceDetails } from './SourceDetails.tsx';
 
 const number = new Intl.NumberFormat('en-US');
 
@@ -381,7 +381,7 @@ export function BookAnalysis() {
           );
         })()}
       </section>
-      {bookTarget === null && <StructurePanel headingAs="h3" />}
+      {bookTarget === null && <SourceDetails headingAs="h3" />}
     </>
   );
 }

@@ -19,6 +19,18 @@ import {
 } from '../contract/recipes.ts';
 import { resolveLocale, type SegmentationBatch, type SegmenterFingerprint } from '../segment/intl.ts';
 
+/** First index i in [0, n) whose value is at least the target. */
+export function lowerBound(values: Uint32Array, target: number): number {
+  let lo = 0;
+  let hi = values.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >>> 1;
+    if (values[mid]! < target) lo = mid + 1;
+    else hi = mid;
+  }
+  return lo;
+}
+
 export interface DocumentIndexV1 {
   readonly schema: 'texttrends/document-index/1';
   /** Identity of the extracted text this index describes. */

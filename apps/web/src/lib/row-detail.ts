@@ -3,7 +3,6 @@ import type { Layer } from './layers.ts';
 export type RowDetailSurface =
   | 'query-editor'
   | 'book-sheet'
-  | 'structure-editor'
   | 'vocab-filter'
   | 'vocab-row'
   | 'compare-settings'
@@ -18,7 +17,6 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
   switch (surface) {
     case 'query-editor':
     case 'book-sheet':
-    case 'structure-editor':
     case 'vocab-filter':
     case 'vocab-row':
     case 'compare-settings':
@@ -38,16 +36,11 @@ export function renderedRowDetailLayer(
   return layers.findLast((layer) => layer.kind === 'row-detail');
 }
 
-/**
- * Lateral details replace the active history depth. The sole meaningful nest
- * is a structure editor opened from its book detail, so Back returns to that
- * book before returning to the inventory.
- */
+/** Lateral details replace the active history depth. */
 export function rowDetailWrite(
   topSurface: RowDetailSurface | null,
   nextSurface: RowDetailSurface,
 ): RowDetailWrite {
   if (topSurface === null) return 'push';
-  if (topSurface === 'book-sheet' && nextSurface === 'structure-editor') return 'push';
   return 'replace';
 }

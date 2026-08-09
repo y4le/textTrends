@@ -126,5 +126,5 @@ ruling (Parley request `req_consult_a2002d56c2327772`, session
 6. Place Poisson bursts after Slice 4 rather than inside the corpus dashboard
    or keyness slice.
 
-The surviving implementation contracts are
-`docs/design/corpus-dashboard-plan.md` and `docs/design/keyness-plan.md`.
+The surviving comparison contract is `docs/design/keyness-plan.md`; current
+inventory and frequency behavior is defined by the executable core contracts.

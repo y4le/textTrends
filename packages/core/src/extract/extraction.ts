@@ -1,6 +1,5 @@
 /**
- * Extraction — contract §12.1/§12.4. Bytes → extracted text + structure
- * candidates + evidence, under a versioned provisional recipe whose hash
+ * Extraction — bytes → extracted text + evidence, under a versioned provisional recipe whose hash
  * keys the extraction artifact: ['extraction', schema, SourceHash,
  * ExtractionRecipeHash]. Deliberately platform-neutral (TextDecoder + Web
  * Crypto only), like the rest of core.
@@ -22,18 +21,10 @@ import {
   type DecodedSource,
   type DetectedEncoding,
 } from './decode.ts';
-import {
-  assertValidCandidates,
-  hashStructureCandidates,
-  type StructureCandidateV1,
-} from './candidates.ts';
-import { scanMarkdownHeadings } from './markdown.ts';
 // The format catalog (formats.ts) is the single authority for SourceFormat, the
-// kind↔format pairing, and candidate-reconstruction semantics; SourceFormat and
-// CandidateReconstruction are re-exported here so existing importers of the
-// extraction module keep working.
-import { isLiteralFormat, isSourceFormat, SOURCE_FORMATS, type CandidateReconstruction, type SourceFormat } from './formats.ts';
-export type { CandidateReconstruction, SourceFormat };
+// kind↔format pairing, and extraction mode.
+import { isLiteralFormat, isSourceFormat, SOURCE_FORMATS, type SourceFormat } from './formats.ts';
+export type { SourceFormat };
 
 /** Which reading-order partitions an EPUB extraction includes in its text. */
 export type EbookPartition = 'frontmatter' | 'bodymatter' | 'backmatter' | 'unknown';
@@ -52,22 +43,21 @@ interface DecoderPolicyV0 {
  * in the recipe IDENTITY, so an algorithm change that alters output can only run
  * under a NEW recipe hash (a warm re-extract that no longer reproduces the
  * manifest's TextHash is an EXTRACTION_MISMATCH, never a silent rewrite). `id`
- * versions the extractor, `serializer` the DOM→text walk, `sectioning` the
- * spine→candidate mapping; `partitions` selects the included reading order.
+ * versions the extractor, `serializer` the DOM→text walk, and `partitions`
+ * selects the included reading order.
  */
 export interface EpubExtractorPolicyV0 {
   readonly id: 'standard-ebooks-epub-v1';
   readonly partitions: readonly EbookPartition[];
   readonly serializer: 'xhtml-block-collapse-v1';
-  readonly sectioning: 'spine-order-v1';
 }
 
 /**
  * The HTML extractor policy. `decoder` pins how the source bytes become an HTML
  * string (BOM → strict UTF-8 → total windows-1252 — the shared literal decoder,
  * NOT a `<meta charset>` sniff, which is a documented future refinement);
- * `parser` pins the HTML5 tree builder; `serializer` the DOM→text walk;
- * `sectioning` the heading→candidate mapping. All in the recipe identity so an
+ * `parser` pins the HTML5 tree builder and `serializer` the DOM→text walk. All
+ * are in the recipe identity so an
  * output-changing upgrade forces a new hash.
  */
 export interface HtmlExtractorPolicyV0 {
@@ -75,15 +65,13 @@ export interface HtmlExtractorPolicyV0 {
   readonly decoder: DecoderPolicyV0;
   readonly parser: 'parse5-v7';
   readonly serializer: 'html-block-collapse-v1';
-  readonly sectioning: 'heading-order-v1';
 }
 
 /**
  * FORMAT-DISCRIMINATED (review finding): a well-typed recipe cannot pair a
  * format with a foreign parser — the recipe must describe exactly the operation
- * the extractor performs. Literal formats carry a byte `decoder`; a container
- * format (`epub`) carries an `extractor` policy instead, and its candidates are
- * `source`-reconstructed (the container, not the text, holds the structure).
+ * the extractor performs. Literal formats carry a byte `decoder`; transformed
+ * formats carry an `extractor` policy instead.
  */
 export type ExtractionRecipeProvisional =
   | {
@@ -91,32 +79,26 @@ export type ExtractionRecipeProvisional =
       readonly format: 'txt';
       readonly decoder: DecoderPolicyV0;
       readonly parser: { readonly id: 'txt-literal-v1' };
-      readonly candidateReconstruction: 'text';
     }
   | {
       readonly schema: 'texttrends/extraction-recipe/0-provisional';
       readonly format: 'md';
       readonly decoder: DecoderPolicyV0;
-      /** The honestly-named literal mode — the indexed text IS the raw
-       *  markdown; headings become structure candidates (spike decision). */
+      /** The indexed text is the raw markdown. */
       readonly parser: {
-        readonly id: 'markdown-literal-with-heading-scan-v0';
+        readonly id: 'markdown-literal-v1';
         readonly textPolicy: 'preserve-source-markdown';
-        readonly headingScanner: 'markdown-heading-scan-v1';
       };
-      readonly candidateReconstruction: 'text';
     }
   | {
       readonly schema: 'texttrends/extraction-recipe/0-provisional';
       readonly format: 'epub';
       readonly extractor: EpubExtractorPolicyV0;
-      readonly candidateReconstruction: 'source';
     }
   | {
       readonly schema: 'texttrends/extraction-recipe/0-provisional';
       readonly format: 'html';
       readonly extractor: HtmlExtractorPolicyV0;
-      readonly candidateReconstruction: 'source';
     };
 
 /** IDENTITY-TIER record guard: PLAIN records only — a class instance or
@@ -204,19 +186,12 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
   if (!isSourceFormat(recipe.format)) {
     throw new RangeError(`unknown source format '${String(recipe.format)}'`);
   }
-  // The redundant-but-hashed discriminant must match the CATALOG's fact for the
-  // format — stated once here, never per format arm.
-  if (recipe.candidateReconstruction !== SOURCE_FORMATS[recipe.format].candidateReconstruction) {
-    throw new RangeError(
-      `format '${recipe.format}' must declare candidateReconstruction '${SOURCE_FORMATS[recipe.format].candidateReconstruction}'`,
-    );
-  }
   // Container and literal formats carry DIFFERENT key sets — the exact-key
   // guard is applied per format so an extra field can never be hashed into a
   // second identity for the same behavior.
   let owned: ExtractionRecipeProvisional;
   if (recipe.format === 'txt' || recipe.format === 'md') {
-    requireExactKeys(recipe, ['schema', 'format', 'decoder', 'parser', 'candidateReconstruction'], 'extraction recipe');
+    requireExactKeys(recipe, ['schema', 'format', 'decoder', 'parser'], 'extraction recipe');
     const decoder = snapshotDecoderPolicy(recipe.decoder);
     const p = recipe.parser;
     if (!isStrictPlainRecord(p)) throw new RangeError('parser must be an object');
@@ -228,14 +203,12 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
         format: 'txt',
         decoder,
         parser: { id: 'txt-literal-v1' },
-        candidateReconstruction: 'text',
       };
     } else {
-      requireExactKeys(p, ['id', 'textPolicy', 'headingScanner'], 'md parser');
+      requireExactKeys(p, ['id', 'textPolicy'], 'md parser');
       if (
-        p.id !== 'markdown-literal-with-heading-scan-v0' ||
-        p.textPolicy !== 'preserve-source-markdown' ||
-        p.headingScanner !== 'markdown-heading-scan-v1'
+        p.id !== 'markdown-literal-v1' ||
+        p.textPolicy !== 'preserve-source-markdown'
       ) {
         throw new RangeError('format/parser combination is not a supported extraction');
       }
@@ -244,19 +217,17 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
         format: 'md',
         decoder,
         parser: {
-          id: 'markdown-literal-with-heading-scan-v0',
+          id: 'markdown-literal-v1',
           textPolicy: 'preserve-source-markdown',
-          headingScanner: 'markdown-heading-scan-v1',
         },
-        candidateReconstruction: 'text',
       };
     }
   } else if (recipe.format === 'epub') {
-    requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
+    requireExactKeys(recipe, ['schema', 'format', 'extractor'], 'extraction recipe');
     const e = recipe.extractor;
     if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
-    requireExactKeys(e, ['id', 'partitions', 'serializer', 'sectioning'], 'epub extractor');
-    if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1' || e.sectioning !== 'spine-order-v1') {
+    requireExactKeys(e, ['id', 'partitions', 'serializer'], 'epub extractor');
+    if (e.id !== 'standard-ebooks-epub-v1' || e.serializer !== 'xhtml-block-collapse-v1') {
       throw new RangeError('unsupported epub extractor policy');
     }
     if (!Array.isArray(e.partitions)) {
@@ -277,19 +248,17 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
         id: 'standard-ebooks-epub-v1',
         partitions: partitions as EbookPartition[],
         serializer: 'xhtml-block-collapse-v1',
-        sectioning: 'spine-order-v1',
       },
-      candidateReconstruction: 'source',
     };
   } else {
     // recipe.format === 'html' — the closed catalog admits nothing else.
-    requireExactKeys(recipe, ['schema', 'format', 'extractor', 'candidateReconstruction'], 'extraction recipe');
+    requireExactKeys(recipe, ['schema', 'format', 'extractor'], 'extraction recipe');
     const e = recipe.extractor;
     if (!isStrictPlainRecord(e)) throw new RangeError('extractor policy must be an object');
-    requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer', 'sectioning'], 'html extractor');
+    requireExactKeys(e, ['id', 'decoder', 'parser', 'serializer'], 'html extractor');
     if (
       e.id !== 'html5-inert-v1' || e.parser !== 'parse5-v7' ||
-      e.serializer !== 'html-block-collapse-v1' || e.sectioning !== 'heading-order-v1'
+      e.serializer !== 'html-block-collapse-v1'
     ) {
       throw new RangeError('unsupported html extractor policy');
     }
@@ -301,9 +270,7 @@ function snapshotExtractionRecipe(recipe: unknown): ExtractionRecipeProvisional 
         decoder: snapshotDecoderPolicy(e.decoder),
         parser: 'parse5-v7',
         serializer: 'html-block-collapse-v1',
-        sectioning: 'heading-order-v1',
       },
-      candidateReconstruction: 'source',
     };
   }
   deepFreezeOwned(owned);
@@ -462,18 +429,15 @@ export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
         format: 'txt',
         decoder,
         parser: { id: 'txt-literal-v1' },
-        candidateReconstruction: 'text',
       })) as ExtractionRecipeFor<'txt'>,
       md: (await validatedExtractionRecipe({
         schema: 'texttrends/extraction-recipe/0-provisional',
         format: 'md',
         decoder,
         parser: {
-          id: 'markdown-literal-with-heading-scan-v0',
+          id: 'markdown-literal-v1',
           textPolicy: 'preserve-source-markdown',
-          headingScanner: 'markdown-heading-scan-v1',
         },
-        candidateReconstruction: 'text',
       })) as ExtractionRecipeFor<'md'>,
       epub: epubExtractionRecipe(['bodymatter']) as ExtractionRecipeFor<'epub'>,
       html: (await validatedExtractionRecipe({
@@ -484,9 +448,7 @@ export function defaultExtractionRecipes(): Promise<DefaultExtractionRecipes> {
           decoder,
           parser: 'parse5-v7',
           serializer: 'html-block-collapse-v1',
-          sectioning: 'heading-order-v1',
         },
-        candidateReconstruction: 'source',
       })) as ExtractionRecipeFor<'html'>,
     });
   })().catch((e: unknown) => {
@@ -518,9 +480,7 @@ export function epubExtractionRecipe(
       // recipe identity.
       partitions: canonicalPartitions(partitions),
       serializer: 'xhtml-block-collapse-v1',
-      sectioning: 'spine-order-v1',
     },
-    candidateReconstruction: 'source',
   });
   // The epub arm has no byte decoder, hence no async table proof — the
   // synchronous snapshot IS the complete validation, so the minted object
@@ -565,8 +525,7 @@ export interface ContainerSourceDescriptorV1 {
 }
 
 /** A single markup document (html) — one decoded source encoding (like a text
- *  source), but the indexed text is EXTRACTED from the parsed tree, so its
- *  candidates are source-reconstructed. */
+ *  source), but the indexed text is extracted from the parsed tree. */
 export interface MarkupSourceDescriptorV1 {
   readonly kind: 'markup';
   readonly hash: string; // SourceHash of the exact bytes
@@ -603,8 +562,6 @@ export interface ExtractionArtifactV1 {
   readonly text: string;    // TextHash of the extracted text
   readonly textLengthUtf16: number;
   readonly descriptor: SourceDescriptorV1;
-  readonly candidates: readonly StructureCandidateV1[];
-  readonly candidateHash: string; // StructureCandidateHash
   readonly evidence: ExtractionEvidence;
 }
 
@@ -618,49 +575,11 @@ export interface ExtractedDocument {
   readonly verified: VerifiedText;
 }
 
-export interface CandidateBundle {
-  readonly candidates: readonly StructureCandidateV1[];
-  readonly candidateHash: string;
-}
-
-/**
- * Candidate derivation as a DETERMINISTIC function of verified text + recipe
- * — the shared core capability (engine-v4 consult §B). Cold extraction calls
- * it after decoding; warm reopen calls it to reconstruct candidates from
- * verified text without a source fetch. Because it is pure, the two paths
- * cannot drift. A FUTURE parser whose candidates depend on source bytes or a
- * transformed representation must NOT be routed here — its warm path must
- * require a valid extraction artifact instead.
- */
-export async function deriveCandidatesFromText(
-  text: string,
-  recipe: ExtractionRecipeProvisional,
-): Promise<CandidateBundle> {
-  // Carry the RETURNED canonical snapshot — never the caller's mutable input
-  // (an already-canonical recipe is an O(1) identity hit).
-  const canonical = await validatedExtractionRecipe(recipe);
-  // A source-dependent recipe (an EPUB's container structure) has NO text-only
-  // reconstruction — refuse rather than return an empty bundle that would
-  // silently erase real structure on a warm reopen (planner ruling §1).
-  if (canonical.candidateReconstruction !== 'text') {
-    throw new RangeError(
-      `recipe for format '${canonical.format}' declares source-dependent candidates; they cannot be reconstructed from text`,
-    );
-  }
-  const candidates =
-    canonical.format === 'md' && canonical.parser.id === 'markdown-literal-with-heading-scan-v0'
-      ? scanMarkdownHeadings(text)
-      : [];
-  return { candidates, candidateHash: await hashStructureCandidates(candidates) };
-}
-
 /**
  * The DECODE phase alone (engine-v4 consult §6): pure byte→text under the
  * recipe's decoder policy, well-formedness gated, carrying the SourceHash and
  * byte length the finalize phase needs. Split out so a worker can emit a
- * `decode` progress event immediately before this work and an `extract` event
- * immediately before candidate derivation — a phase is honest only when it
- * precedes exactly the work it names. Throws DecodeError for malformed
+ * `decode` progress event immediately before this work. Throws DecodeError for malformed
  * BOM-declared Unicode or lone-surrogate UTF-16 (the caller maps DECODE_FAILED).
  */
 export interface DecodedDocument {
@@ -688,7 +607,7 @@ export async function decodeDocumentSource(
  * A document prepared for the ONE canonical artifact builder. Either the
  * `literal` decode of source bytes (txt/md — the indexed text IS the decoded
  * source), or the `transformed` output of a container extractor (epub) that has
- * already produced the final text, its container-derived candidates, and the
+ * already produced the final text and the
  * source provenance. Core validates and hashes BOTH into the same
  * ExtractionArtifactV1 — a worker never hand-assembles an artifact and never
  * masquerades transformed output as a `DecodedDocument` (planner ruling §1).
@@ -699,7 +618,6 @@ export type PreparedExtraction =
       readonly kind: 'transformed';
       readonly source: SourceDescriptorV1;
       readonly text: string;
-      readonly candidates: readonly StructureCandidateV1[];
       readonly evidence: ExtractionEvidence;
     };
 
@@ -750,7 +668,7 @@ export function isValidExtractionEvidence(ev: unknown): ev is ExtractionEvidence
 }
 
 /** The single artifact assembler both prepared kinds route through — the one
- *  place source/text/candidate/recipe identities are hashed together. This is
+ *  place source/text/recipe identities are hashed together. This is
  *  where the ONE text digest of a cold ingest happens: the VerifiedText
  *  capability is minted here and carried on the returned document so the
  *  downstream verified lanes (segment/index/bind) never re-digest. */
@@ -759,8 +677,6 @@ async function assembleArtifact(
   sourceHash: string,
   text: string,
   descriptor: SourceDescriptorV1,
-  candidates: readonly StructureCandidateV1[],
-  candidateHash: string,
   evidence: ExtractionEvidence,
 ): Promise<ExtractedDocument> {
   const verified = await verifyText(text);
@@ -771,8 +687,6 @@ async function assembleArtifact(
     text: verifiedHashOf(verified),
     textLengthUtf16: text.length,
     descriptor,
-    candidates,
-    candidateHash,
     evidence,
   };
   return { artifact, text, verified };
@@ -780,19 +694,17 @@ async function assembleArtifact(
 
 /**
  * The EXTRACT phase: assemble the ExtractionArtifactV1 from a prepared document.
- * For `literal`, candidates come from the SAME deriveCandidatesFromText a warm
- * reopen uses, so cold and warm cannot drift. For `transformed`, core does NOT
- * trust the adapter: it re-validates the recipe, requires a source-reconstructed
- * recipe, deeply validates the descriptor/evidence/candidates against the same
+ * For `transformed`, core does not trust the adapter: it re-validates the recipe
+ * and deeply validates the descriptor/evidence against the same
  * ABI admission enforces, re-checks well-formed UTF-16, and hashes everything
- * itself. Every successful result therefore passes `validateExtractionArtifact`.
+ * itself under the same descriptor and evidence rules exposed above.
  */
 export async function finalizeExtraction(
   prepared: PreparedExtraction,
   recipe: ExtractionRecipeProvisional,
 ): Promise<ExtractedDocument> {
-  // ONE canonicalization up front; every later step (candidate derivation,
-  // descriptor checks, hashing) reads the RETURNED frozen snapshot, so a
+  // ONE canonicalization up front; every later step (descriptor checks,
+  // hashing) reads the RETURNED frozen snapshot, so a
   // caller mutating its recipe mid-flight cannot skew the artifact identity.
   const canonical = await validatedExtractionRecipe(recipe);
   if (prepared.kind === 'literal') {
@@ -800,7 +712,6 @@ export async function finalizeExtraction(
       throw new RangeError(`${canonical.format} cannot use the literal extract path`);
     }
     const { decoded, source, byteLength } = prepared.decoded;
-    const { candidates, candidateHash } = await deriveCandidatesFromText(decoded.text, canonical);
     const descriptor: SourceDescriptorV1 = {
       kind: 'text',
       hash: source,
@@ -811,15 +722,12 @@ export async function finalizeExtraction(
         hadReplacementChars: decoded.decoderReplacementCount > 0,
       },
     };
-    return assembleArtifact(canonical, source, decoded.text, descriptor, candidates, candidateHash, {
+    return assembleArtifact(canonical, source, decoded.text, descriptor, {
       decoderReplacementCount: decoded.decoderReplacementCount,
       suspiciousControlCount: decoded.suspiciousControlCount,
     });
   }
-  const { source: descriptor, text, candidates, evidence } = prepared;
-  if (canonical.candidateReconstruction !== 'source') {
-    throw new RangeError('a transformed extraction requires a source-reconstructed recipe (its candidates are container-derived, not a function of the text)');
-  }
+  const { source: descriptor, text, evidence } = prepared;
   if (!isValidSourceDescriptor(descriptor, descriptor.hash, canonical.format)) {
     throw new RangeError('transformed source descriptor is not a valid, admissible descriptor');
   }
@@ -827,9 +735,7 @@ export async function finalizeExtraction(
     throw new RangeError('transformed extraction evidence is not a valid, admissible record');
   }
   assertWellFormed(text, `transformed source ${descriptor.hash.slice(0, 12)}…`);
-  assertValidCandidates(candidates, text.length);
-  const candidateHash = await hashStructureCandidates(candidates);
-  return assembleArtifact(canonical, descriptor.hash, text, descriptor, candidates, candidateHash, evidence);
+  return assembleArtifact(canonical, descriptor.hash, text, descriptor, evidence);
 }
 
 export { DecodeError };

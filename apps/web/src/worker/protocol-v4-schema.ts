@@ -4,16 +4,14 @@
  * accepts `unknown` and narrows; malformed containers/scalars are rejected
  * so the engine never sees a shape it cannot trust. Deep numeric-range
  * checks stay in the kernels — these guard container structure, discriminant
- * scalars, and the recipe/override VALUES the worker will recompute hashes
+ * scalars, and the recipe VALUES the worker will recompute hashes
  * from.
  *
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, isStructureOverrideV1, isStructureRecipeProvisional, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TFIDF_MAX_MIN_SECTION_TOKENS, TFIDF_MAX_TOP_K, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
-
-const isFiniteNum = (v: unknown): v is number => typeof v === 'number' && Number.isFinite(v);
 
 const MATCH = new Set(['sensitive', 'folded']);
 const AVAILABILITY = new Set(['bundled', 'persisted', 'external']);
@@ -64,28 +62,11 @@ function narrowDocSpec(d: unknown): boolean {
   if (
     !isRecord(e) || !narrowExtractionRecipe(e.recipe) || !isStr(e.recipeHash) ||
     (e.expectedText !== undefined && !isStr(e.expectedText)) ||
-    (e.expectedTextLengthUtf16 !== undefined && !isCount(e.expectedTextLengthUtf16)) ||
-    (e.expectedCandidates !== undefined && !isStr(e.expectedCandidates))
+    (e.expectedTextLengthUtf16 !== undefined && !isCount(e.expectedTextLengthUtf16))
   ) {
     return false;
   }
-  const st = d.structure;
-  if (!isRecord(st) || !isStructureRecipeProvisional(st.recipe) || !isStr(st.recipeHash)) return false;
-  return narrowOverrideInput(st.override);
-}
-
-/** The override may be absent (`none`) — a first cold ingest cannot bind one
- *  — or an `active` user correction whose value passes the DEEP core
- *  validator (closed enums / complete section values); commit 6 recomputes
- *  its hash and verifies base identities before applying. */
-function narrowOverrideInput(o: unknown): boolean {
-  if (!isRecord(o) || !isStr(o.kind)) return false;
-  // exactRecord enforces the plain prototype, exact own-key set, no
-  // symbols/accessors/non-enumerables — a wrapper whose `value` is a getter
-  // or that inherits a field cannot narrow as a trusted OverrideInputV4.
-  if (o.kind === 'none') return exactRecord(o, ['kind']);
-  if (o.kind === 'active') return exactRecord(o, ['kind', 'value', 'hash']) && isStructureOverrideV1(o.value) && isStr(o.hash);
-  return false;
+  return true;
 }
 
 // Wire admission enforces the SAME V1 bounds as the kernel validator
@@ -177,8 +158,7 @@ function narrowKwicRequest(r: unknown): boolean {
   return isCount(r.page.offset) && isCount(r.page.limit);
 }
 
-/** The query op union (§12.8 QueryOpV4) — including the new `structure` op.
- *  Every required request field is checked so commit 6 can trust the result. */
+/** Every required request field is checked before dispatch. */
 export function narrowQueryV4(q: unknown): boolean {
   if (!isRecord(q) || !isStr(q.op)) return false;
   switch (q.op) {
@@ -209,7 +189,6 @@ export function narrowQueryV4(q: unknown): boolean {
           'method',
           'rhythmBinsPerDoc',
           'growthPoints',
-          'sections',
           'mattrWindow',
         ])
       ) {
@@ -219,7 +198,6 @@ export function narrowQueryV4(q: unknown): boolean {
         r.method !== 'inventory/1' ||
         !isCount(r.rhythmBinsPerDoc) ||
         !isCount(r.growthPoints) ||
-        typeof r.sections !== 'boolean' ||
         !isCount(r.mattrWindow)
       ) {
         return false;
@@ -295,24 +273,6 @@ export function narrowQueryV4(q: unknown): boolean {
         (page.offset as number) + (page.limit as number) <= FREQUENCY_WINDOW_MAX
       );
     }
-    case 'tfidf-sections': {
-      const r = q.request as Record<string, unknown>;
-      return (
-        exactRecord(q, ['op', 'request']) &&
-        exactRecord(q.request, ['method', 'doc', 'level', 'minSectionTokens', 'topK']) &&
-        r.method === 'tfidf-sections/1' &&
-        isStr(r.doc) &&
-        r.doc !== '' &&
-        isCount(r.minSectionTokens) &&
-        (r.minSectionTokens as number) >= 1 &&
-        (r.minSectionTokens as number) <= TFIDF_MAX_MIN_SECTION_TOKENS &&
-        isCount(r.topK) &&
-        (r.topK as number) >= 1 &&
-        (r.topK as number) <= TFIDF_MAX_TOP_K &&
-        isCount(r.level) &&
-        (r.level as number) >= 0
-      );
-    }
     case 'keyness': {
       const r = q.request as Record<string, unknown>;
       if (
@@ -379,16 +339,6 @@ export function narrowQueryV4(q: unknown): boolean {
       if (!isRecord(r.cursor) || !isCount(c.token)) return false;
       if (c.kind === 'before') return (c.token as number) >= 1;
       return c.kind === 'around' || c.kind === 'from';
-    }
-    case 'structure':
-    case 'structure-edit-context':
-      return isRecord(q.request) && isStr((q.request as Record<string, unknown>).doc);
-    case 'line-excerpt': {
-      const r = q.request as Record<string, unknown>;
-      // FINITE numbers only — NaN/±Infinity must never reach the window budget
-      // (a NaN budget defeats every stopping comparison and returns an unbounded
-      // slice of a pathological line).
-      return isRecord(q.request) && isStr(r.doc) && isFiniteNum(r.anchor) && isFiniteNum(r.maxChars);
     }
     default:
       return false;

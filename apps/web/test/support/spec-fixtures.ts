@@ -10,12 +10,10 @@
 import {
   decodeDocumentSource,
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
   finalizeExtraction,
   hashExtractionRecipe,
   hashIndexRecipe,
-  hashStructureRecipe,
   type ExtractionRecipeProvisional,
 } from '@texttrends/core';
 import type { GenerationDocSpecV4 } from '../../src/worker/protocol-v4.ts';
@@ -24,7 +22,6 @@ export interface CanonicalRecipeHashes {
   readonly recipes: { readonly txt: ExtractionRecipeProvisional; readonly md: ExtractionRecipeProvisional };
   readonly txtRecipeHash: string;
   readonly mdRecipeHash: string;
-  readonly structureRecipeHash: string;
   readonly indexRecipeHash: string;
 }
 
@@ -34,13 +31,12 @@ let memo: Promise<CanonicalRecipeHashes> | null = null;
 export function canonicalRecipeHashes(): Promise<CanonicalRecipeHashes> {
   memo ??= (async () => {
     const recipes = await defaultExtractionRecipes();
-    const [txtRecipeHash, mdRecipeHash, structureRecipeHash, indexRecipeHash] = await Promise.all([
+    const [txtRecipeHash, mdRecipeHash, indexRecipeHash] = await Promise.all([
       hashExtractionRecipe(recipes.txt),
       hashExtractionRecipe(recipes.md),
-      hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
       hashIndexRecipe(DEFAULT_INDEX_RECIPE),
     ]);
-    return { recipes: { txt: recipes.txt, md: recipes.md }, txtRecipeHash, mdRecipeHash, structureRecipeHash, indexRecipeHash };
+    return { recipes: { txt: recipes.txt, md: recipes.md }, txtRecipeHash, mdRecipeHash, indexRecipeHash };
   })();
   return memo;
 }
@@ -61,9 +57,6 @@ export async function buildDocSpec(
   opts: {
     format?: 'txt' | 'md';
     availability?: 'bundled' | 'persisted' | 'external';
-    // Deliberately NO override option: an active override carries a claimed
-    // hash, and a shared builder accepting one verbatim would manufacture
-    // invalid-by-default inputs (review-A). Override cases spread locally.
   } = {},
 ): Promise<GenerationDocSpecV4> {
   const canon = await canonicalRecipeHashes();
@@ -80,8 +73,6 @@ export async function buildDocSpec(
       recipeHash: format === 'md' ? canon.mdRecipeHash : canon.txtRecipeHash,
       expectedText: extracted.artifact.text,
       expectedTextLengthUtf16: extracted.artifact.textLengthUtf16,
-      expectedCandidates: extracted.artifact.candidateHash,
     },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: canon.structureRecipeHash, override: { kind: 'none' } },
   };
 }

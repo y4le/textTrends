@@ -2,8 +2,8 @@
 
 This is the reconciliation index for the current tree as of 2026-08-07. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
-feature plans and [the executed simplification record](simplification-plan.md)
-explain how the tree arrived here, but may describe superseded UI shapes.
+feature plans explain how the tree arrived here, but may describe superseded
+UI shapes.
 
 ## Shipped
 
@@ -11,10 +11,10 @@ explain how the tree arrived here, but may describe superseded UI shapes.
   extraction feed one versioned snapshot/index engine (`packages/core`,
   `packages/extractors`, and `apps/web/src/worker`). Durable project and
   research state use browser storage with explicit repair/reattachment paths.
-- **Five reachable workbench places:** Corpus, Trends, Concordance, Vocabulary,
-  and Compare (`apps/web/src/places`). They cover structure review, term
-  groups, linked selections, frequency/TF-IDF/keyness, project saving, and
-  method surfaces.
+- **Five reachable workbench places:** Catalog, Trends, Concordance,
+  Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
+  active-corpus management, term groups, linked selections, frequency,
+  keyness, project saving, and method surfaces.
 - **Direct reading paths:** all workbench places share a transient corpus-order
   footer with current source, all-book trends, progress, and adaptive
   dispersion. It shares token geometry with KWIC and the full-page Reader;
@@ -31,8 +31,7 @@ explain how the tree arrived here, but may describe superseded UI shapes.
 
 - **Publication hardening:** corpus rights/provenance, repository licensing,
   reproducible deployment, and a clean-checkout CI story still need an
-  owner-led publication cut. These are tracked in
-  [simplification-plan.md](simplification-plan.md#track-p--publication-blockers-and-hardening).
+  owner-led publication cut. These are tracked in [the backlog](backlog.md).
 - **Hermetic Standard Ebooks dependency:** the workspace still requires the
   sibling `../standard_ebooks` checkout. Publishing a pinned package or
   vendoring a provenance-recorded copy is intentionally deferred to that cut.

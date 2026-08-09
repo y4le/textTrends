@@ -26,7 +26,7 @@ const FACADE_SENTINELS = ['ttE2E', 'ttHarness'];
 /** Canonical workbench places are route-level lazy boundaries. Keep this list
  * in lockstep with apps/web/src/lib/places.ts. */
 const PLACE_CHUNKS = [
-  ['Corpus', /^assets\/CorpusPlace-[^/]+\.js$/],
+  ['Catalog', /^assets\/CatalogPlace-[^/]+\.js$/],
   ['Trends', /^assets\/TrendsPlace-[^/]+\.js$/],
   ['Concordance', /^assets\/ConcordancePlace-[^/]+\.js$/],
   ['Vocabulary', /^assets\/VocabularyPlace-[^/]+\.js$/],
@@ -197,17 +197,17 @@ export function checkBundle(files, catalogSource) {
   }
 
   // ---- main-thread lazy chain ---------------------------------------------
-  const corpusPath = placePaths.get('Corpus');
-  if (entryPath && corpusPath && cachePath && archivePath) {
+  const catalogPlacePath = placePaths.get('Catalog');
+  if (entryPath && catalogPlacePath && cachePath && archivePath) {
     const entryText = files.get(entryPath).toString('utf8');
-    const corpusText = files.get(corpusPath).toString('utf8');
-    const corpusStatic = staticImports(corpusText);
+    const catalogPlaceText = files.get(catalogPlacePath).toString('utf8');
+    const catalogPlaceStatic = staticImports(catalogPlaceText);
     const cacheName = cachePath.replace('assets/', '');
     const archiveName = archivePath.replace('assets/', '');
-    if (references(entryText, cacheName)) failures.push(`${entryPath}: references ${cacheName} — the SE cache client must load only through the Corpus place`);
-    if (corpusStatic.has(cacheName)) failures.push(`${corpusPath}: statically imports ${cacheName} — the SE cache client must stay lazy`);
-    if (!references(corpusText, cacheName)) failures.push(`${corpusPath}: no reference to ${cacheName} — the lazy SE cache edge is gone`);
-    if (references(entryText, archiveName) || references(corpusText, archiveName)) {
+    if (references(entryText, cacheName)) failures.push(`${entryPath}: references ${cacheName} — the SE cache client must load only through the Catalog place`);
+    if (catalogPlaceStatic.has(cacheName)) failures.push(`${catalogPlacePath}: statically imports ${cacheName} — the SE cache client must stay lazy`);
+    if (!references(catalogPlaceText, cacheName)) failures.push(`${catalogPlacePath}: no reference to ${cacheName} — the lazy SE cache edge is gone`);
+    if (references(entryText, archiveName) || references(catalogPlaceText, archiveName)) {
       failures.push(`main-thread route chunks reference ${archiveName} — the archive client must load only through the cache chunk`);
     }
     const cacheText = files.get(cachePath).toString('utf8');

@@ -10,10 +10,9 @@
 
 import {
   hashSourceBytes,
+  isRecord,
   parseResearchState,
   reconcileResearchState,
-  upgradeStoredManifest,
-  upgradeStoredResearchState,
   validateProjectManifest,
 } from '@texttrends/core';
 import type { FromWorkerV4, ToWorkerV4, UserDataErrorCodeV4 } from './protocol-v4.ts';
@@ -89,15 +88,13 @@ export class UserDataHandler {
           this.emitUserDataError(job, 'DATA_CORRUPT', `stored project is corrupt: ${read.reason}`);
           return;
         }
+        if (!isRecord(read.value) || read.value.schema !== 'texttrends/project/2') {
+          this.emitUserDataError(job, 'INCOMPATIBLE_PROJECT', 'stored project uses an unsupported pre-alpha schema; start a fresh catalog');
+          return;
+        }
         let manifest;
         try {
-          // Lazily migrate a manifest saved by an older build (pre-container
-          // source discriminant / candidateReconstruction) BEFORE durable
-          // admission — this is the worker's own validation gate, so the upgrade
-          // must happen here (not only main-thread) or an old project is rejected
-          // as DATA_CORRUPT before it can reopen. A genuinely-corrupt record is
-          // left unchanged by the upgrader and still fails validation below.
-          manifest = await validateProjectManifest(await upgradeStoredManifest(read.value));
+          manifest = await validateProjectManifest(read.value);
         } catch (e) {
           if (this.checkCancelled(job)) return; // cancelled during recipe/hash recomputation
           this.emitUserDataError(job, 'DATA_CORRUPT', `stored project failed validation: ${e instanceof Error ? e.message : String(e)}`);
@@ -161,7 +158,7 @@ export class UserDataHandler {
         let state;
         try {
           state = reconcileResearchState(
-            parseResearchState(upgradeStoredResearchState(read.value)),
+            parseResearchState(read.value),
           );
         } catch (e) {
           this.emitUserDataError(

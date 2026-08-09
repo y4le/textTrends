@@ -1,7 +1,7 @@
 /**
  * Markdown literal-indexing pollution — the REPRODUCIBLE measurement behind
- * the ingest-structure plan's spike decision (plan "Spike result" section;
- * review round 1 required the methodology to be executable, not prose).
+ * the decision to preserve Markdown literally. The methodology remains
+ * executable rather than relying on prose estimates.
  *
  * Region definitions (a token is POLLUTED iff its start offset lies in any
  * region; overlapping regions do not double-count):

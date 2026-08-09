@@ -4,7 +4,7 @@
 (a pure function in `packages/core/src/stats/` with these worked examples as
 executable fixtures) or **specified-only** (marked below; no export exists yet).
 Nothing is exported without fixtures. Currently implemented: keyness (G², log-ratio),
-logDice, PMI, t-score, DP/DPnorm, MATTR, MTLD, and TF-IDF sections. Specified-only:
+logDice, PMI, t-score, DP/DPnorm, MATTR, and MTLD. Specified-only:
 readability, Delta/Cosine Delta, bursts, trend, smoothing overlay. Every fixture is
 hand-computed and numerically verified, so it is inspectable, not trusted from
 memory; these numbers are the product's meaning, and any change is a contract change.
@@ -168,21 +168,6 @@ CosineDelta(A,B) = 1 − (z_A·z_B)/(‖z_A‖·‖z_B‖)     // Evert et al. 2
 ```
 
 Test fixtures: 3 tiny synthetic "documents" with hand-computed z-scores in the fixture.
-
-## Chapter distinctiveness (TF-IDF labels, `tfidf-sections/1`)
-
-```
-w(term, section) = f_{t,s} · ln( N_sections / df_t )
-```
-
-Plain counts, natural log, no sublinear scaling — the variant is named in provenance.
-Eligibility: sections with ≥ `minSectionTokens` (default 50) participate; `N_sections`
-counts eligible sections only; `df_t` = eligible sections containing the term. Top-k
-per section (default 5), ties broken by higher raw `f_{t,s}` then vocabulary key
-order. “Vocabulary key order” means ascending corpus type ID, which is the
-snapshot's declared merge order. V1 has no stop list: terms with `df_t = N_sections`
-have exactly zero weight and are excluded, while all positive-weight terms remain
-eligible.
 
 ## Burst detection (Poisson surprise, `bursts-poisson/1`)
 

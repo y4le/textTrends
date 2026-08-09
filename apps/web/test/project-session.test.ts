@@ -8,19 +8,17 @@
  * Everything is driven through public session commands + fake-client delivery;
  * no test reaches into private state. Real core recipe hashes are used so a
  * finalized import materializes a manifest that passes the deep durable
- * validator (text/candidate content hashes are asserted strings the validator
- * does not recompute, so they can be synthetic).
+ * validator (text content hashes are asserted strings the validator does not
+ * recompute, so they can be synthetic).
  */
 import { beforeAll, describe, expect, it } from 'vitest';
 import { canonicalRecipeHashes } from './support/spec-fixtures.ts';
 import {
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   INGEST_CAPS_V0,
   type ProjectDocV1,
-  type ProjectManifestV1,
+  type ProjectManifestV2,
   type ResearchStateV1,
-  type StructureOverrideV1,
 } from '@texttrends/core';
 import type {
   GenerationDocSpecV4,
@@ -48,14 +46,12 @@ import { builtinProject, type CurrentProject, type ProjectDataV1 } from '../src/
 // ── Real recipe hashes (a finalized import must yield a valid manifest). ──
 let TXT_HASH = '';
 let MD_HASH = '';
-let STRUCTURE_HASH = '';
 let INDEX_HASH = '';
 beforeAll(async () => {
   // One memoized canonical hash set for every suite (slice-2 ruling §A).
   const canon = await canonicalRecipeHashes();
   TXT_HASH = canon.txtRecipeHash;
   MD_HASH = canon.mdRecipeHash;
-  STRUCTURE_HASH = canon.structureRecipeHash;
   INDEX_HASH = canon.indexRecipeHash;
 });
 
@@ -91,7 +87,7 @@ interface OpenEntry {
   cancelled: boolean;
 }
 interface SaveEntry {
-  manifest: ProjectManifestV1;
+  manifest: ProjectManifestV2;
   expectedRevision: number;
   resolve: (r: { revision: number }) => void;
   reject: (e: Error) => void;
@@ -135,7 +131,7 @@ class FakeClient implements ProjectSessionClient {
     this.ingests.push({ generation, doc, bytes, job });
     return { job };
   }
-  projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
+  projectSave(manifest: ProjectManifestV2, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
     let resolve!: (r: { revision: number }) => void;
     let reject!: (e: Error) => void;
     const result = new Promise<{ revision: number }>((res, rej) => { resolve = res; reject = rej; });
@@ -233,7 +229,6 @@ function readyInfo(
     extractionRecipeHash: opts.format === 'md' ? MD_HASH : TXT_HASH,
     text: `text-${doc}`,
     textLengthUtf16: 5,
-    candidates: `cand-${doc}`,
     decoderReplacementCount: opts.replacements ?? 0,
     suspiciousControlCount: opts.controls ?? 0,
   };
@@ -258,8 +253,7 @@ function bundledDoc(doc: string, bytes: number): ProjectDocV1 {
     meta: { title: doc, language: 'en', tags: [] },
     source: { kind: 'text', hash: `H${bytes}`, byteLength: bytes, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
     sourceAvailability: 'bundled',
-    extraction: { recipe: undefined as never, recipeHash: TXT_HASH, text: 't', textLengthUtf16: 1, candidates: 'c' },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: STRUCTURE_HASH, override: { status: 'none' } },
+    extraction: { recipe: undefined as never, recipeHash: TXT_HASH, text: 't', textLengthUtf16: 1 },
   };
 }
 
@@ -674,119 +668,6 @@ describe('source evidence projection (§12.4)', () => {
     // After the reopen, before any new source-ready arrives, the counts are
     // unknown — never carried over from the prior generation.
     expect(session.getState().sourceEvidence[doc]).toBeUndefined();
-  });
-});
-
-describe('structure correction command — fenced async (8c, ruling §4/§5)', () => {
-  /** A structurally-valid override authored against a doc's CURRENT identities.
-   *  (The session never composes structure — the fake client does not run the
-   *  engine — so the change content is opaque to it; only base identities and
-   *  the async fence are exercised here.) */
-  function mkOverride(doc: ProjectDocV1, key = 'user-x'): StructureOverrideV1 {
-    return {
-      schema: 'texttrends/structure-override/1',
-      text: doc.extraction.text,
-      candidates: doc.extraction.candidates,
-      baseRecipe: doc.structure.recipeHash,
-      changes: [{ op: 'add', key, value: { parent: 'root', level: 1, chars: { start: 0, end: 1 } } }],
-    };
-  }
-  const docOf = (session: ProjectSession, doc: string): ProjectDocV1 =>
-    session.getState().project.data.docs.find((d) => d.doc === doc)!;
-
-  it('publishes hashing, then installs an active override and reopens (never sync)', async () => {
-    const { session, client } = makeSession(builtin());
-    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    const doc = docs[0]!;
-    const opensBefore = client.opens.length;
-    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
-    // Synchronous: hashing status, and NO reopen until the hash resolves.
-    expect(session.getState().corrections[doc]?.phase).toBe('hashing');
-    expect(client.opens.length).toBe(opensBefore);
-    await settle();
-    expect(session.getState().corrections[doc]).toBeUndefined();
-    expect(docOf(session, doc).structure.override.status).toBe('active');
-    expect(client.opens.length).toBe(opensBefore + 1);
-    const spec = client.lastOpen().docs.find((s) => s.doc === doc)!;
-    expect(spec.structure.override.kind).toBe('active');
-  });
-
-  it('fast-rejects an override whose base identities do not match — no hash, no reopen', async () => {
-    const { session, client } = makeSession(builtin());
-    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    const doc = docs[0]!;
-    const opensBefore = client.opens.length;
-    session.setStructureOverride(doc, { ...mkOverride(docOf(session, doc)), text: 'WRONG-TEXT-HASH' });
-    const c = session.getState().corrections[doc];
-    expect(c?.phase).toBe('error');
-    if (c?.phase === 'error') expect(c.reason).toBe('stale-base');
-    await settle();
-    expect(client.opens.length).toBe(opensBefore);
-    expect(docOf(session, doc).structure.override.status).toBe('none');
-  });
-
-  it('a later authoring attempt supersedes an earlier pending hash', async () => {
-    const { session, client } = makeSession(builtin());
-    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    const doc = docs[0]!;
-    const d = docOf(session, doc);
-    session.setStructureOverride(doc, mkOverride(d, 'user-FIRST'));
-    session.setStructureOverride(doc, mkOverride(d, 'user-SECOND')); // supersedes before either hash resolves
-    await settle();
-    const ov = docOf(session, doc).structure.override;
-    expect(ov.status).toBe('active');
-    if (ov.status === 'active') expect(ov.value.changes[0]!).toMatchObject({ key: 'user-SECOND' });
-  });
-
-  it('a discard (null) installs none, reopens, and supersedes a pending hash', async () => {
-    const { session, client } = makeSession(builtin());
-    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    const doc = docs[0]!;
-    // Establish an active correction first.
-    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
-    await settle();
-    expect(docOf(session, doc).structure.override.status).toBe('active');
-    // A fresh pending apply immediately superseded by a discard.
-    session.setStructureOverride(doc, mkOverride(docOf(session, doc), 'user-LATE'));
-    session.setStructureOverride(doc, null);
-    await settle();
-    expect(docOf(session, doc).structure.override.status).toBe('none');
-    expect(session.getState().corrections[doc]).toBeUndefined();
-  });
-
-  it('rejects the command on the read-only built-in project', () => {
-    const { session } = makeSession(builtin());
-    expect(() => session.setStructureOverride('x', null)).toThrow(SessionCommandError);
-  });
-
-  it('a project load during a pending hash fences the stale correction out of the replacement', async () => {
-    const { session, client } = makeSession(builtin());
-    const { docs } = await importAndFinalize(client, session, [fakeFile('a.txt', 10)]);
-    const doc = docs[0]!;
-    session.save();
-    await settle();
-    const saved = client.saves[0]!.manifest;
-    client.saves[0]!.resolve({ revision: 1 });
-    await settle();
-    // Start an override hash, THEN replace the project via a load of the SAME
-    // (content-identical) saved manifest before the hash resolves — the exact
-    // race where the stale override's base identities still match the reloaded
-    // doc, so only the session-epoch fence prevents it mutating the new project.
-    session.setStructureOverride(doc, mkOverride(docOf(session, doc)));
-    expect(session.getState().corrections[doc]?.phase).toBe('hashing');
-    session.loadUserProject();
-    client.loads.at(-1)!.resolve({ kind: 'loaded', manifest: saved });
-    await settle();
-    // Whatever the (hash, install) interleaving, the SAFETY invariant holds:
-    // the replacement project keeps override NONE — the stale correction, whose
-    // base identities still match the content-identical reloaded doc, is fenced
-    // out by the session epoch and never mutates the new project — and its
-    // status is cleared on replacement, not leaked. (A hash that lands before
-    // the install touches only the outgoing project the load then discards.)
-    expect(docOf(session, doc).structure.override.status).toBe('none');
-    expect(session.getState().corrections[doc]).toBeUndefined();
-    expect(session.getState().project.dirty).toBe(false);
-    expect(session.getState().project.baseRevision).toBe(1); // the loaded project, clean
   });
 });
 
@@ -1352,7 +1233,7 @@ describe('a lost save does not leak a coalesced request (r3 finding 1)', () => {
 
 describe('a load overlapping an in-flight save cannot regress it (r3 finding 2 / r4 finding 1)', () => {
   /** A DIFFERENT-titled revision-1 manifest, so a stale reinstall is observable. */
-  const olderManifest = (base: ProjectManifestV1, title: string): ProjectManifestV1 => ({
+  const olderManifest = (base: ProjectManifestV2, title: string): ProjectManifestV2 => ({
     ...base,
     revision: 1,
     docs: base.docs.map((d, i) => (i === 0 ? { ...d, meta: { ...d.meta, title } } : d)),
@@ -1444,7 +1325,6 @@ describe('publication identity reconciliation', () => {
     expect(after.sources).toBe(before.sources);
     expect(after.reattach).toBe(before.reattach);
     expect(after.sourceEvidence).toBe(before.sourceEvidence);
-    expect(after.corrections).toBe(before.corrections);
   });
 
   it('a metadata edit replaces project but retains the record slices and imports', async () => {
@@ -1459,7 +1339,6 @@ describe('publication identity reconciliation', () => {
     expect(after.sources).toBe(before.sources);
     expect(after.reattach).toBe(before.reattach);
     expect(after.sourceEvidence).toBe(before.sourceEvidence);
-    expect(after.corrections).toBe(before.corrections);
   });
 
   it('a source-ready replaces the evidence/import slices it changes and retains the rest', async () => {
@@ -1483,7 +1362,6 @@ describe('publication identity reconciliation', () => {
     const after = session.getState();
     expect(after.sourceEvidence).not.toBe(before.sourceEvidence);
     expect(after.reattach).toBe(before.reattach);
-    expect(after.corrections).toBe(before.corrections);
   });
 
   it('createUserProject from the built-in reuses no cached slice and leaks no evidence', async () => {
@@ -1513,7 +1391,6 @@ describe('publication identity reconciliation', () => {
     expect(after.sourceEvidence['a']).toBeUndefined();
     expect(Object.keys(after.sourceEvidence)).toEqual([]);
     expect(after.reattach).not.toBe(before.reattach);
-    expect(after.corrections).not.toBe(before.corrections);
     expect(after.sources).not.toBe(before.sources);
     // The OUTGOING generation's facts are retired synchronously too …
     expect(after.snapshot).toBeNull();

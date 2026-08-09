@@ -10,7 +10,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, bumpUserDataVersion, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
-const DOC_TEXT = `# Chapter One\n\n${'the wolf ran far over the hill. '.repeat(40)}`;
+const DOC_TEXT = `Field notes\n\n${'the wolf ran far over the hill. '.repeat(40)}`;
 const DOC_BYTES = Buffer.byteLength(DOC_TEXT, 'utf-8');
 
 /** Poll: a `t` op posted after `mark` whose job's terminal is a user-data-error

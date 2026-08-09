@@ -31,21 +31,13 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Sentence rhythm' })).toBeVisible();
   await expect(scope).toContainText(baselineTokens);
-  await expect.poll(async () => new Set(
-    (await trace(page)).events
-      .filter((event) =>
-        event.seq > beforeFocus
-        && event.direction === 'to-worker'
-        && event.t === 'query')
-      .map((event) => event.op),
-  ), { timeout: 30_000 }).toEqual(new Set(['structure', 'tfidf-sections']));
   const focusOps = (await trace(page)).events
     .filter((event) =>
       event.seq > beforeFocus
       && event.direction === 'to-worker'
       && event.t === 'query')
     .map((event) => event.op);
-  expect(new Set(focusOps)).toEqual(new Set(['structure', 'tfidf-sections']));
+  expect(focusOps).toEqual([]);
 
   const beforeScope = (await trace(page)).events.at(-1)?.seq ?? -1;
   await secondRow.getByRole('button', { name: 'only this book' }).click();

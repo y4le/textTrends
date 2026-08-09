@@ -38,7 +38,6 @@ const inventory: InventoryResultV1 = {
     types: new Uint32Array([50, 80]),
     documentEnds: [100, 200],
   },
-  sections: null,
   missingDocs: [],
   mattrWindow: 500,
 };

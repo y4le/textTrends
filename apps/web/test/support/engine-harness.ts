@@ -21,14 +21,14 @@ export const FOLD = { case: 'folded', diacritics: 'sensitive' } as const;
  *  warm-path table deterministically, and optionally hook the first read of a
  *  class (to interleave a concurrent ingest). Delegates everything else. */
 export class FilterStore implements ArtifactStore {
-  hide = { text: false, shard: false, structure: false, extraction: false };
+  hide = { text: false, shard: false };
   onShardRead: (() => void | Promise<void>) | null = null;
   /** Called on every text read with the 1-based read count, so a test can
    *  interleave at a specific point (e.g. the 2nd document's read). */
   onTextRead: ((count: number) => void | Promise<void>) | null = null;
   private textReads = 0;
   resetReads() { this.textReads = 0; }
-  writes = { text: 0, shard: 0, structure: 0, extraction: 0 };
+  writes = { text: 0, shard: 0 };
   /** When set, the NEXT get{Shard,Text} reports envelope corruption, then reverts. */
   corruptShardOnce = false;
   corruptTextOnce = false;
@@ -50,12 +50,6 @@ export class FilterStore implements ArtifactStore {
   }
   putShard(k: never, s: never) { this.writes.shard++; return this.inner.putShard(k, s); }
   deleteShard(k: never) { this.shardDeletes++; return this.inner.deleteShard(k); }
-  async getExtraction(k: never): Promise<CacheRead<unknown>> { return this.hide.extraction ? { kind: 'miss' } : this.inner.getExtraction(k); }
-  putExtraction(k: never, a: unknown) { this.writes.extraction++; return this.inner.putExtraction(k, a); }
-  deleteExtraction(k: never) { return this.inner.deleteExtraction(k); }
-  async getStructure(k: never): Promise<CacheRead<unknown>> { return this.hide.structure ? { kind: 'miss' } : this.inner.getStructure(k); }
-  putStructure(k: never, a: unknown) { this.writes.structure++; return this.inner.putStructure(k, a); }
-  deleteStructure(k: never) { return this.inner.deleteStructure(k); }
   close() { this.inner.close(); }
 }
 

@@ -43,10 +43,9 @@ export type TrendMeasureV2 =
     }
   | { readonly kind: 'count' };
 
-export interface TrendResearchViewV2 {
-  readonly schema: 'texttrends/trend-view/2';
+export interface TrendResearchViewV3 {
+  readonly schema: 'texttrends/trend-view/3';
   readonly mode: 'series' | 'by-book';
-  readonly sectionMarks: boolean;
   readonly focusedDoc: string | null;
   readonly bins: TrendBinsSpecV1;
   readonly measure: TrendMeasureV2;
@@ -92,7 +91,7 @@ export interface ResearchStateV1 {
   readonly active: readonly string[];
   readonly kwicEnabled: readonly string[];
   readonly views: {
-    readonly trend: TrendResearchViewV2;
+    readonly trend: TrendResearchViewV3;
     readonly inventory: InventoryViewV1;
     readonly keyness: KeynessViewV1;
   };
@@ -193,39 +192,13 @@ function parseTrendMeasure(value: unknown): TrendMeasureV2 {
   return value as unknown as TrendMeasureV2;
 }
 
-export function parseTrendResearchView(value: unknown): TrendResearchViewV2 {
-  if (exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc'])) {
-    if (
-      value.schema !== 'texttrends/trend-view/1' ||
-      (value.mode !== 'series' && value.mode !== 'by-book') ||
-      typeof value.sectionMarks !== 'boolean'
-    ) {
-      throw new RangeError('invalid legacy trend view');
-    }
-    if (value.focusedDoc !== null) {
-      boundedString(value.focusedDoc, RESEARCH_MAX_DOC_UNITS, 'focused document');
-    }
-    return {
-      schema: 'texttrends/trend-view/2',
-      mode: value.mode,
-      sectionMarks: value.sectionMarks,
-      focusedDoc: value.focusedDoc,
-      bins: { mode: 'per-doc', count: 40 },
-      measure: {
-        kind: 'rate',
-        denominator: 10_000,
-        smoothing: 0,
-        showRaw: false,
-      },
-    };
-  }
-  if (!exactRecord(value, ['schema', 'mode', 'sectionMarks', 'focusedDoc', 'bins', 'measure'])) {
+export function parseTrendResearchView(value: unknown): TrendResearchViewV3 {
+  if (!exactRecord(value, ['schema', 'mode', 'focusedDoc', 'bins', 'measure'])) {
     throw new RangeError('trend view must be exact');
   }
   if (
-    value.schema !== 'texttrends/trend-view/2' ||
-    (value.mode !== 'series' && value.mode !== 'by-book') ||
-    typeof value.sectionMarks !== 'boolean'
+    value.schema !== 'texttrends/trend-view/3' ||
+    (value.mode !== 'series' && value.mode !== 'by-book')
   ) {
     throw new RangeError('invalid trend view');
   }
@@ -234,7 +207,7 @@ export function parseTrendResearchView(value: unknown): TrendResearchViewV2 {
   }
   parseTrendBins(value.bins);
   parseTrendMeasure(value.measure);
-  return value as unknown as TrendResearchViewV2;
+  return value as unknown as TrendResearchViewV3;
 }
 
 export function parseInventoryResearchView(value: unknown): InventoryViewV1 {
@@ -382,58 +355,6 @@ export function parseResearchState(value: unknown): ResearchStateV1 {
     kwicEnabled,
     views: parseViews(value.views),
   };
-}
-
-/** Upgrade the original presentation-only trend view to the configurable
- *  trend-view/2 contract. The outer research-state schema stays /1 because
- *  its ownership, CAS, and privacy boundaries are unchanged. */
-export function upgradeStoredResearchState(raw: unknown): unknown {
-  if (
-    raw !== null &&
-    typeof raw === 'object' &&
-    !Array.isArray(raw)
-  ) {
-    const record = raw as Record<string, unknown>;
-    let withoutLegacyCapture = record;
-    if ('selections' in record || 'pins' in record) {
-      const { selections: _selections, pins: _pins, ...remaining } = record;
-      withoutLegacyCapture = remaining;
-    }
-    const views = withoutLegacyCapture.views;
-    if (views !== null && typeof views === 'object' && !Array.isArray(views)) {
-      const viewRecord = views as Record<string, unknown>;
-      const trend = viewRecord.trend;
-      if (
-        trend !== null &&
-        typeof trend === 'object' &&
-        !Array.isArray(trend) &&
-        (trend as Record<string, unknown>).schema === 'texttrends/trend-view/1'
-      ) {
-        const legacy = trend as Record<string, unknown>;
-        return {
-          ...withoutLegacyCapture,
-          views: {
-            ...viewRecord,
-            trend: {
-              schema: 'texttrends/trend-view/2',
-              mode: legacy.mode,
-              sectionMarks: legacy.sectionMarks,
-              focusedDoc: legacy.focusedDoc,
-              bins: { mode: 'per-doc', count: 40 },
-              measure: {
-                kind: 'rate',
-                denominator: 10_000,
-                smoothing: 0,
-                showRaw: false,
-              },
-            },
-          },
-        };
-      }
-    }
-    return withoutLegacyCapture;
-  }
-  return raw;
 }
 
 /** Drop presentation references to notebook groups that no longer exist. */

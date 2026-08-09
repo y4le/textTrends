@@ -1,0 +1,80 @@
+import { useApp } from '../../lib/store-instance.ts';
+
+const number = new Intl.NumberFormat('en-US');
+
+/** Format-neutral source provenance for the focused ready book. */
+export function SourceDetails({
+  headingAs: Heading = 'h3',
+}: {
+  readonly headingAs?: 'h2' | 'h3' | 'h4';
+}) {
+  const project = useApp((state) => state.projectSession?.project ?? null);
+  const snapshot = useApp((state) => state.snapshot);
+  const focusedDoc = useApp((state) => state.focusedDoc);
+  const sourceEvidence = useApp((state) => state.projectSession?.sourceEvidence ?? null);
+  const setFocusedDoc = useApp((state) => state.setFocusedDoc);
+
+  if (!project || !snapshot || !focusedDoc) return null;
+  const ready = new Set(snapshot.readyDocs);
+  const readyDocs = project.data.order.filter((doc) => ready.has(doc));
+  const selected = project.data.docs.find((doc) => doc.doc === focusedDoc);
+  if (!selected || readyDocs.length === 0) return null;
+
+  const titleOf = (doc: string): string =>
+    project.data.docs.find((candidate) => candidate.doc === doc)?.meta.title ?? doc;
+  const encoding = selected.source.kind === 'text' || selected.source.kind === 'markup'
+    ? selected.source.encoding
+    : null;
+  const evidence = sourceEvidence?.[focusedDoc] ?? null;
+
+  return (
+    <section
+      aria-labelledby="source-details-heading"
+      style={{
+        marginTop: 'var(--space-3)',
+        padding: 'var(--space-2)',
+        border: '1px solid var(--rule)',
+        fontFamily: 'var(--font-mono)',
+        fontSize: 'var(--text-xs)',
+        color: 'var(--fg)',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+        <Heading id="source-details-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
+          Source details
+        </Heading>
+        <label style={{ color: 'var(--fg-muted)' }}>
+          document{' '}
+          <select
+            aria-label="Document to preview"
+            value={focusedDoc}
+            onChange={(event) => setFocusedDoc(event.target.value)}
+            style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--rule-strong)' }}
+          >
+            {readyDocs.map((doc) => <option key={doc} value={doc}>{titleOf(doc)}</option>)}
+          </select>
+        </label>
+      </div>
+      <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
+        {selected.sourceName} · {selected.source.format.toUpperCase()} · {number.format(selected.source.byteLength)} bytes
+      </p>
+      {encoding && (
+        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }} role="note">
+          encoding:{' '}
+          {encoding.detected === 'windows-1252'
+            ? <span style={{ color: 'var(--accent-text)' }}>Windows-1252 (inferred — no BOM/UTF-8)</span>
+            : <span>{encoding.detected}</span>}
+          {encoding.hadReplacementChars && <span> · contains replacement characters</span>}
+          {evidence
+            ? <span> · this session: {evidence.decoderReplacementCount} replaced, {evidence.suspiciousControlCount} control chars</span>
+            : <span> · exact counts unavailable (warm reopen)</span>}
+        </p>
+      )}
+      {selected.source.kind === 'container' && (
+        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
+          {number.format(selected.source.container.documentCount)} content file{selected.source.container.documentCount === 1 ? '' : 's'} extracted
+        </p>
+      )}
+    </section>
+  );
+}

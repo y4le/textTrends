@@ -15,7 +15,7 @@
 
 import type {
   IndexRecipeProvisional,
-  ProjectManifestV1,
+  ProjectManifestV2,
   ResearchStateV1,
   SourceDescriptorV1,
 } from '@texttrends/core';
@@ -77,21 +77,21 @@ export const isCancelled = (e: unknown): boolean =>
   e instanceof WorkerClientError && e.code === 'CANCELLED';
 
 /** Resolution of projectLoad: the WORKER-VALIDATED manifest (the worker is
- *  the sole durable-admission authority — it upgrades + deep-validates before
+ *  the sole durable-admission authority — it deep-validates before
  *  emitting), or a miss. Corrupt/unavailable rejects with a
  *  UserDataClientError (DATA_CORRUPT / PERSISTENCE_UNAVAILABLE). */
 export type ProjectLoadResult =
-  | { readonly kind: 'loaded'; readonly manifest: ProjectManifestV1 }
+  | { readonly kind: 'loaded'; readonly manifest: ProjectManifestV2 }
   | { readonly kind: 'missing' };
 
 export type ResearchLoadResult =
   | { readonly kind: 'loaded'; readonly state: ResearchStateV1 }
   | { readonly kind: 'missing' };
 
-/** The correlated extraction event: the source/text/candidate identities a
+/** The correlated extraction event: the source/text identities a
  *  manifest needs, retaining job + generation + doc so a superseded or retried
  *  import can never assemble the wrong document. NOTE: source-ready is an
- *  intermediate signal, NOT ingest completion — segment/index/structure/compose
+ *  intermediate signal, NOT ingest completion — segment/index/compose
  *  can still fail after it; snapshot publication is the analysis boundary. */
 export interface SourceReadyInfo {
   readonly job: number;
@@ -101,7 +101,6 @@ export interface SourceReadyInfo {
   readonly extractionRecipeHash: string;
   readonly text: string;
   readonly textLengthUtf16: number;
-  readonly candidates: string;
   readonly decoderReplacementCount: number;
   readonly suspiciousControlCount: number;
 }
@@ -167,8 +166,8 @@ export class WorkerClient {
   private sourceReadyListener: ((info: SourceReadyInfo) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
   /** job -> the ingest's generation + document. A successful ingest has no
-   *  job-bearing completion event (source-ready is too early — segment/index/
-   *  structure can still fail after it), so entries are retired DELIBERATELY:
+   *  job-bearing completion event (source-ready is too early — segment/index
+   *  work can still fail after it), so entries are retired DELIBERATELY:
    *  a superseding same-document ingest drops the prior attempt, and a new
    *  generation clears them all — never by snapshot-published membership
    *  (see receive()'s note). */
@@ -351,7 +350,6 @@ export class WorkerClient {
           extractionRecipeHash: m.extractionRecipe,
           text: m.text,
           textLengthUtf16: m.textLengthUtf16,
-          candidates: m.candidates,
           decoderReplacementCount: m.decoderReplacementCount,
           suspiciousControlCount: m.suspiciousControlCount,
         });
@@ -525,7 +523,7 @@ export class WorkerClient {
    *  REQUEST_INVALID). Resolves with the committed revision; rejects
    *  UserDataClientError (REVISION_CONFLICT carries the stored
    *  `currentRevision`). Cancellable before the durable write begins. */
-  projectSave(manifest: ProjectManifestV1, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
+  projectSave(manifest: ProjectManifestV2, expectedRevision: number): { result: Promise<{ revision: number }>; cancel: () => void } {
     return this.request<{ revision: number }>(
       (job, resolve, reject) => {
         this.pending.set(job, { kind: 'project-save', resolve, reject });

@@ -7,11 +7,9 @@
  * with the shared BOM/UTF-8/windows-1252 policy (a `<meta charset>` sniff is a
  * documented future refinement).
  *
- * To anchor heading candidates without fragile offset-mapping, the document is
- * split into heading-delimited SEGMENTS (the same shape the EPUB path joins):
- * each segment's cleaned text is concatenated with blank-line joins, and each
- * heading-led segment yields one `html-heading` candidate at its range — the
- * range addresses the FINAL text exactly, from one running cursor.
+ * The document is split into heading-delimited segments. This preserves the
+ * established text serialization and bounds memory without exposing headings
+ * as separate text blocks.
  *
  * Segments are FLUSHED during the walk — when the next top-level heading opens
  * and once at the end — so the per-document text cap is enforced against the
@@ -27,7 +25,6 @@ import {
   type ExtractedDocument,
   type ExtractionRecipeProvisional,
   type PreparedExtraction,
-  type StructureCandidateV1,
 } from '@texttrends/core';
 import { ExtractionFailure } from './failure.ts';
 
@@ -51,8 +48,6 @@ interface P5Node {
 }
 
 interface Segment {
-  level: number | null; // heading level that opened it, or null (pre-heading)
-  title: string;
   chunks: string[];
 }
 
@@ -61,7 +56,6 @@ interface Emitter {
   readonly maxTextUtf16: number;
   /** Cleaned segment texts interleaved with their '\n\n' joins. */
   readonly out: string[];
-  readonly candidates: StructureCandidateV1[];
   /** The EXACT accumulated final-output UTF-16 length (one running cursor). */
   length: number;
   /** The segment currently being collected. */
@@ -83,24 +77,19 @@ function clean(value: string): string {
 
 /**
  * Close the current segment: clean it, account for the EXACT blank-line join
- * plus cleaned length on the running output cursor, emit its heading range,
+ * plus cleaned length on the running output cursor,
  * release the segment's chunk references, and reject the moment the exact
  * accumulated output length exceeds the cap. Raw chunk length is NEVER compared
  * against the cap — `clean()` collapses arbitrary whitespace runs, so raw-length
  * accounting would change the accept/reject set.
  */
 function flushSegment(em: Emitter): void {
-  const { level, title } = em.cur;
   const text = clean(em.cur.chunks.join(''));
   em.cur.chunks.length = 0; // the walk holds no other reference to these chunks
   if (text === '') return;
   if (em.out.length > 0) { em.out.push('\n\n'); em.length += 2; }
-  const start = em.length;
   em.out.push(text);
   em.length += text.length;
-  if (level !== null && title.trim() !== '') {
-    em.candidates.push({ kind: 'html-heading', level, title, chars: { start, end: em.length } });
-  }
   if (em.length > em.maxTextUtf16) {
     throw new ExtractionFailure('CAP_EXCEEDED', `html extracted text of ${em.length} exceeds the per-document cap`);
   }
@@ -129,15 +118,13 @@ function walk(node: P5Node, em: Emitter, inHeading: { level: number } | null): v
 
   const level = HEADINGS[tag];
   if (level !== undefined && inHeading === null) {
-    // A top-level heading closes (flushes) the previous segment and opens a new
-    // one; the heading text is its title AND its opening text.
+    // A top-level heading closes the previous segment and opens a new one.
     flushSegment(em);
-    const cur: Segment = { level, title: '', chunks: [] };
+    const cur: Segment = { chunks: [] };
     em.cur = cur;
     cur.chunks.push('\n\n');
     for (const c of node.childNodes ?? []) walk(c, em, { level });
     cur.chunks.push('\n\n');
-    cur.title = clean(cur.chunks.join('')).replace(/\n+/gu, ' ');
     return;
   }
 
@@ -171,19 +158,18 @@ function parseAndCollect(
   parse: (html: string) => unknown,
   html: string,
   maxTextUtf16: number,
-): { text: string; candidates: StructureCandidateV1[] } {
+): string {
   const doc = parse(html) as P5Node;
   const body = findBody(doc) ?? doc;
   const em: Emitter = {
     maxTextUtf16,
     out: [],
-    candidates: [],
     length: 0,
-    cur: { level: null, title: '', chunks: [] },
+    cur: { chunks: [] },
   };
   walk(body, em, null);
   flushSegment(em); // the final segment has no next heading to flush it
-  return { text: em.out.join(''), candidates: em.candidates };
+  return em.out.join('');
 }
 
 export async function extractHtmlDocument(
@@ -201,7 +187,7 @@ export async function extractHtmlDocument(
     throw new ExtractionFailure('DECODE_FAILED', e.message, { cause: e });
   }
   const { parse } = await import('parse5');
-  const { text, candidates } = parseAndCollect(parse, decoded.text, maxTextUtf16);
+  const text = parseAndCollect(parse, decoded.text, maxTextUtf16);
   // Defensive re-assertion of the invariant the per-flush accounting enforces.
   if (text.length > maxTextUtf16) {
     throw new ExtractionFailure('CAP_EXCEEDED', `html extracted text of ${text.length} exceeds the per-document cap`);
@@ -218,7 +204,6 @@ export async function extractHtmlDocument(
       encoding: { detected: decoded.detected, hadReplacementChars: decoded.decoderReplacementCount > 0 },
     },
     text,
-    candidates,
     evidence: { decoderReplacementCount: decoded.decoderReplacementCount, suspiciousControlCount: decoded.suspiciousControlCount },
   };
   return finalizeExtraction(prepared, recipe);

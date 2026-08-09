@@ -1,22 +1,20 @@
 /**
- * Worker wire protocol v4 — contract §12.8 (ingest & structure). This is the
+ * Worker wire protocol v4. This is the
  * LIVE protocol: the engine, client, and worker shell all speak it (6c wire
  * cutover), and the v3 protocol.ts has been removed. It was introduced ahead of
  * the engine (commit 5) so its types and total runtime validators could be
  * proven before anything consumed them.
  *
  * What v4 added over the retired v3 (all breaking, hence the version bump):
- * - per-document source/extraction/structure inputs carrying FULL recipe and
- *   override VALUES plus their claimed hashes (a cold restart reconstructs
- *   everything; the worker recomputes every hash — hashes are admission
+ * - per-document source/extraction inputs carrying full recipes plus their
+ *   claimed hashes (the worker recomputes every hash — hashes are admission
  *   checks and lookup accelerators, never authority);
  * - `source-ready` returns the complete SourceDescriptor plus extraction
- *   evidence, and progress gains `extract` and `structure` phases;
+ *   evidence;
  * - warm misses carry a REQUESTED DEPENDENCY and reason (a user file cannot
  *   be re-fetched from a URL — the worker re-extracts persisted sources,
- *   re-indexes verified text, and recomputes structure before ever asking
+ *   and re-indexes verified text before ever asking
  *   for bytes);
- * - a snapshot-bound `structure` query op;
  * - a SEPARATE user-data storage operation map (project load/save, source
  *   persist) with its own error semantics — never disguised as analysis
  *   progress.
@@ -24,7 +22,7 @@
 
 import type {
   IndexRecipeProvisional,
-  ProjectManifestV1,
+  ProjectManifestV2,
   ResearchStateV1,
   SourceDescriptorV1,
 } from '@texttrends/core';
@@ -45,21 +43,15 @@ export const PROTOCOL_VERSION_V4 = 4;
  *  Re-exported so worker-side modules keep one protocol import. */
 export type {
   BuildPhaseV4,
-  EditSectionRow,
   GenerationDocSpecV4,
   KeynessRequestV1,
   KwicTrack,
-  LineExcerptResultV1,
   MissingWarmDocV4,
-  OverrideInputV4,
   QueryOpV4,
   QueryResultDataV4,
   SourceAvailability,
   SourceFormat,
-  StructureEditContextV1,
-  StructureQueryResultV1,
   WarmMissReasonV4,
-  WireSection,
   WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 
@@ -74,11 +66,7 @@ export type WorkerErrorCodeV4 =
   | 'CAP_EXCEEDED'
   | 'DECODE_FAILED'
   | 'SOURCE_MISMATCH'
-  // Deterministically reconstructed candidates contradict an asserted
-  // `expectedCandidates` (a stale manifest / changed source / nondeterminism):
-  // a TERMINAL identity failure, NOT a byte miss — refetching the same bytes
-  // cannot repair it, so the client must not loop "missing → ingest → mismatch"
-  // (engine-v4 consult §B).
+  // Deterministic extraction contradicts an asserted text identity.
   | 'EXTRACTION_MISMATCH'
   | 'PARSE_FAILED'
   | 'DEPENDENCY_MISSING'
@@ -101,6 +89,7 @@ export type UserDataErrorCodeV4 =
   | 'REVISION_CONFLICT'
   | 'QUOTA_EXCEEDED'
   | 'REQUEST_INVALID'
+  | 'INCOMPATIBLE_PROJECT'
   // A source-persist whose bytes do not hash to the claimed SourceHash — an
   // identity fault on a user-data command, never routed through the analysis
   // error channel (engine-v4 consult §Q2).
@@ -130,7 +119,7 @@ export type FromWorkerV4 = VersionedV4 &
     | { readonly t: 'progress'; readonly job: number; readonly generation: string; readonly phase: BuildPhaseV4; readonly doc: string }
     | { readonly t: 'source-ready'; readonly job: number; readonly generation: string; readonly doc: string;
         readonly source: SourceDescriptorV1; readonly extractionRecipe: string; readonly text: string;
-        readonly textLengthUtf16: number; readonly candidates: string;
+        readonly textLengthUtf16: number;
         readonly decoderReplacementCount: number; readonly suspiciousControlCount: number }
     | { readonly t: 'snapshot-published'; readonly generation: string; readonly snapshot: string;
         readonly readyDocs: readonly string[]; readonly missingDocs: readonly string[] }
@@ -144,10 +133,10 @@ export type FromWorkerV4 = VersionedV4 &
     // User-data acknowledgements — distinct from analysis results. The loaded
     // manifest carries its own revision (single authority) — no second copy.
     // The WORKER is the sole durable-admission authority: `manifest` is the
-    // upgraded, deeply-validated record (a corrupt one is a user-data-error),
+    // deeply-validated record (a corrupt one is a user-data-error),
     // so the main thread installs it without a second validation pass.
     | { readonly t: 'project-loaded'; readonly job: number; readonly project: string;
-        readonly manifest: ProjectManifestV1 }
+        readonly manifest: ProjectManifestV2 }
     | { readonly t: 'project-missing'; readonly job: number; readonly project: string }
     | { readonly t: 'project-saved'; readonly job: number; readonly project: string; readonly revision: number }
     | { readonly t: 'research-loaded'; readonly job: number; readonly project: string;

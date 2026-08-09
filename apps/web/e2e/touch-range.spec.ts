@@ -157,7 +157,11 @@ test('touch reads by default and commits only through explicit range mode', asyn
   // A real touch drag beginning over the chart remains page-owned vertically.
   await scrubber.scrollIntoViewIfNeeded();
   const liveBox = (await scrubber.boundingBox())!;
-  const beforeScroll = await page.evaluate(() => window.scrollY);
+  const scroll = await page.evaluate(() => ({
+    before: window.scrollY,
+    max: Math.max(0, document.documentElement.scrollHeight - window.innerHeight),
+  }));
+  const dragDirection = scroll.before < scroll.max ? -1 : 1;
   const cdp = await context.newCDPSession(page);
   const x = Math.round(liveBox.x + Math.min(plotWidth * 0.5, liveBox.width / 2));
   const y = Math.round(liveBox.y + 100);
@@ -167,19 +171,15 @@ test('touch reads by default and commits only through explicit range mode', asyn
   });
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchMove',
-    touchPoints: [{ x, y: y - 60 }],
+    touchPoints: [{ x, y: y + dragDirection * 60 }],
   });
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchMove',
-    touchPoints: [{ x, y: y - 120 }],
-  });
-  await cdp.send('Input.dispatchTouchEvent', {
-    type: 'touchMove',
-    touchPoints: [{ x, y: y - 180 }],
+    touchPoints: [{ x, y: y + dragDirection * 120 }],
   });
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchEnd',
     touchPoints: [],
   });
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(beforeScroll);
+  await expect.poll(() => page.evaluate(() => window.scrollY)).not.toBe(scroll.before);
 });

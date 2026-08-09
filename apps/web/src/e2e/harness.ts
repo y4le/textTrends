@@ -12,12 +12,9 @@ import { RingTrace, type ProtocolTraceEvent } from '../lib/trace.ts';
 import type { GenerationDocSpecV4 } from '../shared/analysis-contract.ts';
 import {
   DEFAULT_INDEX_RECIPE,
-  DEFAULT_STRUCTURE_RECIPE,
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashSourceBytes,
-  hashStructureCandidates,
-  hashStructureRecipe,
   hashText,
 } from '@texttrends/core';
 
@@ -33,23 +30,20 @@ function docBytes(): ArrayBuffer {
 
 /** A real v4 spec for the synthetic ASCII document — `availability: 'external'`
  *  (the harness holds and supplies the bytes; no bundled URL, no persisted
- *  source), with independently computed source/text/candidate/recipe hashes. */
+ *  source), with independently computed source/text/recipe hashes. */
 async function probeSpec(doc: string): Promise<GenerationDocSpecV4> {
   const { txt } = await defaultExtractionRecipes();
   const bytes = encoder.encode(DOC_TEXT);
-  const [expectedHash, expectedText, recipeHash, expectedCandidates, structureRecipeHash] = await Promise.all([
+  const [expectedHash, expectedText, recipeHash] = await Promise.all([
     hashSourceBytes(bytes),
     hashText(DOC_TEXT),
     hashExtractionRecipe(txt),
-    hashStructureCandidates([]),
-    hashStructureRecipe(DEFAULT_STRUCTURE_RECIPE),
   ]);
   return {
     doc,
     language: 'en',
     source: { expectedHash, byteLength: bytes.length, format: 'txt', availability: 'external' },
-    extraction: { recipe: txt, recipeHash, expectedText, expectedCandidates },
-    structure: { recipe: DEFAULT_STRUCTURE_RECIPE, recipeHash: structureRecipeHash, override: { kind: 'none' } },
+    extraction: { recipe: txt, recipeHash, expectedText },
   };
 }
 

@@ -1,8 +1,7 @@
 /**
- * Extraction core — golden tests (ingest/structure plan, commit 2):
+ * Extraction core — golden tests:
  * decoder policy (BOMs, strict UTF-8, total windows-1252 fallback, exact
- * newline preservation), evidence semantics, the fence-aware heading scan
- * over the committed fixtures, and extraction identity.
+ * newline preservation), evidence semantics, and extraction identity.
  */
 import { describe, expect, it } from 'vitest';
 import {
@@ -11,21 +10,17 @@ import {
   decodeDocumentSource,
   decodeSource,
   defaultExtractionRecipes,
-  deriveCandidatesFromText,
   epubExtractionRecipe,
   finalizeExtraction,
   hashExtractionRecipe,
   hashSourceBytes,
-  hashStructureCandidates,
   hashText,
   validateExtractionRecipe,
   type PreparedExtraction,
 } from '../src/index.ts';
 import { windows1252TableHash } from '../src/extract/decode.ts';
-import { scanMarkdownHeadings } from '../src/extract/markdown.ts';
 import { extractDocument } from './support/extract-document.ts';
 import { BOOK_LIKE_MD } from './fixtures/md/book-like.ts';
-import { TECHNICAL_MD } from './fixtures/md/technical.ts';
 
 const utf8 = (s: string): Uint8Array => new TextEncoder().encode(s);
 
@@ -45,7 +40,7 @@ describe('decode/finalize seam (honest progress split)', () => {
     expect(decoded.decoded.text).toBe(whole.text);
   });
 
-  it('the decode phase gates ill-formed input before any candidate work', async () => {
+  it('the decode phase gates ill-formed input before extraction work', async () => {
     const { txt } = await defaultExtractionRecipes();
     // A BOM-declared UTF-8 with an invalid continuation byte fails in decode.
     await expect(decodeDocumentSource(Uint8Array.from([0xef, 0xbb, 0xbf, 0xc3, 0x28]), txt)).rejects.toThrow(DecodeError);
@@ -143,100 +138,17 @@ describe('decoder policy bom-utf8-windows1252-v1', () => {
   });
 });
 
-describe('markdown-heading-scan-v1', () => {
-  it('finds ATX and setext headings in the book-like fixture, in text order', () => {
-    const c = scanMarkdownHeadings(BOOK_LIKE_MD);
-    expect(c.map((x) => [x.level, x.title])).toEqual([
-      [1, 'The Adventure of the Copper Manuscript'],
-      [2, 'Chapter I. The Letter'],
-      [2, 'Chapter II. The Visitor'],
-      [3, "The Dealer's Account"],
-    ]);
-    // Anchors address the heading LINE exactly.
-    for (const cand of c) {
-      const line = BOOK_LIKE_MD.slice(cand.chars.start, cand.chars.end);
-      expect(line).toContain(cand.title);
-    }
-  });
-
-  it('never produces headings from code fences or front matter (technical fixture)', () => {
-    const c = scanMarkdownHeadings(TECHNICAL_MD);
-    expect(c.map((x) => [x.kind, x.level, x.title])).toEqual([
-      ['md-heading-atx', 1, 'Field Notes on Corpus Tooling'],
-      ['md-heading-atx', 2, 'Setup'],
-      ['md-heading-atx', 2, 'Results'],
-      ['md-heading-setext', 2, 'Setext headings also exist'],
-    ]);
-    // The fixture's fences contain shell comments; front matter contains
-    // 'title:' — none may surface as candidates.
-    expect(c.some((x) => x.title.includes('corpus, tooling'))).toBe(false);
-  });
-
-  it('handles fence false-positives, empty ATX, CRLF setext, and trailing hashes', () => {
-    const text = [
-      '```',
-      '# not a heading',
-      '```',
-      '',
-      '#',                       // empty ATX — no candidate
-      '## Real Heading ##',      // trailing closing hashes stripped
-      '',
-      'CRLF Title\r',
-      '===\r',
-      '    # indented code, not a heading',
-    ].join('\n');
-    const c = scanMarkdownHeadings(text);
-    expect(c.map((x) => [x.level, x.title])).toEqual([
-      [2, 'Real Heading'],
-      [1, 'CRLF Title'],
-    ]);
-    // The CRLF setext anchor excludes nothing mid-line and lands on the
-    // underline's end.
-    const setext = c[1]!;
-    expect(text.slice(setext.chars.start, setext.chars.end)).toBe('CRLF Title\r\n===');
-  });
-
-  it('fence closure matches the OPENING marker: char and at-least length, marker-only line', () => {
-    const text = [
-      '````',
-      '# hidden one',
-      '```',              // shorter — does NOT close the ```` fence
-      '# hidden two',
-      '```js',            // info string — an opening shape, never a close
-      '# hidden three',
-      '`````',            // longer same-char marker-only — closes
-      '# Real Heading',
-      '~~~',
-      '# tilde hidden',
-      '```',              // wrong marker char — does not close ~~~
-      '# still hidden',
-      '~~~   ',           // trailing whitespace allowed on a close
-      '## Also Real',
-    ].join('\n');
-    const c = scanMarkdownHeadings(text);
-    expect(c.map((x) => x.title)).toEqual(['Real Heading', 'Also Real']);
-  });
-
-  it('candidate hashing is order-and-content sensitive', async () => {
-    const a = await hashStructureCandidates(scanMarkdownHeadings(BOOK_LIKE_MD));
-    const b = await hashStructureCandidates(scanMarkdownHeadings(TECHNICAL_MD));
-    expect(a).not.toBe(b);
-    expect(a).toBe(await hashStructureCandidates(scanMarkdownHeadings(BOOK_LIKE_MD)));
-  });
-});
-
 describe('PreparedExtraction transformed path (container extraction)', () => {
   // A minimal, valid transformed EPUB input the adapter would produce.
   async function transformedEpub(overrides: {
     text?: string;
-    candidates?: readonly { kind: string; level: number; title: string; chars: { start: number; end: number } }[];
     format?: string;
     documentCount?: number;
   } = {}): Promise<{
     prepared: Extract<PreparedExtraction, { kind: 'transformed' }>;
     recipe: ReturnType<typeof epubExtractionRecipe>;
   }> {
-    const text = overrides.text ?? 'Chapter One\n\nThe body of the chapter.';
+    const text = overrides.text ?? 'Part One\n\nThe body of the book.';
     const bytes = utf8('PK pretend epub bytes');
     const hash = await hashSourceBytes(bytes);
     const prepared = {
@@ -249,45 +161,38 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
         container: { internalDecoding: 'utf-8-strict', documentCount: overrides.documentCount ?? 1 },
       },
       text,
-      candidates: overrides.candidates ?? [
-        { kind: 'epub-section', level: 1, title: 'Chapter One', chars: { start: 0, end: 11 } },
-      ],
       evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
     } as unknown as Extract<PreparedExtraction, { kind: 'transformed' }>;
     return { prepared, recipe: epubExtractionRecipe(['bodymatter']) };
   }
 
-  it('builds a canonical artifact from adapter-supplied text + container candidates', async () => {
+  it('builds a canonical artifact from adapter-supplied text', async () => {
     const { prepared, recipe } = await transformedEpub();
     const { artifact, text } = await finalizeExtraction(prepared, recipe);
-    expect(text).toBe('Chapter One\n\nThe body of the chapter.');
+    expect(text).toBe('Part One\n\nThe body of the book.');
     expect(artifact.descriptor.kind).toBe('container');
     expect(artifact.text).toBe(await hashText(text));
     expect(artifact.recipe).toBe(await hashExtractionRecipe(recipe));
-    expect(artifact.candidates[0]!.kind).toBe('epub-section');
-    expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
   });
 
   it('rejects a transformed input paired with a text-reconstructed (md) recipe', async () => {
     const { md } = await defaultExtractionRecipes();
     const { prepared } = await transformedEpub();
-    await expect(finalizeExtraction(prepared, md)).rejects.toThrow(/source-reconstructed recipe|disagrees/);
+    await expect(finalizeExtraction(prepared, md)).rejects.toThrow(/descriptor|disagrees/);
   });
 
-  it('rejects an out-of-range candidate, a format disagreement, and ill-formed text', async () => {
+  it('rejects a format disagreement and ill-formed text', async () => {
     const recipe = epubExtractionRecipe(['bodymatter']);
-    const past = await transformedEpub({ candidates: [{ kind: 'epub-section', level: 1, title: 'x', chars: { start: 0, end: 9999 } }] });
-    await expect(finalizeExtraction(past.prepared, recipe)).rejects.toThrow(RangeError);
     const wrongFormat = await transformedEpub({ format: 'txt' });
     await expect(finalizeExtraction(wrongFormat.prepared, recipe)).rejects.toThrow(/descriptor is not a valid/);
-    const illFormed = await transformedEpub({ text: '\uD800', candidates: [] });
+    const illFormed = await transformedEpub({ text: '\uD800' });
     await expect(finalizeExtraction(illFormed.prepared, recipe)).rejects.toThrow(DecodeError);
   });
 
   it('rejects adversarial-but-otherwise-valid inputs the builder must NOT admit (exact-shape self-admission)', async () => {
     // Codex review: a builder must reject exactly what admission rejects, so an
     // extra descriptor/evidence field or a bogus encoding can never produce an
-    // artifact that finalize accepts but validateExtractionArtifact rejects.
+    // artifact that finalize would accept with inconsistent descriptor evidence.
     const recipe = epubExtractionRecipe(['bodymatter']);
     const base = await transformedEpub();
     const withExtraDescriptorField = { ...base.prepared, source: { ...base.prepared.source, extra: 1 } };
@@ -300,7 +205,6 @@ describe('PreparedExtraction transformed path (container extraction)', () => {
       kind: 'transformed',
       source: { kind: 'markup', hash: 'e'.repeat(64), byteLength: 3, format: 'html', encoding: { detected: 'klingon', hadReplacementChars: false } },
       text: 'abc',
-      candidates: [],
       evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
     };
     await expect(finalizeExtraction(bogusEncoding as never, htmlRecipe)).rejects.toThrow(RangeError);
@@ -311,13 +215,8 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
   it('epubExtractionRecipe validates and round-trips through validateExtractionRecipe', async () => {
     const recipe = epubExtractionRecipe(['bodymatter']);
     expect(recipe.format).toBe('epub');
-    expect(recipe.candidateReconstruction).toBe('source');
     // A recipe hash is stable and order-independent (canonical).
     expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe(epubExtractionRecipe(['bodymatter'])));
-  });
-
-  it('deriveCandidatesFromText refuses a source-dependent (epub) recipe', async () => {
-    await expect(deriveCandidatesFromText('# heading', epubExtractionRecipe())).rejects.toThrow(RangeError);
   });
 
   it('canonicalizes partitions so equivalent selections share one identity, and rejects non-canonical', async () => {
@@ -329,8 +228,7 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
     const nonCanonical = {
       schema: 'texttrends/extraction-recipe/0-provisional',
       format: 'epub',
-      extractor: { id: 'standard-ebooks-epub-v1', partitions: ['bodymatter', 'bodymatter'], serializer: 'xhtml-block-collapse-v1', sectioning: 'spine-order-v1' },
-      candidateReconstruction: 'source',
+      extractor: { id: 'standard-ebooks-epub-v1', partitions: ['bodymatter', 'bodymatter'], serializer: 'xhtml-block-collapse-v1' },
     };
     await expect(validateExtractionRecipe(nonCanonical)).rejects.toThrow(/canonical/);
   });
@@ -341,10 +239,9 @@ describe('epub extraction recipe + source-reconstruction guard', () => {
 });
 
 describe('html extraction recipe + markup transformed finalize', () => {
-  it('the default html recipe validates and is source-reconstructed', async () => {
+  it('the default html recipe validates', async () => {
     const recipe = (await defaultExtractionRecipes()).html;
     expect(recipe.format).toBe('html');
-    expect(recipe.candidateReconstruction).toBe('source');
     expect(await hashExtractionRecipe(recipe)).toBe(await hashExtractionRecipe((await defaultExtractionRecipes()).html));
   });
 
@@ -357,17 +254,10 @@ describe('html extraction recipe + markup transformed finalize', () => {
       kind: 'transformed',
       source: { kind: 'markup', hash, byteLength: bytes.length, format: 'html', encoding: { detected: 'utf-8', hadReplacementChars: false } },
       text,
-      candidates: [{ kind: 'html-heading', level: 1, title: 'Heading', chars: { start: 0, end: 7 } }],
       evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
     } as unknown as PreparedExtraction;
     const { artifact } = await finalizeExtraction(prepared, recipe);
     expect(artifact.descriptor.kind).toBe('markup');
-    expect(artifact.candidates[0]!.kind).toBe('html-heading');
-    expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
-  });
-
-  it('deriveCandidatesFromText refuses an html recipe', async () => {
-    await expect(deriveCandidatesFromText('<h1>x</h1>', (await defaultExtractionRecipes()).html)).rejects.toThrow(RangeError);
   });
 });
 
@@ -380,8 +270,6 @@ describe('extractDocument', () => {
     expect(artifact.schema).toBe('texttrends/extraction/1');
     expect(artifact.text).toBe(await hashText(BOOK_LIKE_MD));
     expect(artifact.textLengthUtf16).toBe(BOOK_LIKE_MD.length);
-    expect(artifact.candidates.length).toBe(4);
-    expect(artifact.candidateHash).toBe(await hashStructureCandidates(artifact.candidates));
     expect(artifact.descriptor.byteLength).toBe(bytes.length);
     expect(artifact.descriptor.kind).toBe('text');
     if (artifact.descriptor.kind !== 'text') throw new Error('expected a text descriptor');
@@ -389,16 +277,14 @@ describe('extractDocument', () => {
     expect(artifact.descriptor.encoding.hadReplacementChars).toBe(false);
   });
 
-  it('txt recipes scan nothing; same text under txt vs md differs ONLY in recipe/candidates', async () => {
+  it('the same literal text under txt and md shares source/text identity but not recipe identity', async () => {
     const { txt, md } = await defaultExtractionRecipes();
     const bytes = utf8(BOOK_LIKE_MD);
     const asTxt = await extractDocument(bytes, txt);
     const asMd = await extractDocument(bytes, md);
-    expect(asTxt.artifact.candidates).toEqual([]);
     expect(asTxt.artifact.text).toBe(asMd.artifact.text);       // same TextHash
     expect(asTxt.artifact.source).toBe(asMd.artifact.source);   // same SourceHash
     expect(asTxt.artifact.recipe).not.toBe(asMd.artifact.recipe);
-    expect(asTxt.artifact.candidateHash).not.toBe(asMd.artifact.candidateHash);
   });
 
   it('a BOM changes SourceHash but not TextHash', async () => {

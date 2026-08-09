@@ -17,7 +17,6 @@ import {
   resolveSelection,
   type ResolvedSelection,
 } from '../src/snapshot/selection.ts';
-import { rootOnlyV2 } from './support/root-only-structure.ts';
 
 const GEN = 'keyness' as BuildGeneration;
 const REQUEST: KeynessTableRequestV1 = {
@@ -48,7 +47,6 @@ async function fixture(texts: readonly [string, string][]) {
       await makeReadyDocument(
         doc as ProjectDocId,
         shard,
-        rootOnlyV2(text, shard.text),
       ),
     );
   }

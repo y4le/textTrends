@@ -3,8 +3,7 @@
  * It DYNAMICALLY imports the catalog-independent `@texttrends/standard-ebooks/
  * extract` subpath (so the zip/XML libraries load only when an EPUB is actually
  * ingested, never for txt/md users) and turns archive bytes into a `transformed`
- * PreparedExtraction: the joined reading-order text, one `epub-section`
- * candidate per included spine document, and container provenance. Core's
+ * PreparedExtraction: the joined reading-order text and container provenance. Core's
  * `finalizeExtraction` then validates and hashes it into the one canonical
  * artifact — this adapter never hand-assembles an artifact.
  */
@@ -15,7 +14,6 @@ import {
   type ExtractedDocument,
   type ExtractionRecipeProvisional,
   type PreparedExtraction,
-  type StructureCandidateV1,
 } from '@texttrends/core';
 import { ExtractionFailure } from './failure.ts';
 
@@ -49,18 +47,6 @@ export async function extractEpubDocument(
   }
 
   const hash = await hashSourceBytes(bytes);
-  // One candidate per INCLUDED spine document: its title anchors a flat chapter
-  // boundary at the section's start in the joined text (the structure builder
-  // recomputes each span's end from the next boundary).
-  const candidates: StructureCandidateV1[] = result.sections
-    .filter((s) => s.includedInText && s.range !== null && s.title.trim() !== '')
-    .map((s) => ({
-      kind: 'epub-section',
-      level: 1,
-      title: s.title,
-      chars: { start: s.range!.start, end: s.range!.end },
-    }));
-
   const prepared: PreparedExtraction = {
     kind: 'transformed',
     source: {
@@ -71,7 +57,6 @@ export async function extractEpubDocument(
       container: { internalDecoding: 'utf-8-strict', documentCount: result.sections.length },
     },
     text: result.text,
-    candidates,
     evidence: { decoderReplacementCount: 0, suspiciousControlCount: 0 },
   };
   return finalizeExtraction(prepared, recipe);

@@ -9,8 +9,8 @@ The current workbench supports:
 
 - TXT, Markdown, HTML/XHTML, and EPUB projects, plus the bundled Sherlock
   Holmes corpus;
-- corpus structure review and chapter editing;
-- vocabulary frequency, section profiles, TF-IDF, comparison, and keyness;
+- a persistent local file catalog with ordered active corpora;
+- vocabulary frequency, document dispersion, comparison, and keyness;
 - term-group trends, exact-or-density dispersion barcodes, linked ranges, and
   a merged keyword-in-context concordance;
 - a full-page canonical-text Reader with query highlights; and

@@ -5,7 +5,7 @@ Parley request `req_consult_a2002d56c2327772`, session
 `ses_cad54a4d184a8c0d`, artifact
 `art_sha256_c27b4b4a264a71518248b3c59162d88624c4852049b44c9f631cd550c4d0c842`.
 This plan depends on the term-count primitive and cache specified in
-`docs/design/corpus-dashboard-plan.md`.*
+the implemented inventory and frequency operations.*
 
 **STATUS: COMPLETE (2026-07-30).**
 

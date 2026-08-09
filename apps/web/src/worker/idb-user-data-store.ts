@@ -1,18 +1,14 @@
 /**
  * IndexedDB UserDataStore — class-1 DURABLE storage (contract §12.5/§12.6).
  *
- * SAME-NAME MIGRATION contract, opposite of the disposable artifact cache:
- * additive changes bump the IndexedDB version under `texttrends-user-data`
- * and run explicit migrations; the database is never abandoned. A blocked
+ * The durable database keeps one stable name. Store additions bump its
+ * IndexedDB version; authored project schemas are admitted separately. A blocked
  * upgrade surfaces "close the other tab and retry" — it must NOT silently
  * fall back and claim a project was saved.
  *
  * SINGLE REVISION AUTHORITY (engine-v4 consult §Q3): the project record IS the
- * canonical `ProjectManifestV1`, keyed by its own `id`, and its own `revision`
- * is the sole CAS authority. Version 2 migrates the version-1 wrapper record
- * ({id, revision, manifest}) into its inner manifest when the two agree, and
- * leaves anything inconsistent for the deep validator to reject as corrupt —
- * never inventing a project from an ambiguous record.
+ * canonical project manifest, keyed by its own `id`, and its own `revision`
+ * is the sole CAS authority.
  *
  * putProject is a real COMPARE-AND-SWAP inside one readwrite transaction: the
  * stored revision is read and checked against the caller's expected revision
@@ -25,7 +21,7 @@
 
 import { isNonNegSafeInt, isRecord } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { ProjectManifestV1, ResearchStateV1 } from '@texttrends/core';
+import type { ProjectManifestV2, ResearchStateV1 } from '@texttrends/core';
 import type { CacheRead } from '../shared/storage-contract.ts';
 import type { UserDataAccess } from './user-data-handler.ts';
 import {
@@ -43,7 +39,7 @@ export const USER_DATA_DB_NAME = 'texttrends-user-data';
 export const USER_DATA_DB_VERSION = 3;
 
 interface UserDataDb extends DBSchema {
-  projects: { key: string; value: ProjectManifestV1 };
+  projects: { key: string; value: ProjectManifestV2 };
   sources: { key: string; value: StoredSourceV1 };
   research: { key: string; value: ResearchStateV1 };
 }
@@ -76,7 +72,7 @@ export class IdbUserDataStore implements UserDataStore {
     return reason === null ? { kind: 'hit', value: record } : { kind: 'corrupt', reason };
   }
 
-  async putProject(next: ProjectManifestV1, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV1 }> {
+  async putProject(next: ProjectManifestV2, expectedRevision: number): Promise<{ readonly committed: ProjectManifestV2 }> {
     // Contract precondition (programming fault) BEFORE any transaction, so it
     // is never remapped to a storage failure code.
     assertRevisionContract(next.revision, expectedRevision);
@@ -306,42 +302,15 @@ export async function openUserDataStore(
 
 const defaultUserDataOpen: UserDataOpener = (onBlocked) =>
   openDB<UserDataDb>(USER_DATA_DB_NAME, USER_DATA_DB_VERSION, {
-    async upgrade(database, oldVersion, _newVersion, tx) {
-      // Same-name MIGRATION: create missing stores idempotently.
+    upgrade(database, oldVersion) {
+      // Create missing stores idempotently. Project payload upgrades are not
+      // performed here; the project admission boundary owns schema handling.
       if (oldVersion < 1) {
         database.createObjectStore('projects', { keyPath: 'id' });
         database.createObjectStore('sources', { keyPath: 'hash' });
       }
       if (oldVersion < 3) {
         database.createObjectStore('research', { keyPath: 'project' });
-      }
-      // v1 → v2: unwrap the old { schema, id, revision, manifest } wrapper into
-      // its canonical inner manifest — but ONLY when BOTH the outer wrapper is
-      // itself a valid v1 envelope (correct schema, a positive-safe-integer
-      // revision, a string id) AND its inner manifest agrees on schema, id, and
-      // revision. Anything else — a foreign outer schema, a bad outer revision,
-      // a disagreeing inner — is left as-is for the deep validator to reject as
-      // corrupt; it is never deleted or invented into a valid project (the
-      // durable contract is migration, not fabrication).
-      if (oldVersion >= 1 && oldVersion < 2) {
-        const store = tx.objectStore('projects');
-        let cursor = await store.openCursor();
-        while (cursor) {
-          const rec = cursor.value as unknown as Record<string, unknown>;
-          if (rec && typeof rec === 'object' && 'manifest' in rec) {
-            const inner = rec.manifest as Record<string, unknown> | null;
-            const outerValid =
-              rec.schema === 'texttrends/project/1' && typeof rec.id === 'string' &&
-              isNonNegSafeInt(rec.revision) && (rec.revision as number) >= 1;
-            const innerAgrees =
-              inner !== null && typeof inner === 'object' &&
-              inner.schema === 'texttrends/project/1' && inner.id === rec.id && inner.revision === rec.revision;
-            if (outerValid && innerAgrees) {
-              await cursor.update(inner as unknown as ProjectManifestV1);
-            }
-          }
-          cursor = await cursor.continue();
-        }
       }
     },
     blocked() {

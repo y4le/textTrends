@@ -141,7 +141,7 @@ describe('sequence scrub mapping', () => {
   });
 });
 
-describe('token-edge geometry (chapter boundary rules)', () => {
+describe('token-edge geometry (range boundary rules)', () => {
   it('series edge lands on the token START, not its center', () => {
     // Second book starts at base 100; a boundary at local token 10 is global
     // 110 → 110/150 of the width. The scrubber (center) would add +0.5.

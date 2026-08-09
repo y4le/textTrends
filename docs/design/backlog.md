@@ -13,12 +13,10 @@ on.
 
 ## Open items
 
-- **2026-07-29 · simplification residue** — simplification-plan.md §"Still
-  open" R2/R3/R5 micro-items (assertExactRecord throwing tier, lowerBound
-  home, brand-helper normalization, beginAtSnapshot, structureKeyFor, shared
-  mono-button style, …). Owner
-  declared simplification done; treat these as opportunistic in-path fixes
-  only, when a slice touches the same file.
+- **2026-07-29 · simplification residue** — small locality and normalization
+  improvements (assertExactRecord throwing tier, brand-helper normalization,
+  beginAtSnapshot, shared mono-button style, and similar cleanup). Treat these
+  as opportunistic in-path fixes only when a feature touches the same file.
 - **2026-07-29 · checkpoint (CORRECTED by the slice-2 ruling)** — the first
   new QueryOp is slice 2's `dispersion/1` (the barcode had no public
   occurrence result), so F1 QueryExecutor extraction + the narrow G2 fixture

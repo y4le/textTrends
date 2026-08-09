@@ -3,30 +3,21 @@
  * the WORKER is the sole durable-admission authority — it stores the manifest
  * and answers project-load/save. Because the durable
  * user-data store persists an `unknown` payload, the worker MUST validate a
- * canonical ProjectManifestV1 before accepting project-save or emitting
+ * canonical ProjectManifestV2 before accepting project-save or emitting
  * project-loaded (engine-v4 consult): a corrupt/foreign manifest must not
  * enter the CAS, and the manifest's own revision is the single revision
  * authority (no wrapper/manifest double-count).
  *
- * This validator checks structure, identity agreement (order ↔ docs), the
- * recipe/override VALUES via the same total core validators the wire boundary
- * uses, AND every claimed hash — it RECOMPUTES each recipe/override hash from
- * its value (engine-v4 consult §Q3): a stored hash is an assertion, so the
- * durable boundary that admits a manifest must verify index/extraction/
- * structure-recipe hashes, both override hashes (active AND needs-review — an
- * inactive correction may still be relied on later), and that each doc's
+ * This validator checks identity agreement (order ↔ docs), recipe values via
+ * the same total core validators the wire boundary uses, and every claimed
+ * hash. A stored hash is an assertion, so the durable boundary verifies
+ * index/extraction recipe hashes and that each doc's
  * source format agrees with its extraction recipe. It is the deep authority
  * for durable project data; downstream handlers never re-verify these.
  */
 
 import { exactArray, exactRecord, isNonNegSafeInt as isSafeNonNeg, isRecord as isRec, isString as isStr } from '../contract/guards.ts';
 import { hashIndexRecipe, isIndexRecipeProvisional } from '../contract/recipes.ts';
-import {
-  hashStructureOverride,
-  hashStructureRecipe,
-  isStructureOverrideV1,
-  isStructureRecipeProvisional,
-} from '../structure/build.ts';
 import {
   hashExtractionRecipe,
   isValidSourceDescriptor,
@@ -36,7 +27,6 @@ import {
   type SourceFormat,
 } from '../extract/extraction.ts';
 import type { IndexRecipeProvisional } from '../contract/recipes.ts';
-import type { StructureOverrideV1, StructureRecipeProvisional } from '../structure/build.ts';
 
 export type SourceAvailability = 'bundled' | 'persisted' | 'external';
 
@@ -52,15 +42,6 @@ export interface DocumentMetaV1 {
   readonly tags: readonly string[];
 }
 
-/** The persisted override, honestly discriminated: an active correction is
- *  retained verbatim with its base identities; needs-review keeps a stale
- *  correction for later rebase without letting it affect the section table
- *  (§12.3). */
-export type PersistedOverride =
-  | { readonly status: 'none' }
-  | { readonly status: 'active'; readonly value: StructureOverrideV1; readonly hash: string }
-  | { readonly status: 'needs-review'; readonly value: StructureOverrideV1; readonly hash: string };
-
 export interface ProjectDocV1 {
   readonly doc: string;
   readonly sourceName: string;
@@ -72,17 +53,11 @@ export interface ProjectDocV1 {
     readonly recipeHash: string;
     readonly text: string;
     readonly textLengthUtf16: number;
-    readonly candidates: string;
-  };
-  readonly structure: {
-    readonly recipe: StructureRecipeProvisional;
-    readonly recipeHash: string;
-    readonly override: PersistedOverride;
   };
 }
 
-export interface ProjectManifestV1 {
-  readonly schema: 'texttrends/project/1';
+export interface ProjectManifestV2 {
+  readonly schema: 'texttrends/project/2';
   readonly id: string;
   readonly revision: number;
   readonly order: readonly string[];
@@ -99,44 +74,6 @@ export class ManifestInvalidError extends Error {
 }
 
 
-/** Enclosing identities the override's status must be consistent with (§12.6). */
-interface DocIdentities {
-  readonly text: string;
-  readonly candidates: string;
-  readonly structureRecipeHash: string;
-}
-
-async function validateOverride(o: unknown, id: DocIdentities): Promise<PersistedOverride> {
-  if (!isRec(o) || !isStr(o.status)) throw new ManifestInvalidError('override status missing');
-  if (o.status === 'none') {
-    if (!exactRecord(o, ['status'])) throw new ManifestInvalidError('none override has extra fields');
-    return { status: 'none' };
-  }
-  if (o.status === 'active' || o.status === 'needs-review') {
-    if (!exactRecord(o, ['status', 'value', 'hash']) || !isStructureOverrideV1(o.value) || !isStr(o.hash)) {
-      throw new ManifestInvalidError(`${o.status} override malformed`);
-    }
-    // The claimed override hash is an assertion — recompute it. This holds for
-    // BOTH statuses: a needs-review correction is not currently applied, but
-    // it will be relied on once the user rebases it, so its identity must be
-    // true now (engine-v4 consult §Q3).
-    if ((await hashStructureOverride(o.value)) !== o.hash) {
-      throw new ManifestInvalidError(`${o.status} override hash does not match its value`);
-    }
-    // §12.6 invariant: active IFF all three base identities match the doc's
-    // current extraction/structure; needs-review IFF at least one differs.
-    const matches = o.value.text === id.text && o.value.candidates === id.candidates && o.value.baseRecipe === id.structureRecipeHash;
-    if (o.status === 'active' && !matches) {
-      throw new ManifestInvalidError('active override base identities do not match the document');
-    }
-    if (o.status === 'needs-review' && matches) {
-      throw new ManifestInvalidError('needs-review override still matches the document (should be active)');
-    }
-    return o as unknown as PersistedOverride;
-  }
-  throw new ManifestInvalidError(`unknown override status '${String(o.status)}'`);
-}
-
 function validateMeta(m: unknown): void {
   if (!isRec(m)) throw new ManifestInvalidError('doc meta invalid');
   const keys = ['title', 'language', 'tags'];
@@ -151,7 +88,7 @@ function validateMeta(m: unknown): void {
 }
 
 async function validateDoc(v: unknown): Promise<ProjectDocV1> {
-  if (!exactRecord(v, ['doc', 'sourceName', 'meta', 'source', 'sourceAvailability', 'extraction', 'structure'])) {
+  if (!exactRecord(v, ['doc', 'sourceName', 'meta', 'source', 'sourceAvailability', 'extraction'])) {
     throw new ManifestInvalidError('doc has unexpected fields');
   }
   if (!isStr(v.doc) || !isStr(v.sourceName)) throw new ManifestInvalidError('doc identity invalid');
@@ -175,8 +112,8 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   }
   const e = v.extraction;
   if (
-    !exactRecord(e, ['recipe', 'recipeHash', 'text', 'textLengthUtf16', 'candidates']) ||
-    !isStr(e.recipeHash) || !isStr(e.text) || !isSafeNonNeg(e.textLengthUtf16) || !isStr(e.candidates)
+    !exactRecord(e, ['recipe', 'recipeHash', 'text', 'textLengthUtf16']) ||
+    !isStr(e.recipeHash) || !isStr(e.text) || !isSafeNonNeg(e.textLengthUtf16)
   ) {
     throw new ManifestInvalidError('doc extraction identity invalid');
   }
@@ -200,14 +137,6 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
   if ((await hashExtractionRecipe(extractionRecipe)) !== e.recipeHash) {
     throw new ManifestInvalidError('doc extraction recipeHash does not match its recipe');
   }
-  const st = v.structure;
-  if (!exactRecord(st, ['recipe', 'recipeHash', 'override']) || !isStructureRecipeProvisional(st.recipe) || !isStr(st.recipeHash)) {
-    throw new ManifestInvalidError('doc structure recipe invalid');
-  }
-  if ((await hashStructureRecipe(st.recipe)) !== st.recipeHash) {
-    throw new ManifestInvalidError('doc structure recipeHash does not match its recipe');
-  }
-  await validateOverride(st.override, { text: e.text, candidates: e.candidates, structureRecipeHash: st.recipeHash });
   // Substitute the CANONICAL recipe (deep-equal to the stored one — its hash
   // was just verified) so the admitted doc holds the immutable validated
   // snapshot: a later mutation of the raw stored graph cannot reach durable
@@ -217,15 +146,15 @@ async function validateDoc(v: unknown): Promise<ProjectDocV1> {
 
 /**
  * Total validation of a durable project manifest. Throws ManifestInvalidError
- * on any structural, identity, or recipe/override-value violation. Enforces
+ * on any shape, identity, or recipe-value violation. Enforces
  * the single-revision-authority rule (a positive safe integer) and exact
  * agreement between `order` and `docs`.
  */
-export async function validateProjectManifest(value: unknown): Promise<ProjectManifestV1> {
+export async function validateProjectManifest(value: unknown): Promise<ProjectManifestV2> {
   if (!exactRecord(value, ['schema', 'id', 'revision', 'order', 'docs', 'indexRecipe', 'indexRecipeHash'])) {
     throw new ManifestInvalidError('manifest has unexpected fields or an invalid shape');
   }
-  if (value.schema !== 'texttrends/project/1') throw new ManifestInvalidError('manifest schema invalid');
+  if (value.schema !== 'texttrends/project/2') throw new ManifestInvalidError('manifest schema invalid');
   if (!isStr(value.id)) throw new ManifestInvalidError('manifest id invalid');
   if (typeof value.revision !== 'number' || !Number.isSafeInteger(value.revision) || value.revision < 1) {
     throw new ManifestInvalidError('manifest revision must be a positive safe integer');
@@ -255,54 +184,5 @@ export async function validateProjectManifest(value: unknown): Promise<ProjectMa
   // Return the manifest carrying the ADMITTED docs (whose extraction recipes
   // are the canonical validated snapshots) — the caller must retain and use
   // this returned value, per the validated-recipe contract.
-  return { ...value, docs } as unknown as ProjectManifestV1;
-}
-
-/**
- * Lazily upgrade a stored manifest from the pre-container shape (before source
- * descriptors were discriminated by `kind` and extraction recipes carried
- * `candidateReconstruction`) to the current shape. Applied on READ before
- * `validateProjectManifest`, so a project saved by an older build reopens
- * instead of reporting DATA_CORRUPT.
- *
- * A doc is upgraded ONLY when it is recognizably a genuine pre-discriminant
- * txt/md record — an exact legacy source shape (no `kind`), a legacy recipe with
- * no `candidateReconstruction`, AND a legacy `recipeHash` that VERIFIABLY matches
- * that legacy recipe. It then inserts `source.kind: 'text'` + the recipe's
- * `candidateReconstruction: 'text'` and recomputes the recipe hash, preserving
- * revision and every content hash. Anything else (a wrong/missing legacy hash, a
- * foreign source shape) is genuine corruption and is left UNCHANGED so deep
- * validation reports it — the upgrader never repairs corrupt durable data.
- * Idempotent: a current-shape manifest is returned unchanged.
- */
-export async function upgradeStoredManifest(raw: unknown): Promise<unknown> {
-  if (!isRec(raw) || !Array.isArray(raw.docs)) return raw;
-  const docs = await Promise.all(
-    raw.docs.map(async (doc): Promise<unknown> => {
-      // Only a pre-discriminant record (object source with NO kind) is a candidate.
-      if (!isRec(doc) || !isRec(doc.source) || doc.source.kind !== undefined) return doc;
-      const s = doc.source;
-      const e = doc.extraction;
-      // Recognize the EXACT legacy txt/md source + recipe shapes. Anything that
-      // is not a known-old record is left for validation to reject.
-      const legacySource =
-        exactRecord(s, ['hash', 'byteLength', 'format', 'encoding']) &&
-        (s.format === 'txt' || s.format === 'md') &&
-        isRec(s.encoding) && exactRecord(s.encoding, ['detected', 'hadReplacementChars']);
-      if (!legacySource || !isRec(e) || !isRec(e.recipe) || e.recipe.candidateReconstruction !== undefined) return doc;
-      // VERIFY the legacy recipe hash matched the legacy recipe before touching
-      // it — a wrong or missing claim is corruption, not an old record, and must
-      // NOT be silently overwritten into validity.
-      if (typeof e.recipeHash !== 'string' || (await hashExtractionRecipe(e.recipe as ExtractionRecipeProvisional)) !== e.recipeHash) {
-        return doc;
-      }
-      const recipe = { ...e.recipe, candidateReconstruction: 'text' } as unknown as ExtractionRecipeProvisional;
-      return {
-        ...doc,
-        source: { kind: 'text', ...s },
-        extraction: { ...e, recipe, recipeHash: await hashExtractionRecipe(recipe) },
-      };
-    }),
-  );
-  return { ...raw, docs };
+  return { ...value, docs } as unknown as ProjectManifestV2;
 }

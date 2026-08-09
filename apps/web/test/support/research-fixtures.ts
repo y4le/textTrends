@@ -16,9 +16,8 @@ export function researchState(
     kwicEnabled: [],
     views: {
       trend: {
-        schema: 'texttrends/trend-view/2',
+        schema: 'texttrends/trend-view/3',
         mode: 'series',
-        sectionMarks: true,
         focusedDoc: null,
         bins: { mode: 'per-doc', count: 40 },
         measure: {

@@ -62,11 +62,11 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
 
   // Per-document phase order (no single global order — engines interleave):
   // the honest v4 pipeline is decode -> extract -> segment -> index ->
-  // structure -> compose, with exactly one source-ready per cold-ingested doc
+  // compose, with exactly one source-ready per cold-ingested doc
   // (emitted after a complete, verified extraction, before publication).
   for (const { doc } of SHERLOCK) {
     const phases = events(t, { direction: 'from-worker', t: 'progress', doc }).map((e) => e.phase);
-    expect(phases, doc).toEqual(['decode', 'extract', 'segment', 'index', 'structure', 'compose']);
+    expect(phases, doc).toEqual(['decode', 'extract', 'segment', 'index', 'compose']);
     const sourceReady = events(t, { direction: 'from-worker', t: 'source-ready', doc });
     expect(sourceReady.length, doc).toBe(1);
   }
