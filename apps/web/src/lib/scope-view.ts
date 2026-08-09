@@ -6,7 +6,7 @@ import { builtinCorpusOption } from './project.ts';
 const number = new Intl.NumberFormat();
 
 export interface ScopeProject {
-  readonly kind: 'builtin' | 'user';
+  readonly kind: 'builtin' | 'library';
   readonly id: string;
   readonly docCount: number;
 }
@@ -54,7 +54,7 @@ export function corpusName(project: ScopeProject | null): string {
   if (project === null) return 'Preparing corpus';
   return project.kind === 'builtin'
     ? builtinCorpusOption(project.id)?.label ?? 'Built-in corpus'
-    : 'Imported corpus';
+    : 'Library corpus';
 }
 
 export function scopeView(input: ScopeInput, place: Place): ScopeVM {

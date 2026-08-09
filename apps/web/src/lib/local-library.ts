@@ -17,7 +17,6 @@ import {
   type WorkspaceV1,
 } from '@texttrends/core';
 import { openDB, type DBSchema, type IDBPDatabase } from 'idb';
-import type { FileLike } from './project-session.ts';
 
 export const LOCAL_LIBRARY_DB_NAME = 'texttrends-library';
 export const LOCAL_LIBRARY_DB_VERSION = 1;
@@ -54,10 +53,19 @@ interface LocalLibraryDb extends DBSchema {
   };
 }
 
-export type LocalFileInput = FileLike & {
+export interface LocalFileInput {
+  readonly name: string;
+  readonly size: number;
+  arrayBuffer(): Promise<ArrayBuffer>;
   readonly type?: string;
   readonly lastModified?: number;
-};
+}
+
+export interface LocalLibraryFile extends LocalFileInput {
+  readonly library: string;
+  readonly format: SourceFormat;
+  readonly contentHash: string;
+}
 
 export interface LocalLibraryAddResult {
   readonly item: LocalLibraryItem;
@@ -227,13 +235,16 @@ export class BrowserLocalLibrary {
     return results;
   }
 
-  async file(id: string): Promise<LocalFileInput> {
+  async file(id: string): Promise<LocalLibraryFile> {
     const db = await this.open();
     const record: unknown = await db.get('files', id);
     if (!validCurrentRecord(record) || record.id !== id) {
       throw new Error(record === undefined ? 'that saved file no longer exists' : 'that saved local file is damaged');
     }
     return {
+      library: record.id,
+      format: record.format,
+      contentHash: record.contentHash,
       name: record.name,
       size: record.size,
       type: record.type,

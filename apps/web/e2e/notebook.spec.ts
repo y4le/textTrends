@@ -28,7 +28,7 @@ async function importCorpus(page: Page): Promise<void> {
     mimeType: 'text/plain',
     buffer: Buffer.from(CORPUS, 'utf-8'),
   });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
 }

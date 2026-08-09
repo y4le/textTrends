@@ -235,7 +235,7 @@ describe('corpusName', () => {
     expect(corpusName({ kind: 'builtin', id: 'builtin/sherlock', docCount: 6 })).toBe('Sherlock Holmes');
     expect(corpusName({ kind: 'builtin', id: 'builtin/asoif', docCount: 5 })).toBe('A Song of Ice and Fire');
     expect(corpusName({ kind: 'builtin', id: 'builtin/lotr', docCount: 3 })).toBe('The Lord of the Rings');
-    expect(corpusName({ kind: 'user', id: 'user/default', docCount: 2 })).toBe('Imported corpus');
+    expect(corpusName({ kind: 'library', id: 'library', docCount: 2 })).toBe('Library corpus');
     expect(corpusName(null)).toBe('Preparing corpus');
   });
 });

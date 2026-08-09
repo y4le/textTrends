@@ -29,7 +29,7 @@ test('multi-file import transfers every source and finalizes in selection order'
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel('Create project from files').setInputFiles(files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: f.buffer })));
 
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, files.length);
 
   // Every source transferred: exactly N ingests since the mark, each detached

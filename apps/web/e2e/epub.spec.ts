@@ -2,13 +2,34 @@
  * EPUB ingest (Phase 2) in the real browser: import a minimal, deterministic
  * EPUB, then prove the worker unzipped it, extracted body-matter text, and made
  * it analyzable — a term that appears ONLY in the epub body produces a trend +
- * concordance. Also proves a persisted epub warm-reopens after the disposable
- * artifact cache is cleared.
+ * concordance. Also proves a library-backed EPUB reopens after disposable
+ * artifacts are cleared.
  */
 
 import { expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
 import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
+
+async function awaitSavedWorkspace(page: import('@playwright/test').Page): Promise<void> {
+  await expect.poll(() => page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const workspace = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return (workspace as { corpus?: { kind?: string; order?: readonly string[] } } | undefined)?.corpus?.order?.length ?? 0;
+    } finally {
+      database.close();
+    }
+  }, LOCAL_LIBRARY_DB_NAME), { timeout: 10_000 }).toBe(1);
+}
 
 /** A two-document EPUB 3: body matter carries the distinctive word "zephyrwood";
  *  the title page (front matter) is excluded from body-only extraction. */
@@ -62,7 +83,7 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
     mimeType: 'application/epub+zip',
     buffer: fixtureEpub(),
   });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // A word that appears ONLY in the epub body matter yields a trend line — proof
@@ -78,36 +99,24 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
   expect(rows).toBeGreaterThanOrEqual(2); // both body documents mention it
 });
 
-test('a persisted EPUB warm-reopens after the artifact cache is cleared', async ({ page }) => {
+test('a library EPUB reopens after the artifact cache is cleared', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
-  // Persist the source + save the project, then evict the disposable artifact
-  // cache and reload: the worker must re-extract the container from durable
-  // source bytes because no derived text remains.
-  await page.getByRole('button', { name: 'persist' }).click();
-  await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'catalog');
-  const save = page.getByRole('button', { name: 'Save project' });
-  await expect(save).toBeEnabled({ timeout: 30_000 });
-  await save.click();
-  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await awaitSavedWorkspace(page);
 
   await clearArtifactStores(page);
   await page.reload();
-  await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
-  await page.getByRole('button', { name: 'Load saved project' }).click();
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
-  // Re-extracted from persisted source: the body term still analyzes.
+  // Re-extracted from the library source: the body term still analyzes.
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
   const input = await openQuickAdd(page);
@@ -117,23 +126,17 @@ test('a persisted EPUB warm-reopens after the artifact cache is cleared', async 
   await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
 });
 
-test('a persisted EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
+test('a library EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
-  await page.getByRole('button', { name: 'persist' }).click();
-  await expect(page.getByLabel('Documents').getByText('persisted', { exact: true })).toBeVisible({ timeout: 30_000 });
-  await gotoPlace(page, 'catalog');
-  const save = page.getByRole('button', { name: 'Save project' });
-  await expect(save).toBeEnabled({ timeout: 30_000 });
-  await save.click();
-  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
+  await awaitSavedWorkspace(page);
 
   // Clear the shard while keeping the stored text. The index can rebuild
   // directly from that format-neutral text.
@@ -151,10 +154,7 @@ test('a persisted EPUB rebuilds its index when only extracted text survives', as
   }, DB_NAME);
 
   await page.reload();
-  await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
-  await page.getByRole('button', { name: 'Load saved project' }).click();
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   await gotoPlace(page, 'trends');

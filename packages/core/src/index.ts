@@ -220,7 +220,7 @@ export {
   type KeynessTableRequestV1,
 } from './ops/keyness.ts';
 export { buildResolver, modeKey, type MatchMode, type Resolver } from './resolve/fold.ts';
-export { DecodeError, decodeSource } from './extract/decode.ts';
+export { DecodeError, decodeSource, type DetectedEncoding } from './extract/decode.ts';
 export {
   decodeDocumentSource,
   defaultExtractionRecipes,

@@ -9,10 +9,10 @@ import {
   localFileIdentity,
   localLibrary,
   type LocalFileInput,
+  type LocalLibraryFile,
   type LocalLibraryItem,
 } from '../lib/local-library.ts';
 import { BUILTIN_CORPORA, builtinCorpusOption, SOURCE_FILE_ACCEPT, type BuiltinCorpusId } from '../lib/project.ts';
-import { projectSaveView } from '../lib/project-save-view.ts';
 import type { SourceStatus } from '../lib/project-session.ts';
 import { useApp } from '../lib/store-instance.ts';
 
@@ -22,17 +22,8 @@ const ACTIVE_DRAG = 'application/x-texttrends-active-document';
 function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
     case 'bundled': return 'bundled';
-    case 'external-attached': return `attached · ${status.name}`;
-    case 'external-missing':
-      switch (status.repair) {
-        case 'external-not-attached': return 'source missing — reattach the file';
-        case 'persisted-missing': return 'persisted copy missing — reattach to repair';
-        case 'persisted-corrupt': return 'persisted copy damaged — reattach to repair';
-        case 'rehydrate-failed': return 'persisted copy unreadable — reattach to repair';
-      }
-    case 'persist-saving': return 'persisting…';
-    case 'persist-failed': return `persist failed: ${status.message}`;
-    case 'persisted': return 'persisted';
+    case 'library': return 'on this device';
+    case 'error': return status.message;
     default: return '—';
   }
 }
@@ -66,20 +57,15 @@ export function ProjectPanel({
   const docs = useApp((s) => s.projectSession?.project.data.docs ?? null);
   const imports = useApp((s) => s.projectSession?.imports ?? null);
   const sources = useApp((s) => s.projectSession?.sources ?? null);
-  const reattach = useApp((s) => s.projectSession?.reattach ?? null);
   const commandError = useApp((s) => s.commandError);
   const openBuiltinCorpus = useApp((s) => s.openBuiltinCorpus);
   const importFiles = useApp((s) => s.importFiles);
   const removeImport = useApp((s) => s.removeImport);
   const removeDocument = useApp((s) => s.removeDocument);
+  const removeDocuments = useApp((s) => s.removeDocuments);
   const reorder = useApp((s) => s.reorder);
-  const doReattach = useApp((s) => s.reattach);
-  const setPersistIntent = useApp((s) => s.setPersistIntent);
-  const loadSavedProject = useApp((s) => s.loadSavedProject);
-  const saveProject = useApp((s) => s.saveProject);
-  const researchPersistence = useApp((s) => s.researchPersistence);
-  const reloadResearch = useApp((s) => s.reloadResearch);
-  const overwriteResearch = useApp((s) => s.overwriteResearch);
+  const workspacePersistence = useApp((s) => s.workspacePersistence);
+  const retryWorkspaceSave = useApp((s) => s.retryWorkspaceSave);
   const clearCommandError = useApp((s) => s.clearCommandError);
 
   const importRef = useRef<HTMLInputElement>(null);
@@ -125,20 +111,19 @@ export function ProjectPanel({
   if (!project) return null;
   const isBuiltin = project.kind === 'builtin';
   const builtinLabel = builtinCorpusOption(project.id)?.label ?? 'Built-in corpus';
-  const saveView = projectSaveView(project);
   const importLabel = isBuiltin ? 'Create project from files' : 'Add files';
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
   const canReorder = !isBuiltin && pendingImports.length === 0 && finalizedDocs.length > 1;
-  activeIdentityRef.current = new Set(finalizedDocs.map((doc) => localFileIdentity(doc.source.format, doc.source.hash)));
+  activeIdentityRef.current = new Set(finalizedDocs.flatMap((doc) => doc.library === undefined ? [] : [doc.library]));
   if (pendingImports.length > 0) sawPendingImportsRef.current = true;
   else if (sawPendingImportsRef.current) {
     pendingActivationRef.current.clear();
     sawPendingImportsRef.current = false;
   }
 
-  const activateUnique = (files: readonly LocalFileInput[], items: readonly LocalLibraryItem[]): number => {
-    const unique: LocalFileInput[] = [];
+  const activateUnique = (files: readonly LocalLibraryFile[], items: readonly LocalLibraryItem[]): number => {
+    const unique: LocalLibraryFile[] = [];
     const queuedIdentities: string[] = [];
     let duplicates = 0;
     for (let index = 0; index < items.length; index += 1) {
@@ -178,7 +163,10 @@ export function ProjectPanel({
       await refreshLibrary();
       const savedDuplicates = results.filter((result) => !result.added).length;
       const activeDuplicates = activate && signal?.aborted !== true
-        ? activateUnique(files, results.map((result) => result.item))
+        ? activateUnique(
+            await Promise.all(results.map((result) => localLibrary.file(result.item.id))),
+            results.map((result) => result.item),
+          )
         : 0;
       if (signal?.aborted !== true) setLibraryNotice(duplicateNotice(savedDuplicates, activeDuplicates));
     } catch (error) {
@@ -221,9 +209,15 @@ export function ProjectPanel({
 
   const removeSaved = async (id: string) => {
     if (libraryBusy) return;
+    const liveDocuments = finalizedDocs
+      .filter((doc) => doc.library === id)
+      .map((doc) => doc.doc)
+      .concat(pendingImports.filter((item) => item.library === id).map((item) => item.doc));
     setLibraryBusy(true);
     try {
-      await localLibrary.delete(id);
+      const result = await localLibrary.delete(id);
+      const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
+      if (removed.length > 0) removeDocuments(removed);
       await refreshLibrary();
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
@@ -238,9 +232,14 @@ export function ProjectPanel({
       ? 'Delete all saved files from this device?'
       : `Delete all ${library.length} saved file${library.length === 1 ? '' : 's'} from this device?`;
     if (!window.confirm(prompt)) return;
+    const liveDocuments = finalizedDocs
+      .flatMap((doc) => doc.library === undefined ? [] : [doc.doc])
+      .concat(pendingImports.map((item) => item.doc));
     setLibraryBusy(true);
     try {
-      await localLibrary.clear();
+      const result = await localLibrary.clear();
+      const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
+      if (removed.length > 0) removeDocuments(removed);
       await refreshLibrary();
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
@@ -283,7 +282,7 @@ export function ProjectPanel({
     >
       <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         <Heading id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
-          {isBuiltin ? `${builtinLabel} · built-in corpus (read-only)` : 'your project'}
+          {isBuiltin ? `${builtinLabel} · built-in corpus (read-only)` : 'library corpus'}
         </Heading>
         <span style={{ flex: 1 }} />
         {isBuiltin && (
@@ -405,28 +404,14 @@ export function ProjectPanel({
             <h4 id="active-files-heading" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>Active files</h4>
             <span style={{ color: 'var(--fg-muted)' }}>{finalizedDocs.length + pendingImports.length} file{finalizedDocs.length + pendingImports.length === 1 ? '' : 's'}</span>
             <span style={{ flex: 1 }} />
-            <button type="button" onClick={() => loadSavedProject()} style={SMALL_BUTTON_STYLE}>Load saved project</button>
-            {!isBuiltin && (
-              <button type="button" disabled={!saveView.canSave} onClick={() => saveProject()} style={SMALL_BUTTON_STYLE}>
-                {saveView.attention ? 'retry Save project' : 'Save project'}
-              </button>
-            )}
           </div>
           <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
             Drop saved or new files here. Drag active files to reorder them.
           </p>
-          {saveView.showStatus && (
-            <p role={saveView.attention ? 'alert' : 'status'} style={{ margin: 'var(--space-1) 0 0', color: saveView.attention ? 'var(--accent-text)' : 'var(--fg-muted)' }}>
-              {saveView.label}
-            </p>
-          )}
           <ol aria-label="Documents" style={{ ...dropListStyle, counterReset: 'active-document' }}>
             {finalizedDocs.map((doc, index) => {
               const status = sources?.[doc.doc];
-              const attachment = reattach?.[doc.doc];
-              const missing = status?.phase === 'external-missing';
-              const canPersist = !isBuiltin && doc.sourceAvailability === 'external' && status?.phase === 'external-attached';
-              const canRetryPersist = !isBuiltin && doc.sourceAvailability === 'external' && status?.phase === 'persist-failed';
+              const sourceError = status?.phase === 'error';
               return (
                 <li
                   key={doc.doc}
@@ -444,29 +429,9 @@ export function ProjectPanel({
                   <span style={{ color: 'var(--fg-muted)', textAlign: 'right' }}>{index + 1}</span>
                   <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
                     <span>{doc.meta.title}</span>{' '}
-                    <span style={{ color: missing ? 'var(--accent-text)' : 'var(--fg-muted)' }}>{sourceLabel(status)}</span>
-                    {attachment?.phase === 'hashing' && <span style={{ color: 'var(--fg-muted)' }}> · hashing…</span>}
-                    {attachment?.phase === 'mismatch' && <span style={{ color: 'var(--accent-text)' }}> · {attachment.message}</span>}
+                    <span style={{ color: sourceError ? 'var(--accent-text)' : 'var(--fg-muted)' }}>{sourceLabel(status)}</span>
                   </span>
                   <span style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'baseline' }}>
-                    {missing && (
-                      <label style={{ cursor: 'pointer', color: 'var(--fg-muted)' }}>
-                        reattach…
-                        <input
-                          type="file"
-                          accept={SOURCE_FILE_ACCEPT}
-                          aria-label={`Reattach source for ${doc.meta.title}`}
-                          onChange={(event) => {
-                            const file = event.target.files?.[0];
-                            if (file) doReattach(doc.doc, file);
-                            event.target.value = '';
-                          }}
-                          style={{ display: 'none' }}
-                        />
-                      </label>
-                    )}
-                    {canPersist && <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={SMALL_BUTTON_STYLE}>persist</button>}
-                    {canRetryPersist && <button type="button" onClick={() => setPersistIntent(doc.doc, true)} style={SMALL_BUTTON_STYLE}>Retry persist</button>}
                     {!isBuiltin && (
                       <button type="button" onClick={() => removeDocument(doc.doc)} style={SMALL_BUTTON_STYLE} aria-label={`Remove ${doc.meta.title} from active corpus`}>
                         remove
@@ -488,13 +453,10 @@ export function ProjectPanel({
         </section>
       </div>
 
-      {(researchPersistence.phase === 'conflict' || researchPersistence.phase === 'error') && (
+      {workspacePersistence.phase === 'error' && (
         <div role="alert" style={{ margin: 'var(--space-1) 0 0' }}>
-          {researchPersistence.message}{' '}
-          <button type="button" onClick={() => reloadResearch()} style={SMALL_BUTTON_STYLE}>reload saved analysis state</button>{' '}
-          {researchPersistence.phase === 'conflict' && (
-            <button type="button" onClick={() => overwriteResearch()} style={SMALL_BUTTON_STYLE}>overwrite with this tab</button>
-          )}
+          {workspacePersistence.message}{' '}
+          <button type="button" onClick={() => retryWorkspaceSave()} style={SMALL_BUTTON_STYLE}>retry</button>
         </div>
       )}
     </section>

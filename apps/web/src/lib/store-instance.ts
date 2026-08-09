@@ -1,7 +1,7 @@
 /**
  * The app's composition root — the one place the synchronous React store, the
- * one `WorkerClient`, and the one `ProjectSession` are wired together (commit
- * 7c, per the recorded 7c integration ruling). A separate module so tests can
+ * one `WorkerClient`, and the one `ProjectSession` are wired together. A
+ * separate module lets tests
  * build a runtime with fakes without touching the Worker global.
  *
  * The store is exported synchronously, but the session needs the async-built
@@ -16,17 +16,11 @@
  * and the page exposes a frozen read-only facade for the Playwright suite.
  */
 
-import { hashSourceBytes } from '@texttrends/core';
+import type { WorkspaceV1 } from '@texttrends/core';
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
-import {
-  BUILTIN_SHERLOCK_ID,
-  builtinCorpusOption,
-  builtinProject,
-  builtinProjectRegistry,
-} from './project.ts';
-import { ProjectSession, type BundledByteProvider } from './project-session.ts';
-import { createAppRuntime } from './store.ts';
+import type { ProjectSession, BundledByteProvider } from './project-session.ts';
+import { createAppRuntime, type WorkspaceStorePort } from './store.ts';
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 
@@ -96,31 +90,92 @@ const bundledBytes: BundledByteProvider = {
 /** Set by the HMR dispose hook: the async bootstrap below must not construct
  *  a session, register client listeners, or attach after teardown began. */
 let torndown = false;
+let closeLibrary: (() => Promise<void>) | null = null;
 
 async function bootstrap(): Promise<void> {
   let session: ProjectSession;
+  let workspaceStore: WorkspaceStorePort | null = null;
+  let restoredWorkspace: WorkspaceV1 | null = null;
+  let bootstrapNotice: string | null = null;
+  let defaultTerms = '';
   try {
-    const builtinProjects = await builtinProjectRegistry();
-    const data = builtinProjects.get(BUILTIN_SHERLOCK_ID);
-    if (data === undefined) throw new Error('the default Sherlock corpus is not registered');
+    const [
+      { localLibrary },
+      {
+        BUILTIN_SHERLOCK_ID,
+        builtinCorpusOption,
+        builtinProject,
+        builtinProjectRegistry,
+        libraryProject,
+        reconcileLibraryWorkspace,
+      },
+      { ProjectSession },
+    ] = await Promise.all([
+      import('./local-library.ts'),
+      import('./project.ts'),
+      import('./project-session.ts'),
+    ]);
+    workspaceStore = localLibrary;
+    closeLibrary = () => localLibrary.close();
+    const [builtinProjects, libraryItems, stored] = await Promise.all([
+      builtinProjectRegistry(),
+      localLibrary.list(),
+      localLibrary.loadWorkspace(),
+    ]);
+    const fallback = builtinProjects.get(BUILTIN_SHERLOCK_ID);
+    if (fallback === undefined) throw new Error('the default Sherlock corpus is not registered');
+    defaultTerms = builtinCorpusOption(BUILTIN_SHERLOCK_ID)!.defaultTerms;
+    let initial = builtinProject(fallback);
+    if (stored.kind === 'ready') {
+      if (stored.workspace.corpus.kind === 'builtin') {
+        const option = builtinCorpusOption(stored.workspace.corpus.id);
+        const data = option === undefined ? undefined : builtinProjects.get(option.id);
+        if (data === undefined) {
+          bootstrapNotice = 'The saved demo corpus is unavailable; Sherlock Holmes was opened instead.';
+          restoredWorkspace = { ...stored.workspace, corpus: { kind: 'builtin', id: BUILTIN_SHERLOCK_ID } };
+        } else {
+          initial = builtinProject(data);
+          restoredWorkspace = stored.workspace;
+        }
+      } else {
+        const reconciled = reconcileLibraryWorkspace(
+          stored.workspace,
+          new Set(libraryItems.map((item) => item.id)),
+        );
+        restoredWorkspace = reconciled.workspace;
+        if (reconciled.removedDocuments.length > 0) {
+          await localLibrary.saveWorkspace(reconciled.workspace);
+          const count = reconciled.removedDocuments.length;
+          bootstrapNotice = `${count} active book${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
+        }
+        initial = await libraryProject(
+          reconciled.workspace,
+          new Map(libraryItems.map((item) => [item.id, item])),
+        );
+      }
+    } else if (stored.kind === 'corrupt') {
+      bootstrapNotice = `The saved workspace was damaged and could not be restored: ${stored.reason}`;
+    }
     if (torndown) return; // HMR replaced this module mid-bootstrap
-    session = new ProjectSession(builtinProject(data), {
+    session = new ProjectSession(initial, {
       client,
       bundledBytes,
+      libraryFiles: { get: (id) => localLibrary.file(id) },
       builtinProjects,
       newDocId: () => crypto.randomUUID(),
-      hashBytes: (bytes) => hashSourceBytes(bytes),
     });
   } catch (error) {
     if (!torndown) runtime.failBootstrap(error);
     return;
   }
-  runtime.attachSession(session); // subscribe + seed, exactly once
+  if (workspaceStore === null) throw new Error('the local library did not initialize');
+  runtime.attachSession(session, restoredWorkspace ?? undefined, workspaceStore); // subscribe + seed, exactly once
+  if (bootstrapNotice !== null) runtime.reportNotice(bootstrapNotice);
   // Seed the demo comparison ONCE at bootstrap (the store itself starts with
   // an empty notebook — demo content is a composition decision, not model
   // state). Queries issue when the first snapshot publishes.
-  if (runtime.useApp.getState().notebook.groups.length === 0) {
-    runtime.useApp.getState().quickAdd(builtinCorpusOption(BUILTIN_SHERLOCK_ID)!.defaultTerms);
+  if (restoredWorkspace === null && runtime.useApp.getState().notebook.groups.length === 0) {
+    runtime.useApp.getState().quickAdd(defaultTerms);
   }
   session.start(); // only after the store is observing
 }
@@ -140,6 +195,7 @@ if (import.meta.hot) {
       unsubscribeResumeState();
       resumeMonitor.dispose();
       runtime.dispose();
+      void closeLibrary?.();
     } finally {
       client.close();
     }

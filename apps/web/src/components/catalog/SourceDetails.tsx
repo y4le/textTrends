@@ -11,7 +11,7 @@ export function SourceDetails({
   const project = useApp((state) => state.projectSession?.project ?? null);
   const snapshot = useApp((state) => state.snapshot);
   const focusedDoc = useApp((state) => state.focusedDoc);
-  const sourceEvidence = useApp((state) => state.projectSession?.sourceEvidence ?? null);
+  const extractionDiagnostics = useApp((state) => state.projectSession?.extractionDiagnostics ?? null);
   const setFocusedDoc = useApp((state) => state.setFocusedDoc);
 
   if (!project || !snapshot || !focusedDoc) return null;
@@ -22,10 +22,7 @@ export function SourceDetails({
 
   const titleOf = (doc: string): string =>
     project.data.docs.find((candidate) => candidate.doc === doc)?.meta.title ?? doc;
-  const encoding = selected.source.kind === 'text' || selected.source.kind === 'markup'
-    ? selected.source.encoding
-    : null;
-  const evidence = sourceEvidence?.[focusedDoc] ?? null;
+  const diagnostics = extractionDiagnostics?.[focusedDoc] ?? null;
 
   return (
     <section
@@ -58,21 +55,16 @@ export function SourceDetails({
       <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
         {selected.sourceName} · {selected.source.format.toUpperCase()} · {number.format(selected.source.byteLength)} bytes
       </p>
-      {encoding && (
+      {diagnostics && (
         <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }} role="note">
-          encoding:{' '}
-          {encoding.detected === 'windows-1252'
-            ? <span style={{ color: 'var(--accent-text)' }}>Windows-1252 (inferred — no BOM/UTF-8)</span>
-            : <span>{encoding.detected}</span>}
-          {encoding.hadReplacementChars && <span> · contains replacement characters</span>}
-          {evidence
-            ? <span> · this session: {evidence.decoderReplacementCount} replaced, {evidence.suspiciousControlCount} control chars</span>
-            : <span> · exact counts unavailable (warm reopen)</span>}
-        </p>
-      )}
-      {selected.source.kind === 'container' && (
-        <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
-          {number.format(selected.source.container.documentCount)} content file{selected.source.container.documentCount === 1 ? '' : 's'} extracted
+          {diagnostics.detectedEncoding !== undefined && <>
+            encoding:{' '}
+            {diagnostics.detectedEncoding === 'windows-1252'
+              ? <span style={{ color: 'var(--accent-text)' }}>Windows-1252 (inferred — no BOM/UTF-8)</span>
+              : <span>{diagnostics.detectedEncoding}</span>}
+            {' · '}
+          </>}
+          this extraction: {diagnostics.decoderReplacementCount} replaced, {diagnostics.suspiciousControlCount} control chars
         </p>
       )}
     </section>

@@ -2,8 +2,8 @@
  * Commit 9a — decoder policy in the real browser (§12.4). A UTF-16LE BOM is
  * authoritative (distinct detected encoding); an invalid-UTF-8 file falls back
  * to the TOTAL Windows-1252 decoder (0 inserted replacements, a persistent
- * inferred badge, and C1 controls surfaced as extraction evidence). The badge
- * and per-session evidence come from the finalized doc + source-ready, proving
+ * inferred badge, and C1 controls surfaced as decoder diagnostics). The badge
+ * and per-session diagnostics come from source-ready, proving
  * the decode→extract path ran on the correctly-decoded text.
  */
 
@@ -20,7 +20,7 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
   const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
   await page.getByLabel('Create project from files').setInputFiles({ name: 'utf16.md', mimeType: 'text/markdown', buffer: bytes });
 
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   // The durable descriptor reports the BOM-detected encoding, not utf-8.
   await expect(page.getByText(/encoding: utf-16le/)).toBeVisible();
@@ -43,7 +43,7 @@ test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a
   ]);
   await page.getByLabel('Create project from files').setInputFiles({ name: 'legacy.txt', mimeType: 'text/plain', buffer: bytes });
 
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   // The inferred-encoding badge, exact wording.
   await expect(page.getByText('Windows-1252 (inferred — no BOM/UTF-8)')).toBeVisible({ timeout: 30_000 });

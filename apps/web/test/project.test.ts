@@ -1,10 +1,5 @@
-/**
- * The project layer's pure foundation (commit 7b): the unified working-copy
- * data model, the ONE generation-spec builder shared by every origin, and the
- * statically-described built-in project. The stateful session controller (CAS
- * save, import assembly, reattachment) is tested separately.
- */
 import { describe, expect, it } from 'vitest';
+import { workspaceState } from './support/workspace-fixtures.ts';
 import {
   ASOIF,
   BUILTIN_ASOIF_ID,
@@ -12,86 +7,36 @@ import {
   BUILTIN_LOTR_ID,
   BUILTIN_SHERLOCK_ID,
   LOTR,
-  builtinProjectData,
-  builtinProject,
-  generationSpecsFromProject,
-  manifestForSave,
-  ReadOnlyProjectError,
-  userProjectFromManifest,
   SHERLOCK,
+  builtinProjectData,
+  generationSpecsFromProject,
+  libraryProject,
+  reconcileLibraryWorkspace,
   sherlockProjectData,
   type ProjectDataV1,
 } from '../src/lib/project.ts';
-import {
-  validateProjectManifest,
-  type ProjectManifestV2,
-} from '@texttrends/core';
 
-/** A durable manifest built directly for validation — bypasses the guarded
- *  save path (which correctly rejects the built-in origin). */
-const asManifest = (data: ProjectDataV1, revision: number): ProjectManifestV2 => ({ schema: 'texttrends/project/2', revision, ...data });
-
-// THE production constructor — every assertion below covers the object the live
-// app actually builds, so a mapping drift in sherlockProjectData fails here.
 const builtin = () => sherlockProjectData();
 
-describe('the built-in Sherlock project', () => {
-  it('materializes to a manifest that passes the deep durable validator (hashes/identities correct)', async () => {
-    const data = await builtin();
-    expect(data.id).toBe(BUILTIN_SHERLOCK_ID);
-    expect(data.order).toEqual(SHERLOCK.map((s) => s.doc));
-    // A statically-described built-in must be a fully valid manifest — this
-    // proves the recipe hashes match the recipe values (a recipe
-    // change would fail here, not drift silently).
-    await expect(validateProjectManifest(asManifest(data, 1))).resolves.toMatchObject({ id: BUILTIN_SHERLOCK_ID, revision: 1 });
-  });
-
-  it('the built-in origin can NEVER be materialized for a durable save', async () => {
-    const data = await builtin();
-    expect(() => manifestForSave(builtinProject(data))).toThrow(ReadOnlyProjectError);
-  });
-
-  it('carries the real book titles as presentation metadata — doc ids stay identity-only', async () => {
-    const data = await builtin();
-    expect(data.docs.map((d) => d.meta.title)).toEqual(SHERLOCK.map((s) => s.title));
-    // Titles are presentation ("A Study in Scarlet"), never the raw doc id —
-    // panels label documents via meta.title, so a doc-id leak regresses UUID
-    // labels for user projects.
-    for (const d of data.docs) expect(d.meta.title).not.toBe(d.doc);
-  });
-
-  it('every built-in doc is bundled TXT', async () => {
-    const data = await builtin();
-    for (const doc of data.docs) {
-      expect(doc.sourceAvailability).toBe('bundled');
-      expect(doc.source.format).toBe('txt');
-      expect(doc.source.kind).toBe('text');
-      if (doc.source.kind !== 'text') throw new Error('built-in docs are text sources');
-      expect(doc.source.encoding.detected).toBe('utf-8');
-    }
-  });
-});
-
-describe('the bundled demo corpus registry', () => {
-  const fixtures = {
-    [BUILTIN_SHERLOCK_ID]: SHERLOCK,
-    [BUILTIN_ASOIF_ID]: ASOIF,
-    [BUILTIN_LOTR_ID]: LOTR,
-  } as const;
-
-  it('materializes every demo as a valid read-only TXT manifest with corpus-qualified sources', async () => {
+describe('bundled corpora', () => {
+  it('builds every demo in declared order with bundled TXT sources', async () => {
+    const fixtures = {
+      [BUILTIN_SHERLOCK_ID]: SHERLOCK,
+      [BUILTIN_ASOIF_ID]: ASOIF,
+      [BUILTIN_LOTR_ID]: LOTR,
+    } as const;
     for (const corpus of BUILTIN_CORPORA) {
       const data = await builtinProjectData(corpus.id);
       expect(data.id).toBe(corpus.id);
       expect(data.order).toEqual(fixtures[corpus.id].map((entry) => entry.doc));
+      expect(data.docs.every((doc) => doc.sourceAvailability === 'bundled' && doc.source.format === 'txt')).toBe(true);
       expect(data.docs.map((doc) => doc.sourceName)).toEqual(
         fixtures[corpus.id].map((entry) => `${corpus.sourceDirectory}/${entry.doc}`),
       );
-      await expect(validateProjectManifest(asManifest(data, 1))).resolves.toMatchObject({ id: corpus.id });
     }
   });
 
-  it('matches every shipped source byte-for-byte, including UTF-16 lengths and hashes', async () => {
+  it('matches every shipped source byte-for-byte', async () => {
     const { readFile } = await import('node:fs/promises');
     const { hashSourceBytes, hashText } = await import('@texttrends/core');
     for (const corpus of BUILTIN_CORPORA) {
@@ -106,43 +51,81 @@ describe('the bundled demo corpus registry', () => {
       }
     }
   });
-
 });
 
-describe('generationSpecsFromProject', () => {
-  it('maps the working copy to v4 specs in DECLARED order with expected identities', async () => {
+describe('generation specs', () => {
+  it('maps the runtime corpus in declared order with verified warm identities', async () => {
     const data = await builtin();
     const specs = generationSpecsFromProject(data);
-    expect(specs.map((s) => s.doc)).toEqual(SHERLOCK.map((s) => s.doc));
-    const [first] = specs;
-    const s0 = SHERLOCK[0]!;
-    expect(first!.source).toMatchObject({ expectedHash: s0.sourceHash, byteLength: s0.bytes, format: 'txt', availability: 'bundled' });
-    expect(first!.extraction).toMatchObject({ expectedText: s0.textHash, expectedTextLengthUtf16: s0.textLengthUtf16 });
+    expect(specs.map((spec) => spec.doc)).toEqual(SHERLOCK.map((entry) => entry.doc));
+    expect(specs[0]!.source).toMatchObject({
+      expectedHash: SHERLOCK[0]!.sourceHash,
+      byteLength: SHERLOCK[0]!.bytes,
+      format: 'txt',
+      availability: 'bundled',
+    });
+    expect(specs[0]!.extraction).toMatchObject({
+      expectedText: SHERLOCK[0]!.textHash,
+      expectedTextLengthUtf16: SHERLOCK[0]!.textLengthUtf16,
+    });
   });
 
-  it('respects a reordered `order`', async () => {
+  it('respects reorder and refuses an order entry without a document', async () => {
     const base = await builtin();
-    const data: ProjectDataV1 = {
-      ...base,
-      order: [...base.order].reverse(),
-    };
-    const specs = generationSpecsFromProject(data);
-    expect(specs.map((s) => s.doc)).toEqual([...base.order].reverse());
-  });
-
-  it('throws if `order` names a document not in `docs`', async () => {
-    const base = await builtin();
+    const reordered: ProjectDataV1 = { ...base, order: [...base.order].reverse() };
+    expect(generationSpecsFromProject(reordered).map((spec) => spec.doc)).toEqual(reordered.order);
     expect(() => generationSpecsFromProject({ ...base, order: [...base.order, 'ghost'] })).toThrow(/not in docs/);
   });
 });
 
-describe('manifest <-> user-project round trip', () => {
-  it('a loaded manifest becomes a user project whose save materializes the next revision', async () => {
-    const data = await builtin();
-    const loaded = asManifest(data, 5);
-    const project = userProjectFromManifest(loaded);
-    expect(project).toEqual({ kind: 'user', data, baseRevision: 5 });
-    // Save materializes baseRevision + 1 (the CAS target), same data.
-    expect(manifestForSave(project)).toEqual({ ...loaded, revision: 6 });
+describe('library workspace runtime', () => {
+  it('drops missing library references and clears departed view selections', () => {
+    const workspace = workspaceState({
+      corpus: {
+        kind: 'library',
+        order: ['a', 'b'],
+        docs: [
+          { doc: 'a', library: `txt:${'a'.repeat(64)}`, meta: { title: 'A', language: 'en', tags: [] } },
+          { doc: 'b', library: `txt:${'b'.repeat(64)}`, meta: { title: 'B', language: 'en', tags: [] } },
+        ],
+      },
+      views: {
+        ...workspaceState().views,
+        trend: { ...workspaceState().views.trend, focusedDoc: 'b' },
+        compare: { ...workspaceState().views.compare, documentA: 'a', documentB: 'b' },
+      },
+    });
+    const result = reconcileLibraryWorkspace(workspace, new Set([`txt:${'a'.repeat(64)}`]));
+    expect(result.removedDocuments).toEqual(['b']);
+    expect(result.workspace.corpus).toMatchObject({ kind: 'library', order: ['a'] });
+    expect(result.workspace.views.trend.focusedDoc).toBeNull();
+    expect(result.workspace.views.compare).toMatchObject({ documentA: 'a', documentB: null });
+  });
+
+  it('derives library worker inputs and treats warm text as optional', async () => {
+    const id = `txt:${'c'.repeat(64)}`;
+    const workspace = workspaceState({
+      corpus: {
+        kind: 'library',
+        order: ['doc'],
+        docs: [{ doc: 'doc', library: id, meta: { title: 'Book', language: 'en', tags: [] } }],
+      },
+    });
+    const project = await libraryProject(workspace, new Map([[id, {
+      id,
+      name: 'book.txt',
+      size: 12,
+      format: 'txt' as const,
+      contentHash: 'c'.repeat(64),
+    }]]));
+    expect(project.kind).toBe('library');
+    expect(project.data.docs[0]).toMatchObject({
+      doc: 'doc',
+      library: id,
+      sourceName: 'book.txt',
+      source: { hash: 'c'.repeat(64), byteLength: 12, format: 'txt' },
+      sourceAvailability: 'library',
+    });
+    expect(project.data.docs[0]!.extraction.text).toBeUndefined();
   });
 });

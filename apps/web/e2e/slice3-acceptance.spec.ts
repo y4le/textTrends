@@ -60,7 +60,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
   ]);
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
 
   await expect(page.getByRole('heading', { name: 'Catalog' })).toBeVisible({ timeout: 30_000 });

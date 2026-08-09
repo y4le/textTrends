@@ -10,7 +10,7 @@
  * 2. The retained query/KWIC/scrub intent discipline (unchanged from the
  *    listener-owning store): lease lanes, snapshot fences, and stale-result guards.
  *
- * The generation lifecycle (loadSherlock/fetch/restart/import/CAS/reattach)
+ * The generation lifecycle (built-in fetch/restart/library import)
  * moved WHOLESALE to `ProjectSession` and is covered in project-session.test.ts;
  * those store-owned tests are deleted here. One composition test proves the real
  * `ProjectSession` satisfies `SessionPort` and drives the bridge end to end.
@@ -21,10 +21,11 @@ import {
   DEFAULT_KEYNESS_VIEW,
   KWIC_CENTER_DEBOUNCE_MS,
   MAX_SERIES,
-  researchSemanticKey,
+  workspaceSemanticKey,
   type MetaPatch,
   type QueryClient,
   type SessionPort,
+  type WorkspaceStorePort,
 } from '../src/lib/store.ts';
 import type { HistoryPort } from '../src/lib/history-port.ts';
 import type { QueryResultDataV4 } from '../src/worker/protocol-v4.ts';
@@ -35,16 +36,17 @@ import type {
 } from '../src/lib/project-session.ts';
 import { SessionCommandError } from '../src/lib/project-session.ts';
 import { BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
-import { UserDataClientError, WorkerClientError } from '../src/lib/client.ts';
-import type { ResearchLoadResult, SnapshotInfo } from '../src/lib/client.ts';
+import { WorkerClientError } from '../src/lib/client.ts';
+import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   TERM_GROUP_LIMITS_V1,
   type NumericTrend,
-  type ResearchStateV1,
+  type WorkspaceV1,
 } from '@texttrends/core';
-import { researchState } from './support/research-fixtures.ts';
+import { workspaceState } from './support/workspace-fixtures.ts';
 import { FOOTER_PASSAGE_DEBOUNCE_MS } from '../src/lib/footer-view.ts';
+import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -207,10 +209,6 @@ const BUILTIN_PROJECT: ProjectView = {
   kind: 'builtin',
   id: 'builtin/sherlock',
   data: { id: 'builtin/sherlock', order: [], docs: [], indexRecipe: DEFAULT_INDEX_RECIPE, indexRecipeHash: 'idx' },
-  baseRevision: null,
-  dirty: false,
-  save: { phase: 'idle' },
-  saveable: false,
 };
 
 function snap(generation: string, snapshot: string, readyDocs: readonly string[] = ['a']): SnapshotInfo {
@@ -227,8 +225,7 @@ function sessionState(
     snapshot,
     imports: [],
     sources: {},
-    reattach: {},
-    sourceEvidence: {},
+    extractionDiagnostics: {},
   };
 }
 
@@ -243,12 +240,6 @@ class FakeSessionPort implements SessionPort {
   readonly calls: Call[] = [];
   /** Per-method thrower — set to make a command throw (SessionCommandError). */
   errors: Record<string, SessionCommandError | undefined> = {};
-  researchLoadValue: ResearchLoadResult = { kind: 'missing' };
-  researchSaveError: Error | null = null;
-  readonly researchSaves: {
-    state: ResearchStateV1;
-    expectedRevision: number;
-  }[] = [];
   disposed = false;
 
   constructor(initial: SessionState = sessionState(null)) {
@@ -277,35 +268,25 @@ class FakeSessionPort implements SessionPort {
     if (e) throw e;
   }
   start(): void { this.record('start', []); }
-  loadResearch(): { result: Promise<ResearchLoadResult>; cancel: () => void } {
-    this.record('loadResearch', []);
-    return { result: Promise.resolve(this.researchLoadValue), cancel: () => undefined };
-  }
-  saveResearch(
-    state: ResearchStateV1,
-    expectedRevision: number,
-  ): { result: Promise<{ revision: number }>; cancel: () => void } {
-    this.record('saveResearch', [state, expectedRevision]);
-    this.researchSaves.push({ state, expectedRevision });
-    return {
-      result: this.researchSaveError
-        ? Promise.reject(this.researchSaveError)
-        : Promise.resolve({ revision: expectedRevision + 1 }),
-      cancel: () => undefined,
-    };
-  }
   openBuiltinProject(id: string): void { this.record('openBuiltinProject', [id]); }
-  createUserProject(files: readonly unknown[], opts?: unknown): void { this.record('createUserProject', [files, opts]); }
-  appendFiles(files: readonly unknown[], opts?: unknown): void { this.record('appendFiles', [files, opts]); }
+  createLibraryCorpus(files: readonly LocalLibraryFile[]): void { this.record('createLibraryCorpus', [files]); }
+  appendFiles(files: readonly LocalLibraryFile[]): void { this.record('appendFiles', [files]); }
   removeImport(doc: string): void { this.record('removeImport', [doc]); }
   removeDocument(doc: string): void { this.record('removeDocument', [doc]); }
+  removeDocuments(docs: readonly string[]): void { this.record('removeDocuments', [docs]); }
   editMeta(doc: string, patch: MetaPatch): void { this.record('editMeta', [doc, patch]); }
   setLanguage(doc: string, language: string): void { this.record('setLanguage', [doc, language]); }
   reorder(order: readonly string[]): void { this.record('reorder', [order]); }
-  save(): void { this.record('save', []); }
-  setPersistIntent(doc: string, intent: boolean): void { this.record('setPersistIntent', [doc, intent]); }
-  reattach(doc: string, file: unknown): void { this.record('reattach', [doc, file]); }
-  loadUserProject(): void { this.record('loadUserProject', []); }
+}
+
+class FakeWorkspaceStore implements WorkspaceStorePort {
+  readonly saves: WorkspaceV1[] = [];
+  error: Error | null = null;
+
+  async saveWorkspace(workspace: WorkspaceV1): Promise<void> {
+    this.saves.push(workspace);
+    if (this.error !== null) throw this.error;
+  }
 }
 
 function fakeTrend(marker: number): NumericTrend {
@@ -421,11 +402,14 @@ function fakeKeynessResult(marker: number): QueryResultDataV4 {
 }
 
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
-function harness(initial?: SessionState, opts?: { seed?: boolean }) {
+function harness(initial?: SessionState, opts?: { seed?: boolean; workspace?: FakeWorkspaceStore }) {
   const q = fakeQueryClient();
   // Deterministic injected UUIDs: u1, u2, … (creation order).
   let n = 0;
-  const runtime = createAppRuntime(q.client, { newId: () => `u${++n}` });
+  const runtime = createAppRuntime(q.client, {
+    newId: () => `u${++n}`,
+    ...(opts?.workspace === undefined ? {} : { workspace: opts.workspace }),
+  });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
   // The store starts EMPTY (the composition root seeds the demo comparison
@@ -586,12 +570,12 @@ describe('workbench route and history authority', () => {
     await Promise.resolve();
 
     const store = runtime.useApp;
-    const before = researchSemanticKey(store.getState());
+    const before = workspaceSemanticKey(store.getState());
     const issuedBefore = q.issued.length;
     const assertFenced = () => {
-      expect(researchSemanticKey(store.getState())).toBe(before);
+      expect(workspaceSemanticKey(store.getState())).toBe(before);
       expect(q.issued).toHaveLength(issuedBefore);
-      expect(store.getState().researchPersistence.phase).toBe('saved');
+      expect(store.getState().workspacePersistence.phase).toBe('idle');
     };
 
     store.getState().setPlace('catalog');
@@ -630,7 +614,7 @@ describe('workbench route and history authority', () => {
       place: store.getState().place,
       layers: store.getState().layers,
     };
-    store.getState().restoreResearch(researchState(BUILTIN_SHERLOCK_ID, 4));
+    store.getState().restoreWorkspace(workspaceState(BUILTIN_SHERLOCK_ID));
     expect(store.getState()).toMatchObject(navigation);
 
     runtime.dispose();
@@ -697,23 +681,19 @@ describe('workbench route and history authority', () => {
 });
 
 describe('the session bridge', () => {
-  it('hydrates durable research and autosaves semantic changes after 1.5 seconds', async () => {
+  it('autosaves workspace changes after 1.5 seconds and excludes transient paging', async () => {
     vi.useFakeTimers();
     try {
-      const { runtime, store, port } = harness();
-      await Promise.resolve();
-      await Promise.resolve();
+      const workspace = new FakeWorkspaceStore();
+      const { runtime, store } = harness(undefined, { workspace });
       store.getState().quickAdd('Watson');
-      expect(store.getState().researchPersistence.phase).toBe('dirty');
+      expect(store.getState().workspacePersistence.phase).toBe('dirty');
       await vi.advanceTimersByTimeAsync(1_500);
-      expect(port.researchSaves).toHaveLength(1);
-      expect(port.researchSaves[0]).toMatchObject({
-        expectedRevision: 0,
-        state: {
-          project: BUILTIN_SHERLOCK_ID,
-          revision: 1,
-          notebook: { groups: [{ name: 'Watson' }] },
-        },
+      expect(workspace.saves).toHaveLength(1);
+      expect(workspace.saves[0]).toMatchObject({
+        schema: 'texttrends/workspace/1',
+        corpus: { kind: 'builtin', id: BUILTIN_SHERLOCK_ID },
+        notebook: { groups: [{ name: 'Watson' }] },
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -721,52 +701,73 @@ describe('the session bridge', () => {
       store.getState().setSolo(group.id);
       store.getState().setFrequencyPage(10);
       await vi.advanceTimersByTimeAsync(2_000);
-      expect(port.researchSaves).toHaveLength(1);
+      expect(workspace.saves).toHaveLength(1);
       runtime.dispose();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('surfaces a research CAS conflict and overwrites only on explicit action', async () => {
+  it('continues autosaving settled intent while a failed import awaits dismissal', async () => {
     vi.useFakeTimers();
     try {
-      const { runtime, store, port } = harness();
+      const workspace = new FakeWorkspaceStore();
+      const { runtime, store, port } = harness(undefined, { workspace });
+      const failed: SessionState = {
+        ...sessionState(null, { project: { kind: 'library', id: 'library' } }),
+        imports: [{
+          doc: 'failed-doc',
+          sourceName: 'failed.txt',
+          library: `txt:${'f'.repeat(64)}`,
+          status: 'failed',
+          published: false,
+        }],
+      };
+      port.emit(failed);
+      store.getState().quickAdd('Moriarty');
+      expect(store.getState().workspacePersistence.phase).toBe('dirty');
+      await vi.advanceTimersByTimeAsync(1_500);
       await Promise.resolve();
-      await Promise.resolve();
-      port.researchSaveError = new UserDataClientError(
-        'REVISION_CONFLICT',
-        'stale',
-        5,
-      );
+      expect(workspace.saves.at(-1)?.notebook.groups.map((group) => group.name)).toContain('Moriarty');
+      expect(store.getState().workspacePersistence.phase).toBe('saved');
+      runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('surfaces a workspace write failure and retries without revision conflicts', async () => {
+    vi.useFakeTimers();
+    try {
+      const workspace = new FakeWorkspaceStore();
+      workspace.error = new Error('quota full');
+      const { runtime, store } = harness(undefined, { workspace });
       store.getState().quickAdd('Lestrade');
       await vi.advanceTimersByTimeAsync(1_500);
       await Promise.resolve();
-      expect(store.getState().researchPersistence).toMatchObject({
-        phase: 'conflict',
-        currentRevision: 5,
+      expect(store.getState().workspacePersistence).toMatchObject({
+        phase: 'error',
+        message: expect.stringMatching(/quota full/),
       });
-      expect(port.researchSaves).toHaveLength(1);
-      port.researchSaveError = null;
-      store.getState().overwriteResearch();
+      expect(workspace.saves).toHaveLength(1);
+      workspace.error = null;
+      store.getState().retryWorkspaceSave();
       await Promise.resolve();
       await Promise.resolve();
-      expect(port.researchSaves).toHaveLength(2);
-      expect(port.researchSaves[1]?.expectedRevision).toBe(5);
+      expect(workspace.saves).toHaveLength(2);
+      expect(store.getState().workspacePersistence.phase).toBe('saved');
       runtime.dispose();
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('restores a loaded notebook and semantic views before analysis continues', async () => {
+  it('restores a workspace notebook and semantic views before analysis continues', async () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort();
-    port.researchLoadValue = {
-      kind: 'loaded',
-      state: {
-        ...researchState(BUILTIN_SHERLOCK_ID, 3),
+    const durable: WorkspaceV1 = {
+        ...workspaceState(BUILTIN_SHERLOCK_ID),
         notebook: {
           schema: 'texttrends/query-notebook/1',
           groups: [{
@@ -784,9 +785,8 @@ describe('the session bridge', () => {
         active: ['durable'],
         kwicEnabled: ['durable'],
         views: {
-          ...researchState(BUILTIN_SHERLOCK_ID, 3).views,
+          ...workspaceState(BUILTIN_SHERLOCK_ID).views,
           trend: {
-            schema: 'texttrends/trend-view/3',
             mode: 'by-book',
             focusedDoc: null,
             bins: { mode: 'fixed-tokens', count: 500 },
@@ -798,11 +798,8 @@ describe('the session bridge', () => {
             },
           },
         },
-      },
     };
-    runtime.attachSession(port);
-    await Promise.resolve();
-    await Promise.resolve();
+    runtime.attachSession(port, durable);
     expect(runtime.useApp.getState()).toMatchObject({
       trendView: 'by-book',
       trendBins: { mode: 'fixed-tokens', count: 500 },
@@ -813,9 +810,35 @@ describe('the session bridge', () => {
         showRaw: true,
       },
       notebook: { groups: [{ id: 'durable', name: 'Irene' }] },
-      researchPersistence: { phase: 'saved' },
+      workspacePersistence: { phase: 'idle' },
     });
     expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
+    runtime.dispose();
+  });
+
+  it('retains restored document selections through pre-snapshot loading publications', () => {
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client);
+    const project = {
+      ...BUILTIN_PROJECT,
+      data: { ...BUILTIN_PROJECT.data, order: ['a'] },
+    };
+    const port = new FakeSessionPort(sessionState(null, { project }));
+    const base = workspaceState(BUILTIN_SHERLOCK_ID);
+    const durable: WorkspaceV1 = {
+      ...base,
+      views: {
+        ...base.views,
+        trend: { ...base.views.trend, focusedDoc: 'a' },
+        compare: { ...base.views.compare, documentA: 'a' },
+      },
+    };
+    runtime.attachSession(port, durable);
+    expect(runtime.useApp.getState().focusedDoc).toBe('a');
+    expect(runtime.useApp.getState().keynessView.documentA).toBe('a');
+    port.emit(sessionState(null, { project }));
+    expect(runtime.useApp.getState().focusedDoc).toBe('a');
+    expect(runtime.useApp.getState().keynessView.documentA).toBe('a');
     runtime.dispose();
   });
 
@@ -823,12 +846,12 @@ describe('the session bridge', () => {
     vi.useFakeTimers();
     try {
       const q = fakeQueryClient();
-      const runtime = createAppRuntime(q.client, { newId: () => 'new' });
+      const workspace = new FakeWorkspaceStore();
+      const runtime = createAppRuntime(q.client, { newId: () => 'new', workspace });
       const port = new FakeSessionPort();
-      const durable = researchState(BUILTIN_SHERLOCK_ID, 3);
-      port.researchLoadValue = {
-        kind: 'loaded',
-        state: {
+      const durable = workspaceState(BUILTIN_SHERLOCK_ID);
+      runtime.attachSession(port);
+      runtime.useApp.getState().restoreWorkspace({
           ...durable,
           views: {
             ...durable.views,
@@ -837,11 +860,7 @@ describe('the session bridge', () => {
               bins: { mode: 'fixed-tokens', count: 250 },
             },
           },
-        },
-      };
-      runtime.attachSession(port);
-      await Promise.resolve();
-      await Promise.resolve();
+      });
       port.publishSnapshot('g1', 's1', ['a', 'b']);
       q.inventories().at(-1)!.resolve(
         fakeInventoryResult(2_000_000, [
@@ -858,9 +877,9 @@ describe('the session bridge', () => {
         count: 500,
       });
       expect(runtime.useApp.getState().trendSettingsNotice).toMatch(/saved preference/);
-      expect(runtime.useApp.getState().researchPersistence.phase).toBe('dirty');
+      expect(runtime.useApp.getState().workspacePersistence.phase).toBe('dirty');
       await vi.advanceTimersByTimeAsync(1_500);
-      expect(port.researchSaves.at(-1)?.state.views.trend.bins).toEqual({
+      expect(workspace.saves.at(-1)?.views.trend.bins).toEqual({
         mode: 'fixed-tokens',
         count: 500,
       });
@@ -873,12 +892,12 @@ describe('the session bridge', () => {
   it('seeds the current session state on attach, before any publication', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
-    const userState = sessionState(null, { project: { kind: 'user', id: 'user/default', baseRevision: 1, dirty: true, save: { phase: 'idle' }, saveable: true } });
+    const userState = sessionState(null, { project: { kind: 'library', id: 'library' } });
     runtime.attachSession(new FakeSessionPort(userState));
     const s = runtime.useApp.getState();
     expect(s.bootstrap.phase).toBe('attached');
     expect(s.projectSession).toBe(userState);
-    expect(s.projectSession!.project.kind).toBe('user');
+    expect(s.projectSession!.project.kind).toBe('library');
     // A null-snapshot seed must not issue any query.
     expect(q.issued.length).toBe(0);
   });
@@ -896,9 +915,11 @@ describe('the session bridge', () => {
     const issuedAfterSnapshot = trends().length;
     expect(issuedAfterSnapshot).toBeGreaterThan(0);
     const before = trends().map((t) => t.cancelled);
-    // Same snapshot identity, different unrelated state (imports/save/sources).
-    port.emit(sessionState(snap('g1', 's1'), { project: { dirty: true } }));
-    expect(store.getState().projectSession!.project.dirty).toBe(true);
+    // Same snapshot identity, different unrelated project metadata.
+    port.emit(sessionState(snap('g1', 's1'), {
+      project: { data: { ...BUILTIN_PROJECT.data, indexRecipeHash: 'changed' } },
+    }));
+    expect(store.getState().projectSession!.project.data.indexRecipeHash).toBe('changed');
     expect(trends().length).toBe(issuedAfterSnapshot); // no new query
     expect(trends().map((t) => t.cancelled)).toEqual(before); // none cancelled
   });
@@ -950,29 +971,18 @@ describe('the session bridge', () => {
     expect(trends().at(-1)!.snapshot).toBe('B');
   });
 
-  it('the built-in projection is not saveable and the save wrapper cannot bypass the session', () => {
-    const { store, port } = harness();
-    expect(store.getState().projectSession!.project.saveable).toBe(false);
-    store.getState().saveProject();
-    // The wrapper delegates to the session; it never fabricates a save.
-    expect(port.calls.filter((c) => c.method === 'save').length).toBe(1);
-  });
-
   it('each command wrapper dispatches to the attached session', () => {
     const { store, port } = harness();
     const s = store.getState();
     s.removeImport('d');
     s.removeDocument('d');
+    s.removeDocuments(['d', 'e']);
     s.editMeta('d', { title: 't' });
     s.setLanguage('d', 'fr');
     s.reorder(['d']);
-    s.setPersistIntent('d', true);
-    s.saveProject();
-    s.loadSavedProject();
-    s.reattach('d', { name: 'f.txt', size: 1, arrayBuffer: async () => new ArrayBuffer(1) });
     s.retryAnalysis();
     expect(port.calls.map((c) => c.method)).toEqual([
-      'loadResearch', 'removeImport', 'removeDocument', 'editMeta', 'setLanguage', 'reorder', 'setPersistIntent', 'save', 'loadUserProject', 'reattach', 'start',
+      'removeImport', 'removeDocument', 'removeDocuments', 'editMeta', 'setLanguage', 'reorder', 'start',
     ]);
   });
 
@@ -986,21 +996,28 @@ describe('the session bridge', () => {
     expect(store.getState().kwicEnabledSeries.size).toBe(3);
   });
 
-  it('importFiles dispatches createUserProject on the built-in, appendFiles on a user project', () => {
+  it('importFiles creates a library corpus from a built-in and then appends', () => {
     const { store, port } = harness();
-    const files = [{ name: 'a.txt', size: 3, arrayBuffer: async () => new ArrayBuffer(3) }];
+    const files: LocalLibraryFile[] = [{
+      name: 'a.txt',
+      size: 3,
+      format: 'txt',
+      contentHash: 'a'.repeat(64),
+      library: `txt:${'a'.repeat(64)}`,
+      arrayBuffer: async () => new ArrayBuffer(3),
+    }];
     store.getState().importFiles(files);
-    expect(port.calls.at(-1)!.method).toBe('createUserProject');
-    port.emit(sessionState(snap('g1', 's1'), { project: { kind: 'user', id: 'user/default', baseRevision: 0, dirty: true, save: { phase: 'idle' }, saveable: false } }));
+    expect(port.calls.at(-1)!.method).toBe('createLibraryCorpus');
+    port.emit(sessionState(snap('g1', 's1'), { project: { kind: 'library', id: 'library' } }));
     store.getState().importFiles(files);
     expect(port.calls.at(-1)!.method).toBe('appendFiles');
   });
 
   it('a synchronous SessionCommandError becomes one bounded UI command error', () => {
     const { store, port } = harness();
-    port.errors.save = new SessionCommandError('save called when not saveable');
-    store.getState().saveProject();
-    expect(store.getState().commandError).toContain('not saveable');
+    port.errors.removeDocument = new SessionCommandError('removeDocument requires a library corpus');
+    store.getState().removeDocument('d');
+    expect(store.getState().commandError).toContain('library corpus');
     store.getState().clearCommandError();
     expect(store.getState().commandError).toBeNull();
   });
@@ -1008,7 +1025,7 @@ describe('the session bridge', () => {
   it('a command before any session is attached surfaces a bounded error, not a throw', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client); // no attachSession
-    expect(() => runtime.useApp.getState().saveProject()).not.toThrow();
+    expect(() => runtime.useApp.getState().removeDocument('d')).not.toThrow();
     expect(runtime.useApp.getState().commandError).toContain('initializing');
   });
 
@@ -1418,13 +1435,13 @@ describe('store query intent discipline', () => {
     })).toBe('rejected');
     expect(f.store.getState().trendBins).toBe(before);
 
-    const research = researchState(BUILTIN_SHERLOCK_ID, 1);
-    f.store.getState().restoreResearch({
-      ...research,
+    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    f.store.getState().restoreWorkspace({
+      ...workspace,
       views: {
-        ...research.views,
+        ...workspace.views,
         trend: {
-          ...research.views.trend,
+          ...workspace.views.trend,
           bins: { mode: 'fixed-tokens', count: 250 },
         },
       },
@@ -1435,13 +1452,13 @@ describe('store query intent discipline', () => {
   it('normalizes a persisted bin preference when expanded-corpus extents arrive', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    const research = researchState(BUILTIN_SHERLOCK_ID, 1);
-    f.store.getState().restoreResearch({
-      ...research,
+    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    f.store.getState().restoreWorkspace({
+      ...workspace,
       views: {
-        ...research.views,
+        ...workspace.views,
         trend: {
-          ...research.views.trend,
+          ...workspace.views.trend,
           bins: { mode: 'fixed-tokens', count: 250 },
         },
       },
@@ -1539,7 +1556,7 @@ describe('store query intent discipline', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes');
-    const before = researchSemanticKey(f.store.getState());
+    const before = workspaceSemanticKey(f.store.getState());
     const issued = f.issued.length;
 
     f.store.getState().setConcordanceReading('stacked');
@@ -1548,7 +1565,7 @@ describe('store query intent discipline', () => {
       reading: 'stacked',
       contextChars: 24,
     });
-    expect(researchSemanticKey(f.store.getState())).toBe(before);
+    expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
 
     f.store.getState().setConcordanceSort('L1');
@@ -1565,7 +1582,7 @@ describe('store query intent discipline', () => {
       { at: 'doc', dir: 1 },
       { at: 'pos', dir: 1 },
     ]);
-    expect(researchSemanticKey(f.store.getState())).toBe(before);
+    expect(workspaceSemanticKey(f.store.getState())).toBe(before);
   });
 
   it('does not requery a collocate order while the reading position moves', () => {
@@ -1727,7 +1744,7 @@ describe('real ProjectSession composes with the store bridge', () => {
       doc: 'd1',
       sourceName: 'd1',
       meta: { title: 'D1', language: 'en', tags: [] as string[] },
-      source: { kind: 'text' as const, hash: 'srchash', byteLength: 10, format: 'txt' as const, encoding: { detected: 'utf-8' as const, hadReplacementChars: false } },
+      source: { hash: 'a'.repeat(64), byteLength: 10, format: 'txt' as const },
       sourceAvailability: 'bundled' as const,
       extraction: { recipe: txt, recipeHash: erh, text: 'txthash', textLengthUtf16: 8 },
     };
@@ -1756,8 +1773,8 @@ describe('real ProjectSession composes with the store bridge', () => {
     const session = new ProjectSession(builtinProject(data), {
       client,
       bundledBytes: { get: async () => new ArrayBuffer(10) },
+      libraryFiles: { get: async () => { throw new Error('not used'); } },
       newDocId: () => 'id',
-      hashBytes: async () => 'srchash',
     });
 
     const q = fakeQueryClient();
@@ -2492,7 +2509,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
     const store = runtime.useApp;
     expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
-    const semantic = researchSemanticKey(store.getState());
+    const semantic = workspaceSemanticKey(store.getState());
     const serialized = structuredClone(history.state);
     const url = history.url;
     const issued = q.issued.length;
@@ -2502,7 +2519,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
     expect(store.getState()).toMatchObject({ readerPage: page, readerNavigation: navigation });
     expect(store.getState().readerPlace).not.toBeNull();
-    expect(researchSemanticKey(store.getState())).toBe(semantic);
+    expect(workspaceSemanticKey(store.getState())).toBe(semantic);
     expect(q.issued).toHaveLength(issued);
     expect(history.pushes).toBe(pushes);
     expect(history.state).toEqual(serialized);
@@ -3018,7 +3035,7 @@ describe('dueling keyness query intent (slice-4)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const inventories = f.keynessInventories();
-    const semantic = researchSemanticKey(f.store.getState());
+    const semantic = workspaceSemanticKey(f.store.getState());
     const before = f.store.getState().keynessView;
     f.store.getState().applyKeynessSettings({
       minCountTotal: 8,
@@ -3042,7 +3059,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       offsetA: 0,
       offsetB: 0,
     });
-    expect(researchSemanticKey(f.store.getState())).not.toBe(semantic);
+    expect(workspaceSemanticKey(f.store.getState())).not.toBe(semantic);
     expect(inventories.every((issued) => !issued.cancelled)).toBe(true);
 
     inventories[0]!.resolve(fakeInventoryResult(4));
@@ -3055,7 +3072,7 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('toggles only one durable direction and refuses invalid shared settings', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    const semantic = researchSemanticKey(f.store.getState());
+    const semantic = workspaceSemanticKey(f.store.getState());
     const issued = f.keynesses().length;
     f.store.getState().setKeynessDirection('a');
     expect(f.keynesses()).toHaveLength(issued + 1);
@@ -3070,7 +3087,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       dirA: 1,
       dirB: 1,
     });
-    expect(researchSemanticKey(f.store.getState())).not.toBe(semantic);
+    expect(workspaceSemanticKey(f.store.getState())).not.toBe(semantic);
 
     const view = f.store.getState().keynessView;
     f.store.getState().applyKeynessSettings({
@@ -3136,18 +3153,18 @@ describe('dueling keyness query intent (slice-4)', () => {
       sortBy: 'g2',
       pageLimit: 50,
     });
-    const durable = researchSemanticKey(f.store.getState());
+    const durable = workspaceSemanticKey(f.store.getState());
     expect(durable).not.toBeNull();
     f.store.getState().setKeynessPage('a', 50);
     f.store.getState().setKeynessPage('b', 100);
-    expect(researchSemanticKey(f.store.getState())).toBe(durable);
+    expect(workspaceSemanticKey(f.store.getState())).toBe(durable);
     expect(f.store.getState().keynessView).toMatchObject({
       offsetA: 50,
       offsetB: 100,
     });
 
-    const research = JSON.parse(durable!) as ResearchStateV1;
-    f.store.getState().restoreResearch(research);
+    const workspace = JSON.parse(durable!) as WorkspaceV1;
+    f.store.getState().restoreWorkspace(workspace);
     expect(f.store.getState().keynessView).toMatchObject({
       minCountTotal: 9,
       minDocFreqTotal: 4,
@@ -3157,7 +3174,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       offsetA: 0,
       offsetB: 0,
     });
-    expect(researchSemanticKey(f.store.getState())).toBe(durable);
+    expect(workspaceSemanticKey(f.store.getState())).toBe(durable);
   });
 
   it('swaps sides and constructs document-v-rest without overlapping membership', () => {

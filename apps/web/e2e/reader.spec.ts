@@ -34,7 +34,7 @@ async function importCorpus(
     mimeType: 'text/plain',
     buffer: Buffer.from(text, 'utf-8'),
   });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(async () => {
       const snapshot = await trace(page);

@@ -261,7 +261,7 @@ export function TrendPanel() {
     hitSpec,
   } = stageGeometry;
   // Presentation titles come from the project's document metadata — doc ids
-  // are opaque identity (user projects use UUIDs). Ordinals are reading-order.
+  // are opaque identity (library documents use UUIDs). Ordinals are reading-order.
   const titleByDoc = new Map((project?.data.docs ?? []).map((d) => [d.doc, d.meta.title]));
   const titles = docs.map((doc) => titleByDoc.get(doc) ?? doc);
   // The store always requests declared-sequence coordinates, so the kernel

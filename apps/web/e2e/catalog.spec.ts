@@ -149,7 +149,7 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __ttCatalogDownload?: { aborted: number } }
   ).__ttCatalogDownload?.aborted ?? 0)).toBe(1);
-  await expect(page.getByText('your project')).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toHaveCount(0);
   await expect(page.getByText(/Could not add/)).toHaveCount(0);
 });
 

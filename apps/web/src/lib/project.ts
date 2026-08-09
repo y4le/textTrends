@@ -1,22 +1,8 @@
 /**
- * The project layer (commit 7, per the recorded commit-7 ruling). One
- * current-project abstraction drives ALL analysis origins — the bundled
- * built-in corpus, a freshly imported set of files, a loaded durable project,
- * and a reattached one — through a single generation-spec builder. The main
- * thread owns project intent and the working copy; the worker remains the sole
- * durable-storage and analysis actor.
- *
- * This module holds the pure, worker-agnostic pieces: the working-copy data
- * model, the origin discriminant, the shared spec builder, and the statically
- * described built-in project. The session controller that runs import, CAS
- * save, source persistence, and reattachment against a client lives alongside
- * it. Deliberate contract choices from the ruling:
- * - An unsaved import is not a durable manifest at revision 0 — the durable
- *   validator requires a positive revision. The working copy carries
- *   `ProjectDataV1` (no schema/revision) plus a `baseRevision`; a manifest at
- *   revision `baseRevision + 1` is materialized and validated only at save.
- * - `sourceAvailability` is canonical manifest truth (`bundled | external |
- *   persisted`); durability progress is a separate transient runtime status.
+ * Runtime corpus descriptions. Durable intent lives in WorkspaceV1 and source
+ * bytes live in the browser library; this module only derives worker inputs and
+ * the bundled demo fixtures. Warm text identity is a verified cache hint, not
+ * source truth.
  */
 
 import {
@@ -24,11 +10,14 @@ import {
   defaultExtractionRecipes,
   hashExtractionRecipe,
   hashIndexRecipe,
+  reconcileWorkspaceDocuments,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
   type ExtractionRecipeProvisional,
-  type ProjectDocV1,
-  type ProjectManifestV2,
+  type IndexRecipeProvisional,
+  type SourceFormat,
+  type WorkspaceDocumentMetaV1,
+  type WorkspaceV1,
 } from '@texttrends/core';
 import type { GenerationDocSpecV4 } from '../shared/analysis-contract.ts';
 
@@ -36,28 +25,47 @@ import type { GenerationDocSpecV4 } from '../shared/analysis-contract.ts';
  *  from the core format catalog so it can never drift from what import accepts. */
 export const SOURCE_FILE_ACCEPT: string = SOURCE_FORMAT_IDS.flatMap((f) => SOURCE_FORMATS[f].extensions).join(',');
 
-/** The main-thread WORKING COPY: a project manifest minus the two fields the
- *  durable layer owns (`schema` is fixed; `revision` is CAS state carried
- *  separately as `baseRevision`). Every origin materializes to this shape. */
-export type ProjectDataV1 = Omit<ProjectManifestV2, 'schema' | 'revision'>;
+export interface ProjectDocV1 {
+  readonly doc: string;
+  readonly sourceName: string;
+  readonly library?: string;
+  readonly meta: WorkspaceDocumentMetaV1;
+  readonly source: {
+    readonly hash: string;
+    readonly byteLength: number;
+    readonly format: SourceFormat;
+  };
+  readonly sourceAvailability: 'bundled' | 'library';
+  readonly extraction: {
+    readonly recipe: ExtractionRecipeProvisional;
+    readonly recipeHash: string;
+    readonly text?: string;
+    readonly textLengthUtf16?: number;
+  };
+}
+
+export interface ProjectDataV1 {
+  readonly id: string;
+  readonly order: readonly string[];
+  readonly docs: readonly ProjectDocV1[];
+  readonly indexRecipe: IndexRecipeProvisional;
+  readonly indexRecipeHash: string;
+}
 
 /**
- * The current project with an EXPLICIT origin — the read-only-built-in boundary
- * the rest of commit 7 builds on. The built-in corpus is never CAS-saved,
- * persisted, or reattached; only the user arm carries a `baseRevision` (0 means
- * never durably saved). The session controller extends the user arm with edit/
- * saved epochs and operation state; this envelope establishes the invariant.
+ * One current corpus with an explicit byte origin. Both arms are durable as
+ * workspace intent; only the built-in source bytes live outside the library.
  */
 export type CurrentProject =
   | { readonly kind: 'builtin'; readonly data: ProjectDataV1 }
-  | { readonly kind: 'user'; readonly data: ProjectDataV1; readonly baseRevision: number };
+  | { readonly kind: 'library'; readonly data: ProjectDataV1 };
 
 /** The read-only built-in current project. */
 export function builtinProject(data: ProjectDataV1): CurrentProject {
   return { kind: 'builtin', data };
 }
 
-/** Stable ids for the read-only bundled corpora — never CAS-saved. */
+/** Stable ids for the read-only bundled corpora. */
 export const BUILTIN_SHERLOCK_ID = 'builtin/sherlock';
 export const BUILTIN_ASOIF_ID = 'builtin/asoif';
 export const BUILTIN_LOTR_ID = 'builtin/lotr';
@@ -85,8 +93,7 @@ export function builtinCorpusOption(id: string): BuiltinCorpusOption | undefined
   return BUILTIN_CORPORA.find((corpus) => corpus.id === id);
 }
 
-/** The single user project id in the v1 one-project scope. */
-export const USER_PROJECT_ID = 'user/default';
+export const LIBRARY_PROJECT_ID = 'library';
 
 /**
  * The ONE generation-spec builder, shared by every project origin. It maps the
@@ -94,8 +101,8 @@ export const USER_PROJECT_ID = 'user/default';
  * carrying each doc's recipe values + recomputed-hash assertions and expected
  * source/text identities so the worker warm-reopens exact hits and
  * cold-ingests only genuine misses. A doc named in `order` but absent from
- * `docs` is a malformed working copy (guaranteed not to occur for a validated
- * manifest, but checked so a bug surfaces as an error, not a silent drop).
+ * `docs` is a malformed runtime corpus and surfaces as an error, not a silent
+ * drop.
  */
 export function generationSpecsFromProject(data: ProjectDataV1): GenerationDocSpecV4[] {
   const byId = new Map(data.docs.map((d) => [d.doc, d] as const));
@@ -109,44 +116,18 @@ export function generationSpecsFromProject(data: ProjectDataV1): GenerationDocSp
         expectedHash: doc.source.hash,
         byteLength: doc.source.byteLength,
         format: doc.source.format,
-        availability: doc.sourceAvailability,
+        availability: doc.sourceAvailability === 'bundled' ? 'bundled' : 'external',
       },
       extraction: {
         recipe: doc.extraction.recipe,
         recipeHash: doc.extraction.recipeHash,
-        expectedText: doc.extraction.text,
-        expectedTextLengthUtf16: doc.extraction.textLengthUtf16,
+        ...(doc.extraction.text === undefined ? {} : { expectedText: doc.extraction.text }),
+        ...(doc.extraction.textLengthUtf16 === undefined
+          ? {}
+          : { expectedTextLengthUtf16: doc.extraction.textLengthUtf16 }),
       },
     };
   });
-}
-
-/** Thrown when a save/persist/reattach path is entered for the built-in. */
-export class ReadOnlyProjectError extends Error {
-  constructor(message = 'the built-in project is read-only and cannot be saved') {
-    super(message);
-    this.name = 'ReadOnlyProjectError';
-  }
-}
-
-/**
- * Materialize the durable manifest for a CAS save: the USER working copy at its
- * NEXT revision (`baseRevision + 1`). This is the single save-materialization
- * path and it REJECTS the built-in origin — Sherlock can never be written to
- * class-1 storage. Deliberately construction-only: the WORKER is the sole
- * deep-validation authority at its trust boundary (an invalid manifest comes
- * back as a typed REQUEST_INVALID, never a durable write).
- */
-export function manifestForSave(project: CurrentProject): ProjectManifestV2 {
-  if (project.kind === 'builtin') throw new ReadOnlyProjectError();
-  return { schema: 'texttrends/project/2', revision: project.baseRevision + 1, ...project.data };
-}
-
-/** Split a loaded durable manifest into a USER current project (its revision
- *  becomes the base revision). A loaded project is always the user arm. */
-export function userProjectFromManifest(manifest: ProjectManifestV2): CurrentProject {
-  const { schema: _schema, revision, ...data } = manifest;
-  return { kind: 'user', data, baseRevision: revision };
 }
 
 /** One bundled built-in document's static description (no source-ready is ever
@@ -163,10 +144,9 @@ export interface BuiltinDocFixture {
 /**
  * Build the built-in corpus's `ProjectDataV1` from its static fixtures. The
  * recipe hashes are recomputed once (memoize at the call site) and
- * verified against the fixture's asserted per-doc identities by
- * validateProjectManifest — so a recipe change surfaces as a test failure, not
- * a silently stale constant. The built-in is `availability: 'bundled'`:
- * byte misses are fetched from its URL, never persisted or reattached.
+ * checked against the fixture's asserted per-doc identities, so a recipe
+ * change surfaces as a test failure, not a silently stale constant. Bundled
+ * byte misses are fetched from the corpus URL.
  */
 export async function buildBuiltinProjectData(
   id: string,
@@ -182,7 +162,7 @@ export async function buildBuiltinProjectData(
     doc: d.doc,
     sourceName: `${sourceDirectory}/${d.doc}`,
     meta: { title: d.title, language: 'en', tags: [] },
-    source: { kind: 'text', hash: d.sourceHash, byteLength: d.bytes, format: 'txt', encoding: { detected: 'utf-8', hadReplacementChars: false } },
+    source: { hash: d.sourceHash, byteLength: d.bytes, format: 'txt' },
     sourceAvailability: 'bundled',
     extraction: { recipe: txt as ExtractionRecipeProvisional, recipeHash: extractionRecipeHash, text: d.textHash, textLengthUtf16: d.textLengthUtf16 },
   }));
@@ -195,7 +175,98 @@ export async function buildBuiltinProjectData(
   };
 }
 
-/** Manifest with the exact staged LF byte lengths and FULL content hashes —
+export interface LibrarySourceInfo {
+  readonly id: string;
+  readonly name: string;
+  readonly size: number;
+  readonly format: SourceFormat;
+  readonly contentHash: string;
+}
+
+export interface ReconciledLibraryWorkspace {
+  readonly workspace: WorkspaceV1;
+  readonly removedDocuments: readonly string[];
+}
+
+/** Drop documents whose source no longer exists, then clear view references
+ * to the departed documents. The result can be written before analysis opens. */
+export function reconcileLibraryWorkspace(
+  workspace: WorkspaceV1,
+  availableLibrary: ReadonlySet<string>,
+): ReconciledLibraryWorkspace {
+  if (workspace.corpus.kind !== 'library') return { workspace, removedDocuments: [] };
+  const docs = workspace.corpus.docs.filter((doc) => availableLibrary.has(doc.library));
+  const availableDocuments = new Set(docs.map((doc) => doc.doc));
+  const removedDocuments = workspace.corpus.order.filter((doc) => !availableDocuments.has(doc));
+  if (removedDocuments.length === 0) return { workspace, removedDocuments };
+  const corpus = {
+    kind: 'library' as const,
+    order: workspace.corpus.order.filter((doc) => availableDocuments.has(doc)),
+    docs,
+  };
+  return {
+    workspace: reconcileWorkspaceDocuments({ ...workspace, corpus }, availableDocuments),
+    removedDocuments,
+  };
+}
+
+/** Build runtime worker inputs from workspace references and the current
+ * library catalog. Missing references are refused rather than papered over. */
+export async function libraryProject(
+  workspace: WorkspaceV1,
+  sources: ReadonlyMap<string, LibrarySourceInfo>,
+): Promise<CurrentProject> {
+  if (workspace.corpus.kind !== 'library') {
+    throw new RangeError('a library project requires a library-backed workspace');
+  }
+  const recipes = await defaultExtractionRecipes();
+  const [indexRecipeHash, recipeHashes] = await Promise.all([
+    hashIndexRecipe(DEFAULT_INDEX_RECIPE),
+    Promise.all(SOURCE_FORMAT_IDS.map((format) => hashExtractionRecipe(recipes[format]))),
+  ]);
+  const hashByFormat = new Map(
+    SOURCE_FORMAT_IDS.map((format, index) => [format, recipeHashes[index]!]),
+  );
+  const workspaceDocs = new Map(workspace.corpus.docs.map((doc) => [doc.doc, doc]));
+  const docs = workspace.corpus.order.map((docId): ProjectDocV1 => {
+    const saved = workspaceDocs.get(docId);
+    if (saved === undefined) throw new RangeError(`workspace order names missing document '${docId}'`);
+    const source = sources.get(saved.library);
+    if (source === undefined) throw new RangeError(`workspace source '${saved.library}' is missing`);
+    return {
+      doc: saved.doc,
+      sourceName: source.name,
+      library: source.id,
+      meta: saved.meta,
+      source: {
+        hash: source.contentHash,
+        byteLength: source.size,
+        format: source.format,
+      },
+      sourceAvailability: 'library',
+      extraction: {
+        recipe: recipes[source.format],
+        recipeHash: hashByFormat.get(source.format)!,
+        ...(saved.warm === undefined ? {} : {
+          text: saved.warm.textHash,
+          textLengthUtf16: saved.warm.textLengthUtf16,
+        }),
+      },
+    };
+  });
+  return {
+    kind: 'library',
+    data: {
+      id: 'library',
+      order: workspace.corpus.order,
+      docs,
+      indexRecipe: DEFAULT_INDEX_RECIPE,
+      indexRecipeHash,
+    },
+  };
+}
+
+/** Built-in fixtures with exact staged LF byte lengths and full content hashes —
  *  a 200-with-HTML-shell response must never be indexed as a book, and a
  *  fixture compares every entry against the shipped assets (round 2: the
  *  first manifest carried pre-normalization CRLF sizes and rejected all six).
@@ -206,8 +277,7 @@ export async function buildBuiltinProjectData(
  *  independently plus the coincidence — but the two fields carry different
  *  meanings so a future BOM/1252/transform file can diverge without a data-model
  *  change, and a TextHash can never be routed into a source/extraction key. The
- *  hashes are the authoritative warm-reopen identities the worker rehydrates
- *  against; a mutable doc-label → hash cache must never outrank this manifest. */
+ *  hashes are the authoritative warm-reopen identities the worker verifies. */
 export const SHERLOCK: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
   { doc: '1 - A Study in Scarlet - Arthur Conan Doyle', title: 'A Study in Scarlet', bytes: 243457, textLengthUtf16: 238367, sourceHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a', textHash: '9a8fb27682b3c441f5ae94133bec243338cf33604c231cbbfbf9dc939cd90b4a' },
   { doc: '2 - The Sign of the Four - Arthur Conan Doyle', title: 'The Sign of the Four', bytes: 236437, textLengthUtf16: 231255, sourceHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a', textHash: '6aaf169211a16d024b6144074586d0ca32b6a27fcc2d2df26bfed512dc593e1a' },

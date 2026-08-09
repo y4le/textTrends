@@ -1,83 +1,71 @@
-/**
- * Commit 7c import smoke (the minimal real-browser proof the plan reserves for
- * 7c): create a user project from a picked file, prove the source bytes TRANSFER
- * (never clone) into the worker, CAS-save it, then — with only the evictable
- * analysis-artifact store cleared but the durable project record preserved —
- * reload, load the saved project, observe the external source reported missing,
- * and reattach the identical file (a second real transfer). The extended
- * restart/corruption/failure matrix stays in commit 9.
- *
- * The scenario is deliberately EXTERNAL (not persisted): a persisted source
- * would warm-reopen from durable bytes and never exercise reattachment. Clearing
- * db2 forces the warm probe to miss so the external source is genuinely absent.
- */
+/** Real-browser proof of the single durable catalog/workspace path: an import
+ * is saved to the local library, activated, restored after artifact eviction,
+ * and cascaded out of the active corpus when its catalog file is deleted. */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, clearArtifactStores, events, gotoPlace, trace } from './helpers.ts';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, events, gotoPlace, trace } from './helpers.ts';
 
 const DOC_NAME = 'smoke-doc.txt';
-const DOC_TITLE = 'smoke-doc';
 const DOC_TEXT = 'The quick brown fox jumps over the lazy dog. '.repeat(120);
 const DOC_BYTES = Buffer.byteLength(DOC_TEXT, 'utf-8');
 
-function fileInput(text: string) {
-  return { name: DOC_NAME, mimeType: 'text/plain', buffer: Buffer.from(text, 'utf-8') };
+function fileInput() {
+  return { name: DOC_NAME, mimeType: 'text/plain', buffer: Buffer.from(DOC_TEXT, 'utf-8') };
 }
 
-/** The ingest transfer events posted for a given doc since `sinceSeq`, proving
- *  real detachment (byteLength 0 after the post). */
-async function assertTransferred(page: import('@playwright/test').Page, sinceSeq: number, expectBytes: number): Promise<void> {
-  await expect
-    .poll(async () => {
-      const t = await trace(page);
-      const ingests = events(t, { direction: 'to-worker', t: 'ingest' })
-        .filter((e) => e.seq > sinceSeq && e.transferBytesAfter !== undefined);
-      // The user doc's ingest is the only external one after the mark.
-      const external = ingests.filter((e) => e.transferBytesBefore === expectBytes);
-      if (external.length === 0) return 'no ingest yet';
-      return external.every((e) => e.transferBytesAfter === 0) ? 'transferred' : 'not detached';
-    }, { timeout: 30_000, message: 'the imported source never transferred' })
-    .toBe('transferred');
+async function assertTransferred(page: import('@playwright/test').Page, sinceSeq: number): Promise<void> {
+  await expect.poll(async () => {
+    const ingests = events(await trace(page), { direction: 'to-worker', t: 'ingest' })
+      .filter((event) => event.seq > sinceSeq && event.transferBytesBefore === DOC_BYTES);
+    if (ingests.length === 0) return 'no ingest yet';
+    return ingests.every((event) => event.transferBytesAfter === 0) ? 'transferred' : 'not detached';
+  }, { timeout: 30_000 }).toBe('transferred');
 }
 
-test('import → transfer → save → reload → load → reattach', async ({ page }) => {
+async function savedWorkspaceOrder(page: import('@playwright/test').Page): Promise<readonly string[]> {
+  return page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const workspace = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const corpus = (workspace as { corpus?: { kind?: string; order?: readonly string[] } } | undefined)?.corpus;
+      return corpus?.kind === 'library' ? corpus.order ?? [] : [];
+    } finally {
+      database.close();
+    }
+  }, LOCAL_LIBRARY_DB_NAME);
+}
+
+test('catalog import restores from the library and active deletion cascades', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page); // built-in Sherlock is the read-only default
+  await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
 
-  await expect(page.getByText('built-in corpus (read-only)')).toBeVisible();
+  const importMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.getByLabel('Create project from files').setInputFiles(fileInput());
+  await assertTransferred(page, importMark);
+  await awaitReadyCount(page, 1);
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Documents').getByText('on this device', { exact: true })).toBeVisible();
+  await expect.poll(() => savedWorkspaceOrder(page), { timeout: 10_000 }).toHaveLength(1);
 
-  // ── Create a user project from a picked file. ──
-  const markImport = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByLabel('Create project from files').setInputFiles(fileInput(DOC_TEXT));
-
-  // The bytes transfer into the worker (real detachment), and the project
-  // becomes the user's with the finalized document.
-  await assertTransferred(page, markImport, DOC_BYTES);
-  await expect(page.getByText('your project')).toBeVisible();
-  await expect(page.getByText(`attached · ${DOC_NAME}`)).toBeVisible({ timeout: 30_000 });
-
-  // ── CAS-save it (revision 1). ──
-  await gotoPlace(page, 'catalog');
-  const save = page.getByRole('button', { name: 'Save project' });
-  await expect(save).toBeEnabled({ timeout: 30_000 });
-  await save.click();
-  await expect(page.getByText('Project revision 1 is saved.')).toBeVisible({ timeout: 30_000 });
-
-  // ── Evict analysis artifacts (keep the durable project), then reload. ──
   await clearArtifactStores(page);
   await page.reload();
-  await awaitAllReady(page); // the built-in cold-reboots into the empty db2
+  await awaitReadyCount(page, 1);
+  await assertTransferred(page, -1);
   await gotoPlace(page, 'catalog');
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();
 
-  // ── Load the saved project: the external source is now genuinely missing. ──
-  await page.getByRole('button', { name: 'Load saved project' }).click();
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText('source missing')).toBeVisible({ timeout: 30_000 });
-
-  // ── Reattach the identical file: a second real transfer restores the doc. ──
-  const markReattach = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByLabel(`Reattach source for ${DOC_TITLE}`).setInputFiles(fileInput(DOC_TEXT));
-  await assertTransferred(page, markReattach, DOC_BYTES);
-  await expect(page.getByText(`attached · ${DOC_NAME}`)).toBeVisible({ timeout: 30_000 });
+  await page.getByRole('button', { name: `Delete ${DOC_NAME} from this device` }).click();
+  await expect(page.getByLabel('Files on this device').getByText(DOC_NAME)).toHaveCount(0);
+  await expect(page.getByLabel('Documents').getByText('smoke-doc')).toHaveCount(0);
+  await expect.poll(() => savedWorkspaceOrder(page), { timeout: 10_000 }).toEqual([]);
 });

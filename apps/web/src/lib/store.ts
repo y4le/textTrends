@@ -58,14 +58,13 @@ import {
   READER_MAX_TOKENS,
   TREND_MAX_ROWS,
   termGroupIdentity,
-  type DocumentMetaV1,
   type GroupMember,
   type NumericTrend,
-  type ResearchStateV1,
   type TermGroupSpec,
-  type TextHash,
   type TrendBinsSpecV1,
   type TrendMeasureV2,
+  type WorkspaceDocumentMetaV1,
+  type WorkspaceV1,
 } from '@texttrends/core';
 import {
   detailSelection,
@@ -98,7 +97,7 @@ import {
   type NotebookGroupV1,
   type QueryNotebookV1,
 } from './notebook.ts';
-import { isCancelled, UserDataClientError, WorkerClientError } from './client.ts';
+import { isCancelled, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import {
   LatestOperation,
@@ -121,9 +120,9 @@ import type {
 import {
   SessionCommandError,
   type AnalysisPhase,
-  type FileLike,
   type SessionState,
 } from './project-session.ts';
+import type { LocalLibraryFile } from './local-library.ts';
 import {
   historyStateFor,
   parseLayerHistory,
@@ -506,17 +505,16 @@ export type BootstrapState =
   | { readonly phase: 'attached' }
   | { readonly phase: 'error'; readonly message: string };
 
-export type ResearchPersistenceState =
-  | { readonly phase: 'idle' | 'loading' | 'dirty' | 'saving' | 'saved' }
-  | { readonly phase: 'error'; readonly message: string }
-  | {
-      readonly phase: 'conflict';
-      readonly message: string;
-      readonly currentRevision: number;
-    };
+export type WorkspacePersistenceState =
+  | { readonly phase: 'idle' | 'dirty' | 'saving' | 'saved' }
+  | { readonly phase: 'error'; readonly message: string };
+
+export interface WorkspaceStorePort {
+  saveWorkspace(workspace: WorkspaceV1): Promise<void>;
+}
 
 /** Descriptive metadata a component may patch (title/author/year/tags). */
-export type MetaPatch = Partial<Pick<DocumentMetaV1, 'title' | 'author' | 'year' | 'tags'>>;
+export type MetaPatch = Partial<Pick<WorkspaceDocumentMetaV1, 'title' | 'author' | 'year' | 'tags'>>;
 
 /** The exact public session surface the store drives — the seam the composition
  *  root attaches and a fixture fakes. The concrete `ProjectSession` satisfies it
@@ -528,26 +526,15 @@ export interface SessionPort {
   subscribe(listener: (state: SessionState) => void): () => void;
   dispose(): void;
   start(): void;
-  loadResearch(): {
-    result: Promise<import('./client.ts').ResearchLoadResult>;
-    cancel: () => void;
-  };
-  saveResearch(
-    state: import('@texttrends/core').ResearchStateV1,
-    expectedRevision: number,
-  ): { result: Promise<{ revision: number }>; cancel: () => void };
   openBuiltinProject(id: string): void;
-  createUserProject(files: readonly FileLike[], opts?: { persist?: boolean }): void;
-  appendFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
+  createLibraryCorpus(files: readonly LocalLibraryFile[]): void;
+  appendFiles(files: readonly LocalLibraryFile[]): void;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
+  removeDocuments(docs: readonly string[]): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
   reorder(order: readonly string[]): void;
-  save(): void;
-  setPersistIntent(doc: string, intent: boolean): void;
-  reattach(doc: string, file: FileLike): void;
-  loadUserProject(): void;
 }
 
 export interface AppState {
@@ -561,9 +548,9 @@ export interface AppState {
   loadError: string | null;
   /** One bounded UI error from a synchronous `SessionCommandError` (an illegal
    *  command the UI should have prevented). Async policy failures stay in
-   *  `projectSession` (save/sources/reattach). */
+   *  `projectSession`. */
   commandError: string | null;
-  researchPersistence: ResearchPersistenceState;
+  workspacePersistence: WorkspacePersistenceState;
 
   // ── Route/layer state: session presentation, never research data. ──
   place: Place;
@@ -740,26 +727,22 @@ export interface AppState {
   runQueries(): void;
 
   // ── Session command wrappers (forward to the one attached session). ──
-  /** Import files: create a user project from the built-in origin, or append
-   *  to the current user project. */
+  /** Import files: create a library corpus from a built-in, or append to the
+   *  active library corpus. */
   openBuiltinCorpus(id: BuiltinCorpusId): void;
-  importFiles(files: readonly FileLike[], opts?: { persist?: boolean }): void;
+  importFiles(files: readonly LocalLibraryFile[]): void;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
+  removeDocuments(docs: readonly string[]): void;
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
   reorder(order: readonly string[]): void;
-  setPersistIntent(doc: string, intent: boolean): void;
-  saveProject(): void;
-  loadSavedProject(): void;
-  reattach(doc: string, file: FileLike): void;
   /** Reopen analysis on the SAME lifetime session (post-error retry). */
   retryAnalysis(): void;
   clearCommandError(): void;
-  reloadResearch(): void;
-  overwriteResearch(): void;
-  /** Internal restoration seam used by the durable controller. */
-  restoreResearch(state: ResearchStateV1): void;
+  retryWorkspaceSave(): void;
+  /** Restore preferences after the composition root has selected the corpus. */
+  restoreWorkspace(workspace: WorkspaceV1): void;
 }
 
 type TrendCorpusState = Pick<
@@ -837,9 +820,15 @@ export interface AppRuntime {
   /** Subscribe the store to the session and seed current state, exactly once.
    *  A second (different) attachment is a programming error and throws. Call
    *  BEFORE `session.start()` so the first publication is observed. */
-  attachSession(session: SessionPort): void;
+  attachSession(
+    session: SessionPort,
+    workspace?: WorkspaceV1,
+    workspaceStore?: WorkspaceStorePort,
+  ): void;
   /** Report an async bootstrap (built-in construction/hashing) failure. */
   failBootstrap(error: unknown): void;
+  /** Surface a recoverable startup reconciliation to the user. */
+  reportNotice(message: string): void;
   /** Fence the bridge and dispose the session. */
   dispose(): void;
 }
@@ -876,49 +865,39 @@ function retainTrendTokenCounts(
 
 /** The focused doc for the incoming session state: preserve the current focus
  *  while it remains a ready member of the snapshot, otherwise pick the first
- *  ready doc in DECLARED project order (never analysis-completion order). Null
- *  when there is no snapshot. */
+ *  ready doc in DECLARED project order (never analysis-completion order). While
+ *  a generation has no snapshot, retain a saved focus that belongs to the
+ *  declared corpus so boot and restart do not discard it. */
 function resolveFocusedDoc(prev: string | null, next: SessionState): string | null {
   const snapshot = next.snapshot;
-  if (!snapshot) return null;
+  if (!snapshot) return prev !== null && next.project.data.order.includes(prev) ? prev : null;
   const ready = new Set(snapshot.readyDocs);
   if (prev !== null && ready.has(prev)) return prev;
   for (const doc of next.project.data.order) if (ready.has(doc)) return doc;
   return snapshot.readyDocs[0] ?? null;
 }
 
-function projectTextRows(state: AppState): readonly {
-  readonly doc: string;
-  readonly text: TextHash;
-  readonly title: string;
-}[] {
-  return (state.projectSession?.project.data.docs ?? []).map((entry) => ({
-    doc: entry.doc,
-    text: entry.extraction.text as TextHash,
-    title: entry.meta.title,
-  }));
-}
-
-function researchStateFromApp(
-  state: AppState,
-  revision: number,
-): ResearchStateV1 {
+export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
-  if (!project) throw new RangeError('the project is still initializing');
-  const rows = projectTextRows(state);
-  const hashOf = new Map(rows.map((row) => [row.doc, row.text]));
-  const readyDocs = state.snapshot?.readyDocs ?? project.data.order;
-  const sides = keynessSelections(state.keynessView, readyDocs);
-  const hashes = (docs: readonly string[]): TextHash[] =>
-    [...new Set(docs.flatMap((doc) => {
-      const hash = hashOf.get(doc);
-      return hash === undefined ? [] : [hash];
-    }))];
+  if (!project) return null;
+  if (project.kind === 'library' && project.data.docs.some((doc) => doc.library === undefined)) return null;
   const { prefixNfc, ...frequency } = state.frequencyView;
   return {
-    schema: 'texttrends/research-state/1',
-    project: project.id,
-    revision,
+    schema: 'texttrends/workspace/1',
+    corpus: project.kind === 'builtin'
+      ? { kind: 'builtin', id: project.id }
+      : {
+          kind: 'library',
+          order: project.data.order,
+          docs: project.data.docs.map((doc) => ({
+            doc: doc.doc,
+            library: doc.library!,
+            meta: doc.meta,
+            ...(doc.extraction.text === undefined || doc.extraction.textLengthUtf16 === undefined
+              ? {}
+              : { warm: { textHash: doc.extraction.text, textLengthUtf16: doc.extraction.textLengthUtf16 } }),
+          })),
+        },
     notebook: state.notebook,
     active: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
@@ -928,14 +907,12 @@ function researchStateFromApp(
       .map((group) => group.id),
     views: {
       trend: {
-        schema: 'texttrends/trend-view/3',
         mode: state.trendView,
         focusedDoc: state.focusedDoc,
         bins: state.trendBins,
         measure: state.trendMeasure,
       },
-      inventory: {
-        schema: 'texttrends/inventory-view/1',
+      frequency: {
         minCount: frequency.minCount,
         minDocFreq: frequency.minDocFreq,
         classes: frequency.classes,
@@ -943,31 +920,24 @@ function researchStateFromApp(
         sort: frequency.sort,
         pageSize: frequency.page.limit,
       },
-      keyness: {
-        schema: 'texttrends/keyness-view/1',
-        a: hashes(sides?.a.docs ?? []),
-        b: hashes(sides?.b.docs ?? []),
+      compare: {
         mode: state.keynessView.mode,
-        filter: {
-          minCountTotal: state.keynessView.minCountTotal,
-          minDocFreqTotal: state.keynessView.minDocFreqTotal,
-          classes: state.keynessView.classes,
-        },
-        sort: {
-          by: state.keynessView.sort.by,
-          dirA: state.keynessView.sort.dirA,
-          dirB: state.keynessView.sort.dirB,
-        },
+        documentA: state.keynessView.documentA,
+        documentB: state.keynessView.documentB,
+        restOn: state.keynessView.restOn,
+        minCountTotal: state.keynessView.minCountTotal,
+        minDocFreqTotal: state.keynessView.minDocFreqTotal,
+        classes: state.keynessView.classes,
+        sort: state.keynessView.sort,
         pageSize: state.keynessView.pageLimit,
       },
     },
   };
 }
 
-export function researchSemanticKey(state: AppState): string | null {
-  if (!state.projectSession) return null;
-  const research = researchStateFromApp(state, 1);
-  return canonicalJson({ ...research, revision: 1 });
+export function workspaceSemanticKey(state: AppState): string | null {
+  const workspace = workspaceFromApp(state);
+  return workspace === null ? null : canonicalJson(workspace);
 }
 
 /** One query-intent lane: latest-wins ownership plus the in-flight transport
@@ -1045,11 +1015,14 @@ export function createAppRuntime(
     newLayerId?: () => string;
     /** Browser history is an injected side-effect boundary, absent in pure tests. */
     history?: HistoryPort;
+    /** Last-write-wins storage for the one current workspace. */
+    workspace?: WorkspaceStorePort;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
   const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
   const historyPort = opts?.history ?? null;
+  let workspaceStore = opts?.workspace ?? null;
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
   // epochs + captured keys expressed.
@@ -1092,20 +1065,13 @@ export function createAppRuntime(
   let unsubscribe: (() => void) | null = null;
   let attached = false;
   let disposed = false;
-  let researchRevision = 0;
-  let researchProject: string | null = null;
-  let researchHydrated = false;
-  let researchLastKey: string | null = null;
-  let researchSaveTimer: ReturnType<typeof setTimeout> | null = null;
-  let researchLoadCancel: (() => void) | null = null;
-  let researchSaveCancel: (() => void) | null = null;
-  let researchLoadToken = 0;
-  let researchSaveToken = 0;
-  let researchScheduling = false;
-  let conflictRevision: number | null = null;
-  let researchPausedKey: string | null = null;
-  let loadResearchForProject = (_project: string): void => undefined;
-  let saveResearchNow = (_overwrite = false): void => undefined;
+  let workspaceHydrated = false;
+  let workspaceLastKey: string | null = null;
+  let workspacePausedKey: string | null = null;
+  let workspaceSaveTimer: ReturnType<typeof setTimeout> | null = null;
+  let workspaceSaveToken = 0;
+  let workspaceScheduling = false;
+  let saveWorkspaceNow = (): void => undefined;
   let historyTraversalPending = false;
   let pendingBackFocusTo: string | null = null;
 
@@ -2046,7 +2012,7 @@ export function createAppRuntime(
       loadingPhase: null,
       loadError: null,
       commandError: null,
-      researchPersistence: { phase: 'idle' },
+      workspacePersistence: { phase: 'idle' },
       place: bootRoute.place,
       layers: initialLayers,
       setPlace(place) {
@@ -3273,10 +3239,10 @@ export function createAppRuntime(
         });
         if (opened) seedDemoNotebook(option.defaultTerms);
       },
-      importFiles(files, opts) {
+      importFiles(files) {
         command((s) => {
-          if (s.getState().project.kind === 'builtin') s.createUserProject(files, opts);
-          else s.appendFiles(files, opts);
+          if (s.getState().project.kind === 'builtin') s.createLibraryCorpus(files);
+          else s.appendFiles(files);
         });
       },
       removeImport(doc) {
@@ -3284,6 +3250,9 @@ export function createAppRuntime(
       },
       removeDocument(doc) {
         command((s) => s.removeDocument(doc));
+      },
+      removeDocuments(docs) {
+        command((s) => s.removeDocuments(docs));
       },
       editMeta(doc, patch) {
         command((s) => s.editMeta(doc, patch));
@@ -3294,98 +3263,60 @@ export function createAppRuntime(
       reorder(order) {
         command((s) => s.reorder(order));
       },
-      setPersistIntent(doc, intent) {
-        command((s) => s.setPersistIntent(doc, intent));
-      },
-      saveProject() {
-        command((s) => s.save());
-      },
-      loadSavedProject() {
-        command((s) => s.loadUserProject());
-      },
-      reattach(doc, file) {
-        command((s) => s.reattach(doc, file));
-      },
       retryAnalysis() {
         command((s) => s.start());
       },
       clearCommandError() {
         set({ commandError: null });
       },
-      reloadResearch() {
-        const project = get().projectSession?.project.id;
-        if (project) loadResearchForProject(project);
+      retryWorkspaceSave() {
+        workspacePausedKey = null;
+        saveWorkspaceNow();
       },
-      overwriteResearch() {
-        saveResearchNow(true);
-      },
-      restoreResearch(research) {
+      restoreWorkspace(workspace) {
         const state = get();
         const fittedRestoredTrendBins = fitTrendBinsToCorpus(
           state,
-          research.views.trend.bins,
+          workspace.views.trend.bins,
           true,
         );
         const restoredTrendBins = fittedRestoredTrendBins ?? state.trendBins;
         const restoredTrendBinsChanged =
-          restoredTrendBins.mode !== research.views.trend.bins.mode
-          || restoredTrendBins.count !== research.views.trend.bins.count;
-        const rows = projectTextRows(state);
-        const docsByHash = new Map(rows.map((row) => [row.text, row.doc]));
-        const a = research.views.keyness.a.flatMap((hash) => {
-          const doc = docsByHash.get(hash);
-          return doc === undefined ? [] : [doc];
-        });
-        const b = research.views.keyness.b.flatMap((hash) => {
-          const doc = docsByHash.get(hash);
-          return doc === undefined ? [] : [doc];
-        });
-        const keyness = research.views.keyness;
-        const restOn = keyness.mode === 'document-rest' && b.length === 1
-          ? 'a'
-          : 'b';
-        const documentA = keyness.mode === 'document-rest' && restOn === 'a'
-          ? a.find((doc) => doc !== b[0]) ?? null
-          : a[0] ?? null;
-        const documentB = keyness.mode === 'document-rest' && restOn === 'b'
-          ? b.find((doc) => doc !== a[0]) ?? null
-          : b[0] ?? null;
+          restoredTrendBins.mode !== workspace.views.trend.bins.mode
+          || restoredTrendBins.count !== workspace.views.trend.bins.count;
+        const compare = workspace.views.compare;
         set({
-          trendView: research.views.trend.mode,
+          trendView: workspace.views.trend.mode,
           trendBins: restoredTrendBins,
-          trendMeasure: research.views.trend.measure,
+          trendMeasure: workspace.views.trend.measure,
           trendSettingsNotice: fittedRestoredTrendBins === null
             ? `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`
             : restoredTrendBinsChanged
-              ? trendGeometryNotice(research.views.trend.bins, restoredTrendBins)
+              ? trendGeometryNotice(workspace.views.trend.bins, restoredTrendBins)
               : null,
-          focusedDoc: research.views.trend.focusedDoc,
+          focusedDoc: workspace.views.trend.focusedDoc,
           frequencyView: {
             schema: 'texttrends/frequency-view/1',
-            minCount: research.views.inventory.minCount,
-            minDocFreq: research.views.inventory.minDocFreq,
-            classes: research.views.inventory.classes,
-            ...(research.views.inventory.prefixNfc === undefined
+            minCount: workspace.views.frequency.minCount,
+            minDocFreq: workspace.views.frequency.minDocFreq,
+            classes: workspace.views.frequency.classes,
+            ...(workspace.views.frequency.prefixNfc === undefined
               ? {}
-              : { prefixNfc: research.views.inventory.prefixNfc }),
-            sort: research.views.inventory.sort,
-            page: { offset: 0, limit: research.views.inventory.pageSize },
+              : { prefixNfc: workspace.views.frequency.prefixNfc }),
+            sort: workspace.views.frequency.sort,
+            page: { offset: 0, limit: workspace.views.frequency.pageSize },
           },
           keynessView: {
             schema: 'texttrends/keyness-view/1',
-            mode: keyness.mode,
-            documentA,
-            documentB,
-            restOn,
-            minCountTotal: keyness.filter.minCountTotal,
-            minDocFreqTotal: keyness.filter.minDocFreqTotal,
-            classes: keyness.filter.classes,
-            sort: {
-              by: keyness.sort.by,
-              dirA: keyness.sort.dirA,
-              dirB: keyness.sort.dirB,
-            },
-            pageLimit: keyness.pageSize,
+            mode: compare.mode,
+            documentA: compare.documentA,
+            documentB: compare.documentB,
+            restOn: compare.restOn,
+            minCountTotal: compare.minCountTotal,
+            minDocFreqTotal: compare.minDocFreqTotal,
+            classes: compare.classes,
+            sort: compare.sort,
+            pageLimit: compare.pageSize,
             offsetA: 0,
             offsetB: 0,
           },
@@ -3393,9 +3324,9 @@ export function createAppRuntime(
         });
         adoptNotebook(
           {
-            notebook: research.notebook,
-            activeGroupIds: new Set(research.active),
-            kwicEnabledGroupIds: new Set(research.kwicEnabled),
+            notebook: workspace.notebook,
+            activeGroupIds: new Set(workspace.active),
+            kwicEnabledGroupIds: new Set(workspace.kwicEnabled),
             soloGroupId: null,
           },
           { reissue: true },
@@ -3463,184 +3394,88 @@ export function createAppRuntime(
   };
   const unsubscribeHistory = historyPort?.subscribe(reconcileHistory) ?? (() => undefined);
 
-  const clearResearchTimer = (): void => {
-    if (researchSaveTimer !== null) {
-      clearTimeout(researchSaveTimer);
-      researchSaveTimer = null;
+  const clearWorkspaceTimer = (): void => {
+    if (workspaceSaveTimer !== null) {
+      clearTimeout(workspaceSaveTimer);
+      workspaceSaveTimer = null;
     }
   };
 
-  const scheduleResearchSave = (): void => {
+  const scheduleWorkspaceSave = (): void => {
     if (
       disposed ||
-      !researchHydrated ||
-      researchProject === null ||
-      conflictRevision !== null
+      !workspaceHydrated ||
+      workspaceStore === null
     ) {
       return;
     }
-    if (researchScheduling) return;
-    researchScheduling = true;
-    clearResearchTimer();
-    if (store.getState().researchPersistence.phase !== 'dirty') {
-      store.setState({ researchPersistence: { phase: 'dirty' } });
+    if (workspaceScheduling) return;
+    workspaceScheduling = true;
+    clearWorkspaceTimer();
+    if (store.getState().workspacePersistence.phase !== 'dirty') {
+      store.setState({ workspacePersistence: { phase: 'dirty' } });
     }
-    researchSaveTimer = setTimeout(() => {
-      researchSaveTimer = null;
-      saveResearchNow(false);
+    workspaceSaveTimer = setTimeout(() => {
+      workspaceSaveTimer = null;
+      saveWorkspaceNow();
     }, 1_500);
-    researchScheduling = false;
+    workspaceScheduling = false;
   };
 
-  loadResearchForProject = (project: string): void => {
-    if (!session || disposed) return;
-    clearResearchTimer();
-    researchLoadCancel?.();
-    researchSaveCancel?.();
-    researchLoadCancel = null;
-    researchSaveCancel = null;
-    const token = ++researchLoadToken;
-    researchSaveToken += 1;
-    researchHydrated = false;
-    researchProject = project;
-    researchRevision = 0;
-    researchLastKey = null;
-    conflictRevision = null;
-    researchPausedKey = null;
-    const startKey = researchSemanticKey(store.getState());
-    store.setState({ researchPersistence: { phase: 'loading' } });
-    const handle = session.loadResearch();
-    researchLoadCancel = handle.cancel;
-    void handle.result.then((result) => {
-      if (
-        disposed ||
-        token !== researchLoadToken ||
-        store.getState().projectSession?.project.id !== project
-      ) {
-        return;
-      }
-      researchLoadCancel = null;
-      if (result.kind === 'loaded') {
-        researchRevision = result.state.revision;
-        store.getState().restoreResearch(result.state);
-        const liveBins = store.getState().trendBins;
-        const geometryNormalized =
-          liveBins.mode !== result.state.views.trend.bins.mode
-          || liveBins.count !== result.state.views.trend.bins.count;
-        researchHydrated = true;
-        researchLastKey = researchSemanticKey(store.getState());
-        store.setState({ researchPersistence: { phase: 'saved' } });
-        if (geometryNormalized) scheduleResearchSave();
-        return;
-      }
-      researchHydrated = true;
-      researchRevision = 0;
-      researchLastKey = researchSemanticKey(store.getState());
-      store.setState({ researchPersistence: { phase: 'saved' } });
-      if (researchLastKey !== startKey) scheduleResearchSave();
-    }).catch((error: unknown) => {
-      if (isCancelled(error) || token !== researchLoadToken || disposed) return;
-      researchLoadCancel = null;
-      store.setState({
-        researchPersistence: {
-          phase: 'error',
-          message: `Research state could not be loaded: ${msg(error)}`,
-        },
-      });
-    });
-  };
-
-  saveResearchNow = (overwrite = false): void => {
-    if (
-      !session ||
-      disposed ||
-      !researchHydrated ||
-      researchProject === null
-    ) {
-      return;
-    }
-    const expected = overwrite && conflictRevision !== null
-      ? conflictRevision
-      : researchRevision;
-    if (conflictRevision !== null && !overwrite) return;
-    clearResearchTimer();
-    researchSaveCancel?.();
-    const token = ++researchSaveToken;
-    const state = researchStateFromApp(store.getState(), expected + 1);
-    const issuedKey = researchSemanticKey(store.getState());
-    // Publishing the transport-only phase must not look like another durable
-    // edit to the store subscriber. Real semantic edits made while the request
-    // is in flight still schedule normally and are reconciled on completion.
-    researchScheduling = true;
+  saveWorkspaceNow = (): void => {
+    if (disposed || !workspaceHydrated || workspaceStore === null) return;
+    const workspace = workspaceFromApp(store.getState());
+    const issuedKey = workspaceSemanticKey(store.getState());
+    if (workspace === null || issuedKey === null) return;
+    clearWorkspaceTimer();
+    const token = ++workspaceSaveToken;
+    workspaceScheduling = true;
     try {
-      store.setState({ researchPersistence: { phase: 'saving' } });
+      store.setState({ workspacePersistence: { phase: 'saving' } });
     } finally {
-      researchScheduling = false;
+      workspaceScheduling = false;
     }
-    const handle = session.saveResearch(state, expected);
-    researchSaveCancel = handle.cancel;
-    void handle.result.then((result) => {
-      if (disposed || token !== researchSaveToken) return;
-      researchSaveCancel = null;
-      researchRevision = result.revision;
-      conflictRevision = null;
-      researchPausedKey = null;
-      researchLastKey = issuedKey;
-      const liveKey = researchSemanticKey(store.getState());
+    void workspaceStore.saveWorkspace(workspace).then(() => {
+      if (disposed || token !== workspaceSaveToken) return;
+      workspacePausedKey = null;
+      workspaceLastKey = issuedKey;
+      const liveKey = workspaceSemanticKey(store.getState());
       if (liveKey === issuedKey) {
-        store.setState({ researchPersistence: { phase: 'saved' } });
+        store.setState({ workspacePersistence: { phase: 'saved' } });
       } else {
-        scheduleResearchSave();
+        scheduleWorkspaceSave();
       }
     }).catch((error: unknown) => {
-      if (isCancelled(error) || disposed || token !== researchSaveToken) return;
-      researchSaveCancel = null;
-      if (
-        error instanceof UserDataClientError &&
-        error.code === 'REVISION_CONFLICT' &&
-        error.currentRevision !== undefined
-      ) {
-        conflictRevision = error.currentRevision;
-        store.setState({
-          researchPersistence: {
-            phase: 'conflict',
-            currentRevision: error.currentRevision,
-            message: 'Research state was edited in another tab.',
-          },
-        });
-        return;
-      }
-      researchPausedKey = researchSemanticKey(store.getState());
+      if (disposed || token !== workspaceSaveToken) return;
+      workspacePausedKey = workspaceSemanticKey(store.getState());
       store.setState({
-        researchPersistence: {
+        workspacePersistence: {
           phase: 'error',
-          message: `Research state could not be saved: ${msg(error)}`,
+          message: `Workspace could not be saved: ${msg(error)}`,
         },
       });
     });
   };
 
-  const unsubscribeResearch = store.subscribe((state) => {
-    if (!researchHydrated || state.projectSession?.project.id !== researchProject) {
-      return;
-    }
-    const key = researchSemanticKey(state);
-    if (key === researchPausedKey) return;
-    if (researchPausedKey !== null) researchPausedKey = null;
-    if (key !== researchLastKey) scheduleResearchSave();
+  const unsubscribeWorkspace = store.subscribe((state) => {
+    if (!workspaceHydrated) return;
+    const key = workspaceSemanticKey(state);
+    if (key === workspacePausedKey) return;
+    if (workspacePausedKey !== null) workspacePausedKey = null;
+    if (key !== workspaceLastKey) scheduleWorkspaceSave();
   });
 
-  const flushResearch = (): void => {
+  const flushWorkspace = (): void => {
     if (
       typeof document !== 'undefined' &&
       document.visibilityState === 'hidden' &&
-      researchSaveTimer !== null
+      workspaceSaveTimer !== null
     ) {
-      saveResearchNow(false);
+      saveWorkspaceNow();
     }
   };
   if (typeof document !== 'undefined') {
-    document.addEventListener('visibilitychange', flushResearch);
+    document.addEventListener('visibilitychange', flushWorkspace);
   }
 
   /** One-way bridge: mirror the session view for the query flow and reissue
@@ -3649,7 +3484,6 @@ export function createAppRuntime(
    *  a publication — commands originate from bootstrap or UI actions. */
   const acceptSessionState = (next: SessionState) => {
     const prevKey = snapKey(store.getState().snapshot);
-    const prevProject = store.getState().projectSession?.project.id ?? null;
     const nextKey = snapKey(next.snapshot);
     // Resolve the focused doc against the incoming snapshot: keep the current
     // one while it stays ready, else the first ready doc in declared order.
@@ -3659,7 +3493,7 @@ export function createAppRuntime(
     const focusedDoc = resolveFocusedDoc(store.getState().focusedDoc, next);
     const keynessView = reconcileKeynessView(
       store.getState().keynessView,
-      next.snapshot?.readyDocs ?? [],
+      next.snapshot?.readyDocs ?? next.project.data.order,
     );
     store.setState({
       bootstrap: { phase: 'attached' },
@@ -3675,13 +3509,10 @@ export function createAppRuntime(
       trendSettingsNotice: prevKey !== nextKey
         ? null
         : store.getState().trendSettingsNotice,
-      removedGroups: prevProject !== next.project.id
+      removedGroups: store.getState().projectSession?.project.id !== next.project.id
         ? []
         : store.getState().removedGroups,
     });
-    if (prevProject !== next.project.id) {
-      loadResearchForProject(next.project.id);
-    }
     if (prevKey !== nextKey) {
       readerLane.supersede();
       footerPassageLane.supersede();
@@ -3725,7 +3556,7 @@ export function createAppRuntime(
 
   return {
     useApp: store,
-    attachSession(next: SessionPort) {
+    attachSession(next: SessionPort, workspace?: WorkspaceV1, workspacePort?: WorkspaceStorePort) {
       if (disposed) {
         // A late attachment (async bootstrap racing teardown) must not bridge
         // into a disposed runtime — the runtime owns its session, so dispose it.
@@ -3736,6 +3567,12 @@ export function createAppRuntime(
         if (next === session) return;
         throw new Error('a session is already attached; one session lives per app lifetime');
       }
+      if (workspacePort !== undefined) {
+        if (workspaceStore !== null && workspaceStore !== workspacePort) {
+          throw new Error('a different workspace store is already connected');
+        }
+        workspaceStore = workspacePort;
+      }
       attached = true;
       session = next;
       // Subscribe first, then seed from the current state (subscribe does not
@@ -3743,10 +3580,19 @@ export function createAppRuntime(
       // is the caller's, after this returns).
       unsubscribe = next.subscribe(acceptSessionState);
       acceptSessionState(next.getState());
+      if (workspace !== undefined) store.getState().restoreWorkspace(workspace);
+      if (workspaceStore !== null) {
+        workspaceHydrated = true;
+        workspaceLastKey = workspaceSemanticKey(store.getState());
+        store.setState({ workspacePersistence: { phase: 'saved' } });
+      }
     },
     failBootstrap(error: unknown) {
       if (disposed) return; // a torn-down runtime reports nothing
       store.setState({ bootstrap: { phase: 'error', message: msg(error) } });
+    },
+    reportNotice(message: string) {
+      if (!disposed) store.setState({ commandError: message });
     },
     dispose() {
       disposed = true;
@@ -3798,15 +3644,12 @@ export function createAppRuntime(
         clearTimeout(kwicCenterTimer);
         kwicCenterTimer = null;
       }
-      clearResearchTimer();
-      researchLoadCancel?.();
-      researchSaveCancel?.();
-      researchLoadCancel = null;
-      researchSaveCancel = null;
+      clearWorkspaceTimer();
+      workspaceSaveToken += 1;
       unsubscribeHistory();
-      unsubscribeResearch();
+      unsubscribeWorkspace();
       if (typeof document !== 'undefined') {
-        document.removeEventListener('visibilitychange', flushResearch);
+        document.removeEventListener('visibilitychange', flushWorkspace);
       }
       unsubscribe?.();
       unsubscribe = null;

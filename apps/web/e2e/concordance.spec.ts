@@ -53,7 +53,7 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
-  await expect(page.getByText('your project')).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Compare two terms; the concordance merges BOTH by default (reading order).
