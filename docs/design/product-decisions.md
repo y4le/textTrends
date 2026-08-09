@@ -22,8 +22,10 @@ keyboard movement update the shared reading cursor; exact and density barcode
 activation retain their direct Concordance behavior. Reader remains the only
 full-viewport place and hides the footer.
 
-The source line uses a separately fenced, debounced `reader-page/1` lane and
-reuses a canonical page while it serves the cursor. Reading position remains
+The source line uses a separately fenced, frame-coalesced and single-flight
+`reader-page/1` lane. It reuses a canonical page while it serves the cursor and
+retains the last authenticated page, marked stale and non-actionable, while the
+newest unserved position is in flight. Reading position remains
 transient. Trends retains its detailed graph, barcode, selection controls,
 legend, and totals; only the moving visible source/position readout is global,
 so Trends does not repeat the same live position below its graph.

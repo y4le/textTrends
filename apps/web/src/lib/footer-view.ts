@@ -4,8 +4,6 @@ import type { CapturedTrack } from './track-legend.ts';
 import type { TrendGeometry } from './trend-compact.ts';
 import { barcodeBandHeight, type SequenceLayout } from './trend-geometry.ts';
 
-export const FOOTER_PASSAGE_DEBOUNCE_MS = 120;
-
 export interface FooterGeometry extends TrendGeometry {
   readonly passageHeight: number;
   readonly statusHeight: number;
@@ -161,10 +159,45 @@ export interface FooterPassageLike {
   readonly snapshot: string;
   readonly doc: string;
   readonly tracks: readonly CapturedTrack[];
+  /** The last authenticated page remains resident while a newer target is
+   * requested. Request status and source residency are independent concerns. */
+  readonly page: ReaderPageResultV1 | null;
   readonly state:
     | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly page: ReaderPageResultV1 }
+    | { readonly status: 'ready' }
     | { readonly status: 'error'; readonly message: string };
+}
+
+export interface FooterPassageDisplay {
+  readonly page: ReaderPageResultV1;
+  /** The token whose source is aligned to the passage lane. */
+  readonly token: number;
+  /** True when the resident page does not contain the current scrub target. */
+  readonly stale: boolean;
+}
+
+/** Resolve the honest resident source presentation independently of request
+ * status. A stale page aligns to its authenticated request anchor, never to a
+ * scrub token whose text it does not contain. */
+export function footerPassageDisplay(
+  passage: FooterPassageLike | null,
+  target: { readonly doc: string; readonly token: number } | null,
+  snapshot: string,
+): FooterPassageDisplay | null {
+  const page = passage?.snapshot === snapshot ? passage.page : null;
+  if (page === null || target === null) return null;
+  const serves = page.doc === target.doc
+    && target.token >= page.tokens.start
+    && target.token < page.tokens.end;
+  const anchor = page.anchor?.token;
+  const token = serves
+    ? target.token
+    : Number.isSafeInteger(anchor)
+        && anchor! >= page.tokens.start
+        && anchor! < page.tokens.end
+      ? anchor!
+      : page.tokens.start;
+  return { page, token, stale: !serves };
 }
 
 /** A canonical reader page serves every cursor token inside its half-open span. */
@@ -180,10 +213,10 @@ export function footerPassageServes(
     passage === null
     || passage.snapshot !== snapshot
     || passage.doc !== target.doc
-    || passage.state.status !== 'ready'
-    || passage.state.page.doc !== target.doc
-    || target.token < passage.state.page.tokens.start
-    || target.token >= passage.state.page.tokens.end
+    || passage.page === null
+    || passage.page.doc !== target.doc
+    || target.token < passage.page.tokens.start
+    || target.token >= passage.page.tokens.end
   ) return false;
   return passage.tracks.every(
     (track) => liveIdentityOf(track.seriesId) === track.identity,

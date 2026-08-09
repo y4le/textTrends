@@ -1,6 +1,7 @@
 import { useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import type { FooterPassageState, ScrubTarget } from '../lib/store.ts';
+import { footerPassageDisplay } from '../lib/footer-view.ts';
 import {
   displayReaderText,
   segmentReaderMarks,
@@ -61,14 +62,9 @@ export function FooterPassage({
   const focusedSeries = useApp((state) => state.focusedSeries);
   const beforeRef = useRef<HTMLSpanElement | null>(null);
   const [canvasFont, setCanvasFont] = useState('');
-  const page = passage?.state.status === 'ready'
-    && scrub !== null
-    && passage.snapshot === snapshot
-    && passage.doc === scrub.doc
-    && scrub.token >= passage.state.page.tokens.start
-    && scrub.token < passage.state.page.tokens.end
-    ? passage.state.page
-    : null;
+  const view = footerPassageDisplay(passage, scrub, snapshot);
+  const page = view?.page ?? null;
+  const stale = view?.stale ?? false;
   const display = useMemo(() => page ? displayReaderText(page.text) : '', [page]);
   const baseSegments = useMemo(() => page ? segmentReaderMarks(
     display.length,
@@ -79,7 +75,7 @@ export function FooterPassage({
     })),
   ) : [], [display.length, page]);
 
-  const relativeToken = page && scrub ? scrub.token - page.tokens.start : -1;
+  const relativeToken = page && view ? view.token - page.tokens.start : -1;
   const centerStart = relativeToken >= 0 ? page?.tokenStartsUtf16[relativeToken] ?? 0 : 0;
   const centerEnd = relativeToken >= 0 ? page?.tokenEndsUtf16[relativeToken] ?? 0 : 0;
   const segments = useMemo(
@@ -167,7 +163,7 @@ export function FooterPassage({
       <span ref={beforeRef}>
         {before.map((segment, index) => styled(segment, `b:${index}`))}
       </span>
-      {coarse ? (
+      {coarse || stale ? (
         <span>{centerContent}</span>
       ) : (
         <button
@@ -184,7 +180,18 @@ export function FooterPassage({
     </span>
   );
 
-  return coarse ? (
+  const stateClass = stale ? ' footer-passage-stale' : '';
+  const errorRetry = passage?.state.status === 'error' ? (
+    <button
+      type="button"
+      className="footer-passage-retry footer-passage-retry-overlay"
+      onClick={retryPassage}
+    >
+      source unavailable · retry
+    </button>
+  ) : null;
+
+  return coarse && !stale ? (
     <button
       id="footer-passage-node"
       type="button"
@@ -195,6 +202,12 @@ export function FooterPassage({
       {line}
     </button>
   ) : (
-    <div className="footer-passage source-text">{line}</div>
+    <div
+      className={`footer-passage source-text${stateClass}`}
+      aria-busy={passage?.state.status === 'pending'}
+    >
+      {line}
+      {errorRetry}
+    </div>
   );
 }

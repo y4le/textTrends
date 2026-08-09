@@ -23,6 +23,7 @@ import {
   corpusProgress,
   footerBlockSize,
   footerGeometryFor,
+  footerPassageDisplay,
   footerStatusText,
   sequenceLayoutFor,
   type FooterGeometry,
@@ -206,6 +207,17 @@ function FooterInteractive({
   const crosshairX = progress && scrub && docOrdinal >= 0
     ? seriesXFromToken(docOrdinal, scrub.token, width, layout)
     : null;
+  const passageView = footerPassageDisplay(
+    passage,
+    scrub,
+    snapshot?.snapshot ?? '',
+  );
+  const passageDocOrdinal = passageView
+    ? docs.indexOf(passageView.page.doc)
+    : -1;
+  const passageX = passageView && passageDocOrdinal >= 0
+    ? seriesXFromToken(passageDocOrdinal, passageView.token, width, layout)
+    : crosshairX;
   const title = scrub ? titles.get(scrub.doc) ?? scrub.doc : '';
   const status = footerStatusText(progress && scrub ? {
     compact: presentation.width === 'compact',
@@ -216,7 +228,7 @@ function FooterInteractive({
     token: scrub.token,
     docTokenCount: layout.tokenCounts[docOrdinal] ?? 0,
     percent: progress.percent,
-    pending,
+    pending: pending || passage?.state.status === 'pending',
     failed,
   } : null);
   const honestyQualifier = [
@@ -388,7 +400,7 @@ function FooterInteractive({
         scrub={scrub}
         snapshot={snapshot?.snapshot ?? ''}
         title={title}
-        crosshairX={crosshairX}
+        crosshairX={passageX}
         coarse={presentation.pointer === 'coarse'}
         widthClass={presentation.width}
       />

@@ -4,6 +4,7 @@ import {
   corpusProgress,
   footerBlockSize,
   footerGeometryFor,
+  footerPassageDisplay,
   footerPassageServes,
   footerStatusText,
   sequenceLayoutFor,
@@ -75,7 +76,8 @@ describe('reading footer view', () => {
       snapshot: 's1',
       doc: 'a',
       tracks: [{ seriesId: 'q', groupId: 'g', identity: 'i1', label: 'q', styleSlot: 0 }],
-      state: { status: 'ready' as const, page: page() },
+      page: page(),
+      state: { status: 'ready' as const },
     };
     const identity = (id: string) => id === 'q' ? 'i1' : null;
     expect(footerPassageServes(state, { doc: 'a', token: 10 }, 's1', identity)).toBe(true);
@@ -83,5 +85,32 @@ describe('reading footer view', () => {
     expect(footerPassageServes(state, { doc: 'b', token: 10 }, 's1', identity)).toBe(false);
     expect(footerPassageServes(state, { doc: 'a', token: 10 }, 's2', identity)).toBe(false);
     expect(footerPassageServes(state, { doc: 'a', token: 10 }, 's1', () => 'changed')).toBe(false);
+  });
+
+  it('keeps an authenticated page aligned to its own anchor while the target is outside it', () => {
+    const resident = page(10, 20);
+    const state = {
+      snapshot: 's1',
+      doc: 'a',
+      tracks: [],
+      page: { ...resident, anchor: { token: 14, relToken: 4, charsUtf16: { start: 4, end: 5 } } },
+      state: { status: 'pending' as const },
+    };
+    expect(footerPassageDisplay(state, { doc: 'a', token: 16 }, 's1')).toMatchObject({
+      token: 16,
+      stale: false,
+    });
+    expect(footerPassageDisplay(state, { doc: 'a', token: 80 }, 's1')).toMatchObject({
+      token: 14,
+      stale: true,
+    });
+    expect(footerPassageDisplay({
+      ...state,
+      page: { ...resident, anchor: { token: 80, relToken: 70, charsUtf16: { start: 70, end: 71 } } },
+    }, { doc: 'a', token: 80 }, 's1')).toMatchObject({
+      token: 10,
+      stale: true,
+    });
+    expect(footerPassageDisplay(state, { doc: 'a', token: 16 }, 's2')).toBeNull();
   });
 });

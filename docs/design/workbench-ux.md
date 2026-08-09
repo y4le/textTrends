@@ -126,8 +126,10 @@ Reader. Its one corpus-order axis aligns a clipped current passage, thin
 all-book sparkline for every shown query, corpus progress, document boundaries,
 and the resident multi-track dispersion barcode. It sits above the compact
 portrait Lens dock and to the right of the compact-landscape rail. The source
-line is a transient `reader-page/1` window; rapid scrubbing is debounced, a
-serving canonical page is reused, and no text or range is saved. Fine-pointer
+line is a transient `reader-page/1` window. Pointer samples are frame-coalesced;
+its independent single-flight lane issues the newest unserved position
+immediately, retains the last authenticated page while the next is in flight,
+and saves no text or range. Fine-pointer
 hover requires a brief entry dwell before it moves global focus and snaps to a
 nearby exact barcode occurrence; density hover remains at the raw corpus
 position. Coarse input gets a 44px strip and a 44px passage action that opens

@@ -45,7 +45,6 @@ import {
   type WorkspaceV1,
 } from '@texttrends/core';
 import { workspaceState } from './support/workspace-fixtures.ts';
-import { FOOTER_PASSAGE_DEBOUNCE_MS } from '../src/lib/footer-view.ts';
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
@@ -1044,13 +1043,13 @@ describe('the session bridge', () => {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().quickAdd('holmes');
-      f.store.getState().setScrub({ doc: 'a', token: 100 }); // arms the debounce timer
+      f.store.getState().setScrub({ doc: 'a', token: 100 }); // arms only the KWIC debounce
       const count = f.kwics().length;
       const readerCount = f.readers().length;
       f.runtime.dispose();
       vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS * 3);
       expect(f.kwics().length).toBe(count); // the queued center never issued
-      expect(f.readers()).toHaveLength(readerCount); // nor the queued footer page
+      expect(f.readers()).toHaveLength(readerCount); // no late footer work is minted
     } finally {
       vi.useRealTimers();
     }
@@ -2290,32 +2289,30 @@ describe('global footer passage intent', () => {
     entry.query as { request: { cursor: { kind: string; token: number } } }
   ).request.cursor.token;
 
-  it('debounces rapid scrub motion and issues the latest cursor on its own reader lane', () => {
-    vi.useFakeTimers();
-    try {
-      const f = harness();
-      f.port.publishSnapshot('g1', 's1', ['a']);
-      f.store.getState().quickAdd('holmes');
+  it('issues immediately on its own reader lane and retains only the latest pending cursor', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
 
-      f.store.getState().setScrub({ doc: 'a', token: 10 });
-      f.store.getState().setScrub({ doc: 'a', token: 30 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS - 1);
-      expect(f.readers()).toHaveLength(0);
-      vi.advanceTimersByTime(1);
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    expect(f.readers()).toHaveLength(1);
+    expect(cursorToken(f.readers()[0]!)).toBe(10);
+    f.store.getState().setScrub({ doc: 'a', token: 30 });
+    expect(f.readers()).toHaveLength(1);
+    f.readers()[0]!.resolve(fakeReaderPage(0, 20, 1_000));
+    await settle();
 
-      expect(f.readers()).toHaveLength(1);
-      expect(cursorToken(f.readers()[0]!)).toBe(30);
-      expect(f.store.getState().footerPassage).toMatchObject({
-        snapshot: 's1',
-        doc: 'a',
-        state: { status: 'pending' },
-      });
-      expect((f.readers()[0]!.query as { tracks: unknown[] }).tracks).toHaveLength(1);
-      f.runtime.dispose();
-      expect(f.readers()[0]!.cancelled).toBe(true);
-    } finally {
-      vi.useRealTimers();
-    }
+    expect(f.readers()).toHaveLength(2);
+    expect(cursorToken(f.readers()[1]!)).toBe(30);
+    expect(f.store.getState().footerPassage).toMatchObject({
+      snapshot: 's1',
+      doc: 'a',
+      page: { tokens: { start: 0, end: 20 } },
+      state: { status: 'pending' },
+    });
+    expect((f.readers()[1]!.query as { tracks: unknown[] }).tracks).toHaveLength(1);
+    f.runtime.dispose();
+    expect(f.readers()[1]!.cancelled).toBe(true);
   });
 
   it('keeps at most one request active and pumps only the newest pending cursor', async () => {
@@ -2325,12 +2322,10 @@ describe('global footer passage intent', () => {
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().quickAdd('holmes');
       f.store.getState().setScrub({ doc: 'a', token: 20 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
       const first = f.readers()[0]!;
 
       f.store.getState().setScrub({ doc: 'a', token: 500 });
       f.store.getState().setScrub({ doc: 'a', token: 700 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
       expect(f.readers()).toHaveLength(1);
 
       first.resolve(fakeReaderPage(0, 400, 1_000));
@@ -2350,7 +2345,6 @@ describe('global footer passage intent', () => {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().setScrub({ doc: 'a', token: 12 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
 
       expect(f.readers()).toHaveLength(1);
       expect((f.readers()[0]!.query as { tracks: unknown[] }).tracks).toEqual([]);
@@ -2387,7 +2381,6 @@ describe('global footer passage intent', () => {
 
       // An unchanged settled axis position retries only source residency.
       f.store.getState().setScrub({ doc: 'a', token: 25 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
       expect(f.kwics()).toHaveLength(kwicCount);
       expect(f.readers()).toHaveLength(2);
       f.store.getState().runFooterPassage();
@@ -2405,13 +2398,11 @@ describe('global footer passage intent', () => {
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().quickAdd('holmes');
       f.store.getState().setScrub({ doc: 'a', token: 40 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS);
       f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000));
       await settle();
       expect(f.store.getState().footerPassage?.state.status).toBe('ready');
 
       f.store.getState().setScrub({ doc: 'a', token: 80 });
-      vi.advanceTimersByTime(FOOTER_PASSAGE_DEBOUNCE_MS * 2);
       expect(f.readers()).toHaveLength(1);
 
       f.store.getState().quickAdd('watson');
@@ -2428,6 +2419,47 @@ describe('global footer passage intent', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it('cancels an obsolete request when a reversal returns to the resident page', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setScrub({ doc: 'a', token: 40 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000));
+    await settle();
+
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
+    const obsolete = f.readers()[1]!;
+    expect(f.store.getState().footerPassage).toMatchObject({
+      page: { tokens: { start: 0, end: 100 } },
+      state: { status: 'pending' },
+    });
+    f.store.getState().setScrub({ doc: 'a', token: 50 });
+
+    expect(obsolete.cancelled).toBe(true);
+    expect(f.store.getState().footerPassage).toMatchObject({
+      page: { tokens: { start: 0, end: 100 } },
+      state: { status: 'ready' },
+    });
+    f.runtime.dispose();
+  });
+
+  it('retains authenticated source when the next passage request fails', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setScrub({ doc: 'a', token: 40 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000));
+    await settle();
+
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
+    f.readers()[1]!.reject(new Error('source failed'));
+    await settle();
+
+    expect(f.store.getState().footerPassage).toMatchObject({
+      page: { tokens: { start: 0, end: 100 } },
+      state: { status: 'error', message: 'source failed' },
+    });
+    f.runtime.dispose();
   });
 });
 

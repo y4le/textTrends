@@ -2804,6 +2804,15 @@ canvas {
   text-align: center;
 }
 
+.footer-passage-stale {
+  color: var(--fg-muted);
+  opacity: 0.62;
+}
+
+.footer-passage-stale .footer-passage-text {
+  pointer-events: none;
+}
+
 .footer-passage-coarse {
   display: block;
   inline-size: 100%;
@@ -2827,6 +2836,17 @@ canvas {
   background: transparent;
   font: inherit;
   cursor: pointer;
+}
+
+.footer-passage-retry-overlay {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  block-size: 100%;
+  padding-inline: var(--space-2);
+  border-block-end: 0;
+  background: var(--bg);
 }
 
 .footer-passage-node {

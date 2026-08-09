@@ -76,7 +76,6 @@ import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
 import type { CapturedTrack } from './track-legend.ts';
 import {
-  FOOTER_PASSAGE_DEBOUNCE_MS,
   footerPassageServes,
 } from './footer-view.ts';
 import {
@@ -273,9 +272,11 @@ export interface FooterPassageState {
   readonly snapshot: string;
   readonly doc: string;
   readonly tracks: readonly CapturedTrack[];
+  /** Last authenticated page, retained across a newer in-flight request. */
+  readonly page: ReaderPageResultV1 | null;
   readonly state:
     | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly page: ReaderPageResultV1 }
+    | { readonly status: 'ready' }
     | { readonly status: 'error'; readonly message: string };
 }
 
@@ -1048,7 +1049,6 @@ export function createAppRuntime(
   // The global reading footer reuses reader-page/1 through a separate lane.
   // Reader navigation and footer scrubbing never supersede one another.
   const footerPassageLane = new QueryLane(scope);
-  let footerPassageTimer: ReturnType<typeof setTimeout> | null = null;
   let footerPassagePending: ScrubTarget | null = null;
   let footerPassageActive: { readonly cancel: () => void } | null = null;
   // The SETTLED axis position the concordance centres on (null = reading order),
@@ -1447,15 +1447,7 @@ export function createAppRuntime(
       );
     };
 
-    const clearFooterPassageTimer = () => {
-      if (footerPassageTimer !== null) {
-        clearTimeout(footerPassageTimer);
-        footerPassageTimer = null;
-      }
-    };
-
     const resetFooterPassage = () => {
-      clearFooterPassageTimer();
       footerPassagePending = null;
       footerPassageLane.supersede();
       footerPassageActive = null;
@@ -1469,15 +1461,30 @@ export function createAppRuntime(
       if (!snapshot || !snapshot.readyDocs.includes(target.doc)) return;
       if (footerServes(target)) {
         footerPassagePending = null;
-        clearFooterPassageTimer();
+        // A rapid reversal may return to the resident page while a now-useless
+        // request is active. Keep the exact resident source and retire that
+        // request so its late page cannot replace the current text.
+        if (footerPassageActive !== null) {
+          footerPassageLane.supersede();
+          footerPassageActive = null;
+          const passage = get().footerPassage;
+          if (passage?.page) {
+            set({
+              footerPassage: {
+                ...passage,
+                doc: target.doc,
+                state: { status: 'ready' },
+              },
+            });
+          }
+        }
         return;
       }
       footerPassagePending = { ...target };
-      clearFooterPassageTimer();
-      footerPassageTimer = setTimeout(() => {
-        footerPassageTimer = null;
-        pumpFooterPassage();
-      }, FOOTER_PASSAGE_DEBOUNCE_MS);
+      // Pointer sampling is already rAF-coalesced and this lane is
+      // single-flight/latest-pending, so a second trailing debounce only adds
+      // latency without adding a meaningful work bound.
+      pumpFooterPassage();
     };
 
     pumpFooterPassage = () => {
@@ -1492,6 +1499,16 @@ export function createAppRuntime(
         set({ footerPassage: null });
         return;
       }
+      const previous = get().footerPassage;
+      const residentPage = previous?.snapshot === snapshot.snapshot
+        && previous.tracks.length === tracks.captured.length
+        && previous.tracks.every((track, index) => {
+          const current = tracks.captured[index];
+          return current?.seriesId === track.seriesId
+            && current.identity === track.identity;
+        })
+        ? previous.page
+        : null;
       const issuedKey = snapKey(snapshot);
       const lease = footerPassageLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
@@ -1502,6 +1519,7 @@ export function createAppRuntime(
           snapshot: snapshot.snapshot,
           doc: target.doc,
           tracks: tracks.captured,
+          page: residentPage,
           state: { status: 'pending' },
         },
       });
@@ -1536,6 +1554,7 @@ export function createAppRuntime(
                 snapshot: snapshot.snapshot,
                 doc: target.doc,
                 tracks: tracks.captured,
+                page: residentPage,
                 state: { status: 'error', message: 'footer source returned the wrong document' },
               },
             });
@@ -1546,7 +1565,8 @@ export function createAppRuntime(
               snapshot: snapshot.snapshot,
               doc: target.doc,
               tracks: tracks.captured,
-              state: { status: 'ready', page: data.page },
+              page: data.page,
+              state: { status: 'ready' },
             },
           });
         })
@@ -1557,6 +1577,7 @@ export function createAppRuntime(
               snapshot: snapshot.snapshot,
               doc: target.doc,
               tracks: tracks.captured,
+              page: residentPage,
               state: { status: 'error', message: queryErrorMessage(error) },
             },
           });
@@ -2550,7 +2571,6 @@ export function createAppRuntime(
           return;
         }
         footerPassagePending = { ...target };
-        clearFooterPassageTimer();
         pumpFooterPassage();
       },
 
@@ -3515,10 +3535,6 @@ export function createAppRuntime(
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
-      if (footerPassageTimer !== null) {
-        clearTimeout(footerPassageTimer);
-        footerPassageTimer = null;
-      }
       const live = store.getState();
       const readerLive =
         live.readerPlace !== null
@@ -3614,10 +3630,6 @@ export function createAppRuntime(
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
-      if (footerPassageTimer !== null) {
-        clearTimeout(footerPassageTimer);
-        footerPassageTimer = null;
-      }
       const state = store.getState();
       const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
       if (readerIndex >= 0 || state.readerPlace !== null) {
