@@ -9,7 +9,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await page.keyboard.press('?');
   let dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog).toBeVisible();
-  await page.keyboard.press('Escape');
+  await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
 
   await gotoPlace(page, 'catalog');
@@ -27,7 +27,8 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(dialog.getByRole('heading', { name: 'Reading footer' })).toBeVisible();
   await expect(dialog.getByText('Previous rendered passage')).toBeVisible();
   await expect(dialog.getByText(/Vim keys and conventional keys work together/)).toBeVisible();
-  await dialog.getByRole('button', { name: 'close' }).click();
+  await page.keyboard.press('?');
+  await expect(dialog).toHaveCount(0);
   await expect(open).toBeFocused();
 
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -55,6 +56,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(dialog.getByRole('heading', { name: 'Reader', exact: true })).toBeVisible();
   await expect(dialog.getByText('Next page', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Reading footer' })).toHaveCount(0);
-  await dialog.getByRole('button', { name: 'close' }).click();
+  await page.keyboard.press('?');
+  await expect(dialog).toHaveCount(0);
   await expect(readerShortcuts).toBeFocused();
 });

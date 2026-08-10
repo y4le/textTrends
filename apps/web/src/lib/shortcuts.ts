@@ -103,7 +103,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'show-help',
     group: 'General',
     helpContexts: ['workbench', 'reader'],
-    label: 'Show keyboard shortcuts',
+    label: 'Toggle keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
   },
   {

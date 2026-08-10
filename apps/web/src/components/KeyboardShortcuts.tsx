@@ -1,5 +1,9 @@
 import type { ShortcutHelpContext } from '../lib/shortcuts.ts';
-import { shortcutAria, shortcutHelpSections } from '../lib/shortcuts.ts';
+import {
+  shortcutAria,
+  shortcutHelpSections,
+  shortcutMatches,
+} from '../lib/shortcuts.ts';
 import { FormLayer } from './FormLayer.tsx';
 
 export function KeyboardShortcuts({
@@ -12,18 +16,25 @@ export function KeyboardShortcuts({
   const sections = shortcutHelpSections(context);
   return (
     <FormLayer label="Keyboard shortcuts" focusKey={context} onClose={onClose}>
-      <div className="shortcut-help">
+      <div
+        className="shortcut-help"
+        onKeyDown={(event) => {
+          if (!shortcutMatches(event, 'show-help')) return;
+          event.preventDefault();
+          onClose();
+        }}
+      >
         <header className="shortcut-help-header">
           <div>
             <h2>Keyboard shortcuts</h2>
             <p>
               Vim keys and conventional keys work together. Shortcuts follow focus;
-              typing fields keep their normal keys.
+              typing fields keep their normal keys. Press ? again to close.
             </p>
           </div>
           <button
             type="button"
-            aria-keyshortcuts={shortcutAria(['reader-close'])}
+            aria-keyshortcuts={shortcutAria(['reader-close', 'show-help'])}
             onClick={onClose}
           >
             close
