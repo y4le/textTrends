@@ -1018,6 +1018,129 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
   }, 30_000);
 });
 
+describe('occurrence-step/1 through the executor', () => {
+  const query = (doc: string, token: number, direction: 1 | -1) => ({
+    op: 'occurrence-step' as const,
+    track: { seriesId: 's-wolf', group: wolfGroup },
+    request: { method: 'occurrence-step/1' as const, doc, token, direction },
+  });
+
+  it('steps exact occurrences across the full corpus, returns identity, and shares the cache', async () => {
+    const h = harness();
+    const textA = 'the wolf ran far. a wolf slept.';
+    const textB = 'another wolf watched.';
+    const [a, b] = await Promise.all([docSpec('a', textA), docSpec('b', textB)]);
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', textA, 10);
+    await coldIngest(h, 'g', 'b', textB, 11);
+    const snap = h.last('snapshot-published').snapshot;
+    const occSpy = vi.mocked(occurrences);
+    occSpy.mockClear();
+
+    await h.send({
+      t: 'query', job: 50, snapshot: snap,
+      query: {
+        op: 'trend', selection: { docs: ['a', 'b'] }, group: wolfGroup,
+        request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } },
+      },
+    });
+    expect(occSpy).toHaveBeenCalledTimes(1);
+
+    await h.send({ t: 'query', job: 51, snapshot: snap, query: query('a', 1, 1) });
+    const next = h.last('result');
+    if (next.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(next.data).toEqual({
+      op: 'occurrence-step',
+      seriesId: 's-wolf',
+      groupId: wolfGroup.id,
+      step: {
+        method: 'occurrence-step/1',
+        hit: { doc: 'a', token: 5, spanTokens: 1, members: [0] }, atEdge: false,
+      },
+    });
+    expect(occSpy).toHaveBeenCalledTimes(1);
+
+    await h.send({ t: 'query', job: 52, snapshot: snap, query: query('a', 6, 1) });
+    const crossBook = h.last('result');
+    if (crossBook.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(crossBook.data.step.hit).toMatchObject({ doc: 'b', token: 1 });
+
+    await h.send({ t: 'query', job: 53, snapshot: snap, query: query('b', 1, -1) });
+    const previous = h.last('result');
+    if (previous.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(previous.data.step.hit).toMatchObject({ doc: 'a', token: 5 });
+
+    await h.send({ t: 'query', job: 54, snapshot: snap, query: query('b', 2, 1) });
+    const edge = h.last('result');
+    if (edge.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(edge.data.step).toEqual({ method: 'occurrence-step/1', hit: null, atEdge: true });
+  });
+
+  it('coalesces real countOverlaps duplicate starts into inverse reading stops', async () => {
+    const h = harness();
+    const text = 'the wolf ran far. a wolf slept.';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    const overlapGroup = {
+      id: 'overlap',
+      countOverlaps: true,
+      members: [
+        ...wolfGroup.members,
+        {
+          id: 'prefix', kind: 'prefix' as const, stem: 'wol',
+          match: { case: 'folded' as const, diacritics: 'sensitive' as const },
+        },
+      ],
+    };
+    const overlapQuery = (token: number, direction: 1 | -1) => ({
+      op: 'occurrence-step' as const,
+      track: { seriesId: 'overlap-series', group: overlapGroup },
+      request: { method: 'occurrence-step/1' as const, doc: 'a', token, direction },
+    });
+
+    await h.send({ t: 'query', job: 55, snapshot: snap, query: overlapQuery(0, 1) });
+    const first = h.last('result');
+    if (first.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(first.data.step.hit).toEqual({ doc: 'a', token: 1, spanTokens: 1, members: [0, 1] });
+
+    await h.send({ t: 'query', job: 56, snapshot: snap, query: overlapQuery(1, 1) });
+    const second = h.last('result');
+    if (second.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(second.data.step.hit).toEqual({ doc: 'a', token: 5, spanTokens: 1, members: [0, 1] });
+
+    await h.send({ t: 'query', job: 57, snapshot: snap, query: overlapQuery(5, -1) });
+    const back = h.last('result');
+    if (back.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(back.data.step).toEqual(first.data.step);
+  });
+
+  it('rejects caller selection and observes cancellation before emission', async () => {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran far. a wolf slept.');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran far. a wolf slept.', 10);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query', job: 60, snapshot: snap,
+      query: { ...query('a', 1, 1), selection: { docs: ['a'] } } as never,
+    });
+    expect(h.last('error').code).toBe('PARSE_FAILED');
+
+    h.clear();
+    let yields = 0;
+    h.onYield(async () => {
+      yields++;
+      if (yields === 4) await h.send({ t: 'cancel', job: 61 });
+    });
+    await h.send({ t: 'query', job: 61, snapshot: snap, query: query('a', 1, 1) });
+    expect(h.all('cancelled').some((message) => message.job === 61)).toBe(true);
+    expect(h.all('result').some((message) => message.job === 61)).toBe(false);
+    h.onYield(null);
+  });
+});
+
 describe('reader-page/1 through the executor (slice-2 commit G)', () => {
   const rp = (doc: string, cursor: Record<string, unknown>, maxTokens = 5, tracks: unknown[] = []) => ({
     op: 'reader-page', tracks,

@@ -338,6 +338,19 @@ export function narrowQueryV4(q: unknown): boolean {
       if (c.kind === 'before') return (c.token as number) >= 1;
       return c.kind === 'around' || c.kind === 'from';
     }
+    case 'occurrence-step': {
+      // Full-corpus selection is ENGINE-owned, and exactly one track is part
+      // of the operation identity. The result is one bounded hit, never an
+      // occurrence array or a density approximation.
+      const r = q.request as Record<string, unknown>;
+      return exactRecord(q, ['op', 'track', 'request'])
+        && narrowTracks([q.track], 1)
+        && exactRecord(q.request, ['method', 'doc', 'token', 'direction'])
+        && r.method === 'occurrence-step/1'
+        && isStr(r.doc)
+        && isCount(r.token)
+        && (r.direction === 1 || r.direction === -1);
+    }
     default:
       return false;
   }

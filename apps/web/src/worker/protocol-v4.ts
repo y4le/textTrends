@@ -37,6 +37,8 @@ export type {
   GenerationDocSpecV4,
   KeynessRequestV1,
   KwicTrack,
+  OccurrenceStepRequestV1,
+  OccurrenceStepResultV1,
   QueryOpV4,
   QueryResultDataV4,
   SourceFormat,

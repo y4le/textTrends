@@ -961,6 +961,35 @@ export class WorkerEngineV4 {
       return;
     }
 
+    if (q.op === 'occurrence-step') {
+      // Exact term navigation is a corpus-reading operation. Its selection is
+      // fixed here so an analytical linked range can never narrow w/W.
+      const selection = await resolveSelection(snapshot, {
+        docs: snapshot.docs.map((d) => d.doc),
+      });
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const step = await gen.executor.occurrenceStep(
+        selection,
+        q.track,
+        q.request,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: {
+          op: 'occurrence-step',
+          seriesId: q.track.seriesId,
+          groupId: q.track.group.id,
+          step,
+        },
+      });
+      return;
+    }
+
     if (q.op === 'keyness') {
       let selectionA;
       let selectionB;

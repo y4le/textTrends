@@ -285,6 +285,30 @@ describe('narrowQueryV4', () => {
     expect(rq({ kind: 'from', token: 0 }, {}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
   });
 
+  it('occurrence-step/1 admits one exact full-corpus track and a closed direction', () => {
+    const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
+      op: 'occurrence-step',
+      track: { seriesId: 's1', group: wolfGroup },
+      request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1, ...over },
+    });
+    expect(query()).toBe(true);
+    expect(query({ direction: -1 })).toBe(true);
+    expect(query({ direction: 0 })).toBe(false);
+    expect(query({ method: 'occurrence-step/2' })).toBe(false);
+    expect(query({ token: -1 })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'occurrence-step',
+      selection: { docs: ['a'] },
+      track: { seriesId: 's1', group: wolfGroup },
+      request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1 },
+    })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'occurrence-step',
+      track: [{ seriesId: 's1', group: wolfGroup }],
+      request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1 },
+    })).toBe(false);
+  });
+
   it('inventory/1 narrows only within every exported request bound', () => {
     const query = (request: Record<string, unknown>) => narrowQueryV4({
       op: 'inventory',

@@ -35,6 +35,8 @@ import {
   materializeKwicPage,
   modeKey,
   occurrences,
+  occurrenceStep,
+  validateOccurrenceOrder,
   occurrencePayloadBytes,
   trend,
   type CorpusSnapshotV1,
@@ -43,6 +45,8 @@ import {
   type KwicRow,
   type MatchMode,
   type NumericOccurrences,
+  type OccurrenceStepRequestV1,
+  type OccurrenceStepResultV1,
   type NumericTrend,
   type ReadyDocument,
   type Resolver,
@@ -252,6 +256,7 @@ export class QueryExecutor {
       return hit.value;
     }
     const occ = occurrences(snapshot, shards, resolvers, selection, group);
+    validateOccurrenceOrder(snapshot, occ);
     const bytes = occurrencePayloadBytes(occ);
     this.occurrenceCache.set(key, { snapshot: snapshot.id, bytes, value: occ });
     this.occurrenceCacheBytes += bytes;
@@ -520,6 +525,34 @@ export class QueryExecutor {
     );
     await checkpoint(); // final kernel checkpoint (race parity)
     return page;
+  }
+
+  /** occurrence-step/1: one exact hit from the SAME full-corpus occurrence
+   * cache as trends, dispersion, KWIC, and Reader. The output is bounded and
+   * contains no transferable view into the cached typed arrays. */
+  async occurrenceStep(
+    selection: ResolvedSelection,
+    track: { readonly seriesId: string; readonly group: TermGroupSpec },
+    request: OccurrenceStepRequestV1,
+    checkpoint: QueryCheckpoint,
+  ): Promise<OccurrenceStepResultV1> {
+    const { snapshot } = this.published();
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const member of track.group.members) {
+        const mk = modeKey(member.match);
+        if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+    const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+    await checkpoint();
+    const step = occurrenceStep(snapshot, selection, occ, request);
+    await checkpoint();
+    return step;
   }
 
   /** kwic/2: UNION every track's required match modes per doc (never rebuild

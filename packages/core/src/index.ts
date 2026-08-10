@@ -142,6 +142,13 @@ export {
   type ReaderTrackIdentity,
 } from './ops/reader.ts';
 export {
+  occurrenceStep,
+  validateOccurrenceOrder,
+  type OccurrenceStepHitV1,
+  type OccurrenceStepRequestV1,
+  type OccurrenceStepResultV1,
+} from './ops/occurrence-step.ts';
+export {
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
   DISPERSION_PACK_CHUNK,

@@ -25,6 +25,8 @@ import type {
   FrequencyListResultV1,
   KeynessResultV1,
   KeynessTableRequestV1,
+  OccurrenceStepRequestV1,
+  OccurrenceStepResultV1,
 } from '@texttrends/core';
 
 /** The source format vocabulary is core's — re-exported rather than
@@ -84,7 +86,11 @@ export type QueryOpV4 =
   // other context/navigation surfaces, this carries NO selection field; the
   // engine constructs the only valid full-corpus selection, making accidental
   // range-filtered reader highlights impossible. ZERO tracks is legal.
-  | { readonly op: 'reader-page'; readonly tracks: readonly KwicTrack[]; readonly request: ReaderPageRequestV1 };
+  | { readonly op: 'reader-page'; readonly tracks: readonly KwicTrack[]; readonly request: ReaderPageRequestV1 }
+  // occurrence-step/1 is exact full-corpus navigation for one focused track.
+  // Like Reader it has no caller-owned selection; linked ranges must not turn
+  // next/previous term into a partial-corpus operation.
+  | { readonly op: 'occurrence-step'; readonly track: KwicTrack; readonly request: OccurrenceStepRequestV1 };
 
 export interface ReaderPageRequestV1 {
   readonly method: 'reader-page/1';
@@ -130,6 +136,11 @@ export interface ReaderPageResultV1 {
 /** The dispersion result type re-exported for the app boundary (components
  *  and lib modules import from HERE, never the wire module). */
 export type { DispersionResultV1 } from '@texttrends/core';
+export type {
+  OccurrenceStepHitV1,
+  OccurrenceStepRequestV1,
+  OccurrenceStepResultV1,
+} from '@texttrends/core';
 export type {
   InventoryGrowthV1,
   InventoryRequestV1,
@@ -177,4 +188,10 @@ export type QueryResultDataV4 =
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }
   | { readonly op: 'keyness'; readonly keyness: KeynessResultV1 }
-  | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 };
+  | { readonly op: 'reader-page'; readonly page: ReaderPageResultV1 }
+  | {
+      readonly op: 'occurrence-step';
+      readonly seriesId: string;
+      readonly groupId: string;
+      readonly step: OccurrenceStepResultV1;
+    };
