@@ -12,16 +12,20 @@ for (const viewport of [
     await gotoPlace(page, 'trends');
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });
+    const dock = page.locator('.workbench-dock');
     const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
     await expect(footer).toBeVisible();
     expect(await footer.locator('.footer-sparkline path').count()).toBeGreaterThanOrEqual(2);
     const footerBox = await footer.boundingBox();
+    const dockBox = await dock.boundingBox();
     const lensBox = await lens.boundingBox();
     const reservedFooterHeight = await page.evaluate(() =>
       Number.parseFloat(getComputedStyle(document.documentElement)
         .getPropertyValue('--footer-block-size')));
     expect(footerBox?.height).toBe(reservedFooterHeight);
     expect(footerBox && lensBox ? footerBox.y + footerBox.height : Number.POSITIVE_INFINITY)
+      .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
+    expect(dockBox && lensBox ? dockBox.y + dockBox.height : Number.POSITIVE_INFINITY)
       .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
 
     const scrubber = page.getByRole('slider', { name: /reading position/i });

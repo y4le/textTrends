@@ -26,6 +26,7 @@ import {
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { bookTitleControlId } from './lib/corpus-view.ts';
+import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -45,14 +46,8 @@ const TrendsPlace = lazy(() =>
 const ConcordancePlace = lazy(() =>
   import('./places/ConcordancePlace.tsx').then(({ ConcordancePlace: placeBody }) => ({ default: placeBody })),
 );
-const QuerySurface = lazy(() =>
-  import('./components/QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
-);
 const MethodSurface = lazy(() =>
   import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
-);
-const WorkbenchFooter = lazy(() =>
-  import('./components/WorkbenchFooter.tsx').then(({ WorkbenchFooter: footer }) => ({ default: footer })),
 );
 
 interface ReaderEdgePointer {
@@ -608,15 +603,6 @@ export function App() {
         )}
       </div>
       <div className="workbench">
-        <Suspense
-          fallback={(
-            <aside className="query-region" aria-label="Queries">
-              <p className="region-placeholder">loading Queries…</p>
-            </aside>
-          )}
-        >
-          <QuerySurface />
-        </Suspense>
         <div className="place-region">
           <PlaceSurface place={place}>
             <ActivePlace place={place} />
@@ -626,9 +612,7 @@ export function App() {
       <Suspense fallback={null}>
         <MethodSurface place={place} />
       </Suspense>
-      <Suspense fallback={null}>
-        <WorkbenchFooter globalShortcuts={place === 'trends'} />
-      </Suspense>
+      <WorkbenchDock globalShortcuts={place === 'trends'} />
     </main>
     {shortcutHelpContext && (
       <KeyboardShortcuts context={shortcutHelpContext} onClose={closeShortcutHelp} />

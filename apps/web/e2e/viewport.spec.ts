@@ -75,6 +75,44 @@ test('compact header combines brand and single-line Scope without duplicating Le
   expect(geometry.scopeScrollHeight).toBeLessThanOrEqual(geometry.scopeClientHeight);
 });
 
+test('compact landscape keeps the one-row dock clear of the Lens rail', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await page.setViewportSize({ width: 568, height: 320 });
+
+  const dock = page.locator('.workbench-dock');
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  const [dockBox, termsBox, lensBox] = await Promise.all([
+    dock.boundingBox(),
+    terms.boundingBox(),
+    lens.boundingBox(),
+  ]);
+  if (!dockBox || !termsBox || !lensBox) throw new Error('landscape dock geometry is unavailable');
+  expect(dockBox.x).toBeGreaterThanOrEqual(lensBox.x + lensBox.width);
+  expect(termsBox.height).toBe(await page.evaluate(() => Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--terms-rail-block-size'),
+  )));
+
+  for (const control of [
+    terms.locator('.term-bucket-focus').first(),
+    terms.locator('.term-bucket-toggle').first(),
+    terms.locator('.term-bar-actions button').first(),
+  ]) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  const overflow = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(overflow.root).toBeLessThanOrEqual(overflow.client);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+});
+
 test('full-height editors honor resizes-visual geometry without losing draft or issuing work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

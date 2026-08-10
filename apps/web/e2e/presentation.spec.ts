@@ -94,29 +94,24 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
 
 test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
   for (const viewport of [
-    { width: 768, height: 1024, areas: '"queries" "place"' },
-    { width: 1440, height: 900, areas: '"queries" "place"' },
+    { width: 768, height: 1024, areas: '"place"' },
+    { width: 1440, height: 900, areas: '"place"' },
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('./');
     await awaitAllReady(page);
     const layout = await page.locator('.workbench').evaluate((node) => {
       const grid = getComputedStyle(node);
-      const query = getComputedStyle(
-        node.querySelector<HTMLElement>('.query-region')!,
-      );
       const place = getComputedStyle(
         node.querySelector<HTMLElement>('.place-region')!,
       );
       return {
         areas: grid.gridTemplateAreas,
-        query: query.gridArea,
         place: place.gridArea,
       };
     });
     expect(layout).toEqual({
       areas: viewport.areas,
-      query: 'queries',
       place: 'place',
     });
   }
@@ -179,6 +174,7 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await gotoPlace(page, 'vocabulary');
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
   const queries = page.getByRole('complementary', { name: 'Terms' });
+  await expect(page.locator('.workbench-dock')).toHaveCSS('position', 'fixed');
   await queries.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }).click();
   await expect(page.getByRole('dialog', { name: 'Quick add query terms' })).toBeVisible();
   await expect(

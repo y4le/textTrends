@@ -152,8 +152,18 @@ export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void>
 /** Remove every notebook group through the UI (the notebook is append-only;
  *  specs that want a FRESH comparison clear it first). */
 export async function clearNotebook(page: Page): Promise<void> {
-  const removeButtons = page.getByRole('button', { name: /^Remove / });
-  while ((await removeButtons.count()) > 0) await removeButtons.first().click();
+  const railRemovals = page.locator('.term-bar .term-bucket-remove');
+  if ((await railRemovals.count()) === 0) return;
+  if (await railRemovals.first().isVisible()) {
+    while ((await railRemovals.count()) > 0) await railRemovals.first().click();
+    return;
+  }
+
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const managerRemovals = manager.getByRole('button', { name: /^Remove / });
+  while ((await managerRemovals.count()) > 0) await managerRemovals.first().click();
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
 /** Open the cross-width quick-add layer and return its text field. */

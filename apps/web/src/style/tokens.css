@@ -45,7 +45,13 @@
   /* Workbench chrome metrics shared by layout and safe-area reservation. */
   --lens-block-size: 4.5rem;
   --keyboard-inset: 0px;
+  --terms-rail-block-size: 56px;
+  --reading-reserve-block-size: 0px;
   --footer-block-size: 0px;
+  --reading-lane-block-size:
+    max(var(--footer-block-size), var(--reading-reserve-block-size));
+  --dock-block-size:
+    calc(var(--terms-rail-block-size) + var(--reading-lane-block-size));
 }
 
 @media (prefers-color-scheme: light) {
@@ -213,15 +219,9 @@ canvas {
 .workbench {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  grid-template-areas:
-    'queries'
-    'place';
+  grid-template-areas: 'place';
   column-gap: 0;
   min-width: 0;
-}
-
-.query-region {
-  grid-area: queries;
 }
 
 .place-region {
@@ -414,6 +414,15 @@ canvas {
 .workbench-sheet[data-detent='tall'] {
   block-size: 88vh;
   block-size: 88dvh;
+}
+
+.workbench-sheet[data-detent='peek'] {
+  inset-block-end:
+    calc(
+      var(--dock-block-size)
+      + var(--keyboard-inset)
+      + env(safe-area-inset-bottom, 0px)
+    );
 }
 
 .sheet-header {
@@ -2198,100 +2207,15 @@ canvas {
     margin-inline-start: auto;
   }
 
-  .query-region {
-    display: flex;
-    block-size: 48px;
-    align-items: center;
-    gap: var(--space-2);
-    padding-block: 0;
-    overflow: hidden;
-    border-bottom-color: var(--rule-strong);
-  }
-
   .workbench-sheet[data-compact='true'][data-detent='peek'] {
     inset-block-end:
-      calc(var(--lens-block-size) + env(safe-area-inset-bottom, 0px));
+      calc(
+        var(--lens-block-size)
+        + var(--dock-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
     padding-block-end: var(--space-2);
-  }
-
-  .compact-query-label {
-    flex: 0 0 auto;
-    font-size: var(--text-sm);
-    text-transform: uppercase;
-    letter-spacing: 0.04em;
-  }
-
-  .compact-query-scroll {
-    display: flex;
-    min-width: 0;
-    flex: 1 1 auto;
-    align-items: center;
-    gap: var(--space-1);
-    overflow-x: auto;
-    overscroll-behavior-inline: contain;
-    scrollbar-width: thin;
-  }
-
-  .compact-query-summary {
-    display: flex;
-    min-width: 0;
-    flex: 1 1 auto;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--space-2);
-  }
-
-  .compact-query-route {
-    min-width: 0;
-    min-block-size: 44px;
-    padding: 0;
-    overflow: hidden;
-    border: 0;
-    border-bottom: 1px solid var(--rule-strong);
-    color: var(--fg-muted);
-    background: none;
-    cursor: pointer;
-    font-size: var(--text-sm);
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-
-  .compact-query-item {
-    display: inline-flex;
-    flex: 0 0 auto;
-    align-items: stretch;
-    border: 1px solid var(--rule);
-  }
-
-  .compact-query-item .query-focus-chip {
-    min-block-size: 44px;
-    border: 0;
-    font-size: var(--text-sm);
-    white-space: nowrap;
-  }
-
-  .compact-query-edit,
-  .compact-query-add {
-    min-inline-size: 44px;
-    min-block-size: 44px;
-    border: 0;
-    border-inline-start: 1px solid var(--rule);
-    color: var(--fg-muted);
-    background: none;
-    cursor: pointer;
-  }
-
-  .compact-query-edit {
-    padding-inline: var(--space-2);
-    font-size: var(--text-xs);
-  }
-
-  .compact-query-add {
-    min-inline-size: 44px;
-    flex: 0 0 44px;
-    border: 1px solid var(--rule-strong);
-    color: var(--fg);
-    font-size: var(--text-lg);
   }
 
   .form-layer {
@@ -2410,13 +2334,14 @@ canvas {
         var(--space-3)
         + env(safe-area-inset-bottom, 0px)
       );
-    padding-inline-start: calc(8.5rem + env(safe-area-inset-left, 0px));
+    padding-inline:
+      calc(8.5rem + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
   }
 
   .lens-organ {
     inset-block: 0;
-    inset-inline-start: 0;
-    inset-inline-end: auto;
+    inset-inline: 0 auto;
     inline-size: 8rem;
     flex-direction: column;
     justify-content: center;
@@ -2430,8 +2355,13 @@ canvas {
   }
 
   .workbench-sheet[data-compact='true'][data-detent='peek'] {
-    inset-inline-start: 8rem;
-    inset-block-end: 0;
+    inset-inline: 8rem 0;
+    inset-block-end:
+      calc(
+        var(--dock-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
     padding-inline-start: var(--space-3);
   }
 
@@ -2458,10 +2388,12 @@ canvas {
   grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  min-block-size: 52px;
-  block-size: auto;
+  block-size: var(--terms-rail-block-size);
+  padding-block: 0;
   overflow: visible;
-  border-bottom: 1px solid var(--rule-strong);
+  border-block-start: 1px solid var(--rule-strong);
+  border-block-end: 0;
+  background: var(--bg);
 }
 
 .term-bar-label {
@@ -2473,11 +2405,12 @@ canvas {
 .term-bucket-port {
   display: flex;
   min-width: 0;
-  align-items: stretch;
+  align-items: center;
   gap: var(--space-1);
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   padding-block: var(--space-1);
+  scroll-padding-inline: var(--space-2);
   scrollbar-width: thin;
 }
 
@@ -2572,7 +2505,8 @@ canvas {
   position: absolute;
   z-index: 3;
   inset-inline-end: 0;
-  inset-block-start: 100%;
+  inset-block-end: calc(100% + var(--space-1));
+  max-inline-size: calc(100% - var(--space-2));
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--rule-strong);
   background: var(--bg);
@@ -2839,13 +2773,11 @@ canvas {
   }
 
   .term-bar {
-    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .term-bar-actions {
-    grid-column: 1 / -1;
-    justify-content: flex-end;
-    padding-block-end: var(--space-1);
+  .term-bar-label {
+    display: none;
   }
 
   .term-bucket,
@@ -2859,7 +2791,8 @@ canvas {
     min-inline-size: 44px;
   }
 
-  .term-bucket-edit {
+  .term-bucket-edit,
+  .term-bucket-remove {
     display: none;
   }
 
@@ -2881,10 +2814,25 @@ canvas {
   .app-shell {
     padding-block-end: calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
   }
-
 }
 
 @media (pointer: coarse), (any-pointer: coarse) {
+  :root {
+    --terms-rail-block-size: 62px;
+  }
+
+  .term-bucket,
+  .term-bucket button,
+  .term-bar-actions button {
+    min-block-size: 44px;
+  }
+
+  .term-bucket-edit,
+  .term-bucket-toggle,
+  .term-bucket-remove {
+    min-inline-size: 44px;
+  }
+
   .reader-region button {
     min-inline-size: 44px;
   }
@@ -2902,17 +2850,27 @@ canvas {
  * shell declarations; the matching compact overrides below must stay later. */
 .app-shell {
   padding-block-end:
-    calc(var(--space-4) + var(--footer-block-size) + env(safe-area-inset-bottom, 0px));
+    calc(var(--space-4) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
 }
 
-.workbench-footer {
+.workbench-dock {
   position: fixed;
   z-index: 30;
+  display: grid;
+  grid-template-rows: var(--terms-rail-block-size) minmax(0, 1fr);
   inset-inline:
     calc(var(--space-4) + env(safe-area-inset-left, 0px))
     calc(var(--space-4) + env(safe-area-inset-right, 0px));
   inset-block-end:
     calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  block-size: var(--dock-block-size);
+  min-inline-size: 0;
+  overflow: visible;
+  background: var(--bg);
+}
+
+.workbench-footer {
+  position: relative;
   block-size: var(--footer-local-block-size);
   min-inline-size: 0;
   padding-block: var(--footer-pad-block);
@@ -3106,16 +3064,20 @@ canvas {
 }
 
 @media (max-width: 599.98px) {
+  :root {
+    --terms-rail-block-size: 62px;
+  }
+
   .app-shell {
     padding-block-end:
       calc(
         var(--lens-block-size)
-        + var(--footer-block-size)
+        + var(--dock-block-size)
         + env(safe-area-inset-bottom, 0px)
       );
   }
 
-  .workbench-footer {
+  .workbench-dock {
     inset-inline:
       calc(var(--space-3) + env(safe-area-inset-left, 0px))
       calc(var(--space-3) + env(safe-area-inset-right, 0px));
@@ -3144,11 +3106,13 @@ canvas {
 @media (max-width: 599.98px) and (orientation: landscape) {
   .app-shell {
     padding-block-end:
-      calc(var(--space-3) + var(--footer-block-size) + env(safe-area-inset-bottom, 0px));
+      calc(var(--space-3) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
   }
 
-  .workbench-footer {
-    inset-inline-start: calc(8.5rem + env(safe-area-inset-left, 0px));
+  .workbench-dock {
+    inset-inline:
+      calc(8.5rem + env(safe-area-inset-left, 0px))
+      calc(var(--space-3) + env(safe-area-inset-right, 0px));
     inset-block-end:
       calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
   }

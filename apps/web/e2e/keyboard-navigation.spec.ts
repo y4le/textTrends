@@ -19,9 +19,17 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(catalogHeading).toBeVisible();
   await expect(catalogHeading).toBeFocused();
 
-  await chord(catalogHeading, 'g', 'q');
+  await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
+  const scrollBeforeTerms = await page.evaluate(() => window.scrollY);
+  await page.keyboard.press('g');
+  await page.keyboard.press('q');
   const termButtons = page.locator('[data-term-focus]:not(:disabled)');
   await expect(termButtons.nth(0)).toBeFocused();
+  expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeTerms);
+  const focusedTermBox = await termButtons.nth(0).boundingBox();
+  expect(focusedTermBox?.y).toBeGreaterThanOrEqual(0);
+  expect(focusedTermBox ? focusedTermBox.y + focusedTermBox.height : Number.POSITIVE_INFINITY)
+    .toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
   await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'true');
   await termButtons.nth(0).press('l');
   await expect(termButtons.nth(1)).toBeFocused();

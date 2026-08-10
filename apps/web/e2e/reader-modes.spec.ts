@@ -130,6 +130,7 @@ test('Reader has one full-viewport presentation without mode or background work'
   await expect(reader).not.toHaveAttribute('role', 'dialog');
   await expect(reader.getByRole('group', { name: 'Reader width' })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
+  await expect(page.locator('.workbench-dock')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(0);
   await expect(page.locator('.app-header')).toHaveCount(0);
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
