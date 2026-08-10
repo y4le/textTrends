@@ -246,13 +246,13 @@ test('Trends exposes footer reading keys without requiring footer focus', async 
   await page.goto('./');
   await awaitAllReady(page);
 
-  const heading = page.getByRole('heading', { name: 'Trends', exact: true });
+  const trendsSurface = page.getByRole('region', { name: 'Trends', exact: true });
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const footerSlider = page.getByRole('slider', { name: 'Corpus footer position' });
   const trendSlider = page.getByRole('slider', { name: 'Reading position scrubber' });
   await expect(footerSlider).toBeVisible();
-  await heading.focus();
-  await heading.press('l');
+  await trendsSurface.focus();
+  await trendsSurface.press('l');
   await expect(footerSlider).not.toHaveAttribute('aria-valuetext', 'no position');
   await expect(page.locator('.footer-passage[data-passage-for]')).toHaveAttribute(
     'data-passage-for',
@@ -277,7 +277,7 @@ test('Trends exposes footer reading keys without requiring footer focus', async 
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
   await reader.press('Escape');
-  await expect(heading).toBeFocused();
+  await expect(trendsSurface).toBeFocused();
   await expect(footer).toBeVisible();
 });
 

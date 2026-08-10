@@ -15,7 +15,7 @@ test('double-click clears the linked range without selecting chart text', async 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toBeVisible();
   expect(await scrubber.evaluate(userSelect)).toBe('none');
-  expect(await page.getByRole('heading', { name: 'Trends', exact: true }).evaluate(userSelect)).toBe('none');
+  expect(await page.getByRole('region', { name: 'Trends', exact: true }).evaluate(userSelect)).toBe('none');
 
   await scrubber.focus();
   await scrubber.press('Home');

@@ -64,7 +64,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'compare');
-  await expect(page.getByRole('heading', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
 
   await page.getByRole('button', { name: 'sort and filter' }).click();
   const settings = page.getByRole('form', { name: 'Compare sort and filter' });
@@ -116,7 +116,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   expect(negative).toBeLessThan(0);
   expect(negative).toBeCloseTo(-positive, 2);
   await expect(detail).toHaveCount(0);
-  await expect(page.getByRole('heading', { name: 'Compare', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeFocused();
 
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });

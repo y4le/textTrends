@@ -87,16 +87,14 @@ function PlaceSurface({
   readonly place: Place;
   readonly children: ReactNode;
 }) {
-  const headingId = `place-${place}-heading`;
+  const focusId = `place-${place}-heading`;
   return (
-    <section className="place-surface" aria-labelledby={headingId}>
-      <h2
-        id={headingId}
-        tabIndex={-1}
-        style={{ fontSize: 'var(--text-md)', margin: 'var(--space-3) 0 var(--space-1)' }}
-      >
-        {PLACE_HEADING[place]}
-      </h2>
+    <section
+      id={focusId}
+      className="place-surface"
+      aria-label={PLACE_HEADING[place]}
+      tabIndex={-1}
+    >
       <Suspense
         fallback={(
           <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>

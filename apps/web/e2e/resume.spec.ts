@@ -12,7 +12,7 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
     await expect(page.locator('details.method-summary')).toHaveCount(0);
     for (const [candidate, heading] of Object.entries(PLACE_HEADING)) {
       const expected = candidate === place ? 1 : 0;
-      await expect(page.getByRole('heading', { name: heading, exact: true })).toHaveCount(expected);
+      await expect(page.getByRole('heading', { name: heading, exact: true })).toHaveCount(0);
       await expect(page.getByRole('region', { name: heading, exact: true })).toHaveCount(expected);
     }
   }

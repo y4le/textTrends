@@ -188,7 +188,7 @@ test('successful exact Concordance routing restores the open Vocabulary detail o
   await page.goBack();
   await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);
   await expect(detail).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Vocabulary', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
 });
 
 test('a ready page that omits an open row stale-pops once to a surviving focus target', async ({ page }) => {
@@ -210,7 +210,7 @@ test('a ready page that omits an open row stale-pops once to a surviving focus t
   await page.getByRole('button', { name: 'next', exact: true }).click();
   await expect(detail).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);
-  await expect(page.getByRole('heading', { name: 'Vocabulary', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
 
   await page.goBack();
   await expect(page).toHaveURL(/[?&]p=trends(?:&|$)/);

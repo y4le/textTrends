@@ -67,10 +67,11 @@ Terms bucket rail
 Corpus-reading footer
 ```
 
-The brand, Scope, and Lens share one header row. Scope is a single-line local
-horizontal scroll port when its facts do not fit. Compact portrait and
-landscape move the Lens links to their governed bottom or side dock without
-duplicating the navigation DOM.
+The brand, Scope, and Lens share one header row. The selected Scope or Lens
+control supplies the active place name; the analytical surface does not repeat
+it as an interior title. Scope is a single-line local horizontal scroll port
+when its facts do not fit. Compact portrait and landscape move the Lens links
+to their governed bottom or side dock without duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
