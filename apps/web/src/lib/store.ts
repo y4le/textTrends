@@ -2438,11 +2438,25 @@ export function createAppRuntime(
       },
 
       navigateReader(cursor) {
-        const { readerPlace: place, readerNavigation: navigation } = get();
+        const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
+        const readyPage = readerPage
+          && place
+          && sameReaderPlace(readerPage.place, place)
+          && readerPage.state.status === 'ready'
+          ? readerPage.state.page
+          : null;
+        const boundaryCursor = (cursor.kind === 'from' && cursor.token === 0)
+          || (
+            cursor.kind === 'before'
+            && readyPage !== null
+            && cursor.token === readyPage.docTokenCount
+          );
         if (
           !place
           || !navigation
           || (
+            !boundaryCursor
+            &&
             !sameReaderCursor(cursor, navigation.previous)
             && !sameReaderCursor(cursor, navigation.next)
           )

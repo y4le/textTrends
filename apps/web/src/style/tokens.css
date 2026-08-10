@@ -2784,6 +2784,8 @@ canvas {
   font-family: var(--font-mono);
   font-size: var(--text-sm);
   line-height: 20px;
+  font-kerning: none;
+  font-variant-ligatures: none;
   white-space: pre;
 }
 

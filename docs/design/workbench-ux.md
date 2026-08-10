@@ -154,6 +154,17 @@ barcode presents them as exact Reader occurrences. A footer density
 double-click supersedes its constituent bucket clicks so Concordance, Reader,
 and the reading cursor settle on the same raw corpus position.
 
+With the footer position focused, `h`/`l`, Left/Right, and PageUp/PageDown page
+backward/forward through the clipped source lane. A page is derived from the
+authenticated token boundaries actually visible at the current width and
+crosshair position, rather than from a trend bin or average token width. Each
+successive lane overlaps its predecessor by one boundary token when possible;
+a single-token lane advances adjacently instead of livelocking, so repeated
+navigation exposes the declared corpus without a source gap. `H`/`L` and
+Shift+Left/Shift+Right move one token. Home/End use the corpus endpoints, and
+Enter or `o` opens Reader at the current position. Pointer seeking and the
+drag shuttle restore centered passage alignment.
+
 ## Concordance and direct reading
 
 Concordance is the canonical context surface. Its aligned table centers the
@@ -187,6 +198,11 @@ status, query highlights, and an explicit Back path.
 
 Reader position and highlights are transient. The workspace contains notebook
 and analysis-view settings, not reading position.
+
+Reader owns the reading keys while it is open: `h`/Left/PageUp and
+`l`/Right/PageDown use its canonical previous and next page cursors, `j`/`k`
+scroll the prose, Home/End request the document boundaries, and Escape follows
+the same governed Back path as the visible control.
 
 ## Responsive, accessibility, and history contracts
 

@@ -9,6 +9,180 @@ export const FOOTER_SHUTTLE_MAX_WINDOWS_PER_SECOND = 2.5;
 export const FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS = 20;
 export const FOOTER_SHUTTLE_MAX_FRAME_MS = 100;
 
+export type PassageAlignment = 'center' | 'leading' | 'trailing';
+
+export interface PassageTokenGeometry {
+  readonly starts: Float64Array;
+  readonly ends: Float64Array;
+  readonly textWidth: number;
+  /** True when segment widths were not additive and exact prefix measures won. */
+  readonly usedPrefixFallback: boolean;
+}
+
+export interface PassageWindowV1 {
+  readonly snapshot: string;
+  readonly doc: string;
+  readonly pageTokens: { readonly start: number; readonly end: number };
+  readonly firstVisibleToken: number;
+  readonly lastVisibleToken: number;
+  readonly forToken: number;
+  readonly alignment: PassageAlignment;
+}
+
+export interface PassageLayoutV1 {
+  readonly shiftPx: number;
+  readonly visibleTokens: number;
+  readonly window: PassageWindowV1;
+}
+
+type MeasureText = (text: string) => number;
+
+/** Measure every token boundary in the exact rendered source string. The fast
+ * path sums disjoint text segments (including whitespace); if shaping across a
+ * segment boundary makes those widths non-additive, full-prefix measurement is
+ * used for every boundary instead. */
+export function passageTokenGeometry(
+  text: string,
+  tokenStartsUtf16: readonly number[],
+  tokenEndsUtf16: readonly number[],
+  measure: MeasureText,
+): PassageTokenGeometry | null {
+  if (tokenStartsUtf16.length === 0 || tokenStartsUtf16.length !== tokenEndsUtf16.length) {
+    return null;
+  }
+  const offsets = new Set<number>([0, text.length]);
+  let previousStart = -1;
+  let previousEnd = -1;
+  for (let i = 0; i < tokenStartsUtf16.length; i++) {
+    const start = tokenStartsUtf16[i];
+    const end = tokenEndsUtf16[i];
+    if (
+      !Number.isSafeInteger(start)
+      || !Number.isSafeInteger(end)
+      || start! < 0
+      || end! <= start!
+      || end! > text.length
+      || start! < previousStart
+      || end! < previousEnd
+    ) return null;
+    offsets.add(start!);
+    offsets.add(end!);
+    previousStart = start!;
+    previousEnd = end!;
+  }
+  const ordered = [...offsets].sort((left, right) => left - right);
+  const widthAt = new Map<number, number>([[0, 0]]);
+  let cumulative = 0;
+  let previous = 0;
+  for (const offset of ordered.slice(1)) {
+    const width = measure(text.slice(previous, offset));
+    if (!Number.isFinite(width) || width < 0) return null;
+    cumulative += width;
+    widthAt.set(offset, cumulative);
+    previous = offset;
+  }
+  const textWidth = measure(text);
+  if (!Number.isFinite(textWidth) || textWidth < 0) return null;
+  const usedPrefixFallback = Math.abs(cumulative - textWidth) > 0.5;
+  if (usedPrefixFallback) {
+    for (const offset of ordered.slice(1)) {
+      const width = measure(text.slice(0, offset));
+      if (!Number.isFinite(width) || width < 0) return null;
+      widthAt.set(offset, width);
+    }
+  }
+  return {
+    starts: Float64Array.from(tokenStartsUtf16, (offset) => widthAt.get(offset) ?? 0),
+    ends: Float64Array.from(tokenEndsUtf16, (offset) => widthAt.get(offset) ?? 0),
+    textWidth,
+    usedPrefixFallback,
+  };
+}
+
+function visiblePassageInterval(
+  geometry: PassageTokenGeometry,
+  lo: number,
+  hi: number,
+  anchor: number,
+): { readonly first: number; readonly last: number } {
+  let first = -1;
+  let last = -1;
+  for (let i = 0; i < geometry.starts.length; i++) {
+    if (geometry.starts[i]! >= lo - 0.5 && geometry.ends[i]! <= hi + 0.5) {
+      if (first < 0) first = i;
+      last = i;
+    }
+  }
+  if (first < 0 || last < 0) return { first: anchor, last: anchor };
+  return {
+    first: Math.min(first, anchor),
+    last: Math.max(last, anchor),
+  };
+}
+
+/** Resolve the source interval actually visible in the clipped footer lane.
+ * Leading/trailing alignments put the cursor token at the relevant viewport
+ * edge, which makes adjacent keyboard pages share exactly that boundary token. */
+export function passageLayout(
+  page: ReaderPageResultV1,
+  snapshot: string,
+  forToken: number,
+  alignment: PassageAlignment,
+  containerWidth: number,
+  crosshairX: number,
+  geometry: PassageTokenGeometry,
+): PassageLayoutV1 | null {
+  const relative = forToken - page.tokens.start;
+  if (
+    relative < 0
+    || relative >= geometry.starts.length
+    || !Number.isFinite(containerWidth)
+    || containerWidth <= 0
+    || !Number.isFinite(crosshairX)
+  ) return null;
+  const start = geometry.starts[relative]!;
+  const end = geometry.ends[relative]!;
+  const boundedCrosshair = Math.max(0, Math.min(containerWidth, crosshairX));
+  const shiftPx = alignment === 'leading'
+    ? boundedCrosshair + start
+    : alignment === 'trailing'
+      ? boundedCrosshair + end - containerWidth
+      : (start + end) / 2;
+  const lo = shiftPx - boundedCrosshair;
+  const interval = visiblePassageInterval(geometry, lo, lo + containerWidth, relative);
+  return {
+    shiftPx,
+    visibleTokens: interval.last - interval.first + 1,
+    window: {
+      snapshot,
+      doc: page.doc,
+      pageTokens: page.tokens,
+      firstVisibleToken: page.tokens.start + interval.first,
+      lastVisibleToken: page.tokens.start + interval.last,
+      forToken,
+      alignment,
+    },
+  };
+}
+
+/** One rendered-page step with a one-token seam whenever the current window
+ * reaches beyond its anchor. A one-token window cannot retain overlap without
+ * livelocking, so the caller receives at least ±1 and the seam stays adjacent. */
+export function nextPassageToken(
+  window: PassageWindowV1,
+  direction: 1 | -1,
+): { readonly token: number; readonly alignment: PassageAlignment } {
+  const edge = direction === 1
+    ? window.lastVisibleToken
+    : window.firstVisibleToken;
+  return {
+    token: direction === 1
+      ? Math.max(window.forToken + 1, edge)
+      : Math.min(window.forToken - 1, edge),
+    alignment: direction === 1 ? 'leading' : 'trailing',
+  };
+}
+
 export interface FooterGeometry extends TrendGeometry {
   readonly passageHeight: number;
   readonly statusHeight: number;

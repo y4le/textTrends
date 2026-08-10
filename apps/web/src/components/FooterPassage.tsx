@@ -1,7 +1,13 @@
-import { useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import type { FooterPassageState, ScrubTarget } from '../lib/store.ts';
-import { footerPassageDisplay } from '../lib/footer-view.ts';
+import {
+  footerPassageDisplay,
+  passageLayout,
+  passageTokenGeometry,
+  type PassageAlignment,
+  type PassageWindowV1,
+} from '../lib/footer-view.ts';
 import {
   displayReaderText,
   segmentReaderMarks,
@@ -48,7 +54,9 @@ export function FooterPassage({
   crosshairX,
   coarse,
   widthClass,
+  alignment,
   onVisibleTokensChange,
+  onPassageWindowChange,
 }: {
   readonly passage: FooterPassageState | null;
   readonly scrub: ScrubTarget | null;
@@ -57,7 +65,9 @@ export function FooterPassage({
   readonly crosshairX: number | null;
   readonly coarse: boolean;
   readonly widthClass: WidthClass;
+  readonly alignment: PassageAlignment;
   readonly onVisibleTokensChange: (tokens: number) => void;
+  readonly onPassageWindowChange: (window: PassageWindowV1 | null) => void;
 }) {
   const openReader = useApp((state) => state.openReader);
   const retryPassage = useApp((state) => state.runFooterPassage);
@@ -65,6 +75,7 @@ export function FooterPassage({
   const beforeRef = useRef<HTMLSpanElement | null>(null);
   const passageRef = useRef<HTMLElement | null>(null);
   const [canvasFont, setCanvasFont] = useState('');
+  const [containerWidth, setContainerWidth] = useState(0);
   const view = footerPassageDisplay(passage, scrub, snapshot);
   const page = view?.page ?? null;
   const stale = view?.stale ?? false;
@@ -94,16 +105,50 @@ export function FooterPassage({
   }, [coarse, page, widthClass]);
 
   useLayoutEffect(() => {
-    if (!page || !passageRef.current || canvasFont === '' || display === '') return;
-    const pageWidth = measuredTextWidth(display, canvasFont);
-    if (pageWidth <= 0 || passageRef.current.clientWidth <= 0) return;
-    const pageTokens = page.tokens.end - page.tokens.start;
-    const visible = Math.max(
-      1,
-      Math.min(pageTokens, Math.round(pageTokens * passageRef.current.clientWidth / pageWidth)),
-    );
-    onVisibleTokensChange(visible);
-  }, [canvasFont, display, onVisibleTokensChange, page]);
+    const element = passageRef.current;
+    if (!element) return undefined;
+    const publish = () => setContainerWidth((current) => {
+      const next = Math.max(0, element.clientWidth);
+      return current === next ? current : next;
+    });
+    publish();
+    const observer = new ResizeObserver(publish);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [coarse, page, widthClass]);
+
+  const tokenGeometry = useMemo(() => (
+    page && canvasFont !== '' && display !== ''
+      ? passageTokenGeometry(
+          display,
+          page.tokenStartsUtf16,
+          page.tokenEndsUtf16,
+          (text) => measuredTextWidth(text, canvasFont),
+        )
+      : null
+  ), [canvasFont, display, page]);
+
+  const viewToken = view?.token ?? -1;
+  const measuredLayout = useMemo(() => (
+    page && tokenGeometry && containerWidth > 0 && viewToken >= 0
+      ? passageLayout(
+          page,
+          snapshot,
+          viewToken,
+          alignment,
+          containerWidth,
+          crosshairX ?? 0,
+          tokenGeometry,
+        )
+      : null
+  ), [alignment, containerWidth, crosshairX, page, snapshot, tokenGeometry, viewToken]);
+
+  useLayoutEffect(() => {
+    onPassageWindowChange(measuredLayout?.window ?? null);
+    if (measuredLayout) onVisibleTokensChange(measuredLayout.visibleTokens);
+  }, [measuredLayout, onPassageWindowChange, onVisibleTokensChange]);
+
+  useEffect(() => () => onPassageWindowChange(null), [onPassageWindowChange]);
 
   const centerOffset = useMemo(() => measuredTextWidth(
     display.slice(0, centerStart),
@@ -172,7 +217,7 @@ export function FooterPassage({
       className="footer-passage-text"
       style={{
         left: crosshairX,
-        transform: `translateX(${(-centerOffset).toFixed(1)}px)`,
+        transform: `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`,
       }}
     >
       <span ref={beforeRef}>
@@ -205,9 +250,17 @@ export function FooterPassage({
       source unavailable · retry
     </button>
   ) : null;
+  const windowData = measuredLayout?.window;
+  const windowAttributes = windowData ? {
+    'data-passage-first': windowData.firstVisibleToken,
+    'data-passage-last': windowData.lastVisibleToken,
+    'data-passage-for': windowData.forToken,
+    'data-passage-alignment': windowData.alignment,
+  } : {};
 
   return coarse && !stale ? (
     <button
+      {...windowAttributes}
       ref={(element) => { passageRef.current = element; }}
       id="footer-passage-node"
       type="button"
@@ -219,6 +272,7 @@ export function FooterPassage({
     </button>
   ) : (
     <div
+      {...windowAttributes}
       ref={(element) => { passageRef.current = element; }}
       className={`footer-passage source-text${stateClass}`}
       aria-busy={passage?.state.status === 'pending'}

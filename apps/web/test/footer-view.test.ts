@@ -11,6 +11,9 @@ import {
   footerPassageDisplay,
   footerPassageServes,
   footerStatusText,
+  nextPassageToken,
+  passageLayout,
+  passageTokenGeometry,
   sequenceLayoutFor,
 } from '../src/lib/footer-view.ts';
 
@@ -93,6 +96,98 @@ describe('reading footer view', () => {
     });
     expect(advanceFooterShuttle(layout, 0.5, 10, FOOTER_SHUTTLE_MAX_FRAME_MS * 10))
       .toEqual({ position: 1.5, docOrdinal: 0, token: 1 });
+  });
+
+  it('measures token boundaries including whitespace and falls back for non-additive shaping', () => {
+    const text = 'aa b ccc';
+    const widths = new Map([['a', 2], ['b', 3], ['c', 1], [' ', 1]]);
+    const measure = (value: string) => [...value].reduce(
+      (sum, char) => sum + (widths.get(char) ?? 0),
+      0,
+    );
+    const geometry = passageTokenGeometry(text, [0, 3, 5], [2, 4, 8], measure);
+    expect(geometry).not.toBeNull();
+    expect([...geometry!.starts]).toEqual([0, 5, 9]);
+    expect([...geometry!.ends]).toEqual([4, 8, 12]);
+    expect(geometry!.usedPrefixFallback).toBe(false);
+
+    const shaped = passageTokenGeometry(
+      'abcd',
+      [0, 2],
+      [2, 4],
+      (value) => value.length + (value === 'abcd' ? 2 : 0),
+    );
+    expect(shaped?.usedPrefixFallback).toBe(true);
+    expect(shaped?.textWidth).toBe(6);
+    expect([...shaped!.ends]).toEqual([2, 6]);
+  });
+
+  it('pages variable-width source in both directions with overlapping or adjacent seams and no gaps', () => {
+    const source = 'a bb ccc d eeee f gg hhh i';
+    const starts: number[] = [];
+    const ends: number[] = [];
+    for (const match of source.matchAll(/\S+/g)) {
+      starts.push(match.index);
+      ends.push(match.index + match[0].length);
+    }
+    const widths = new Map([...new Set(source)].map((char, index) => [char, index % 3 + 1]));
+    const geometry = passageTokenGeometry(
+      source,
+      starts,
+      ends,
+      (value) => [...value].reduce((sum, char) => sum + (widths.get(char) ?? 1), 0),
+    )!;
+    const fixture = {
+      ...page(0, starts.length),
+      text: source,
+      tokenStartsUtf16: starts,
+      tokenEndsUtf16: ends,
+      docTokenCount: starts.length,
+      atEnd: true,
+    };
+    const forward: { firstVisibleToken: number; lastVisibleToken: number }[] = [];
+    let cursor = 0;
+    for (;;) {
+      const layout = passageLayout(fixture, 's1', cursor, 'leading', 12, 5, geometry)!;
+      forward.push(layout.window);
+      const next = nextPassageToken(layout.window, 1).token;
+      if (next >= starts.length) break;
+      cursor = next;
+    }
+    expect(forward[0]!.firstVisibleToken).toBe(0);
+    expect(forward.at(-1)!.lastVisibleToken).toBe(starts.length - 1);
+    for (let i = 1; i < forward.length; i++) {
+      expect(forward[i]!.firstVisibleToken).toBeGreaterThanOrEqual(forward[i - 1]!.lastVisibleToken);
+      expect(forward[i]!.firstVisibleToken).toBeLessThanOrEqual(forward[i - 1]!.lastVisibleToken + 1);
+    }
+
+    const backward: { firstVisibleToken: number; lastVisibleToken: number }[] = [];
+    cursor = starts.length - 1;
+    for (;;) {
+      const layout = passageLayout(fixture, 's1', cursor, 'trailing', 12, 5, geometry)!;
+      backward.push(layout.window);
+      const next = nextPassageToken(layout.window, -1).token;
+      if (next < 0) break;
+      cursor = next;
+    }
+    expect(backward[0]!.lastVisibleToken).toBe(starts.length - 1);
+    expect(backward.at(-1)!.firstVisibleToken).toBe(0);
+    for (let i = 1; i < backward.length; i++) {
+      expect(backward[i]!.lastVisibleToken).toBeLessThanOrEqual(backward[i - 1]!.firstVisibleToken);
+      expect(backward[i]!.lastVisibleToken).toBeGreaterThanOrEqual(backward[i - 1]!.firstVisibleToken - 1);
+    }
+  });
+
+  it('keeps the anchor readable at asymmetric crosshairs and escapes an over-wide token', () => {
+    const fixture = page(0, 3);
+    const geometry = passageTokenGeometry('xyz', [0, 1, 2], [1, 2, 3], (text) => text.length * 20)!;
+    for (const crosshair of [0, 10]) {
+      const layout = passageLayout(fixture, 's1', 1, 'center', 10, crosshair, geometry)!;
+      expect(layout.window.firstVisibleToken).toBeLessThanOrEqual(1);
+      expect(layout.window.lastVisibleToken).toBeGreaterThanOrEqual(1);
+      expect(nextPassageToken(layout.window, 1).token).toBe(2);
+      expect(nextPassageToken(layout.window, -1).token).toBe(0);
+    }
   });
 
   it('formats compact, partial, and failure status honestly', () => {

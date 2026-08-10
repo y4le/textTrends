@@ -74,7 +74,8 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   await page.getByRole('table', { name: 'Concordance' })
     .getByRole('button').first().click();
   const fallback = page.getByRole('main', { name: /Reader:/ });
-  await expect(fallback.getByRole('status')).toHaveText('loading reader…');
+  await expect(fallback.getByRole('status', { name: 'Reader keyboard status' })).toHaveCount(1);
+  await expect(fallback.locator('p.reader-position')).toHaveText('loading reader…');
   await fallback.getByRole('button', { name: 'back', exact: true }).click();
   await expect(fallback).toHaveCount(0);
   await expect(page.locator('.app-header')).toBeVisible();

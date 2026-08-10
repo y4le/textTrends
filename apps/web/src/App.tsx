@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, type ReactNode } from 'react';
+import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
 import { useApp } from './lib/store-instance.ts';
 import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
@@ -85,11 +85,16 @@ export function App() {
   const clearNotebookError = useApp((s) => s.clearNotebookError);
   const trendSettingsNotice = useApp((s) => s.trendSettingsNotice);
   const readerPlace = useApp((s) => s.readerPlace);
+  const readerPage = useApp((s) => s.readerPage);
+  const readerNavigation = useApp((s) => s.readerNavigation);
   const closeReader = useApp((s) => s.closeReader);
+  const navigateReader = useApp((s) => s.navigateReader);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
   const readerOpen = readerPlace !== null;
+  const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
+  const readerScrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -100,6 +105,10 @@ export function App() {
     });
     return () => cancelAnimationFrame(frame);
   }, [readerOpen]);
+
+  useEffect(() => {
+    setReaderKeyboardStatus('');
+  }, [readerPlace]);
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -117,11 +126,86 @@ export function App() {
         aria-labelledby="reader-title"
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.key !== 'Escape') return;
-          event.preventDefault();
-          closeReader();
+          if (event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing) return;
+          const target = event.target as HTMLElement;
+          if (target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')) {
+            return;
+          }
+          const move = (direction: 1 | -1) => {
+            const cursor = direction === 1
+              ? readerNavigation?.next
+              : readerNavigation?.previous;
+            if (!cursor) {
+              setReaderKeyboardStatus(direction === 1 ? 'end of book' : 'start of book');
+              return;
+            }
+            setReaderKeyboardStatus('');
+            navigateReader(cursor);
+          };
+          switch (event.key) {
+            case 'Escape':
+              event.preventDefault();
+              closeReader();
+              return;
+            case 'h':
+            case 'ArrowLeft':
+            case 'PageUp':
+              event.preventDefault();
+              move(-1);
+              return;
+            case 'l':
+            case 'ArrowRight':
+            case 'PageDown':
+              event.preventDefault();
+              move(1);
+              return;
+            case 'j':
+              event.preventDefault();
+              if (readerScrollRef.current) {
+                const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
+                const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
+                readerScrollRef.current.scrollBy({
+                  top: Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 24,
+                });
+              }
+              return;
+            case 'k':
+              event.preventDefault();
+              if (readerScrollRef.current) {
+                const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
+                const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
+                readerScrollRef.current.scrollBy({
+                  top: Number.isFinite(lineHeight) && lineHeight > 0 ? -lineHeight : -24,
+                });
+              }
+              return;
+            case 'Home':
+              event.preventDefault();
+              setReaderKeyboardStatus('');
+              navigateReader({ kind: 'from', token: 0 });
+              return;
+            case 'End': {
+              event.preventDefault();
+              const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
+              if (page && page.docTokenCount > 0) {
+                setReaderKeyboardStatus('');
+                navigateReader({ kind: 'before', token: page.docTokenCount });
+              }
+              return;
+            }
+            default:
+              return;
+          }
         }}
       >
+        <span
+          className="visually-hidden"
+          role="status"
+          aria-label="Reader keyboard status"
+          aria-live="polite"
+        >
+          {readerKeyboardStatus}
+        </span>
         <Suspense
           fallback={(
             <>
@@ -134,11 +218,11 @@ export function App() {
                 </div>
                 <button type="button" onClick={closeReader}>back</button>
               </header>
-              <div className="reader-prose-scroll" aria-hidden="true" />
+              <div ref={readerScrollRef} className="reader-prose-scroll" aria-hidden="true" />
             </>
           )}
         >
-          <ReaderDrawer />
+          <ReaderDrawer proseScrollRef={readerScrollRef} />
         </Suspense>
       </main>
     );

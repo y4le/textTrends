@@ -28,8 +28,11 @@ import {
   footerPassageDisplay,
   footerShuttleRate,
   footerStatusText,
+  nextPassageToken,
   sequenceLayoutFor,
   type FooterGeometry,
+  type PassageAlignment,
+  type PassageWindowV1,
 } from '../lib/footer-view.ts';
 import { trendDisplayValues } from '../lib/trend-display.ts';
 import {
@@ -37,10 +40,10 @@ import {
   linearMap,
   selectedTrendPathData,
   seriesTokenFromX,
+  seriesDocFromGlobal,
   seriesXFromToken,
   seriesXFromTokenEdge,
   stepAlongSequence,
-  trendBinAtToken,
   trendBinSpan,
   type SequenceLayout,
 } from '../lib/trend-geometry.ts';
@@ -216,6 +219,10 @@ function FooterInteractive({
   const ariaScrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ariaShuttleActive = useRef(false);
   const [ariaScrub, setAriaScrub] = useState(scrub);
+  const [passageAlignment, setPassageAlignment] = useState<PassageAlignment>('center');
+  const passageWindow = useRef<PassageWindowV1 | null>(null);
+  const queuedPageDirection = useRef<1 | -1 | null>(null);
+  const [keyboardStatus, setKeyboardStatus] = useState('');
   const pointerTap = useRef<{
     readonly pointerId: number;
     readonly pointerType: string;
@@ -273,7 +280,7 @@ function FooterInteractive({
     : Math.abs(shuttleRate) < 0.05
       ? ' · reading paused · drag farther to set pace'
       : ` · reading ${shuttleRate > 0 ? '→' : '←'} ${Math.abs(shuttleRate).toFixed(1)} tokens/s · release to pause`;
-  const status = `${baseStatus}${shuttleStatus}`;
+  const status = `${baseStatus}${shuttleStatus}${keyboardStatus ? ` · ${keyboardStatus}` : ''}`;
   const honestyQualifier = [
     partial ? 'partial corpus' : '',
     pending ? 'computing' : failed > 0
@@ -288,13 +295,27 @@ function FooterInteractive({
   const stripHeight = Math.max(geometry.stripMinHeight, stripVisualHeight);
   const stripTop = stripHeight - stripVisualHeight;
 
+  const setAbsoluteScrub = useCallback((target: { readonly doc: string; readonly token: number }) => {
+    queuedPageDirection.current = null;
+    setPassageAlignment('center');
+    setKeyboardStatus('');
+    setScrub(target);
+  }, [setScrub]);
+
+  useEffect(() => {
+    passageWindow.current = null;
+    queuedPageDirection.current = null;
+    setPassageAlignment('center');
+    setKeyboardStatus('');
+  }, [snapshot?.snapshot]);
+
   const schedule = useCallback((target: { readonly doc: string; readonly token: number }) => {
     pointerSample.current = target;
     frame.current ??= requestAnimationFrame(() => {
       frame.current = null;
-      if (pointerSample.current) setScrub(pointerSample.current);
+      if (pointerSample.current) setAbsoluteScrub(pointerSample.current);
     });
-  }, [setScrub]);
+  }, [setAbsoluteScrub]);
 
   useEffect(() => {
     ariaScrubLatest.current = scrub;
@@ -340,7 +361,7 @@ function FooterInteractive({
         const doc = docsRef.current[next.docOrdinal];
         const current = useApp.getState().scrub;
         if (doc && (current?.doc !== doc || current.token !== next.token)) {
-          setScrub({ doc, token: next.token });
+          setAbsoluteScrub({ doc, token: next.token });
         }
       }
       if (
@@ -352,7 +373,7 @@ function FooterInteractive({
       }
     };
     shuttleFrame.current = requestAnimationFrame(tick);
-  }, [setScrub]);
+  }, [setAbsoluteScrub]);
 
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
@@ -428,41 +449,122 @@ function FooterInteractive({
     return snapped ? { ...raw, doc: snapped.doc, token: snapped.token } : raw;
   };
 
+  const advancePassagePage = useCallback((window: PassageWindowV1, direction: 1 | -1) => {
+    const live = useApp.getState();
+    const current = live.scrub;
+    if (
+      !current
+      || live.snapshot?.snapshot !== window.snapshot
+      || current.doc !== window.doc
+      || current.token !== window.forToken
+    ) return false;
+    const currentOrdinal = docsRef.current.indexOf(current.doc);
+    if (currentOrdinal < 0) return false;
+    const proposal = nextPassageToken(window, direction);
+    const next = stepAlongSequence(
+      currentOrdinal,
+      current.token,
+      proposal.token - current.token,
+      layoutRef.current,
+    );
+    const doc = next ? docsRef.current[next.d] : undefined;
+    if (!next || !doc || (doc === current.doc && next.token === current.token)) {
+      setKeyboardStatus(direction === 1 ? 'end of corpus' : 'start of corpus');
+      return true;
+    }
+    setKeyboardStatus('');
+    setPassageAlignment(proposal.alignment);
+    setScrub({ doc, token: next.token });
+    return true;
+  }, [setScrub]);
+
+  const stepPassagePage = useCallback((direction: 1 | -1) => {
+    const window = passageWindow.current;
+    if (window && advancePassagePage(window, direction)) return;
+    if (!useApp.getState().scrub) {
+      const seed = seriesDocFromGlobal(
+        direction === 1 ? 0 : layoutRef.current.totalTokens - 1,
+        layoutRef.current,
+      );
+      const doc = seed ? docsRef.current[seed.d] : undefined;
+      if (seed && doc) setAbsoluteScrub({ doc, token: seed.token });
+      return;
+    }
+    queuedPageDirection.current = direction;
+  }, [advancePassagePage, setAbsoluteScrub]);
+
+  const publishPassageWindow = useCallback((window: PassageWindowV1 | null) => {
+    passageWindow.current = window;
+    const queued = queuedPageDirection.current;
+    if (!window || queued === null) return;
+    if (advancePassagePage(window, queued)) queuedPageDirection.current = null;
+  }, [advancePassagePage]);
+
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.ctrlKey || event.metaKey || event.altKey) return;
     const current = scrub && docOrdinal >= 0
       ? { d: docOrdinal, token: scrub.token }
       : stepAlongSequence(0, 0, 0, layout);
     if (!current) return;
-    let next: { readonly d: number; readonly token: number } | null = null;
+    const fineDirection = event.key === 'H' || (event.key === 'ArrowLeft' && event.shiftKey)
+      ? -1
+      : event.key === 'L' || (event.key === 'ArrowRight' && event.shiftKey)
+        ? 1
+        : null;
+    if (fineDirection !== null) {
+      event.preventDefault();
+      const next = stepAlongSequence(current.d, current.token, fineDirection, layout);
+      const doc = next ? docs[next.d] : undefined;
+      if (!next || !doc || (next.d === current.d && next.token === current.token)) {
+        setKeyboardStatus(fineDirection === 1 ? 'end of corpus' : 'start of corpus');
+      } else {
+        setAbsoluteScrub({ doc, token: next.token });
+      }
+      return;
+    }
     switch (event.key) {
-      case 'ArrowLeft': next = stepAlongSequence(current.d, current.token, event.shiftKey ? -5 : -1, layout); break;
-      case 'ArrowRight': next = stepAlongSequence(current.d, current.token, event.shiftKey ? 5 : 1, layout); break;
-      case 'PageUp': {
-        const ready = [...useApp.getState().trends.values()]
-          .find((state) => state.status === 'ready');
-        const bin = ready?.status === 'ready'
-          ? trendBinAtToken(ready.trend, current.d, current.token)
-          : null;
-        next = stepAlongSequence(current.d, current.token, -Math.max(1, bin ? bin.span.end - bin.span.start : 1), layout);
-        break;
+      case 'h':
+      case 'ArrowLeft':
+      case 'PageUp':
+        event.preventDefault();
+        stepPassagePage(-1);
+        return;
+      case 'l':
+      case 'ArrowRight':
+      case 'PageDown':
+        event.preventDefault();
+        stepPassagePage(1);
+        return;
+      case 'Home': {
+        const next = seriesDocFromGlobal(0, layout);
+        const doc = next ? docs[next.d] : undefined;
+        event.preventDefault();
+        if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+        return;
       }
-      case 'PageDown': {
-        const ready = [...useApp.getState().trends.values()]
-          .find((state) => state.status === 'ready');
-        const bin = ready?.status === 'ready'
-          ? trendBinAtToken(ready.trend, current.d, current.token)
-          : null;
-        next = stepAlongSequence(current.d, current.token, Math.max(1, bin ? bin.span.end - bin.span.start : 1), layout);
-        break;
+      case 'End': {
+        const next = seriesDocFromGlobal(layout.totalTokens - 1, layout);
+        const doc = next ? docs[next.d] : undefined;
+        event.preventDefault();
+        if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+        return;
       }
-      case 'Home': next = { d: current.d, token: 0 }; break;
-      case 'End': next = { d: current.d, token: Math.max(0, (layout.tokenCounts[current.d] ?? 1) - 1) }; break;
+      case 'o':
+      case 'Enter': {
+        if (event.repeat || snapshot === null) return;
+        event.preventDefault();
+        const doc = docs[current.d];
+        if (!doc) return;
+        openReader({
+          snapshot: snapshot.snapshot,
+          doc,
+          token: current.token,
+          from: 'footer',
+        }, 'corpus-footer-position');
+        return;
+      }
       default: return;
     }
-    event.preventDefault();
-    const doc = next ? docs[next.d] : undefined;
-    if (next && doc) setScrub({ doc, token: next.token });
   };
 
   return (
@@ -486,7 +588,7 @@ function FooterInteractive({
         event.preventDefault();
         // Preserve the clicked reading position when Back restores the footer;
         // Reader navigation itself intentionally uses the same exact target.
-        setScrub({ doc: target.doc, token: target.token });
+        setAbsoluteScrub({ doc: target.doc, token: target.token });
         if (
           resolution?.kind === 'activation'
           && resolution.activation.kind === 'bucket'
@@ -511,14 +613,19 @@ function FooterInteractive({
         crosshairX={passageX}
         coarse={presentation.pointer === 'coarse'}
         widthClass={presentation.width}
+        alignment={passageAlignment}
         onVisibleTokensChange={setVisiblePassageTokens}
+        onPassageWindowChange={publishPassageWindow}
       />
       <div className="footer-reading-status" title={status}>{status}</div>
+      <span className="visually-hidden" role="status" aria-live="polite">{keyboardStatus}</span>
       <div
         id="corpus-footer-position"
         ref={attachSlider}
         className="footer-strip"
         role="slider"
+        aria-roledescription="corpus reading position"
+        aria-keyshortcuts="h l ArrowLeft ArrowRight PageUp PageDown Shift+ArrowLeft Shift+ArrowRight Home End Enter o"
         tabIndex={0}
         aria-label="Corpus footer position"
         aria-valuemin={0}
@@ -580,7 +687,7 @@ function FooterInteractive({
                   cancelAnimationFrame(frame.current);
                   frame.current = null;
                 }
-                setScrub(tap.anchorTarget);
+                setAbsoluteScrub(tap.anchorTarget);
               }
               tap.offsetPx = event.clientX - tap.x;
               setShuttleOffsetPx(tap.offsetPx);
@@ -638,7 +745,7 @@ function FooterInteractive({
             : null;
           if (resolution?.kind === 'activation') {
             const { activation, track } = resolution;
-            setScrub({ doc: activation.doc, token: activation.token });
+            setAbsoluteScrub({ doc: activation.doc, token: activation.token });
             centerKwicAt(
               track.seriesId,
               activation.doc,
@@ -650,13 +757,13 @@ function FooterInteractive({
             return;
           }
           if (resolution?.kind === 'scrub') {
-            setScrub({ doc: resolution.doc, token: resolution.token });
+            setAbsoluteScrub({ doc: resolution.doc, token: resolution.token });
             return;
           }
           const point = localPoint(event);
           if (!point) return;
           const target = rawTarget(point.x);
-          if (target) setScrub({ doc: target.doc, token: target.token });
+          if (target) setAbsoluteScrub({ doc: target.doc, token: target.token });
         }}
         onPointerCancel={(event) => {
           if (pointerTap.current?.pointerId === event.pointerId) {

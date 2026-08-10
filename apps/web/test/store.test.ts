@@ -2674,6 +2674,29 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(reader.state.page.tokens).toEqual({ start: 0, end: 4 });
   });
 
+  it('admits explicit first/last-book cursors only against a ready authenticated page', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'barcode' });
+    const pendingCount = f.readers().length;
+    f.store.getState().navigateReader({ kind: 'from', token: 0 });
+    expect(f.readers()).toHaveLength(pendingCount);
+    f.readers().at(-1)!.resolve(fakeReaderPage(4, 8));
+    await flush();
+
+    const readyCount = f.readers().length;
+    f.store.getState().navigateReader({ kind: 'before', token: 9 });
+    expect(f.readers()).toHaveLength(readyCount);
+    f.store.getState().navigateReader({ kind: 'from', token: 0 });
+    expect((f.readers().at(-1)!.query as { request: { cursor: unknown } }).request.cursor)
+      .toEqual({ kind: 'from', token: 0 });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 4));
+    await flush();
+
+    f.store.getState().navigateReader({ kind: 'before', token: 10 });
+    expect((f.readers().at(-1)!.query as { request: { cursor: unknown } }).request.cursor)
+      .toEqual({ kind: 'before', token: 10 });
+  });
+
   it('rename is presentation-only; semantic and active-track changes reissue highlights', () => {
     const f = setup();
     const group = f.store.getState().notebook.groups[0]!;

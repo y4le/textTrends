@@ -4,6 +4,7 @@
  */
 
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
+import type { Ref } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
@@ -132,7 +133,11 @@ function ReaderProse({
   );
 }
 
-export function ReaderDrawer() {
+export function ReaderDrawer({
+  proseScrollRef,
+}: {
+  readonly proseScrollRef: Ref<HTMLDivElement>;
+}) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
@@ -179,7 +184,7 @@ export function ReaderDrawer() {
           </button>
         </div>
       </header>
-      <div className="reader-prose-scroll">
+      <div ref={proseScrollRef} className="reader-prose-scroll">
         <div className="reader-highlights" aria-label="Reader query highlights">
           <span>highlights</span>
           {legend.length === 0 && <span>none</span>}
@@ -231,6 +236,7 @@ export function ReaderDrawer() {
       >
         <button
           type="button"
+          aria-keyshortcuts="h ArrowLeft PageUp"
           disabled={!navigation?.previous}
           onClick={() => navigation?.previous && navigateReader(navigation.previous)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.previous ? 'pointer' : 'default', opacity: navigation?.previous ? 1 : 0.45 }}
@@ -239,6 +245,7 @@ export function ReaderDrawer() {
         </button>
         <button
           type="button"
+          aria-keyshortcuts="l ArrowRight PageDown"
           disabled={!navigation?.next}
           onClick={() => navigation?.next && navigateReader(navigation.next)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}

@@ -34,9 +34,25 @@ test('the workbench footer shares one corpus axis and opens the current passage'
     timeout: 15_000,
   });
   const keyboardStart = Number(await slider.getAttribute('aria-valuenow'));
+  const passageLine = footer.locator('.footer-passage[data-passage-for]');
+  const firstWindow = {
+    first: Number(await passageLine.getAttribute('data-passage-first')),
+    last: Number(await passageLine.getAttribute('data-passage-last')),
+    forToken: Number(await passageLine.getAttribute('data-passage-for')),
+  };
   await slider.focus();
   await slider.press('ArrowRight');
-  await expect(slider).toHaveAttribute('aria-valuenow', String(keyboardStart + 1));
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(keyboardStart + 1);
+  await expect.poll(async () => Number(await passageLine.getAttribute('data-passage-for')))
+    .toBeGreaterThan(firstWindow.forToken);
+  const nextWindow = {
+    first: Number(await passageLine.getAttribute('data-passage-first')),
+    last: Number(await passageLine.getAttribute('data-passage-last')),
+  };
+  expect(nextWindow.first).toBeGreaterThanOrEqual(firstWindow.last);
+  expect(nextWindow.first).toBeLessThanOrEqual(firstWindow.last + 1);
+  expect(nextWindow.last).toBeGreaterThan(nextWindow.first);
   expect(await page.evaluate(() =>
     (window as unknown as { __ttFooterCommits?: number }).__ttFooterCommits ?? 0))
     .toBe(sparklineCommits);
@@ -57,6 +73,48 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   await expect(footer).toHaveCount(0);
   await page.getByRole('button', { name: 'back' }).click();
   await expect(footer).toBeVisible();
+});
+
+test('footer keyboard reading enters a cold corpus and exposes page, fine, and open actions', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const passage = page.locator('.footer-passage[data-passage-for]');
+  await expect(slider).toHaveAttribute('aria-valuetext', 'no position');
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect(slider).not.toHaveAttribute('aria-valuetext', 'no position');
+  await expect(passage).toHaveAttribute('data-passage-for', '0');
+
+  await slider.press('L');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await slider.press('H');
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
+  await slider.press('Shift+ArrowRight');
+  await expect(slider).toHaveAttribute('aria-valuenow', '1');
+  await slider.press('Shift+ArrowLeft');
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
+
+  await slider.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: 'back' }).click();
+  await expect(slider).toBeFocused();
+  await slider.press('o');
+  await expect(reader).toBeVisible();
+  await reader.getByRole('button', { name: 'back' }).click();
+
+  await page.reload();
+  await awaitAllReady(page);
+  const coldSlider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await coldSlider.focus();
+  await coldSlider.press('ArrowLeft');
+  await expect(coldSlider).not.toHaveAttribute('aria-valuetext', 'no position');
+  await expect(coldSlider).toHaveAttribute(
+    'aria-valuenow',
+    await coldSlider.getAttribute('aria-valuemax') ?? '',
+  );
 });
 
 test('a mouse drag shuttles through source continuously and release pauses', async ({ page }) => {

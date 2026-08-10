@@ -245,6 +245,13 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
   await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
   await expect(drawer.getByText('tokens 401–800 of 900')).toBeVisible();
 
+  await drawer.press('Home');
+  await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
+  await drawer.press('End');
+  await expect(drawer.locator('[data-reader-page="800:900"]')).toBeVisible();
+  await drawer.press('h');
+  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
+
   await expect.poll(() => page.workers().length).toBe(1);
   const worker = page.workers()[0]!;
   await installReaderResultGate(worker);
@@ -253,10 +260,10 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 
   // The middle page exposes both directions. Hold the completed Next page,
   // then supersede it with Previous while no old prose is mounted.
-  await drawer.getByRole('button', { name: 'next' }).click();
+  await drawer.press('l');
   await expect(drawer.locator('[data-reader-page]')).toHaveCount(0);
   await expect.poll(() => gateHeld(worker)).toBe(1);
-  await drawer.getByRole('button', { name: 'previous' }).click();
+  await drawer.press('ArrowLeft');
   await expect.poll(() => gateHeld(worker)).toBe(2);
   // Deliver the CURRENT Previous page first, then the stale Next page after
   // it has rendered. The final assertion now fails without store-side guards.

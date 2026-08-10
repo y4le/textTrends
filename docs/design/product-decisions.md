@@ -47,6 +47,16 @@ explicitly pinned Claude Opus planner through Parley (requests
 `art_sha256_a255426783351f3ba4d86e9f3163f70f51fd75d64a9bf7c55a769eb28ee6e0ec`
 and `art_sha256_82ea70944cd693abfb7797df42f937f16b4f4f4eeace168c8d4880da76cd8049`).
 
+Keyboard reading uses the same source-honest axis. In the footer, `h`/`l`,
+Left/Right, and PageUp/PageDown move by the passage interval actually rendered,
+with an overlapping or adjacent seam and no skipped source; shifted horizontal
+keys retain one-token precision. Reader owns those page keys while it is open
+and uses its canonical previous/next cursors instead. Variable text widths,
+stale-window repeat, exact term-occurrence navigation, focus/layer priority,
+and accessible shortcut discovery were designed with the pinned Claude Opus
+planner through Parley (request `req_consult_830ae8f3aed60d75`, artifact
+`art_sha256_e2c6d27a61376cadb73504d393190c50e2c3a17bca07b27ada6e1eace3d23dd5`).
+
 ## 2026-08-02 — Barcode embedded in trend geometry
 
 The owner moved dispersion from a separate strip into the bottom of the trend
