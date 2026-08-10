@@ -118,7 +118,6 @@ export function App() {
   const place = useApp((s) => s.place);
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
-  const readerScrollRef = useRef<HTMLDivElement | null>(null);
   const [shortcutHelpContext, setShortcutHelpContext] = useState<ShortcutHelpContext | null>(null);
   const shortcutReturnFocus = useRef<HTMLElement | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
@@ -380,22 +379,6 @@ export function App() {
             stepOccurrence(-1);
             return;
           }
-          const lineDirection = shortcutMatches(event, 'reader-line-down')
-            ? 1
-            : shortcutMatches(event, 'reader-line-up')
-              ? -1
-              : null;
-          if (lineDirection !== null) {
-            event.preventDefault();
-            if (readerScrollRef.current) {
-              const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
-              const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
-              readerScrollRef.current.scrollBy({
-                top: (Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 24) * lineDirection,
-              });
-            }
-            return;
-          }
           if (shortcutMatches(event, 'reader-book-start')) {
             event.preventDefault();
             setReaderKeyboardStatus('');
@@ -443,12 +426,11 @@ export function App() {
                   <button type="button" onClick={closeReader}>back</button>
                 </div>
               </header>
-              <div ref={readerScrollRef} className="reader-prose-scroll" aria-hidden="true" />
+              <div className="reader-prose-pane" aria-hidden="true" />
             </>
           )}
         >
           <ReaderDrawer
-            proseScrollRef={readerScrollRef}
             onOpenShortcuts={() => openShortcutHelp('reader')}
           />
         </Suspense>

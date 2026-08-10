@@ -4,12 +4,24 @@
  */
 
 import type { ReaderPageMarkV1, ReaderPageResultV1 } from '../shared/analysis-contract.ts';
-import type { Ref } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
 import { segmentReaderMarks, type ReaderSegment } from '../lib/reader-marks.ts';
-import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
+import { readerRangeLabel, readerSelectionChars, sliceReaderPage } from '../lib/reader-view.ts';
+import {
+  advanceReaderFit,
+  readerProbeRange,
+  startReaderFit,
+  type ReaderFitCursor,
+  type ReaderFitSearch,
+} from '../lib/reader-fit.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
@@ -86,7 +98,7 @@ function ReaderProse({
                   : inSelection
                     ? 'color-mix(in srgb, var(--accent) 16%, transparent)'
                     : undefined,
-                fontWeight: inAnchor ? 600 : undefined,
+                textDecorationLine: inAnchor ? 'underline' : undefined,
               }}
             >
               {text}
@@ -124,7 +136,7 @@ function ReaderProse({
               borderLeft: clippedStart ? `2px dashed ${color}` : undefined,
               borderRight: clippedEnd ? `2px dashed ${color}` : undefined,
               cursor: 'pointer',
-              fontWeight: inAnchor ? 600 : undefined,
+              textDecorationLine: inAnchor ? 'underline' : undefined,
             }}
           >
             {text}
@@ -135,11 +147,23 @@ function ReaderProse({
   );
 }
 
+interface ActiveReaderFit {
+  readonly key: string;
+  readonly cursor: ReaderFitCursor;
+  readonly search: ReaderFitSearch;
+  readonly settledCount: number | null;
+  readonly saturated: boolean;
+}
+
+const INITIAL_FIT_TOKENS = 128;
+
+function readerSourceKey(page: ReaderPageResultV1): string {
+  return `${page.doc}:${page.tokens.start}:${page.tokens.end}:${page.anchor?.token ?? '-'}`;
+}
+
 export function ReaderDrawer({
-  proseScrollRef,
   onOpenShortcuts,
 }: {
-  readonly proseScrollRef: Ref<HTMLDivElement>;
   readonly onOpenShortcuts: () => void;
 }) {
   const place = useApp((state) => state.readerPlace);
@@ -150,13 +174,196 @@ export function ReaderDrawer({
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
+  const setReaderVisibleRange = useApp((state) => state.setReaderVisibleRange);
+  const refitReaderAt = useApp((state) => state.refitReaderAt);
   const retryReader = useApp((state) => state.retryReader);
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const series = useApp((state) => state.series);
   const focusedSeries = useApp((state) => state.focusedSeries);
+  const paneRef = useRef<HTMLDivElement | null>(null);
+  const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
+  const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
+  const lastPaneSize = useRef<string | null>(null);
+  const fitSeed = useRef(INITIAL_FIT_TOKENS);
+  const publishedFit = useRef<string | null>(null);
+  const refitAttempt = useRef<string | null>(null);
+  const [layoutEpoch, setLayoutEpoch] = useState(0);
+  const [reflow, setReflow] = useState<{
+    readonly sourceKey: string;
+    readonly token: number;
+  } | null>(null);
+  const [fit, setFit] = useState<ActiveReaderFit | null>(null);
+
+  const current = place && result && sameReaderPlace(result.place, place) ? result : null;
+  const ready = current?.state.status === 'ready' ? current.state.page : null;
+  const trackKey = JSON.stringify(current?.tracks.map((track) => {
+    const live = notebook.groups.find((group) => group.id === track.seriesId);
+    return [
+      track.seriesId,
+      track.identity,
+      live?.name ?? null,
+      live ? groupIdentity(live) : null,
+    ];
+  }) ?? []);
+  const sourceKey = ready ? `${readerSourceKey(ready)}:${trackKey}` : null;
+  sourceRef.current = ready && sourceKey ? { key: sourceKey, page: ready } : null;
+  const fitCursor: ReaderFitCursor | null = ready && place
+    ? reflow?.sourceKey === sourceKey
+      && reflow.token >= ready.tokens.start
+      && reflow.token < ready.tokens.end
+      ? { kind: 'from', token: reflow.token }
+      : place.cursor
+    : null;
+  const fitKey = ready && current && fitCursor
+    ? `${current.snapshot}:${sourceKey}:${fitCursor.kind}:${fitCursor.token}:${layoutEpoch}`
+    : null;
+  const freshFit = ready && fitKey && fitCursor
+    ? {
+        key: fitKey,
+        cursor: fitCursor,
+        search: startReaderFit(
+          fitCursor.kind === 'from'
+            ? ready.tokens.end - Math.max(ready.tokens.start, fitCursor.token)
+            : fitCursor.kind === 'before'
+              ? Math.min(ready.tokens.end, fitCursor.token) - ready.tokens.start
+              : ready.tokens.end - ready.tokens.start,
+          fitSeed.current,
+        ),
+        settledCount: null,
+        saturated: false,
+      } satisfies ActiveReaderFit
+    : null;
+  const activeFit = fit?.key === fitKey ? fit : freshFit;
+  const probeCount = activeFit?.settledCount ?? activeFit?.search.probe ?? null;
+  const probeRange = ready && activeFit && probeCount !== null
+    ? readerProbeRange(ready, activeFit.cursor, probeCount)
+    : null;
+  const visualPage = ready && probeRange ? sliceReaderPage(ready, probeRange) : null;
+  const fitSettled = activeFit?.settledCount !== null
+    && activeFit?.settledCount !== undefined
+    && activeFit.settledCount === probeCount;
+
+  useLayoutEffect(() => {
+    if (!ready || !current || !fitKey || !activeFit || !probeRange || !visualPage) return;
+    if (fit?.key !== fitKey) {
+      publishedFit.current = null;
+      setFit(activeFit);
+      return;
+    }
+    if (activeFit.settledCount === null) {
+      const pane = paneRef.current;
+      const pageElement = pane?.querySelector<HTMLElement>('[data-reader-page]');
+      if (!pane || !pageElement) return;
+      const paneRect = pane.getBoundingClientRect();
+      const pageRect = pageElement.getBoundingClientRect();
+      const paddingBottom = Number.parseFloat(getComputedStyle(pane).paddingBottom) || 0;
+      const advanced = advanceReaderFit(
+        activeFit.search,
+        pageRect.bottom <= paneRect.bottom - paddingBottom + 0.5,
+      );
+      if (advanced.done) {
+        fitSeed.current = advanced.count;
+        setFit({
+          ...activeFit,
+          settledCount: advanced.count,
+          saturated: advanced.saturated,
+        });
+      } else {
+        setFit({ ...activeFit, search: advanced.search });
+      }
+      return;
+    }
+    if (!fitSettled) return;
+    visibleRef.current = probeRange;
+    const pane = paneRef.current;
+    if (!pane) return;
+    const geometry = `${pane.clientWidth}x${pane.clientHeight}:${layoutEpoch}:${trackKey}`;
+    const publication = `${fitKey}:${probeRange.start}:${probeRange.end}:${geometry}`;
+    if (publishedFit.current === publication) return;
+    publishedFit.current = publication;
+    setReaderVisibleRange({
+      snapshot: current.snapshot,
+      doc: ready.doc,
+      tokens: probeRange,
+      geometry,
+    });
+  }, [
+    activeFit,
+    current,
+    fit,
+    fitKey,
+    fitSettled,
+    layoutEpoch,
+    probeRange,
+    ready,
+    setReaderVisibleRange,
+    trackKey,
+    visualPage,
+  ]);
+
+  useEffect(() => {
+    if (
+      !fitSettled
+      || !activeFit?.saturated
+      || !ready
+      || !place
+      || !probeRange
+      || probeRange.end !== ready.tokens.end
+      || ready.tokens.end === ready.docTokenCount
+      || (place.cursor.kind === 'from' && place.cursor.token === probeRange.start)
+    ) return;
+    const key = `${fitKey}:${probeRange.start}`;
+    if (refitAttempt.current === key) return;
+    refitAttempt.current = key;
+    refitReaderAt(probeRange.start);
+  }, [activeFit, fitKey, fitSettled, place, probeRange, ready, refitReaderAt]);
+
+  useLayoutEffect(() => {
+    const pane = paneRef.current;
+    if (!pane || typeof ResizeObserver === 'undefined') return undefined;
+    let frame = 0;
+    const remeasure = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const size = `${pane.clientWidth}x${pane.clientHeight}`;
+        if (lastPaneSize.current === null) {
+          lastPaneSize.current = size;
+          return;
+        }
+        if (lastPaneSize.current === size) return;
+        lastPaneSize.current = size;
+        const source = sourceRef.current;
+        const visible = visibleRef.current;
+        if (source && visible && visible.start >= source.page.tokens.start
+          && visible.start < source.page.tokens.end) {
+          setReflow({ sourceKey: source.key, token: visible.start });
+        }
+        setLayoutEpoch((epoch) => epoch + 1);
+      });
+    };
+    const observer = new ResizeObserver(remeasure);
+    observer.observe(pane);
+    return () => {
+      observer.disconnect();
+      cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (document.fonts?.status !== 'loading') return undefined;
+    let live = true;
+    void document.fonts.ready.then(() => {
+      if (!live) return;
+      const source = sourceRef.current;
+      const visible = visibleRef.current;
+      if (source && visible) setReflow({ sourceKey: source.key, token: visible.start });
+      setLayoutEpoch((epoch) => epoch + 1);
+    });
+    return () => { live = false; };
+  }, []);
+
   if (!place) return null;
-  const current = result && sameReaderPlace(result.place, place) ? result : null;
   const title =
     project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
     ?? place.doc;
@@ -173,9 +380,12 @@ export function ReaderDrawer({
     (id) => identities.get(id) ?? null,
     liveSeries,
   );
-  const ready = current?.state.status === 'ready' ? current.state.page : null;
   const focused = series.find((item) => item.id === focusedSeries) ?? series[0];
   const occurrencePending = occurrenceNavigation?.state.status === 'pending';
+  const turnPage = (direction: -1 | 1) => {
+    const cursor = direction === -1 ? navigation?.previous : navigation?.next;
+    if (cursor) navigateReader(cursor);
+  };
 
   return (
     <>
@@ -184,8 +394,17 @@ export function ReaderDrawer({
           <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
             <span className="visually-hidden">Reader: </span>{title}
           </h2>
-          <p className="reader-position">
-            {ready ? readerRangeLabel(ready) : 'loading canonical page…'}
+          <p
+            className="reader-position"
+            role="status"
+            aria-atomic="true"
+            aria-busy={!fitSettled || undefined}
+          >
+            {fitSettled && visualPage
+              ? readerRangeLabel(visualPage)
+              : ready
+                ? 'fitting page…'
+                : 'loading source text…'}
           </p>
         </div>
         <div className="reader-header-actions">
@@ -202,7 +421,12 @@ export function ReaderDrawer({
           </button>
         </div>
       </header>
-      <div ref={proseScrollRef} className="reader-prose-scroll">
+      <div
+        ref={paneRef}
+        className="reader-prose-pane"
+        data-reader-fitting={!fitSettled || undefined}
+        data-reader-saturated={activeFit?.saturated || undefined}
+      >
         <div className="reader-highlights" aria-label="Reader query highlights">
           <span>highlights</span>
           {legend.length === 0 && <span>none</span>}
@@ -212,9 +436,12 @@ export function ReaderDrawer({
               {entry.label}{entry.stale ? ' (query changed)' : ''}
             </span>
           ))}
+          {ready?.marksTruncated && <span>highlight cap reached in this source window</span>}
         </div>
 
-        <div aria-live="polite" aria-busy={current?.state.status === 'pending' || undefined}>
+        <div
+          aria-busy={current?.state.status === 'pending' || !fitSettled || undefined}
+        >
           {!current || current.state.status === 'pending' ? (
             <div aria-label="Loading reader page" style={{ minHeight: '12em', opacity: 0.45 }}>
               {Array.from({ length: 7 }, (_, index) => (
@@ -234,16 +461,10 @@ export function ReaderDrawer({
               reader failed: {current.state.message}{' '}
               <button type="button" onClick={retryReader} style={SMALL_BUTTON_STYLE}>retry</button>
             </p>
+          ) : visualPage ? (
+            <ReaderProse page={visualPage} snapshot={current.snapshot} legend={legend} />
           ) : (
-            <>
-              <ReaderProse page={current.state.page} snapshot={current.snapshot} legend={legend} />
-              {(current.state.page.marksTruncated || current.state.page.cappedBy === 'text') && (
-                <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
-                  {current.state.page.marksTruncated ? 'Highlight cap reached on this page. ' : ''}
-                  {current.state.page.cappedBy === 'text' ? 'Page shortened by the text-size cap.' : ''}
-                </p>
-              )}
-            </>
+            <div aria-label="Fitting reader page" style={{ minHeight: '12em' }} />
           )}
         </div>
       </div>
@@ -253,6 +474,7 @@ export function ReaderDrawer({
         aria-label="Reader navigation"
       >
         <button
+          className="reader-occurrence-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
           disabled={!focused || occurrencePending}
@@ -263,24 +485,27 @@ export function ReaderDrawer({
           previous {focused?.label ?? 'term'} occurrence
         </button>
         <button
+          className="reader-page-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-page-previous'])}
           disabled={!navigation?.previous}
-          onClick={() => navigation?.previous && navigateReader(navigation.previous)}
+          onClick={() => turnPage(-1)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.previous ? 'pointer' : 'default', opacity: navigation?.previous ? 1 : 0.45 }}
         >
           ← previous
         </button>
         <button
+          className="reader-page-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-page-next'])}
           disabled={!navigation?.next}
-          onClick={() => navigation?.next && navigateReader(navigation.next)}
+          onClick={() => turnPage(1)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}
         >
           next →
         </button>
         <button
+          className="reader-occurrence-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
           disabled={!focused || occurrencePending}

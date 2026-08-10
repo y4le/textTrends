@@ -4,6 +4,23 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-09 — Browser-fitted Reader pages
+
+Reader pages follow the viewport, typography, and highlighted source that the
+person actually sees. The worker supplies bounded exact-direction source
+slices; the browser renders the real marked text and finds the largest token
+range that fits without vertical scrolling. Forward pages meet at exact token
+boundaries, and a bounded session walk remembers measured boundaries so Back
+reproduces pages until a resize or font change deliberately invalidates them.
+The prose pane is overflow-hidden, while Home/End, h/l, arrows, Page Up/Down,
+and w/W retain their reading semantics. Compact layouts use a two-row control
+grid. The requested anchor keeps a layout-neutral underline and background;
+font-weight emphasis is excluded because it can move the measured page seam.
+
+The design was developed with an explicitly pinned Claude Opus planner through
+Parley (requests `req_consult_89063bb9c964ba41` and
+`req_consult_a47ca649113d183e`).
+
 ## 2026-08-09 — Code-native analytical graphics
 
 Analytical graphics are built directly with React SVG or canvas and the shared
@@ -23,7 +40,7 @@ activation retain their direct Concordance behavior. Reader remains the only
 full-viewport place and hides the footer.
 
 The source line uses a separately fenced, frame-coalesced and single-flight
-`reader-page/1` lane. It reuses a canonical page while it serves the cursor and
+`reader-page/1` lane. It reuses a resident source slice while it serves the cursor and
 retains the last authenticated page, marked stale and non-actionable, while the
 newest unserved position is in flight. Reading position remains
 transient. Trends retains its detailed graph, barcode, selection controls,
@@ -51,7 +68,7 @@ Keyboard reading uses the same source-honest axis. In the footer, `h`/`l`,
 Left/Right, and PageUp/PageDown move by the passage interval actually rendered,
 with an overlapping or adjacent seam and no skipped source; shifted horizontal
 keys retain one-token precision. Reader owns those page keys while it is open
-and uses its canonical previous/next cursors instead. Variable text widths,
+and uses browser-fitted, remembered token boundaries instead. Variable text widths,
 stale-window repeat, exact term-occurrence navigation, focus/layer priority,
 and accessible shortcut discovery were designed with the pinned Claude Opus
 planner through Parley (request `req_consult_830ae8f3aed60d75`, artifact

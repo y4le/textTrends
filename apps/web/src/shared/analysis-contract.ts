@@ -81,8 +81,8 @@ export type QueryOpV4 =
   // keyness/1 owns both sides. The global linked trend brush is deliberately
   // absent: a comparison can only change through its explicit side records.
   | { readonly op: 'keyness'; readonly request: KeynessRequestV1 }
-  // reader-page/1 (slice-2 ruling §3/§G): bounded cursor-paged reading with
-  // occurrence marks sliced from the SHARED cached BASE occurrences. Like
+  // reader-page/1: bounded directional source slices for browser-fitted
+  // reading, with occurrence marks from the SHARED cached BASE occurrences. Like
   // other context/navigation surfaces, this carries NO selection field; the
   // engine constructs the only valid full-corpus selection, making accidental
   // range-filtered reader highlights impossible. ZERO tracks is legal.

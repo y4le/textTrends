@@ -46,8 +46,6 @@ export type ShortcutId =
   | 'footer-open-reader'
   | 'reader-page-previous'
   | 'reader-page-next'
-  | 'reader-line-up'
-  | 'reader-line-down'
   | 'reader-occurrence-previous'
   | 'reader-occurrence-next'
   | 'reader-book-start'
@@ -426,20 +424,6 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['reader'],
     label: 'Next page',
     strokes: [{ key: 'l' }, { key: 'ArrowRight' }, { key: 'PageDown' }],
-  },
-  {
-    id: 'reader-line-up',
-    group: 'Reader',
-    helpContexts: ['reader'],
-    label: 'Scroll up one line',
-    strokes: [{ key: 'k' }],
-  },
-  {
-    id: 'reader-line-down',
-    group: 'Reader',
-    helpContexts: ['reader'],
-    label: 'Scroll down one line',
-    strokes: [{ key: 'j' }],
   },
   {
     id: 'reader-occurrence-previous',

@@ -483,11 +483,11 @@ export class QueryExecutor {
     return { method: 'dispersion/1', geometry, tracks: out };
   }
 
-  /** reader-page/1 (slice-2 ruling §G): a bounded cursor page over ONE
+  /** reader-page/1: a bounded directional source slice over ONE
    *  document, marks sliced from the SAME cached occurrences as every other
    *  lane (computed under the BASE selection the engine passes — never a
-   *  page-local matcher, so countOverlaps/merged-span/member semantics and
-   *  cross-page straddlers are preserved). Zero tracks reads plain text. */
+   *  slice-local matcher, so countOverlaps/merged-span/member semantics and
+   *  cross-slice straddlers are preserved). Zero tracks reads plain text. */
   async readerPage(
     selection: ResolvedSelection,
     tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],

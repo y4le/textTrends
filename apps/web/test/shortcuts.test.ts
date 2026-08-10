@@ -81,7 +81,7 @@ describe('shortcut registry', () => {
       entry.id === 'show-help')?.keys).toEqual(['?']);
     const readerIds = shortcutHelpSections('reader')
       .flatMap((section) => section.entries.map((entry) => entry.id));
-    expect(readerIds).toContain('reader-line-down');
+    expect(readerIds).toContain('reader-page-next');
     expect(readerIds).not.toContain('footer-page-next');
   });
 

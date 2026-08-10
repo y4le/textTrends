@@ -51,7 +51,14 @@ async function expectReaderFillsViewport(
   expect(box!.width).toBeCloseTo(width, 0);
   expect(box!.height).toBeCloseTo(height, 0);
   await expect(reader.getByRole('navigation', { name: 'Reader navigation' })).toBeVisible();
+  await expect(reader.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
   await expectNoBodyOverflow(page);
+}
+
+function parseReaderRange(value: string | null): readonly [number, number] {
+  const match = /^(\d+):(\d+)$/.exec(value ?? '');
+  expect(match).not.toBeNull();
+  return [Number(match![1]), Number(match![2])];
 }
 
 test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ page }) => {
@@ -139,9 +146,10 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
       (element) => element.closest(`#${readerId}`) !== null,
     ), 'reader-region')).toBe(true);
   await expect(reader).toBeFocused();
-  expect(await reader.locator('.reader-prose-scroll').evaluate(
+  const pane = reader.locator('.reader-prose-pane');
+  expect(await pane.evaluate(
     (element) => getComputedStyle(element).overflowY,
-  )).toBe('auto');
+  )).toBe('hidden');
   expect(await reader.evaluate((element) => getComputedStyle(element).overflowY)).toBe('hidden');
   expect(await reader.evaluate((element) => getComputedStyle(element).touchAction)).not.toBe('none');
   expect(await reader.locator('[data-reader-page]').evaluate(
@@ -152,6 +160,25 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
         || style.getPropertyValue('-webkit-user-select');
     },
   )).toBe('text');
+  const fit = await pane.evaluate((element) => {
+    const pageElement = element.querySelector<HTMLElement>('[data-reader-page]');
+    const paneRect = element.getBoundingClientRect();
+    const pageRect = pageElement?.getBoundingClientRect();
+    return {
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+      pageBottom: pageRect?.bottom ?? Number.POSITIVE_INFINITY,
+      paneBottom: paneRect.bottom,
+    };
+  });
+  expect(fit.pageBottom).toBeLessThanOrEqual(fit.paneBottom + 0.5);
+  expect(fit.scrollHeight).toBeLessThanOrEqual(fit.clientHeight + 1);
+  const compactRange = parseReaderRange(
+    await reader.locator('[data-reader-page]').getAttribute('data-reader-page'),
+  );
+  const initialRange = parseReaderRange(pageRange);
+  expect(compactRange[0]).toBe(initialRange[0]);
+  expect(compactRange[1]).toBeLessThan(initialRange[1]);
 
   await expectReaderFillsViewport(page, reader, 320, 800);
   await expectReaderFillsViewport(page, reader, 1440, 900);

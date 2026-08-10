@@ -283,12 +283,19 @@ canvas {
   justify-content: flex-end;
 }
 
-.reader-prose-scroll {
+.reader-prose-pane {
   grid-area: reader-prose;
+  position: relative;
   min-block-size: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  overscroll-behavior: none;
   padding-block: var(--space-2);
+}
+
+.reader-prose-pane .source-text,
+.reader-highlights {
+  max-inline-size: 75ch;
+  margin-inline: auto;
 }
 
 .reader-highlights {
@@ -312,6 +319,37 @@ canvas {
 
 .reader-region button {
   min-block-size: 44px;
+}
+
+@media (max-width: 599.98px) {
+  .reader-region {
+    padding-inline:
+      calc(var(--space-2) + env(safe-area-inset-left, 0px))
+      calc(var(--space-2) + env(safe-area-inset-right, 0px));
+  }
+
+  .reader-highlights {
+    max-block-size: 3lh;
+    overflow: hidden;
+  }
+
+  .reader-pages {
+    display: grid;
+    grid-template-areas:
+      'page-previous page-next'
+      'occurrence-previous occurrence-next';
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .reader-pages button {
+    min-inline-size: 0;
+  }
+
+  .reader-page-previous { grid-area: page-previous; }
+  .reader-page-next { grid-area: page-next; }
+  .reader-occurrence-previous { grid-area: occurrence-previous; }
+  .reader-occurrence-next { grid-area: occurrence-next; }
 }
 
 .query-region {

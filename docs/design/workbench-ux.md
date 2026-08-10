@@ -191,18 +191,20 @@ counts remain available for totals and provenance.
 ## Reader
 
 Reader is a full-viewport reading surface at every width. It hides the
-workbench chrome and Terms bar, makes its prose pane the only vertical scroll
-container, and locks the outer document. It retains one identity and DOM across
-viewport changes and exposes page navigation, occurrence navigation, page
-status, query highlights, and an explicit Back path.
+workbench chrome and Terms bar, locks both prose and the outer document against
+vertical scrolling, and fits one visual page from the real rendered text. It
+retains one identity and DOM across viewport changes and exposes page
+navigation, occurrence navigation, page status, query highlights, and an
+explicit Back path.
 
 Reader position and highlights are transient. The workspace contains notebook
 and analysis-view settings, not reading position.
 
 Reader owns the reading keys while it is open: `h`/Left/PageUp and
-`l`/Right/PageDown use its canonical previous and next page cursors, `j`/`k`
-scroll the prose, Home/End request the document boundaries, and Escape follows
-the same governed Back path as the visible control.
+`l`/Right/PageDown use its fitted previous and next token boundaries, Home/End
+request the document boundaries, and Escape follows the same governed Back path
+as the visible control. Resize and font settlement preserve the current start
+token and deliberately recompute later boundaries for the new geometry.
 
 `w` and `W` move to the next and previous exact occurrence of the focused
 active term across the full declared corpus. If no term is focused, the first
@@ -283,6 +285,6 @@ The design remains complete while these gates hold:
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;
 7. direct Concordance/barcode-to-Reader navigation stays snapshot-bound;
-8. Reader remains full-viewport and outer-scroll-locked at every width; and
+8. Reader remains full-viewport, page-fitted, and scroll-locked at every width; and
 9. Chromium functional plus compact WebKit suites pass from the
    production-shaped build.

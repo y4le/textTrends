@@ -46,7 +46,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await reader.press('?');
   dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog.getByRole('heading', { name: 'Reader', exact: true })).toBeVisible();
-  await expect(dialog.getByText('Scroll down one line')).toBeVisible();
+  await expect(dialog.getByText('Next page', { exact: true })).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Reading footer' })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'close' }).click();
   await expect(reader).toBeFocused();

@@ -113,7 +113,8 @@ The wire protocol has a closed query union:
 - `freq-list` — bounded frequency, document-frequency, dispersion, and lexical
   diversity ranking;
 - `keyness` — explicit disjoint A/B comparison using log ratio and G²; and
-- `reader-page` — bounded canonical text pages with occurrence marks.
+- `reader-page` — bounded directional source slices with occurrence marks;
+  the browser derives visual pages from actual layout.
 
 Each operation owns a versioned method record, exact runtime validation,
 bounded output, deterministic tie rules, explicit missing-document behavior,

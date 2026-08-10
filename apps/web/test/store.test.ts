@@ -2789,7 +2789,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     runtime.dispose();
   });
 
-  it('opens one canonical page under the current snapshot and captured track semantics', async () => {
+  it('opens one directional source slice under the current snapshot and captured track semantics', async () => {
     const f = setup();
     f.store.getState().openReader({
       snapshot: 's1',
@@ -2808,7 +2808,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       method: 'reader-page/1',
       doc: 'a',
       cursor: { kind: 'around', token: 3 },
-      maxTokens: 400,
+      maxTokens: 4_096,
     });
     expect(query.tracks).toHaveLength(1);
     expect(f.store.getState().readerPage).toEqual(expect.objectContaining({
@@ -2823,12 +2823,73 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     if (reader.state.status === 'ready') expect(reader.state.page.tokens).toEqual({ start: 0, end: 4 });
   });
 
+  it('uses fitted visible boundaries and remembers exact previous pages at one geometry', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'barcode' });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
+    });
+    expect(f.store.getState()).toMatchObject({
+      readerVisibleRange: { tokens: { start: 20, end: 60 } },
+      readerNavigation: {
+        previous: { kind: 'before', token: 20 },
+        next: { kind: 'from', token: 60 },
+      },
+    });
+
+    f.store.getState().navigateReader({ kind: 'from', token: 60 });
+    f.readers().at(-1)!.resolve(fakeReaderPage(60, 260, 500));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 60, end: 105 }, geometry: '800x600',
+    });
+    expect(f.store.getState().readerNavigation?.previous)
+      .toEqual({ kind: 'from', token: 20 });
+
+    f.store.getState().navigateReader({ kind: 'from', token: 20 });
+    f.readers().at(-1)!.resolve(fakeReaderPage(20, 220, 500));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
+    });
+    expect(f.store.getState().readerNavigation?.next)
+      .toEqual({ kind: 'from', token: 60 });
+
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 52 }, geometry: '390x700',
+    });
+    expect(f.store.getState().readerNavigation?.previous)
+      .toEqual({ kind: 'before', token: 20 });
+  });
+
+  it('can refill a saturated fitted page only from its authenticated visible start', async () => {
+    const f = setup();
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'barcode' });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
+    });
+    const before = f.readers().length;
+    f.store.getState().refitReaderAt(21);
+    expect(f.readers()).toHaveLength(before);
+    f.store.getState().refitReaderAt(20);
+    expect(f.readers()).toHaveLength(before + 1);
+    expect((f.readers().at(-1)!.query as { request: { cursor: unknown } }).request.cursor)
+      .toEqual({ kind: 'from', token: 20 });
+  });
+
   it('rapid cursor replacements cancel and reject an older page that arrives last', async () => {
     const f = setup();
     f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'barcode' });
     const around = f.readers().at(-1)!;
     around.resolve(fakeReaderPage(4, 8));
     await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 4, end: 8 }, geometry: 'test',
+    });
 
     f.store.getState().navigateReader({ kind: 'from', token: 8 });
     const next = f.readers().at(-1)!;
@@ -2858,6 +2919,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(f.readers()).toHaveLength(pendingCount);
     f.readers().at(-1)!.resolve(fakeReaderPage(4, 8));
     await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 4, end: 8 }, geometry: 'test',
+    });
 
     const readyCount = f.readers().length;
     f.store.getState().navigateReader({ kind: 'before', token: 9 });

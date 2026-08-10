@@ -443,7 +443,7 @@ export function footerPassageDisplay(
   return { page, token, stale: !serves };
 }
 
-/** A canonical reader page serves every cursor token inside its half-open span. */
+/** A resident source slice serves every cursor token inside its half-open span. */
 export function footerPassageServes(
   passage: FooterPassageLike | null,
   target: { readonly doc: string; readonly token: number },

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
-import { readerRangeLabel, readerSelectionChars } from '../src/lib/reader-view.ts';
+import { readerRangeLabel, readerSelectionChars, sliceReaderPage } from '../src/lib/reader-view.ts';
 
 const page = (): ReaderPageResultV1 => ({
   method: 'reader-page/1',
@@ -80,5 +80,41 @@ describe('reader view geometry', () => {
 
   it('labels half-open page ranges for people with a 1-based inclusive end', () => {
     expect(readerRangeLabel(page())).toBe('tokens 11–13 of 40');
+  });
+
+  it('projects text, offsets, anchors, and clipped marks onto a fitted range', () => {
+    const source: ReaderPageResultV1 = {
+      ...page(),
+      anchor: { token: 11, relToken: 1, charsUtf16: { start: 4, end: 7 } },
+      marks: [{
+        seriesId: 's1',
+        groupId: 'g1',
+        tokens: { start: 10, end: 13 },
+        members: [0],
+        charsUtf16: { start: 0, end: 13 },
+        clippedStart: false,
+        clippedEnd: false,
+      }],
+    };
+    expect(sliceReaderPage(source, { start: 11, end: 13 })).toMatchObject({
+      tokens: { start: 11, end: 13 },
+      docCharsUtf16: { start: 104, end: 113 },
+      text: 'two three',
+      tokenStartsUtf16: [0, 4],
+      tokenEndsUtf16: [3, 9],
+      anchor: { token: 11, relToken: 0, charsUtf16: { start: 0, end: 3 } },
+      previous: { kind: 'before', token: 11 },
+      next: { kind: 'from', token: 13 },
+      marks: [{
+        charsUtf16: { start: 0, end: 9 },
+        clippedStart: true,
+        clippedEnd: false,
+      }],
+    });
+  });
+
+  it('rejects an empty or out-of-source fitted range', () => {
+    expect(() => sliceReaderPage(page(), { start: 11, end: 11 })).toThrow(RangeError);
+    expect(() => sliceReaderPage(page(), { start: 9, end: 11 })).toThrow(RangeError);
   });
 });

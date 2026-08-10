@@ -326,7 +326,7 @@ export function narrowQueryV4(q: unknown): boolean {
       // notebook). Selection is ENGINE-OWNED base corpus state, so reject the
       // legacy round-1 field rather than silently ignore a caller that thinks
       // it narrows marks. Cursor kinds are a closed set; `before` needs token
-      // ≥ 1 (before(0) has no page); maxTokens is a positive count — the
+      // ≥ 1 (before(0) has no source); maxTokens is a positive count — the
       // kernel CLAMPS above READER_MAX_TOKENS and reports cappedBy (documented
       // min() semantics), so no upper bound at the wire.
       const r = q.request as Record<string, unknown>;

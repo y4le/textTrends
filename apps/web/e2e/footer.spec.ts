@@ -272,7 +272,8 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
 
   const reader = page.getByRole('main', { name: /Reader: footer-reader/ });
   await expect(reader).toBeVisible();
-  await expect(reader.getByText('saw', { exact: true })).toHaveCSS('font-weight', '600');
+  await expect(reader.getByText('saw', { exact: true }))
+    .toHaveCSS('text-decoration-line', 'underline');
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();
 
@@ -290,7 +291,7 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
   await expect(reader).toBeVisible();
   const articles = reader.locator('.source-text').getByText('the', { exact: true });
   await expect(articles).toHaveCount(1);
-  await expect(articles.first()).toHaveCSS('font-weight', '600');
+  await expect(articles.first()).toHaveCSS('text-decoration-line', 'underline');
 });
 
 test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {
@@ -323,6 +324,6 @@ test('a footer barcode double-click snaps to a nearby exact reference before ope
   await expect(reader).toBeVisible();
   const wolves = reader.locator('.source-text').getByText('wolf', { exact: true });
   await expect(wolves).toHaveCount(2);
-  await expect(wolves.first()).toHaveCSS('font-weight', '600');
-  await expect(wolves.last()).not.toHaveCSS('font-weight', '600');
+  await expect(wolves.first()).toHaveCSS('text-decoration-line', 'underline');
+  await expect(wolves.last()).not.toHaveCSS('text-decoration-line', 'underline');
 });

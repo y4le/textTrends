@@ -66,11 +66,6 @@ import {
   type WorkspaceV1,
 } from '@texttrends/core';
 
-/** Source budgets are call-site intent, not the worker's protocol ceiling.
- * The footer is latency-sensitive and only renders one clipped passage; the
- * full Reader receives a larger measurement reservoir in its UI commit. */
-const FOOTER_PASSAGE_MAX_TOKENS = 400;
-const READER_SOURCE_MAX_TOKENS = 400;
 import {
   detailSelection,
   isValidSelection,
@@ -148,6 +143,11 @@ import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
 import { builtinCorpusOption, type BuiltinCorpusId } from './project.ts';
 
+/** Source budgets are call-site intent, not the worker's protocol ceiling.
+ * The footer is latency-sensitive and only renders one clipped passage; the
+ * full Reader gets a larger reservoir for browser-measured pages. */
+const FOOTER_PASSAGE_MAX_TOKENS = 400;
+const READER_SOURCE_MAX_TOKENS = 4_096;
 
 export interface KwicRowView {
   /** The series (track) that produced this row — the merged concordance tags
@@ -272,7 +272,17 @@ export interface ReaderPageState {
     | { readonly status: 'error'; readonly message: string };
 }
 
-/** The reading footer's canonical source page. It deliberately has its own
+/** The smaller token range the browser actually proved visible at the current
+ * Reader geometry. Worker slices are reservoirs; this is the presentation
+ * truth used by labels and navigation. */
+export interface ReaderVisibleRangeV1 {
+  readonly snapshot: string;
+  readonly doc: string;
+  readonly tokens: { readonly start: number; readonly end: number };
+  readonly geometry: string;
+}
+
+/** The reading footer's authenticated source slice. It deliberately has its own
  * lane: Reader paging must never move or blank the workbench footer. */
 export interface FooterPassageState {
   readonly snapshot: string;
@@ -697,9 +707,10 @@ export interface AppState {
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
   readerPage: ReaderPageState | null;
-  /** Last served canonical cursors remain operable while the next page is
-   * pending, allowing a rapid opposite-direction action to supersede it
-   * without continuing to display the stale prose. */
+  readerVisibleRange: ReaderVisibleRangeV1 | null;
+  /** Navigation derived from browser-fitted boundaries, never from the larger
+   * worker source slice. A remembered previous boundary is re-requested from
+   * its exact start so immediate backtracking reproduces the page. */
   readerNavigation: {
     readonly previous: ReaderPlace['cursor'] | null;
     readonly next: ReaderPlace['cursor'] | null;
@@ -761,6 +772,8 @@ export interface AppState {
   clearScrub(): void;
   stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
+  setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
+  refitReaderAt(token: number): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
@@ -1117,6 +1130,13 @@ export function createAppRuntime(
   let saveWorkspaceNow = (): void => undefined;
   let historyTraversalPending = false;
   let pendingBackFocusTo: string | null = null;
+  let readerWalk: {
+    readonly snapshot: string;
+    readonly doc: string;
+    readonly geometry: string;
+    boundaries: number[];
+    index: number;
+  } | null = null;
 
   // Route and layer state is initialized before the store so the first React
   // snapshot and the current history entry cannot disagree.
@@ -1187,11 +1207,41 @@ export function createAppRuntime(
         notebookError: place === state.place ? state.notebookError : null,
         readerPlace,
         readerPage: readerChanged ? null : state.readerPage,
+        readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
         readerNavigation:
           readerChanged && !options.preserveReaderNavigation
             ? null
             : state.readerNavigation,
       }));
+    };
+
+    const replaceReaderCursor = (cursor: ReaderPlace['cursor']): void => {
+      const place = get().readerPlace;
+      if (
+        place === null
+        || sameReaderCursor(cursor, place.cursor)
+        || !Number.isSafeInteger(cursor.token)
+        || cursor.token < 0
+        || (cursor.kind === 'before' && cursor.token < 1)
+      ) return;
+      const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
+      const readerLayer = get().layers[readerIndex];
+      if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
+      const nextPlace: ReaderPlace = { ...place, cursor: { ...cursor } };
+      const nextLayer: Layer = {
+        ...readerLayer,
+        target: Object.freeze(nextPlace),
+      };
+      const layers = get().layers.map((layer, index) =>
+        index === readerIndex ? nextLayer : layer);
+      rememberLayer(nextLayer, layers);
+      writeNavigation(
+        'replace',
+        get().place,
+        layers,
+        { preserveReaderNavigation: true },
+      );
+      get().runReader();
     };
 
     const requestBack = (count = 1, returnFocusTo?: string): boolean => {
@@ -2164,6 +2214,7 @@ export function createAppRuntime(
       occurrenceNavigation: null,
       readerPlace: null,
       readerPage: null,
+      readerVisibleRange: null,
       readerNavigation: null,
 
       quickAdd(input) {
@@ -2487,10 +2538,19 @@ export function createAppRuntime(
           && state.readerPage.state.status === 'ready'
           ? state.readerPage.state.page
           : null;
+        const candidateVisible = state.readerVisibleRange;
+        const visibleReader = readyReader
+          && candidateVisible !== null
+          && candidateVisible.snapshot === state.readerPage?.snapshot
+          && candidateVisible.doc === readyReader.doc
+          ? candidateVisible
+          : null;
         const readerAnchor = readyReader
           ? {
               doc: readyReader.doc,
-              token: readyReader.anchor?.token ?? readyReader.tokens.start,
+              token: readyReader.anchor?.token
+                ?? visibleReader?.tokens.start
+                ?? readyReader.tokens.start,
             }
           : null;
         let anchor = readerAnchor ?? state.scrub;
@@ -2668,6 +2728,104 @@ export function createAppRuntime(
         }
       },
 
+      setReaderVisibleRange(range) {
+        const state = get();
+        const place = state.readerPlace;
+        const source = state.readerPage
+          && place
+          && sameReaderPlace(state.readerPage.place, place)
+          && state.readerPage.state.status === 'ready'
+          ? state.readerPage.state.page
+          : null;
+        if (
+          source === null
+          || range.snapshot !== state.readerPage?.snapshot
+          || range.doc !== source.doc
+          || range.doc !== place?.doc
+          || !Number.isSafeInteger(range.tokens.start)
+          || !Number.isSafeInteger(range.tokens.end)
+          || range.tokens.start < source.tokens.start
+          || range.tokens.end > source.tokens.end
+          || range.tokens.start >= range.tokens.end
+          || range.geometry.length === 0
+        ) return;
+
+        if (
+          readerWalk === null
+          || readerWalk.snapshot !== range.snapshot
+          || readerWalk.doc !== range.doc
+          || readerWalk.geometry !== range.geometry
+        ) {
+          readerWalk = {
+            snapshot: range.snapshot,
+            doc: range.doc,
+            geometry: range.geometry,
+            boundaries: [range.tokens.start, range.tokens.end],
+            index: 0,
+          };
+        } else {
+          const walk = readerWalk;
+          const existing = walk.boundaries.findIndex((boundary, index) =>
+            boundary === range.tokens.start
+            && walk.boundaries[index + 1] === range.tokens.end);
+          if (existing >= 0) {
+            walk.index = existing;
+          } else if (walk.boundaries.at(-1) === range.tokens.start) {
+            walk.boundaries.push(range.tokens.end);
+            walk.index = walk.boundaries.length - 2;
+          } else if (walk.boundaries[0] === range.tokens.end) {
+            walk.boundaries.unshift(range.tokens.start);
+            walk.index = 0;
+          } else {
+            walk.boundaries = [range.tokens.start, range.tokens.end];
+            walk.index = 0;
+          }
+        }
+        const MAX_READER_BOUNDARIES = 257;
+        if (readerWalk.boundaries.length > MAX_READER_BOUNDARIES) {
+          if (readerWalk.index > MAX_READER_BOUNDARIES / 2) {
+            readerWalk.boundaries.shift();
+            readerWalk.index--;
+          } else {
+            readerWalk.boundaries.pop();
+          }
+        }
+        const previousStart = readerWalk.index > 0
+          ? readerWalk.boundaries[readerWalk.index - 1]
+          : null;
+        set({
+          readerVisibleRange: range,
+          readerNavigation: {
+            previous: previousStart !== null && previousStart !== undefined
+              ? { kind: 'from', token: previousStart }
+              : range.tokens.start === 0
+                ? null
+                : { kind: 'before', token: range.tokens.start },
+            next: range.tokens.end === source.docTokenCount
+              ? null
+              : { kind: 'from', token: range.tokens.end },
+          },
+        });
+      },
+
+      refitReaderAt(token) {
+        const state = get();
+        const visible = state.readerVisibleRange;
+        const source = state.readerPage?.state.status === 'ready'
+          ? state.readerPage.state.page
+          : null;
+        if (
+          visible === null
+          || source === null
+          || visible.snapshot !== state.readerPage?.snapshot
+          || visible.doc !== source.doc
+          || token !== visible.tokens.start
+          || token < source.tokens.start
+          || token >= source.tokens.end
+        ) return;
+        replaceReaderCursor({ kind: 'from', token });
+      },
+
       navigateReader(cursor) {
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
         const readyPage = readerPage
@@ -2691,31 +2849,8 @@ export function createAppRuntime(
             !sameReaderCursor(cursor, navigation.previous)
             && !sameReaderCursor(cursor, navigation.next)
           )
-          || sameReaderCursor(cursor, place.cursor)
         ) return;
-        if (
-          !Number.isSafeInteger(cursor.token)
-          || cursor.token < 0
-          || (cursor.kind === 'before' && cursor.token < 1)
-        ) return;
-        const nextPlace: ReaderPlace = { ...place, cursor: { ...cursor } };
-        const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
-        const readerLayer = get().layers[readerIndex];
-        if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
-        const nextLayer: Layer = {
-          ...readerLayer,
-          target: Object.freeze(nextPlace),
-        };
-        const layers = get().layers.map((layer, index) =>
-          index === readerIndex ? nextLayer : layer);
-        rememberLayer(nextLayer, layers);
-        writeNavigation(
-          'replace',
-          get().place,
-          layers,
-          { preserveReaderNavigation: true },
-        );
-        get().runReader();
+        replaceReaderCursor(cursor);
       },
 
       retryReader() {
@@ -2735,12 +2870,12 @@ export function createAppRuntime(
           || place.snapshot !== snapshot.snapshot
           || !snapshot.readyDocs.includes(place.doc)
         ) {
-          set({ readerPage: null });
+          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
           return;
         }
         const tracks = trackSpecs(series);
         if (tracks === null) {
-          set({ readerPage: null });
+          set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
           return;
         }
         const issuedKey = snapKey(snapshot);
@@ -2757,6 +2892,7 @@ export function createAppRuntime(
             tracks: tracks.captured,
             state: { status: 'pending' },
           },
+          readerVisibleRange: null,
         });
         issueOn(
           readerLane,
@@ -2791,10 +2927,6 @@ export function createAppRuntime(
                 place: issuedPlace,
                 tracks: tracks.captured,
                 state: { status: 'ready', page: data.page },
-              },
-              readerNavigation: {
-                previous: data.page.previous,
-                next: data.page.next,
               },
             });
           },
@@ -3635,6 +3767,7 @@ export function createAppRuntime(
       notebookError: route.place === state.place ? state.notebookError : null,
       readerPlace,
       readerPage: readerChanged ? null : state.readerPage,
+      readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
       readerNavigation: readerChanged ? null : state.readerNavigation,
     }));
     const normalizedUrl = urlWithRoute(historyPort.url, { place: route.place });
@@ -3805,6 +3938,7 @@ export function createAppRuntime(
           layers,
           readerPlace: null,
           readerPage: null,
+          readerVisibleRange: null,
           readerNavigation: null,
         });
       }
@@ -3895,6 +4029,7 @@ export function createAppRuntime(
           layers,
           readerPlace: null,
           readerPage: null,
+          readerVisibleRange: null,
           readerNavigation: null,
         });
       }

@@ -1,6 +1,6 @@
 /**
- * reader-page/1 dense-page benchmark (slice-2 ruling §G): a mid-document
- * page over a term with tens of thousands of occurrences — the mark-slicing
+ * reader-page/1 dense-slice benchmark: a mid-document source reservoir over
+ * a term with tens of thousands of occurrences — the mark-slicing
  * path (binary search + bounded straddler walk) must stay flat no matter
  * how dense the document is. NON-GATING; recorded to the retained benchmark
  * artifact surface (testInfo.attach), median of 7 after 2 warmups. Runs the
@@ -27,7 +27,7 @@ test('record dense reader-page medians over a 60k-occurrence document (non-gatin
   const query = {
     op: 'reader-page',
     tracks: [{ seriesId: 's1', group }],
-    request: { method: 'reader-page/1', doc: 'a', cursor: { kind: 'around', token: n >> 1 }, maxTokens: 400 },
+    request: { method: 'reader-page/1', doc: 'a', cursor: { kind: 'around', token: n >> 1 }, maxTokens: 4_096 },
   };
   const run = async (job: number, cursor = query.request.cursor) => {
     const t0 = process.hrtime.bigint();
@@ -44,8 +44,8 @@ test('record dense reader-page medians over a 60k-occurrence document (non-gatin
   for (let i = 0; i < 7; i++) samples.push(await run(200 + i));
   samples.sort((a, b) => a - b);
   const median = samples[Math.floor(samples.length / 2)]!;
-  // Exercise the stateless canonical walk at maximum depth as a separate,
-  // non-gating regression sample.
+  // Exercise the exact backward slice at maximum depth as a separate,
+  // non-gating regression sample; cost must not depend on document position.
   const deepPageMs = await run(300, { kind: 'before', token: n });
 
   const res = h.last('result');
