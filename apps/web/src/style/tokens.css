@@ -2296,7 +2296,7 @@ canvas {
 
   .form-layer {
     position: fixed;
-    z-index: 60;
+    z-index: 80;
     inset: 0;
     min-width: 0;
     min-block-size: 100vh;
@@ -2588,7 +2588,7 @@ canvas {
 
 .form-layer {
   position: fixed;
-  z-index: 60;
+  z-index: 80;
   inset: 0;
   min-width: 0;
   min-block-size: 100vh;
