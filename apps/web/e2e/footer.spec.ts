@@ -8,6 +8,41 @@ import {
   trace,
 } from './helpers.ts';
 
+async function expectPassageFilledAndCentered(page: import('@playwright/test').Page) {
+  const passage = page.locator('.footer-passage[data-passage-for]');
+  const selected = passage.locator('.footer-passage-node');
+  const cursor = page.getByTestId('footer-cursor');
+  await expect(selected).toBeVisible({ timeout: 15_000 });
+  const [passageBox, textBox, selectedBox, cursorBox] = await Promise.all([
+    passage.boundingBox(),
+    passage.locator('.footer-passage-text').boundingBox(),
+    selected.boundingBox(),
+    cursor.boundingBox(),
+  ]);
+  if (!passageBox || !textBox || !selectedBox || !cursorBox) {
+    throw new Error('footer passage geometry is unavailable');
+  }
+  expect(textBox.x).toBeLessThanOrEqual(passageBox.x + 1);
+  expect(textBox.x + textBox.width).toBeGreaterThanOrEqual(passageBox.x + passageBox.width - 1);
+  expect(Math.abs(
+    selectedBox.x + selectedBox.width / 2 - (cursorBox.x + cursorBox.width / 2),
+  )).toBeLessThanOrEqual(2);
+}
+
+async function expectSelectedInsidePassage(page: import('@playwright/test').Page) {
+  const passage = page.locator('.footer-passage[data-passage-for]');
+  const selected = passage.locator('.footer-passage-node');
+  await expect(selected).toBeVisible({ timeout: 15_000 });
+  const [passageBox, selectedBox] = await Promise.all([
+    passage.boundingBox(),
+    selected.boundingBox(),
+  ]);
+  if (!passageBox || !selectedBox) throw new Error('footer boundary geometry is unavailable');
+  expect(selectedBox.x).toBeGreaterThanOrEqual(passageBox.x - 1);
+  expect(selectedBox.x + selectedBox.width)
+    .toBeLessThanOrEqual(passageBox.x + passageBox.width + 1);
+}
+
 test('the workbench footer shares one corpus axis and opens the current passage', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
@@ -40,6 +75,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
     last: Number(await passageLine.getAttribute('data-passage-last')),
     forToken: Number(await passageLine.getAttribute('data-passage-for')),
   };
+  await expectPassageFilledAndCentered(page);
   await slider.focus();
   await slider.press('ArrowRight');
   await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
@@ -49,10 +85,29 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   const nextWindow = {
     first: Number(await passageLine.getAttribute('data-passage-first')),
     last: Number(await passageLine.getAttribute('data-passage-last')),
+    forToken: Number(await passageLine.getAttribute('data-passage-for')),
   };
-  expect(nextWindow.first).toBeGreaterThanOrEqual(firstWindow.last);
   expect(nextWindow.first).toBeLessThanOrEqual(firstWindow.last + 1);
   expect(nextWindow.last).toBeGreaterThan(nextWindow.first);
+  await expectPassageFilledAndCentered(page);
+
+  await slider.press('ArrowLeft');
+  await expect.poll(async () => Number(await passageLine.getAttribute('data-passage-for')))
+    .toBeLessThan(nextWindow.forToken);
+  await expectPassageFilledAndCentered(page);
+
+  // Walk far enough to cross the first 400-token source reservoir. Every
+  // settled page remains filled while the selected token stays over the
+  // corpus cursor, including after the measured-margin re-center.
+  let priorPageToken = Number(await passageLine.getAttribute('data-passage-for'));
+  for (let index = 0; index < 12; index++) {
+    await slider.press('ArrowRight');
+    await expect.poll(async () => Number(await passageLine.getAttribute('data-passage-for')))
+      .toBeGreaterThan(priorPageToken);
+    priorPageToken = Number(await passageLine.getAttribute('data-passage-for'));
+    await expectPassageFilledAndCentered(page);
+  }
+  expect(priorPageToken - firstWindow.forToken).toBeGreaterThan(200);
   expect(await page.evaluate(() =>
     (window as unknown as { __ttFooterCommits?: number }).__ttFooterCommits ?? 0))
     .toBe(sparklineCommits);
@@ -84,9 +139,10 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   const passage = page.locator('.footer-passage[data-passage-for]');
   await expect(slider).toHaveAttribute('aria-valuetext', 'no position');
   await slider.focus();
-  await slider.press('ArrowRight');
+  await slider.press('l');
   await expect(slider).not.toHaveAttribute('aria-valuetext', 'no position');
   await expect(passage).toHaveAttribute('data-passage-for', '0');
+  await expectSelectedInsidePassage(page);
 
   await slider.press('L');
   await expect(slider).toHaveAttribute('aria-valuenow', '1');

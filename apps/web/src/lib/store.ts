@@ -778,6 +778,9 @@ export interface AppState {
   retryReader(): void;
   closeReader(): void;
   runReader(): void;
+  /** Browser-measured token reserve required to keep the clipped footer row
+   * filled on both sides of its centered cursor. */
+  setFooterPassageMargin(tokens: number): void;
   runFooterPassage(): void;
   runQueries(): void;
 
@@ -1109,6 +1112,7 @@ export function createAppRuntime(
   const footerPassageLane = new QueryLane(scope);
   let footerPassagePending: ScrubTarget | null = null;
   let footerPassageActive: { readonly cancel: () => void } | null = null;
+  let footerPassageMargin = 0;
   // The SETTLED axis position the concordance centres on (null = reading order),
   // and the trailing-edge debounce timer from raw scrub motion to that center.
   let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
@@ -1539,6 +1543,7 @@ export function createAppRuntime(
         target,
         snapshot.snapshot,
         identityOf,
+        footerPassageMargin,
       );
     };
 
@@ -2950,6 +2955,17 @@ export function createAppRuntime(
         }
         footerPassagePending = { ...target };
         pumpFooterPassage();
+      },
+
+      setFooterPassageMargin(tokens) {
+        const next = Number.isFinite(tokens) && tokens > 0
+          ? Math.floor(tokens)
+          : 0;
+        if (next === footerPassageMargin) return;
+        const increased = next > footerPassageMargin;
+        footerPassageMargin = next;
+        const target = get().scrub;
+        if (increased && target) scheduleFooterPassage(target);
       },
 
       runQueries() {

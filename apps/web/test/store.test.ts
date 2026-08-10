@@ -2431,6 +2431,59 @@ describe('global footer passage intent', () => {
     }
   });
 
+  it('re-centers before a measured row margin reaches a resident page edge', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setFooterPassageMargin(30);
+    f.store.getState().setScrub({ doc: 'a', token: 200 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 400, 1_000, 'a', 200));
+    await settle();
+
+    f.store.getState().setScrub({ doc: 'a', token: 210 });
+    expect(f.readers()).toHaveLength(1);
+    f.store.getState().setScrub({ doc: 'a', token: 380 });
+    expect(f.readers()).toHaveLength(2);
+    expect(cursorToken(f.readers()[1]!)).toBe(380);
+    expect(f.store.getState().footerPassage).toMatchObject({
+      page: { tokens: { start: 0, end: 400 } },
+      state: { status: 'pending' },
+    });
+    f.runtime.dispose();
+  });
+
+  it('waives the row margin at document edges', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setFooterPassageMargin(30);
+    f.store.getState().setScrub({ doc: 'a', token: 5 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 400, 400, 'a', 5));
+    await settle();
+
+    f.store.getState().setScrub({ doc: 'a', token: 1 });
+    f.store.getState().setScrub({ doc: 'a', token: 399 });
+    expect(f.readers()).toHaveLength(1);
+    f.runtime.dispose();
+  });
+
+  it('re-evaluates a larger measured margin once and terminates at the new anchor', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setScrub({ doc: 'a', token: 200 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 400, 1_000, 'a', 200));
+    await settle();
+    f.store.getState().setScrub({ doc: 'a', token: 380 });
+    expect(f.readers()).toHaveLength(1);
+
+    f.store.getState().setFooterPassageMargin(30);
+    expect(f.readers()).toHaveLength(2);
+    f.store.getState().setFooterPassageMargin(30);
+    expect(f.readers()).toHaveLength(2);
+    f.readers()[1]!.resolve(fakeReaderPage(180, 580, 1_000, 'a', 380));
+    await settle();
+    expect(f.readers()).toHaveLength(2);
+    f.runtime.dispose();
+  });
+
   it('cancels an obsolete request when a reversal returns to the resident page', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);

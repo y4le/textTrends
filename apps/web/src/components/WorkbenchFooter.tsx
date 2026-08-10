@@ -26,13 +26,11 @@ import {
   FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
   footerBlockSize,
   footerGeometryFor,
-  footerPassageDisplay,
   footerShuttleRate,
   footerStatusText,
   nextPassageToken,
   sequenceLayoutFor,
   type FooterGeometry,
-  type PassageAlignment,
   type PassageWindowV1,
 } from '../lib/footer-view.ts';
 import { trendDisplayValues } from '../lib/trend-display.ts';
@@ -209,6 +207,7 @@ function FooterInteractive({
   const passage = useApp((state) => state.footerPassage);
   const snapshot = useApp((state) => state.snapshot);
   const setScrub = useApp((state) => state.setScrub);
+  const setFooterPassageMargin = useApp((state) => state.setFooterPassageMargin);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const openReader = useApp((state) => state.openReader);
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
@@ -244,7 +243,6 @@ function FooterInteractive({
   const ariaScrubTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const ariaShuttleActive = useRef(false);
   const [ariaScrub, setAriaScrub] = useState(scrub);
-  const [passageAlignment, setPassageAlignment] = useState<PassageAlignment>('center');
   const passageWindow = useRef<PassageWindowV1 | null>(null);
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
@@ -269,17 +267,6 @@ function FooterInteractive({
   const crosshairX = progress && scrub && docOrdinal >= 0
     ? seriesXFromToken(docOrdinal, scrub.token, width, layout)
     : null;
-  const passageView = footerPassageDisplay(
-    passage,
-    scrub,
-    snapshot?.snapshot ?? '',
-  );
-  const passageDocOrdinal = passageView
-    ? docs.indexOf(passageView.page.doc)
-    : -1;
-  const passageX = passageView && passageDocOrdinal >= 0
-    ? seriesXFromToken(passageDocOrdinal, passageView.token, width, layout)
-    : crosshairX;
   const title = scrub ? titles.get(scrub.doc) ?? scrub.doc : '';
   const announcedScrub = shuttleRate === null ? scrub : (ariaScrub ?? scrub);
   const ariaDocOrdinal = announcedScrub ? docs.indexOf(announcedScrub.doc) : -1;
@@ -323,7 +310,6 @@ function FooterInteractive({
 
   const setAbsoluteScrub = useCallback((target: { readonly doc: string; readonly token: number }) => {
     queuedPageDirection.current = null;
-    setPassageAlignment('center');
     setKeyboardStatus('');
     setScrub(target);
   }, [setScrub]);
@@ -331,7 +317,6 @@ function FooterInteractive({
   useEffect(() => {
     passageWindow.current = null;
     queuedPageDirection.current = null;
-    setPassageAlignment('center');
     setKeyboardStatus('');
   }, [snapshot?.snapshot]);
 
@@ -339,7 +324,6 @@ function FooterInteractive({
     if (occurrenceNavigation?.state.status !== 'ready') return;
     passageWindow.current = null;
     queuedPageDirection.current = null;
-    setPassageAlignment('center');
     setKeyboardStatus('');
   }, [occurrenceNavigation]);
 
@@ -507,7 +491,7 @@ function FooterInteractive({
     const next = stepAlongSequence(
       currentOrdinal,
       current.token,
-      proposal.token - current.token,
+      proposal - current.token,
       layoutRef.current,
     );
     const doc = next ? docsRef.current[next.d] : undefined;
@@ -516,7 +500,6 @@ function FooterInteractive({
       return true;
     }
     setKeyboardStatus('');
-    setPassageAlignment(proposal.alignment);
     setScrub({ doc, token: next.token });
     return true;
   }, [setScrub]);
@@ -542,6 +525,13 @@ function FooterInteractive({
     if (!window || queued === null) return;
     if (advancePassagePage(window, queued)) queuedPageDirection.current = null;
   }, [advancePassagePage]);
+
+  const passageCrosshairX = useCallback((doc: string, token: number) => {
+    const ordinal = docsRef.current.indexOf(doc);
+    return ordinal >= 0
+      ? seriesXFromToken(ordinal, token, width, layoutRef.current)
+      : null;
+  }, [layout, width]);
 
   const onKeyDown = (event: FooterKeyboardEvent) => {
     const current = scrub && docOrdinal >= 0
@@ -678,10 +668,10 @@ function FooterInteractive({
         scrub={scrub}
         snapshot={snapshot?.snapshot ?? ''}
         title={title}
-        crosshairX={passageX}
+        crosshairXForToken={passageCrosshairX}
         coarse={presentation.coarseAvailable}
         widthClass={presentation.width}
-        alignment={passageAlignment}
+        onPassageMarginChange={setFooterPassageMargin}
         onVisibleTokensChange={setVisiblePassageTokens}
         onPassageWindowChange={publishPassageWindow}
       />

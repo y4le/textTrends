@@ -4,8 +4,8 @@ import type { FooterPassageState, ScrubTarget } from '../lib/store.ts';
 import {
   footerPassageDisplay,
   passageLayout,
+  passageMarginTokens,
   passageTokenGeometry,
-  type PassageAlignment,
   type PassageWindowV1,
 } from '../lib/footer-view.ts';
 import {
@@ -51,10 +51,10 @@ export function FooterPassage({
   scrub,
   snapshot,
   title,
-  crosshairX,
+  crosshairXForToken,
   coarse,
   widthClass,
-  alignment,
+  onPassageMarginChange,
   onVisibleTokensChange,
   onPassageWindowChange,
 }: {
@@ -62,10 +62,10 @@ export function FooterPassage({
   readonly scrub: ScrubTarget | null;
   readonly snapshot: string;
   readonly title: string;
-  readonly crosshairX: number | null;
+  readonly crosshairXForToken: (doc: string, token: number) => number | null;
   readonly coarse: boolean;
   readonly widthClass: WidthClass;
-  readonly alignment: PassageAlignment;
+  readonly onPassageMarginChange: (tokens: number) => void;
   readonly onVisibleTokensChange: (tokens: number) => void;
   readonly onPassageWindowChange: (window: PassageWindowV1 | null) => void;
 }) {
@@ -76,9 +76,7 @@ export function FooterPassage({
   const passageRef = useRef<HTMLElement | null>(null);
   const [canvasFont, setCanvasFont] = useState('');
   const [containerWidth, setContainerWidth] = useState(0);
-  const view = footerPassageDisplay(passage, scrub, snapshot);
-  const page = view?.page ?? null;
-  const stale = view?.stale ?? false;
+  const page = passage?.snapshot === snapshot ? passage.page : null;
   const display = useMemo(() => page ? displayReaderText(page.text) : '', [page]);
   const baseSegments = useMemo(() => page ? segmentReaderMarks(
     display.length,
@@ -88,14 +86,6 @@ export function FooterPassage({
       end: mark.charsUtf16.end,
     })),
   ) : [], [display.length, page]);
-
-  const relativeToken = page && view ? view.token - page.tokens.start : -1;
-  const centerStart = relativeToken >= 0 ? page?.tokenStartsUtf16[relativeToken] ?? 0 : 0;
-  const centerEnd = relativeToken >= 0 ? page?.tokenEndsUtf16[relativeToken] ?? 0 : 0;
-  const segments = useMemo(
-    () => splitAt(baseSegments, [centerStart, centerEnd]),
-    [baseSegments, centerEnd, centerStart],
-  );
 
   useLayoutEffect(() => {
     if (!beforeRef.current) return;
@@ -128,6 +118,22 @@ export function FooterPassage({
       : null
   ), [canvasFont, display, page]);
 
+  const passageMargin = useMemo(() => tokenGeometry
+    ? passageMarginTokens(tokenGeometry, containerWidth)
+    : 0, [containerWidth, tokenGeometry]);
+  const view = footerPassageDisplay(passage, scrub, snapshot, passageMargin);
+  const stale = view?.stale ?? false;
+  const crosshairX = view
+    ? crosshairXForToken(view.page.doc, view.token)
+    : scrub ? crosshairXForToken(scrub.doc, scrub.token) : null;
+  const relativeToken = page && view ? view.token - page.tokens.start : -1;
+  const centerStart = relativeToken >= 0 ? page?.tokenStartsUtf16[relativeToken] ?? 0 : 0;
+  const centerEnd = relativeToken >= 0 ? page?.tokenEndsUtf16[relativeToken] ?? 0 : 0;
+  const segments = useMemo(
+    () => splitAt(baseSegments, [centerStart, centerEnd]),
+    [baseSegments, centerEnd, centerStart],
+  );
+
   const viewToken = view?.token ?? -1;
   const measuredLayout = useMemo(() => (
     page && tokenGeometry && containerWidth > 0 && viewToken >= 0
@@ -135,18 +141,24 @@ export function FooterPassage({
           page,
           snapshot,
           viewToken,
-          alignment,
           containerWidth,
-          crosshairX ?? 0,
           tokenGeometry,
+          (token) => crosshairXForToken(page.doc, token) ?? 0,
         )
       : null
-  ), [alignment, containerWidth, crosshairX, page, snapshot, tokenGeometry, viewToken]);
+  ), [containerWidth, crosshairXForToken, page, snapshot, tokenGeometry, viewToken]);
 
   useLayoutEffect(() => {
+    onPassageMarginChange(passageMargin);
     onPassageWindowChange(measuredLayout?.window ?? null);
     if (measuredLayout) onVisibleTokensChange(measuredLayout.visibleTokens);
-  }, [measuredLayout, onPassageWindowChange, onVisibleTokensChange]);
+  }, [
+    measuredLayout,
+    onPassageMarginChange,
+    onPassageWindowChange,
+    onVisibleTokensChange,
+    passageMargin,
+  ]);
 
   useEffect(() => () => onPassageWindowChange(null), [onPassageWindowChange]);
 
@@ -255,7 +267,6 @@ export function FooterPassage({
     'data-passage-first': windowData.firstVisibleToken,
     'data-passage-last': windowData.lastVisibleToken,
     'data-passage-for': windowData.forToken,
-    'data-passage-alignment': windowData.alignment,
   } : {};
 
   return coarse && !stale ? (

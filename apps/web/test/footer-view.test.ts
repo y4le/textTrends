@@ -13,6 +13,7 @@ import {
   footerStatusText,
   nextPassageToken,
   passageLayout,
+  passageMarginTokens,
   passageTokenGeometry,
   sequenceLayoutFor,
 } from '../src/lib/footer-view.ts';
@@ -122,7 +123,7 @@ describe('reading footer view', () => {
     expect([...shaped!.ends]).toEqual([2, 6]);
   });
 
-  it('pages variable-width source in both directions with overlapping or adjacent seams and no gaps', () => {
+  it('pages variable-width source in both directions with centered, gapless windows', () => {
     const source = 'a bb ccc d eeee f gg hhh i';
     const starts: number[] = [];
     const ends: number[] = [];
@@ -145,49 +146,89 @@ describe('reading footer view', () => {
       docTokenCount: starts.length,
       atEnd: true,
     };
-    const forward: { firstVisibleToken: number; lastVisibleToken: number }[] = [];
+    const forward: { firstVisibleToken: number; lastVisibleToken: number; forToken: number }[] = [];
     let cursor = 0;
     for (;;) {
-      const layout = passageLayout(fixture, 's1', cursor, 'leading', 12, 5, geometry)!;
+      const layout = passageLayout(fixture, 's1', cursor, 12, geometry, () => 5)!;
       forward.push(layout.window);
-      const next = nextPassageToken(layout.window, 1).token;
+      const next = nextPassageToken(layout.window, 1);
       if (next >= starts.length) break;
+      expect(next).toBeGreaterThan(cursor);
       cursor = next;
     }
     expect(forward[0]!.firstVisibleToken).toBe(0);
     expect(forward.at(-1)!.lastVisibleToken).toBe(starts.length - 1);
     for (let i = 1; i < forward.length; i++) {
-      expect(forward[i]!.firstVisibleToken).toBeGreaterThanOrEqual(forward[i - 1]!.lastVisibleToken);
       expect(forward[i]!.firstVisibleToken).toBeLessThanOrEqual(forward[i - 1]!.lastVisibleToken + 1);
+      if (forward[i - 1]!.lastVisibleToken < starts.length - 1) {
+        expect(forward[i]!.firstVisibleToken).toBe(forward[i - 1]!.lastVisibleToken + 1);
+      }
+      expect(forward[i]!.forToken).toBeGreaterThan(forward[i - 1]!.forToken);
     }
+    expect(forward.length).toBeLessThan(starts.length);
 
-    const backward: { firstVisibleToken: number; lastVisibleToken: number }[] = [];
+    const backward: { firstVisibleToken: number; lastVisibleToken: number; forToken: number }[] = [];
     cursor = starts.length - 1;
     for (;;) {
-      const layout = passageLayout(fixture, 's1', cursor, 'trailing', 12, 5, geometry)!;
+      const layout = passageLayout(fixture, 's1', cursor, 12, geometry, () => 5)!;
       backward.push(layout.window);
-      const next = nextPassageToken(layout.window, -1).token;
+      const next = nextPassageToken(layout.window, -1);
       if (next < 0) break;
+      expect(next).toBeLessThan(cursor);
       cursor = next;
     }
     expect(backward[0]!.lastVisibleToken).toBe(starts.length - 1);
     expect(backward.at(-1)!.firstVisibleToken).toBe(0);
     for (let i = 1; i < backward.length; i++) {
-      expect(backward[i]!.lastVisibleToken).toBeLessThanOrEqual(backward[i - 1]!.firstVisibleToken);
       expect(backward[i]!.lastVisibleToken).toBeGreaterThanOrEqual(backward[i - 1]!.firstVisibleToken - 1);
+      if (
+        backward[i - 1]!.firstVisibleToken > 0
+        && backward[i - 1]!.lastVisibleToken < starts.length - 1
+      ) {
+        expect(backward[i]!.lastVisibleToken).toBe(backward[i - 1]!.firstVisibleToken - 1);
+      }
+      expect(backward[i]!.forToken).toBeLessThan(backward[i - 1]!.forToken);
     }
+    expect(backward.length).toBeLessThan(starts.length);
   });
 
   it('keeps the anchor readable at asymmetric crosshairs and escapes an over-wide token', () => {
     const fixture = page(0, 3);
     const geometry = passageTokenGeometry('xyz', [0, 1, 2], [1, 2, 3], (text) => text.length * 20)!;
     for (const crosshair of [0, 10]) {
-      const layout = passageLayout(fixture, 's1', 1, 'center', 10, crosshair, geometry)!;
+      const layout = passageLayout(fixture, 's1', 1, 10, geometry, () => crosshair)!;
       expect(layout.window.firstVisibleToken).toBeLessThanOrEqual(1);
       expect(layout.window.lastVisibleToken).toBeGreaterThanOrEqual(1);
-      expect(nextPassageToken(layout.window, 1).token).toBe(2);
-      expect(nextPassageToken(layout.window, -1).token).toBe(0);
+      expect(nextPassageToken(layout.window, 1)).toBe(2);
+      expect(nextPassageToken(layout.window, -1)).toBe(0);
     }
+  });
+
+  it('keeps boundary tokens fully inside the passage viewport', () => {
+    const geometry = passageTokenGeometry(
+      'aa bb',
+      [0, 3],
+      [2, 5],
+      (text) => text.length * 5,
+    )!;
+    const first = passageLayout(page(0, 2), 's1', 0, 20, geometry, () => 0)!;
+    expect(first.shiftPx).toBe(0);
+
+    const lastPage = { ...page(0, 2), atEnd: true, docTokenCount: 2 };
+    const last = passageLayout(lastPage, 's1', 1, 20, geometry, () => 20)!;
+    expect(last.shiftPx).toBe(25);
+  });
+
+  it('derives a stable prospective token margin from measured row width', () => {
+    const geometry = passageTokenGeometry(
+      'abcdefghij',
+      Array.from({ length: 10 }, (_, index) => index),
+      Array.from({ length: 10 }, (_, index) => index + 1),
+      (text) => text.length * 10,
+    )!;
+    expect(passageMarginTokens(geometry, 40)).toBe(4);
+    expect(passageMarginTokens(geometry, 0)).toBe(0);
+    expect(passageMarginTokens({ ...geometry, textWidth: 0 }, 40)).toBe(0);
   });
 
   it('formats compact, partial, and failure status honestly', () => {
@@ -222,7 +263,34 @@ describe('reading footer view', () => {
     expect(footerPassageServes(state, { doc: 'a', token: 10 }, 's1', () => 'changed')).toBe(false);
   });
 
-  it('holds stale source at a page edge or its validated anchor', () => {
+  it('reserves measured margins except at source edges and the around-page anchor', () => {
+    const resident = page(10, 20);
+    const state = {
+      snapshot: 's1',
+      doc: 'a',
+      tracks: [],
+      page: resident,
+      state: { status: 'ready' as const },
+    };
+    const identity = () => null;
+    expect(footerPassageServes(state, { doc: 'a', token: 11 }, 's1', identity, 2)).toBe(false);
+    expect(footerPassageServes(state, { doc: 'a', token: 12 }, 's1', identity, 2)).toBe(true);
+    expect(footerPassageServes(state, { doc: 'a', token: 17 }, 's1', identity, 2)).toBe(true);
+    expect(footerPassageServes(state, { doc: 'a', token: 18 }, 's1', identity, 2)).toBe(false);
+    expect(footerPassageServes({
+      ...state,
+      page: { ...resident, atStart: true, atEnd: true },
+    }, { doc: 'a', token: 10 }, 's1', identity, 20)).toBe(true);
+    expect(footerPassageServes({
+      ...state,
+      page: {
+        ...resident,
+        anchor: { token: 15, relToken: 5, charsUtf16: { start: 5, end: 6 } },
+      },
+    }, { doc: 'a', token: 15 }, 's1', identity, 20)).toBe(true);
+  });
+
+  it('holds stale source at its validated anchor instead of exposing a short page edge', () => {
     const resident = page(10, 20);
     const state = {
       snapshot: 's1',
@@ -236,11 +304,11 @@ describe('reading footer view', () => {
       stale: false,
     });
     expect(footerPassageDisplay(state, { doc: 'a', token: 80 }, 's1')).toMatchObject({
-      token: 19,
+      token: 14,
       stale: true,
     });
     expect(footerPassageDisplay(state, { doc: 'a', token: 0 }, 's1')).toMatchObject({
-      token: 10,
+      token: 14,
       stale: true,
     });
     expect(footerPassageDisplay(state, { doc: 'b', token: 80 }, 's1')).toMatchObject({
