@@ -128,7 +128,7 @@ describe('validateNotebookGroup', () => {
       ...tokenGroup('g', 'wolves'),
       members: [
         { id: 'm1', kind: 'token', surface: 'wolf', match: FOLDED_MATCH },
-        { id: 'm2', kind: 'phrase', surfaces: ['dire', 'wolf'], match: FOLDED_MATCH, crossSentence: false },
+        { id: 'm2', kind: 'phrase', elements: [{ kind: 'token', surface: 'dire' }, { kind: 'token', surface: 'wolf' }], match: FOLDED_MATCH, crossSentence: false },
         { id: 'm3', kind: 'prefix', stem: 'wolv', match: FOLDED_MATCH },
       ],
     };

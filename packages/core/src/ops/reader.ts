@@ -342,11 +342,11 @@ export function planReaderPage(
   //   ascending — once one occurrence fails (start+span <= pageStart) every
   //   earlier one fails too; or
   // - countOverlaps=true: every member match spans at most
-  //   maxPhraseSurfaces tokens, so nothing starting at or before
-  //   pageStart - maxPhraseSurfaces can reach pageStart.
+  //   maxPhraseElements tokens, so nothing starting at or before
+  //   pageStart - maxPhraseElements can reach pageStart.
   // The combined stop rule below is sound for both without knowing which
   // regime produced the set.
-  const maxMemberSpan = TERM_GROUP_LIMITS_V1.maxPhraseSurfaces;
+  const maxMemberSpan = TERM_GROUP_LIMITS_V1.maxPhraseElements;
   const collected: CollectedMark[] = [];
   const pushMark = (occ: NumericOccurrences, ordinal: number, i: number, into: CollectedMark[]) => {
     const occStart = occ.pos[i] as number;

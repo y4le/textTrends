@@ -189,20 +189,22 @@ describe('narrowQueryV4', () => {
     expect(trend(g({ members: [member({ id: '' })] }))).toBe(false);
     expect(trend(g({ members: [member({ surface: '' })] }))).toBe(false);
     expect(trend(g({ members: [{ id: 'm', kind: 'prefix', stem: '', match: { case: 'folded', diacritics: 'folded' } }] }))).toBe(false);
-    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: ['a', ''], crossSentence: false })] }))).toBe(false);
-    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: [], crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: [{ kind: 'token', surface: 'a' }, { kind: 'token', surface: '' }], crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: [], crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: ['a'], crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: [{ kind: 'middle', surface: 'a' }], crossSentence: false })] }))).toBe(false);
     // Size bounds.
     expect(trend(g({ id: 'g'.repeat(TERM_GROUP_LIMITS_V1.maxIdUnits + 1) }))).toBe(false);
     expect(trend(g({ members: [member({ surface: 'w'.repeat(TERM_GROUP_LIMITS_V1.maxSurfaceUnits + 1) })] }))).toBe(false);
     expect(trend(g({ members: Array.from({ length: TERM_GROUP_LIMITS_V1.maxMembers + 1 }, (_, i) => member({ id: `m${i}` })) }))).toBe(false);
-    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: Array.from({ length: TERM_GROUP_LIMITS_V1.maxPhraseSurfaces + 1 }, () => 'w'), crossSentence: false })] }))).toBe(false);
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: Array.from({ length: TERM_GROUP_LIMITS_V1.maxPhraseElements + 1 }, () => ({ kind: 'token', surface: 'w' })), crossSentence: false })] }))).toBe(false);
     // SPARSE arrays must not narrow: `every` skips holes, and structured
     // cloning preserves them into the kernel as undefined (review-A finding).
     expect(trend(g({ members: Array(1) }))).toBe(false);
     const sparseMembers = [member({})]; sparseMembers.length = 2;
     expect(trend(g({ members: sparseMembers }))).toBe(false);
-    const sparseSurfaces = ['a']; sparseSurfaces.length = 2;
-    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, surfaces: sparseSurfaces, crossSentence: false })] }))).toBe(false);
+    const sparseElements = [{ kind: 'token', surface: 'a' }]; sparseElements.length = 2;
+    expect(trend(g({ members: [member({ kind: 'phrase', surface: undefined, elements: sparseElements, crossSentence: false })] }))).toBe(false);
     // Maximal-at-every-bound still narrows.
     expect(trend(g({
       id: 'g'.repeat(TERM_GROUP_LIMITS_V1.maxIdUnits),

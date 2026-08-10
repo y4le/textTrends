@@ -89,13 +89,7 @@ const MEMBER_MODES = new Set<unknown>(['sensitive', 'folded']);
 function isGroupMemberShape(member: unknown): boolean {
   if (
     !exactRecord(member, ['id', 'kind', 'surface', 'match']) &&
-    !exactRecord(member, [
-      'id',
-      'kind',
-      'surfaces',
-      'match',
-      'crossSentence',
-    ]) &&
+    !exactRecord(member, ['id', 'kind', 'elements', 'match', 'crossSentence']) &&
     !exactRecord(member, ['id', 'kind', 'stem', 'match'])
   ) {
     return false;
@@ -105,7 +99,7 @@ function isGroupMemberShape(member: unknown): boolean {
     kind?: unknown;
     match?: unknown;
     surface?: unknown;
-    surfaces?: unknown;
+    elements?: unknown;
     stem?: unknown;
     crossSentence?: unknown;
   };
@@ -123,16 +117,26 @@ function isGroupMemberShape(member: unknown): boolean {
       return typeof record.surface === 'string';
     case 'phrase': {
       if (typeof record.crossSentence !== 'boolean') return false;
-      const surfaces = record.surfaces;
+      const elements = record.elements;
       if (
-        !Array.isArray(surfaces) ||
-        surfaces.length > TERM_GROUP_LIMITS_V1.maxPhraseSurfaces ||
-        !exactArray(surfaces, surfaces.length)
+        !Array.isArray(elements) ||
+        elements.length > TERM_GROUP_LIMITS_V1.maxPhraseElements ||
+        !exactArray(elements, elements.length)
       ) {
         return false;
       }
-      for (const surface of surfaces) {
-        if (typeof surface !== 'string') return false;
+      for (const element of elements) {
+        if (
+          !exactRecord(element, ['kind', 'surface'])
+          && !exactRecord(element, ['kind', 'stem'])
+        ) return false;
+        if (element.kind === 'token') {
+          if (typeof element.surface !== 'string') return false;
+        } else if (element.kind === 'prefix' || element.kind === 'suffix') {
+          if (typeof element.stem !== 'string') return false;
+        } else {
+          return false;
+        }
       }
       return true;
     }
@@ -142,6 +146,32 @@ function isGroupMemberShape(member: unknown): boolean {
     default:
       return false;
   }
+}
+
+/** Lift the only legacy v1 shape invalidated by phrase elements. The schema
+ * stays /1 during this transition, so a phrase-bearing saved workspace must
+ * reopen instead of being misclassified as corrupt. */
+function liftLegacyPhraseMember(member: unknown): GroupMember | null {
+  if (!exactRecord(member, ['id', 'kind', 'surfaces', 'match', 'crossSentence'])) return null;
+  if (
+    member.kind !== 'phrase'
+    || typeof member.id !== 'string'
+    || typeof member.crossSentence !== 'boolean'
+    || !exactRecord(member.match, ['case', 'diacritics'])
+    || !MEMBER_MODES.has(member.match.case)
+    || !MEMBER_MODES.has(member.match.diacritics)
+    || !Array.isArray(member.surfaces)
+    || member.surfaces.length > TERM_GROUP_LIMITS_V1.maxPhraseElements
+    || !exactArray(member.surfaces, member.surfaces.length)
+    || member.surfaces.some((surface) => typeof surface !== 'string')
+  ) return null;
+  return {
+    id: member.id,
+    kind: 'phrase',
+    elements: member.surfaces.map((surface) => ({ kind: 'token', surface })),
+    match: member.match as unknown as MatchMode,
+    crossSentence: member.crossSentence,
+  };
 }
 
 export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
@@ -164,6 +194,8 @@ export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
     throw new RangeError('notebook groups must be a dense plain array');
   }
   const ids = new Set<string>();
+  const normalizedGroups: NotebookGroupV1[] = [];
+  let liftedLegacy = false;
   for (let index = 0; index < groups.length; index++) {
     const group: unknown = groups[index];
     if (!exactRecord(group, ['id', 'name', 'members', 'countOverlaps'])) {
@@ -194,12 +226,27 @@ export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
     if (!exactArray(members, members.length)) {
       throw new RangeError(`group ${index} members must be a dense plain array`);
     }
+    const normalizedMembers: GroupMember[] = [];
     for (let member = 0; member < members.length; member++) {
-      if (!isGroupMemberShape(members[member])) {
+      const candidate = members[member];
+      if (isGroupMemberShape(candidate)) {
+        normalizedMembers.push(candidate as GroupMember);
+        continue;
+      }
+      const legacy = liftLegacyPhraseMember(candidate);
+      if (legacy === null) {
         throw new RangeError(`group ${index} member ${member} is malformed`);
       }
+      normalizedMembers.push(legacy);
+      liftedLegacy = true;
     }
-    validateNotebookGroup(group as unknown as NotebookGroupV1);
+    const normalized = normalizedMembers.every((member, memberIndex) => member === members[memberIndex])
+      ? group as unknown as NotebookGroupV1
+      : { ...(group as unknown as NotebookGroupV1), members: normalizedMembers };
+    validateNotebookGroup(normalized);
+    normalizedGroups.push(normalized);
   }
-  return value as unknown as QueryNotebookV1;
+  return liftedLegacy
+    ? { schema: 'texttrends/query-notebook/1', groups: normalizedGroups }
+    : value as unknown as QueryNotebookV1;
 }

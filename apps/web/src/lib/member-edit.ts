@@ -53,8 +53,8 @@ export function compileMemberInput(raw: string, match: MatchMode, newId: () => s
 export function compilePhraseChips(chips: readonly string[], match: MatchMode, newId: () => string): CompiledMember {
   const surfaces = chips.map((c) => c.trim().normalize('NFC')).filter((c) => c !== '');
   if (surfaces.length < 2) return { ok: false, error: 'a phrase needs at least two words' };
-  if (surfaces.length > TERM_GROUP_LIMITS_V1.maxPhraseSurfaces) {
-    return { ok: false, error: `a phrase is at most ${TERM_GROUP_LIMITS_V1.maxPhraseSurfaces} words` };
+  if (surfaces.length > TERM_GROUP_LIMITS_V1.maxPhraseElements) {
+    return { ok: false, error: `a phrase is at most ${TERM_GROUP_LIMITS_V1.maxPhraseElements} words` };
   }
   if (surfaces.some((s) => s.includes('*'))) {
     return { ok: false, error: 'phrases match exact words — no asterisks' };
@@ -70,7 +70,13 @@ export function compilePhraseChips(chips: readonly string[], match: MatchMode, n
   }
   return {
     ok: true,
-    member: { id: newId(), kind: 'phrase', surfaces, match, crossSentence: false },
+    member: {
+      id: newId(),
+      kind: 'phrase',
+      elements: surfaces.map((surface) => ({ kind: 'token' as const, surface })),
+      match,
+      crossSentence: false,
+    },
   };
 }
 
@@ -78,7 +84,9 @@ export function compilePhraseChips(chips: readonly string[], match: MatchMode, n
 export function describeMember(m: GroupMember): string {
   switch (m.kind) {
     case 'token': return m.surface;
-    case 'phrase': return `“${m.surfaces.join(' ')}”`;
+    case 'phrase': return `“${m.elements.map((element) => element.kind === 'token'
+      ? element.surface
+      : element.kind === 'prefix' ? `${element.stem}*` : `*${element.stem}`).join(' ')}”`;
     case 'prefix': return `${m.stem}*`;
     default: return `*${m.stem}`;
   }

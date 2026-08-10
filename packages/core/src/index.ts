@@ -33,6 +33,13 @@ export { canonicalJson, hashSourceBytes, hashText } from './contract/hash.ts';
 export { verifiedHashOf, verifiedTextOf, verifyText, type VerifiedText } from './contract/verified-text.ts';
 export { exactArray, exactRecord, isNonNegSafeInt, isRecord, isString } from './contract/guards.ts';
 export {
+  ALIAS_COMPILER_V1,
+  compileAlias,
+  compileAliasOrThrow,
+  type AliasCompileErrorCode,
+  type AliasCompileResult,
+} from './project/alias.ts';
+export {
   EMPTY_NOTEBOOK,
   FOLDED_MATCH,
   NOTEBOOK_LIMITS_V1,
@@ -123,6 +130,7 @@ export {
   termGroupIdentity,
   validateGroup,
   type GroupMember,
+  type PhraseElement,
   type NumericOccurrences,
   type ResolverTable,
   type TermGroupSpec,

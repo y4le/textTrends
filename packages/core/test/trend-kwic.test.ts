@@ -66,7 +66,7 @@ const wolfGroup: TermGroupSpec = {
 const direWolfGroup = (countOverlaps: boolean): TermGroupSpec => ({
   id: 'g2',
   members: [
-    { id: 'p', kind: 'phrase', surfaces: ['dire', 'wolf'], match: FOLD, crossSentence: false },
+    { id: 'p', kind: 'phrase', elements: [{ kind: 'token', surface: 'dire' }, { kind: 'token', surface: 'wolf' }], match: FOLD, crossSentence: false },
     { id: 't', kind: 'token', surface: 'wolf', match: FOLD },
   ],
   countOverlaps,

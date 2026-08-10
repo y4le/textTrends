@@ -37,10 +37,14 @@ import { DISPERSION_EXACT_MAX } from './dispersion.ts';
 
 export type { TokenRangeSpan } from '../snapshot/selection.ts';
 
+export type PhraseElement =
+  | { readonly kind: 'token'; readonly surface: string }
+  | { readonly kind: 'prefix' | 'suffix'; readonly stem: string };
+
 export type GroupMember =
   | { readonly id: string; readonly kind: 'token'; readonly surface: string;
       readonly match: MatchMode }
-  | { readonly id: string; readonly kind: 'phrase'; readonly surfaces: readonly string[];
+  | { readonly id: string; readonly kind: 'phrase'; readonly elements: readonly PhraseElement[];
       readonly match: MatchMode; readonly crossSentence: boolean }
   | { readonly id: string; readonly kind: 'prefix' | 'suffix'; readonly stem: string;
       readonly match: MatchMode };
@@ -58,9 +62,9 @@ export interface TermGroupSpec {
 export const TERM_GROUP_LIMITS_V1 = {
   /** Members per group (≥1 — an empty group matches nothing and is a bug). */
   maxMembers: 32,
-  /** Ordered surfaces per phrase member (≥1). */
-  maxPhraseSurfaces: 16,
-  /** Each token surface / affix stem / phrase surface. */
+  /** Ordered token/affix elements per phrase member (≥1). */
+  maxPhraseElements: 16,
+  /** Each token surface / affix stem / phrase element value. */
   maxSurfaceUnits: 256,
   /** Caller-owned provenance ids (group id, member id). */
   maxIdUnits: 128,
@@ -130,7 +134,14 @@ export function termGroupIdentity(group: TermGroupSpec): string {
       case 'token':
         return { k: 'token', mode, surface: m.surface };
       case 'phrase':
-        return { k: 'phrase', mode, surfaces: [...m.surfaces], crossSentence: m.crossSentence };
+        return {
+          k: 'phrase',
+          mode,
+          elements: m.elements.map((element) => element.kind === 'token'
+            ? { k: 'token', surface: element.surface }
+            : { k: element.kind, stem: element.stem }),
+          crossSentence: m.crossSentence,
+        };
       default:
         return { k: m.kind, mode, stem: m.stem };
     }
@@ -184,10 +195,25 @@ export function validateGroup(group: TermGroupSpec): void {
         boundedSurface(m.surface, `token member '${mid}' surface`);
         break;
       case 'phrase':
-        if (m.surfaces.length === 0 || m.surfaces.length > L.maxPhraseSurfaces) {
-          throw new RangeError(`phrase member '${mid}' must have 1–${L.maxPhraseSurfaces} surfaces`);
+        if (m.elements.length === 0 || m.elements.length > L.maxPhraseElements) {
+          throw new RangeError(`phrase member '${mid}' must have 1–${L.maxPhraseElements} elements`);
         }
-        for (const s of m.surfaces) boundedSurface(s, `phrase member '${mid}' surface`);
+        for (const element of m.elements) {
+          if (typeof element !== 'object' || element === null) {
+            throw new RangeError(`phrase member '${mid}' element must be a record`);
+          }
+          switch (element.kind) {
+            case 'token':
+              boundedSurface(element.surface, `phrase member '${mid}' token surface`);
+              break;
+            case 'prefix':
+            case 'suffix':
+              boundedSurface(element.stem, `phrase member '${mid}' ${element.kind} stem`);
+              break;
+            default:
+              throw new RangeError(`phrase member '${mid}' has an unknown element kind`);
+          }
+        }
         break;
       default:
         boundedSurface(m.stem, `${m.kind} member '${mid}' stem`);
@@ -265,8 +291,10 @@ export function matchGroupInTokenRanges(
 
     // Phrase: anchor on the member surface with the smallest posting count,
     // verify neighbors at relative offsets (plan M2 / contract Q3).
-    const resolved: (readonly LocalTypeId[])[] = member.surfaces.map((s) =>
-      resolveToken(resolver, s),
+    const resolved: (readonly LocalTypeId[])[] = member.elements.map((element) =>
+      element.kind === 'token'
+        ? resolveToken(resolver, element.surface)
+        : resolveAffix(resolver, element.kind, element.stem),
     );
     if (resolved.some((ids) => ids.length === 0)) continue;
     const counts = resolved.map((ids) =>
@@ -278,7 +306,7 @@ export function matchGroupInTokenRanges(
     }
     const idSets: Set<number>[] = resolved.map((ids) => new Set<number>(ids as readonly number[]));
     const tokenIds = shard.tokenTypeIds;
-    const span = member.surfaces.length;
+    const span = member.elements.length;
     for (const id of resolved[anchor] as readonly LocalTypeId[]) {
       const postings = postingsFor(shard, id as number);
       for (const r of spans) {

@@ -445,7 +445,7 @@ describe('protocol narrowing and dispatch (v4)', () => {
     // authority with the kernel): an empty phrase / empty stem / oversized
     // member list is a malformed message, not a kernel error.
     for (const badGroup of [
-      { id: 'g', members: [{ id: 'p', kind: 'phrase', surfaces: [], match: FOLD, crossSentence: false }], countOverlaps: false },
+      { id: 'g', members: [{ id: 'p', kind: 'phrase', elements: [], match: FOLD, crossSentence: false }], countOverlaps: false },
       { id: 'g', members: [{ id: 'p', kind: 'prefix', stem: '', match: FOLD }], countOverlaps: false },
     ]) {
       await h.send({

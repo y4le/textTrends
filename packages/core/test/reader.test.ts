@@ -397,7 +397,7 @@ describe('reader marks', () => {
     const phrase: TermGroupSpec = {
       id: 'gp',
       members: [
-        { id: 'p', kind: 'phrase', surfaces: ['dire', 'wolf'], match: FOLD, crossSentence: false },
+        { id: 'p', kind: 'phrase', elements: [{ kind: 'token', surface: 'dire' }, { kind: 'token', surface: 'wolf' }], match: FOLD, crossSentence: false },
       ],
       countOverlaps: false,
     };
@@ -438,7 +438,7 @@ describe('reader marks', () => {
     const merged: TermGroupSpec = {
       id: 'gm',
       members: [
-        { id: 'm0', kind: 'phrase', surfaces: ['dire', 'wolf'], match: FOLD, crossSentence: false },
+        { id: 'm0', kind: 'phrase', elements: [{ kind: 'token', surface: 'dire' }, { kind: 'token', surface: 'wolf' }], match: FOLD, crossSentence: false },
         { id: 'm1', kind: 'token', surface: 'wolf', match: FOLD },
       ],
       countOverlaps: false,

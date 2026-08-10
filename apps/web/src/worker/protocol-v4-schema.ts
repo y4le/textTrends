@@ -103,8 +103,15 @@ function narrowMember(m: unknown): boolean {
   if (!MATCH.has(match.case as string) || !MATCH.has(match.diacritics as string)) return false;
   switch (m.kind) {
     case 'token': return isBoundedSurface(m.surface);
-    case 'phrase': return denseBoundedArray(m.surfaces, 1, TERM_GROUP_LIMITS_V1.maxPhraseSurfaces, isBoundedSurface) &&
-      typeof m.crossSentence === 'boolean';
+    case 'phrase': return denseBoundedArray(
+      m.elements,
+      1,
+      TERM_GROUP_LIMITS_V1.maxPhraseElements,
+      (element) => isRecord(element) && (
+        (element.kind === 'token' && isBoundedSurface(element.surface))
+        || ((element.kind === 'prefix' || element.kind === 'suffix') && isBoundedSurface(element.stem))
+      ),
+    ) && typeof m.crossSentence === 'boolean';
     case 'prefix':
     case 'suffix': return isBoundedSurface(m.stem);
     default: return false;

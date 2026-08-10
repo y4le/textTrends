@@ -60,6 +60,30 @@ describe('workspace admission', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
   });
 
+  it('reopens a legacy v1 workspace whose phrase members used surfaces', () => {
+    const value = validWorkspace();
+    const parsed = parseWorkspace({
+      ...value,
+      notebook: {
+        schema: 'texttrends/query-notebook/1',
+        groups: [{
+          id: 'g1', name: 'New York', countOverlaps: false,
+          members: [{
+            id: 'm1', kind: 'phrase', surfaces: ['New', 'York'],
+            match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
+          }],
+        }],
+      },
+      active: ['g1'],
+      kwicEnabled: ['g1'],
+    });
+    expect(parsed.notebook.groups[0]!.members).toEqual([{
+      id: 'm1', kind: 'phrase',
+      elements: [{ kind: 'token', surface: 'New' }, { kind: 'token', surface: 'York' }],
+      match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
+    }]);
+  });
+
   it('rejects dangling or malformed durable identities', () => {
     const value = validWorkspace();
     if (value.corpus.kind !== 'library') throw new Error('fixture must be library-backed');

@@ -50,10 +50,13 @@ describe('compileMemberInput — the DELIBERATELY narrow shorthand', () => {
 describe('compilePhraseChips — ordered chips, no tokenization', () => {
   it('needs 2..max ordered words; trims/normalizes; refuses asterisks and over-long words', () => {
     const ok = compilePhraseChips([' dire ', 'wolf'], FOLDED, id);
-    expect(ok.ok && ok.member.kind === 'phrase' && ok.member.surfaces).toEqual(['dire', 'wolf']);
+    expect(ok.ok && ok.member.kind === 'phrase' && ok.member.elements).toEqual([
+      { kind: 'token', surface: 'dire' },
+      { kind: 'token', surface: 'wolf' },
+    ]);
     expect(ok.ok && ok.member.kind === 'phrase' && ok.member.crossSentence).toBe(false);
     expect(compilePhraseChips(['solo'], FOLDED, id).ok).toBe(false);
-    expect(compilePhraseChips(Array.from({ length: TERM_GROUP_LIMITS_V1.maxPhraseSurfaces + 1 }, () => 'w'), FOLDED, id).ok).toBe(false);
+    expect(compilePhraseChips(Array.from({ length: TERM_GROUP_LIMITS_V1.maxPhraseElements + 1 }, () => 'w'), FOLDED, id).ok).toBe(false);
     expect(compilePhraseChips(['dire', 'wolf*'], FOLDED, id).ok).toBe(false);
     // A multiword chip is refused, NEVER silently split (review-D).
     const spaced = compilePhraseChips(['dire wolf', 'runs'], FOLDED, id);
@@ -66,7 +69,8 @@ describe('compilePhraseChips — ordered chips, no tokenization', () => {
 describe('presentation helpers', () => {
   it('describeMember and describeMatch are stable presentation text', () => {
     expect(describeMember({ id: 'm', kind: 'prefix', stem: 'wolv', match: FOLDED })).toBe('wolv*');
-    expect(describeMember({ id: 'm', kind: 'phrase', surfaces: ['dire', 'wolf'], match: FOLDED, crossSentence: false })).toBe('“dire wolf”');
+    expect(describeMember({ id: 'm', kind: 'phrase', elements: [{ kind: 'token', surface: 'dire' }, { kind: 'token', surface: 'wolf' }], match: FOLDED, crossSentence: false })).toBe('“dire wolf”');
+    expect(describeMember({ id: 'm', kind: 'phrase', elements: [{ kind: 'suffix', stem: 'ork' }, { kind: 'prefix', stem: 'cit' }], match: FOLDED, crossSentence: false })).toBe('“*ork cit*”');
     expect(describeMatch(FOLDED)).toBe('any case, any accents');
     expect(describeMatch({ case: 'sensitive', diacritics: 'folded' })).toBe('exact case, any accents');
   });

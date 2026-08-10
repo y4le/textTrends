@@ -57,6 +57,13 @@ const ADAPTER_VERSION = '3'; // bumped: probe content changed (decomposed forms)
 /** Versioned numeral classifier - identity recorded in recipe and fingerprint. */
 const NUMERAL_RE = /^\p{N}+(?:[.,\u00b7]\p{N}+)*$/u;
 
+/** The adapter-owned numeral classifier shared with authored alias
+ * compilation. Keeping one authority prevents a query unit from surviving
+ * when the corresponding index token would be dropped. */
+export function isNumeralSegment(value: string): boolean {
+  return NUMERAL_RE.test(value);
+}
+
 interface RawSegmentation {
   starts: number[];
   ends: number[];
@@ -75,7 +82,7 @@ function segmentRaw(text: string, locale: string): RawSegmentation {
     if (seg.isWordLike) {
       starts.push(seg.index);
       ends.push(seg.index + seg.segment.length);
-      classes.push(NUMERAL_RE.test(seg.segment) ? TOKEN_CLASS.numeral : TOKEN_CLASS.lexical);
+      classes.push(isNumeralSegment(seg.segment) ? TOKEN_CLASS.numeral : TOKEN_CLASS.lexical);
     }
   }
   const sentences = new Intl.Segmenter(locale, { granularity: 'sentence' });

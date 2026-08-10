@@ -276,7 +276,14 @@ async function prepareOccurrenceBenchmark(dir: string): Promise<OccurrenceBenchm
     members: [
       { id: 'token', kind: 'token', surface: common[0], match: folded },
       { id: 'prefix', kind: 'prefix', stem: common[0], match: folded },
-      { id: 'phrase', kind: 'phrase', surfaces: [common[0], common[0]], match: folded, crossSentence: false },
+      {
+        id: 'phrase', kind: 'phrase',
+        elements: [
+          { kind: 'token', surface: common[0] },
+          { kind: 'token', surface: common[0] },
+        ],
+        match: folded, crossSentence: false,
+      },
     ],
   };
 

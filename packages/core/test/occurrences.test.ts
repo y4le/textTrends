@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { CapError, type BuildGeneration, type ProjectDocId } from '../src/contract/brands.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
+import { compileAlias } from '../src/project/alias.ts';
 import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
 import { occurrencePayloadBytes, occurrences, OCCURRENCE_LIMITS_V1, TERM_GROUP_LIMITS_V1, termGroupIdentity, validateGroup, type ResolverTable, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
@@ -44,7 +45,11 @@ const token = (id: string, surface: string, match: MatchMode = FOLD) => ({
   id, kind: 'token' as const, surface, match,
 });
 const phrase = (id: string, surfaces: string[], crossSentence = false, match: MatchMode = FOLD) => ({
-  id, kind: 'phrase' as const, surfaces, match, crossSentence,
+  id,
+  kind: 'phrase' as const,
+  elements: surfaces.map((surface) => ({ kind: 'token' as const, surface })),
+  match,
+  crossSentence,
 });
 const group = (members: TermGroupSpec['members'], countOverlaps = false): TermGroupSpec => ({
   id: 'g1', members, countOverlaps,
@@ -214,7 +219,59 @@ describe('phrases', () => {
     ])))).toEqual([]);
     expect(() =>
       occurrences(w.snapshot, w.shards, w.resolvers, w.all, group([phrase('m1', [])])),
-    ).toThrow(/surfaces/);
+    ).toThrow(/elements/);
+  });
+
+  it('matches a phrase whose final element is a prefix and highlights the full span', async () => {
+    const w = await world({ a: 'New York and New Yorker, but old York.' });
+    const wildcardPhrase = {
+      id: 'm1',
+      kind: 'phrase' as const,
+      elements: [
+        { kind: 'token' as const, surface: 'New' },
+        { kind: 'prefix' as const, stem: 'Yo' },
+      ],
+      match: FOLD,
+      crossSentence: false,
+    };
+    expect(rows(occurrences(
+      w.snapshot, w.shards, w.resolvers, w.all, group([wildcardPhrase]),
+    ))).toEqual([
+      { doc: 0, pos: 0, span: 2, members: [0] },
+      { doc: 0, pos: 3, span: 2, members: [0] },
+    ]);
+  });
+
+  it('matches the phrase member emitted by the natural alias compiler end to end', async () => {
+    const w = await world({ a: 'New York and New Yorker.' });
+    const compiled = compileAlias('New Yo*', FOLD, 'm1');
+    if (!compiled.ok) throw new Error(compiled.message);
+    expect(rows(occurrences(
+      w.snapshot, w.shards, w.resolvers, w.all, group([compiled.member]),
+    )).map(({ pos, span }) => ({ pos, span }))).toEqual([
+      { pos: 0, span: 2 },
+      { pos: 3, span: 2 },
+    ]);
+  });
+
+  it('matches a phrase whose first element is a suffix', async () => {
+    const w = await world({ a: 'New York City and Cork City.' });
+    const wildcardPhrase = {
+      id: 'm1',
+      kind: 'phrase' as const,
+      elements: [
+        { kind: 'suffix' as const, stem: 'ork' },
+        { kind: 'token' as const, surface: 'City' },
+      ],
+      match: FOLD,
+      crossSentence: false,
+    };
+    expect(rows(occurrences(
+      w.snapshot, w.shards, w.resolvers, w.all, group([wildcardPhrase]),
+    )).map(({ pos, span }) => ({ pos, span }))).toEqual([
+      { pos: 1, span: 2 },
+      { pos: 4, span: 2 },
+    ]);
   });
 });
 
@@ -320,8 +377,8 @@ describe('termGroupIdentity — the canonical matching key (not group.id)', () =
     ['token diacritic mode', group([token('m', 'wolf', DIA_FOLD)]), group([token('m', 'wolf', EXACT)])],
     ['countOverlaps', group([token('m', 'wolf', FOLD)], false), group([token('m', 'wolf', FOLD)], true)],
     ['kind (token vs phrase)', group([token('m', 'wolf', FOLD)]), group([phrase('m', ['wolf'])])],
-    ['phrase surface content', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['dire', 'fox'])])],
-    ['phrase surface ORDER', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['wolf', 'dire'])])],
+    ['phrase element content', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['dire', 'fox'])])],
+    ['phrase element ORDER', group([phrase('m', ['dire', 'wolf'])]), group([phrase('m', ['wolf', 'dire'])])],
     ['phrase crossSentence', group([phrase('m', ['dire', 'wolf'], false)]), group([phrase('m', ['dire', 'wolf'], true)])],
     ['prefix vs suffix (same stem)', group([prefix('wolf')]), group([suffix('wolf')])],
     ['affix stem', group([prefix('wolf')]), group([prefix('fox')])],
@@ -355,7 +412,7 @@ describe('termGroupIdentity — the canonical matching key (not group.id)', () =
     expect(termGroupIdentity(g)).toBe(
       '{"countOverlaps":true,"members":['
       + '{"k":"token","mode":"folded|sensitive","surface":"wolf"},'
-      + '{"crossSentence":false,"k":"phrase","mode":"folded|sensitive","surfaces":["dire","wolf"]}'
+      + '{"crossSentence":false,"elements":[{"k":"token","surface":"dire"},{"k":"token","surface":"wolf"}],"k":"phrase","mode":"folded|sensitive"}'
       + ']}',
     );
   });
@@ -371,7 +428,7 @@ describe('validateGroup — TERM_GROUP_LIMITS_V1 admission (one authority with t
       token(`m${i}`.padEnd(L.maxIdUnits, 'x'), 'y'.repeat(L.maxSurfaceUnits)));
     expect(() => validateGroup(ok(members))).not.toThrow();
     expect(() => validateGroup(ok([
-      phrase('p1', Array.from({ length: L.maxPhraseSurfaces }, () => 'w')),
+      phrase('p1', Array.from({ length: L.maxPhraseElements }, () => 'w')),
     ]))).not.toThrow();
   });
 
@@ -388,8 +445,15 @@ describe('validateGroup — TERM_GROUP_LIMITS_V1 admission (one authority with t
     ['empty suffix stem', ok([{ id: 'm', kind: 'suffix', stem: '', match: FOLD }])],
     ['oversized stem', ok([{ id: 'm', kind: 'prefix', stem: 's'.repeat(L.maxSurfaceUnits + 1), match: FOLD }])],
     ['empty phrase', ok([phrase('m', [])])],
-    ['too many phrase surfaces', ok([phrase('m', Array.from({ length: L.maxPhraseSurfaces + 1 }, () => 'w'))])],
+    ['too many phrase elements', ok([phrase('m', Array.from({ length: L.maxPhraseElements + 1 }, () => 'w'))])],
     ['empty surface inside a phrase', ok([phrase('m', ['dire', ''])])],
+    ['non-record phrase element', ok([{
+      id: 'm', kind: 'phrase', elements: ['dire'] as never, match: FOLD, crossSentence: false,
+    }])],
+    ['unknown phrase element kind', ok([{
+      id: 'm', kind: 'phrase', elements: [{ kind: 'middle', surface: 'dire' }] as never,
+      match: FOLD, crossSentence: false,
+    }])],
   ])('rejects %s as RangeError', (_name, g) => {
     expect(() => validateGroup(g)).toThrow(RangeError);
   });
@@ -401,12 +465,14 @@ describe('validateGroup — TERM_GROUP_LIMITS_V1 admission (one authority with t
     expect(() => validateGroup(ok([numId]))).toThrow(RangeError);
   });
 
-  it('rejects SPARSE member/surface arrays as RangeError, never a TypeError fault', () => {
+  it('rejects SPARSE member/element arrays as RangeError, never a TypeError fault', () => {
     // Holes iterate as undefined; the wire narrower refuses them upstream, but
     // the kernel must classify defensively for direct consumers.
     expect(() => validateGroup(ok(Array(1) as unknown as TermGroupSpec['members']))).toThrow(RangeError);
-    const sparseSurfaces = ['dire']; sparseSurfaces.length = 2;
-    expect(() => validateGroup(ok([phrase('m', sparseSurfaces)]))).toThrow(RangeError);
+    const sparseElements = [{ kind: 'token' as const, surface: 'dire' }]; sparseElements.length = 2;
+    expect(() => validateGroup(ok([{
+      id: 'm', kind: 'phrase', elements: sparseElements, match: FOLD, crossSentence: false,
+    }]))).toThrow(RangeError);
     const partiallySparse = [token('m1', 'w')]; partiallySparse.length = 2;
     expect(() => validateGroup(ok(partiallySparse as TermGroupSpec['members']))).toThrow(RangeError);
   });

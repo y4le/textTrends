@@ -27,4 +27,48 @@ describe('query notebook admission', () => {
     sparse.length = 2;
     expect(() => parseQueryNotebook({ ...NOTEBOOK, groups: sparse })).toThrow(/dense/);
   });
+
+  it('admits phrase elements and rejects malformed element records', () => {
+    const phraseNotebookWith = (elements: readonly unknown[]) => ({
+      ...NOTEBOOK,
+      groups: [{
+        ...NOTEBOOK.groups[0]!,
+        members: [{
+          id: 'm1', kind: 'phrase',
+          elements,
+          match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
+        }],
+      }],
+    });
+    const phraseNotebook = phraseNotebookWith([
+      { kind: 'token', surface: 'New' }, { kind: 'prefix', stem: 'Yo' },
+    ]);
+    expect(parseQueryNotebook(phraseNotebook)).toBe(phraseNotebook);
+    const inheritedSurface = Object.create({ kind: 'token', surface: 'New' });
+    expect(() => parseQueryNotebook(phraseNotebookWith([
+      { kind: 'token', surface: 'New' }, { kind: 'middle', stem: 'Yo' },
+    ]))).toThrow(/malformed/);
+    expect(() => parseQueryNotebook(phraseNotebookWith([
+      { kind: 'token', surface: 'New', extra: true },
+    ]))).toThrow(/malformed/);
+    expect(() => parseQueryNotebook(phraseNotebookWith([inheritedSurface]))).toThrow(/malformed/);
+  });
+
+  it('lifts legacy v1 phrase surfaces instead of classifying the saved notebook as corrupt', () => {
+    const legacy = {
+      ...NOTEBOOK,
+      groups: [{
+        ...NOTEBOOK.groups[0]!,
+        members: [{
+          id: 'm1', kind: 'phrase', surfaces: ['New', 'York'],
+          match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
+        }],
+      }],
+    };
+    expect(parseQueryNotebook(legacy).groups[0]!.members).toEqual([{
+      id: 'm1', kind: 'phrase',
+      elements: [{ kind: 'token', surface: 'New' }, { kind: 'token', surface: 'York' }],
+      match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
+    }]);
+  });
 });
