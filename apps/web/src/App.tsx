@@ -366,7 +366,7 @@ export function App() {
       ? readerNavigation?.next
       : readerNavigation?.previous;
     if (!cursor) {
-      setReaderKeyboardStatus(direction === 1 ? 'end of book' : 'start of book');
+      setReaderKeyboardStatus(direction === 1 ? 'end of corpus' : 'start of corpus');
       return;
     }
     setReaderKeyboardStatus('');

@@ -2915,8 +2915,8 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(f.store.getState()).toMatchObject({
       readerVisibleRange: { tokens: { start: 20, end: 60 } },
       readerNavigation: {
-        previous: { kind: 'before', token: 20 },
-        next: { kind: 'from', token: 60 },
+        previous: { doc: 'a', cursor: { kind: 'before', token: 20 } },
+        next: { doc: 'a', cursor: { kind: 'from', token: 60 } },
       },
     });
 
@@ -2927,7 +2927,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1', doc: 'a', tokens: { start: 60, end: 105 }, geometry: '800x600',
     });
     expect(f.store.getState().readerNavigation?.previous)
-      .toEqual({ kind: 'from', token: 20 });
+      .toEqual({ doc: 'a', cursor: { kind: 'from', token: 20 } });
 
     f.store.getState().navigateReader({ kind: 'from', token: 20 });
     f.readers().at(-1)!.resolve(fakeReaderPage(20, 220, 500));
@@ -2936,13 +2936,64 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
     });
     expect(f.store.getState().readerNavigation?.next)
-      .toEqual({ kind: 'from', token: 60 });
+      .toEqual({ doc: 'a', cursor: { kind: 'from', token: 60 } });
 
     f.store.getState().setReaderVisibleRange({
       snapshot: 's1', doc: 'a', tokens: { start: 20, end: 52 }, geometry: '390x700',
     });
     expect(f.store.getState().readerNavigation?.previous)
-      .toEqual({ kind: 'before', token: 20 });
+      .toEqual({ doc: 'a', cursor: { kind: 'before', token: 20 } });
+  });
+
+  it('rolls fitted page navigation across nonempty texts in declared corpus order', async () => {
+    const project: ProjectView = {
+      ...BUILTIN_PROJECT,
+      data: { ...BUILTIN_PROJECT.data, order: ['a', 'empty', 'b'] },
+    };
+    const f = harness(sessionState(snap('g1', 's1', ['b', 'empty', 'a']), { project }));
+    f.store.setState({
+      corpusTokenCounts: new Map([['a', 4], ['empty', 0], ['b', 6]]),
+    });
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({ snapshot: 's1', doc: 'b', token: 2, from: 'barcode' });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 6, 6, 'b'));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'b', tokens: { start: 0, end: 6 }, geometry: 'test',
+    });
+
+    expect(f.store.getState().readerNavigation).toEqual({
+      previous: { doc: 'a', cursor: { kind: 'before', token: 4 } },
+      next: null,
+    });
+    f.store.getState().navigateReader(f.store.getState().readerNavigation!.previous!);
+    expect((f.readers().at(-1)!.query as {
+      request: { doc: string; cursor: unknown };
+    }).request).toEqual({
+      method: 'reader-page/1',
+      doc: 'a',
+      cursor: { kind: 'before', token: 4 },
+      maxTokens: 4_096,
+    });
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 4, 4, 'a'));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 0, end: 4 }, geometry: 'test',
+    });
+
+    expect(f.store.getState().readerNavigation).toEqual({
+      previous: null,
+      next: { doc: 'b', cursor: { kind: 'from', token: 0 } },
+    });
+    f.store.getState().navigateReader(f.store.getState().readerNavigation!.next!);
+    expect((f.readers().at(-1)!.query as {
+      request: { doc: string; cursor: unknown };
+    }).request).toMatchObject({
+      doc: 'b',
+      cursor: { kind: 'from', token: 0 },
+    });
+    expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
+    f.runtime.dispose();
   });
 
   it('can refill a saturated fitted page only from its authenticated visible start', async () => {

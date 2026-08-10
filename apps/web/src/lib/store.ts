@@ -282,6 +282,13 @@ export interface ReaderVisibleRangeV1 {
   readonly geometry: string;
 }
 
+/** One fitted-page destination. Document identity is explicit so page turns
+ * can cross corpus text boundaries without overloading token cursors. */
+export interface ReaderNavigationTarget {
+  readonly doc: string;
+  readonly cursor: ReaderPlace['cursor'];
+}
+
 /** The reading footer's authenticated source slice. It deliberately has its own
  * lane: Reader paging must never move or blank the workbench footer. */
 export interface FooterPassageState {
@@ -710,10 +717,11 @@ export interface AppState {
   readerVisibleRange: ReaderVisibleRangeV1 | null;
   /** Navigation derived from browser-fitted boundaries, never from the larger
    * worker source slice. A remembered previous boundary is re-requested from
-   * its exact start so immediate backtracking reproduces the page. */
+   * its exact start so immediate backtracking reproduces the page. At a text
+   * edge, the target continues in declared corpus order. */
   readerNavigation: {
-    readonly previous: ReaderPlace['cursor'] | null;
-    readonly next: ReaderPlace['cursor'] | null;
+    readonly previous: ReaderNavigationTarget | null;
+    readonly next: ReaderNavigationTarget | null;
   } | null;
 
   // ── Query/presentation intent (owned here). ──
@@ -774,7 +782,7 @@ export interface AppState {
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
   refitReaderAt(token: number): void;
-  navigateReader(cursor: ReaderPlace['cursor']): void;
+  navigateReader(target: ReaderNavigationTarget | ReaderPlace['cursor']): void;
   retryReader(): void;
   closeReader(): void;
   runReader(): void;
@@ -933,6 +941,48 @@ function resolveFocusedDoc(prev: string | null, next: SessionState): string | nu
   if (prev !== null && ready.has(prev)) return prev;
   for (const doc of next.project.data.order) if (ready.has(doc)) return doc;
   return snapshot.readyDocs[0] ?? null;
+}
+
+function adjacentReaderDocument(
+  state: Pick<AppState, 'corpusTokenCounts' | 'projectSession' | 'snapshot'>,
+  doc: string,
+  direction: 1 | -1,
+): ReaderNavigationTarget | null {
+  const readyDocs = state.snapshot?.readyDocs;
+  if (!readyDocs) return null;
+  const ready = new Set(readyDocs);
+  const order: string[] = [];
+  const seen = new Set<string>();
+  const appendReady = (candidate: string) => {
+    if (ready.has(candidate) && !seen.has(candidate)) {
+      seen.add(candidate);
+      order.push(candidate);
+    }
+  };
+  for (const candidate of state.projectSession?.project.data.order ?? []) appendReady(candidate);
+  // A restored or partially published session may briefly lack declared-order
+  // metadata. Keep every ready document reachable without letting arrival order
+  // override a declared position when that metadata is present.
+  for (const candidate of readyDocs) appendReady(candidate);
+
+  const current = order.indexOf(doc);
+  if (current < 0) return null;
+  for (
+    let index = current + direction;
+    index >= 0 && index < order.length;
+    index += direction
+  ) {
+    const candidate = order[index]!;
+    const tokenCount = state.corpusTokenCounts.get(candidate);
+    if (tokenCount === undefined || tokenCount <= 0) continue;
+    return {
+      doc: candidate,
+      cursor: direction === 1
+        ? { kind: 'from', token: 0 }
+        : { kind: 'before', token: tokenCount },
+    };
+  }
+  return null;
 }
 
 export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
@@ -1219,11 +1269,13 @@ export function createAppRuntime(
       }));
     };
 
-    const replaceReaderCursor = (cursor: ReaderPlace['cursor']): void => {
+    const replaceReaderTarget = (target: ReaderNavigationTarget): void => {
       const place = get().readerPlace;
+      const cursor = target.cursor;
       if (
         place === null
-        || sameReaderCursor(cursor, place.cursor)
+        || (target.doc === place.doc && sameReaderCursor(cursor, place.cursor))
+        || !get().snapshot?.readyDocs.includes(target.doc)
         || !Number.isSafeInteger(cursor.token)
         || cursor.token < 0
         || (cursor.kind === 'before' && cursor.token < 1)
@@ -1231,7 +1283,12 @@ export function createAppRuntime(
       const readerIndex = get().layers.findLastIndex((layer) => layer.kind === 'reader');
       const readerLayer = get().layers[readerIndex];
       if (readerIndex < 0 || readerLayer?.kind !== 'reader') return;
-      const nextPlace: ReaderPlace = { ...place, cursor: { ...cursor } };
+      const sameDocument = target.doc === place.doc;
+      const nextPlace: ReaderPlace = {
+        ...place,
+        doc: target.doc,
+        cursor: { ...cursor },
+      };
       const nextLayer: Layer = {
         ...readerLayer,
         target: Object.freeze(nextPlace),
@@ -1243,8 +1300,9 @@ export function createAppRuntime(
         'replace',
         get().place,
         layers,
-        { preserveReaderNavigation: true },
+        { preserveReaderNavigation: sameDocument },
       );
+      if (!sameDocument) readerWalk = null;
       get().runReader();
     };
 
@@ -2803,13 +2861,13 @@ export function createAppRuntime(
           readerVisibleRange: range,
           readerNavigation: {
             previous: previousStart !== null && previousStart !== undefined
-              ? { kind: 'from', token: previousStart }
+              ? { doc: source.doc, cursor: { kind: 'from', token: previousStart } }
               : range.tokens.start === 0
-                ? null
-                : { kind: 'before', token: range.tokens.start },
+                ? adjacentReaderDocument(state, source.doc, -1)
+                : { doc: source.doc, cursor: { kind: 'before', token: range.tokens.start } },
             next: range.tokens.end === source.docTokenCount
-              ? null
-              : { kind: 'from', token: range.tokens.end },
+              ? adjacentReaderDocument(state, source.doc, 1)
+              : { doc: source.doc, cursor: { kind: 'from', token: range.tokens.end } },
           },
         });
       },
@@ -2829,34 +2887,46 @@ export function createAppRuntime(
           || token < source.tokens.start
           || token >= source.tokens.end
         ) return;
-        replaceReaderCursor({ kind: 'from', token });
+        replaceReaderTarget({ doc: source.doc, cursor: { kind: 'from', token } });
       },
 
-      navigateReader(cursor) {
+      navigateReader(target) {
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
+        const destination: ReaderNavigationTarget | null = place === null
+          ? null
+          : 'doc' in target
+            ? target
+            : { doc: place.doc, cursor: target };
         const readyPage = readerPage
           && place
           && sameReaderPlace(readerPage.place, place)
           && readerPage.state.status === 'ready'
           ? readerPage.state.page
           : null;
-        const boundaryCursor = (cursor.kind === 'from' && cursor.token === 0)
+        const boundaryCursor = destination !== null
+          && destination.doc === place?.doc
+          && ((destination.cursor.kind === 'from' && destination.cursor.token === 0)
           || (
-            cursor.kind === 'before'
+            destination.cursor.kind === 'before'
             && readyPage !== null
-            && cursor.token === readyPage.docTokenCount
-          );
+            && destination.cursor.token === readyPage.docTokenCount
+          ));
+        const matchesNavigation = (candidate: ReaderNavigationTarget | null): boolean =>
+          destination !== null
+          && candidate !== null
+          && destination.doc === candidate.doc
+          && sameReaderCursor(destination.cursor, candidate.cursor);
         if (
           !place
+          || destination === null
           || !navigation
           || (
             !boundaryCursor
-            &&
-            !sameReaderCursor(cursor, navigation.previous)
-            && !sameReaderCursor(cursor, navigation.next)
+            && !matchesNavigation(navigation.previous)
+            && !matchesNavigation(navigation.next)
           )
         ) return;
-        replaceReaderCursor(cursor);
+        replaceReaderTarget(destination);
       },
 
       retryReader() {
