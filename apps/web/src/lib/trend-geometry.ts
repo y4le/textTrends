@@ -5,6 +5,9 @@
  */
 
 import type { NumericTrend } from '@texttrends/core';
+import { barcodeBandExtent } from './footer-metrics.ts';
+
+export { barcodeBandExtent, barcodeBandHeight } from './footer-metrics.ts';
 
 /** Horizontal space reserved for direct labels beside the plot. Shared with
  * pointer-driven browser tests so gesture coordinates cannot drift silently. */
@@ -166,18 +169,6 @@ export type TrendStageSpec =
       readonly band: BarcodeBandSpec;
       readonly tokenCounts: readonly number[];
     };
-
-export function barcodeBandHeight(
-  trackCount: number,
-  trackHeight: number,
-  trackGap: number,
-): number {
-  return Math.max(0, trackCount) * (trackHeight + trackGap);
-}
-
-export function barcodeBandExtent(barcodeBandGap: number, barcodeHeight: number): number {
-  return barcodeHeight > 0 ? barcodeBandGap + barcodeHeight : 0;
-}
 
 /** One by-book stage row is plot + embedded barcode + breathing room. Keep
  * this centralized so painting, pointer hit-testing, cursors and SVG rows can

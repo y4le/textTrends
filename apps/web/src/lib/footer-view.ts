@@ -1,8 +1,12 @@
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
-import type { WidthClass } from './presentation.ts';
 import type { CapturedTrack } from './track-legend.ts';
-import type { TrendGeometry } from './trend-compact.ts';
-import { barcodeBandHeight, type SequenceLayout } from './trend-geometry.ts';
+import type { SequenceLayout } from './trend-geometry.ts';
+
+export {
+  footerBlockSize,
+  footerGeometryFor,
+  type FooterGeometry,
+} from './footer-metrics.ts';
 
 export const FOOTER_SHUTTLE_MAX_OFFSET_PX = 48;
 export const FOOTER_SHUTTLE_MAX_WINDOWS_PER_SECOND = 2.5;
@@ -292,89 +296,6 @@ export function nextPassageToken(
   direction: 1 | -1,
 ): number {
   return direction === 1 ? window.nextPageToken : window.previousPageToken;
-}
-
-export interface FooterGeometry extends TrendGeometry {
-  readonly passageHeight: number;
-  readonly statusHeight: number;
-  readonly laneGap: number;
-  readonly padBlock: number;
-  readonly stripMinHeight: number;
-}
-
-const COMPACT_FINE: FooterGeometry = Object.freeze({
-  passageHeight: 20,
-  statusHeight: 14,
-  laneGap: 3,
-  padBlock: 4,
-  stripMinHeight: 0,
-  seriesHeight: 20,
-  topPad: 2,
-  rowHeight: 20,
-  rowGap: 0,
-  barcodeTrackHeight: 5,
-  barcodeTrackGap: 1,
-  barcodeBandGap: 3,
-  labelSpace: 0,
-  strokeFocused: 1.5,
-  strokeOther: 1,
-  directLabels: false,
-  bookMarks: 'boundaries',
-});
-
-const STANDARD_FINE: FooterGeometry = Object.freeze({
-  passageHeight: 22,
-  statusHeight: 16,
-  laneGap: 4,
-  padBlock: 6,
-  stripMinHeight: 0,
-  seriesHeight: 26,
-  topPad: 3,
-  rowHeight: 26,
-  rowGap: 0,
-  barcodeTrackHeight: 6,
-  barcodeTrackGap: 2,
-  barcodeBandGap: 3,
-  labelSpace: 0,
-  strokeFocused: 1.5,
-  strokeOther: 1,
-  directLabels: false,
-  bookMarks: 'boundaries',
-});
-
-const coarseGeometry = (fine: FooterGeometry): FooterGeometry => Object.freeze({
-  ...fine,
-  passageHeight: 44,
-  stripMinHeight: 44,
-});
-
-const COMPACT_COARSE = coarseGeometry(COMPACT_FINE);
-const STANDARD_COARSE = coarseGeometry(STANDARD_FINE);
-
-/** Footer geometry is presentation-only and never changes query intent. */
-export function footerGeometryFor(width: WidthClass, coarse = false): FooterGeometry {
-  if (width === 'compact') return coarse ? COMPACT_COARSE : COMPACT_FINE;
-  return coarse ? STANDARD_COARSE : STANDARD_FINE;
-}
-
-export function footerBlockSize(
-  geometry: FooterGeometry,
-  trackCount: number,
-): number {
-  const barcodeHeight = barcodeBandHeight(
-    trackCount,
-    geometry.barcodeTrackHeight,
-    geometry.barcodeTrackGap,
-  );
-  const visualStripHeight = geometry.seriesHeight
-    + (barcodeHeight > 0 ? geometry.barcodeBandGap + barcodeHeight : 0);
-  return 1 // border-block-start is inside the border-box block size
-    + 2 * geometry.padBlock
-    + geometry.passageHeight
-    + geometry.laneGap
-    + geometry.statusHeight
-    + geometry.laneGap
-    + Math.max(geometry.stripMinHeight, visualStripHeight);
 }
 
 export function sequenceLayoutFor(
