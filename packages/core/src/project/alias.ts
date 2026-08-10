@@ -42,6 +42,16 @@ function recipeLocale(recipe: IndexRecipeProvisional): string {
   return recipe.locale.mode === 'fixed' ? recipe.locale.value : recipe.locale.fallback;
 }
 
+const segmenters = new Map<string, Intl.Segmenter>();
+
+function wordSegmenter(locale: string): Intl.Segmenter {
+  const cached = segmenters.get(locale);
+  if (cached) return cached;
+  const created = new Intl.Segmenter(locale, { granularity: 'word' });
+  segmenters.set(locale, created);
+  return created;
+}
+
 /**
  * Compile one authored alias. A single leading or trailing asterisk applies to
  * the first or last word element respectively, so `New Yo*` is an adjacent
@@ -82,7 +92,7 @@ export function compileAlias(
     };
   }
 
-  const segments = new Intl.Segmenter(recipeLocale(recipe), { granularity: 'word' });
+  const segments = wordSegmenter(recipeLocale(recipe));
   const units: string[] = [];
   for (const segment of segments.segment(body)) {
     if (!segment.isWordLike) continue;

@@ -41,15 +41,23 @@ export {
 } from './project/alias.ts';
 export {
   EMPTY_NOTEBOOK,
+  EXACT_MATCH,
   FOLDED_MATCH,
   NOTEBOOK_LIMITS_V1,
+  SERIES_COLOR_IDS,
+  SERIES_LINE_IDS,
   coreGroupOf,
+  defaultSeriesStyle,
   groupIdentity,
+  groupTitle,
   memberSemanticKey,
   parseQueryNotebook,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
+  type SeriesColorId,
+  type SeriesLineId,
+  type SeriesStyleV1,
 } from './project/notebook.ts';
 export {
   TREND_RATE_DENOMINATORS,

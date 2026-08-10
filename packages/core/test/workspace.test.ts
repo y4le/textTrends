@@ -77,11 +77,34 @@ describe('workspace admission', () => {
       active: ['g1'],
       kwicEnabled: ['g1'],
     });
-    expect(parsed.notebook.groups[0]!.members).toEqual([{
-      id: 'm1', kind: 'phrase',
-      elements: [{ kind: 'token', surface: 'New' }, { kind: 'token', surface: 'York' }],
-      match: { case: 'folded', diacritics: 'folded' }, crossSentence: false,
-    }]);
+    expect(parsed.notebook.groups[0]).toEqual({
+      id: 'g1', aliases: ['New York'], exactMatch: false, countOverlaps: false,
+      style: { color: 'blue', line: 'solid' },
+    });
+  });
+
+  it('keeps the workspace and reconciles selections when an unusable legacy term is omitted', () => {
+    const value = validWorkspace();
+    const parsed = parseWorkspace({
+      ...value,
+      notebook: {
+        schema: 'texttrends/query-notebook/1',
+        groups: [{
+          id: 'punct', name: 'Punctuation', countOverlaps: false,
+          members: [{
+            id: 'm1', kind: 'token', surface: '★',
+            match: { case: 'folded', diacritics: 'folded' },
+          }],
+        }],
+      },
+      active: ['punct'],
+      kwicEnabled: ['punct'],
+    });
+    expect(parsed.corpus).toEqual(value.corpus);
+    expect(parsed.views).toEqual(value.views);
+    expect(parsed.notebook.groups).toEqual([]);
+    expect(parsed.active).toEqual([]);
+    expect(parsed.kwicEnabled).toEqual([]);
   });
 
   it('rejects dangling or malformed durable identities', () => {

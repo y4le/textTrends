@@ -13,7 +13,7 @@
  *                `partial: true` when the snapshot is missing documents.
  */
 
-import type { NumericTrend } from '@texttrends/core';
+import { groupTitle, type NumericTrend } from '@texttrends/core';
 import type { SeriesTrendState } from './store.ts';
 import type { NotebookGroupV1 } from './notebook.ts';
 
@@ -104,7 +104,7 @@ export function notebookRows(args: {
     const projected = active && (args.soloGroupId === null || args.soloGroupId === g.id);
     return {
       id: g.id,
-      name: g.name,
+      name: groupTitle(g),
       active,
       solo: args.soloGroupId === g.id,
       slot: args.styleSlots.get(g.id) ?? null,

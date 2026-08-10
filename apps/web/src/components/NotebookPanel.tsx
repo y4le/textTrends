@@ -21,6 +21,7 @@ import {
   type NotebookRowVM,
 } from '../lib/notebook-view.ts';
 import { SeriesLineSample } from './chrome.tsx';
+import { groupTitle } from '../lib/notebook.ts';
 
 function CountCell({ count }: { count: GroupCountVM }) {
   const muted = { color: 'var(--fg-muted)' } as const;
@@ -93,7 +94,7 @@ export function NotebookPanel({
     if (draft === undefined) return;
     setDrafts(({ [id]: _done, ...rest }) => rest);
     const current = notebook.groups.find((g) => g.id === id);
-    if (!current || draft.normalize('NFC') === current.name) return;
+    if (!current || draft.normalize('NFC') === groupTitle(current)) return;
     renameGroup(id, draft.normalize('NFC'));
   };
 

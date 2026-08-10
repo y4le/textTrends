@@ -8,14 +8,10 @@ import type { NotebookGroupV1 } from '../src/lib/notebook.ts';
 
 const group: NotebookGroupV1 = {
   id: 'group-1',
-  name: 'wolf',
-  members: [{
-    kind: 'token',
-    id: 'member-1',
-    surface: 'wolf',
-    match: { case: 'folded', diacritics: 'folded' },
-  }],
+  aliases: ['wolf'],
+  exactMatch: false,
   countOverlaps: false,
+  style: { color: 'blue', line: 'solid' },
 };
 
 describe('query surface', () => {

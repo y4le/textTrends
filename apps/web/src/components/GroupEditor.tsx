@@ -16,7 +16,7 @@ import { useEffect, useState } from 'react';
 import type { GroupMember, MatchMode } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { compileMemberInput, compilePhraseChips, describeMember } from '../lib/member-edit.ts';
-import { validateNotebookGroup, type NotebookGroupV1 } from '../lib/notebook.ts';
+import { coreGroupOf, groupTitle, type NotebookGroupV1 } from '../lib/notebook.ts';
 
 const btn = {
   font: 'inherit',
@@ -83,7 +83,7 @@ export function GroupEditor({
 }) {
   const setGroupMembers = useApp((s) => s.setGroupMembers);
   const [members, setMembers] = useState<readonly GroupMember[]>(
-    initialDraft?.members ?? group.members,
+    initialDraft?.members ?? coreGroupOf(group).members,
   );
   const [countOverlaps, setCountOverlaps] = useState(
     initialDraft?.countOverlaps ?? group.countOverlaps,
@@ -126,22 +126,14 @@ export function GroupEditor({
   };
 
   const apply = () => {
-    const draft: NotebookGroupV1 = { ...group, members, countOverlaps };
-    try {
-      validateNotebookGroup(draft); // the SAME admission the store enforces
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return;
-    }
-    setGroupMembers(group.id, members, countOverlaps);
-    onClose();
+    if (setGroupMembers(group.id, members, countOverlaps)) onClose();
   };
 
   return (
     <div
       className="group-editor"
       role="group"
-      aria-label={`Edit members: ${group.name}`}
+      aria-label={`Edit members: ${groupTitle(group)}`}
       style={{
         margin: '2px 0 var(--space-2) calc(var(--space-2) + 18px)',
         padding: 'var(--space-2)',
@@ -185,7 +177,7 @@ export function GroupEditor({
           className="exact-input"
           value={addText}
           onChange={(e) => setAddText(e.target.value)}
-          aria-label={`Add member to ${group.name} — wolf, wolf* (prefix) or *wolf (suffix)`}
+          aria-label={`Add member to ${groupTitle(group)} — wolf, wolf* (prefix) or *wolf (suffix)`}
           placeholder="alias, wolf* or *wolf"
           autoCapitalize="none"
           autoCorrect="off"
@@ -222,7 +214,7 @@ export function GroupEditor({
           className="exact-input"
           value={chipText}
           onChange={(e) => setChipText(e.target.value)}
-          aria-label={`Add phrase word to ${group.name} (ordered)`}
+          aria-label={`Add phrase word to ${groupTitle(group)} (ordered)`}
           placeholder="phrase word…"
           autoCapitalize="none"
           autoCorrect="off"
@@ -232,7 +224,7 @@ export function GroupEditor({
         <button type="submit" style={btn}>add word</button>
         <button
           type="button" style={btn}
-          aria-label={`Add phrase to ${group.name}`}
+          aria-label={`Add phrase to ${groupTitle(group)}`}
           disabled={chips.length < 2}
           onClick={() => {
             if (push(compilePhraseChips(chips, addMatch, newId))) setChips([]);
@@ -254,8 +246,8 @@ export function GroupEditor({
       </p>
       {error && <p role="alert" style={{ color: 'var(--accent-text)', margin: 0 }}>{error}</p>}
       <div className="group-editor-actions" style={{ display: 'flex', gap: 'var(--space-2)' }}>
-        <button type="button" style={btn} aria-label={`Apply changes to ${group.name}`} onClick={apply}>Apply</button>
-        <button type="button" style={btn} aria-label={`Cancel editing ${group.name}`} onClick={onClose}>Cancel</button>
+        <button type="button" style={btn} aria-label={`Apply changes to ${groupTitle(group)}`} onClick={apply}>Apply</button>
+        <button type="button" style={btn} aria-label={`Cancel editing ${groupTitle(group)}`} onClick={onClose}>Cancel</button>
       </div>
     </div>
   );

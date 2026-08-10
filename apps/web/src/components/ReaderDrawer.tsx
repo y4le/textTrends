@@ -11,7 +11,7 @@ import {
   useState,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import { groupIdentity } from '../lib/notebook.ts';
+import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
 import { segmentReaderMarks, type ReaderSegment } from '../lib/reader-marks.ts';
 import { readerRangeLabel, readerSelectionChars, sliceReaderPage } from '../lib/reader-view.ts';
@@ -202,7 +202,7 @@ export function ReaderDrawer({
     return [
       track.seriesId,
       track.identity,
-      live?.name ?? null,
+      live ? groupTitle(live) : null,
       live ? groupIdentity(live) : null,
     ];
   }) ?? []);
@@ -369,7 +369,7 @@ export function ReaderDrawer({
   );
   const liveSeries = notebook.groups.map((group) => ({
     id: group.id,
-    label: group.name,
+    label: groupTitle(group),
     styleSlot: styleSlots.get(group.id) ?? 0,
   }));
   const legend = trackLegend(

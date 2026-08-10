@@ -18,7 +18,7 @@ const SLOT_COLOR = [
 const SLOT_DASH = ['', '6 2', '2 2', '8 2 2 2', '1 3'] as const;
 
 export function slotColor(slot: number): string {
-  return SLOT_COLOR[slot % SLOT_COLOR.length] as string;
+  return SLOT_COLOR[Math.floor(slot / SLOT_DASH.length) % SLOT_COLOR.length] as string;
 }
 
 export function slotDash(slot: number): string {

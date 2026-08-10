@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { MAX_KWIC_TRACKS, NOTEBOOK_LIMITS_V1 } from '@texttrends/core';
 import { FormLayer } from './FormLayer.tsx';
 import { GroupEditor, type GroupEditorDraft } from './GroupEditor.tsx';
+import { groupTitle } from '../lib/notebook.ts';
 import { NotebookPanel } from './NotebookPanel.tsx';
 import { SeriesLineSample } from './chrome.tsx';
 import {
@@ -303,7 +304,7 @@ export function QuerySurface() {
         </div>
         {removedGroups.length > 0 && (
           <div className="term-undo" role="status">
-            Removed {removedGroups.at(-1)!.group.name}.
+            Removed {groupTitle(removedGroups.at(-1)!.group)}.
             {' '}<button type="button" onClick={undoRemoveGroup}>Undo</button>
             {' '}<button type="button" onClick={dismissRemovedGroup}>Dismiss</button>
           </div>
@@ -355,7 +356,7 @@ export function QuerySurface() {
       )}
       {activeGroup && (
         <FormLayer
-          label={`Query editor: ${activeGroup.name}`}
+          label={`Query editor: ${groupTitle(activeGroup)}`}
           focusKey={activeGroup.id}
           onClose={closeEditor}
         >

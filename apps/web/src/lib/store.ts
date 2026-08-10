@@ -88,13 +88,17 @@ import {
 } from './reader-intent.ts';
 import {
   coreGroupOf,
+  firstFreeStyle,
   groupIdentity,
+  groupTitle,
   NOTEBOOK_LIMITS_V1,
   parseQuickAdd,
-  reconcileStyleSlots,
+  resolveActiveStyleCollisions,
+  styleSlotOf,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
+  type SeriesStyleV1,
 } from './notebook.ts';
 import { isCancelled, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
@@ -730,11 +734,26 @@ export interface AppState {
    *  (same matching identity) is skipped; a batch that cannot FULLY activate
    *  is refused atomically via `inputError` (nothing partial, ruling §3). */
   quickAdd(input: string): void;
+  addTerm(input: {
+    readonly aliases: readonly string[];
+    readonly displayName?: string;
+    readonly exactMatch?: boolean;
+    readonly countOverlaps?: boolean;
+    readonly style?: SeriesStyleV1;
+  }): string | null;
+  saveTerm(groupId: string, input: {
+    readonly aliases: readonly string[];
+    readonly displayName?: string;
+    readonly exactMatch: boolean;
+    readonly countOverlaps: boolean;
+    readonly style: SeriesStyleV1;
+  }): boolean;
+  setGroupStyle(groupId: string, style: SeriesStyleV1): void;
   // ── Notebook authoring (slice-1 commit B: model + actions; UI lands in the
   //    panel commit). Rename/reorder are presentation-only (no reissue);
   //    member/overlap edits and active-set changes reissue the results. ──
   renameGroup(groupId: string, name: string): void;
-  setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): void;
+  setGroupMembers(groupId: string, members: readonly GroupMember[], countOverlaps: boolean): boolean;
   removeGroup(groupId: string): void;
   undoRemoveGroup(): void;
   dismissRemovedGroup(): void;
@@ -907,6 +926,15 @@ function describeAnalysis(analysis: AnalysisPhase): string | null {
 
 function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
+}
+
+function normalizeAuthoredAliases(aliases: readonly string[]): string[] {
+  const normalized: string[] = [];
+  for (const alias of aliases) {
+    const value = alias.trim().normalize('NFC');
+    if (value !== '' && !normalized.includes(value)) normalized.push(value);
+  }
+  return normalized;
 }
 
 function queryErrorMessage(e: unknown): string {
@@ -1532,8 +1560,8 @@ export function createAppRuntime(
       );
     };
 
-    /** The EXACT authored core spec for a series (its notebook group) — the
-     *  store passes authored members through verbatim; nothing is rebuilt.
+    /** The exact derived core spec for a series (from its authored aliases).
+     *  The versioned compiler rebuilds worker members deterministically.
      *  Null when the group vanished between projection and issue (callers
      *  treat that as a superseded intent). */
     const specFor = (id: string): TermGroupSpec | null => {
@@ -1560,7 +1588,7 @@ export function createAppRuntime(
     ): SeriesIntent[] =>
       nb.groups
         .filter((g) => active.has(g.id) && (solo === null || g.id === solo))
-        .map((g) => ({ id: g.id, label: g.name, styleSlot: slots.get(g.id) ?? 0 }));
+        .map((g) => ({ id: g.id, label: groupTitle(g), styleSlot: slots.get(g.id) ?? 0 }));
 
     /** Wire tracks + captured issue-time identities for a series set; null if
      *  any group vanished (the intent is already superseded). */
@@ -2109,13 +2137,13 @@ export function createAppRuntime(
     ): void => {
       const prev = get();
       const prevIntent = effectiveIntentKey(prev.notebook, prev.series, prev.kwicEnabledSeries);
-      const notebook = next.notebook ?? prev.notebook;
+      let notebook = next.notebook ?? prev.notebook;
       const known = new Set(notebook.groups.map((g) => g.id));
       const active = new Set([...(next.activeGroupIds ?? prev.activeGroupIds)].filter((id) => known.has(id)));
+      notebook = resolveActiveStyleCollisions(notebook, active, prev.activeGroupIds);
       let solo = next.soloGroupId === undefined ? prev.soloGroupId : next.soloGroupId;
       if (solo !== null && !active.has(solo)) solo = null;
-      const activeInOrder = notebook.groups.filter((g) => active.has(g.id)).map((g) => g.id);
-      const styleSlots = reconcileStyleSlots(prev.styleSlots, activeInOrder, known, prev.activeGroupIds);
+      const styleSlots = new Map(notebook.groups.map((group) => [group.id, styleSlotOf(group.style)]));
       const series = projectSeries(notebook, active, solo, styleSlots);
       // Concordance membership: preserved for every SURVIVING group (muting
       // must not destroy the toggle — invariant 6); a newly created group
@@ -2162,7 +2190,7 @@ export function createAppRuntime(
       const parsed = parseQuickAdd(input, newId, MAX_SERIES, []);
       if (parsed.error !== null) throw new Error(`invalid built-in starter terms: ${parsed.error}`);
       const notebook: QueryNotebookV1 = {
-        schema: 'texttrends/query-notebook/1',
+        schema: 'texttrends/query-notebook/2',
         groups: parsed.groups,
       };
       const ids = new Set(parsed.groups.map((group) => group.id));
@@ -2227,7 +2255,7 @@ export function createAppRuntime(
       popLayer(count = 1, returnFocusTo) {
         return requestBack(count, returnFocusTo);
       },
-      notebook: { schema: 'texttrends/query-notebook/1', groups: [] },
+      notebook: { schema: 'texttrends/query-notebook/2', groups: [] },
       activeGroupIds: new Set<string>(),
       soloGroupId: null,
       styleSlots: new Map<string, number>(),
@@ -2298,12 +2326,113 @@ export function createAppRuntime(
         set({ inputError: null });
         if (parsed.groups.length === 0) return; // blank or all-duplicates: no-op
         const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/1',
+          schema: 'texttrends/query-notebook/2',
           groups: [...state.notebook.groups, ...parsed.groups],
         };
         const active = new Set(state.activeGroupIds);
         for (const g of parsed.groups) active.add(g.id); // room was preflighted
         adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
+      },
+
+      addTerm(input) {
+        const state = get();
+        if (state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups) {
+          refuseNotebook(`a notebook holds at most ${NOTEBOOK_LIMITS_V1.maxGroups} terms`);
+          return null;
+        }
+        const aliases = normalizeAuthoredAliases(input.aliases);
+        if (aliases.length === 0) {
+          refuseNotebook('a term needs at least one alias');
+          return null;
+        }
+        const displayName = input.displayName?.trim().normalize('NFC');
+        const group: NotebookGroupV1 = {
+          id: newId(),
+          aliases,
+          ...(displayName && displayName !== aliases[0] ? { displayName } : {}),
+          exactMatch: input.exactMatch ?? false,
+          countOverlaps: input.countOverlaps ?? false,
+          style: input.style ?? firstFreeStyle(state.notebook.groups, state.activeGroupIds),
+        };
+        try {
+          validateNotebookGroup(group);
+        } catch (e) {
+          refuseNotebook(msg(e));
+          return null;
+        }
+        const duplicate = state.notebook.groups.find((candidate) =>
+          groupIdentity(candidate) === groupIdentity(group));
+        if (duplicate) {
+          set({ notebookError: null });
+          return duplicate.id;
+        }
+        const notebook: QueryNotebookV1 = {
+          schema: 'texttrends/query-notebook/2',
+          groups: [...state.notebook.groups, group],
+        };
+        const active = new Set(state.activeGroupIds);
+        if (active.size < MAX_SERIES) active.add(group.id);
+        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: active.has(group.id) });
+        return group.id;
+      },
+
+      saveTerm(groupId, input) {
+        const state = get();
+        const current = state.notebook.groups.find((group) => group.id === groupId);
+        if (!current) return false;
+        const aliases = normalizeAuthoredAliases(input.aliases);
+        const displayName = input.displayName?.trim().normalize('NFC');
+        const edited: NotebookGroupV1 = {
+          id: current.id,
+          aliases,
+          ...(displayName && displayName !== aliases[0] ? { displayName } : {}),
+          exactMatch: input.exactMatch,
+          countOverlaps: input.countOverlaps,
+          style: input.style,
+        };
+        try {
+          validateNotebookGroup(edited);
+        } catch (e) {
+          refuseNotebook(msg(e));
+          return false;
+        }
+        if (state.activeGroupIds.has(groupId)) {
+          const collision = state.notebook.groups.find((group) =>
+            group.id !== groupId
+            && state.activeGroupIds.has(group.id)
+            && styleSlotOf(group.style) === styleSlotOf(edited.style));
+          if (collision) {
+            refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
+            return false;
+          }
+        }
+        const changed = groupIdentity(edited) !== groupIdentity(current);
+        if (changed) {
+          const duplicate = state.notebook.groups.find((group) =>
+            group.id !== groupId && groupIdentity(group) === groupIdentity(edited));
+          if (duplicate) {
+            refuseNotebook(`${groupTitle(duplicate)} already has those matching aliases`);
+            return false;
+          }
+        }
+        const notebook: QueryNotebookV1 = {
+          ...state.notebook,
+          groups: state.notebook.groups.map((group) => group.id === groupId ? edited : group),
+        };
+        adoptNotebook({ notebook }, { reissue: changed });
+        return true;
+      },
+
+      setGroupStyle(groupId, style) {
+        const group = get().notebook.groups.find((candidate) => candidate.id === groupId);
+        if (!group) return;
+        get().saveTerm(groupId, {
+          aliases: group.aliases,
+          ...(group.displayName ? { displayName: group.displayName } : {}),
+          exactMatch: group.exactMatch,
+          countOverlaps: group.countOverlaps,
+          style,
+        });
       },
 
       // ── Notebook authoring actions (commit B: model only; UI lands with
@@ -2312,7 +2441,11 @@ export function createAppRuntime(
         const nb = get().notebook;
         const g = nb.groups.find((x) => x.id === groupId);
         if (!g) return;
-        const renamed = { ...g, name };
+        const normalized = name.normalize('NFC');
+        const { displayName: _oldName, ...base } = g;
+        const renamed: NotebookGroupV1 = normalized === g.aliases[0]
+          ? base
+          : { ...base, displayName: normalized };
         try {
           validateNotebookGroup(renamed);
         } catch (e) {
@@ -2327,19 +2460,36 @@ export function createAppRuntime(
       setGroupMembers(groupId, members, countOverlaps) {
         const nb = get().notebook;
         const g = nb.groups.find((x) => x.id === groupId);
-        if (!g) return;
-        const edited = { ...g, members, countOverlaps };
+        if (!g) return false;
+        const aliasOf = (member: GroupMember): string => {
+          switch (member.kind) {
+            case 'token': return member.surface;
+            case 'prefix': return `${member.stem}*`;
+            case 'suffix': return `*${member.stem}`;
+            case 'phrase': return member.elements.map((element) => element.kind === 'token'
+              ? element.surface
+              : element.kind === 'prefix' ? `${element.stem}*` : `*${element.stem}`).join(' ');
+          }
+        };
+        const edited: NotebookGroupV1 = {
+          ...g,
+          aliases: members.map(aliasOf),
+          exactMatch: members.some((member) =>
+            member.match.case === 'sensitive' || member.match.diacritics === 'sensitive'),
+          countOverlaps,
+        };
         try {
           validateNotebookGroup(edited);
         } catch (e) {
           refuseNotebook(msg(e));
-          return;
+          return false;
         }
         const changed = groupIdentity(edited) !== groupIdentity(g);
         const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.map((x) => (x.id === groupId ? edited : x)) };
         // A semantic edit preserves the UUID but invalidates and reissues the
         // results (invariant 3); an identity-neutral edit reissues nothing.
         adoptNotebook({ notebook }, { reissue: changed });
+        return true;
       },
 
       removeGroup(groupId) {
@@ -3583,33 +3733,22 @@ export function createAppRuntime(
       addFrequencyTerm(key) {
         const label = key.normalize('NFC');
         const state = get();
-        if (
-          state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups ||
-          state.activeGroupIds.size >= MAX_SERIES
-        ) {
-          refuseNotebook('deactivate a group before adding this frequency-table term');
+        if (state.notebook.groups.length >= NOTEBOOK_LIMITS_V1.maxGroups) {
+          refuseNotebook(`a notebook holds at most ${NOTEBOOK_LIMITS_V1.maxGroups} terms`);
           return;
         }
-        const probe = {
+        const probe: NotebookGroupV1 = {
           id: 'probe',
-          name: label,
-          members: [{
-            id: 'member',
-            kind: 'token' as const,
-            surface: label,
-            match: { case: 'sensitive' as const, diacritics: 'sensitive' as const },
-          }],
+          aliases: [label],
+          exactMatch: true,
           countOverlaps: false,
+          style: firstFreeStyle(state.notebook.groups, state.activeGroupIds),
         };
         if (state.notebook.groups.some((group) => groupIdentity(group) === groupIdentity(probe))) {
           refuseNotebook('that exact term is already in the notebook');
           return;
         }
-        const group = {
-          ...probe,
-          id: newId(),
-          members: [{ ...probe.members[0]!, id: newId() }],
-        };
+        const group = { ...probe, id: newId() };
         try {
           validateNotebookGroup(group);
         } catch (e) {
@@ -3617,34 +3756,38 @@ export function createAppRuntime(
           return;
         }
         const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/1',
+          schema: 'texttrends/query-notebook/2',
           groups: [...state.notebook.groups, group],
         };
         const active = new Set(state.activeGroupIds);
-        active.add(group.id);
-        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
+        if (active.size < MAX_SERIES) active.add(group.id);
+        adoptNotebook({ notebook, activeGroupIds: active }, { reissue: active.has(group.id) });
       },
 
       showFrequencyTermInKwic(key) {
         const label = key.normalize('NFC');
-        const probe = {
-          id: 'probe',
-          name: label,
-          members: [{
-            id: 'member',
-            kind: 'token' as const,
-            surface: label,
-            match: { case: 'sensitive' as const, diacritics: 'sensitive' as const },
-          }],
-          countOverlaps: false,
-        };
         const state = get();
+        const probe: NotebookGroupV1 = {
+          id: 'probe',
+          aliases: [label],
+          exactMatch: true,
+          countOverlaps: false,
+          style: firstFreeStyle(state.notebook.groups, state.activeGroupIds),
+        };
         const group = state.notebook.groups.find(
           (candidate) => groupIdentity(candidate) === groupIdentity(probe),
         );
         if (!group) {
           get().addFrequencyTerm(key);
-          if (get().notebookError === null) get().setPlace('concordance');
+          const added = get().notebook.groups.find(
+            (candidate) => groupIdentity(candidate) === groupIdentity(probe),
+          );
+          if (added && get().activeGroupIds.has(added.id)) {
+            get().setFocus(added.id);
+            get().setPlace('concordance');
+          } else if (added) {
+            refuseNotebook('term added; deactivate another term before showing it in concordance');
+          }
           return;
         }
         if (!state.activeGroupIds.has(group.id) && state.activeGroupIds.size >= MAX_SERIES) {

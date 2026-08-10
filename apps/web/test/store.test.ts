@@ -47,6 +47,7 @@ import {
 } from '@texttrends/core';
 import { workspaceState } from './support/workspace-fixtures.ts';
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
+import { coreGroupOf, groupTitle, type NotebookGroupV1 } from '../src/lib/notebook.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -661,7 +662,7 @@ describe('the session bridge', () => {
       expect(workspace.saves[0]).toMatchObject({
         schema: 'texttrends/workspace/1',
         corpus: { kind: 'builtin', id: BUILTIN_SHERLOCK_ID },
-        notebook: { groups: [{ name: 'Watson' }] },
+        notebook: { groups: [{ aliases: ['Watson'] }] },
       });
       await Promise.resolve();
       await Promise.resolve();
@@ -696,7 +697,7 @@ describe('the session bridge', () => {
       expect(store.getState().workspacePersistence.phase).toBe('dirty');
       await vi.advanceTimersByTimeAsync(1_500);
       await Promise.resolve();
-      expect(workspace.saves.at(-1)?.notebook.groups.map((group) => group.name)).toContain('Moriarty');
+      expect(workspace.saves.at(-1)?.notebook.groups.map(groupTitle)).toContain('Moriarty');
       expect(store.getState().workspacePersistence.phase).toBe('saved');
       runtime.dispose();
     } finally {
@@ -737,17 +738,13 @@ describe('the session bridge', () => {
     const durable: WorkspaceV1 = {
         ...workspaceState(BUILTIN_SHERLOCK_ID),
         notebook: {
-          schema: 'texttrends/query-notebook/1',
+          schema: 'texttrends/query-notebook/2',
           groups: [{
             id: 'durable',
-            name: 'Irene',
-            members: [{
-              id: 'member',
-              kind: 'token',
-              surface: 'Irene',
-              match: { case: 'folded', diacritics: 'folded' },
-            }],
+            aliases: ['Irene'],
+            exactMatch: false,
             countOverlaps: false,
+            style: { color: 'blue', line: 'solid' },
           }],
         },
         active: ['durable'],
@@ -777,7 +774,7 @@ describe('the session bridge', () => {
         smoothing: 7,
         showRaw: true,
       },
-      notebook: { groups: [{ id: 'durable', name: 'Irene' }] },
+      notebook: { groups: [{ id: 'durable', aliases: ['Irene'] }] },
       workspacePersistence: { phase: 'idle' },
     });
     expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
@@ -956,10 +953,10 @@ describe('the session bridge', () => {
 
   it('switches a built-in demo and replaces cross-corpus starter terms in one notebook update', () => {
     const { store, port } = harness(undefined, { seed: true });
-    expect(store.getState().notebook.groups.map((group) => group.name)).toEqual(['Holmes', 'Moriarty']);
+    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes', 'Moriarty']);
     store.getState().openBuiltinCorpus('builtin/asoif');
     expect(port.calls.at(-1)).toEqual({ method: 'openBuiltinProject', args: ['builtin/asoif'] });
-    expect(store.getState().notebook.groups.map((group) => group.name)).toEqual(['Jon', 'Tyrion', 'Daenerys']);
+    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Jon', 'Tyrion', 'Daenerys']);
     expect(store.getState().activeGroupIds.size).toBe(3);
     expect(store.getState().kwicEnabledSeries.size).toBe(3);
   });
@@ -1764,10 +1761,10 @@ describe('real ProjectSession composes with the store bridge', () => {
 describe('query notebook — identity discipline', () => {
   const groupsOf = (f: ReturnType<typeof harness>) => f.store.getState().notebook.groups;
 
-  /** Same UUID and member id, different MATCHING semantics. */
-  const semanticEdit = (g: { id: string; name: string; members: readonly { id: string }[]; countOverlaps: boolean }) => ({
+  /** Same UUID, different MATCHING semantics. */
+  const semanticEdit = (g: NotebookGroupV1): NotebookGroupV1 => ({
     ...g,
-    members: [{ id: g.members[0]!.id, kind: 'prefix' as const, stem: 'holm', match: { case: 'folded' as const, diacritics: 'folded' as const } }],
+    aliases: ['holm*'],
   });
 
   it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, focus, and concordance selection untouched)', () => {
@@ -1779,9 +1776,9 @@ describe('query notebook — identity discipline', () => {
     f.store.getState().toggleKwicSeries(holmes!.id); // holmes OFF
     f.store.getState().quickAdd('holmes, watson'); // holmes skipped, watson appended
     const after = groupsOf(f);
-    expect(after.map((g) => g.name)).toEqual(['holmes', 'moriarty', 'watson']);
+    expect(after.map(groupTitle)).toEqual(['holmes', 'moriarty', 'watson']);
     expect(after[0]!.id).toBe(holmes!.id); // the duplicate touched nothing
-    expect(after[0]!.members[0]!.id).toBe(holmes!.members[0]!.id);
+    expect(after[0]!.aliases).toEqual(holmes!.aliases);
     expect(after[1]!.id).toBe(moriarty!.id); // append-only: nothing replaced
     expect(f.store.getState().kwicEnabledSeries.has(holmes!.id)).toBe(false); // toggle survives
     expect(f.store.getState().kwicEnabledSeries.has(after[2]!.id)).toBe(true); // new group enabled
@@ -1801,6 +1798,82 @@ describe('query notebook — identity discipline', () => {
     expect(f.store.getState().trends.get(g.id)).toBeDefined(); // results retained
   });
 
+  it('adds one authored term from comma aliases and derives worker members on issue', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    const id = f.store.getState().addTerm({
+      aliases: [' NYC ', 'NY', 'New York', 'New Yo*', 'NY'],
+    });
+    expect(id).not.toBeNull();
+    const term = groupsOf(f).at(-1)!;
+    expect(term).toMatchObject({
+      id,
+      aliases: ['NYC', 'NY', 'New York', 'New Yo*'],
+      exactMatch: false,
+    });
+    expect(groupTitle(term)).toBe('NYC');
+    expect(coreGroupOf(term).members.map((member) => member.kind))
+      .toEqual(['token', 'token', 'phrase', 'phrase']);
+    expect(f.store.getState().activeGroupIds.has(term.id)).toBe(true);
+  });
+
+  it('commits exact-match alias edits explicitly and reissues matching work', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('Holmes');
+    const term = groupsOf(f)[0]!;
+    const issued = f.issued.length;
+    expect(f.store.getState().saveTerm(term.id, {
+      aliases: ['Holmes', 'Sherlock Holmes'],
+      exactMatch: true,
+      countOverlaps: false,
+      style: term.style,
+    })).toBe(true);
+    const edited = groupsOf(f)[0]!;
+    expect(edited.aliases).toEqual(['Holmes', 'Sherlock Holmes']);
+    expect(edited.exactMatch).toBe(true);
+    expect(coreGroupOf(edited).members.every((member) =>
+      member.match.case === 'sensitive' && member.match.diacritics === 'sensitive')).toBe(true);
+    expect(f.issued.length).toBeGreaterThan(issued);
+  });
+
+  it('refuses an edit that would duplicate another term matching identity', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('wolf, bear');
+    const [wolf, bear] = groupsOf(f);
+    const issued = f.issued.length;
+    expect(f.store.getState().saveTerm(bear!.id, {
+      aliases: ['wolf'],
+      exactMatch: wolf!.exactMatch,
+      countOverlaps: false,
+      style: bear!.style,
+    })).toBe(false);
+    expect(groupsOf(f)[1]!.aliases).toEqual(['bear']);
+    expect(f.store.getState().notebookError).toMatch(/already has/);
+    expect(f.issued.length).toBe(issued);
+  });
+
+  it('allows identity-neutral style repair when a legacy notebook already contains duplicate terms', () => {
+    const f = harness();
+    f.store.getState().quickAdd('wolf');
+    const original = groupsOf(f)[0]!;
+    const duplicate = {
+      ...original,
+      id: 'legacy-duplicate',
+      style: { color: 'orange' as const, line: 'dash' as const },
+    };
+    f.store.setState({
+      notebook: {
+        schema: 'texttrends/query-notebook/2',
+        groups: [original, duplicate],
+      },
+    });
+    f.store.getState().setGroupStyle(duplicate.id, { color: 'gold', line: 'fine-dot' });
+    expect(groupsOf(f)[1]!.style).toEqual({ color: 'gold', line: 'fine-dot' });
+    expect(f.store.getState().notebookError).toBeNull();
+  });
+
   it('a member edit preserves the UUID, changes semantic identity, and reissues trend and concordance', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
@@ -1808,8 +1881,9 @@ describe('query notebook — identity discipline', () => {
     const g = groupsOf(f)[0]!;
     const trendsBefore = f.trends().length;
     const kwicsBefore = f.kwics().length;
+    const original = coreGroupOf(g).members[0]!;
     f.store.getState().setGroupMembers(g.id, [
-      { id: g.members[0]!.id, kind: 'token', surface: 'holmes', match: { case: 'folded', diacritics: 'folded' } },
+      original,
       { id: 'm-alias', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
     ], false);
     expect(groupsOf(f)[0]!.id).toBe(g.id); // UUID stable (invariant 3)
@@ -1821,8 +1895,8 @@ describe('query notebook — identity discipline', () => {
     const authored = {
       id: g.id,
       members: [
-        { id: g.members[0]!.id, kind: 'token', surface: 'holmes', match: { case: 'folded', diacritics: 'folded' } },
-        { id: 'm-alias', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
+        original,
+        { id: 'a1', kind: 'token', surface: 'sherlock', match: { case: 'folded', diacritics: 'folded' } },
       ],
       countOverlaps: false,
     };
@@ -1838,7 +1912,7 @@ describe('query notebook — identity discipline', () => {
     f.store.getState().quickAdd('holmes');
     const g = groupsOf(f)[0]!;
     const issued = f.issued.length;
-    f.store.getState().setGroupMembers(g.id, [...g.members], g.countOverlaps);
+    f.store.getState().setGroupMembers(g.id, [...coreGroupOf(g).members], g.countOverlaps);
     expect(f.issued.length).toBe(issued);
   });
 
@@ -1852,7 +1926,7 @@ describe('query notebook — identity discipline', () => {
     // Change the group's SEMANTICS without any action: no lane superseded, no
     // reissue, no epoch advance — only the issued-identity guard stands
     // between the old results and the store (review-B round-1 finding).
-    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEdit(g)] } });
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/2', groups: [semanticEdit(g)] } });
     expect(trend.cancelled).toBe(false); // the lease is genuinely still alive
     expect(kwic.cancelled).toBe(false);
     trend.resolve({ op: 'trend', trend: fakeTrend(3) });
@@ -1871,8 +1945,8 @@ describe('query notebook — identity discipline', () => {
     f.store.getState().setGroupMembers(g.id, [
       { id: 'm-bad', kind: 'prefix', stem: '', match: { case: 'folded', diacritics: 'folded' } },
     ], false);
-    expect(f.store.getState().notebookError).toMatch(/code units/);
-    expect(groupsOf(f)[0]!.members).toEqual(g.members);
+    expect(f.store.getState().notebookError).toMatch(/use one \*/);
+    expect(groupsOf(f)[0]!.aliases).toEqual(g.aliases);
     expect(f.issued.length).toBe(issued);
     f.store.getState().clearNotebookError();
     expect(f.store.getState().notebookError).toBeNull();
@@ -1896,6 +1970,37 @@ describe('query notebook — active set, solo, order, and style', () => {
     f.store.getState().setGroupActive(moriarty!.id, true); // unmute
     expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false); // toggle survived the mute
     expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slotBefore); // style identity survived
+  });
+
+  it('persists style-only edits without reissuing and protects active survivors on collision', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('a, b');
+    const [a, b] = groupsOf(f);
+    const issued = f.issued.length;
+    f.store.getState().setGroupStyle(a!.id, { color: 'gold', line: 'dot' });
+    expect(groupsOf(f)[0]!.style).toEqual({ color: 'gold', line: 'dot' });
+    expect(f.issued.length).toBe(issued);
+
+    f.store.getState().setGroupStyle(b!.id, { color: 'gold', line: 'dot' });
+    expect(f.store.getState().notebookError).toMatch(/already uses/);
+    expect(groupsOf(f)[1]!.style).not.toEqual(groupsOf(f)[0]!.style);
+
+    f.store.getState().setGroupActive(b!.id, false);
+    f.store.getState().setGroupStyle(b!.id, { color: 'gold', line: 'dot' });
+    expect(groupsOf(f)[1]!.style).toEqual({ color: 'gold', line: 'dot' });
+    f.store.getState().setGroupActive(b!.id, true);
+    expect(groupsOf(f)[0]!.style).toEqual({ color: 'gold', line: 'dot' });
+    expect(groupsOf(f)[1]!.style).not.toEqual(groupsOf(f)[0]!.style);
+  });
+
+  it('uses five distinct colors before varying line type for new active terms', () => {
+    const f = harness();
+    for (let index = 0; index < 5; index++) {
+      f.store.getState().addTerm({ aliases: [`term-${index}`] });
+    }
+    expect(new Set(groupsOf(f).map((group) => group.style.color)).size).toBe(5);
+    expect(new Set(groupsOf(f).map((group) => group.style.line)).size).toBe(5);
   });
 
   it('the SIXTH activation and an over-room quick-add are refused explicitly — never silent truncation', () => {
@@ -2003,7 +2108,7 @@ describe('query notebook — effective-intent gating (review-C)', () => {
     f.store.getState().setGroupActive(moriarty!.id, false);
     // 2. Semantically edit the muted group (identity changes, projection doesn't).
     f.store.getState().setGroupMembers(moriarty!.id, [
-      { id: moriarty!.members[0]!.id, kind: 'prefix', stem: 'mor', match: { case: 'folded', diacritics: 'folded' } },
+      { id: 'a0', kind: 'prefix', stem: 'mor', match: { case: 'folded', diacritics: 'folded' } },
     ], false);
     // 3. Append while soloed: the new group is active but not projected.
     f.store.getState().quickAdd('watson');
@@ -2033,11 +2138,11 @@ describe('query notebook — effective-intent gating (review-C)', () => {
   });
 });
 
-/** Same UUID and member id, different MATCHING semantics (module-level twin
+/** Same UUID, different MATCHING semantics (module-level twin
  *  of the identity-discipline helper, for the dispersion lane suite). */
-const semanticEditTop = (g: { id: string; name: string; members: readonly { id: string }[]; countOverlaps: boolean }) => ({
+const semanticEditTop = (g: NotebookGroupV1): NotebookGroupV1 => ({
   ...g,
-  members: [{ id: g.members[0]!.id, kind: 'prefix' as const, stem: 'holm', match: { case: 'folded' as const, diacritics: 'folded' as const } }],
+  aliases: ['holm*'],
 });
 
 describe('dispersion barcode lane (slice-2 commit D)', () => {
@@ -2063,7 +2168,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     f.store.getState().quickAdd('holmes');
     const g = f.store.getState().notebook.groups[0]!;
     const q = f.issued.filter((x) => x.op === 'dispersion' && !x.cancelled).at(-1)!;
-    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/1', groups: [semanticEditTop(g)] } });
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/2', groups: [semanticEditTop(g)] } });
     expect(q.cancelled).toBe(false); // the lease is genuinely alive
     q.resolve({ op: 'dispersion', dispersion: { method: 'dispersion/1', geometry: null, tracks: [] } });
     await flush();
@@ -2674,7 +2779,7 @@ describe('exact focused-term occurrence navigation', () => {
     f.store.getState().stepOccurrence(1);
     const request = f.occurrenceSteps().at(-1)!;
     const group = f.store.getState().notebook.groups[0]!;
-    const member = group.members[0]!;
+    const member = coreGroupOf(group).members[0]!;
     if (member.kind !== 'token') throw new Error('quick-add should create a token');
     f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
     expect(request.cancelled).toBe(true);
@@ -3080,7 +3185,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(f.readers()).toHaveLength(count);
     expect(first.cancelled).toBe(false);
 
-    const member = group.members[0]!;
+    const member = coreGroupOf(group).members[0]!;
     if (member.kind !== 'token') throw new Error('quick-add must create a token member');
     f.store.getState().setGroupMembers(group.id, [{
       ...member,
@@ -3190,7 +3295,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     const trendCount = f.trends().length;
 
     f.store.getState().renameGroup(group.id, 'Detective');
-    const member = group.members[0]!;
+    const member = coreGroupOf(group).members[0]!;
     if (member.kind !== 'token') throw new Error('quick-add must create a token member');
     f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
 
@@ -3240,8 +3345,8 @@ describe('corpus dashboard query intent (slice-3)', () => {
 
     f.store.getState().addFrequencyTerm('Holmes');
     const group = f.store.getState().notebook.groups.at(-1)!;
-    expect(group.name).toBe('Holmes');
-    expect(group.members).toEqual([
+    expect(groupTitle(group)).toBe('Holmes');
+    expect(coreGroupOf(group).members).toEqual([
       expect.objectContaining({
         kind: 'token',
         surface: 'Holmes',
@@ -3256,7 +3361,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().showFrequencyTermInKwic('Holmes');
     const group = f.store.getState().notebook.groups.at(-1)!;
-    expect(group.members).toEqual([
+    expect(coreGroupOf(group).members).toEqual([
       expect.objectContaining({
         surface: 'Holmes',
         match: { case: 'sensitive', diacritics: 'sensitive' },
@@ -3276,7 +3381,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().place).toBe('concordance');
   });
 
-  it('reports duplicate and cap refusals for add-exact without partial mutation', () => {
+  it('refuses duplicate exact terms but persists additions beyond the five active slots', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().addFrequencyTerm('Holmes');
@@ -3290,14 +3395,16 @@ describe('corpus dashboard query intent (slice-3)', () => {
     }
     const atCap = f.store.getState().notebook.groups.length;
     f.store.getState().addFrequencyTerm('one-too-many');
-    expect(f.store.getState().notebook.groups).toHaveLength(atCap);
-    expect(f.store.getState().notebookError).toMatch(/deactivate/);
+    expect(f.store.getState().notebook.groups).toHaveLength(atCap + 1);
+    const hidden = f.store.getState().notebook.groups.at(-1)!;
+    expect(f.store.getState().activeGroupIds.has(hidden.id)).toBe(false);
+    expect(f.store.getState().notebookError).toBeNull();
 
     f.store.getState().setPlace('vocabulary');
     f.store.getState().showFrequencyTermInKwic('still-one-too-many');
     expect(f.store.getState().place).toBe('vocabulary');
-    expect(f.store.getState().notebook.groups).toHaveLength(atCap);
-    expect(f.store.getState().notebookError).toMatch(/deactivate/);
+    expect(f.store.getState().notebook.groups).toHaveLength(atCap + 2);
+    expect(f.store.getState().notebookError).toMatch(/term added.*deactivate/);
   });
 
   it('applies the complete frequency view atomically and refuses out-of-window pages', () => {

@@ -359,9 +359,15 @@ export function parseWorkspace(value: unknown): WorkspaceV1 {
     throw new RangeError('workspace views must be exact');
   }
   const notebook = parseQueryNotebook(value.notebook);
+  const upgradingLegacyNotebook = exactRecord(value.notebook, ['schema', 'groups'])
+    && value.notebook.schema === 'texttrends/query-notebook/1';
   const admittedGroups = new Set(notebook.groups.map((group) => group.id));
-  const active = uniqueStrings(value.active, MAX_KWIC_TRACKS, 'active groups');
-  const kwicEnabled = uniqueStrings(value.kwicEnabled, NOTEBOOK_LIMITS_V1.maxGroups, 'KWIC-enabled groups');
+  let active = uniqueStrings(value.active, MAX_KWIC_TRACKS, 'active groups');
+  let kwicEnabled = uniqueStrings(value.kwicEnabled, NOTEBOOK_LIMITS_V1.maxGroups, 'KWIC-enabled groups');
+  if (upgradingLegacyNotebook) {
+    active = active.filter((id) => admittedGroups.has(id));
+    kwicEnabled = kwicEnabled.filter((id) => admittedGroups.has(id));
+  }
   if (active.some((id) => !admittedGroups.has(id)) || kwicEnabled.some((id) => !admittedGroups.has(id))) {
     throw new RangeError('workspace group selections must refer to notebook groups');
   }
