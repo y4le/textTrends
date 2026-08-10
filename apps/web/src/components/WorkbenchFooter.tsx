@@ -64,11 +64,28 @@ import { slotColor, slotDash } from '../lib/series-style.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { BarcodeBand } from './BarcodeStrip.tsx';
 import { FooterPassage } from './FooterPassage.tsx';
-import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
+import {
+  rootShortcutAllowed,
+  shortcutAria,
+  shortcutMatches,
+} from '../lib/shortcuts.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
 const FOOTER_SHUTTLE_ARIA_INTERVAL_MS = 1_000;
+
+type FooterKeyboardEvent = KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent;
+
+function nativeEnterTarget(target: EventTarget | null): boolean {
+  const element = target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  return typeof element?.closest === 'function'
+    && element.closest('button, a[href], [role="button"], [role="link"]') !== null;
+}
+
+function keyboardReturnFocusId(target: EventTarget | null): string {
+  const element = target as (EventTarget & { id?: string }) | null;
+  return element?.id || 'place-trends-heading';
+}
 
 interface FooterSeries {
   readonly id: string;
@@ -173,6 +190,7 @@ function FooterInteractive({
   strip,
   containerRef,
   onFinePointerEnter,
+  globalShortcuts,
 }: {
   readonly docs: readonly string[];
   readonly titles: ReadonlyMap<string, string>;
@@ -188,6 +206,7 @@ function FooterInteractive({
   readonly strip: ReactNode;
   readonly containerRef: (element: HTMLDivElement | null) => void;
   readonly onFinePointerEnter: () => void;
+  readonly globalShortcuts: boolean;
 }) {
   const presentation = usePresentation();
   const allowExactSnap = presentation.pointer !== 'coarse';
@@ -201,6 +220,7 @@ function FooterInteractive({
   const series = useApp((state) => state.series);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const sliderRef = useRef<HTMLDivElement | null>(null);
+  const keyHandlerRef = useRef<(event: FooterKeyboardEvent) => void>(() => undefined);
   const docsRef = useRef(docs);
   const layoutRef = useRef(layout);
   docsRef.current = docs;
@@ -514,7 +534,7 @@ function FooterInteractive({
     if (advancePassagePage(window, queued)) queuedPageDirection.current = null;
   }, [advancePassagePage]);
 
-  const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+  const onKeyDown = (event: FooterKeyboardEvent) => {
     const current = scrub && docOrdinal >= 0
       ? { d: docOrdinal, token: scrub.token }
       : stepAlongSequence(0, 0, 0, layout);
@@ -578,9 +598,28 @@ function FooterInteractive({
         doc,
         token: current.token,
         from: 'footer',
-      }, 'corpus-footer-position');
+      }, keyboardReturnFocusId(event.target));
     }
   };
+  keyHandlerRef.current = onKeyDown;
+
+  useEffect(() => {
+    if (!globalShortcuts) return undefined;
+    const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      if (!rootShortcutAllowed(event)) return;
+      const target = event.target as (EventTarget & {
+        closest?: (selector: string) => unknown;
+      }) | null;
+      if (target?.closest?.('[data-shortcut-context="footer"]')) return;
+      // Enter remains the native activation key for links and buttons. The
+      // Trends scrubber is a div slider, so Enter can still open Reader when
+      // no keyboard range is consuming it locally.
+      if (event.key === 'Enter' && nativeEnterTarget(event.target)) return;
+      keyHandlerRef.current(event);
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+  }, [globalShortcuts]);
 
   return (
     <div
@@ -846,7 +885,11 @@ function FooterInteractive({
   );
 }
 
-export function WorkbenchFooter() {
+export function WorkbenchFooter({
+  globalShortcuts = false,
+}: {
+  readonly globalShortcuts?: boolean;
+}) {
   const presentation = usePresentation();
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
@@ -1038,6 +1081,7 @@ export function WorkbenchFooter() {
         strip={strip}
         containerRef={setContainer}
         onFinePointerEnter={enableSnap}
+        globalShortcuts={globalShortcuts}
       />
     </aside>
   );

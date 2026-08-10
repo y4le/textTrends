@@ -568,7 +568,7 @@ export function App() {
         <MethodSurface place={place} />
       </Suspense>
       <Suspense fallback={null}>
-        <WorkbenchFooter />
+        <WorkbenchFooter globalShortcuts={place === 'trends'} />
       </Suspense>
     </main>
     {shortcutHelpContext && (

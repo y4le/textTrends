@@ -144,6 +144,45 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   );
 });
 
+test('Trends exposes footer reading keys without requiring footer focus', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const heading = page.getByRole('heading', { name: 'Trends', exact: true });
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const footerSlider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const trendSlider = page.getByRole('slider', { name: 'Reading position scrubber' });
+  await expect(footerSlider).toBeVisible();
+  await heading.focus();
+  await heading.press('l');
+  await expect(footerSlider).not.toHaveAttribute('aria-valuetext', 'no position');
+  await expect(page.locator('.footer-passage[data-passage-for]')).toHaveAttribute(
+    'data-passage-for',
+    '0',
+  );
+
+  await trendSlider.focus();
+  const beforeArrow = Number(await footerSlider.getAttribute('aria-valuenow'));
+  await trendSlider.press('ArrowRight');
+  await expect(footerSlider).toHaveAttribute('aria-valuenow', String(beforeArrow + 1));
+  await trendSlider.press('l');
+  await expect.poll(async () => Number(await footerSlider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(beforeArrow + 1);
+
+  const presentation = page.getByRole('button', { name: 'by book', exact: true });
+  await presentation.focus();
+  await presentation.press('Enter');
+  await expect(presentation).toHaveAttribute('aria-pressed', 'true');
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+
+  await presentation.press('o');
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await reader.press('Escape');
+  await expect(heading).toBeFocused();
+  await expect(footer).toBeVisible();
+});
+
 test('a mouse drag shuttles through source continuously and release pauses', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);

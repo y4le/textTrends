@@ -237,6 +237,13 @@ activate a destination until the link is invoked. On the Trends scrubber, `v`
 switches series/by-book presentation without issuing analysis, alongside its
 existing Arrow, Page, Home/End, and range-selection keys.
 
+On Trends, reading-footer shortcuts are also page fallbacks; the user does not
+need to focus the footer before reading. A focused local control still wins:
+the Trends scrubber keeps Arrow, Page, and Home/End movement and an active range
+keeps Enter/Escape. Otherwise `h`/`l`, `H`/`L`, `w`/`W`, and `o` or Enter use
+the same footer actions and source-honest passage cursor. Native Enter on a link
+or button remains activation, never a Reader shortcut.
+
 Result tables share one row-navigation contract without replacing their native
 table semantics. One existing row disclosure or open control is in the Tab
 order at a time; `j`/`k` and Down/Up move one row, PageDown/PageUp move by the
