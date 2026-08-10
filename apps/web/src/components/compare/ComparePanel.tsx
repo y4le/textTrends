@@ -243,6 +243,11 @@ export function ComparePanel() {
       compareRowControlId(side, row.typeId),
     );
   };
+  const closeRow = () => {
+    if (rowTarget === null || topLayer?.id !== renderedLayer?.id) return false;
+    popLayer();
+    return true;
+  };
   const sideControl = (side: 'a' | 'b') => {
     const isRest = view.mode === 'document-rest' && view.restOn === side;
     const doc = side === 'a' ? view.documentA : view.documentB;
@@ -409,6 +414,7 @@ export function ComparePanel() {
               onRow={openRow}
               onPage={setPage}
               compact={compact}
+              onCloseRow={closeRow}
             />
           </>
         )}

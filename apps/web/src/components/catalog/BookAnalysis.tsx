@@ -28,6 +28,7 @@ import { BookDetail } from '../corpus/BookDetail.tsx';
 import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
 import { RhythmMark } from '../corpus/RhythmMark.tsx';
 import { SourceDetails } from './SourceDetails.tsx';
+import { useRowNavigation } from '../useRowNavigation.ts';
 
 const number = new Intl.NumberFormat('en-US');
 
@@ -125,6 +126,18 @@ export function BookAnalysis() {
       pushLayer('row-detail', target, bookTitleControlId(doc));
     }
   };
+  const rowNavigation = useRowNavigation({
+    keys: readyDocs,
+    label: 'Catalog book',
+    preferredKey: focusedDoc,
+    onFocusKey: setFocusedDoc,
+    onExit: () => {
+      if (bookTarget === null || bookLayer === null) return false;
+      const bookIndex = layers.findIndex((layer) => layer.id === bookLayer.id);
+      popLayer(bookIndex < 0 ? 1 : layers.length - bookIndex);
+      return true;
+    },
+  });
 
   if (!inventory) return null;
   return (
@@ -236,6 +249,7 @@ export function BookAnalysis() {
                 <p role="status" className="catalog-analysis-note">{scopeMessage}</p>
               )}
               <div
+                ref={rowNavigation.portRef}
                 className="catalog-analysis-port horizontal-data-port"
                 role="region"
                 tabIndex={0}
@@ -285,9 +299,9 @@ export function BookAnalysis() {
                           >
                             <th className="catalog-book-title" scope="row">
                               <button
+                                {...rowNavigation.controlProps(row.doc)}
                                 id={bookTitleControlId(row.doc)}
                                 type="button"
-                                onFocus={() => setFocusedDoc(row.doc)}
                                 onClick={() => openBook(row.doc)}
                                 aria-expanded={expanded}
                                 aria-current={focusedDoc === row.doc ? 'true' : undefined}
@@ -378,6 +392,9 @@ export function BookAnalysis() {
                   </tbody>
                 </table>
               </div>
+              <span className="visually-hidden" role="status" aria-live="polite">
+                {rowNavigation.status}
+              </span>
             </>
           );
         })()}

@@ -84,3 +84,92 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(filter).toHaveValue('gc]t');
   await expect(page.getByRole('heading', { name: 'Catalog', exact: true })).toBeVisible();
 });
+
+test('result tables share roving Vim and conventional row navigation', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  await gotoPlace(page, 'catalog');
+  const catalogPort = page.getByRole('region', { name: 'Scrollable book analysis table' });
+  const books = page.locator('[data-catalog-book] .catalog-book-title > button');
+  await expect(books).toHaveCount(6);
+  await expect(page.locator('[data-catalog-book] .catalog-book-title > button[tabindex="0"]'))
+    .toHaveCount(1);
+  await books.first().focus();
+  await books.first().press('j');
+  await expect(books.nth(1)).toBeFocused();
+  await books.nth(1).press('ArrowUp');
+  await expect(books.first()).toBeFocused();
+  await books.first().press('End');
+  await expect(books.last()).toBeFocused();
+  await books.last().press('Home');
+  await expect(books.first()).toBeFocused();
+  await books.first().press('Enter');
+  await expect(books.first()).toHaveAttribute('aria-expanded', 'true');
+  await books.first().press('Escape');
+  await expect(books.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(books.first()).toBeFocused();
+  await books.first().press('Escape');
+  await expect(catalogPort).toBeFocused();
+
+  await gotoPlace(page, 'concordance');
+  const concordancePort = page.getByRole('region', { name: 'Scrollable concordance table' });
+  const occurrences = page
+    .getByRole('table', { name: 'Concordance' })
+    .locator('tbody .kwic-node > button');
+  await expect(occurrences.first()).toBeVisible();
+  await expect(page.locator('.kwic-node > button[tabindex="0"]')).toHaveCount(1);
+  await occurrences.first().focus();
+  await occurrences.first().press('ArrowDown');
+  await expect(occurrences.nth(1)).toBeFocused();
+  await occurrences.nth(1).press('k');
+  await expect(occurrences.first()).toBeFocused();
+  await occurrences.first().press('End');
+  await expect(occurrences.last()).toBeFocused();
+  await occurrences.last().press('Home');
+  await expect(occurrences.first()).toBeFocused();
+  await occurrences.first().press('Enter');
+  await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(occurrences.first()).toBeFocused();
+  await occurrences.first().press('Escape');
+  await expect(concordancePort).toBeFocused();
+
+  await gotoPlace(page, 'vocabulary');
+  const vocabularyPort = page.locator('.frequency-table-port');
+  const vocabularyRows = page.locator('[data-frequency-row] .frequency-term > button');
+  await expect(vocabularyRows.first()).toBeVisible();
+  await expect(page.locator('[data-frequency-row] .frequency-term > button[tabindex="0"]'))
+    .toHaveCount(1);
+  await vocabularyRows.first().focus();
+  await vocabularyRows.first().press('PageDown');
+  await expect(vocabularyRows.first()).not.toBeFocused();
+  await page.keyboard.press('Home');
+  await expect(vocabularyRows.first()).toBeFocused();
+  await vocabularyRows.first().press('Enter');
+  await expect(vocabularyRows.first()).toHaveAttribute('aria-expanded', 'true');
+  await vocabularyRows.first().press('Escape');
+  await expect(vocabularyRows.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(vocabularyRows.first()).toBeFocused();
+  await vocabularyRows.first().press('Escape');
+  await expect(vocabularyPort).toBeFocused();
+
+  await gotoPlace(page, 'compare');
+  const comparePort = page.locator('.compare-table-port');
+  const compareRows = page.locator('.compare-axis-row .compare-term > button');
+  await expect(compareRows.first()).toBeVisible();
+  await expect(page.locator('.compare-axis-row .compare-term > button[tabindex="0"]'))
+    .toHaveCount(1);
+  await compareRows.first().focus();
+  await compareRows.first().press('ArrowDown');
+  await expect(compareRows.nth(1)).toBeFocused();
+  await compareRows.nth(1).press('k');
+  await expect(compareRows.first()).toBeFocused();
+  await compareRows.first().press('Enter');
+  await expect(compareRows.first()).toHaveAttribute('aria-expanded', 'true');
+  await compareRows.first().press('Escape');
+  await expect(compareRows.first()).toHaveAttribute('aria-expanded', 'false');
+  await expect(compareRows.first()).toBeFocused();
+  await compareRows.first().press('Escape');
+  await expect(comparePort).toBeFocused();
+});

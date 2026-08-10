@@ -237,6 +237,14 @@ activate a destination until the link is invoked. On the Trends scrubber, `v`
 switches series/by-book presentation without issuing analysis, alongside its
 existing Arrow, Page, Home/End, and range-selection keys.
 
+Result tables share one row-navigation contract without replacing their native
+table semantics. One existing row disclosure or open control is in the Tab
+order at a time; `j`/`k` and Down/Up move one row, PageDown/PageUp move by the
+visible row count, and Home/End clamp to the first and last row. Enter keeps the
+control's native open/toggle behavior. Escape closes an open row detail first;
+from a closed row it returns focus to the table port. Focus movement never
+changes analysis scope or issues work.
+
 ## Responsive, accessibility, and history contracts
 
 - Compact is below 600 CSS pixels; regular is 600–1023; wide is at least 1024.

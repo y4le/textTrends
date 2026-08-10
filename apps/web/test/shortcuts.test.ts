@@ -67,6 +67,7 @@ describe('shortcut registry', () => {
       'General',
       'Navigation',
       'Focus',
+      'Rows',
       'Trends',
       'Reading footer',
     ]);

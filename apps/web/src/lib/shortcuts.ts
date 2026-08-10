@@ -15,6 +15,14 @@ export type ShortcutId =
   | 'go-compare'
   | 'go-footer'
   | 'go-terms'
+  | 'row-previous'
+  | 'row-next'
+  | 'row-page-previous'
+  | 'row-page-next'
+  | 'row-first'
+  | 'row-last'
+  | 'row-open'
+  | 'row-exit'
   | 'trend-step-previous'
   | 'trend-step-next'
   | 'trend-step-five-previous'
@@ -53,7 +61,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'General' | 'Navigation' | 'Focus' | 'Trends' | 'Reading footer' | 'Reader';
+  readonly group: 'General' | 'Navigation' | 'Focus' | 'Rows' | 'Trends' | 'Reading footer' | 'Reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -201,6 +209,62 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     label: 'Focus Terms',
     strokes: [],
     sequence: [{ key: 'g' }, { key: 'q' }],
+  },
+  {
+    id: 'row-previous',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Previous result row',
+    strokes: [{ key: 'k' }, { key: 'ArrowUp' }],
+  },
+  {
+    id: 'row-next',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Next result row',
+    strokes: [{ key: 'j' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'row-page-previous',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Previous visible page of rows',
+    strokes: [{ key: 'PageUp' }],
+  },
+  {
+    id: 'row-page-next',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Next visible page of rows',
+    strokes: [{ key: 'PageDown' }],
+  },
+  {
+    id: 'row-first',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'First result row',
+    strokes: [{ key: 'Home' }],
+  },
+  {
+    id: 'row-last',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Last result row',
+    strokes: [{ key: 'End' }],
+  },
+  {
+    id: 'row-open',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Open or toggle the focused row',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
+    id: 'row-exit',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Close detail or leave row navigation',
+    strokes: [{ key: 'Escape' }],
   },
   {
     id: 'trend-step-previous',
@@ -537,7 +601,7 @@ export function shortcutAria(ids: readonly ShortcutId[]): string {
 export function shortcutHelpSections(context: ShortcutHelpContext): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = context === 'reader'
     ? ['General', 'Reader']
-    : ['General', 'Navigation', 'Focus', 'Trends', 'Reading footer'];
+    : ['General', 'Navigation', 'Focus', 'Rows', 'Trends', 'Reading footer'];
   return order.flatMap((group) => {
     const entries = SHORTCUTS
       .filter((shortcut) => shortcut.group === group && shortcut.helpContexts.includes(context))

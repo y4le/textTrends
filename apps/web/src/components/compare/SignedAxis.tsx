@@ -14,6 +14,10 @@ import type {
   KeynessViewV1,
 } from '../../lib/store.ts';
 import { CompareRowDetail } from './CompareRowDetail.tsx';
+import {
+  useRowNavigation,
+  type RowControlProps,
+} from '../useRowNavigation.ts';
 
 const signed = new Intl.NumberFormat('en-US', {
   maximumFractionDigits: 3,
@@ -21,6 +25,7 @@ const signed = new Intl.NumberFormat('en-US', {
 });
 const scaleNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 const integer = new Intl.NumberFormat('en-US');
+const rowNavigationKey = (side: 'a' | 'b', typeId: number) => `${side}:${typeId}`;
 
 function projectedTotal(total: number): string {
   return `${integer.format(total)} projected ${total === 1 ? 'term' : 'terms'}`;
@@ -38,6 +43,7 @@ function AxisRow({
   expanded,
   onOpen,
   compact,
+  navigation,
 }: {
   readonly row: KeynessRowV1;
   readonly side: 'a' | 'b';
@@ -46,6 +52,7 @@ function AxisRow({
   readonly expanded: boolean;
   readonly onOpen: () => void;
   readonly compact: boolean;
+  readonly navigation: RowControlProps;
 }) {
   const width = compareBarPercent(row.logRatio, scale.maximum);
   const barStyle = { '--compare-bar-width': `${width}%` } as CSSProperties;
@@ -59,6 +66,7 @@ function AxisRow({
           aria-colindex={1}
         >
           <button
+            {...navigation}
             id={compareRowControlId(side, row.typeId)}
             type="button"
             aria-expanded={expanded}
@@ -109,6 +117,7 @@ function SideRows({
   rowTarget,
   onRow,
   compact,
+  navigationProps,
 }: {
   readonly side: 'a' | 'b';
   readonly state: KeynessTableState | null;
@@ -117,6 +126,7 @@ function SideRows({
   readonly rowTarget: CompareRowTarget | null;
   readonly onRow: (row: KeynessRowV1) => void;
   readonly compact: boolean;
+  readonly navigationProps: (key: string) => RowControlProps;
 }) {
   const offset = sideOffset(view, side);
   const page = state?.state.status === 'ready'
@@ -176,6 +186,7 @@ function SideRows({
           expanded={expanded}
           onOpen={() => onRow(row)}
           compact={compact}
+          navigation={navigationProps(rowNavigationKey(side, row.typeId))}
         />
       );
     });
@@ -271,6 +282,7 @@ export function SignedAxis({
   onRow,
   onPage,
   compact,
+  onCloseRow,
 }: {
   readonly stateA: KeynessTableState | null;
   readonly stateB: KeynessTableState | null;
@@ -280,6 +292,7 @@ export function SignedAxis({
   readonly onRow: (side: 'a' | 'b', row: KeynessRowV1) => void;
   readonly onPage: (side: 'a' | 'b', offset: number) => void;
   readonly compact: boolean;
+  readonly onCloseRow: () => boolean;
 }) {
   const caption = [
     `A and B keep independent ${compareSortLabel(view.sort.by)} rank order.`,
@@ -287,14 +300,28 @@ export function SignedAxis({
     scale.provisional ? 'Scale is provisional until both sides are ready.' : '',
     'Terms with exactly zero log₂ ratio are in neither projection.',
   ].filter(Boolean).join(' ');
+  const rowsA = stateA?.state.status === 'ready' ? stateA.state.result.rows : [];
+  const rowsB = stateB?.state.status === 'ready' ? stateB.state.result.rows : [];
+  const rowNavigation = useRowNavigation({
+    keys: [
+      ...rowsA.map((row) => rowNavigationKey('a', row.typeId)),
+      ...rowsB.map((row) => rowNavigationKey('b', row.typeId)),
+    ],
+    label: 'Compare',
+    preferredKey: rowTarget === null
+      ? null
+      : rowNavigationKey(rowTarget.side, rowTarget.typeId),
+    onExit: onCloseRow,
+  });
   return (
     <section className="compare-axis-section" aria-labelledby="compare-axis-heading">
       <h3 id="compare-axis-heading">Distinctive terms</h3>
       <div
+        ref={rowNavigation.portRef}
         className="compare-table-port"
         role={compact ? undefined : 'region'}
         aria-label={compact ? undefined : 'Scrollable Compare signed axis'}
-        tabIndex={compact ? undefined : 0}
+        tabIndex={compact ? -1 : 0}
       >
         <table
           className="compare-axis-table"
@@ -323,6 +350,7 @@ export function SignedAxis({
             rowTarget={rowTarget}
             onRow={(row) => onRow('a', row)}
             compact={compact}
+            navigationProps={rowNavigation.controlProps}
           />
           <SideRows
             side="b"
@@ -332,6 +360,7 @@ export function SignedAxis({
             rowTarget={rowTarget}
             onRow={(row) => onRow('b', row)}
             compact={compact}
+            navigationProps={rowNavigation.controlProps}
           />
         </table>
       </div>
@@ -349,6 +378,9 @@ export function SignedAxis({
           onPage={(offset) => onPage('b', offset)}
         />
       </div>
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {rowNavigation.status}
+      </span>
     </section>
   );
 }

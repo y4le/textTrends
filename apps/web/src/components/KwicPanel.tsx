@@ -6,11 +6,9 @@
 
 import {
   useCallback,
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
-  useState,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import { kwicCaptionText } from '../lib/barcode-view.ts';
@@ -25,6 +23,7 @@ import {
 import { slotColor } from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
+import { useRowNavigation } from './useRowNavigation.ts';
 
 export function KwicPanel({
   showHeading = true,
@@ -50,8 +49,6 @@ export function KwicPanel({
 
   const portRef = useRef<HTMLDivElement | null>(null);
   const nodeHeadingRef = useRef<HTMLTableCellElement | null>(null);
-  const rowRefs = useRef(new Map<string, HTMLTableRowElement | HTMLDivElement>());
-  const [activeKey, setActiveKey] = useState<string | null>(null);
 
   const seriesById = useMemo(
     () => new Map(series.map((item) => [item.id, item])),
@@ -99,13 +96,6 @@ export function KwicPanel({
     recenter();
   }, [recenter, rowIdentity, view.contextChars]);
 
-  useEffect(() => {
-    setActiveKey(null);
-    rowRefs.current.clear();
-  }, [rowIdentity]);
-
-  if (series.length === 0) return null;
-
   const caption = kwicCaptionText(
     kwic?.center ?? null,
     rows[0]?.pos ?? null,
@@ -130,19 +120,22 @@ export function KwicPanel({
   const sourcePosition = (row: ConcordanceRowVM) => multipleBooks
     ? `${row.title} · ${tokenPosition(row)}`
     : tokenPosition(row);
-  const activeIndex = activeKey === null
+  const rowNavigation = useRowNavigation({
+    keys: rows.map((row) => row.key),
+    label: 'Concordance occurrence',
+    portRef,
+    onFocusKey: () => {
+      if (view.reading === 'aligned') requestAnimationFrame(recenter);
+    },
+  });
+  const activeIndex = rowNavigation.activeKey === null
     ? -1
-    : rows.findIndex((row) => row.key === activeKey);
+    : rows.findIndex((row) => row.key === rowNavigation.activeKey);
+
+  if (series.length === 0) return null;
 
   const activate = (index: number) => {
-    const row = rows[index];
-    if (!row) return;
-    setActiveKey(row.key);
-    rowRefs.current.get(row.key)?.scrollIntoView({
-      block: 'nearest',
-      inline: 'nearest',
-    });
-    if (view.reading === 'aligned') requestAnimationFrame(recenter);
+    rowNavigation.activateIndex(index, false);
   };
 
   const readerId = (row: ConcordanceRowVM) =>
@@ -224,11 +217,8 @@ export function KwicPanel({
           {rows.map((row) => (
             <tr
               key={row.key}
-              ref={(element) => {
-                if (element) rowRefs.current.set(row.key, element);
-                else rowRefs.current.delete(row.key);
-              }}
-              data-active={row.key === activeKey || undefined}
+              data-row-navigation-row
+              data-active={row.key === rowNavigation.activeKey || undefined}
               data-series-label={row.label}
             >
               <td className="kwic-left-context source-text">
@@ -237,6 +227,7 @@ export function KwicPanel({
               </td>
               <td className="kwic-node source-text">
                 <button
+                  {...rowNavigation.controlProps(row.key)}
                   id={readerId(row)}
                   type="button"
                   onClick={() => openRowReader(row)}
@@ -269,7 +260,13 @@ export function KwicPanel({
   );
 
   const stackedRows = (total: number) => (
-    <div className="kwic-reading" aria-label="Concordance reading view">
+    <div
+      ref={portRef}
+      className="kwic-reading"
+      role="region"
+      tabIndex={0}
+      aria-label="Concordance reading view"
+    >
       <p role="note">Alignment is off in reading mode.</p>
       <p className="kwic-caption">
         Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
@@ -277,12 +274,9 @@ export function KwicPanel({
       {rows.map((row) => (
         <div
           key={row.key}
-          ref={(element) => {
-            if (element) rowRefs.current.set(row.key, element);
-            else rowRefs.current.delete(row.key);
-          }}
           className="kwic-reading-row"
-          data-active={row.key === activeKey || undefined}
+          data-row-navigation-row
+          data-active={row.key === rowNavigation.activeKey || undefined}
           data-series-label={row.label}
         >
           <p className="kwic-reading-source">
@@ -292,6 +286,7 @@ export function KwicPanel({
           <p className="kwic-reading-context source-text">
             {row.leftFull}{' '}
             <button
+              {...rowNavigation.controlProps(row.key)}
               id={readerId(row)}
               type="button"
               onClick={() => openRowReader(row)}
@@ -419,6 +414,9 @@ export function KwicPanel({
       <p className="kwic-method">{concordanceMethodLine(view.sort, view.contextChars)}</p>
       {resultBar}
       {body}
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {rowNavigation.status}
+      </span>
     </section>
   );
 }

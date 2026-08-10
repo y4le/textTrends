@@ -31,6 +31,7 @@ import type {
   FrequencyViewInputV1,
   FrequencyViewV1,
 } from '../../lib/store.ts';
+import { useRowNavigation } from '../useRowNavigation.ts';
 
 const number = new Intl.NumberFormat('en-US');
 const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -349,6 +350,18 @@ export function FrequencyTable({
         state.state.result.rows.length,
       )
     : null;
+  const rowNavigation = useRowNavigation({
+    keys: state?.state.status === 'ready'
+      ? state.state.result.rows.map((row) => String(row.typeId))
+      : [],
+    label: 'Vocabulary',
+    preferredKey: rowTarget === null ? null : String(rowTarget.typeId),
+    onExit: () => {
+      if (rowTarget === null || topLayer?.id !== renderedLayer?.id) return false;
+      popLayer();
+      return true;
+    },
+  });
   const filter = (
     <FrequencyFilters
       draft={draft}
@@ -421,10 +434,11 @@ export function FrequencyTable({
             are selected documents
           </p>
           <div
+            ref={rowNavigation.portRef}
             className="frequency-table-port"
             role={compact ? undefined : 'region'}
             aria-label={compact ? undefined : 'Scrollable Vocabulary frequency list'}
-            tabIndex={compact ? undefined : 0}
+            tabIndex={compact ? -1 : 0}
           >
             <table
               className="frequency-table"
@@ -482,6 +496,7 @@ export function FrequencyTable({
                           scope="row"
                         >
                           <button
+                            {...rowNavigation.controlProps(String(row.typeId))}
                             id={vocabularyRowControlId(row.typeId)}
                             type="button"
                             aria-expanded={expanded}
@@ -580,6 +595,9 @@ export function FrequencyTable({
               The bounded result window ends at 5,000 rows. Narrow the filters to continue.
             </p>
           )}
+          <span className="visually-hidden" role="status" aria-live="polite">
+            {rowNavigation.status}
+          </span>
         </>
       )}
     </section>
