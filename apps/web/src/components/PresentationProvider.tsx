@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  ANY_COARSE_POINTER_QUERY,
   COARSE_POINTER_QUERY,
   COMPACT_QUERY,
   DARK_SCHEME_QUERY,
@@ -19,7 +20,7 @@ import { keyboardInsetFor } from '../lib/viewport-metrics.ts';
 
 const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
-  pointer: 'fine',
+  coarseAvailable: false,
   reducedMotion: false,
   colorScheme: 'dark',
 };
@@ -38,7 +39,7 @@ function queryMatches(query: string): boolean {
 
 /**
  * One primitive snapshot per media feature keeps useSyncExternalStore's
- * snapshots referentially stable. Width, pointer, and motion remain separate
+ * snapshots referentially stable. Width, input, and motion remain separate
  * inputs: a wide coarse-pointer tablet is not collapsed into "mobile".
  */
 function useMediaQuery(query: string, serverFallback: boolean): boolean {
@@ -57,7 +58,8 @@ function useMediaQuery(query: string, serverFallback: boolean): boolean {
 export function PresentationProvider({ children }: { readonly children: ReactNode }) {
   const compact = useMediaQuery(COMPACT_QUERY, false);
   const wide = useMediaQuery(WIDE_QUERY, true);
-  const coarse = useMediaQuery(COARSE_POINTER_QUERY, false);
+  const primaryCoarse = useMediaQuery(COARSE_POINTER_QUERY, false);
+  const anyCoarse = useMediaQuery(ANY_COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
   const darkScheme = useMediaQuery(DARK_SCHEME_QUERY, true);
 
@@ -98,10 +100,10 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
 
   const presentation = useMemo<Presentation>(() => ({
     width: compact ? 'compact' : wide ? 'wide' : 'regular',
-    pointer: coarse ? 'coarse' : 'fine',
+    coarseAvailable: primaryCoarse || anyCoarse,
     reducedMotion,
     colorScheme: darkScheme ? 'dark' : 'light',
-  }), [coarse, compact, darkScheme, reducedMotion, wide]);
+  }), [anyCoarse, compact, darkScheme, primaryCoarse, reducedMotion, wide]);
 
   return (
     <PresentationContext.Provider value={presentation}>

@@ -56,7 +56,6 @@ import {
   barcodeReaderTarget,
   captureBarcodePointerTarget,
   resolveCapturedBarcodeTarget,
-  type BarcodeSnapIndex,
   type BarcodeTrackVM,
   type CapturedBarcodeTarget,
 } from '../lib/barcode-view.ts';
@@ -69,6 +68,7 @@ import {
   shortcutAria,
   shortcutMatches,
 } from '../lib/shortcuts.ts';
+import { pointerIntentFor, type PointerIntent } from '../lib/pointer-capability.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
@@ -183,13 +183,11 @@ function FooterInteractive({
   geometry,
   tracks,
   trackCount,
-  snapIndexes,
   pending,
   failed,
   partial,
   strip,
   containerRef,
-  onFinePointerEnter,
   globalShortcuts,
 }: {
   readonly docs: readonly string[];
@@ -199,17 +197,14 @@ function FooterInteractive({
   readonly geometry: FooterGeometry;
   readonly tracks: readonly BarcodeTrackVM[];
   readonly trackCount: number;
-  readonly snapIndexes: readonly (readonly (BarcodeSnapIndex | null)[])[];
   readonly pending: boolean;
   readonly failed: number;
   readonly partial: boolean;
   readonly strip: ReactNode;
   readonly containerRef: (element: HTMLDivElement | null) => void;
-  readonly onFinePointerEnter: () => void;
   readonly globalShortcuts: boolean;
 }) {
   const presentation = usePresentation();
-  const allowExactSnap = presentation.pointer !== 'coarse';
   const scrub = useApp((state) => state.scrub);
   const passage = useApp((state) => state.footerPassage);
   const snapshot = useApp((state) => state.snapshot);
@@ -231,6 +226,11 @@ function FooterInteractive({
   const suppressDoubleClickUntil = useRef(0);
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverReady = useRef(false);
+  const lastPointerIntent = useRef<PointerIntent>('direct');
+  const snapIndexCache = useRef<{
+    readonly tracks: readonly BarcodeTrackVM[];
+    readonly indexes: ReturnType<typeof projectedBarcodeSnapIndexes>;
+  } | null>(null);
   const [visiblePassageTokens, setVisiblePassageTokens] = useState(
     FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
   );
@@ -436,7 +436,7 @@ function FooterInteractive({
   const captureBarcodeAt = (
     x: number,
     y: number,
-    ensureExactIndexes = false,
+    allowExactSnap: boolean,
   ): CapturedBarcodeTarget | null => {
     const barcodeY = y - stripTop - geometry.seriesHeight - geometry.barcodeBandGap;
     const stride = geometry.barcodeTrackHeight + geometry.barcodeTrackGap;
@@ -451,12 +451,16 @@ function FooterInteractive({
       || rowOffset < 0
       || rowOffset >= geometry.barcodeTrackHeight
     ) return null;
-    const exactIndexes = allowExactSnap
-      && ensureExactIndexes
-      && track.representation === 'exact'
-      && snapIndexes.length === 0
-      ? projectedBarcodeSnapIndexes(tracks)
-      : snapIndexes;
+    let exactIndexes: ReturnType<typeof projectedBarcodeSnapIndexes> = [];
+    if (allowExactSnap && track.representation === 'exact') {
+      const cached = snapIndexCache.current;
+      if (cached?.tracks === tracks) {
+        exactIndexes = cached.indexes;
+      } else {
+        exactIndexes = projectedBarcodeSnapIndexes(tracks);
+        snapIndexCache.current = { tracks, indexes: exactIndexes };
+      }
+    }
     return captureBarcodePointerTarget(
       tracks,
       exactIndexes,
@@ -474,13 +478,18 @@ function FooterInteractive({
   const pointerTargetAt = (
     x: number,
     y: number,
-    ensureExactIndexes = false,
+    allowExactSnap: boolean,
   ) => {
     const raw = rawTarget(x);
     if (!raw) return null;
-    const captured = captureBarcodeAt(x, y, ensureExactIndexes);
+    const captured = captureBarcodeAt(x, y, allowExactSnap);
     const snapped = captured?.exactActivation;
     return snapped ? { ...raw, doc: snapped.doc, token: snapped.token } : raw;
+  };
+  const observePrecisePointer = (pointerType: string): boolean => {
+    const intent = pointerIntentFor(pointerType);
+    lastPointerIntent.current = intent;
+    return intent === 'precise';
   };
 
   const advancePassagePage = useCallback((window: PassageWindowV1, direction: 1 | -1) => {
@@ -633,7 +642,11 @@ function FooterInteractive({
         if ((event.target as Element).closest('button, a')) return;
         const point = localPoint(event);
         if (!point || snapshot === null) return;
-        const captured = captureBarcodeAt(point.x, point.y, true);
+        const captured = captureBarcodeAt(
+          point.x,
+          point.y,
+          lastPointerIntent.current === 'precise',
+        );
         const resolution = captured
           ? resolveCapturedBarcodeTarget(tracks, captured)
           : null;
@@ -666,7 +679,7 @@ function FooterInteractive({
         snapshot={snapshot?.snapshot ?? ''}
         title={title}
         crosshairX={passageX}
-        coarse={presentation.pointer === 'coarse'}
+        coarse={presentation.coarseAvailable}
         widthClass={presentation.width}
         alignment={passageAlignment}
         onVisibleTokensChange={setVisiblePassageTokens}
@@ -705,8 +718,7 @@ function FooterInteractive({
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
         onPointerEnter={(event) => {
-          if (presentation.pointer === 'coarse' || event.pointerType !== 'mouse') return;
-          onFinePointerEnter();
+          if (!observePrecisePointer(event.pointerType)) return;
           hoverReady.current = false;
           if (hoverTimer.current !== null) clearTimeout(hoverTimer.current);
           const point = localPoint(event);
@@ -731,6 +743,7 @@ function FooterInteractive({
           }
         }}
         onPointerMove={(event) => {
+          const precise = observePrecisePointer(event.pointerType);
           const tap = pointerTap.current;
           if (tap?.pointerId === event.pointerId) {
             if (Math.hypot(event.clientX - tap.x, event.clientY - tap.y) >= 4) {
@@ -739,7 +752,6 @@ function FooterInteractive({
             if (
               tap.moved
               && tap.pointerType === 'mouse'
-              && presentation.pointer !== 'coarse'
               && tap.anchorTarget !== null
             ) {
               if (tap.mode === 'tap') {
@@ -763,10 +775,10 @@ function FooterInteractive({
             }
             return;
           }
-          if (presentation.pointer === 'coarse' || event.buttons !== 0) return;
+          if (!precise || event.buttons !== 0) return;
           const point = localPoint(event);
           const target = point
-            ? pointerTargetAt(point.x, point.y, !hoverReady.current)
+            ? pointerTargetAt(point.x, point.y, true)
             : null;
           if (!target) return;
           const sample = { doc: target.doc, token: target.token };
@@ -775,6 +787,7 @@ function FooterInteractive({
         }}
         onPointerDown={(event) => {
           if (!event.isPrimary || event.button !== 0) return;
+          const precise = observePrecisePointer(event.pointerType);
           event.currentTarget.setPointerCapture(event.pointerId);
           const point = localPoint(event);
           pointerTap.current = {
@@ -782,7 +795,7 @@ function FooterInteractive({
             pointerType: event.pointerType,
             x: event.clientX,
             y: event.clientY,
-            barcode: point && event.pointerType === 'mouse'
+            barcode: point && precise
               ? captureBarcodeAt(point.x, point.y, true)
               : null,
             anchorTarget: point ? rawTarget(point.x) : null,
@@ -901,7 +914,7 @@ export function WorkbenchFooter({
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const focusedSeries = useApp((state) => state.focusedSeries);
   const measure = useApp((state) => state.trendMeasure);
-  const coarse = presentation.pointer === 'coarse';
+  const coarse = presentation.coarseAvailable;
   const geometry = footerGeometryFor(presentation.width, coarse);
   const docs = snapshot?.readyDocs ?? [];
   const firstReady = [...trends.values()].find((state) => state.status === 'ready');
@@ -983,12 +996,6 @@ export function WorkbenchFooter({
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
     [project],
   );
-  const [snapArmed, setSnapArmed] = useState(false);
-  const snapIndexes = !coarse && snapArmed
-    ? projectedBarcodeSnapIndexes(tracks)
-    : [];
-  const enableSnap = useCallback(() => setSnapArmed(true), []);
-
   if (!visible) return null;
   const range = linkedSelection && linkedSelection.ranges.length > 0
     ? {
@@ -1074,13 +1081,11 @@ export function WorkbenchFooter({
         geometry={geometry}
         tracks={tracks}
         trackCount={reservedTrackCount}
-        snapIndexes={snapIndexes}
         pending={pending}
         failed={failed}
         partial={(snapshot?.missingDocs.length ?? 0) > 0}
         strip={strip}
         containerRef={setContainer}
-        onFinePointerEnter={enableSnap}
         globalShortcuts={globalShortcuts}
       />
     </aside>

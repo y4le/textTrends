@@ -4,6 +4,24 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-10 — Hybrid pointers keep both interaction paths
+
+Pointer layout and pointer interaction are separate decisions. If either the
+primary pointer or any available pointer is coarse, the workbench retains its
+large touch targets and coarse navigation controls. Hover, exact barcode
+snapping, and pointer activation are decided from the current `PointerEvent`:
+mouse and pen are precise, while touch and unknown input stay direct. The
+reading shuttle remains mouse-only. Observing a mouse never removes touch
+affordances, and a later touch never inherits the mouse's snapping behavior.
+
+Exact snap indexes remain lazy. The first precise event arms their retained
+allocation and uses the same memoized index synchronously, so an iPad trackpad
+works on its first hover rather than its second. Trends and the global footer
+apply the same rule and captured-target resolver. The split was developed with
+an explicitly pinned Claude Opus planner through Parley (request
+`req_consult_051f0c3ae6933cdc`, artifact
+`art_sha256_6f35c0206d26c30c4c81f78d619fd8954c74e1ebf6065da0a629bc64a139e8f9`).
+
 ## 2026-08-09 — Browser-fitted Reader pages
 
 Reader pages follow the viewport, typography, and highlighted source that the

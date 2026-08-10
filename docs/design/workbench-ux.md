@@ -115,11 +115,13 @@ The trend plate preserves these rules:
 - an explicit linked-range mode with handles, Cancel, and Use range; and
 - exact graph values through the method/detail surfaces.
 
-Pointer motion and touch reading move a transient cursor. Fine-pointer hover in
-an exact barcode row snaps only within the specified pixel tolerance. Density
-cells never pretend to be exact targets. Clicking an exact occurrence centers
-the concordance; opening source text is an explicit action from Concordance or
-the global reading footer.
+Pointer motion and touch reading move a transient cursor. Mouse and pen hover in
+an exact barcode row snap only within the specified pixel tolerance; touch
+stays on its direct raw position. This is decided per pointer event, so an iPad
+trackpad retains precise hover and snapping while the same device keeps its
+large touch controls. Density cells never pretend to be exact targets.
+Clicking an exact occurrence centers the concordance; opening source text is an
+explicit action from Concordance or the global reading footer.
 
 The fixed reading footer is present in all five workbench places and absent in
 Reader. Its one corpus-order axis aligns a clipped current passage, thin
@@ -130,18 +132,19 @@ line is a transient `reader-page/1` window. Pointer samples are frame-coalesced;
 its independent single-flight lane issues the newest unserved position
 immediately, retains the last authenticated page while the next is in flight,
 and saves no text or range. Absolute hover continues to seek the shared corpus
-axis. A fine-pointer press-and-drag instead acts as an explicit reading
+axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token
 rate, the truthful cursor advances through declared book order while the
 pointer is held, and release pauses at the exact displayed token. This
 time-based gesture can traverse the whole corpus without being limited by a
 many-tokens-per-pixel absolute scale; at slower rates it exposes each successive
 token, while the maximum rate is intentionally a skim. An unmoved click keeps
-its existing barcode/raw activation. Fine-pointer
+its existing barcode/raw activation. Mouse or pen
 hover requires a brief entry dwell before it moves global focus and snaps to a
 nearby exact barcode occurrence; density hover remains at the raw corpus
-position. Coarse input gets a 44px strip and a 44px passage action that opens
-Reader. Double-clicking any non-control footer area opens Reader directly at
+position. Any available coarse input keeps a 44px strip and a 44px passage
+action that opens Reader, even after mouse interaction. Double-clicking any
+non-control footer area opens Reader directly at
 that corpus position. In an exact barcode lane, a nearby occurrence supplies
 the target; in a density lane, Reader stays at the raw clicked position because
 an aggregate midpoint is not an exact source reference. The coarse passage

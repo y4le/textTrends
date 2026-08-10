@@ -83,6 +83,7 @@ import {
 } from '../lib/trend-display.ts';
 import { trendStageGeometry, trendStageProjection, trendStageSnapIndexes } from '../lib/trend-stage.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
+import { pointerIntentFor } from '../lib/pointer-capability.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
@@ -207,14 +208,10 @@ export function TrendPanel() {
       })
     : null,
   [plotW, stageProjection, trendView]);
-  const snapIndexes = useMemo(
-    // Branch before calling the allocator: exact tracks can contain 250k
-    // occurrences, and coarse pointers never consume pixel snapping.
-    () => stageProjection && presentation.pointer !== 'coarse'
-      ? trendStageSnapIndexes(stageProjection)
-      : [],
-    [presentation.pointer, stageProjection],
-  );
+  const snapIndexCache = useRef<{
+    readonly projection: NonNullable<typeof stageProjection>;
+    readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
+  } | null>(null);
   const styleSlotBySeries = useMemo(
     () => new Map(series.map((item) => [item.id, item.styleSlot])),
     [series],
@@ -273,13 +270,28 @@ export function TrendPanel() {
   const captureBarcode: CaptureBarcodePointer = (
     sample,
     allowExactSnap,
-  ) => captureBarcodePointerTarget(
-    tracks,
-    snapIndexes,
-    sample,
-    edgeX,
-    allowExactSnap && presentation.pointer !== 'coarse',
-  );
+  ) => {
+    // Exact tracks can contain 250k occurrences. Allocate their pixel indexes
+    // only on the first precise barcode event, retain them for this projection,
+    // and never turn hover into a React render/chart commit.
+    let exactIndexes: ReturnType<typeof trendStageSnapIndexes> = [];
+    if (allowExactSnap) {
+      const cached = snapIndexCache.current;
+      if (cached?.projection === stageProjection) {
+        exactIndexes = cached.indexes;
+      } else {
+        exactIndexes = trendStageSnapIndexes(stageProjection);
+        snapIndexCache.current = { projection: stageProjection, indexes: exactIndexes };
+      }
+    }
+    return captureBarcodePointerTarget(
+      tracks,
+      exactIndexes,
+      sample,
+      edgeX,
+      allowExactSnap,
+    );
+  };
   const activateBarcode = (
     track: BarcodeTrackVM,
     target: BarcodeActivation | null,
@@ -411,7 +423,7 @@ export function TrendPanel() {
             trackGap={geometry.barcodeTrackGap}
             slotOf={slotOf}
             focusedSeries={focusedSeries}
-            coarse={presentation.pointer === 'coarse'}
+            coarse={presentation.coarseAvailable}
           />
         )}
       >
@@ -898,7 +910,8 @@ function ScrubSurface({
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
-          const target = targetFromPointer(px, py);
+          const precise = pointerIntentFor(e.pointerType) === 'precise';
+          const target = targetFromPointer(px, py, precise);
           const tap = pointerTap.current;
           if (tap?.pointerId === e.pointerId) {
             if (Math.hypot(e.clientX - tap.x, e.clientY - tap.y) >= 4) {
@@ -923,14 +936,15 @@ function ScrubSurface({
         }}
         onPointerDown={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
+          const precise = pointerIntentFor(e.pointerType) === 'precise';
           const origin = targetFromPointer(
             e.clientX - rect.left,
             e.clientY - rect.top,
-            rangeDraft === null,
+            rangeDraft === null && precise,
           );
           if (!origin) return;
           if (origin.zone === 'barcode' || e.pointerType !== 'mouse' || rangeDraft !== null) {
-            if (e.pointerType === 'mouse') e.currentTarget.setPointerCapture(e.pointerId);
+            if (precise) e.currentTarget.setPointerCapture(e.pointerId);
             pointerTap.current = {
               pointerId: e.pointerId,
               x: e.clientX,
@@ -962,7 +976,7 @@ function ScrubSurface({
             if (!tap.moved) {
               if (
                 tap.origin.zone === 'barcode'
-                && tap.pointerType === 'mouse'
+                && pointerIntentFor(tap.pointerType) === 'precise'
                 && rangeDraft === null
               ) {
                 const resolution = resolveCapturedBarcodeTarget(barcodeTracks, {

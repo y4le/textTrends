@@ -238,7 +238,7 @@ export function BarcodeLegend({
   readonly onActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
 }) {
   const presentation = usePresentation();
-  const coarse = presentation.pointer === 'coarse';
+  const coarse = presentation.coarseAvailable;
   const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
   const stepper = barcodeStepperFor(tracks, focusedSeries, labelOf);
   if (tracks.length === 0) return null;

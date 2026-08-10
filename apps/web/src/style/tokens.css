@@ -2884,7 +2884,7 @@ canvas {
 
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (any-pointer: coarse) {
   .reader-region button {
     min-inline-size: 44px;
   }
@@ -3154,7 +3154,7 @@ canvas {
   }
 }
 
-@media (pointer: coarse) {
+@media (pointer: coarse), (any-pointer: coarse) {
   .footer-passage-retry {
     min-inline-size: 44px;
     min-block-size: 44px;
