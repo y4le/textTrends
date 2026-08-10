@@ -1,7 +1,7 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, SHERLOCK, trace } from './helpers.ts';
 
 async function openReader(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -141,6 +141,35 @@ test('Reader has one full-viewport presentation without mode or background work'
   await expect(page.locator('html')).not.toHaveClass(/reader-open/);
   await page.goForward();
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
+});
+
+test('Reader page turns roll over between adjacent texts', async ({ page }) => {
+  const { reader } = await openReader(page);
+  const heading = reader.getByRole('heading', { level: 2 });
+  const title = await heading.textContent();
+  const initialIndex = SHERLOCK.findIndex((entry) => title?.includes(entry.title));
+  expect(initialIndex).toBeGreaterThanOrEqual(0);
+  expect(initialIndex).toBeLessThan(SHERLOCK.length - 1);
+  const initialTitle = SHERLOCK[initialIndex]!.title;
+  const nextTitle = SHERLOCK[initialIndex + 1]!.title;
+  const initialRange = await reader.locator('[data-reader-page]').getAttribute('data-reader-page');
+
+  await reader.focus();
+  await reader.press('End');
+  await expect.poll(() => reader.locator('[data-reader-page]').getAttribute('data-reader-page'))
+    .not.toBe(initialRange);
+  await settledReaderRange(reader);
+  const next = reader.locator('.reader-page-next');
+  await expect(next).toBeEnabled();
+  await next.click();
+  await expect(heading).toContainText(nextTitle);
+  expect((await settledReaderRange(reader))[0]).toBe(0);
+
+  const previous = reader.locator('.reader-page-previous');
+  await expect(previous).toBeEnabled();
+  await previous.click();
+  await expect(heading).toContainText(initialTitle);
+  expect((await settledReaderRange(reader))[0]).toBeGreaterThan(0);
 });
 
 test('Reader stays viewport-bound and locks outer scrolling at iPad and phone widths', async ({
