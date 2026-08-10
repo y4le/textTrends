@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import { useApp } from './lib/store-instance.ts';
@@ -12,7 +13,7 @@ import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { LensOrgan } from './components/LensOrgan.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
-import { occurrenceNavigationText } from './lib/store.ts';
+import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
   rootShortcutAllowed,
@@ -53,6 +54,36 @@ const MethodSurface = lazy(() =>
 const WorkbenchFooter = lazy(() =>
   import('./components/WorkbenchFooter.tsx').then(({ WorkbenchFooter: footer }) => ({ default: footer })),
 );
+
+interface ReaderEdgePointer {
+  readonly id: number;
+  readonly x: number;
+  readonly y: number;
+  readonly time: number;
+  readonly target: EventTarget | null;
+  readonly geometry: string;
+}
+
+function isInteractiveReaderTarget(target: EventTarget | null): boolean {
+  return target instanceof Element
+    && target.closest(
+      'button, a, input, select, textarea, [role="button"], [data-reader-mark]',
+    ) !== null;
+}
+
+function settledReaderGeometry(
+  region: HTMLElement,
+  visible: ReaderVisibleRangeV1 | null,
+): string | null {
+  const pane = region.querySelector<HTMLElement>('.reader-prose-pane');
+  if (
+    pane === null
+    || pane.hasAttribute('data-reader-fitting')
+    || visible === null
+    || !visible.geometry.startsWith(`${pane.clientWidth}x${pane.clientHeight}:`)
+  ) return null;
+  return visible.geometry;
+}
 
 function PlaceSurface({
   place,
@@ -108,6 +139,7 @@ export function App() {
   const readerPlace = useApp((s) => s.readerPlace);
   const readerPage = useApp((s) => s.readerPage);
   const readerNavigation = useApp((s) => s.readerNavigation);
+  const readerVisibleRange = useApp((s) => s.readerVisibleRange);
   const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
   const series = useApp((s) => s.series);
   const closeReader = useApp((s) => s.closeReader);
@@ -120,6 +152,7 @@ export function App() {
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const [shortcutHelpContext, setShortcutHelpContext] = useState<ShortcutHelpContext | null>(null);
   const shortcutReturnFocus = useRef<HTMLElement | null>(null);
+  const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
@@ -328,6 +361,57 @@ export function App() {
     return () => document.documentElement.classList.remove('reader-open');
   }, [readerOpen]);
 
+  const moveReaderPage = (direction: 1 | -1) => {
+    const cursor = direction === 1
+      ? readerNavigation?.next
+      : readerNavigation?.previous;
+    if (!cursor) {
+      setReaderKeyboardStatus(direction === 1 ? 'end of book' : 'start of book');
+      return;
+    }
+    setReaderKeyboardStatus('');
+    navigateReader(cursor);
+  };
+  const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
+    readerEdgePointer.current = null;
+    if (event.pointerType !== 'touch' || !event.isPrimary) return;
+    const geometry = settledReaderGeometry(event.currentTarget, readerVisibleRange);
+    if (geometry === null) return;
+    readerEdgePointer.current = {
+      id: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      time: event.timeStamp,
+      target: event.target,
+      geometry,
+    };
+  };
+  const onReaderPointerUp = (event: ReactPointerEvent<HTMLElement>) => {
+    const down = readerEdgePointer.current;
+    readerEdgePointer.current = null;
+    if (
+      down === null
+      || down.id !== event.pointerId
+      || event.pointerType !== 'touch'
+      || event.timeStamp - down.time > 500
+      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
+      || isInteractiveReaderTarget(down.target)
+      || isInteractiveReaderTarget(event.target)
+      || window.getSelection()?.isCollapsed === false
+      || down.geometry !== settledReaderGeometry(event.currentTarget, readerVisibleRange)
+    ) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const edge = Math.max(44, Math.min(120, rect.width * 0.18));
+    const x = event.clientX - rect.left;
+    if (x <= edge && readerNavigation?.previous) {
+      event.preventDefault();
+      moveReaderPage(-1);
+    } else if (x >= rect.width - edge && readerNavigation?.next) {
+      event.preventDefault();
+      moveReaderPage(1);
+    }
+  };
+
   if (readerPlace) {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
       ?? readerPlace.doc;
@@ -337,21 +421,14 @@ export function App() {
         id="reader-region"
         className="reader-region"
         data-shortcut-context="reader"
+        data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
+        onPointerDown={onReaderPointerDown}
+        onPointerUp={onReaderPointerUp}
+        onPointerCancel={() => { readerEdgePointer.current = null; }}
         onKeyDown={(event) => {
           if (!rootShortcutAllowed(event)) return;
-          const move = (direction: 1 | -1) => {
-            const cursor = direction === 1
-              ? readerNavigation?.next
-              : readerNavigation?.previous;
-            if (!cursor) {
-              setReaderKeyboardStatus(direction === 1 ? 'end of book' : 'start of book');
-              return;
-            }
-            setReaderKeyboardStatus('');
-            navigateReader(cursor);
-          };
           if (shortcutMatches(event, 'reader-close')) {
             event.preventDefault();
             closeReader();
@@ -359,12 +436,12 @@ export function App() {
           }
           if (shortcutMatches(event, 'reader-page-previous')) {
             event.preventDefault();
-            move(-1);
+            moveReaderPage(-1);
             return;
           }
           if (shortcutMatches(event, 'reader-page-next')) {
             event.preventDefault();
-            move(1);
+            moveReaderPage(1);
             return;
           }
           if (shortcutMatches(event, 'reader-occurrence-next')) {

@@ -44,14 +44,25 @@ async function expectReaderFillsViewport(
   height: number,
 ) {
   await page.setViewportSize({ width, height });
+  await page.evaluate(() => new Promise<void>((resolve) => {
+    requestAnimationFrame(() => requestAnimationFrame(() => resolve()));
+  }));
   const box = await reader.boundingBox();
   expect(box).not.toBeNull();
   expect(box!.x).toBeCloseTo(0, 0);
   expect(box!.y).toBeCloseTo(0, 0);
   expect(box!.width).toBeCloseTo(width, 0);
   expect(box!.height).toBeCloseTo(height, 0);
+  const pane = reader.locator('.reader-prose-pane');
+  await expect.poll(async () => {
+    const published = await reader.getAttribute('data-reader-fit-size');
+    const current = await pane.evaluate(
+      (element) => `${element.clientWidth}x${element.clientHeight}`,
+    );
+    return published === current;
+  }).toBe(true);
   await expect(reader.getByRole('navigation', { name: 'Reader navigation' })).toBeVisible();
-  await expect(reader.locator('.reader-prose-pane')).not.toHaveAttribute('data-reader-fitting');
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
   await expectNoBodyOverflow(page);
 }
 
@@ -59,6 +70,30 @@ function parseReaderRange(value: string | null): readonly [number, number] {
   const match = /^(\d+):(\d+)$/.exec(value ?? '');
   expect(match).not.toBeNull();
   return [Number(match![1]), Number(match![2])];
+}
+
+async function dispatchReaderPointer(
+  target: Locator,
+  pointerType: 'touch' | 'mouse',
+  from: { readonly x: number; readonly y: number },
+  to = from,
+) {
+  const init = {
+    pointerType,
+    pointerId: 7,
+    isPrimary: true,
+    button: 0,
+  };
+  await target.dispatchEvent('pointerdown', { ...init, clientX: from.x, clientY: from.y });
+  await target.dispatchEvent('pointerup', { ...init, clientX: to.x, clientY: to.y });
+}
+
+async function settledReaderRange(reader: Locator): Promise<readonly [number, number]> {
+  const pane = reader.locator('.reader-prose-pane');
+  await expect(pane).not.toHaveAttribute('data-reader-fitting');
+  return parseReaderRange(
+    await reader.locator('[data-reader-page]').getAttribute('data-reader-page'),
+  );
 }
 
 test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ page }) => {
@@ -186,4 +221,68 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
   await expect(reader).toHaveAttribute('data-tt-probe', 'reader-stays-mounted');
   await expect(reader.locator('[data-reader-page]')).toHaveAttribute('data-reader-page', pageRange!);
   expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
+});
+
+test('touch edge taps turn fitted pages without stealing text interaction', async ({ page }) => {
+  const { reader } = await openReader(page);
+  await expectReaderFillsViewport(page, reader, 390, 844);
+  const pane = reader.locator('.reader-prose-pane');
+  const box = await reader.boundingBox();
+  expect(box).not.toBeNull();
+  const y = box!.y + box!.height / 2;
+  const left = { x: box!.x + 4, y };
+  const center = { x: box!.x + box!.width / 2, y };
+  const right = { x: box!.x + box!.width - 4, y };
+  const initial = await settledReaderRange(reader);
+
+  await dispatchReaderPointer(reader, 'touch', center);
+  await dispatchReaderPointer(reader, 'mouse', right);
+  const mark = reader.locator('[data-reader-mark]').first();
+  await expect(mark).toBeVisible();
+  await dispatchReaderPointer(mark, 'touch', right);
+  await dispatchReaderPointer(
+    reader.getByRole('button', { name: 'back', exact: true }),
+    'touch',
+    right,
+  );
+  const pointer = { pointerType: 'touch', isPrimary: true, button: 0 };
+  const rightPointer = { ...pointer, clientX: right.x, clientY: right.y };
+  await reader.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 8 });
+  await reader.dispatchEvent('pointercancel', { ...rightPointer, pointerId: 8 });
+  await reader.dispatchEvent('pointerup', { ...rightPointer, pointerId: 8 });
+  await reader.dispatchEvent('pointerdown', { ...rightPointer, pointerId: 9 });
+  await reader.dispatchEvent('pointerup', { ...rightPointer, pointerId: 10 });
+  await page.waitForTimeout(100);
+  expect(await settledReaderRange(reader)).toEqual(initial);
+
+  await reader.locator('[data-reader-page]').evaluate((element) => {
+    const walker = document.createTreeWalker(element, NodeFilter.SHOW_TEXT);
+    const text = walker.nextNode();
+    if (!text || !text.textContent) throw new Error('reader page has no selectable text');
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, Math.min(2, text.textContent.length));
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+  await dispatchReaderPointer(pane, 'touch', right);
+  await page.waitForTimeout(100);
+  expect(await settledReaderRange(reader)).toEqual(initial);
+  await page.evaluate(() => window.getSelection()?.removeAllRanges());
+
+  await dispatchReaderPointer(reader, 'touch', right, { x: center.x, y: center.y + 20 });
+  await page.waitForTimeout(100);
+  expect(await settledReaderRange(reader)).toEqual(initial);
+
+  await dispatchReaderPointer(reader, 'touch', right);
+  await expect(reader.locator('[data-reader-page]'))
+    .toHaveAttribute('data-reader-page', new RegExp(`^${initial[1]}:`));
+  const next = await settledReaderRange(reader);
+  expect(next[0]).toBe(initial[1]);
+
+  await dispatchReaderPointer(reader, 'touch', left);
+  await expect(reader.locator('[data-reader-page]'))
+    .toHaveAttribute('data-reader-page', new RegExp(`^${initial[0]}:`));
+  expect(await settledReaderRange(reader)).toEqual(initial);
 });

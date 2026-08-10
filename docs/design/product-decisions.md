@@ -16,6 +16,10 @@ The prose pane is overflow-hidden, while Home/End, h/l, arrows, Page Up/Down,
 and w/W retain their reading semantics. Compact layouts use a two-row control
 grid. The requested anchor keeps a layout-neutral underline and background;
 font-weight emphasis is excluded because it can move the measured page seam.
+On touch screens, a short tap in the Reader's outer edge zone turns toward that
+edge. The zone is 18% of the width, bounded to 44–120 CSS pixels. This
+supplements the visible controls and ignores unsettled layouts, drags,
+selections, and interactive descendants so ordinary text interaction survives.
 
 The design was developed with an explicitly pinned Claude Opus planner through
 Parley (requests `req_consult_89063bb9c964ba41` and

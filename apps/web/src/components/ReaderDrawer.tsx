@@ -322,15 +322,12 @@ export function ReaderDrawer({
   useLayoutEffect(() => {
     const pane = paneRef.current;
     if (!pane || typeof ResizeObserver === 'undefined') return undefined;
+    lastPaneSize.current = `${pane.clientWidth}x${pane.clientHeight}`;
     let frame = 0;
     const remeasure = () => {
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const size = `${pane.clientWidth}x${pane.clientHeight}`;
-        if (lastPaneSize.current === null) {
-          lastPaneSize.current = size;
-          return;
-        }
         if (lastPaneSize.current === size) return;
         lastPaneSize.current = size;
         const source = sourceRef.current;
