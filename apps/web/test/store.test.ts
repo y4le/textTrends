@@ -313,6 +313,7 @@ function fakeReaderPage(
   end: number,
   docTokenCount = 10,
   doc = 'a',
+  anchorToken?: number,
 ): QueryResultDataV4 {
   const count = end - start;
   return {
@@ -325,7 +326,13 @@ function fakeReaderPage(
       text: 'x'.repeat(count),
       tokenStartsUtf16: Array.from({ length: count }, (_, index) => index),
       tokenEndsUtf16: Array.from({ length: count }, (_, index) => index + 1),
-      anchor: null,
+      anchor: anchorToken === undefined
+        ? null
+        : {
+            token: anchorToken,
+            relToken: anchorToken - start,
+            charsUtf16: { start: anchorToken - start, end: anchorToken - start + 1 },
+          },
       previous: start === 0 ? null : { kind: 'before', token: start },
       next: end === docTokenCount ? null : { kind: 'from', token: end },
       atStart: start === 0,
@@ -2462,6 +2469,27 @@ describe('global footer passage intent', () => {
       page: { tokens: { start: 0, end: 100 } },
       state: { status: 'error', message: 'source failed' },
     });
+    f.runtime.dispose();
+  });
+
+  it('clears a failed request when the resident page serves the returned cursor', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setScrub({ doc: 'a', token: 40 });
+    f.readers()[0]!.resolve(fakeReaderPage(0, 100, 1_000, 'a', 40));
+    await settle();
+
+    f.store.getState().setScrub({ doc: 'a', token: 500 });
+    f.readers()[1]!.reject(new Error('source failed'));
+    await settle();
+    f.store.getState().setScrub({ doc: 'a', token: 50 });
+
+    expect(f.store.getState().footerPassage).toMatchObject({
+      page: { tokens: { start: 0, end: 100 } },
+      state: { status: 'ready' },
+    });
+    f.store.getState().runFooterPassage();
+    expect(f.readers()).toHaveLength(2);
     f.runtime.dispose();
   });
 });

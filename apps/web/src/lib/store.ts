@@ -1562,16 +1562,17 @@ export function createAppRuntime(
         if (footerPassageActive !== null) {
           footerPassageLane.supersede();
           footerPassageActive = null;
-          const passage = get().footerPassage;
-          if (passage?.page) {
-            set({
-              footerPassage: {
-                ...passage,
-                doc: target.doc,
-                state: { status: 'ready' },
-              },
-            });
-          }
+        }
+        const passage = get().footerPassage;
+        // A failed or superseded request cannot leave an error/pending overlay
+        // over a resident page that honestly serves the current target.
+        if (passage?.page && passage.state.status !== 'ready') {
+          set({
+            footerPassage: {
+              ...passage,
+              state: { status: 'ready' },
+            },
+          });
         }
         return;
       }

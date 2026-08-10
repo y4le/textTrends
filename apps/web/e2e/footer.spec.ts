@@ -144,6 +144,48 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   );
 });
 
+test('a cold footer source request reports loading and offers a working retry', async ({ page }) => {
+  await page.addInitScript(() => {
+    const nativePostMessage = Worker.prototype.postMessage;
+    let failFirstFooterPage = true;
+    Worker.prototype.postMessage = function patchedPostMessage(
+      message: unknown,
+      transfer?: Transferable[] | StructuredSerializeOptions,
+    ) {
+      const envelope = message as {
+        t?: string;
+        query?: { op?: string; request?: { doc?: string } };
+      };
+      if (failFirstFooterPage && envelope.t === 'query' && envelope.query?.op === 'reader-page') {
+        failFirstFooterPage = false;
+        const broken = structuredClone(envelope);
+        broken.query!.request!.doc = '__missing_footer_doc__';
+        setTimeout(() => Reflect.apply(nativePostMessage, this, [broken]), 250);
+        return;
+      }
+      Reflect.apply(
+        nativePostMessage,
+        this,
+        transfer === undefined ? [message] : [message, transfer],
+      );
+    };
+  });
+  await page.goto('./');
+  await awaitAllReady(page);
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  await slider.focus();
+  await slider.press('ArrowRight');
+  await expect(footer.getByText('loading source…', { exact: true })).toBeVisible();
+  const retry = footer.getByRole('button', { name: 'retry', exact: true });
+  await expect(retry).toBeVisible();
+  await retry.click();
+  await expect(footer.getByRole('button', { name: /Open reader at .* token/ })).toBeVisible({
+    timeout: 15_000,
+  });
+});
+
 test('Trends exposes footer reading keys without requiring footer focus', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
