@@ -79,6 +79,7 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   await page.goto('./');
   await awaitAllReady(page);
 
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const passage = page.locator('.footer-passage[data-passage-for]');
   await expect(slider).toHaveAttribute('aria-valuetext', 'no position');
@@ -96,9 +97,35 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   await slider.press('Shift+ArrowLeft');
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
 
+  const occurrenceMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await slider.press('w');
+  await expect(footer.locator('.footer-reading-status')).toContainText('next Holmes occurrence');
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(0);
+  const firstOccurrence = Number(await slider.getAttribute('aria-valuenow'));
+  await slider.press('w');
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(firstOccurrence);
+  await slider.press('W');
+  await expect(slider).toHaveAttribute('aria-valuenow', String(firstOccurrence));
+  expect((await trace(page)).events.filter((event) =>
+    event.seq > occurrenceMark
+    && event.direction === 'to-worker'
+    && event.t === 'query'
+    && event.op === 'occurrence-step')).toHaveLength(3);
+
   await slider.press('Enter');
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();
+  await expect(reader.getByRole('button', { name: /previous Holmes/ })).toBeVisible();
+  await expect(reader.getByRole('button', { name: /next Holmes/ })).toBeVisible();
+  const readerProse = reader.locator('[data-reader-page]');
+  await expect(readerProse).toHaveAttribute('data-reader-anchor', String(firstOccurrence));
+  await reader.press('w');
+  await expect.poll(async () => Number(await readerProse.getAttribute('data-reader-anchor')))
+    .toBeGreaterThan(firstOccurrence);
+  await reader.press('W');
+  await expect(readerProse).toHaveAttribute('data-reader-anchor', String(firstOccurrence));
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();
   await slider.press('o');

@@ -53,6 +53,7 @@ function ReaderProse({
     <div
       className="source-text"
       data-reader-page={`${page.tokens.start}:${page.tokens.end}`}
+      data-reader-anchor={page.anchor?.token}
       style={{
         fontFamily: 'var(--font-serif)',
         fontSize: '1.05rem',
@@ -147,6 +148,10 @@ export function ReaderDrawer({
   const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
   const retryReader = useApp((state) => state.retryReader);
+  const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
+  const stepOccurrence = useApp((state) => state.stepOccurrence);
+  const series = useApp((state) => state.series);
+  const focusedSeries = useApp((state) => state.focusedSeries);
   if (!place) return null;
   const current = result && sameReaderPlace(result.place, place) ? result : null;
   const title =
@@ -166,6 +171,8 @@ export function ReaderDrawer({
     liveSeries,
   );
   const ready = current?.state.status === 'ready' ? current.state.page : null;
+  const focused = series.find((item) => item.id === focusedSeries) ?? series[0];
+  const occurrencePending = occurrenceNavigation?.state.status === 'pending';
 
   return (
     <>
@@ -232,8 +239,18 @@ export function ReaderDrawer({
 
       <nav
         className="reader-pages"
-        aria-label="Reader pages"
+        aria-label="Reader navigation"
       >
+        <button
+          type="button"
+          aria-keyshortcuts="Shift+W"
+          disabled={!focused || occurrencePending}
+          onClick={() => stepOccurrence(-1)}
+          title={focused ? `Previous exact ${focused.label} occurrence` : 'No active term'}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
+        >
+          previous {focused?.label ?? 'term'} occurrence
+        </button>
         <button
           type="button"
           aria-keyshortcuts="h ArrowLeft PageUp"
@@ -251,6 +268,16 @@ export function ReaderDrawer({
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}
         >
           next →
+        </button>
+        <button
+          type="button"
+          aria-keyshortcuts="w"
+          disabled={!focused || occurrencePending}
+          onClick={() => stepOccurrence(1)}
+          title={focused ? `Next exact ${focused.label} occurrence` : 'No active term'}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
+        >
+          next {focused?.label ?? 'term'} occurrence
         </button>
       </nav>
     </>

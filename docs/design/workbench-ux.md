@@ -204,6 +204,14 @@ Reader owns the reading keys while it is open: `h`/Left/PageUp and
 scroll the prose, Home/End request the document boundaries, and Escape follows
 the same governed Back path as the visible control.
 
+`w` and `W` move to the next and previous exact occurrence of the focused
+active term across the full declared corpus. If no term is focused, the first
+active term becomes the focus. Overlapping raw matches at one token start are
+one stable reading stop with their member provenance combined; density barcode
+buckets and linked analytical ranges never approximate or narrow this action.
+The shared scrub position and Concordance center follow the result, and an open
+Reader replaces its current page around that exact occurrence.
+
 ## Responsive, accessibility, and history contracts
 
 - Compact is below 600 CSS pixels; regular is 600–1023; wide is at least 1024.

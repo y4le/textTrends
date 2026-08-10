@@ -114,6 +114,7 @@ import type {
   FrequencyTokenClassV1,
   KeynessResultV1,
   KeynessSortFieldV1,
+  OccurrenceStepHitV1,
   WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 import {
@@ -497,6 +498,40 @@ export interface ScrubTarget {
   readonly token: number;
 }
 
+/** One exact focused-term navigation intent. The worker returns one bounded
+ * distinct-start hit; raw overlap counts never become a misleading progress
+ * readout. */
+export interface OccurrenceNavigationState {
+  readonly snapshot: string;
+  readonly seriesId: string;
+  readonly direction: 1 | -1;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly hit: OccurrenceStepHitV1 }
+    | { readonly status: 'edge' }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export function occurrenceNavigationText(
+  navigation: OccurrenceNavigationState | null,
+  series: readonly SeriesIntent[],
+): string {
+  if (navigation === null) return '';
+  const label = series.find((item) => item.id === navigation.seriesId)?.label
+    ?? 'focused term';
+  const way = navigation.direction === 1 ? 'next' : 'previous';
+  switch (navigation.state.status) {
+    case 'pending': return `finding ${way} ${label} occurrence`;
+    case 'ready': return `${way} ${label} occurrence`;
+    case 'edge': return `no ${way} ${label} occurrence`;
+    case 'error': return `${label} navigation failed: ${navigation.state.message}`;
+    default: {
+      const exhaustive: never = navigation.state;
+      return exhaustive;
+    }
+  }
+}
+
 /** Bootstrap lifecycle, distinct from analysis state: the store is exported
  *  synchronously but the session needs the async-built built-in project, so
  *  there is a window before the one-shot attachment where no session exists.
@@ -652,6 +687,8 @@ export interface AppState {
   scrub: ScrubTarget | null;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
+  /** Latest exact w/W navigation request and its accessible outcome. */
+  occurrenceNavigation: OccurrenceNavigationState | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
   readerPage: ReaderPageState | null;
@@ -717,6 +754,7 @@ export interface AppState {
   setFocusedDoc(doc: string): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
+  stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   navigateReader(cursor: ReaderPlace['cursor']): void;
   retryReader(): void;
@@ -1046,6 +1084,8 @@ export function createAppRuntime(
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
   const readerLane = new QueryLane(scope);
+  // Exact focused-term stepping is independent of Reader/footer passage work.
+  const occurrenceLane = new QueryLane(scope);
   // The global reading footer reuses reader-page/1 through a separate lane.
   // Reader navigation and footer scrubbing never supersede one another.
   const footerPassageLane = new QueryLane(scope);
@@ -2116,6 +2156,7 @@ export function createAppRuntime(
       focusedDoc: null,
       scrub: null,
       footerPassage: null,
+      occurrenceNavigation: null,
       readerPlace: null,
       readerPage: null,
       readerNavigation: null,
@@ -2283,7 +2324,8 @@ export function createAppRuntime(
         if (!get().series.some((s) => s.id === seriesId)) return;
         // Focus drives ONLY the trend-line emphasis; the concordance is a merged
         // multi-term view independent of focus, so no KWIC reissue here.
-        set({ focusedSeries: seriesId });
+        occurrenceLane.supersede();
+        set({ focusedSeries: seriesId, occurrenceNavigation: null });
       },
 
       toggleKwicSeries(seriesId) {
@@ -2401,17 +2443,201 @@ export function createAppRuntime(
           scheduleFooterPassage(target);
           return;
         }
-        if (changed) set({ scrub: target });
+        if (changed) {
+          occurrenceLane.supersede();
+          set({ scrub: target, occurrenceNavigation: null });
+        }
         scheduleFooterPassage(target);
         scheduleKwicCenter(target); // debounced concordance re-centre on the axis
       },
 
       clearScrub() {
-        set({ scrub: null });
+        occurrenceLane.supersede();
+        set({ scrub: null, occurrenceNavigation: null });
         resetFooterPassage();
         // The concordance falls back to reading order immediately.
         resetKwicCenter();
         runKwic();
+      },
+
+      stepOccurrence(direction) {
+        occurrenceLane.supersede();
+        const state = get();
+        const snapshot = state.snapshot;
+        const focused = state.series.find((item) => item.id === state.focusedSeries)
+          ?? state.series[0];
+        if (!snapshot || !focused || (direction !== 1 && direction !== -1)) {
+          set({ occurrenceNavigation: null });
+          return;
+        }
+        const group = specFor(focused.id);
+        if (group === null) {
+          set({ occurrenceNavigation: null });
+          return;
+        }
+        const currentReader = state.readerPlace;
+        const readyReader = currentReader
+          && state.readerPage
+          && sameReaderPlace(state.readerPage.place, currentReader)
+          && state.readerPage.state.status === 'ready'
+          ? state.readerPage.state.page
+          : null;
+        const readerAnchor = readyReader
+          ? {
+              doc: readyReader.doc,
+              token: readyReader.anchor?.token ?? readyReader.tokens.start,
+            }
+          : null;
+        let anchor = readerAnchor ?? state.scrub;
+        if (anchor === null) {
+          const candidates = direction === 1
+            ? snapshot.readyDocs
+            : [...snapshot.readyDocs].reverse();
+          const doc = candidates.find((candidate) =>
+            (state.corpusTokenCounts.get(candidate) ?? 0) > 0);
+          const tokenCount = doc ? state.corpusTokenCounts.get(doc) ?? 0 : 0;
+          anchor = doc
+            ? { doc, token: direction === 1 ? 0 : tokenCount - 1 }
+            : null;
+        }
+        if (anchor === null || !snapshot.readyDocs.includes(anchor.doc)) {
+          set({
+            focusedSeries: focused.id,
+            occurrenceNavigation: {
+              snapshot: snapshot.snapshot,
+              seriesId: focused.id,
+              direction,
+              state: { status: 'error', message: 'source positions are still loading' },
+            },
+          });
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedIdentity = termGroupIdentity(group);
+        const issuedReader = currentReader;
+        const readerLayer = issuedReader
+          ? state.layers.findLast((layer) => layer.kind === 'reader')
+          : undefined;
+        const returnFocusTo = readerLayer?.returnFocusTo;
+        const lease = occurrenceLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => identityOf(focused.id) === issuedIdentity,
+          () => sameReaderPlace(get().readerPlace, issuedReader),
+        );
+        set({
+          focusedSeries: focused.id,
+          occurrenceNavigation: {
+            snapshot: snapshot.snapshot,
+            seriesId: focused.id,
+            direction,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          occurrenceLane,
+          snapshot.snapshot,
+          {
+            op: 'occurrence-step',
+            track: { seriesId: focused.id, group },
+            request: {
+              method: 'occurrence-step/1',
+              doc: anchor.doc,
+              token: anchor.token,
+              direction,
+            },
+          },
+          lease,
+          (data) => {
+            if (
+              data.op !== 'occurrence-step'
+              || data.seriesId !== focused.id
+              || data.groupId !== group.id
+              || data.step.method !== 'occurrence-step/1'
+            ) {
+              set({
+                occurrenceNavigation: {
+                  snapshot: snapshot.snapshot,
+                  seriesId: focused.id,
+                  direction,
+                  state: { status: 'error', message: 'worker returned the wrong term' },
+                },
+              });
+              return;
+            }
+            const hit = data.step.hit;
+            if (data.step.atEdge !== (hit === null)) {
+              set({
+                occurrenceNavigation: {
+                  snapshot: snapshot.snapshot,
+                  seriesId: focused.id,
+                  direction,
+                  state: { status: 'error', message: 'worker returned an invalid occurrence step' },
+                },
+              });
+              return;
+            }
+            if (hit === null) {
+              set({
+                occurrenceNavigation: {
+                  snapshot: snapshot.snapshot,
+                  seriesId: focused.id,
+                  direction,
+                  state: { status: 'edge' },
+                },
+              });
+              return;
+            }
+            const tokenCount = get().corpusTokenCounts.get(hit.doc);
+            if (
+              !snapshot.readyDocs.includes(hit.doc)
+              || !Number.isSafeInteger(hit.token)
+              || hit.token < 0
+              || !Number.isSafeInteger(hit.spanTokens)
+              || hit.spanTokens < 1
+              || (tokenCount !== undefined && hit.token + hit.spanTokens > tokenCount)
+              || hit.members.some((member) =>
+                !Number.isSafeInteger(member)
+                || member < 0
+                || member >= group.members.length)
+            ) {
+              set({
+                occurrenceNavigation: {
+                  snapshot: snapshot.snapshot,
+                  seriesId: focused.id,
+                  direction,
+                  state: { status: 'error', message: 'worker returned an invalid occurrence' },
+                },
+              });
+              return;
+            }
+            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().centerKwicAt(focused.id, hit.doc, hit.token);
+            if (issuedReader !== null) {
+              get().openReader({
+                snapshot: snapshot.snapshot,
+                doc: hit.doc,
+                token: hit.token,
+                from: 'occurrence',
+              }, returnFocusTo);
+            }
+            set({
+              occurrenceNavigation: {
+                snapshot: snapshot.snapshot,
+                seriesId: focused.id,
+                direction,
+                state: { status: 'ready', hit },
+              },
+            });
+          },
+          (message) => set({
+            occurrenceNavigation: {
+              snapshot: snapshot.snapshot,
+              seriesId: focused.id,
+              direction,
+              state: { status: 'error', message },
+            },
+          }),
+        );
       },
 
       openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
@@ -2590,6 +2816,8 @@ export function createAppRuntime(
 
       runQueries() {
         const { snapshot, series, trendBins } = get();
+        occurrenceLane.supersede();
+        set({ occurrenceNavigation: null });
         // Reader highlights use the CURRENT semantic active-track projection;
         // rename-only notebook edits do not call runQueries and remain
         // presentation-only, while active/member/overlap changes reissue here.
@@ -3546,6 +3774,7 @@ export function createAppRuntime(
     });
     if (prevKey !== nextKey) {
       readerLane.supersede();
+      occurrenceLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
@@ -3641,6 +3870,7 @@ export function createAppRuntime(
       keynessInventoryALane.supersede();
       keynessInventoryBLane.supersede();
       readerLane.supersede();
+      occurrenceLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;

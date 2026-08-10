@@ -4,6 +4,7 @@ import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { LensOrgan } from './components/LensOrgan.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
+import { occurrenceNavigationText } from './lib/store.ts';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -87,14 +88,18 @@ export function App() {
   const readerPlace = useApp((s) => s.readerPlace);
   const readerPage = useApp((s) => s.readerPage);
   const readerNavigation = useApp((s) => s.readerNavigation);
+  const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
+  const series = useApp((s) => s.series);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
+  const stepOccurrence = useApp((s) => s.stepOccurrence);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const readerScrollRef = useRef<HTMLDivElement | null>(null);
+  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -159,6 +164,16 @@ export function App() {
               event.preventDefault();
               move(1);
               return;
+            case 'w':
+              event.preventDefault();
+              setReaderKeyboardStatus('');
+              stepOccurrence(1);
+              return;
+            case 'W':
+              event.preventDefault();
+              setReaderKeyboardStatus('');
+              stepOccurrence(-1);
+              return;
             case 'j':
               event.preventDefault();
               if (readerScrollRef.current) {
@@ -204,7 +219,7 @@ export function App() {
           aria-label="Reader keyboard status"
           aria-live="polite"
         >
-          {readerKeyboardStatus}
+          {[readerKeyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}
         </span>
         <Suspense
           fallback={(

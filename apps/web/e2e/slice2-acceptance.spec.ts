@@ -143,12 +143,12 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
 
   // Keyboard reader navigation uses served canonical cursors. Forward starts
   // exactly at the prior exclusive end; Previous returns to the exact range.
-  await drawer.getByRole('button', { name: 'next' }).focus();
+  await drawer.getByRole('button', { name: 'next →', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
   await expect(drawer.locator('[data-reader-page="800:900"]')).toBeVisible();
-  await drawer.getByRole('button', { name: 'previous' }).focus();
+  await drawer.getByRole('button', { name: '← previous', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);

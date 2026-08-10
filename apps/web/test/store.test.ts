@@ -21,6 +21,7 @@ import {
   DEFAULT_KEYNESS_VIEW,
   KWIC_CENTER_DEBOUNCE_MS,
   MAX_SERIES,
+  occurrenceNavigationText,
   workspaceSemanticKey,
   type MetaPatch,
   type QueryClient,
@@ -67,11 +68,12 @@ function fakeQueryClient() {
       const q = query as unknown as {
         op: string;
         group?: { id: string; members: { id: string; surface: string }[] };
+        track?: { seriesId: string; group: { id: string; members: { id: string; surface: string }[] } };
         tracks?: readonly { seriesId: string; group: { id: string; members: readonly { id: string; surface: string }[] } }[];
         request?: { doc: string; centerToken: number; tracks: { seriesId: string }[] };
       };
       // trend carries `group`; kwic/2 carries `tracks` (first track's group here).
-      const primaryGroup = q.group ?? q.tracks?.[0]?.group;
+      const primaryGroup = q.group ?? q.track?.group ?? q.tracks?.[0]?.group;
       const entry: Issued = {
         snapshot,
         term: primaryGroup?.members[0]?.surface ?? q.request?.doc ?? '',
@@ -104,6 +106,7 @@ function fakeQueryClient() {
     trends: () => issued.filter((q) => q.op === 'trend'),
     kwics: () => issued.filter((q) => q.op === 'kwic'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
+    occurrenceSteps: () => issued.filter((q) => q.op === 'occurrence-step'),
     inventories: () => issued.filter(
       (q) => q.op === 'inventory'
         && ((q.query as { request?: { rhythmBinsPerDoc?: number } }).request?.rhythmBinsPerDoc ?? 0) > 0,
@@ -2460,6 +2463,179 @@ describe('global footer passage intent', () => {
       state: { status: 'error', message: 'source failed' },
     });
     f.runtime.dispose();
+  });
+});
+
+describe('exact focused-term occurrence navigation', () => {
+  const resultFor = (
+    entry: Issued,
+    hit: { readonly doc: string; readonly token: number; readonly spanTokens: number; readonly members: readonly number[] } | null,
+  ): QueryResultDataV4 => {
+    const query = entry.query as {
+      track: { seriesId: string; group: { id: string } };
+    };
+    return {
+      op: 'occurrence-step',
+      seriesId: query.track.seriesId,
+      groupId: query.track.group.id,
+      step: { method: 'occurrence-step/1', hit, atEdge: hit === null },
+    };
+  };
+
+  it('focuses the first active term, issues one full-corpus exact step, and centers reading + Concordance', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, watson');
+    f.store.setState({ focusedSeries: null });
+    f.store.getState().setScrub({ doc: 'a', token: 2 });
+
+    f.store.getState().stepOccurrence(1);
+    const request = f.occurrenceSteps().at(-1)!;
+    const query = request.query as {
+      selection?: unknown;
+      track: { seriesId: string; group: { id: string; members: { surface: string }[] } };
+      request: { method: string; doc: string; token: number; direction: number };
+    };
+    expect(query.selection).toBeUndefined();
+    expect(query.track.seriesId).toBe(f.store.getState().series[0]!.id);
+    expect(query.track.group.members[0]!.surface).toBe('holmes');
+    expect(query.request).toEqual({
+      method: 'occurrence-step/1', doc: 'a', token: 2, direction: 1,
+    });
+    expect(f.store.getState().occurrenceNavigation?.state.status).toBe('pending');
+
+    request.resolve(resultFor(request, {
+      doc: 'a', token: 7, spanTokens: 2, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 7 },
+      focusedSeries: f.store.getState().series[0]!.id,
+      occurrenceNavigation: {
+        direction: 1,
+        state: {
+          status: 'ready',
+          hit: { doc: 'a', token: 7, spanTokens: 2, members: [0] },
+        },
+      },
+    });
+    const centered = f.kwics().at(-1)!.query as { request: { center?: unknown } };
+    expect(centered.request.center).toEqual({ doc: 'a', token: 7 });
+  });
+
+  it('is latest-wins, rejects a stale settlement, and reports a non-wrapping edge', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 4 });
+
+    f.store.getState().stepOccurrence(1);
+    const stale = f.occurrenceSteps().at(-1)!;
+    f.store.getState().stepOccurrence(-1);
+    const live = f.occurrenceSteps().at(-1)!;
+    expect(stale.cancelled).toBe(true);
+    stale.resolve(resultFor(stale, { doc: 'a', token: 9, spanTokens: 1, members: [0] }));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+
+    live.resolve(resultFor(live, null));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+    expect(f.store.getState().occurrenceNavigation).toMatchObject({
+      direction: -1,
+      state: { status: 'edge' },
+    });
+    expect(occurrenceNavigationText(
+      f.store.getState().occurrenceNavigation,
+      f.store.getState().series,
+    )).toBe('no previous holmes occurrence');
+  });
+
+  it('replaces an open Reader around the exact hit without stacking another layer', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 3, from: 'kwic' });
+    const initialReader = f.readers().at(-1)!;
+    const initialPage = fakeReaderPage(0, 6, 10, 'a');
+    if (initialPage.op !== 'reader-page') throw new Error('expected reader-page');
+    initialReader.resolve({
+      ...initialPage,
+      page: {
+        ...initialPage.page,
+        anchor: { token: 3, relToken: 3, charsUtf16: { start: 3, end: 4 } },
+      },
+    });
+    await flush();
+
+    f.store.getState().stepOccurrence(1);
+    const request = f.occurrenceSteps().at(-1)!;
+    expect((request.query as { request: { doc: string; token: number } }).request)
+      .toMatchObject({ doc: 'a', token: 3 });
+    request.resolve(resultFor(request, {
+      doc: 'b', token: 2, spanTokens: 1, members: [0],
+    }));
+    await flush();
+
+    expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
+    expect(f.store.getState().readerPlace).toMatchObject({
+      doc: 'b', from: 'occurrence', cursor: { kind: 'around', token: 2 },
+    });
+    expect((f.readers().at(-1)!.query as { request: { doc: string; cursor: unknown } }).request)
+      .toMatchObject({ doc: 'b', cursor: { kind: 'around', token: 2 } });
+  });
+
+  it('semantic edits cancel the lane and prevent a late hit from moving the reader', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 2 });
+    f.store.getState().stepOccurrence(1);
+    const request = f.occurrenceSteps().at(-1)!;
+    const group = f.store.getState().notebook.groups[0]!;
+    const member = group.members[0]!;
+    if (member.kind !== 'token') throw new Error('quick-add should create a token');
+    f.store.getState().setGroupMembers(group.id, [{ ...member, surface: 'watson' }], false);
+    expect(request.cancelled).toBe(true);
+    expect(f.store.getState().occurrenceNavigation).toBeNull();
+    request.resolve(resultFor(request, { doc: 'a', token: 8, spanTokens: 1, members: [0] }));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
+  });
+
+  it('refuses mismatched worker identity and malformed hit provenance', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setScrub({ doc: 'a', token: 2 });
+
+    f.store.getState().stepOccurrence(1);
+    const wrongIdentity = f.occurrenceSteps().at(-1)!;
+    const wrongIdentityResult = resultFor(
+      wrongIdentity,
+      { doc: 'a', token: 4, spanTokens: 1, members: [0] },
+    );
+    if (wrongIdentityResult.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    wrongIdentity.resolve({
+      ...wrongIdentityResult,
+      groupId: 'wrong-group',
+    });
+    await flush();
+    expect(f.store.getState().occurrenceNavigation?.state).toMatchObject({
+      status: 'error', message: 'worker returned the wrong term',
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
+
+    f.store.getState().stepOccurrence(1);
+    const malformed = f.occurrenceSteps().at(-1)!;
+    malformed.resolve(resultFor(malformed, {
+      doc: 'a', token: 4, spanTokens: 1, members: [99],
+    }));
+    await flush();
+    expect(f.store.getState().occurrenceNavigation?.state).toMatchObject({
+      status: 'error', message: 'worker returned an invalid occurrence',
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
   });
 });
 

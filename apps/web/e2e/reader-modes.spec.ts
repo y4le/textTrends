@@ -50,7 +50,7 @@ async function expectReaderFillsViewport(
   expect(box!.y).toBeCloseTo(0, 0);
   expect(box!.width).toBeCloseTo(width, 0);
   expect(box!.height).toBeCloseTo(height, 0);
-  await expect(reader.getByRole('navigation', { name: 'Reader pages' })).toBeVisible();
+  await expect(reader.getByRole('navigation', { name: 'Reader navigation' })).toBeVisible();
   await expectNoBodyOverflow(page);
 }
 

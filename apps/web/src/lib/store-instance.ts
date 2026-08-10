@@ -48,6 +48,7 @@ function pendingAnalyses(): number {
     state.keynessInventoryB?.state,
     state.footerPassage?.state,
     state.readerPage?.state,
+    state.occurrenceNavigation?.state,
   ];
   const maps = [
     ...state.trends.values(),

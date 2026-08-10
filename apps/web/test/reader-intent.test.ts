@@ -23,6 +23,11 @@ describe('reader open intent', () => {
       's1',
       ['a', 'b'],
     )?.from).toBe('footer');
+    expect(readerPlaceFor(
+      { snapshot: 's1', doc: 'a', token: 3, from: 'occurrence' },
+      's1',
+      ['a'],
+    )?.from).toBe('occurrence');
   });
 
   it('refuses stale snapshots, departed docs, and invalid tokens', () => {

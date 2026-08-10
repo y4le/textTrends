@@ -19,6 +19,7 @@ import {
 } from 'react';
 import type { NumericTrend } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { occurrenceNavigationText } from '../lib/store.ts';
 import {
   advanceFooterShuttle,
   corpusProgress,
@@ -195,6 +196,9 @@ function FooterInteractive({
   const setScrub = useApp((state) => state.setScrub);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const openReader = useApp((state) => state.openReader);
+  const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
+  const series = useApp((state) => state.series);
+  const stepOccurrence = useApp((state) => state.stepOccurrence);
   const sliderRef = useRef<HTMLDivElement | null>(null);
   const docsRef = useRef(docs);
   const layoutRef = useRef(layout);
@@ -223,6 +227,7 @@ function FooterInteractive({
   const passageWindow = useRef<PassageWindowV1 | null>(null);
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
+  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
   const pointerTap = useRef<{
     readonly pointerId: number;
     readonly pointerType: string;
@@ -280,7 +285,7 @@ function FooterInteractive({
     : Math.abs(shuttleRate) < 0.05
       ? ' · reading paused · drag farther to set pace'
       : ` · reading ${shuttleRate > 0 ? '→' : '←'} ${Math.abs(shuttleRate).toFixed(1)} tokens/s · release to pause`;
-  const status = `${baseStatus}${shuttleStatus}${keyboardStatus ? ` · ${keyboardStatus}` : ''}`;
+  const status = `${baseStatus}${shuttleStatus}${keyboardStatus ? ` · ${keyboardStatus}` : ''}${occurrenceStatus ? ` · ${occurrenceStatus}` : ''}`;
   const honestyQualifier = [
     partial ? 'partial corpus' : '',
     pending ? 'computing' : failed > 0
@@ -308,6 +313,14 @@ function FooterInteractive({
     setPassageAlignment('center');
     setKeyboardStatus('');
   }, [snapshot?.snapshot]);
+
+  useEffect(() => {
+    if (occurrenceNavigation?.state.status !== 'ready') return;
+    passageWindow.current = null;
+    queuedPageDirection.current = null;
+    setPassageAlignment('center');
+    setKeyboardStatus('');
+  }, [occurrenceNavigation]);
 
   const schedule = useCallback((target: { readonly doc: string; readonly token: number }) => {
     pointerSample.current = target;
@@ -506,6 +519,12 @@ function FooterInteractive({
       ? { d: docOrdinal, token: scrub.token }
       : stepAlongSequence(0, 0, 0, layout);
     if (!current) return;
+    if (event.key === 'w' || event.key === 'W') {
+      event.preventDefault();
+      setKeyboardStatus('');
+      stepOccurrence(event.key === 'w' ? 1 : -1);
+      return;
+    }
     const fineDirection = event.key === 'H' || (event.key === 'ArrowLeft' && event.shiftKey)
       ? -1
       : event.key === 'L' || (event.key === 'ArrowRight' && event.shiftKey)
@@ -618,14 +637,16 @@ function FooterInteractive({
         onPassageWindowChange={publishPassageWindow}
       />
       <div className="footer-reading-status" title={status}>{status}</div>
-      <span className="visually-hidden" role="status" aria-live="polite">{keyboardStatus}</span>
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {[keyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}
+      </span>
       <div
         id="corpus-footer-position"
         ref={attachSlider}
         className="footer-strip"
         role="slider"
         aria-roledescription="corpus reading position"
-        aria-keyshortcuts="h l ArrowLeft ArrowRight PageUp PageDown Shift+ArrowLeft Shift+ArrowRight Home End Enter o"
+        aria-keyshortcuts="h l w Shift+W ArrowLeft ArrowRight PageUp PageDown Shift+ArrowLeft Shift+ArrowRight Home End Enter o"
         tabIndex={0}
         aria-label="Corpus footer position"
         aria-valuemin={0}
