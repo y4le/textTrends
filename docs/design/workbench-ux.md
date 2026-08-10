@@ -227,6 +227,16 @@ behavior. Shortcut help is a transient modal rather than navigable research
 state; closing it with Escape or its visible control restores the invoking
 focus without adding browser history.
 
+Two-key Vim sequences expire after 900ms and never create a persistent mode.
+`gc`, `gt`, `gk`, `gv`, and `gd` go to Catalog, Trends, Concordance,
+Vocabulary, and Compare; `gf` focuses the reading footer and `gq` focuses the
+current active term. `[t`/`]t` and `[b`/`]b` clamp through active terms and
+ready books, with a polite boundary announcement. Within the Terms and Lens
+organs, `h`/`l` and Left/Right move horizontal focus; Lens focus does not
+activate a destination until the link is invoked. On the Trends scrubber, `v`
+switches series/by-book presentation without issuing analysis, alongside its
+existing Arrow, Page, Home/End, and range-selection keys.
+
 ## Responsive, accessibility, and history contracts
 
 - Compact is below 600 CSS pixels; regular is 600–1023; wide is at least 1024.

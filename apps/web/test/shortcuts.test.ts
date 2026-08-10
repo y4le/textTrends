@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  advanceShortcutSequence,
   rootShortcutAllowed,
   shortcutAria,
   shortcutHelpSections,
@@ -62,7 +63,13 @@ describe('shortcut registry', () => {
     expect(shortcutAria(['footer-page-previous', 'footer-token-previous']))
       .toBe('h ArrowLeft PageUp Shift+H Shift+ArrowLeft');
     const workbench = shortcutHelpSections('workbench');
-    expect(workbench.map((section) => section.title)).toEqual(['General', 'Reading footer']);
+    expect(workbench.map((section) => section.title)).toEqual([
+      'General',
+      'Navigation',
+      'Focus',
+      'Trends',
+      'Reading footer',
+    ]);
     expect(workbench.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'footer-page-next')).toEqual({
         id: 'footer-page-next',
@@ -75,5 +82,34 @@ describe('shortcut registry', () => {
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-line-down');
     expect(readerIds).not.toContain('footer-page-next');
+  });
+
+  it('advances bounded two-key sequences without entering a persistent mode', () => {
+    const prefix = advanceShortcutSequence(null, key('g'), 'workbench', 100);
+    expect(prefix).toEqual({
+      kind: 'pending',
+      state: { prefix: 'g', expiresAt: 1_000 },
+    });
+    if (prefix.kind !== 'pending') throw new Error('expected a pending sequence');
+    expect(advanceShortcutSequence(prefix.state, key('c'), 'workbench', 200))
+      .toEqual({ kind: 'matched', id: 'go-catalog' });
+    expect(advanceShortcutSequence(prefix.state, key('c'), 'workbench', 1_001))
+      .toEqual({ kind: 'none' });
+    expect(advanceShortcutSequence(prefix.state, key('x'), 'workbench', 200))
+      .toEqual({ kind: 'none' });
+    const restarted = advanceShortcutSequence(prefix.state, key('['), 'workbench', 200);
+    expect(restarted).toEqual({
+      kind: 'pending',
+      state: { prefix: '[', expiresAt: 1_100 },
+    });
+    if (restarted.kind !== 'pending') throw new Error('expected a restarted sequence');
+    expect(advanceShortcutSequence(restarted.state, key('t'), 'workbench', 300))
+      .toEqual({ kind: 'matched', id: 'focus-term-previous' });
+    expect(advanceShortcutSequence(null, key('g', { ctrlKey: true }), 'workbench', 100))
+      .toEqual({ kind: 'none' });
+    expect(advanceShortcutSequence(null, key('g'), 'reader', 100))
+      .toEqual({ kind: 'none' });
+    expect(shortcutHelpSections('workbench').flatMap((section) => section.entries)
+      .find((entry) => entry.id === 'focus-term-next')?.keys).toEqual([']t']);
   });
 });

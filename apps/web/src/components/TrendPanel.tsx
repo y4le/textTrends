@@ -82,6 +82,7 @@ import {
   trendRawValues,
 } from '../lib/trend-display.ts';
 import { trendStageGeometry, trendStageProjection, trendStageSnapIndexes } from '../lib/trend-stage.ts';
+import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 const MIN_LABEL_GAP = 12;
@@ -517,6 +518,7 @@ function ScrubSurface({
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
+  const setTrendView = useApp((s) => s.setTrendView);
   const [preview, setPreview] = useState<RangePreview | null>(null);
   const [rangeDraft, setRangeDraft] = useState<RangeDraft | null>(null);
   const sliderRef = useRef<HTMLDivElement | null>(null);
@@ -618,13 +620,22 @@ function ScrubSurface({
     // Keep browser/application shortcuts (notably Cmd/Ctrl+S) intact. Shift
     // remains unguarded because it deliberately changes the scrub step.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (e.key === 'Escape' && rangeDraft !== null) {
+    if (shortcutMatches(e, 'trend-selection-cancel') && rangeDraft !== null) {
       e.preventDefault();
       setRangeDraft(cancelRange());
       return;
     }
     if (
-      (e.key === 's' || e.key === 'S')
+      shortcutMatches(e, 'trend-toggle-view')
+      && preview === null
+      && rangeDraft === null
+    ) {
+      e.preventDefault();
+      setTrendView(trendView === 'series' ? 'by-book' : 'series');
+      return;
+    }
+    if (
+      shortcutMatches(e, 'trend-selection-start')
       && preview === null
       && rangeDraft === null
     ) {
@@ -638,28 +649,32 @@ function ScrubSurface({
       const d = docs.indexOf(preview.head.doc);
       const count = docTokenCount[d] ?? 0;
       let head: ScrubTarget = preview.head;
-      switch (e.key) {
-        case 'ArrowLeft': {
+      if (
+        shortcutMatches(e, 'trend-step-previous')
+        || shortcutMatches(e, 'trend-step-five-previous')
+      ) {
           const next = stepAlongSequence(d, preview.head.token, -1, layout);
           head = next ? { doc: docs[next.d]!, token: next.token } : preview.head;
-          break;
-        }
-        case 'ArrowRight': {
+      } else if (
+        shortcutMatches(e, 'trend-step-next')
+        || shortcutMatches(e, 'trend-step-five-next')
+      ) {
           const next = stepAlongSequence(d, preview.head.token, 1, layout);
           head = next ? { doc: docs[next.d]!, token: next.token } : preview.head;
-          break;
-        }
-        case 'Home': head = { doc: preview.head.doc, token: 0 }; break;
-        case 'End': head = { doc: preview.head.doc, token: Math.max(0, count - 1) }; break;
-        case 'Enter':
-          e.preventDefault();
-          commitPreview(preview);
-          return;
-        case 'Escape':
-          e.preventDefault();
-          setPreview(null);
-          return;
-        default: return;
+      } else if (shortcutMatches(e, 'trend-book-start')) {
+        head = { doc: preview.head.doc, token: 0 };
+      } else if (shortcutMatches(e, 'trend-book-end')) {
+        head = { doc: preview.head.doc, token: Math.max(0, count - 1) };
+      } else if (shortcutMatches(e, 'trend-selection-commit')) {
+        e.preventDefault();
+        commitPreview(preview);
+        return;
+      } else if (shortcutMatches(e, 'trend-selection-cancel')) {
+        e.preventDefault();
+        setPreview(null);
+        return;
+      } else {
+        return;
       }
       e.preventDefault();
       setPreview({
@@ -687,15 +702,15 @@ function ScrubSurface({
       return { doc: current.doc, token: Math.max(0, Math.min(tc - 1, current.token + delta)) };
     };
     let next: ScrubTarget | null = null;
-    switch (e.key) {
-      case 'ArrowLeft': next = step(e.shiftKey ? -5 : -1); break;
-      case 'ArrowRight': next = step(e.shiftKey ? 5 : 1); break;
-      case 'PageUp': next = step(-binWidth); break;
-      case 'PageDown': next = step(binWidth); break;
-      case 'Home': next = { doc: current.doc, token: 0 }; break;
-      case 'End': next = { doc: current.doc, token: Math.max(0, tc - 1) }; break;
-      default: return;
-    }
+    if (shortcutMatches(e, 'trend-step-five-previous')) next = step(-5);
+    else if (shortcutMatches(e, 'trend-step-five-next')) next = step(5);
+    else if (shortcutMatches(e, 'trend-step-previous')) next = step(-1);
+    else if (shortcutMatches(e, 'trend-step-next')) next = step(1);
+    else if (shortcutMatches(e, 'trend-bin-previous')) next = step(-binWidth);
+    else if (shortcutMatches(e, 'trend-bin-next')) next = step(binWidth);
+    else if (shortcutMatches(e, 'trend-book-start')) next = { doc: current.doc, token: 0 };
+    else if (shortcutMatches(e, 'trend-book-end')) next = { doc: current.doc, token: Math.max(0, tc - 1) };
+    else return;
     e.preventDefault();
     if (next) setScrub(next);
   };
@@ -843,6 +858,20 @@ function ScrubSurface({
         id="reading-position-scrubber"
         tabIndex={0}
         aria-label="Reading position scrubber"
+        aria-keyshortcuts={shortcutAria([
+          'trend-step-previous',
+          'trend-step-next',
+          'trend-step-five-previous',
+          'trend-step-five-next',
+          'trend-bin-previous',
+          'trend-bin-next',
+          'trend-book-start',
+          'trend-book-end',
+          'trend-selection-start',
+          'trend-selection-commit',
+          'trend-selection-cancel',
+          'trend-toggle-view',
+        ])}
         aria-valuemin={0}
         aria-valuemax={Math.max(0, layout.totalTokens - 1)}
         aria-valuenow={

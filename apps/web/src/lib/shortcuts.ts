@@ -2,6 +2,31 @@ export type ShortcutHelpContext = 'workbench' | 'reader';
 
 export type ShortcutId =
   | 'show-help'
+  | 'focus-horizontal-previous'
+  | 'focus-horizontal-next'
+  | 'focus-term-previous'
+  | 'focus-term-next'
+  | 'focus-book-previous'
+  | 'focus-book-next'
+  | 'go-catalog'
+  | 'go-trends'
+  | 'go-concordance'
+  | 'go-vocabulary'
+  | 'go-compare'
+  | 'go-footer'
+  | 'go-terms'
+  | 'trend-step-previous'
+  | 'trend-step-next'
+  | 'trend-step-five-previous'
+  | 'trend-step-five-next'
+  | 'trend-bin-previous'
+  | 'trend-bin-next'
+  | 'trend-book-start'
+  | 'trend-book-end'
+  | 'trend-selection-start'
+  | 'trend-selection-commit'
+  | 'trend-selection-cancel'
+  | 'trend-toggle-view'
   | 'footer-page-previous'
   | 'footer-page-next'
   | 'footer-token-previous'
@@ -28,10 +53,11 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'General' | 'Reading footer' | 'Reader';
+  readonly group: 'General' | 'Navigation' | 'Focus' | 'Trends' | 'Reading footer' | 'Reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
+  readonly sequence?: readonly [ShortcutStroke, ShortcutStroke];
 }
 
 export interface ShortcutEventLike {
@@ -54,6 +80,18 @@ export interface ShortcutHelpSection {
   readonly entries: readonly ShortcutHelpEntry[];
 }
 
+export const SHORTCUT_SEQUENCE_TIMEOUT_MS = 900;
+
+export interface ShortcutSequenceState {
+  readonly prefix: string;
+  readonly expiresAt: number;
+}
+
+export type ShortcutSequenceAdvance =
+  | { readonly kind: 'none' }
+  | { readonly kind: 'pending'; readonly state: ShortcutSequenceState }
+  | { readonly kind: 'matched'; readonly id: ShortcutId };
+
 const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   {
     id: 'show-help',
@@ -61,6 +99,192 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench', 'reader'],
     label: 'Show keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
+  },
+  {
+    id: 'focus-horizontal-previous',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Previous term or lens',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'focus-horizontal-next',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Next term or lens',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
+    id: 'focus-term-previous',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Previous active term',
+    strokes: [],
+    sequence: [{ key: '[' }, { key: 't' }],
+  },
+  {
+    id: 'focus-term-next',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Next active term',
+    strokes: [],
+    sequence: [{ key: ']' }, { key: 't' }],
+  },
+  {
+    id: 'focus-book-previous',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Previous ready book',
+    strokes: [],
+    sequence: [{ key: '[' }, { key: 'b' }],
+  },
+  {
+    id: 'focus-book-next',
+    group: 'Focus',
+    helpContexts: ['workbench'],
+    label: 'Next ready book',
+    strokes: [],
+    sequence: [{ key: ']' }, { key: 'b' }],
+  },
+  {
+    id: 'go-catalog',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Go to Catalog',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'c' }],
+  },
+  {
+    id: 'go-trends',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Go to Trends',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 't' }],
+  },
+  {
+    id: 'go-concordance',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Go to Concordance',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'k' }],
+  },
+  {
+    id: 'go-vocabulary',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Go to Vocabulary',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'v' }],
+  },
+  {
+    id: 'go-compare',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Go to Compare',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'd' }],
+  },
+  {
+    id: 'go-footer',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Focus the reading footer',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'f' }],
+  },
+  {
+    id: 'go-terms',
+    group: 'Navigation',
+    helpContexts: ['workbench'],
+    label: 'Focus Terms',
+    strokes: [],
+    sequence: [{ key: 'g' }, { key: 'q' }],
+  },
+  {
+    id: 'trend-step-previous',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Previous trend position',
+    strokes: [{ key: 'ArrowLeft' }],
+  },
+  {
+    id: 'trend-step-next',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Next trend position',
+    strokes: [{ key: 'ArrowRight' }],
+  },
+  {
+    id: 'trend-step-five-previous',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Five positions back; one while selecting a range',
+    strokes: [{ key: 'ArrowLeft', shift: true }],
+  },
+  {
+    id: 'trend-step-five-next',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Five positions forward; one while selecting a range',
+    strokes: [{ key: 'ArrowRight', shift: true }],
+  },
+  {
+    id: 'trend-bin-previous',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Previous trend bin',
+    strokes: [{ key: 'PageUp' }],
+  },
+  {
+    id: 'trend-bin-next',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Next trend bin',
+    strokes: [{ key: 'PageDown' }],
+  },
+  {
+    id: 'trend-book-start',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Start of current book',
+    strokes: [{ key: 'Home' }],
+  },
+  {
+    id: 'trend-book-end',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'End of current book',
+    strokes: [{ key: 'End' }],
+  },
+  {
+    id: 'trend-selection-start',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Start a range at the cursor',
+    strokes: [{ key: 's' }, { key: 'S', shift: true }],
+  },
+  {
+    id: 'trend-selection-commit',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Commit the keyboard range',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
+    id: 'trend-selection-cancel',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Cancel the keyboard range',
+    strokes: [{ key: 'Escape' }],
+  },
+  {
+    id: 'trend-toggle-view',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Toggle series / by-book view',
+    strokes: [{ key: 'v' }],
   },
   {
     id: 'footer-page-previous',
@@ -219,6 +443,42 @@ export function shortcutMatches(event: ShortcutEventLike, id: ShortcutId): boole
   return definition(id).strokes.some((stroke) => strokeMatches(event, stroke));
 }
 
+function sequenceDefinitions(context: ShortcutHelpContext): readonly ShortcutDefinition[] {
+  return SHORTCUTS.filter((shortcut) =>
+    shortcut.sequence !== undefined && shortcut.helpContexts.includes(context));
+}
+
+/**
+ * Advance one two-key Vim sequence. Prefixes expire rather than becoming a
+ * hidden mode; a non-matching second key clears the prefix and remains native.
+ */
+export function advanceShortcutSequence(
+  state: ShortcutSequenceState | null,
+  event: ShortcutEventLike,
+  context: ShortcutHelpContext,
+  now: number,
+): ShortcutSequenceAdvance {
+  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) {
+    return { kind: 'none' };
+  }
+  const definitions = sequenceDefinitions(context);
+  const live = state !== null && now <= state.expiresAt ? state : null;
+  if (live !== null) {
+    const matched = definitions.find((shortcut) =>
+      shortcut.sequence?.[0].key === live.prefix
+      && strokeMatches(event, shortcut.sequence[1]));
+    if (matched) return { kind: 'matched', id: matched.id };
+  }
+  const prefix = definitions.find((shortcut) =>
+    shortcut.sequence !== undefined && strokeMatches(event, shortcut.sequence[0]));
+  return prefix?.sequence
+    ? {
+        kind: 'pending',
+        state: { prefix: prefix.sequence[0].key, expiresAt: now + SHORTCUT_SEQUENCE_TIMEOUT_MS },
+      }
+    : { kind: 'none' };
+}
+
 export function isShortcutTypingTarget(target: EventTarget | null): boolean {
   const candidate = target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
   return typeof candidate?.closest === 'function'
@@ -277,14 +537,19 @@ export function shortcutAria(ids: readonly ShortcutId[]): string {
 export function shortcutHelpSections(context: ShortcutHelpContext): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = context === 'reader'
     ? ['General', 'Reader']
-    : ['General', 'Reading footer'];
+    : ['General', 'Navigation', 'Focus', 'Trends', 'Reading footer'];
   return order.flatMap((group) => {
     const entries = SHORTCUTS
       .filter((shortcut) => shortcut.group === group && shortcut.helpContexts.includes(context))
       .map((shortcut) => ({
         id: shortcut.id,
         label: shortcut.label,
-        keys: shortcut.strokes.map(displayStroke),
+        keys: [
+          ...shortcut.strokes.map(displayStroke),
+          ...(shortcut.sequence
+            ? [shortcut.sequence.map(displayStroke).join('')]
+            : []),
+        ],
       }));
     return entries.length === 0 ? [] : [{ title: group, entries }];
   });

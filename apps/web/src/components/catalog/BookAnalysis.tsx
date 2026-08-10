@@ -287,6 +287,7 @@ export function BookAnalysis() {
                               <button
                                 id={bookTitleControlId(row.doc)}
                                 type="button"
+                                onFocus={() => setFocusedDoc(row.doc)}
                                 onClick={() => openBook(row.doc)}
                                 aria-expanded={expanded}
                                 aria-current={focusedDoc === row.doc ? 'true' : undefined}

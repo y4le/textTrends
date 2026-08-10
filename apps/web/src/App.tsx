@@ -14,12 +14,17 @@ import { LensOrgan } from './components/LensOrgan.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import { occurrenceNavigationText } from './lib/store.ts';
 import {
+  advanceShortcutSequence,
   rootShortcutAllowed,
   shortcutAria,
   shortcutMatches,
+  type ShortcutId,
   type ShortcutHelpContext,
+  type ShortcutSequenceState,
 } from './lib/shortcuts.ts';
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
+import { termFocusControlId } from './lib/query-surface.ts';
+import { bookTitleControlId } from './lib/corpus-view.ts';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -116,9 +121,21 @@ export function App() {
   const readerScrollRef = useRef<HTMLDivElement | null>(null);
   const [shortcutHelpContext, setShortcutHelpContext] = useState<ShortcutHelpContext | null>(null);
   const shortcutReturnFocus = useRef<HTMLElement | null>(null);
+  const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
+  const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
 
+  const clearShortcutSequence = () => {
+    shortcutSequence.current = null;
+    if (shortcutSequenceTimer.current !== null) {
+      clearTimeout(shortcutSequenceTimer.current);
+      shortcutSequenceTimer.current = null;
+    }
+  };
   const openShortcutHelp = (context: ShortcutHelpContext) => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
     shortcutReturnFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
@@ -131,13 +148,143 @@ export function App() {
       if (target?.isConnected) target.focus({ preventScroll: true });
     });
   };
+  const focusAfterRender = (id: string) => {
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.focus({ preventScroll: true });
+    });
+  };
+  const runWorkbenchShortcut = (id: ShortcutId): boolean => {
+    const state = useApp.getState();
+    const go = (destination: Place) => {
+      state.setPlace(destination);
+      focusAfterRender(`place-${destination}-heading`);
+      setKeyboardNavigationStatus(`${PLACE_HEADING[destination]}`);
+    };
+    switch (id) {
+      case 'go-catalog': go('catalog'); return true;
+      case 'go-trends': go('trends'); return true;
+      case 'go-concordance': go('concordance'); return true;
+      case 'go-vocabulary': go('vocabulary'); return true;
+      case 'go-compare': go('compare'); return true;
+      case 'go-footer': {
+        const footer = document.getElementById('corpus-footer-position');
+        if (!footer) {
+          setKeyboardNavigationStatus('reading footer unavailable');
+          return true;
+        }
+        footer.focus({ preventScroll: true });
+        setKeyboardNavigationStatus('reading footer');
+        return true;
+      }
+      case 'go-terms': {
+        const focused = state.focusedSeries
+          ? document.getElementById(termFocusControlId(state.focusedSeries))
+          : null;
+        const target = focused
+          ?? document.querySelector<HTMLElement>('[data-term-focus]:not(:disabled)')
+          ?? document.getElementById('term-add');
+        target?.focus({ preventScroll: true });
+        setKeyboardNavigationStatus(target ? 'Terms' : 'Terms unavailable');
+        return true;
+      }
+      case 'focus-term-previous':
+      case 'focus-term-next': {
+        const direction = id === 'focus-term-next' ? 1 : -1;
+        const terms = state.series;
+        if (terms.length === 0) {
+          setKeyboardNavigationStatus('no active terms');
+          return true;
+        }
+        const current = terms.findIndex((item) => item.id === state.focusedSeries);
+        const base = current >= 0 ? current : direction === 1 ? -1 : terms.length;
+        const next = Math.max(0, Math.min(terms.length - 1, base + direction));
+        const term = terms[next]!;
+        state.setFocus(term.id);
+        focusAfterRender(termFocusControlId(term.id));
+        setKeyboardNavigationStatus(
+          next === current
+            ? `${direction === 1 ? 'last' : 'first'} active term · ${term.label}`
+            : `${term.label} · active term ${next + 1} of ${terms.length}`,
+        );
+        return true;
+      }
+      case 'focus-book-previous':
+      case 'focus-book-next': {
+        const direction = id === 'focus-book-next' ? 1 : -1;
+        const docs = state.snapshot?.readyDocs ?? [];
+        if (docs.length === 0) {
+          setKeyboardNavigationStatus('no ready books');
+          return true;
+        }
+        const current = state.focusedDoc === null ? -1 : docs.indexOf(state.focusedDoc);
+        const base = current >= 0 ? current : direction === 1 ? -1 : docs.length;
+        const next = Math.max(0, Math.min(docs.length - 1, base + direction));
+        const doc = docs[next]!;
+        const title = state.projectSession?.project.data.docs.find((item) => item.doc === doc)?.meta.title
+          ?? doc;
+        state.setFocusedDoc(doc);
+        focusAfterRender(bookTitleControlId(doc));
+        setKeyboardNavigationStatus(
+          next === current
+            ? `${direction === 1 ? 'last' : 'first'} ready book · ${title}`
+            : `${title} · ready book ${next + 1} of ${docs.length}`,
+        );
+        return true;
+      }
+      default: return false;
+    }
+  };
   const handleRootShortcut = (
-    event: KeyboardEvent<HTMLElement>,
+    event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
     context: ShortcutHelpContext,
+    dispatchSequences = false,
   ) => {
-    if (!rootShortcutAllowed(event) || !shortcutMatches(event, 'show-help')) return;
+    if (!rootShortcutAllowed(event)) {
+      // Sequence dispatch is document-owned. By the time an event reaches
+      // document, defaultPrevented means a focused surface consumed this key;
+      // that visible local action must also abandon any earlier prefix.
+      if (dispatchSequences && shortcutSequence.current !== null) {
+        clearShortcutSequence();
+        setKeyboardNavigationStatus('');
+      }
+      return;
+    }
+    if (shortcutMatches(event, 'show-help')) {
+      event.preventDefault();
+      clearShortcutSequence();
+      openShortcutHelp(context);
+      return;
+    }
+    if (!dispatchSequences || context !== 'workbench') return;
+    const advanced = advanceShortcutSequence(
+      shortcutSequence.current,
+      event,
+      context,
+      performance.now(),
+    );
+    if (advanced.kind === 'none') {
+      if (shortcutSequence.current !== null) {
+        clearShortcutSequence();
+        setKeyboardNavigationStatus('');
+      }
+      return;
+    }
     event.preventDefault();
-    openShortcutHelp(context);
+    if (advanced.kind === 'matched') {
+      clearShortcutSequence();
+      runWorkbenchShortcut(advanced.id);
+      return;
+    }
+    clearShortcutSequence();
+    shortcutSequence.current = advanced.state;
+    setKeyboardNavigationStatus(`${advanced.state.prefix}…`);
+    shortcutSequenceTimer.current = setTimeout(() => {
+      if (shortcutSequence.current?.expiresAt === advanced.state.expiresAt) {
+        shortcutSequence.current = null;
+        shortcutSequenceTimer.current = null;
+        setKeyboardNavigationStatus('');
+      }
+    }, Math.max(0, advanced.state.expiresAt - performance.now()));
   };
 
   useEffect(() => {
@@ -156,19 +303,21 @@ export function App() {
       // to document, defaultPrevented is the hand-off that keeps local meaning
       // authoritative. The document seam also reaches a fresh workbench while
       // focus still rests on <body>.
-      if (
-        shortcutHelpContext !== null
-        || !rootShortcutAllowed(event)
-        || !shortcutMatches(event, 'show-help')
-      ) {
-        return;
-      }
-      event.preventDefault();
-      openShortcutHelp(readerOpen ? 'reader' : 'workbench');
+      if (shortcutHelpContext !== null) return;
+      handleRootShortcut(event, readerOpen ? 'reader' : 'workbench', true);
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
   }, [readerOpen, shortcutHelpContext]);
+
+  useEffect(() => () => {
+    if (shortcutSequenceTimer.current !== null) clearTimeout(shortcutSequenceTimer.current);
+  }, []);
+
+  useEffect(() => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+  }, [readerOpen]);
 
   useEffect(() => {
     setReaderKeyboardStatus('');
@@ -325,6 +474,15 @@ export function App() {
         aria-atomic="true"
       >
         {trendSettingsNotice}
+      </p>
+      <p
+        className="visually-hidden"
+        role="status"
+        aria-label="Keyboard navigation status"
+        aria-live="polite"
+        aria-atomic="true"
+      >
+        {keyboardNavigationStatus}
       </p>
       <header className="app-header">
         <div className="app-identity">

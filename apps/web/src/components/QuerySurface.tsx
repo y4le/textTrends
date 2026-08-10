@@ -7,11 +7,13 @@ import { SeriesLineSample } from './chrome.tsx';
 import {
   queryEditorTarget,
   querySurfaceView,
+  termFocusControlId,
   type QueryEditorTarget,
 } from '../lib/query-surface.ts';
 import { rowDetailSurface, rowDetailWrite } from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { useApp } from '../lib/store-instance.ts';
+import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 
 const QUICK_ADD_LABEL = 'Add terms to the notebook, comma-separated';
 
@@ -97,10 +99,15 @@ function TermBucket({
   return (
     <span className="term-bucket" data-active={row.active || undefined}>
       <button
+        id={termFocusControlId(row.id)}
         type="button"
         className="term-bucket-focus"
+        data-term-focus
+        data-term-id={row.id}
         disabled={!row.projected}
         aria-pressed={focused}
+        aria-keyshortcuts={shortcutAria(['focus-horizontal-previous', 'focus-horizontal-next'])}
+        onFocus={onFocus}
         onClick={onFocus}
         title={row.projected ? `Emphasize ${row.name} in the chart` : `${row.name} is not shown`}
       >
@@ -163,6 +170,7 @@ export function QuerySurface() {
   const popLayer = useApp((state) => state.popLayer);
   const [draft, setDraft] = useState('');
   const [groupDrafts, setGroupDrafts] = useState<Record<string, GroupEditorDraft>>({});
+  const [keyboardStatus, setKeyboardStatus] = useState('');
 
   const view = querySurfaceView({
     place,
@@ -224,7 +232,40 @@ export function QuerySurface() {
         data-uses-query-encoding={view.usesQueryEncoding}
       >
         <strong className="term-bar-label">Terms</strong>
-        <div className="term-bucket-port" role="group" aria-label="Query terms">
+        <div
+          className="term-bucket-port"
+          role="group"
+          aria-label="Query terms"
+          onKeyDown={(event) => {
+            const direction = shortcutMatches(event, 'focus-horizontal-previous')
+              ? -1
+              : shortcutMatches(event, 'focus-horizontal-next')
+                ? 1
+                : null;
+            if (direction === null) return;
+            const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>(
+              '[data-term-focus]:not(:disabled)',
+            )];
+            if (buttons.length === 0) return;
+            event.preventDefault();
+            const bucket = (event.target as Element).closest('.term-bucket');
+            const currentButton = bucket?.querySelector<HTMLButtonElement>('[data-term-focus]')
+              ?? buttons.find((button) => button.dataset.termId === focusedSeries)
+              ?? null;
+            const current = currentButton === null ? -1 : buttons.indexOf(currentButton);
+            const base = current >= 0 ? current : direction === 1 ? -1 : buttons.length;
+            const next = Math.max(0, Math.min(buttons.length - 1, base + direction));
+            const button = buttons[next]!;
+            button.focus({ preventScroll: true });
+            button.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            const label = button.querySelector('.term-bucket-name')?.textContent ?? 'term';
+            setKeyboardStatus(
+              next === current
+                ? `${direction === 1 ? 'last' : 'first'} active term · ${label}`
+                : `${label} · active term ${next + 1} of ${buttons.length}`,
+            );
+          }}
+        >
           {view.rows.length === 0 && (
             <span className="term-bar-empty">No terms yet.</span>
           )}
@@ -240,6 +281,9 @@ export function QuerySurface() {
             />
           ))}
         </div>
+        <span className="visually-hidden" role="status" aria-live="polite">
+          {keyboardStatus}
+        </span>
         <div className="term-bar-actions">
           <button
             id="term-add"
