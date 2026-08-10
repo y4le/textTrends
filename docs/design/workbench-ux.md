@@ -212,6 +212,21 @@ buckets and linked analytical ranges never approximate or narrow this action.
 The shared scrub position and Concordance center follow the result, and an open
 Reader replaces its current page around that exact occurrence.
 
+## Keyboard model
+
+Vim and conventional bindings are simultaneous; there is no keyboard mode to
+enter or remember. A central registry is the source for event matching,
+`aria-keyshortcuts`, and the contextual shortcuts reference opened by `?` or
+the visible Shortcuts control. Workbench help includes its persistent reading
+footer, while Reader help contains only Reader-owned actions.
+
+Focused controls act first. A local handler that consumes an event prevents the
+root dispatcher from reinterpreting it, and text inputs, selectors, editable
+content, browser modifier chords, and IME composition retain their native
+behavior. Shortcut help is a transient modal rather than navigable research
+state; closing it with Escape or its visible control restores the invoking
+focus without adding browser history.
+
 ## Responsive, accessibility, and history contracts
 
 - Compact is below 600 CSS pixels; regular is 600–1023; wide is at least 1024.

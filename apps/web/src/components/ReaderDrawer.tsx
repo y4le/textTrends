@@ -13,6 +13,7 @@ import { readerRangeLabel, readerSelectionChars } from '../lib/reader-view.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
+import { shortcutAria } from '../lib/shortcuts.ts';
 
 function ReaderProse({
   page,
@@ -136,8 +137,10 @@ function ReaderProse({
 
 export function ReaderDrawer({
   proseScrollRef,
+  onOpenShortcuts,
 }: {
   readonly proseScrollRef: Ref<HTMLDivElement>;
+  readonly onOpenShortcuts: () => void;
 }) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
@@ -186,6 +189,14 @@ export function ReaderDrawer({
           </p>
         </div>
         <div className="reader-header-actions">
+          <button
+            type="button"
+            aria-keyshortcuts={shortcutAria(['show-help'])}
+            onClick={onOpenShortcuts}
+            style={SMALL_BUTTON_STYLE}
+          >
+            shortcuts
+          </button>
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
             back
           </button>
@@ -243,7 +254,7 @@ export function ReaderDrawer({
       >
         <button
           type="button"
-          aria-keyshortcuts="Shift+W"
+          aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
           disabled={!focused || occurrencePending}
           onClick={() => stepOccurrence(-1)}
           title={focused ? `Previous exact ${focused.label} occurrence` : 'No active term'}
@@ -253,7 +264,7 @@ export function ReaderDrawer({
         </button>
         <button
           type="button"
-          aria-keyshortcuts="h ArrowLeft PageUp"
+          aria-keyshortcuts={shortcutAria(['reader-page-previous'])}
           disabled={!navigation?.previous}
           onClick={() => navigation?.previous && navigateReader(navigation.previous)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.previous ? 'pointer' : 'default', opacity: navigation?.previous ? 1 : 0.45 }}
@@ -262,7 +273,7 @@ export function ReaderDrawer({
         </button>
         <button
           type="button"
-          aria-keyshortcuts="l ArrowRight PageDown"
+          aria-keyshortcuts={shortcutAria(['reader-page-next'])}
           disabled={!navigation?.next}
           onClick={() => navigation?.next && navigateReader(navigation.next)}
           style={{ ...SMALL_BUTTON_STYLE, cursor: navigation?.next ? 'pointer' : 'default', opacity: navigation?.next ? 1 : 0.45 }}
@@ -271,7 +282,7 @@ export function ReaderDrawer({
         </button>
         <button
           type="button"
-          aria-keyshortcuts="w"
+          aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
           disabled={!focused || occurrencePending}
           onClick={() => stepOccurrence(1)}
           title={focused ? `Next exact ${focused.label} occurrence` : 'No active term'}

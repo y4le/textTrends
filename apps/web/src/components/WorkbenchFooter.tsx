@@ -64,6 +64,7 @@ import { slotColor, slotDash } from '../lib/series-style.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { BarcodeBand } from './BarcodeStrip.tsx';
 import { FooterPassage } from './FooterPassage.tsx';
+import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
@@ -514,20 +515,22 @@ function FooterInteractive({
   }, [advancePassagePage]);
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
-    if (event.ctrlKey || event.metaKey || event.altKey) return;
     const current = scrub && docOrdinal >= 0
       ? { d: docOrdinal, token: scrub.token }
       : stepAlongSequence(0, 0, 0, layout);
     if (!current) return;
-    if (event.key === 'w' || event.key === 'W') {
+    if (
+      shortcutMatches(event, 'footer-occurrence-next')
+      || shortcutMatches(event, 'footer-occurrence-previous')
+    ) {
       event.preventDefault();
       setKeyboardStatus('');
-      stepOccurrence(event.key === 'w' ? 1 : -1);
+      stepOccurrence(shortcutMatches(event, 'footer-occurrence-next') ? 1 : -1);
       return;
     }
-    const fineDirection = event.key === 'H' || (event.key === 'ArrowLeft' && event.shiftKey)
+    const fineDirection = shortcutMatches(event, 'footer-token-previous')
       ? -1
-      : event.key === 'L' || (event.key === 'ArrowRight' && event.shiftKey)
+      : shortcutMatches(event, 'footer-token-next')
         ? 1
         : null;
     if (fineDirection !== null) {
@@ -541,54 +544,48 @@ function FooterInteractive({
       }
       return;
     }
-    switch (event.key) {
-      case 'h':
-      case 'ArrowLeft':
-      case 'PageUp':
-        event.preventDefault();
-        stepPassagePage(-1);
-        return;
-      case 'l':
-      case 'ArrowRight':
-      case 'PageDown':
-        event.preventDefault();
-        stepPassagePage(1);
-        return;
-      case 'Home': {
-        const next = seriesDocFromGlobal(0, layout);
-        const doc = next ? docs[next.d] : undefined;
-        event.preventDefault();
-        if (next && doc) setAbsoluteScrub({ doc, token: next.token });
-        return;
-      }
-      case 'End': {
-        const next = seriesDocFromGlobal(layout.totalTokens - 1, layout);
-        const doc = next ? docs[next.d] : undefined;
-        event.preventDefault();
-        if (next && doc) setAbsoluteScrub({ doc, token: next.token });
-        return;
-      }
-      case 'o':
-      case 'Enter': {
-        if (event.repeat || snapshot === null) return;
-        event.preventDefault();
-        const doc = docs[current.d];
-        if (!doc) return;
-        openReader({
-          snapshot: snapshot.snapshot,
-          doc,
-          token: current.token,
-          from: 'footer',
-        }, 'corpus-footer-position');
-        return;
-      }
-      default: return;
+    if (shortcutMatches(event, 'footer-page-previous')) {
+      event.preventDefault();
+      stepPassagePage(-1);
+      return;
+    }
+    if (shortcutMatches(event, 'footer-page-next')) {
+      event.preventDefault();
+      stepPassagePage(1);
+      return;
+    }
+    if (shortcutMatches(event, 'footer-corpus-start')) {
+      const next = seriesDocFromGlobal(0, layout);
+      const doc = next ? docs[next.d] : undefined;
+      event.preventDefault();
+      if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+      return;
+    }
+    if (shortcutMatches(event, 'footer-corpus-end')) {
+      const next = seriesDocFromGlobal(layout.totalTokens - 1, layout);
+      const doc = next ? docs[next.d] : undefined;
+      event.preventDefault();
+      if (next && doc) setAbsoluteScrub({ doc, token: next.token });
+      return;
+    }
+    if (shortcutMatches(event, 'footer-open-reader')) {
+      if (event.repeat || snapshot === null) return;
+      event.preventDefault();
+      const doc = docs[current.d];
+      if (!doc) return;
+      openReader({
+        snapshot: snapshot.snapshot,
+        doc,
+        token: current.token,
+        from: 'footer',
+      }, 'corpus-footer-position');
     }
   };
 
   return (
     <div
       className="footer-interactive"
+      data-shortcut-context="footer"
       onDoubleClick={(event) => {
         if (Date.now() < suppressDoubleClickUntil.current) {
           event.preventDefault();
@@ -646,7 +643,17 @@ function FooterInteractive({
         className="footer-strip"
         role="slider"
         aria-roledescription="corpus reading position"
-        aria-keyshortcuts="h l w Shift+W ArrowLeft ArrowRight PageUp PageDown Shift+ArrowLeft Shift+ArrowRight Home End Enter o"
+        aria-keyshortcuts={shortcutAria([
+          'footer-page-previous',
+          'footer-page-next',
+          'footer-token-previous',
+          'footer-token-next',
+          'footer-occurrence-previous',
+          'footer-occurrence-next',
+          'footer-corpus-start',
+          'footer-corpus-end',
+          'footer-open-reader',
+        ])}
         tabIndex={0}
         aria-label="Corpus footer position"
         aria-valuemin={0}

@@ -1,10 +1,25 @@
-import { lazy, Suspense, useEffect, useRef, useState, type ReactNode } from 'react';
+import {
+  lazy,
+  Suspense,
+  useEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactNode,
+} from 'react';
 import { useApp } from './lib/store-instance.ts';
 import { ScopeBar } from './components/ScopeBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { LensOrgan } from './components/LensOrgan.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import { occurrenceNavigationText } from './lib/store.ts';
+import {
+  rootShortcutAllowed,
+  shortcutAria,
+  shortcutMatches,
+  type ShortcutHelpContext,
+} from './lib/shortcuts.ts';
+import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -99,7 +114,31 @@ export function App() {
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const readerScrollRef = useRef<HTMLDivElement | null>(null);
+  const [shortcutHelpContext, setShortcutHelpContext] = useState<ShortcutHelpContext | null>(null);
+  const shortcutReturnFocus = useRef<HTMLElement | null>(null);
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
+
+  const openShortcutHelp = (context: ShortcutHelpContext) => {
+    shortcutReturnFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setShortcutHelpContext(context);
+  };
+  const closeShortcutHelp = () => {
+    const target = shortcutReturnFocus.current;
+    setShortcutHelpContext(null);
+    requestAnimationFrame(() => {
+      if (target?.isConnected) target.focus({ preventScroll: true });
+    });
+  };
+  const handleRootShortcut = (
+    event: KeyboardEvent<HTMLElement>,
+    context: ShortcutHelpContext,
+  ) => {
+    if (!rootShortcutAllowed(event) || !shortcutMatches(event, 'show-help')) return;
+    event.preventDefault();
+    openShortcutHelp(context);
+  };
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -110,6 +149,26 @@ export function App() {
     });
     return () => cancelAnimationFrame(frame);
   }, [readerOpen]);
+
+  useEffect(() => {
+    const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
+      // React-owned controls and surfaces run first; by the time this bubbles
+      // to document, defaultPrevented is the hand-off that keeps local meaning
+      // authoritative. The document seam also reaches a fresh workbench while
+      // focus still rests on <body>.
+      if (
+        shortcutHelpContext !== null
+        || !rootShortcutAllowed(event)
+        || !shortcutMatches(event, 'show-help')
+      ) {
+        return;
+      }
+      event.preventDefault();
+      openShortcutHelp(readerOpen ? 'reader' : 'workbench');
+    };
+    document.addEventListener('keydown', onDocumentKeyDown);
+    return () => document.removeEventListener('keydown', onDocumentKeyDown);
+  }, [readerOpen, shortcutHelpContext]);
 
   useEffect(() => {
     setReaderKeyboardStatus('');
@@ -125,17 +184,15 @@ export function App() {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
       ?? readerPlace.doc;
     return (
+      <>
       <main
         id="reader-region"
         className="reader-region"
+        data-shortcut-context="reader"
         aria-labelledby="reader-title"
         tabIndex={-1}
         onKeyDown={(event) => {
-          if (event.ctrlKey || event.metaKey || event.altKey || event.nativeEvent.isComposing) return;
-          const target = event.target as HTMLElement;
-          if (target.closest('input, textarea, select, [contenteditable="true"], [role="textbox"], [role="combobox"]')) {
-            return;
-          }
+          if (!rootShortcutAllowed(event)) return;
           const move = (direction: 1 | -1) => {
             const cursor = direction === 1
               ? readerNavigation?.next
@@ -147,70 +204,65 @@ export function App() {
             setReaderKeyboardStatus('');
             navigateReader(cursor);
           };
-          switch (event.key) {
-            case 'Escape':
-              event.preventDefault();
-              closeReader();
-              return;
-            case 'h':
-            case 'ArrowLeft':
-            case 'PageUp':
-              event.preventDefault();
-              move(-1);
-              return;
-            case 'l':
-            case 'ArrowRight':
-            case 'PageDown':
-              event.preventDefault();
-              move(1);
-              return;
-            case 'w':
-              event.preventDefault();
-              setReaderKeyboardStatus('');
-              stepOccurrence(1);
-              return;
-            case 'W':
-              event.preventDefault();
-              setReaderKeyboardStatus('');
-              stepOccurrence(-1);
-              return;
-            case 'j':
-              event.preventDefault();
-              if (readerScrollRef.current) {
-                const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
-                const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
-                readerScrollRef.current.scrollBy({
-                  top: Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 24,
-                });
-              }
-              return;
-            case 'k':
-              event.preventDefault();
-              if (readerScrollRef.current) {
-                const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
-                const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
-                readerScrollRef.current.scrollBy({
-                  top: Number.isFinite(lineHeight) && lineHeight > 0 ? -lineHeight : -24,
-                });
-              }
-              return;
-            case 'Home':
-              event.preventDefault();
-              setReaderKeyboardStatus('');
-              navigateReader({ kind: 'from', token: 0 });
-              return;
-            case 'End': {
-              event.preventDefault();
-              const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
-              if (page && page.docTokenCount > 0) {
-                setReaderKeyboardStatus('');
-                navigateReader({ kind: 'before', token: page.docTokenCount });
-              }
-              return;
-            }
-            default:
-              return;
+          if (shortcutMatches(event, 'reader-close')) {
+            event.preventDefault();
+            closeReader();
+            return;
           }
+          if (shortcutMatches(event, 'reader-page-previous')) {
+            event.preventDefault();
+            move(-1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-page-next')) {
+            event.preventDefault();
+            move(1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-occurrence-next')) {
+            event.preventDefault();
+            setReaderKeyboardStatus('');
+            stepOccurrence(1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-occurrence-previous')) {
+            event.preventDefault();
+            setReaderKeyboardStatus('');
+            stepOccurrence(-1);
+            return;
+          }
+          const lineDirection = shortcutMatches(event, 'reader-line-down')
+            ? 1
+            : shortcutMatches(event, 'reader-line-up')
+              ? -1
+              : null;
+          if (lineDirection !== null) {
+            event.preventDefault();
+            if (readerScrollRef.current) {
+              const prose = readerScrollRef.current.querySelector<HTMLElement>('[data-reader-page]');
+              const lineHeight = prose ? Number.parseFloat(getComputedStyle(prose).lineHeight) : 0;
+              readerScrollRef.current.scrollBy({
+                top: (Number.isFinite(lineHeight) && lineHeight > 0 ? lineHeight : 24) * lineDirection,
+              });
+            }
+            return;
+          }
+          if (shortcutMatches(event, 'reader-book-start')) {
+            event.preventDefault();
+            setReaderKeyboardStatus('');
+            navigateReader({ kind: 'from', token: 0 });
+            return;
+          }
+          if (shortcutMatches(event, 'reader-book-end')) {
+            event.preventDefault();
+            const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
+            if (page && page.docTokenCount > 0) {
+              setReaderKeyboardStatus('');
+              navigateReader({ kind: 'before', token: page.docTokenCount });
+            }
+            return;
+          }
+          handleRootShortcut(event, 'reader');
         }}
       >
         <span
@@ -231,20 +283,41 @@ export function App() {
                   </h2>
                   <p className="reader-position" role="status">loading reader…</p>
                 </div>
-                <button type="button" onClick={closeReader}>back</button>
+                <div className="reader-header-actions">
+                  <button
+                    type="button"
+                    aria-keyshortcuts={shortcutAria(['show-help'])}
+                    onClick={() => openShortcutHelp('reader')}
+                  >
+                    shortcuts
+                  </button>
+                  <button type="button" onClick={closeReader}>back</button>
+                </div>
               </header>
               <div ref={readerScrollRef} className="reader-prose-scroll" aria-hidden="true" />
             </>
           )}
         >
-          <ReaderDrawer proseScrollRef={readerScrollRef} />
+          <ReaderDrawer
+            proseScrollRef={readerScrollRef}
+            onOpenShortcuts={() => openShortcutHelp('reader')}
+          />
         </Suspense>
       </main>
+      {shortcutHelpContext && (
+        <KeyboardShortcuts context={shortcutHelpContext} onClose={closeShortcutHelp} />
+      )}
+      </>
     );
   }
 
   return (
-    <main className="app-shell">
+    <>
+    <main
+      className="app-shell"
+      data-shortcut-context="workbench"
+      onKeyDown={(event) => handleRootShortcut(event, 'workbench')}
+    >
       <p
         className="visually-hidden"
         role="status"
@@ -254,7 +327,17 @@ export function App() {
         {trendSettingsNotice}
       </p>
       <header className="app-header">
-        <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
+        <div className="app-identity">
+          <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
+          <button
+            type="button"
+            className="shortcut-help-open"
+            aria-keyshortcuts={shortcutAria(['show-help'])}
+            onClick={() => openShortcutHelp('workbench')}
+          >
+            shortcuts
+          </button>
+        </div>
         <ScopeBar />
         <LensOrgan />
       </header>
@@ -330,5 +413,9 @@ export function App() {
         <WorkbenchFooter />
       </Suspense>
     </main>
+    {shortcutHelpContext && (
+      <KeyboardShortcuts context={shortcutHelpContext} onClose={closeShortcutHelp} />
+    )}
+    </>
   );
 }
