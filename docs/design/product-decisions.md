@@ -4,6 +4,26 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-10 — Terms joins the persistent reading dock
+
+The global Terms rail moves from the scrolling workbench column into one fixed
+bottom dock directly above the corpus-reading footer. Terms and Reading
+Position remain separate sibling landmarks: authored query state is not folded
+into the transient reading instrument. The layout-only dock owns viewport
+placement and reserves both its fixed one-row rail and the expected reading
+lane before lazy chunks or the first usable snapshot arrive, so the Terms rail
+does not move during startup. With no corpus, the Terms-only rail remains
+available.
+
+Buckets scroll horizontally while Add and Manage remain pinned. Compact and
+coarse layouts preserve one row and 44px targets; edit and removal move through
+Manage, and removal Undo opens upward. The entire dock sits above the compact
+portrait Lens dock and to the right of the compact-landscape rail. Reader and
+full-screen authoring layers remain the deliberate exceptions. The design was
+developed with an explicitly pinned Claude Opus planner through Parley
+(request `req_consult_481f34b4fde427c7`, artifact
+`art_sha256_aa0484363b4373830252443f6ecfe4bd1b7dc1688b2b666de5ffdbcefe36be31`).
+
 ## 2026-08-10 — Hybrid pointers keep both interaction paths
 
 Pointer layout and pointer interaction are separate decisions. If either the

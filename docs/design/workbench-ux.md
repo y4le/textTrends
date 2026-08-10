@@ -61,8 +61,10 @@ At every width the workbench is one column beneath a unified page header:
 
 ```text
 textTrends + Scope + Lens
-Terms bucket bar
 Active analytical place, full available width
+── fixed dock ──────────────────────────────
+Terms bucket rail
+Corpus-reading footer
 ```
 
 The brand, Scope, and Lens share one header row. Scope is a single-line local
@@ -71,9 +73,9 @@ landscape move the Lens links to their governed bottom or side dock without
 duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There are no permanent
-desktop side rails. One fixed corpus-reading footer carries transient source
-position, passage, trend, progress, and dispersion context. **Method &
-settings** opens the sole shared sheet surface;
+desktop side rails. One fixed dock carries the authored Terms rail above the
+transient source position, passage, trend, progress, and dispersion context.
+**Method & settings** opens the sole shared sheet surface;
 governed row details remain separate history layers.
 
 ### Scope organ
@@ -82,20 +84,24 @@ Scope states the corpus, included documents or linked range, token count, and
 completeness. Its corpus label opens Catalog. **Method & settings** on Trends,
 and **Method** elsewhere, opens the same contextual sheet.
 
-### Terms bucket bar
+### Terms rail
 
-The Terms bar is the cross-width interactive legend and notebook summary. Each
+The Terms rail is the cross-width interactive legend and notebook summary. Each
 group bucket provides a line sample, name, delivered count or status, explicit
 focus, a shown/hidden analysis toggle, edit where width permits, and removal.
 
 Removal creates a bounded five-item undo stack. The notebook may hold up to 64
 groups; at most five are projected into analysis. **Add** opens quick entry and
-**Manage** opens the primary notebook editor. On compact screens edit is
-intentionally reached through Manage so top-bar targets remain at least 44 CSS
-pixels.
+**Manage** opens the primary notebook editor. The rail is fixed directly above
+the reading footer and remains one row at every width. Buckets scroll
+horizontally while Add and Manage stay pinned. On compact screens edit and
+removal are intentionally reached through Manage, the visible Terms label is
+omitted, and the remaining rail targets stay at least 44 CSS pixels. A removal
+Undo notice opens upward from the dock rather than covering the reading lane.
 
-The Terms bar persists across all five places. Reader hides it while occupying
-the full viewport.
+The Terms rail persists across all five places, including before a usable
+snapshot exists; with no corpus the dock honestly collapses to the Terms-only
+rail. Reader hides the complete dock while occupying the full viewport.
 
 ## Analysis plate
 
@@ -123,12 +129,13 @@ large touch controls. Density cells never pretend to be exact targets.
 Clicking an exact occurrence centers the concordance; opening source text is an
 explicit action from Concordance or the global reading footer.
 
-The fixed reading footer is present in all five workbench places and absent in
-Reader. Its one corpus-order axis aligns a clipped current passage, thin
-all-book sparkline for every shown query, corpus progress, document boundaries,
-and the resident multi-track dispersion barcode. It sits above the compact
-portrait Lens dock and to the right of the compact-landscape rail. The source
-line is a transient `reader-page/1` window. Pointer samples are frame-coalesced;
+The fixed reading footer is the lower lane of the dock in all five workbench
+places and is absent in Reader. Its one corpus-order axis aligns a clipped
+current passage, thin all-book sparkline for every shown query, corpus progress,
+document boundaries, and the resident multi-track dispersion barcode. The
+complete dock sits above the compact portrait Lens dock and to the right of the
+compact-landscape rail. The source line is a transient `reader-page/1` window.
+Pointer samples are frame-coalesced;
 its independent single-flight lane issues the newest unserved position
 immediately, retains the last authenticated page while the next is in flight,
 and saves no text or range. Absolute hover continues to seek the shared corpus
@@ -235,7 +242,8 @@ focus without adding browser history.
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gc`, `gt`, `gk`, `gv`, and `gd` go to Catalog, Trends, Concordance,
 Vocabulary, and Compare; `gf` focuses the reading footer and `gq` focuses the
-current active term. `[t`/`]t` and `[b`/`]b` clamp through active terms and
+current active term in the fixed rail without scrolling the workbench.
+`[t`/`]t` and `[b`/`]b` clamp through active terms and
 ready books, with a polite boundary announcement. Within the Terms and Lens
 organs, `h`/`l` and Left/Right move horizontal focus; Lens focus does not
 activate a destination until the link is invoked. On the Trends scrubber, `v`
@@ -267,7 +275,7 @@ changes analysis scope or issues work.
 - Viewport changes never alter corpus, scope, notebook, linked range,
   comparison sides, persisted views, or Reader identity and issue no analysis.
 - Full-screen forms and modal sheet detents trap focus; non-modal `peek` does
-  not inert the workbench.
+  not inert the workbench and stays above the fixed dock.
 - Escape and Back close exactly one governed layer and restore external focus.
 - Browser save shortcuts are not intercepted.
 - Reduced motion removes nonessential transitions without removing state.
@@ -282,12 +290,15 @@ last-write-wins, with no multi-tab edit model.
 The design remains complete while these gates hold:
 
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
-2. one Terms bar and one active place at every width;
+2. one Terms rail and one active place at every width, with the rail never
+   occluded by a non-modal sheet;
 3. no persistent side rails beyond the transient corpus-reading instrument;
 4. 44px compact/coarse controls and keyboard-operable equivalents;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;
 7. direct Concordance/barcode-to-Reader navigation stays snapshot-bound;
-8. Reader remains full-viewport, page-fitted, and scroll-locked at every width; and
-9. Chromium functional plus compact WebKit suites pass from the
-   production-shaped build.
+8. the fixed dock reserves its combined height before the reading footer mounts,
+   so Terms does not move when a chunk or first snapshot arrives;
+9. Reader remains full-viewport, page-fitted, and scroll-locked at every width; and
+10. Chromium functional plus compact WebKit suites pass from the
+    production-shaped build.
