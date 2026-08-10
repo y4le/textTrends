@@ -242,15 +242,15 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
   await expect(drawer).toBeVisible();
-  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
-  await expect(drawer.getByText('tokens 401–800 of 900')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="250:650"]')).toBeVisible();
+  await expect(drawer.getByText('tokens 251–650 of 900')).toBeVisible();
 
   await drawer.press('Home');
   await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
   await drawer.press('End');
-  await expect(drawer.locator('[data-reader-page="800:900"]')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="500:900"]')).toBeVisible();
   await drawer.press('h');
-  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="100:500"]')).toBeVisible();
 
   await expect.poll(() => page.workers().length).toBe(1);
   const worker = page.workers()[0]!;
@@ -268,12 +268,12 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
   // Deliver the CURRENT Previous page first, then the stale Next page after
   // it has rendered. The final assertion now fails without store-side guards.
   await gateReleaseNewest(worker);
-  await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="0:100"]')).toBeVisible();
   await expect.poll(() => gateHeld(worker)).toBe(1);
   await gateRelease(worker);
   await awaitReaderBurst(page, navigationMark, 2);
-  await expect(drawer.locator('[data-reader-page="0:400"]')).toBeVisible();
-  await expect(drawer.getByText('tokens 1–400 of 900')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="0:100"]')).toBeVisible();
+  await expect(drawer.getByText('tokens 1–100 of 900')).toBeVisible();
 
   // Literal source markup remains literal selectable text, never an element.
   await expect(drawer.getByText(/<em>/)).toBeVisible();
@@ -321,6 +321,6 @@ test('an exact barcode occurrence opens the reader', async ({ page }) => {
   await canvas.click({ position: { x: box.width * (450.5 / 900), y: 3 } });
   await awaitFreshReader(page, mark);
   const drawer = page.getByRole('main', { name: /Reader: reader/ });
-  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
+  await expect(drawer.locator('[data-reader-page="250:650"]')).toBeVisible();
   await drawer.getByRole('button', { name: 'back' }).click();
 });

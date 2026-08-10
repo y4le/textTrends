@@ -138,21 +138,23 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await readerOpen.click();
   await awaitOps(page, mark, ['reader-page']);
   const drawer = page.getByRole('main', { name: /Reader: slice-two/ });
-  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
+  const initialRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
+  expect(initialRange).not.toBeNull();
   await expect(drawer.locator('[data-reader-selection="true"]').first()).toBeVisible();
 
-  // Keyboard reader navigation uses served canonical cursors. Forward starts
-  // exactly at the prior exclusive end; Previous returns to the exact range.
+  // Directional source cursors tile at the served seam. With this uniform
+  // fixture, returning across the same seam reproduces the initial range.
   await drawer.getByRole('button', { name: 'next →', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
-  await expect(drawer.locator('[data-reader-page="800:900"]')).toBeVisible();
+  const nextRange = await drawer.locator('[data-reader-page]').getAttribute('data-reader-page');
+  expect(nextRange).not.toBe(initialRange);
   await drawer.getByRole('button', { name: '← previous', exact: true }).focus();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.keyboard.press('Enter');
   await awaitOps(page, mark, ['reader-page']);
-  await expect(drawer.locator('[data-reader-page="400:800"]')).toBeVisible();
+  await expect(drawer.locator(`[data-reader-page="${initialRange}"]`)).toBeVisible();
   await drawer.getByRole('button', { name: 'back' }).click();
 
   // Clearing restores baseline consumers without recomputing/relabeling them

@@ -55,7 +55,6 @@ import {
   FREQUENCY_WINDOW_MAX,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
-  READER_MAX_TOKENS,
   TREND_MAX_ROWS,
   termGroupIdentity,
   type GroupMember,
@@ -66,6 +65,12 @@ import {
   type WorkspaceTrendMeasureV1,
   type WorkspaceV1,
 } from '@texttrends/core';
+
+/** Source budgets are call-site intent, not the worker's protocol ceiling.
+ * The footer is latency-sensitive and only renders one clipped passage; the
+ * full Reader receives a larger measurement reservoir in its UI commit. */
+const FOOTER_PASSAGE_MAX_TOKENS = 400;
+const READER_SOURCE_MAX_TOKENS = 400;
 import {
   detailSelection,
   isValidSelection,
@@ -1570,7 +1575,7 @@ export function createAppRuntime(
           method: 'reader-page/1',
           doc: target.doc,
           cursor: { kind: 'around', token: target.token },
-          maxTokens: READER_MAX_TOKENS,
+          maxTokens: FOOTER_PASSAGE_MAX_TOKENS,
         },
       });
       const active = { cancel: handle.cancel };
@@ -2763,7 +2768,7 @@ export function createAppRuntime(
               method: 'reader-page/1',
               doc: issuedPlace.doc,
               cursor: issuedPlace.cursor,
-              maxTokens: READER_MAX_TOKENS,
+              maxTokens: READER_SOURCE_MAX_TOKENS,
             },
           },
           lease,

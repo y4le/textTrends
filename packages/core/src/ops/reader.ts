@@ -1,38 +1,27 @@
 /**
- * reader-page/1 kernel — the full-document, one-document-at-a-time, cursor-
- * paged reader (slice-2 ruling §3/§G). A reader page is NOT a repeated
- * source block: arbitrary centers are not stable pages, and char-cap
- * shrinkage makes naïve next/previous arithmetic overlap or skip text. This
- * kernel owns the paging contract so the client never does cursor math.
+ * reader-page/1 kernel — a bounded, directional source slice for the
+ * full-document Reader. Visual pages are layout-dependent and belong to the
+ * browser; this kernel supplies authenticated text and occurrence marks
+ * around an exact token boundary without pretending a token budget is a
+ * screen page.
  *
  * Layering follows KWIC exactly: `planReaderPage` is numeric
  * (offsets only, no text; track identity by ORDINAL), `materializeReaderPage`
  * binds authenticated text via the BoundTexts discipline.
  *
  * Invariants (all ranges half-open, all char offsets UTF-16 code units):
- * - One canonical partition is greedily derived FORWARD from token zero
- *   under the effective budget min(maxTokens, READER_MAX_TOKENS) and
- *   READER_MAX_TEXT_UTF16. `maxTokens` therefore belongs to the partition
- *   identity and clients keep it constant while paging.
- * - Every cursor resolves onto that partition: `from(t)` and `around(t)`
- *   serve the canonical page CONTAINING t; `before(t)` serves the page
- *   containing t - 1. `from(t)` need not start at t, and `around(t)` retains
- *   but need not center its anchor (the result reports `anchor.relToken`).
- * - `cappedBy` is derived from the canonical page: 'text' when the character
- *   cap stopped a non-final page below the token budget, 'tokens' when the
- *   budget stopped it, and null when the document edge did. A SINGLE token
- *   exceeding the text cap is an unservable one-token island: requesting
- *   that page is CapError, never a partial token. The internal partition is
- *   still total after the island, but a cursor-only client cannot cross it:
- *   the server-issued cursor targets the island and throws, so serving the
- *   tail requires an explicit out-of-band post-island cursor.
- * - Stable cursors: previous = before(served start), next = from(served
- *   end). Both re-resolve onto the same canonical partition, so forward and
- *   backward walks across SERVABLE pages are exact token-range reverses until
- *   an oversized island. Token ranges are adjacent; separator characters
- *   between pages are intentionally not served because page char ranges are
- *   token-bounded. Cursors are omitted (null) at document edges, which are
- *   also flagged (`atStart`/`atEnd`) alongside `docTokenCount`.
+ * - `from(t)` begins exactly at t and grows forward; `before(t)` ends exactly
+ *   at t and grows backward; `around(t)` grows on both sides while retaining
+ *   t. This makes every served edge a useful visual-page measurement seam.
+ * - Slices are bounded by min(maxTokens, READER_MAX_TOKENS) and
+ *   READER_MAX_TEXT_UTF16. A single oversized token is still served whole:
+ *   the browser's emergency wrapping is more useful than an un-crossable
+ *   error island.
+ * - `cappedBy` reports why the requested direction stopped. Server cursors
+ *   describe the served slice edges; the browser replaces them with the
+ *   smaller range it actually displayed after layout measurement.
+ * - Separator characters between slices are intentionally not served because
+ *   all source ranges are token-bounded.
  * - Marks are projected from caller-supplied per-track `NumericOccurrences`
  *   (the SHARED occurrence cache) by binary-searching this document's
  *   slice — the kernel never re-matches text, so `countOverlaps`, merged
@@ -45,7 +34,6 @@
  *   detaching the occurrence cache's buffers.
  */
 
-import { CapError } from '../contract/brands.ts';
 import type { DocumentIndexV1 } from '../index/build.ts';
 import { lowerBound, tokenEndChar } from '../index/build.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
@@ -53,8 +41,8 @@ import { internalTextOf, type BoundTexts } from './binding.ts';
 import { MAX_KWIC_TRACKS } from './kwic.ts';
 import { TERM_GROUP_LIMITS_V1, type NumericOccurrences } from './occurrences.ts';
 
-/** Requested-tokens cap; a larger `maxTokens` is clamped (and reported). */
-export const READER_MAX_TOKENS = 400;
+/** Requested source-slice cap; a larger `maxTokens` is clamped and reported. */
+export const READER_MAX_TOKENS = 4_096;
 /** Served text extent cap, UTF-16 code units. */
 export const READER_MAX_TEXT_UTF16 = 32_768;
 /** Total marks per page across all tracks; excess is truncated WITH a flag. */
@@ -101,7 +89,7 @@ export interface ReaderPageResult {
     readonly relToken: number;
     readonly charsUtf16: { readonly start: number; readonly end: number };
   } | null;
-  /** Stable cursors — no client arithmetic; null exactly at document edges. */
+  /** Directional source-slice cursors; visual pages replace these after fit. */
   readonly previous: { readonly kind: 'before'; readonly token: number } | null;
   readonly next: { readonly kind: 'from'; readonly token: number } | null;
   readonly atStart: boolean;
@@ -158,48 +146,92 @@ export interface ReaderTrackIdentity {
   readonly groupId: string;
 }
 
-/**
- * Resolve `target` onto the ONE canonical greedy-forward partition for this
- * document and effective token budget. The walk remains total across a token
- * that alone exceeds the text cap by treating it as a one-token island; that
- * island throws only when it is the requested page.
- */
-function canonicalPage(
-  doc: string,
+function charExtent(
+  shard: DocumentIndexV1,
+  start: number,
+  end: number,
+): number {
+  return tokenEndChar(shard, end - 1) - (shard.startsUtf16[start] as number);
+}
+
+function forwardSlice(
+  shard: DocumentIndexV1,
+  start: number,
+  maxEnd: number,
+): readonly [start: number, end: number, textCapped: boolean] {
+  if (charExtent(shard, start, start + 1) > READER_MAX_TEXT_UTF16) {
+    return [start, start + 1, start + 1 < maxEnd];
+  }
+  let lo = start + 1;
+  let hi = maxEnd;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi + 1) / 2);
+    if (charExtent(shard, start, mid) <= READER_MAX_TEXT_UTF16) lo = mid;
+    else hi = mid - 1;
+  }
+  return [start, lo, lo < maxEnd];
+}
+
+function backwardSlice(
+  shard: DocumentIndexV1,
+  minStart: number,
+  end: number,
+): readonly [start: number, end: number, textCapped: boolean] {
+  if (charExtent(shard, end - 1, end) > READER_MAX_TEXT_UTF16) {
+    return [end - 1, end, end - 1 > minStart];
+  }
+  let lo = minStart;
+  let hi = end - 1;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    if (charExtent(shard, mid, end) <= READER_MAX_TEXT_UTF16) hi = mid;
+    else lo = mid + 1;
+  }
+  return [lo, end, lo > minStart];
+}
+
+function aroundSlice(
   shard: DocumentIndexV1,
   tokenCount: number,
-  target: number,
+  anchor: number,
   budget: number,
-): readonly [start: number, end: number] {
-  let start = 0;
-  for (;;) {
-    const maxEnd = Math.min(tokenCount, start + budget);
-    const charStart = shard.startsUtf16[start] as number;
-    const oversized = tokenEndChar(shard, start) - charStart > READER_MAX_TEXT_UTF16;
-    let end = start + 1;
-    if (!oversized) {
-      // The extent predicate is monotone in the exclusive token end, so find
-      // the largest admissible end in O(log budget).
-      let lo = start + 1;
-      let hi = maxEnd;
-      while (lo < hi) {
-        const mid = Math.floor((lo + hi + 1) / 2);
-        const extent = tokenEndChar(shard, mid - 1) - charStart;
-        if (extent <= READER_MAX_TEXT_UTF16) lo = mid;
-        else hi = mid - 1;
-      }
-      end = lo;
-    }
-    if (target < end) {
-      if (oversized) {
-        throw new CapError(
-          `token ${start} of '${doc}' alone exceeds READER_MAX_TEXT_UTF16`,
-        );
-      }
-      return [start, end];
-    }
-    start = end;
+): readonly [start: number, end: number, textCapped: boolean] {
+  let start = anchor;
+  let end = anchor + 1;
+  if (charExtent(shard, start, end) > READER_MAX_TEXT_UTF16) {
+    return [start, end, Math.min(budget, tokenCount) > 1];
   }
+  let leftBlocked = false;
+  let rightBlocked = false;
+  while (end - start < budget) {
+    const leftCount = anchor - start;
+    const rightCount = end - anchor - 1;
+    const preferLeft = leftCount <= rightCount;
+    const directions = preferLeft ? ([-1, 1] as const) : ([1, -1] as const);
+    let added = false;
+    for (const direction of directions) {
+      if (direction === -1) {
+        if (leftBlocked || start === 0) continue;
+        if (charExtent(shard, start - 1, end) <= READER_MAX_TEXT_UTF16) {
+          start--;
+          added = true;
+          break;
+        }
+        leftBlocked = true;
+      } else {
+        if (rightBlocked || end === tokenCount) continue;
+        if (charExtent(shard, start, end + 1) <= READER_MAX_TEXT_UTF16) {
+          end++;
+          added = true;
+          break;
+        }
+        rightBlocked = true;
+      }
+    }
+    if (!added) break;
+  }
+  const available = Math.min(budget, tokenCount);
+  return [start, end, end - start < available];
 }
 
 export function planReaderPage(
@@ -247,14 +279,30 @@ export function planReaderPage(
       throw new RangeError(`unknown cursor kind '${(cursor as { kind: string }).kind}'`);
   }
 
-  // All modes resolve to the canonical page containing one target token:
-  // from/around target t, while before(t) targets t - 1. Partition identity
-  // is the EFFECTIVE budget, so clamped maxTokens values partition equally.
   const budget = Math.min(maxTokens, READER_MAX_TOKENS);
-  const target = cursor.kind === 'before' ? token - 1 : token;
-  const [start, end] = canonicalPage(doc, shard, tokenCount, target, budget);
-  const cappedBy: ReaderCappedBy =
-    end === tokenCount ? null : end - start === budget ? 'tokens' : 'text';
+  let range: readonly [start: number, end: number, textCapped: boolean];
+  switch (cursor.kind) {
+    case 'from':
+      range = forwardSlice(shard, token, Math.min(tokenCount, token + budget));
+      break;
+    case 'before':
+      range = backwardSlice(shard, Math.max(0, token - budget), token);
+      break;
+    case 'around':
+      range = aroundSlice(shard, tokenCount, token, budget);
+      break;
+  }
+  const [start, end, textCapped] = range;
+  const reachedDirectionalEdge = cursor.kind === 'before'
+    ? start === 0
+    : cursor.kind === 'from'
+      ? end === tokenCount
+      : start === 0 && end === tokenCount;
+  const cappedBy: ReaderCappedBy = textCapped
+    ? 'text'
+    : reachedDirectionalEdge
+      ? null
+      : 'tokens';
 
   const charStart = shard.startsUtf16[start] as number;
   const charEnd = tokenEndChar(shard, end - 1);

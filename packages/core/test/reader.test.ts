@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
-import { CapError } from '../src/contract/brands.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, tokenEndChar, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, type BoundTexts } from '../src/ops/binding.ts';
@@ -84,29 +83,28 @@ const words = (n: number, len = 0): string =>
   Array.from({ length: n }, (_, i) => `w${String(i).padStart(4, '0')}${'x'.repeat(len)}`).join(' ');
 
 describe('reader paging (zero tracks)', () => {
-  it('a from-page serves the canonical page containing its cursor and relative token extents', async () => {
+  it('a from slice begins exactly at its cursor and reports relative token extents', async () => {
     const w = await world({ a: 'one two three four five six seven eight' });
     const p = pageOf(w, 'a', { kind: 'from', token: 2 }, 3);
-    expect(p.tokens).toEqual({ start: 0, end: 3 });
-    expect(p.tokens.start).toBeLessThan(2); // from(t) need not start at interior t
-    expect(p.text).toBe('one two three');
+    expect(p.tokens).toEqual({ start: 2, end: 5 });
+    expect(p.text).toBe('three four five');
     expect(p.tokenStartsUtf16.length).toBe(3);
-    expect(p.text.slice(p.tokenStartsUtf16[0]!, p.tokenEndsUtf16[0]!)).toBe('one');
-    expect(p.text.slice(p.tokenStartsUtf16[2]!, p.tokenEndsUtf16[2]!)).toBe('three');
+    expect(p.text.slice(p.tokenStartsUtf16[0]!, p.tokenEndsUtf16[0]!)).toBe('three');
+    expect(p.text.slice(p.tokenStartsUtf16[2]!, p.tokenEndsUtf16[2]!)).toBe('five');
     expect(p.docTokenCount).toBe(8);
     expect(p.anchor).toBeNull();
     expect(p.marks).toEqual([]);
     expect(p.marksTruncated).toBe(false);
   });
 
-  it('a before-page serves the canonical page containing token cursor - 1', async () => {
+  it('a before slice ends exactly at its cursor', async () => {
     const w = await world({ a: 'one two three four five six seven eight' });
     const p = pageOf(w, 'a', { kind: 'before', token: 6 }, 3);
     expect(p.tokens).toEqual({ start: 3, end: 6 });
     expect(p.text).toBe('four five six');
-    // An interior before cursor resolves to the page containing token 1.
     const head = pageOf(w, 'a', { kind: 'before', token: 2 }, 5);
-    expect(head.tokens).toEqual({ start: 0, end: 5 });
+    expect(head.tokens).toEqual({ start: 0, end: 2 });
+    expect(head.text).toBe('one two');
     expect(head.atStart).toBe(true);
     expect(head.previous).toBeNull();
   });
@@ -121,8 +119,8 @@ describe('reader paging (zero tracks)', () => {
     expect(left.tokens).toEqual({ start: 0, end: 3 }); // shifted, size kept
     expect(left.anchor!.relToken).toBe(0);
     const right = pageOf(w, 'a', { kind: 'around', token: 7 }, 3);
-    expect(right.tokens).toEqual({ start: 6, end: 8 });
-    expect(right.anchor!.relToken).toBe(1);
+    expect(right.tokens).toEqual({ start: 5, end: 8 });
+    expect(right.anchor!.relToken).toBe(2);
     expect(right.text.slice(right.anchor!.charsUtf16.start, right.anchor!.charsUtf16.end)).toBe('eight');
   });
 
@@ -155,7 +153,7 @@ describe('reader paging (zero tracks)', () => {
     }
   });
 
-  it('round-trips the reviewer counterexample exactly under canonical text-capped boundaries', async () => {
+  it('tiles a text-capped counterexample in either direction without requiring one global partition', async () => {
     const text = `${'y'.repeat(32_765)} a b ${'z'.repeat(32_768)}`;
     const w = await world({ a: text });
     const shard = w.shards.get('a')!;
@@ -182,7 +180,7 @@ describe('reader paging (zero tracks)', () => {
       if (page.previous === null) break;
       previous = page.previous;
     }
-    expect(backward).toEqual([...forward].reverse());
+    expect(backward).toEqual([[3, 4], [1, 3], [0, 1]]);
     for (const walk of [forward, backward]) {
       const served = walk.flatMap(([start, end]) =>
         Array.from({ length: end - start }, (_, i) => start + i));
@@ -191,7 +189,7 @@ describe('reader paging (zero tracks)', () => {
     }
   });
 
-  it('matches a seeded brute-force partition in forward, backward, and mixed walks', async () => {
+  it('matches seeded brute-force directional slices without scanning from token zero', async () => {
     let seed = 0x5eed1234;
     const lengths = Array.from({ length: 240 }, () => {
       seed = (Math.imul(seed, 1_664_525) + 1_013_904_223) >>> 0;
@@ -204,7 +202,7 @@ describe('reader paging (zero tracks)', () => {
     expect(shard.tokenTypeIds.length).toBe(240);
 
     const budget = 20;
-    const oracle: [number, number][] = [];
+    const forwardOracle: [number, number][] = [];
     for (let start = 0; start < lengths.length;) {
       const maxEnd = Math.min(lengths.length, start + budget);
       let end = start;
@@ -215,13 +213,13 @@ describe('reader paging (zero tracks)', () => {
         end++;
       }
       if (end === start) end++; // total partition across an oversized island
-      oracle.push([start, end]);
+      forwardOracle.push([start, end]);
       start = end;
     }
-    const pageSizes = new Set(oracle.map(([start, end]) => end - start));
+    const pageSizes = new Set(forwardOracle.map(([start, end]) => end - start));
     expect(pageSizes.size).toBeGreaterThan(1); // self-guard: the text cap must bind
     expect(
-      Math.max(...oracle.map(([start, end]) =>
+      Math.max(...forwardOracle.map(([start, end]) =>
         tokenEndChar(shard, end - 1) - (shard.startsUtf16[start] as number))),
     ).toBeGreaterThan(READER_MAX_TEXT_UTF16 * 0.9);
 
@@ -233,7 +231,22 @@ describe('reader paging (zero tracks)', () => {
       if (page.next === null) break;
       next = page.next;
     }
-    expect(forward).toEqual(oracle);
+    expect(forward).toEqual(forwardOracle);
+
+    const backwardOracle: [number, number][] = [];
+    for (let end = lengths.length; end > 0;) {
+      const minStart = Math.max(0, end - budget);
+      let start = end - 1;
+      while (
+        start > minStart
+        && tokenEndChar(shard, end - 1) - (shard.startsUtf16[start - 1] as number)
+          <= READER_MAX_TEXT_UTF16
+      ) {
+        start--;
+      }
+      backwardOracle.push([start, end]);
+      end = start;
+    }
 
     const backward: [number, number][] = [];
     let previous: ReaderCursor = { kind: 'before', token: lengths.length };
@@ -243,34 +256,17 @@ describe('reader paging (zero tracks)', () => {
       if (page.previous === null) break;
       previous = page.previous;
     }
-    expect(backward).toEqual([...oracle].reverse());
+    expect(backward).toEqual(backwardOracle);
 
     for (let token = 0; token < lengths.length; token++) {
-      const expected = oracle.find(([start, end]) => start <= token && token < end)!;
-      const cappedBy = new Set<ReaderPageResult['cappedBy']>();
-      for (const cursor of [
-        { kind: 'from', token },
-        { kind: 'around', token },
-        { kind: 'before', token: token + 1 },
-      ] as const) {
-        const page = pageOf(w, 'a', cursor, budget);
-        expect([page.tokens.start, page.tokens.end]).toEqual(expected);
-        cappedBy.add(page.cappedBy);
-      }
-      expect(cappedBy.size).toBe(1); // direction-free for one canonical page
+      const from = pageOf(w, 'a', { kind: 'from', token }, budget);
+      const before = pageOf(w, 'a', { kind: 'before', token: token + 1 }, budget);
+      const around = pageOf(w, 'a', { kind: 'around', token }, budget);
+      expect(from.tokens.start).toBe(token);
+      expect(before.tokens.end).toBe(token + 1);
+      expect(around.tokens.start).toBeLessThanOrEqual(token);
+      expect(around.tokens.end).toBeGreaterThan(token);
     }
-
-    const p0 = pageOf(w, 'a', { kind: 'from', token: 0 }, budget);
-    const p1 = pageOf(w, 'a', p0.next!, budget);
-    const p2 = pageOf(w, 'a', p1.next!, budget);
-    const back1 = pageOf(w, 'a', p2.previous!, budget);
-    const forward2 = pageOf(w, 'a', back1.next!, budget);
-    const backAgain = pageOf(w, 'a', forward2.previous!, budget);
-    expect(p0.tokens.end).toBe(p1.tokens.start);
-    expect(p1.tokens.end).toBe(p2.tokens.start);
-    expect(back1.tokens).toEqual(p1.tokens);
-    expect(forward2.tokens).toEqual(p2.tokens);
-    expect(backAgain.tokens).toEqual(p1.tokens);
   });
 
   it('reports cappedBy: tokens when the budget stops short of the document, null at the edge', async () => {
@@ -291,15 +287,15 @@ describe('reader paging (zero tracks)', () => {
     expect(p.tokens).toEqual({ start: 0, end: READER_MAX_TOKENS });
     expect(p.cappedBy).toBe('tokens');
     expect(pageOf(w, 'a', { kind: 'from', token: READER_MAX_TOKENS - 1 }, READER_MAX_TOKENS).tokens)
-      .toEqual(p.tokens); // raw 400 and clamped 1400 have one effective partition
+      .toEqual({ start: READER_MAX_TOKENS - 1, end: READER_MAX_TOKENS + 50 });
   });
 
-  it('treats the effective maxTokens budget as part of partition identity', async () => {
+  it('applies the effective maxTokens budget from an exact directional seam', async () => {
     const w = await world({ a: words(11) });
     expect(pageOf(w, 'a', { kind: 'from', token: 4 }, 4).tokens)
       .toEqual({ start: 4, end: 8 });
     expect(pageOf(w, 'a', { kind: 'from', token: 4 }, 5).tokens)
-      .toEqual({ start: 0, end: 5 });
+      .toEqual({ start: 4, end: 9 });
   });
 
   it('rejects invalid cursors and maxTokens (including zero-token docs) instead of clamping', async () => {
@@ -323,10 +319,10 @@ describe('reader paging (zero tracks)', () => {
 });
 
 describe('reader text cap', () => {
-  // Words long enough that 400 of them exceed the UTF-16 cap.
+  // Words long enough that a large requested slice exceeds the UTF-16 cap.
   const LONG = 120;
 
-  it('the first canonical page reports the text cap and round-trips exactly', async () => {
+  it('a forward slice reports the text cap and preserves its exact start seam', async () => {
     const w = await world({ a: words(400, LONG) });
     const p = pageOf(w, 'a', { kind: 'from', token: 0 }, 400);
     expect(p.cappedBy).toBe('text');
@@ -334,18 +330,19 @@ describe('reader text cap', () => {
     expect(p.tokens.end).toBeLessThan(400);
     expect(p.docCharsUtf16.end - p.docCharsUtf16.start).toBeLessThanOrEqual(READER_MAX_TEXT_UTF16);
     expect(p.text.length).toBe(p.docCharsUtf16.end - p.docCharsUtf16.start);
-    // The shrunken page still tiles: the next page starts where this ended.
+    // The next directional source slice starts where this one ended.
     const next = pageOf(w, 'a', p.next!, 400);
     expect(next.tokens.start).toBe(p.tokens.end);
-    // ... and before(start) of the NEXT page ends exactly at the boundary.
+    // A backward source slice retains that same seam, even though its other
+    // edge is independently fitted and need not reproduce the forward slice.
     const back = pageOf(w, 'a', next.previous!, 400);
     expect(back.tokens.end).toBe(next.tokens.start);
   });
 
-  it('a before cursor on the document end resolves to the final canonical page', async () => {
+  it('a before cursor on the document end grows backward under the text cap', async () => {
     const w = await world({ a: words(400, LONG) });
     const p = pageOf(w, 'a', { kind: 'before', token: 400 }, 400);
-    expect(p.cappedBy).toBeNull(); // document edge, not the prior page's text cap
+    expect(p.cappedBy).toBe('text');
     expect(p.tokens.end).toBe(400);
     expect(p.tokens.start).toBeGreaterThan(0);
     expect(p.docCharsUtf16.end - p.docCharsUtf16.start).toBeLessThanOrEqual(READER_MAX_TEXT_UTF16);
@@ -360,33 +357,34 @@ describe('reader text cap', () => {
     expect(p.text.slice(p.anchor!.charsUtf16.start, p.anchor!.charsUtf16.end)).toContain('w0200');
   });
 
-  it('a single token exceeding the text cap is CapError in every mode, never a sliced token', async () => {
+  it('serves a single token exceeding the text cap whole in every mode', async () => {
     const w = await world({ a: `tiny ${'y'.repeat(READER_MAX_TEXT_UTF16 + 1)} tiny` });
-    const shard = w.shards.get('a')!;
-    const plan = (cursor: ReaderCursor) => planReaderPage(w.snapshot, 'a', shard, cursor, 400, []);
-    expect(() => plan({ kind: 'from', token: 1 })).toThrow(CapError);
-    expect(() => plan({ kind: 'around', token: 1 })).toThrow(CapError);
-    expect(() => plan({ kind: 'before', token: 2 })).toThrow(CapError);
-    // A page whose shrink can step OFF the oversized token serves honestly.
+    for (const cursor of [
+      { kind: 'from', token: 1 },
+      { kind: 'around', token: 1 },
+      { kind: 'before', token: 2 },
+    ] as const) {
+      const p = pageOf(w, 'a', cursor, 400);
+      expect(p.tokens).toEqual({ start: 1, end: 2 });
+      expect(p.text.length).toBe(READER_MAX_TEXT_UTF16 + 1);
+      expect(p.cappedBy).toBe('text');
+    }
+    // A slice before the oversized token stops honestly at its edge.
     const p = pageOf(w, 'a', { kind: 'from', token: 0 }, 400);
     expect(p.tokens).toEqual({ start: 0, end: 1 });
     expect(p.text).toBe('tiny');
     expect(p.cappedBy).toBe('text');
   });
 
-  it('keeps an oversized token as an unservable island while an explicit post-island cursor can serve the tail', async () => {
+  it('walks across an oversized token without creating an unservable island', async () => {
     const huge = 'y'.repeat(READER_MAX_TEXT_UTF16 + 1);
     const w = await world({ a: `head ${huge} tail done` });
-    const shard = w.shards.get('a')!;
-    const plan = (cursor: ReaderCursor) =>
-      planReaderPage(w.snapshot, 'a', shard, cursor, 400, []);
-    expect(() => plan({ kind: 'from', token: 1 })).toThrow(CapError);
-    expect(() => plan({ kind: 'around', token: 1 })).toThrow(CapError);
-    expect(() => plan({ kind: 'before', token: 2 })).toThrow(CapError);
-
     const head = pageOf(w, 'a', { kind: 'before', token: 1 }, 400);
     expect(head.tokens).toEqual({ start: 0, end: 1 });
     expect(head.next).toEqual({ kind: 'from', token: 1 });
+    const island = pageOf(w, 'a', head.next!, 400);
+    expect(island.tokens).toEqual({ start: 1, end: 2 });
+    expect(island.next).toEqual({ kind: 'from', token: 2 });
     const tail = pageOf(w, 'a', { kind: 'from', token: 2 }, 400);
     expect(tail.tokens).toEqual({ start: 2, end: 4 });
     expect(tail.text).toBe('tail done');
