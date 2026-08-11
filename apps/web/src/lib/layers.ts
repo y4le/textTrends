@@ -1,7 +1,6 @@
 export const LAYER_KINDS = [
   'place',
   'row-detail',
-  'range-mode',
   'sheet',
   'reader',
 ] as const;

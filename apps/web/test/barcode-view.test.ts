@@ -6,6 +6,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1 } from '@texttrends/core';
 import {
+  barcodeLegendTotalText,
   barcodeReaderActivation,
   barcodeReaderTarget,
   barcodeTracks,
@@ -15,11 +16,33 @@ import {
   kwicCaptionText,
   orderTracks,
   resolveCapturedBarcodeTarget,
-  selectedBarcodeTotalText,
   snapBarcodeIndex,
   stepTarget,
-  trackSummaryText,
 } from '../src/lib/barcode-view.ts';
+
+describe('barcodeLegendTotalText', () => {
+  const text = (
+    linkedSelection: boolean,
+    selectedStatus: 'pending' | 'ready' | 'error' | null,
+    selectedTotal?: number,
+  ) => barcodeLegendTotalText({
+    linkedSelection,
+    selectedStatus,
+    selectedTotal,
+    corpusTotal: 12_345,
+  });
+
+  it('never fabricates a selected zero while linked detail is pending or failed', () => {
+    expect(text(true, 'pending')).toBe('…');
+    expect(text(true, 'error')).toBe('unavailable');
+  });
+
+  it('distinguishes a delivered zero and formats delivered and corpus totals', () => {
+    expect(text(true, 'ready')).toBe('0');
+    expect(text(true, 'ready', 4_321)).toBe('4,321');
+    expect(text(false, null)).toBe('12,345');
+  });
+});
 
 const exactResult = (): DispersionResultV1 => ({
   method: 'dispersion/1',
@@ -234,19 +257,6 @@ describe('bucket-count provenance and announced text (review-D round 2)', () => 
       .toBe('nearest occurrence to this bucket (1 hit in this bucket) · book-a · token 62 · first hit 14 tokens away');
   });
 
-  it('trackSummaryText names density buckets; exact stays plain', () => {
-    const [dense] = barcodeTracks(densityResult(), ['a']);
-    expect(trackSummaryText(dense!, 'wolf')).toBe('wolf: 60,000 occurrences in 3 density buckets');
-    const [exact] = barcodeTracks(exactResult(), ['a', 'b']);
-    expect(trackSummaryText(exact!, 'wolf')).toBe('wolf: 3 occurrences');
-  });
-
-  it('never reports a fabricated selected zero while detail is pending or failed', () => {
-    expect(selectedBarcodeTotalText('pending', undefined)).toBe('…');
-    expect(selectedBarcodeTotalText('error', undefined)).toBe('error');
-    expect(selectedBarcodeTotalText('ready', undefined)).toBe('0');
-    expect(selectedBarcodeTotalText('ready', 12)).toBe('12');
-  });
 });
 
 describe('orderTracks — the resident strip follows a query-free reorder', () => {

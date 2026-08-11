@@ -122,7 +122,8 @@ The trend plate preserves these rules:
 - color plus dash plus text identity, never color alone;
 - direct labels where space permits;
 - dispersion rows embedded at the bottom of the plot;
-- an explicit linked-range mode with handles, Cancel, and Use range; and
+- linked-range selection by mouse drag or keyboard, plus two-touch selection
+  and a press-hold-then-tap alternative on touch screens; and
 - exact graph values through the method/detail surfaces.
 
 Pointer motion and touch reading move a transient cursor. Mouse and pen hover in

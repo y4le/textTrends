@@ -10,7 +10,6 @@ export function TrendsPlace() {
   const series = useApp((state) => state.series);
   const trendView = useApp((state) => state.trendView);
   const setTrendView = useApp((state) => state.setTrendView);
-  const setPlace = useApp((state) => state.setPlace);
   const presentation = usePresentation();
 
   return (
@@ -66,19 +65,6 @@ export function TrendsPlace() {
           </Suspense>
         )}
       </div>
-      {series.length > 0 && (
-        <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-xs)' }}>
-          Exact totals by book are in{' '}
-          <button
-            type="button"
-            className="method-inline-action"
-            onClick={() => setPlace('catalog')}
-          >
-            Catalog
-          </button>
-          .
-        </p>
-      )}
     </>
   );
 }

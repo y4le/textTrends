@@ -17,27 +17,21 @@ const exact = (seriesId: string, total = 2): BarcodeTrackVM => ({
 });
 
 describe('barcodeStepperFor', () => {
-  const labelOf = (id: string) => ({ holmes: 'Holmes', moriarty: 'Moriarty' })[id] ?? id;
-
-  it('selects the focused exact track and names occurrences honestly', () => {
+  it('selects the focused exact track', () => {
     const view = barcodeStepperFor(
       [exact('holmes'), exact('moriarty', 1)],
       'moriarty',
-      labelOf,
     );
     expect(view.track?.seriesId).toBe('moriarty');
     expect(view).toMatchObject({
-      label: 'Moriarty · 1 occurrence',
       unit: 'occurrence',
       enabled: true,
-      fellBack: false,
     });
   });
 
-  it('falls back visibly to the first delivered track when focus has no track', () => {
-    const view = barcodeStepperFor([exact('holmes')], 'missing', labelOf);
+  it('falls back to the first delivered track when focus has no track', () => {
+    const view = barcodeStepperFor([exact('holmes')], 'missing');
     expect(view.track?.seriesId).toBe('holmes');
-    expect(view.fellBack).toBe(true);
   });
 
   it('names density buckets without presenting them as exact hits', () => {
@@ -63,21 +57,18 @@ describe('barcodeStepperFor', () => {
         midToken: 5,
       }]],
     };
-    expect(barcodeStepperFor([dense], 'holmes', labelOf)).toMatchObject({
-      label: 'Holmes · 12 occurrences in density buckets',
+    expect(barcodeStepperFor([dense], 'holmes')).toMatchObject({
       unit: 'bucket',
       enabled: true,
     });
   });
 
   it('disables empty and absent tracks', () => {
-    expect(barcodeStepperFor([exact('holmes', 0)], 'holmes', labelOf).enabled).toBe(false);
-    expect(barcodeStepperFor([], null, labelOf)).toEqual({
+    expect(barcodeStepperFor([exact('holmes', 0)], 'holmes').enabled).toBe(false);
+    expect(barcodeStepperFor([], null)).toEqual({
       track: null,
-      label: 'No occurrence track',
       unit: 'occurrence',
       enabled: false,
-      fellBack: false,
     });
   });
 });

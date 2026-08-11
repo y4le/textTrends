@@ -217,7 +217,8 @@ test('pointer and keyboard selections share detail results and stale results can
     ),
   ).toHaveLength(0);
   await page.mouse.up();
-  await expect(page.getByText(/Selected 6 tokens in/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect.poll(() => gateHeld(worker)).toBe(3);
 
   // Keyboard selection B: reset the reading cursor, announce selection mode,
@@ -231,14 +232,17 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('ArrowRight');
   const bMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('Enter');
-  await expect(page.getByText(/Selected 3 tokens in/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await awaitDetailBurst(page, bMark);
 
   // Every selected consumer serves B: one wolf inside [0,3), versus three in
   // the corpus. The concordance contains no occurrence outside that range.
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
-  await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
+  let termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('1');
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();
   await gotoPlace(page, 'concordance');
@@ -253,8 +257,11 @@ test('pointer and keyboard selections share detail results and stale results can
   // but identity guards keep B's range and all B-scoped evidence unchanged.
   await gateRelease(worker);
   await expect.poll(() => gateHeld(worker)).toBe(0);
-  await expect(page.getByText(/Selected 3 tokens in/)).toBeVisible();
-  await expect(page.getByText('wolf: 3 occurrences · 1 selected')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('1');
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
   await gotoPlace(page, 'trends');
@@ -275,7 +282,10 @@ test('pointer and keyboard selections share detail results and stale results can
   await gateRelease(worker);
   await awaitFreshKwic(page, clearMark);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
-  await expect(page.getByText('wolf: 3 occurrences', { exact: true })).toBeVisible();
+  termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('3');
 
   // A snapshot replacement invalidates the committed range as an identity,
   // not by clamping its old tokens into the new document.
@@ -284,7 +294,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('s');
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
-  await expect(page.getByText(/Selected 2 tokens in/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await importCorpus(page, 'replacement.txt', REPLACEMENT, 2);
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);

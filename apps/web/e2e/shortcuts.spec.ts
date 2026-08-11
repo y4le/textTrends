@@ -9,6 +9,8 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await page.keyboard.press('?');
   let dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { name: 'Touch gestures' })).toBeVisible();
+  await expect(dialog).toContainText('Press and hold a range start');
   await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
 

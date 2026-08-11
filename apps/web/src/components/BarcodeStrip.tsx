@@ -11,10 +11,16 @@
 
 import { useEffect, useMemo, useRef } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import { selectedBarcodeTotalText, stepTarget, trackSummaryText, type BarcodeActivation, type BarcodeTrackVM } from '../lib/barcode-view.ts';
+import {
+  barcodeLegendTotalText,
+  stepTarget,
+  type BarcodeActivation,
+  type BarcodeTrackVM,
+} from '../lib/barcode-view.ts';
 import { barcodeStepperFor } from '../lib/barcode-stepper.ts';
 import { slotColor } from '../lib/series-style.ts';
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
+import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 
 interface BarcodeBandProps {
@@ -224,7 +230,6 @@ export function BarcodeLegend({
   labelOf,
   slotOf,
   focusedSeries,
-  axisLabel,
   onActivate,
 }: {
   readonly tracks: readonly BarcodeTrackVM[];
@@ -234,31 +239,62 @@ export function BarcodeLegend({
   readonly labelOf: (seriesId: string) => string;
   readonly slotOf: (seriesId: string) => number;
   readonly focusedSeries: string | null;
-  readonly axisLabel: string;
   readonly onActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
 }) {
   const presentation = usePresentation();
   const coarse = presentation.coarseAvailable;
   const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
-  const stepper = barcodeStepperFor(tracks, focusedSeries, labelOf);
+  const stepper = barcodeStepperFor(tracks, focusedSeries);
   if (tracks.length === 0) return null;
 
   const step = (track: BarcodeTrackVM, dir: 1 | -1) => {
     onActivate(track, stepTarget(track, useApp.getState().scrub, dir));
   };
+  const occurrenceText = (track: BarcodeTrackVM): string => barcodeLegendTotalText({
+    linkedSelection,
+    selectedStatus,
+    selectedTotal: selectedBySeries.get(track.seriesId)?.total,
+    corpusTotal: track.total,
+  });
 
   return (
     <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
-      <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2) var(--space-3)', fontFamily: 'var(--font-mono)', fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)', color: 'var(--fg-muted)' }}>
-        <span>{axisLabel}</span>
+      <ul
+        aria-label="Term totals"
+        style={{
+          display: 'grid',
+          gap: 'var(--space-1)',
+          listStyle: 'none',
+          margin: 'var(--space-2) 0 0',
+          padding: 0,
+          width: '100%',
+          fontFamily: 'var(--font-mono)',
+          fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
+        }}
+      >
         {tracks.map((track) => (
-          <span key={track.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
-            <span aria-hidden="true" style={{ width: '1.5ch', height: 3, background: slotColor(slotOf(track.seriesId)), display: 'inline-block' }} />
-            <span>
-              {trackSummaryText(track, labelOf(track.seriesId))}
-              {linkedSelection && selectedStatus
-                ? <> · {selectedBarcodeTotalText(selectedStatus, selectedBySeries.get(track.seriesId)?.total)} selected</>
-                : null}
+          <li
+            key={track.seriesId}
+            data-term-occurrences={track.seriesId}
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              gap: 'var(--space-2)',
+              minWidth: 0,
+              color: 'var(--fg-muted)',
+            }}
+          >
+            <SeriesLineSample
+              slot={slotOf(track.seriesId)}
+              emphasized={focusedSeries === track.seriesId}
+            />
+            <span data-term-occurrence-label style={{ color: 'var(--fg)' }}>
+              {labelOf(track.seriesId)}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span data-term-occurrence-count>
+              {occurrenceText(track)}
             </span>
             {!coarse && track.total > 0 && (
               <>
@@ -266,17 +302,19 @@ export function BarcodeLegend({
                 <button type="button" style={navBtn} aria-label={`Next ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'occurrence' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
               </>
             )}
-          </span>
+            {coarse && stepper.track?.seriesId === track.seriesId && (
+              <span
+                role="group"
+                aria-label="Barcode occurrence navigation"
+                style={{ display: 'inline-flex', gap: 'var(--space-2)' }}
+              >
+                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Previous ${labelOf(track.seriesId)} ${stepper.unit}`} onClick={() => step(track, -1)}>‹</button>
+                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Next ${labelOf(track.seriesId)} ${stepper.unit}`} onClick={() => step(track, 1)}>›</button>
+              </span>
+            )}
+          </li>
         ))}
-      </div>
-      {coarse && stepper.track && (
-        <div role="group" aria-label="Barcode occurrence navigation" style={{ alignItems: 'center', display: 'flex', flexWrap: 'wrap', gap: 'var(--space-2)', marginTop: 'var(--space-2)', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-sm)' }}>
-          <span>{stepper.label}</span>
-          {stepper.fellBack && <span role="note" style={{ color: 'var(--fg-muted)' }}>focused term has no delivered barcode track; showing the first track</span>}
-          <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Previous ${labelOf(stepper.track.seriesId)} ${stepper.unit}`} onClick={() => step(stepper.track!, -1)}>‹</button>
-          <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Next ${labelOf(stepper.track.seriesId)} ${stepper.unit}`} onClick={() => step(stepper.track!, 1)}>›</button>
-        </div>
-      )}
+      </ul>
     </div>
   );
 }

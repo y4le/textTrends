@@ -52,7 +52,10 @@ for (const viewport of [
     expect(strokes).toEqual([2]);
 
     await expect(page.getByRole('table', { name: /exact totals by book/i })).toHaveCount(0);
-    await expect(page.getByRole('button', { name: 'Catalog', exact: true })).toBeVisible();
+    await expect(page.getByText(/Exact totals by book are in/)).toHaveCount(0);
+    const occurrenceRows = page.getByRole('list', { name: 'Term totals' })
+      .getByRole('listitem');
+    await expect(occurrenceRows).toHaveCount(3);
 
     const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
     await page

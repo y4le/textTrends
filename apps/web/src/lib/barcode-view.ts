@@ -52,6 +52,26 @@ export interface BarcodeTrackVM {
 
 export type BarcodeSegmentVM = BarcodeTickVM | BarcodeCellVM;
 
+/** Keep the selected-window total honest while its linked detail request is
+ * unresolved. This stays pure so pending/error/zero cannot regress into the
+ * same visible value without a unit test noticing. */
+export function barcodeLegendTotalText({
+  linkedSelection,
+  selectedStatus,
+  selectedTotal,
+  corpusTotal,
+}: {
+  readonly linkedSelection: boolean;
+  readonly selectedStatus: 'pending' | 'ready' | 'error' | null;
+  readonly selectedTotal: number | undefined;
+  readonly corpusTotal: number;
+}): string {
+  if (!linkedSelection) return corpusTotal.toLocaleString();
+  if (selectedStatus === 'pending') return '…';
+  if (selectedStatus === 'error') return 'unavailable';
+  return (selectedTotal ?? 0).toLocaleString();
+}
+
 /** Project one dispersion result into per-track token-space segments.
  *  `docsInOrder` is the SELECTION order the result was computed under (the
  *  exact CSR doc axis); the caller passes the same order it laid the chart
@@ -428,25 +448,6 @@ export function orderTracks(
     return i < 0 ? seriesOrder.length : i;
   };
   return [...tracks].sort((a, b) => pos(a.seriesId) - pos(b.seriesId));
-}
-
-/** The accessible per-track summary text — pure, so the announced content
- *  is pinned by unit test, not only rendered JSX. */
-export function trackSummaryText(track: BarcodeTrackVM, label: string): string {
-  const occ = `${track.total.toLocaleString()} occurrence${track.total === 1 ? '' : 's'}`;
-  return track.representation === 'density'
-    ? `${label}: ${occ} in ${track.segments.length.toLocaleString()} density buckets`
-    : `${label}: ${occ}`;
-}
-
-/** Honest selected-layer label while its bounded query settles or fails. */
-export function selectedBarcodeTotalText(
-  status: 'pending' | 'ready' | 'error',
-  total: number | undefined,
-): string {
-  if (status === 'pending') return '…';
-  if (status === 'error') return 'error';
-  return (total ?? 0).toLocaleString();
 }
 
 /** The concordance caption for a served center — PURE so the announced text

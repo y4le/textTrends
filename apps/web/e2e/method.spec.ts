@@ -28,7 +28,8 @@ test('Trend settings separate result geometry from resident presentation', async
       && event.t === 'query');
     return queries.length > 0 && queries.every((event) => event.op === 'trend');
   }).toBe(true);
-  await expect(page.getByText(/counts · 250 tokens per bin · unsmoothed/)).toBeVisible();
+  await expect(page.getByText(/counts · 250 tokens per bin · unsmoothed/)).toHaveCount(0);
+  await expect(page.locator('#trend-settings-open')).toHaveCount(0);
   await expect(page.getByRole('img', { name: /^Counts of / })).toBeVisible();
 
   const displayMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -43,7 +44,7 @@ test('Trend settings separate result geometry from resident presentation', async
     && event.direction === 'to-worker'
     && event.t === 'query');
   expect(displayQueries).toEqual([]);
-  await expect(page.getByText(/rate per 100,000 tokens · 250 tokens per bin · 5-bin rolling mean · raw behind/)).toBeVisible();
+  await expect(page.getByText(/rate per 100,000 tokens · 250 tokens per bin · 5-bin rolling mean · raw behind/)).toHaveCount(0);
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
   await sheet.getByRole('button', { name: 'Close Method & settings sheet' }).click();
   await gotoPlace(page, 'catalog');
@@ -107,7 +108,8 @@ test('Method range provenance and TSV use the selected overlay, never the retain
   await plot.press('ArrowRight');
   await plot.press('Enter');
 
-  await expect(page.getByText(/Selected 3 tokens in/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
   sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
   method = sheet.locator('details.method-summary');

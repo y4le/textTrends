@@ -28,8 +28,8 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await page.mouse.move(box.x + box.width * 0.55, y, { steps: 8 });
   await page.mouse.up();
 
-  await expect(page.getByText(/Selected alpha token .* → beta token .* across 2 books/i))
-    .toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
+  await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]'))
     .toBeVisible({ timeout: 30_000 });

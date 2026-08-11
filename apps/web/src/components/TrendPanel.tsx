@@ -61,18 +61,6 @@ import {
   selectionTokenCount,
   type TokenRangeSelectionSpanV1,
 } from '../lib/selection.ts';
-import {
-  armRange,
-  cancelRange,
-  commitRangeDraft,
-  draftRanges,
-  moveRangeHandle,
-  setRangeEnd,
-  stepRangeHandle,
-  type RangeDraft,
-  type RangeHandle,
-} from '../lib/range-mode.ts';
-import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
 import {
@@ -83,6 +71,18 @@ import {
 import { trendStageGeometry, trendStageProjection, trendStageSnapIndexes } from '../lib/trend-stage.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
+import {
+  TOUCH_RANGE_HOLD_MS,
+  beginTouchRangeGesture,
+  resetTouchRangeGesture,
+  touchRangeCancel,
+  touchRangeDown,
+  touchRangeHold,
+  touchRangeMove,
+  touchRangeUp,
+  type TouchRangeEffect,
+  type TouchRangeGesture,
+} from '../lib/touch-range-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 interface ReadySeries {
@@ -96,7 +96,7 @@ interface DisplayedSeries extends ReadySeries {
 }
 
 interface RangePreview {
-  readonly mode: 'pointer' | 'keyboard';
+  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard';
   readonly origin: ScrubTarget;
   readonly head: ScrubTarget;
 }
@@ -135,11 +135,8 @@ export function TrendPanel() {
   const selectedDispersion = useApp((s) => s.selectedDispersion);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const trendView = useApp((s) => s.trendView);
-  const trendBins = useApp((s) => s.trendBins);
   const trendMeasure = useApp((s) => s.trendMeasure);
   const focusedSeries = useApp((s) => s.focusedSeries);
-  const pushLayer = useApp((s) => s.pushLayer);
-  const replaceLayer = useApp((s) => s.replaceLayer);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
@@ -341,49 +338,20 @@ export function TrendPanel() {
   const strokeFor = (id: string) =>
     id === focusedSeries ? geometry.strokeFocused : geometry.strokeOther;
 
-  const binLine = trendBins.mode === 'per-doc'
-    ? `${trendBins.count} equal bins per book`
-    : `${trendBins.count.toLocaleString()} tokens per bin`;
-  const smoothingLine = trendMeasure.kind === 'rate' && trendMeasure.smoothing !== 0
-    ? `${trendMeasure.smoothing}-bin rolling mean${trendMeasure.showRaw ? ' · raw behind' : ''}`
-    : 'unsmoothed';
-  const methodLine = `${trendMeasure.kind === 'count' ? 'counts' : `rate per ${trendMeasure.denominator.toLocaleString()} tokens`} · ${binLine} · ${smoothingLine} · books token-proportional in declared order`;
-  const openSettings = () => {
-    const top = useApp.getState().layers.at(-1);
-    if (top?.kind === 'sheet') {
-      replaceLayer('sheet', Object.freeze({ surface: 'method' }), 'trend-settings-open', { detent: 'tall' });
-    } else {
-      pushLayer('sheet', Object.freeze({ surface: 'method' }), 'trend-settings-open', { detent: 'tall' });
-    }
-  };
-
   return (
     <section>
-      <p
-        style={{
-          fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
-          fontFamily: 'var(--font-mono)',
-          fontWeight: 400,
-          color: 'var(--fg-muted)',
-          margin: '0 0 var(--space-2)',
-        }}
-      >
-        {methodLine}
-        {' · '}
-        <button
-          id="trend-settings-open"
-          type="button"
-          className="method-inline-action"
-          onClick={openSettings}
+      {failed.length > 0 && (
+        <p
+          role="alert"
+          style={{
+            color: 'var(--accent-text)',
+            fontSize: 'var(--text-sm)',
+            margin: '0 0 var(--space-2)',
+          }}
         >
-          settings
-        </button>
-        {failed.length > 0 && (
-          <span style={{ color: 'var(--accent-text)' }}>
-            {' '}· failed: {failed.map(failureText).join(' · ')}
-          </span>
-        )}
-      </p>
+          failed: {failed.map(failureText).join(' · ')}
+        </p>
+      )}
       <ScrubSurface
         containerRef={setContainerEl}
         trendView={trendView}
@@ -458,7 +426,6 @@ export function TrendPanel() {
         slotOf={slotOf}
         labelOf={labelOf}
         focusedSeries={focusedSeries}
-        axisLabel={trendView === 'series' ? 'occurrences' : 'occurrences · within each book'}
         onActivate={activateBarcode}
       />
     </section>
@@ -526,8 +493,14 @@ function ScrubSurface({
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
   const setTrendView = useApp((s) => s.setTrendView);
   const [preview, setPreview] = useState<RangePreview | null>(null);
-  const [rangeDraft, setRangeDraft] = useState<RangeDraft | null>(null);
+  const [rangeAnnouncement, setRangeAnnouncement] = useState('');
   const sliderRef = useRef<HTMLDivElement | null>(null);
+  const touchGesture = useRef<TouchRangeGesture>(beginTouchRangeGesture());
+  const touchHoldTimer = useRef<{
+    readonly pointerId: number;
+    readonly timer: ReturnType<typeof setTimeout>;
+  } | null>(null);
+  const releasedTouchPointers = useRef(new Set<number>());
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -545,6 +518,7 @@ function ScrubSurface({
   );
   useEffect(() => () => {
     if (frame.current !== null) cancelAnimationFrame(frame.current);
+    if (touchHoldTimer.current !== null) clearTimeout(touchHoldTimer.current.timer);
   }, []);
 
   const docTokenCount = layout.tokenCounts;
@@ -606,12 +580,93 @@ function ScrubSurface({
         )
       : null;
     if (!selection) {
-      if (range.mode === 'pointer') setPreview(null);
+      if (range.mode !== 'keyboard') setPreview(null);
+      setRangeAnnouncement('Range selection cancelled.');
       return;
     }
     setLinkedSelection(selection);
     setPreview(null);
+    const tokenCount = selectionTokenCount(selection);
+    setRangeAnnouncement(
+      `Range applied: ${tokenCount.toLocaleString()} token${tokenCount === 1 ? '' : 's'}.`,
+    );
   };
+
+  const applyTouchRangeEffect = (effect: TouchRangeEffect) => {
+    switch (effect.kind) {
+      case 'scrub':
+      case 'tap':
+        if (effect.kind === 'scrub') scheduleScrub(effect.point);
+        else setScrub(effect.point);
+        return;
+      case 'anchor':
+        setPreview({ mode: 'touch-anchor', origin: effect.point, head: effect.point });
+        setRangeAnnouncement('Range start set. Tap another position to select.');
+        return;
+      case 'preview':
+        setPreview({
+          mode: touchGesture.current.phase === 'anchored' ? 'touch-anchor' : 'touch',
+          origin: effect.origin,
+          head: effect.head,
+        });
+        return;
+      case 'commit':
+        commitPreview({ mode: 'touch', origin: effect.origin, head: effect.head });
+        return;
+      case 'cancel':
+        setPreview((current) =>
+          current?.mode === 'touch' || current?.mode === 'touch-anchor'
+            ? null
+            : current);
+        setRangeAnnouncement('Range selection cancelled.');
+        return;
+      case 'none':
+        return;
+      default: {
+        const exhaustive: never = effect;
+        return exhaustive;
+      }
+    }
+  };
+
+  const clearTouchHold = () => {
+    if (touchHoldTimer.current === null) return;
+    clearTimeout(touchHoldTimer.current.timer);
+    touchHoldTimer.current = null;
+  };
+
+  const startTouchHold = (pointerId: number) => {
+    clearTouchHold();
+    touchHoldTimer.current = {
+      pointerId,
+      timer: setTimeout(() => {
+        touchHoldTimer.current = null;
+        const transition = touchRangeHold(touchGesture.current, pointerId);
+        touchGesture.current = transition.state;
+        if (transition.state.phase === 'anchored') {
+          try {
+            sliderRef.current?.setPointerCapture(pointerId);
+          } catch {
+            // Synthetic PointerEvents do not create native capture state.
+          }
+        }
+        applyTouchRangeEffect(transition.effect);
+      }, TOUCH_RANGE_HOLD_MS),
+    };
+  };
+
+  const releaseCapturedPointer = (element: HTMLDivElement, pointerId: number) => {
+    if (!element.hasPointerCapture(pointerId)) return;
+    releasedTouchPointers.current.add(pointerId);
+    element.releasePointerCapture(pointerId);
+  };
+
+  useEffect(() => {
+    clearTouchHold();
+    const reset = resetTouchRangeGesture(touchGesture.current);
+    touchGesture.current = reset.state;
+    applyTouchRangeEffect(reset.effect);
+  }, [snapshot?.snapshot, trend]);
 
   const pointerDrag = useRef<{
     pointerId: number;
@@ -626,15 +681,20 @@ function ScrubSurface({
     // Keep browser/application shortcuts (notably Cmd/Ctrl+S) intact. Shift
     // remains unguarded because it deliberately changes the scrub step.
     if (e.ctrlKey || e.metaKey || e.altKey) return;
-    if (shortcutMatches(e, 'trend-selection-cancel') && rangeDraft !== null) {
+    if (
+      shortcutMatches(e, 'trend-selection-cancel')
+      && touchGesture.current.phase !== 'idle'
+    ) {
       e.preventDefault();
-      setRangeDraft(cancelRange());
+      clearTouchHold();
+      const reset = resetTouchRangeGesture(touchGesture.current);
+      touchGesture.current = reset.state;
+      applyTouchRangeEffect(reset.effect);
       return;
     }
     if (
       shortcutMatches(e, 'trend-toggle-view')
       && preview === null
-      && rangeDraft === null
     ) {
       e.preventDefault();
       setTrendView(trendView === 'series' ? 'by-book' : 'series');
@@ -643,11 +703,11 @@ function ScrubSurface({
     if (
       shortcutMatches(e, 'trend-selection-start')
       && preview === null
-      && rangeDraft === null
     ) {
       if (scrub && scrubDocOrdinal >= 0) {
         e.preventDefault();
         setPreview({ mode: 'keyboard', origin: scrub, head: scrub });
+        setRangeAnnouncement('Keyboard range started.');
       }
       return;
     }
@@ -678,6 +738,7 @@ function ScrubSurface({
       } else if (shortcutMatches(e, 'trend-selection-cancel')) {
         e.preventDefault();
         setPreview(null);
+        setRangeAnnouncement('Range selection cancelled.');
         return;
       } else {
         return;
@@ -738,9 +799,7 @@ function ScrubSurface({
 
   const shownRanges: readonly TokenRangeSelectionSpanV1[] = preview
     ? commitRange('', preview.origin, preview.head, docs, docTokenCount)?.ranges ?? []
-    : rangeDraft
-      ? draftRanges(rangeDraft, docs, docTokenCount)
-      : linkedSelection?.ranges ?? [];
+    : linkedSelection?.ranges ?? [];
   const rangeBoxes = trendView === 'series' && shownRanges.length > 0
     ? (() => {
         const first = shownRanges[0]!;
@@ -782,50 +841,14 @@ function ScrubSurface({
     const count = selectionTokenCount({ snapshot: '', ranges });
     return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} books`;
   };
+  const anchoredWaiting = preview?.mode === 'touch-anchor'
+    && touchGesture.current.phase === 'anchored'
+    && touchGesture.current.endpoint === null;
   const rangeStatus = preview
-    ? `Selecting ${describeRanges(shownRanges)}`
-    : rangeDraft
-      ? `Range draft in ${describeRanges(shownRanges)}`
-    : linkedSelection
-      ? linkedSelection.ranges.length === 1
-        ? `Selected ${selectionTokenCount(linkedSelection).toLocaleString()} tokens in ${titleByDoc.get(linkedSelection.ranges[0]!.doc) ?? linkedSelection.ranges[0]!.doc}`
-        : `Selected ${describeRanges(linkedSelection.ranges)}`
-      : 'Press S at the reading cursor to select a range';
-
-  const pointX = (point: ScrubTarget): number | null => {
-    const d = docs.indexOf(point.doc);
-    if (d < 0) return null;
-    return trendView === 'series'
-      ? seriesXFromToken(d, point.token, plotW, layout)
-      : bookXFromToken(point.token, plotW, docTokenCount[d] ?? 0);
-  };
-
-  const rangeHandlePosition = rangeDraft
-    ? Object.fromEntries((['start', 'end'] as const).map((handle) => {
-        const point = rangeDraft[handle];
-        const ordinal = docs.indexOf(point.doc);
-        return [handle, {
-          x: pointX(point),
-          top: trendView === 'series' ? geometry.topPad : ordinal * rowPitch,
-          height: trendView === 'series'
-            ? geometry.seriesHeight + bandExtent - geometry.topPad
-            : geometry.rowHeight + bandExtent,
-        }];
-      })) as Record<RangeHandle, { x: number | null; top: number; height: number }>
-    : null;
-
-  const useRangeDraft = () => {
-    if (!rangeDraft || !snapshot) return;
-    const selection = commitRangeDraft(
-      snapshot.snapshot,
-      rangeDraft,
-      docs,
-      docTokenCount,
-    );
-    if (!selection) return;
-    setLinkedSelection(selection);
-    setRangeDraft(null);
-  };
+    ? anchoredWaiting
+      ? `Range start set at ${describeRanges(shownRanges)} · tap another position`
+      : `Selecting ${describeRanges(shownRanges)}`
+    : '';
 
   const pointerTap = useRef<{
     readonly pointerId: number;
@@ -835,26 +858,6 @@ function ScrubSurface({
     readonly pointerType: string;
     moved: boolean;
   } | null>(null);
-  const rangeHandleDrag = useRef<{
-    readonly pointerId: number;
-    readonly handle: RangeHandle;
-  } | null>(null);
-
-  const moveDraftHandleFromPointer = (
-    handle: RangeHandle,
-    clientX: number,
-    clientY: number,
-  ) => {
-    const slider = sliderRef.current;
-    if (!slider) return;
-    const rect = slider.getBoundingClientRect();
-    const target = targetFromPointer(clientX - rect.left, clientY - rect.top, false);
-    if (!target) return;
-    setRangeDraft((draft) => draft
-      ? moveRangeHandle(draft, handle, target)
-      : draft);
-  };
-
   return (
     <div ref={containerRef} style={{ width: '100%' }}>
       <div
@@ -894,16 +897,43 @@ function ScrubSurface({
         }
         onKeyDown={onKeyDown}
         style={{ width: '100%', outline: 'none', position: 'relative', touchAction: 'pan-y' }}
+        onContextMenu={(event) => {
+          if (touchGesture.current.phase !== 'idle') event.preventDefault();
+        }}
         onDoubleClick={(event) => {
           event.preventDefault();
-          setPreview(null);
-          setRangeDraft(null);
+          clearTouchHold();
+          const reset = resetTouchRangeGesture(touchGesture.current);
+          touchGesture.current = reset.state;
+          applyTouchRangeEffect(reset.effect);
+          setPreview((current) => current?.mode === 'keyboard' ? null : current);
           setLinkedSelection(null);
+          setRangeAnnouncement('Range cleared.');
         }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
           const py = e.clientY - rect.top;
+          if (e.pointerType === 'touch') {
+            const before = touchGesture.current;
+            if (before.phase === 'idle') return;
+            const target = targetFromPointer(px, py, false);
+            const transition = touchRangeMove(before, {
+              pointerId: e.pointerId,
+              point: target ? { doc: target.doc, token: target.token } : null,
+              clientX: e.clientX,
+              clientY: e.clientY,
+            });
+            touchGesture.current = transition.state;
+            if (
+              before.phase === 'ranging'
+              || before.phase === 'anchored'
+              || before.phase === 'spent'
+            ) e.preventDefault();
+            applyTouchRangeEffect(transition.effect);
+            return;
+          }
+          if (touchGesture.current.phase !== 'idle') return;
           const precise = pointerIntentFor(e.pointerType) === 'precise';
           const target = targetFromPointer(px, py, precise);
           const tap = pointerTap.current;
@@ -934,10 +964,60 @@ function ScrubSurface({
           const origin = targetFromPointer(
             e.clientX - rect.left,
             e.clientY - rect.top,
-            rangeDraft === null && precise,
+            e.pointerType === 'touch' ? false : precise,
           );
           if (!origin) return;
-          if (origin.zone === 'barcode' || e.pointerType !== 'mouse' || rangeDraft !== null) {
+          if (e.pointerType === 'touch') {
+            if (pointerDrag.current) return;
+            releasedTouchPointers.current.delete(e.pointerId);
+            pointerTap.current = null;
+            const before = touchGesture.current;
+            const transition = touchRangeDown(before, {
+              pointerId: e.pointerId,
+              point: { doc: origin.doc, token: origin.token },
+              clientX: e.clientX,
+              clientY: e.clientY,
+            });
+            touchGesture.current = transition.state;
+            if (before.phase === 'idle' && transition.state.phase === 'reading') {
+              startTouchHold(e.pointerId);
+            } else {
+              clearTouchHold();
+            }
+            if (transition.state.phase === 'ranging') {
+              pointerTap.current = null;
+              setPreview((current) => current?.mode === 'keyboard' ? null : current);
+              for (const pointerId of transition.state.heldPointerIds) {
+                try {
+                  e.currentTarget.setPointerCapture(pointerId);
+                } catch {
+                  // Synthetic PointerEvents do not register an active native
+                  // pointer; browser-delivered touches do and are captured.
+                }
+              }
+              e.preventDefault();
+            } else if (
+              transition.state.phase === 'anchored'
+              && transition.state.endpoint?.pointerId === e.pointerId
+            ) {
+              try {
+                e.currentTarget.setPointerCapture(e.pointerId);
+              } catch {
+                // Synthetic PointerEvents do not register native capture.
+              }
+              e.preventDefault();
+            } else if (
+              before.phase === 'ranging'
+              || before.phase === 'anchored'
+              || before.phase === 'spent'
+            ) {
+              e.preventDefault();
+            }
+            applyTouchRangeEffect(transition.effect);
+            return;
+          }
+          if (touchGesture.current.phase !== 'idle') return;
+          if (origin.zone === 'barcode' || e.pointerType !== 'mouse') {
             if (precise) e.currentTarget.setPointerCapture(e.pointerId);
             pointerTap.current = {
               pointerId: e.pointerId,
@@ -961,6 +1041,33 @@ function ScrubSurface({
           setPreview(null);
         }}
         onPointerUp={(e) => {
+          if (e.pointerType === 'touch') {
+            if (touchHoldTimer.current?.pointerId === e.pointerId) clearTouchHold();
+            const before = touchGesture.current;
+            if (before.phase === 'idle') return;
+            const rect = e.currentTarget.getBoundingClientRect();
+            const target = targetFromPointer(
+              e.clientX - rect.left,
+              e.clientY - rect.top,
+              false,
+            );
+            const transition = touchRangeUp(before, {
+              pointerId: e.pointerId,
+              point: target ? { doc: target.doc, token: target.token } : null,
+              clientX: e.clientX,
+              clientY: e.clientY,
+            });
+            touchGesture.current = transition.state;
+            releaseCapturedPointer(e.currentTarget, e.pointerId);
+            if (
+              before.phase === 'ranging'
+              || before.phase === 'anchored'
+              || before.phase === 'spent'
+            ) e.preventDefault();
+            applyTouchRangeEffect(transition.effect);
+            return;
+          }
+          if (touchGesture.current.phase !== 'idle') return;
           const tap = pointerTap.current;
           if (tap?.pointerId === e.pointerId) {
             pointerTap.current = null;
@@ -971,7 +1078,6 @@ function ScrubSurface({
               if (
                 tap.origin.zone === 'barcode'
                 && pointerIntentFor(tap.pointerType) === 'precise'
-                && rangeDraft === null
               ) {
                 const resolution = resolveCapturedBarcodeTarget(barcodeTracks, {
                   trackId: tap.origin.trackId,
@@ -986,9 +1092,6 @@ function ScrubSurface({
                 }
               } else {
                 setScrub({ doc: tap.origin.doc, token: tap.origin.token });
-                setRangeDraft((draft) => draft
-                  ? setRangeEnd(draft, tap.origin)
-                  : draft);
               }
             }
             return;
@@ -1006,6 +1109,15 @@ function ScrubSurface({
           }
         }}
         onPointerCancel={(e) => {
+          if (e.pointerType === 'touch') {
+            if (touchHoldTimer.current?.pointerId === e.pointerId) clearTouchHold();
+            const before = touchGesture.current;
+            const transition = touchRangeCancel(before, e.pointerId);
+            touchGesture.current = transition.state;
+            releaseCapturedPointer(e.currentTarget, e.pointerId);
+            applyTouchRangeEffect(transition.effect);
+            return;
+          }
           if (pointerTap.current?.pointerId === e.pointerId) {
             pointerTap.current = null;
           }
@@ -1013,74 +1125,16 @@ function ScrubSurface({
           pointerDrag.current = null;
           setPreview(null);
         }}
+        onLostPointerCapture={(e) => {
+          if (e.pointerType !== 'touch') return;
+          if (releasedTouchPointers.current.delete(e.pointerId)) return;
+          const transition = touchRangeCancel(touchGesture.current, e.pointerId);
+          touchGesture.current = transition.state;
+          applyTouchRangeEffect(transition.effect);
+        }}
       >
         {children}
         {barcodeBand}
-        {rangeDraft && rangeBoxes.length > 0 && rangeHandlePosition && (
-          <>
-            {(['start', 'end'] as const).map((handle) => {
-              if (
-                rangeDraft.start.doc === rangeDraft.end.doc
-                && rangeDraft.start.token === rangeDraft.end.token
-                && handle === 'start'
-              ) {
-                return null;
-              }
-              const position = rangeHandlePosition[handle];
-              const x = position.x;
-              if (x === null) return null;
-              return (
-                <span
-                  key={handle}
-                  className="range-handle"
-                  data-range-handle={handle}
-                  aria-hidden="true"
-                  onPointerDown={(event) => {
-                    event.stopPropagation();
-                    event.currentTarget.setPointerCapture(event.pointerId);
-                    rangeHandleDrag.current = {
-                      pointerId: event.pointerId,
-                      handle,
-                    };
-                  }}
-                  onPointerMove={(event) => {
-                    if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
-                    event.stopPropagation();
-                    moveDraftHandleFromPointer(handle, event.clientX, event.clientY);
-                  }}
-                  onPointerUp={(event) => {
-                    if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
-                    event.stopPropagation();
-                    rangeHandleDrag.current = null;
-                    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-                      event.currentTarget.releasePointerCapture(event.pointerId);
-                    }
-                  }}
-                  onPointerCancel={(event) => {
-                    if (rangeHandleDrag.current?.pointerId === event.pointerId) {
-                      rangeHandleDrag.current = null;
-                    }
-                  }}
-                  style={{
-                    position: 'absolute',
-                    left: Math.max(0, Math.min(plotW - 44, x - 22)),
-                    top: Math.max(0, position.top + position.height / 2 - 22),
-                    zIndex: 4,
-                    inlineSize: 44,
-                    blockSize: 44,
-                    border: '1px solid var(--accent-text)',
-                    background: 'color-mix(in srgb, var(--bg) 82%, transparent)',
-                    color: 'var(--fg)',
-                    cursor: 'ew-resize',
-                    touchAction: 'none',
-                  }}
-                >
-                  {handle === 'start' ? '◀' : '▶'}
-                </span>
-              );
-            })}
-          </>
-        )}
         {rangeBoxes.map((rangeBox, index) => (
           <div
             key={`${rangeBox.left}:${rangeBox.top}:${rangeBox.right}`}
@@ -1089,9 +1143,7 @@ function ScrubSurface({
             data-testid={index === 0
               ? preview
                 ? 'selection-preview'
-                : rangeDraft
-                  ? 'range-draft'
-                  : 'linked-selection'
+                : 'linked-selection'
               : undefined}
             style={{
               position: 'absolute',
@@ -1125,113 +1177,67 @@ function ScrubSurface({
           />
         )}
       </div>
-      <p
-        style={{
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs)',
-          color: 'var(--fg-muted)',
-          minHeight: '3.2em',
-          margin: 'var(--space-2) 0 0',
-        }}
-      >
-        {scrub
-          ? 'arrows step by token, shift+arrows by 5, PageUp/Down by bin · press S to select a range'
-          : 'hover or focus the chart to set the reading position — arrows step by token, shift+arrows by 5, PageUp/Down by bin · press S to select a range'}
-      </p>
-      <p
-        role="status"
-        aria-live="polite"
-        style={{
-          margin: 'var(--space-1) 0 0',
-          minHeight: '1.5em',
-          color: 'var(--fg-muted)',
-          fontFamily: 'var(--font-mono)',
-          fontSize: 'var(--text-xs)',
-        }}
-      >
-        {rangeStatus}
-        {preview?.mode === 'keyboard' ? ' · arrows extend · Enter commits · Escape cancels' : ''}
-        {linkedSelection && preview === null ? (
-          <>
-            {' · '}
-            <button
-              type="button"
-              onClick={() => setLinkedSelection(null)}
-              style={{
-                font: 'inherit',
-                color: 'var(--fg)',
-                background: 'none',
-                border: '1px solid var(--rule)',
-                cursor: 'pointer',
-                padding: '0 0.5ch',
-              }}
-            >
-              clear selection
-            </button>
-          </>
-        ) : null}
-      </p>
-      {scrub && preview === null && rangeDraft === null && (
-        <button
-          className="coarse-target"
-          type="button"
-          onClick={() => setRangeDraft(armRange(scrub))}
-          style={SMALL_BUTTON_STYLE}
-        >
-          select range
-        </button>
-      )}
-      {rangeDraft && (
-        <div
-          role="group"
-          aria-label="Range selection controls"
+      {(rangeStatus || linkedSelection) && (
+        <p
           style={{
-            display: 'flex',
-            flexWrap: 'wrap',
-            alignItems: 'center',
-            gap: 'var(--space-2)',
-            marginTop: 'var(--space-1)',
+            margin: 'var(--space-1) 0 0',
+            color: 'var(--fg-muted)',
+            fontFamily: 'var(--font-mono)',
+            fontSize: 'var(--text-xs)',
           }}
         >
-          {(['start', 'end'] as const).flatMap((handle) =>
-            ([-1, 1] as const).map((delta) => (
+          {rangeStatus}
+          {preview?.mode === 'keyboard' ? ' · arrows extend · Enter commits · Escape cancels' : ''}
+          {preview?.mode === 'touch-anchor' ? (
+            <>
+              {' · '}
               <button
-                key={`${handle}:${delta}`}
-                className="coarse-target"
                 type="button"
-                aria-label={`Move range ${handle} ${delta < 0 ? 'back' : 'forward'} one token`}
                 onClick={() => {
-                  setRangeDraft(stepRangeHandle(
-                    rangeDraft,
-                    handle,
-                    delta,
-                    docs,
-                    docTokenCount,
-                  ));
+                  clearTouchHold();
+                  const reset = resetTouchRangeGesture(touchGesture.current);
+                  touchGesture.current = reset.state;
+                  applyTouchRangeEffect(reset.effect);
                 }}
-                style={SMALL_BUTTON_STYLE}
+                style={{
+                  font: 'inherit',
+                  color: 'var(--fg)',
+                  background: 'none',
+                  border: '1px solid var(--rule)',
+                  cursor: 'pointer',
+                  padding: '0 0.5ch',
+                }}
               >
-                {handle} {delta < 0 ? '−' : '+'}
+                cancel range
               </button>
-            )))}
-          <button
-            className="coarse-target"
-            type="button"
-            onClick={() => setRangeDraft(cancelRange())}
-            style={SMALL_BUTTON_STYLE}
-          >
-            cancel
-          </button>
-          <button
-            className="coarse-target"
-            type="button"
-            onClick={useRangeDraft}
-            style={SMALL_BUTTON_STYLE}
-          >
-            use range
-          </button>
-        </div>
+            </>
+          ) : null}
+          {linkedSelection && preview === null ? (
+            <>
+              <button
+                type="button"
+                onClick={() => {
+                  setLinkedSelection(null);
+                  setRangeAnnouncement('Range cleared.');
+                }}
+                style={{
+                  font: 'inherit',
+                  color: 'var(--fg)',
+                  background: 'none',
+                  border: '1px solid var(--rule)',
+                  cursor: 'pointer',
+                  padding: '0 0.5ch',
+                }}
+              >
+                clear selection
+              </button>
+            </>
+          ) : null}
+        </p>
       )}
+      <span className="visually-hidden" role="status" aria-live="polite">
+        {rangeAnnouncement}
+      </span>
     </div>
   );
 }

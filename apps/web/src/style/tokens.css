@@ -2394,8 +2394,7 @@ canvas {
 
 .term-bucket button,
 .term-bar-actions button,
-.term-undo button,
-.method-inline-action {
+.term-undo button {
   border: 0;
   color: var(--fg);
   background: none;
@@ -2477,8 +2476,7 @@ canvas {
   color: var(--fg-muted);
 }
 
-.term-undo button,
-.method-inline-action {
+.term-undo button {
   padding: 0;
   border-bottom: 1px solid var(--rule-strong);
   color: inherit;
@@ -2610,6 +2608,13 @@ canvas {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   text-align: center;
+  white-space: nowrap;
+}
+
+.shortcut-help-gesture {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
   white-space: nowrap;
 }
 

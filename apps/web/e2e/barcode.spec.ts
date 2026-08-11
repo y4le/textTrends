@@ -69,9 +69,17 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
-  // The accessible summary names the track, its EXACT total, and (here) no
-  // density label.
-  await expect(page.getByText('wolf: 2 occurrences')).toBeVisible();
+  // Each term gets its own row, with the line sample preceding its exact total.
+  const occurrenceRow = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' });
+  await expect(occurrenceRow).toBeVisible();
+  await expect(occurrenceRow.locator('[data-term-occurrence-count]')).toHaveText('2');
+  const [sampleBox, labelBox] = await Promise.all([
+    occurrenceRow.locator('svg').boundingBox(),
+    occurrenceRow.locator('[data-term-occurrence-label]').boundingBox(),
+  ]);
+  expect(sampleBox && labelBox ? sampleBox.x : Number.POSITIVE_INFINITY)
+    .toBeLessThan(labelBox?.x ?? Number.NEGATIVE_INFINITY);
 
   // Next-occurrence: a fresh job-correlated KWIC centered at wolf@1.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;

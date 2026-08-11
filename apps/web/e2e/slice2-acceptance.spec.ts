@@ -81,7 +81,10 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await editor.getByRole('button', { name: 'Save term' }).click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
+  let termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('6');
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();
 
@@ -115,10 +118,13 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
 
   // All detail consumers describe the same range: four occurrences inside,
   // six in the corpus, with no outside-marker row admitted.
-  await expect(page.getByText(/Selected 61 tokens in slice-two/)).toBeVisible();
+  await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.locator('[data-selected-overlay]').first()).toBeVisible();
   await expect(trendScrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
-  await expect(page.getByText('wolf: 6 occurrences · 4 selected', { exact: true })).toBeVisible();
+  termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('4');
   await expect(
     page.getByRole('group', { name: 'Query terms' })
       .getByRole('button', { name: 'wolf 4 selected / 6', exact: true }),
@@ -175,7 +181,10 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(trendScrubber.locator('canvas[data-selected-layer]')).toHaveCount(0);
-  await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
+  termTotal = page.getByRole('list', { name: 'Term totals' })
+    .getByRole('listitem').filter({ hasText: 'wolf' })
+    .locator('[data-term-occurrence-count]');
+  await expect(termTotal).toHaveText('6');
   await gotoPlace(page, 'concordance');
   await expect(rows).toHaveCount(6);
 });
