@@ -244,16 +244,10 @@ export function QuerySurface() {
                   {MAX_KWIC_TRACKS} shown in analysis
                 </p>
               </div>
-              <div>
-                <button
-                  type="button"
-                  className="term-manager-done"
-                  onClick={closeEditor}
-                >Done</button>
-              </div>
             </header>
             <NotebookPanel
               rows={view.rows}
+              onDone={closeEditor}
               {...(target.groupId ? { initialGroupId: target.groupId } : {})}
               {...(target.create ? { createOnOpen: true } : {})}
             />

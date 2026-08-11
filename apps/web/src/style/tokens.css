@@ -2597,11 +2597,6 @@ canvas {
   background: var(--bg);
 }
 
-.term-manager-header > div:last-child {
-  display: flex;
-  gap: var(--space-2);
-}
-
 .term-manager {
   display: flex;
   min-block-size: calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
@@ -2633,10 +2628,32 @@ canvas {
   opacity: 0.48;
 }
 
+.term-manager-item[data-drop-position] {
+  position: relative;
+}
+
+.term-manager-item[data-drop-position]::after {
+  position: absolute;
+  z-index: 3;
+  inset-inline: 0;
+  block-size: 3px;
+  background: var(--fg);
+  content: '';
+  pointer-events: none;
+}
+
+.term-manager-item[data-drop-position='before']::after {
+  inset-block-start: -2px;
+}
+
+.term-manager-item[data-drop-position='after']::after {
+  inset-block-end: -2px;
+}
+
 .term-manager-row {
   display: grid;
   min-block-size: 56px;
-  grid-template-columns: 44px minmax(12rem, 1fr) auto auto auto 44px;
+  grid-template-columns: 44px minmax(12rem, 1fr) auto 44px 44px;
   align-items: stretch;
 }
 
@@ -2650,8 +2667,8 @@ canvas {
   font: inherit;
 }
 
-.term-manager-row button + button,
-.term-manager-row > span + button,
+.term-manager-summary,
+.term-manager-visible,
 .term-manager-remove {
   border-inline-start: 1px solid var(--rule) !important;
 }
@@ -2707,22 +2724,18 @@ canvas {
   white-space: nowrap;
 }
 
-.term-manager-active,
-.term-manager-solo {
-  min-inline-size: 72px;
-  padding-inline: var(--space-2);
-  font-family: var(--font-mono) !important;
-  font-size: var(--text-xs) !important;
+.term-manager-visible {
+  display: grid;
+  min-inline-size: 44px;
+  place-items: center;
+  cursor: pointer;
 }
 
-.term-manager-active[aria-pressed='false'],
-.term-manager-solo[aria-pressed='false'] {
-  color: var(--fg-muted);
-}
-
-.term-manager-solo:disabled {
-  cursor: default;
-  opacity: 0.42;
+.term-manager-visible input {
+  inline-size: 1.1rem;
+  block-size: 1.1rem;
+  margin: 0;
+  accent-color: var(--fg);
 }
 
 .term-manager-remove {
@@ -2736,8 +2749,13 @@ canvas {
   color: var(--fg-muted);
 }
 
-.term-manager-add {
+.term-manager-actions {
+  display: flex;
   align-self: start;
+  gap: var(--space-2);
+}
+
+.term-manager-add {
   min-block-size: 44px;
   margin-block: var(--space-3);
   padding-inline: var(--space-3);
@@ -3018,27 +3036,18 @@ canvas {
   }
 
   .term-manager-row {
-    grid-template-columns: 44px minmax(0, 1fr) 44px;
+    grid-template-columns: 44px minmax(0, 1fr) 44px 44px;
     grid-template-areas:
-      'drag summary remove'
-      'drag active solo';
+      'drag summary visible remove';
   }
 
   .term-drag-handle { grid-area: drag; }
   .term-manager-summary { grid-area: summary; }
-  .term-manager-active { grid-area: active; }
-  .term-manager-solo { grid-area: solo; }
+  .term-manager-visible { grid-area: visible; }
   .term-manager-remove { grid-area: remove; }
 
   .term-manager-count {
     display: none;
-  }
-
-  .term-manager-active,
-  .term-manager-solo {
-    min-inline-size: 0;
-    min-block-size: 44px;
-    border-block-start: 1px solid var(--rule) !important;
   }
 
   .term-manager-alias-count {

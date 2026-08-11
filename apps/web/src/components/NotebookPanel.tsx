@@ -3,7 +3,6 @@ import {
   useMemo,
   useRef,
   useState,
-  type DragEvent,
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
@@ -59,6 +58,11 @@ interface TermDraft {
   readonly exactMatch: boolean;
   readonly countOverlaps: boolean;
   readonly style: SeriesStyleV1;
+}
+
+interface TermDropTarget {
+  readonly id: string;
+  readonly after: boolean;
 }
 
 function draftOf(group: NotebookGroupV1): TermDraft {
@@ -269,17 +273,18 @@ export function NotebookPanel({
   rows,
   initialGroupId,
   createOnOpen,
+  onDone,
 }: {
   readonly rows: readonly NotebookRowVM[];
   readonly initialGroupId?: string;
   readonly createOnOpen?: boolean;
+  readonly onDone: () => void;
 }) {
   const notebook = useApp((state) => state.notebook);
   const activeGroupIds = useApp((state) => state.activeGroupIds);
   const removeGroup = useApp((state) => state.removeGroup);
   const reorderGroups = useApp((state) => state.reorderGroups);
   const setGroupActive = useApp((state) => state.setGroupActive);
-  const setSolo = useApp((state) => state.setSolo);
   const clearNotebookError = useApp((state) => state.clearNotebookError);
   const notebookError = useApp((state) => state.notebookError);
   const removedGroups = useApp((state) => state.removedGroups);
@@ -289,9 +294,14 @@ export function NotebookPanel({
     createOnOpen ? 'new' : initialGroupId ?? null,
   );
   const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<TermDropTarget | null>(null);
   const [keyboardGrabbedId, setKeyboardGrabbedId] = useState<string | null>(null);
   const [reorderStatus, setReorderStatus] = useState('');
-  const pointerDragRef = useRef<{ readonly id: string; readonly pointerId: number } | null>(null);
+  const pointerDragRef = useRef<{
+    readonly id: string;
+    readonly pointerId: number;
+    target: TermDropTarget | null;
+  } | null>(null);
   const newStyle = useMemo(
     () => firstFreeStyle(notebook.groups, activeGroupIds),
     [activeGroupIds, notebook.groups],
@@ -326,28 +336,49 @@ export function NotebookPanel({
     setReorderStatus(
       `${groupTitle(group)} moved to position ${without.indexOf(dragged) + 1} of ${without.length}`,
     );
-    setDraggingId(null);
   };
 
-  const drop = (event: DragEvent<HTMLLIElement>, overId: string) => {
-    const dragged = draggingId ?? event.dataTransfer.getData('text/plain');
-    if (!order.includes(dragged)) return;
+  const pointerTargetAt = (
+    clientX: number,
+    clientY: number,
+    draggedId: string,
+  ): TermDropTarget | null => {
+    const item = document.elementFromPoint(clientX, clientY)
+      ?.closest<HTMLElement>('[data-term-manager-id]');
+    const overId = item?.dataset.termManagerId;
+    if (!item || !overId || overId === draggedId || !order.includes(overId)) return null;
+    const row = item.querySelector<HTMLElement>('.term-manager-row');
+    const rect = (row ?? item).getBoundingClientRect();
+    return { id: overId, after: clientY >= rect.top + rect.height / 2 };
+  };
+
+  const showDropTarget = (next: TermDropTarget | null) => {
+    setDropTarget((current) => (
+      current?.id === next?.id && current?.after === next?.after ? current : next
+    ));
+  };
+
+  const clearPointerDrag = () => {
+    pointerDragRef.current = null;
+    setDraggingId(null);
+    showDropTarget(null);
+  };
+
+  const updatePointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
+    const pointerDrag = pointerDragRef.current;
+    if (!pointerDrag || pointerDrag.id !== id || pointerDrag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const rect = event.currentTarget.getBoundingClientRect();
-    place(dragged, overId, event.clientY >= rect.top + rect.height / 2);
+    const target = pointerTargetAt(event.clientX, event.clientY, id);
+    pointerDrag.target = target;
+    showDropTarget(target);
   };
 
   const finishPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
     const pointerDrag = pointerDragRef.current;
     if (!pointerDrag || pointerDrag.id !== id || pointerDrag.pointerId !== event.pointerId) return;
     event.preventDefault();
-    const target = document.elementFromPoint(event.clientX, event.clientY)
-      ?.closest<HTMLElement>('[data-term-manager-id]');
-    const overId = target?.dataset.termManagerId;
-    if (overId) {
-      const rect = target.getBoundingClientRect();
-      place(id, overId, event.clientY >= rect.top + rect.height / 2);
-    }
+    const target = pointerTargetAt(event.clientX, event.clientY, id) ?? pointerDrag.target;
+    if (target) place(id, target.id, target.after);
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -355,8 +386,7 @@ export function NotebookPanel({
     } catch {
       // Synthetic pointer tests do not create browser-level capture state.
     }
-    pointerDragRef.current = null;
-    setDraggingId(null);
+    clearPointerDrag();
   };
 
   const beginNew = () => {
@@ -417,44 +447,42 @@ export function NotebookPanel({
               className="term-manager-item"
               data-term-manager-id={row.id}
               data-dragging={draggingId === row.id || undefined}
-              onDragOver={(event) => {
-                if (draggingId) event.preventDefault();
-              }}
-              onDrop={(event) => drop(event, row.id)}
+              data-drop-position={dropTarget?.id === row.id
+                ? dropTarget.after ? 'after' : 'before'
+                : undefined}
             >
               <div className="term-manager-row">
                 <button
                   id={`term-drag-${row.id}`}
                   type="button"
                   className="term-drag-handle"
-                  draggable
                   aria-label={`Reorder ${row.name}`}
                   aria-describedby="term-reorder-instructions"
-                  aria-pressed={keyboardGrabbedId === row.id}
-                  onDragStart={(event) => {
-                    setDraggingId(row.id);
-                    event.dataTransfer.effectAllowed = 'move';
-                    event.dataTransfer.setData('text/plain', row.id);
-                  }}
-                  onDragEnd={() => setDraggingId(null)}
+                  aria-pressed={keyboardGrabbedId === row.id || draggingId === row.id}
                   onPointerDown={(event) => {
-                    if (event.pointerType === 'mouse' || event.button !== 0) return;
+                    if (!event.isPrimary || event.button !== 0) return;
                     event.preventDefault();
-                    pointerDragRef.current = { id: row.id, pointerId: event.pointerId };
+                    event.currentTarget.focus({ preventScroll: true });
+                    pointerDragRef.current = {
+                      id: row.id,
+                      pointerId: event.pointerId,
+                      target: null,
+                    };
+                    setKeyboardGrabbedId(null);
                     setDraggingId(row.id);
+                    showDropTarget(null);
+                    setReorderStatus(`${row.name} grabbed. Drag to a new position.`);
                     try {
                       event.currentTarget.setPointerCapture(event.pointerId);
                     } catch {
                       // Pointer capture is unavailable for synthetic events.
                     }
                   }}
-                  onPointerMove={(event) => {
-                    if (pointerDragRef.current?.pointerId === event.pointerId) event.preventDefault();
-                  }}
+                  onPointerMove={(event) => updatePointerDrag(event, row.id)}
                   onPointerUp={(event) => finishPointerDrag(event, row.id)}
                   onPointerCancel={() => {
-                    pointerDragRef.current = null;
-                    setDraggingId(null);
+                    clearPointerDrag();
+                    setReorderStatus(`${row.name} reorder cancelled.`);
                   }}
                   onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
                     if (event.key === 'Enter' || event.key === ' ') {
@@ -496,25 +524,17 @@ export function NotebookPanel({
                   )}
                 </button>
                 <span className="term-manager-count"><CountCell count={row.count} /></span>
-                <button
-                  type="button"
-                  className="term-manager-active"
-                  aria-label={`Shown in analysis: ${row.name}`}
-                  aria-pressed={row.active}
-                  onClick={() => setGroupActive(row.id, !row.active)}
+                <label
+                  className="term-manager-visible"
+                  title={row.active ? `Hide ${row.name} from analysis` : `Show ${row.name} in analysis`}
                 >
-                  {row.active ? 'Shown' : 'Hidden'}
-                </button>
-                <button
-                  type="button"
-                  className="term-manager-solo"
-                  aria-label={`Solo: ${row.name}`}
-                  aria-pressed={row.solo}
-                  disabled={!row.active}
-                  onClick={() => setSolo(row.solo ? null : row.id)}
-                >
-                  Solo
-                </button>
+                  <input
+                    type="checkbox"
+                    aria-label={`Shown in analysis: ${row.name}`}
+                    checked={row.active}
+                    onChange={(event) => setGroupActive(row.id, event.currentTarget.checked)}
+                  />
+                </label>
                 <button
                   type="button"
                   className="term-manager-remove"
@@ -565,9 +585,12 @@ export function NotebookPanel({
           </li>
         )}
       </ul>
-      <button id="term-manager-add" type="button" className="term-manager-add" onClick={beginNew}>
-        + Add term
-      </button>
+      <div className="term-manager-actions">
+        <button type="button" className="term-manager-add" onClick={onDone}>Done</button>
+        <button id="term-manager-add" type="button" className="term-manager-add" onClick={beginNew}>
+          + Add term
+        </button>
+      </div>
     </section>
   );
 }

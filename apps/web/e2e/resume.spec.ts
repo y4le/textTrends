@@ -33,8 +33,8 @@ test('Vocabulary additions beyond five persist hidden and open in the manager', 
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   await expect(manager).toBeVisible();
   await expect(manager.getByRole('textbox', { name: `Term and aliases for ${key}` })).toBeFocused();
-  await expect(manager.getByRole('button', { name: `Shown in analysis: ${key}` }))
-    .toHaveAttribute('aria-pressed', 'false');
+  await expect(manager.getByRole('checkbox', { name: `Shown in analysis: ${key}` }))
+    .not.toBeChecked();
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 });
 

@@ -113,6 +113,51 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
 });
 
+test('an attached mouse reorders terms with insertion feedback in a touch-capable iPad layout', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 768, height: 1024 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('./');
+    await awaitAllReady(page);
+    expect(await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches)).toBe(true);
+
+    await page.getByRole('button', { name: 'Manage', exact: true }).click();
+    const manager = page.getByRole('dialog', { name: 'Manage terms' });
+    const list = manager.getByRole('list', { name: 'Terms' });
+    const source = manager.getByRole('button', { name: 'Reorder Moriarty' });
+    const target = manager.getByRole('button', { name: 'Edit term: Holmes' });
+    await expect(source).not.toHaveAttribute('draggable', 'true');
+    const [sourceBox, targetBox] = await Promise.all([source.boundingBox(), target.boundingBox()]);
+    if (!sourceBox || !targetBox) throw new Error('hybrid reorder geometry is unavailable');
+
+    await page.mouse.move(
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(targetBox.x + 8, targetBox.y + 4, { steps: 4 });
+    await expect(source.locator('xpath=ancestor::li[1]')).toHaveAttribute('data-dragging', 'true');
+    await expect(target.locator('xpath=ancestor::li[1]'))
+      .toHaveAttribute('data-drop-position', 'before');
+    await page.mouse.up();
+
+    await expect(list.locator('.term-manager-title'))
+      .toHaveText(['Moriarty', 'Holmes', 'Watson']);
+    await expect(list.locator('[data-drop-position]')).toHaveCount(0);
+    for (const control of await manager.locator('.term-manager-visible').all()) {
+      const box = await control.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+  } finally {
+    await context.close();
+  }
+});
+
 test('full-height editors honor resizes-visual geometry without losing draft or issuing work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

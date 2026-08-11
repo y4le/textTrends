@@ -4,12 +4,11 @@
  * - a multi-alias term (token + phrase + prefix, authored in one comma field)
  *   drives trends and concordance as OR
  *   alternatives, with the complete phrase span in the concordance node;
- * - mute removes the track globally while the CONCORDANCE chips stay an
- *   orthogonal filter; solo restores state exactly; zero-hit is a real,
- *   visible ready state;
+ * - visibility removes the track globally while the CONCORDANCE chips stay
+ *   an orthogonal filter; zero-hit is a real, visible ready state;
  * - a case-SENSITIVE member distinguishes what the folded default merges;
  * - the panel controls carry stable group-qualified accessible names and
- *   aria-pressed state (the assertions deferred from commit C).
+ *   native checked/pressed state.
  * No live network; everything ships from the dev server.
  */
 
@@ -127,7 +126,7 @@ test('the exact-match toggle distinguishes what the folded default merges', asyn
   await expect.poll(async () => (await rowNodes(page)).map((r) => r.node)).toEqual(['Wolf']);
 });
 
-test('the full-screen manager adds aliases, picks style, reorders by handle, and keeps removal on the right', async ({ page }) => {
+test('the full-screen manager adds aliases, picks style, reorders with feedback, and keeps visibility and removal on the right', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
   await importCorpus(page);
@@ -135,11 +134,23 @@ test('the full-screen manager adds aliases, picks style, reorders by handle, and
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   const list = manager.getByRole('list', { name: 'Terms' });
+  const managerActions = manager.locator('.term-manager-actions');
+  const done = managerActions.getByRole('button', { name: 'Done', exact: true });
+  const add = managerActions.getByRole('button', { name: '+ Add term', exact: true });
+  await expect(manager.locator('.term-manager-header').getByRole('button', { name: 'Done' }))
+    .toHaveCount(0);
+  await expect(managerActions.getByRole('button')).toHaveText(['Done', '+ Add term']);
+  await expect(done).toHaveClass(/term-manager-add/);
+  await expect(add).toHaveClass(/term-manager-add/);
+  const [doneBox, addBox] = await Promise.all([done.boundingBox(), add.boundingBox()]);
+  expect(doneBox && addBox ? doneBox.x : 0).toBeLessThan(addBox?.x ?? 0);
   await expect(manager.getByRole('button', { name: /^Reorder / })).toHaveCount(3);
   await expect(manager.getByRole('button', { name: /exact case|accents/i })).toHaveCount(0);
+  await expect(manager.getByRole('button', { name: /^Solo:/ })).toHaveCount(0);
+  await expect(manager.getByRole('checkbox', { name: /^Shown in analysis:/ })).toHaveCount(3);
 
   const direHandle = manager.getByRole('button', { name: 'Reorder dire' });
-  await expect(direHandle).toHaveAttribute('draggable', 'true');
+  await expect(direHandle).not.toHaveAttribute('draggable', 'true');
   await direHandle.focus();
   await direHandle.press('Space');
   await expect(direHandle).toHaveAttribute('aria-pressed', 'true');
@@ -148,10 +159,19 @@ test('the full-screen manager adds aliases, picks style, reorders by handle, and
   await expect(direHandle).toHaveAttribute('aria-pressed', 'false');
   await expect(list.locator('.term-manager-title')).toHaveText(['wolf', 'dire', 'absentterm']);
   await expect(direHandle).toBeFocused();
-  await manager.getByRole('button', { name: 'Reorder wolf' })
-    .dragTo(manager.getByRole('button', { name: 'Edit term: absentterm' }), {
-      targetPosition: { x: 8, y: 4 },
-    });
+  const mouseHandle = manager.getByRole('button', { name: 'Reorder wolf' });
+  const mouseTarget = manager.getByRole('button', { name: 'Edit term: absentterm' });
+  const [mouseStart, mouseEnd] = await Promise.all([
+    mouseHandle.boundingBox(),
+    mouseTarget.boundingBox(),
+  ]);
+  if (!mouseStart || !mouseEnd) throw new Error('mouse reorder geometry is unavailable');
+  await page.mouse.move(mouseStart.x + mouseStart.width / 2, mouseStart.y + mouseStart.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(mouseEnd.x + 8, mouseEnd.y + 4, { steps: 4 });
+  await expect(mouseTarget.locator('xpath=ancestor::li[1]'))
+    .toHaveAttribute('data-drop-position', 'before');
+  await page.mouse.up();
   await expect(list.locator('.term-manager-title')).toHaveText(['dire', 'wolf', 'absentterm']);
 
   const touchHandle = manager.getByRole('button', { name: 'Reorder absentterm' });
@@ -175,6 +195,8 @@ test('the full-screen manager adds aliases, picks style, reorders by handle, and
     clientX: touchEnd.x + 8,
     clientY: touchEnd.y + 4,
   });
+  await expect(touchTarget.locator('xpath=ancestor::li[1]'))
+    .toHaveAttribute('data-drop-position', 'before');
   await touchHandle.dispatchEvent('pointerup', {
     ...pointer,
     buttons: 0,
@@ -227,15 +249,19 @@ test('the full-screen manager adds aliases, picks style, reorders by handle, and
   await expect(manager.getByRole('radio', { name: 'Dotted' })).toBeChecked();
 
   const item = nyc.locator('xpath=ancestor::li[1]');
-  const [summaryBox, removeBox, colors] = await Promise.all([
+  const visibility = item.getByRole('checkbox', { name: 'Shown in analysis: NYC' });
+  await expect(visibility).toBeChecked();
+  const [summaryBox, visibilityBox, removeBox, colors] = await Promise.all([
     nyc.boundingBox(),
+    item.locator('.term-manager-visible').boundingBox(),
     item.getByRole('button', { name: 'Remove NYC' }).boundingBox(),
     item.getByRole('button', { name: 'Remove NYC' }).evaluate((node) => ({
       actual: getComputedStyle(node).color,
       accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-text').trim(),
     })),
   ]);
-  expect(summaryBox && removeBox ? removeBox.x : 0).toBeGreaterThan(summaryBox?.x ?? 0);
+  expect(summaryBox && visibilityBox ? visibilityBox.x : 0).toBeGreaterThan(summaryBox?.x ?? 0);
+  expect(visibilityBox && removeBox ? removeBox.x : 0).toBeGreaterThan(visibilityBox?.x ?? 0);
   expect(colors.actual).toBe(await page.evaluate((accent) => {
     const probe = document.createElement('span');
     probe.style.color = accent;
@@ -265,7 +291,7 @@ test('the full-screen manager adds aliases, picks style, reorders by handle, and
   await expect(manager.getByRole('button', { name: '+ Add term', exact: true })).toBeFocused();
 });
 
-test('mute is global, the concordance filter stays orthogonal, solo restores exactly, and zero-hit is a visible ready state', async ({ page }) => {
+test('visibility is global, the concordance filter stays orthogonal, and zero-hit is a visible ready state', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf, dire, absentterm');
   const terms = page.getByRole('group', { name: 'Query terms' });
@@ -273,14 +299,27 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   // Zero-hit: a valid query displaying the number 0 (ready, not missing).
   await expect(terms.getByRole('button', { name: 'absentterm 0', exact: true })).toBeVisible();
 
-  // Accessible names + pressed state (deferred from commit C).
+  // The footer and manager expose the same global visibility state.
   const showDire = terms.getByRole('button', { name: 'Shown in analysis: dire' });
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
-  let manager = page.getByRole('dialog', { name: 'Manage terms' });
-  let notebook = manager.getByRole('region', { name: 'Query notebook' });
-  await expect(notebook.getByRole('button', { name: 'Solo: wolf' }))
-    .toHaveAttribute('aria-pressed', 'false');
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const notebook = manager.getByRole('region', { name: 'Query notebook' });
+  const shownDire = notebook.getByRole('checkbox', { name: 'Shown in analysis: dire' });
+  await expect(shownDire).toBeChecked();
+  await expect(notebook.getByRole('button', { name: /^Solo:/ })).toHaveCount(0);
+
+  const managerHideMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await shownDire.uncheck();
+  await expect(showDire).toHaveAttribute('aria-pressed', 'false');
+  const managerHiddenBurst = await awaitFreshAnswered(page, managerHideMark);
+  expect(managerHiddenBurst.filter((q) => q.op === 'trend').length).toBe(2);
+
+  const managerShowMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await shownDire.check();
+  await expect(showDire).toHaveAttribute('aria-pressed', 'true');
+  const managerShownBurst = await awaitFreshAnswered(page, managerShowMark);
+  expect(managerShownBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 
   // Concordance chip OFF for dire — the chart focus chips are untouched.
@@ -317,36 +356,6 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   await gotoPlace(page, 'trends');
 
-  // Solo wolf (correlated): ONE fresh trend; the other chart chips vanish.
-  const soloMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'Manage', exact: true }).click();
-  manager = page.getByRole('dialog', { name: 'Manage terms' });
-  notebook = manager.getByRole('region', { name: 'Query notebook' });
-  let soloWolf = notebook.getByRole('button', { name: 'Solo: wolf' });
-  await soloWolf.click();
-  await expect(soloWolf).toHaveAttribute('aria-pressed', 'true');
-  await expect(notebook.getByText('not run').first()).toBeVisible();
-  await manager.getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(direChip).toBeDisabled();
-  const soloBurst = await awaitFreshAnswered(page, soloMark);
-  expect(soloBurst.filter((q) => q.op === 'trend').length).toBe(1);
-  expect(soloBurst.some((q) => q.op === 'kwic')).toBe(true); // fresh KWIC required
-  // Clearing solo restores the EXACT prior projection: three fresh trends,
-  // the dire chip back, KWIC still wolf-only (dire's toggle stayed OFF).
-  const restoreMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'Manage', exact: true }).click();
-  manager = page.getByRole('dialog', { name: 'Manage terms' });
-  notebook = manager.getByRole('region', { name: 'Query notebook' });
-  soloWolf = notebook.getByRole('button', { name: 'Solo: wolf' });
-  await soloWolf.click();
-  await expect(soloWolf).toHaveAttribute('aria-pressed', 'false');
-  await manager.getByRole('button', { name: 'Done', exact: true }).click();
-  const restoredBurst = await awaitFreshAnswered(page, restoreMark);
-  expect(restoredBurst.filter((q) => q.op === 'trend').length).toBe(3);
-  // The row assertions below must rest on FRESH concordance evidence, never
-  // the pre-solo table (review-E round 2).
-  expect(restoredBurst.some((q) => q.op === 'kwic')).toBe(true);
-  await expect(direChip).toBeEnabled();
   await gotoPlace(page, 'concordance');
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
   const direKwicChip = page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ });
