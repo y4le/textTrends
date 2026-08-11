@@ -186,7 +186,6 @@ export function ComparePanel() {
   ): boolean => {
     if (
       (renderedLayer && topLayer?.id !== renderedLayer.id)
-      || topLayer?.kind === 'sheet'
       || topLayer?.kind === 'reader'
     ) {
       return false;

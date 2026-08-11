@@ -295,7 +295,6 @@ export function FrequencyTable({
   const writeTarget = (next: VocabularyTarget, returnFocusTo: string): boolean => {
     if (
       (renderedLayer && topLayer?.id !== renderedLayer.id)
-      || topLayer?.kind === 'sheet'
       || topLayer?.kind === 'reader'
     ) {
       return false;

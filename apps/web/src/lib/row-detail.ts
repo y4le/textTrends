@@ -27,13 +27,12 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
   }
 }
 
-/** A governed sheet may sit above an additive detail. Render the last
- * row-detail in the stack while permitting writes only through the actual
- * top layer. */
+/** Render only the active governed row detail. */
 export function renderedRowDetailLayer(
   layers: readonly Layer[],
 ): Layer | undefined {
-  return layers.findLast((layer) => layer.kind === 'row-detail');
+  const top = layers.at(-1);
+  return top?.kind === 'row-detail' ? top : undefined;
 }
 
 /** Lateral details replace the active history depth. */

@@ -135,8 +135,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await expect(forestB).toBeVisible();
 
   await page.getByRole('button', { name: 'Method', exact: true }).click();
-  const method = page.getByRole('dialog', { name: 'Method sheet' });
-  await method.locator('details.method-summary > summary').click();
+  const method = page.getByRole('dialog', { name: 'Method' });
   await expect(method.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
   await expect(method.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
   await expect(page.getByText(/No confidence intervals are available/)).toBeVisible();

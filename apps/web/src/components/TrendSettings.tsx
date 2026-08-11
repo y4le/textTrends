@@ -28,7 +28,7 @@ interface Draft {
   readonly showRaw: boolean;
 }
 
-export function TrendSettings() {
+export function TrendSettings({ onApplied }: { readonly onApplied: () => void }) {
   const bins = useApp((state) => state.trendBins);
   const measure = useApp((state) => state.trendMeasure);
   const snapshot = useApp((state) => state.snapshot);
@@ -104,11 +104,13 @@ export function TrendSettings() {
             showRaw: draft.smoothing === 0 ? false : draft.showRaw,
           },
     });
+    if (outcome === 'applied') {
+      onApplied();
+      return;
+    }
     setStatus(outcome === 'rejected'
       ? 'These settings are not valid for the current corpus.'
-      : outcome === 'unchanged'
-        ? 'These settings are already current.'
-        : null);
+      : 'These settings are already current.');
   };
 
   return (

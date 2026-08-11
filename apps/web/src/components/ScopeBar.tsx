@@ -4,7 +4,7 @@ import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
 
-export function ScopeBar() {
+export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }) {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
@@ -15,9 +15,6 @@ export function ScopeBar() {
   const trends = useApp((state) => state.trends);
   const place = useApp((state) => state.place);
   const setPlace = useApp((state) => state.setPlace);
-  const layers = useApp((state) => state.layers);
-  const pushLayer = useApp((state) => state.pushLayer);
-  const replaceLayer = useApp((state) => state.replaceLayer);
 
   const project = projectSession?.project ?? null;
   const titleByDoc = useMemo(
@@ -174,23 +171,7 @@ export function ScopeBar() {
           id="global-method-open"
           className="scope-organ-link coarse-target scope-method-link"
           type="button"
-          onClick={() => {
-            if (layers.at(-1)?.kind === 'sheet') {
-              replaceLayer(
-                'sheet',
-                Object.freeze({ surface: 'method' }),
-                'global-method-open',
-                { detent: 'tall' },
-              );
-            } else {
-              pushLayer(
-                'sheet',
-                Object.freeze({ surface: 'method' }),
-                'global-method-open',
-                { detent: 'tall' },
-              );
-            }
-          }}
+          onClick={onOpenMethod}
         >
           {methodLabel}
         </button>

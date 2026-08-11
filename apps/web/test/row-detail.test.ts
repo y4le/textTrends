@@ -34,20 +34,21 @@ describe('row detail presentation', () => {
     }
   });
 
-  it('renders the topmost row detail beneath a governed sheet', () => {
+  it('renders only an active row detail', () => {
     const row = {
       kind: 'row-detail' as const,
       id: 'row',
       target: { surface: 'vocab-row' },
       returnFocusTo: 'vocabulary-row-1',
     };
-    const sheet = {
-      kind: 'sheet' as const,
-      id: 'sheet',
-      target: { surface: 'method' },
-      returnFocusTo: 'method-more',
+    const reader = {
+      kind: 'reader' as const,
+      id: 'reader',
+      target: { doc: 'a', token: 0 },
+      returnFocusTo: 'row',
     };
-    expect(renderedRowDetailLayer([row, sheet])).toBe(row);
-    expect(renderedRowDetailLayer([sheet])).toBeUndefined();
+    expect(renderedRowDetailLayer([row])).toBe(row);
+    expect(renderedRowDetailLayer([row, reader])).toBeUndefined();
+    expect(renderedRowDetailLayer([reader])).toBeUndefined();
   });
 });

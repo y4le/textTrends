@@ -377,98 +377,6 @@ canvas {
   border-bottom: 1px solid var(--rule);
 }
 
-.sheet-controls button {
-  min-block-size: 44px;
-  padding-inline: var(--space-2);
-  border: 1px solid var(--rule-strong);
-  color: var(--fg);
-  background: none;
-  cursor: pointer;
-}
-
-.sheet-controls button[aria-pressed='true'] {
-  border-color: var(--fg);
-  background: var(--fg);
-  color: var(--bg);
-}
-
-.workbench-sheet button {
-  min-inline-size: 44px;
-  min-block-size: 44px;
-}
-
-.sheet-scrim {
-  position: fixed;
-  z-index: 49;
-  inset: 0;
-  background: color-mix(in srgb, var(--bg) 52%, transparent);
-}
-
-.workbench-sheet {
-  position: fixed;
-  z-index: 50;
-  inset-inline: 0;
-  inset-block-end: 0;
-  display: grid;
-  grid-template-rows: auto minmax(0, 1fr);
-  block-size: 28vh;
-  block-size: 28dvh;
-  padding:
-    var(--space-2)
-    calc(var(--space-3) + env(safe-area-inset-right, 0px))
-    calc(var(--space-2) + env(safe-area-inset-bottom, 0px))
-    calc(var(--space-3) + env(safe-area-inset-left, 0px));
-  overflow: hidden;
-  border: 0;
-  border-top: 1px solid var(--rule-strong);
-  background: var(--bg);
-  color: var(--fg);
-  box-shadow: 0 -12px 32px color-mix(in srgb, var(--fg) 12%, transparent);
-}
-
-.workbench-sheet[data-detent='half'] {
-  block-size: 58vh;
-  block-size: 58dvh;
-}
-
-.workbench-sheet[data-detent='tall'] {
-  block-size: 88vh;
-  block-size: 88dvh;
-}
-
-.workbench-sheet[data-detent='peek'] {
-  inset-block-end:
-    calc(
-      var(--dock-block-size)
-      + var(--keyboard-inset)
-      + env(safe-area-inset-bottom, 0px)
-    );
-}
-
-.sheet-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
-  padding-block-end: var(--space-2);
-  border-bottom: 1px solid var(--rule);
-}
-
-.sheet-controls {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-1);
-  flex-wrap: wrap;
-}
-
-.sheet-body {
-  min-width: 0;
-  overflow: auto;
-  overscroll-behavior: contain;
-  padding-block-start: var(--space-2);
-}
-
 .query-focus-key {
   display: flex;
   flex-direction: column;
@@ -2012,7 +1920,7 @@ canvas {
   }
 
   /* Dense KWIC rows deliberately keep compact actions below the general
-   * touch floor; region dismiss and sheet chrome remain coarse targets. */
+   * touch floor; region dismiss and pane chrome remain coarse targets. */
   .comparison-occurrence-actions button {
     min-block-size: 0;
   }
@@ -2211,17 +2119,6 @@ canvas {
     margin-inline-start: auto;
   }
 
-  .workbench-sheet[data-compact='true'][data-detent='peek'] {
-    inset-block-end:
-      calc(
-        var(--lens-block-size)
-        + var(--dock-block-size)
-        + var(--keyboard-inset)
-        + env(safe-area-inset-bottom, 0px)
-      );
-    padding-block-end: var(--space-2);
-  }
-
   .form-layer {
     position: fixed;
     z-index: 80;
@@ -2317,17 +2214,6 @@ canvas {
       calc(var(--space-2) + env(safe-area-inset-left, 0px));
     border-top: 0;
     border-right: 1px solid var(--rule-strong);
-  }
-
-  .workbench-sheet[data-compact='true'][data-detent='peek'] {
-    inset-inline: 8rem 0;
-    inset-block-end:
-      calc(
-        var(--dock-block-size)
-        + var(--keyboard-inset)
-        + env(safe-area-inset-bottom, 0px)
-      );
-    padding-inline-start: var(--space-3);
   }
 
   .lens-organ a {
@@ -3018,10 +2904,24 @@ canvas {
   font-weight: 600;
 }
 
-.trend-settings {
-  max-inline-size: 62ch;
+.method-pane-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: var(--space-4);
+}
+
+.method-pane-columns[data-settings='true'] {
+  grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
+}
+
+.trend-settings,
+.method-summary {
+  min-width: 0;
   padding-block: var(--space-3);
-  border-bottom: 1px solid var(--rule-strong);
+}
+
+.trend-settings {
+  align-content: start;
 }
 
 .trend-settings h3 {
@@ -3070,17 +2970,39 @@ canvas {
 }
 
 .trend-settings-actions {
+  position: sticky;
+  inset-block-end: calc(-1 * (var(--space-3) + var(--keyboard-inset)));
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
+  padding-block: var(--space-2) calc(var(--space-3) + var(--keyboard-inset));
+  border-top: 1px solid var(--rule-strong);
+  background: var(--bg);
 }
 
 .trend-settings-actions button {
   min-block-size: 44px;
 }
 
-.workbench-sheet {
-  box-shadow: none;
+.method-summary-header {
+  padding-block-end: var(--space-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.method-summary-header h3,
+.method-summary-header p {
+  margin: 0;
+}
+
+.method-summary-header p {
+  margin-block-start: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.method-summary-content {
+  max-inline-size: 72ch;
+  padding-block-start: var(--space-2);
 }
 
 @media (max-width: 599.98px) {
@@ -3117,6 +3039,10 @@ canvas {
 
   .trend-settings fieldset > p {
     grid-column: 1;
+  }
+
+  .trend-settings input[type='number'] {
+    font-size: 16px;
   }
 
   .term-manager-header {

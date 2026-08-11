@@ -133,10 +133,8 @@ import {
   pushLayer as pushLayerStack,
   reconcileLayerRefs,
   replaceTopLayer,
-  updateLayerUI,
   type Layer,
   type LayerKind,
-  type LayerUI,
 } from './layers.ts';
 import {
   DEFAULT_ROUTE,
@@ -622,15 +620,12 @@ export interface AppState {
     kind: Exclude<LayerKind, 'place'>,
     target: unknown,
     returnFocusTo: string,
-    ui?: LayerUI,
   ): void;
   replaceLayer(
     kind: Exclude<LayerKind, 'place'>,
     target: unknown,
     returnFocusTo: string,
-    ui?: LayerUI,
   ): void;
-  setLayerUI(id: string, ui: LayerUI): void;
   /**
    * Close and Escape delegate to Back; popstate performs the mutation.
    * A count greater than one closes one governed parent and its nested
@@ -1359,13 +1354,11 @@ export function createAppRuntime(
       kind: Exclude<LayerKind, 'place'>,
       target: unknown,
       returnFocusTo: string,
-      ui?: LayerUI,
     ): Layer => ({
       kind,
       id: newLayerId(),
       target,
       returnFocusTo,
-      ...(ui === undefined ? {} : { ui }),
     });
 
     /** Issue ONE guarded query on a lane: track its cancel, deliver only while
@@ -2233,23 +2226,16 @@ export function createAppRuntime(
         rememberLayer(next, layers);
         writeNavigation('push', place, layers);
       },
-      pushLayer(kind, target, returnFocusTo, ui) {
-        const next = freshLayer(kind, target, returnFocusTo, ui);
+      pushLayer(kind, target, returnFocusTo) {
+        const next = freshLayer(kind, target, returnFocusTo);
         const layers = pushLayerStack(get().layers, next);
         rememberLayer(next, layers);
         writeNavigation('push', get().place, layers);
       },
-      replaceLayer(kind, target, returnFocusTo, ui) {
-        const next = freshLayer(kind, target, returnFocusTo, ui);
+      replaceLayer(kind, target, returnFocusTo) {
+        const next = freshLayer(kind, target, returnFocusTo);
         const layers = replaceTopLayer(get().layers, next);
         rememberLayer(next, layers);
-        writeNavigation('replace', get().place, layers);
-      },
-      setLayerUI(id, ui) {
-        const layers = updateLayerUI(get().layers, id, ui);
-        if (layers === get().layers) return;
-        const changed = layers.find((layer) => layer.id === id);
-        if (changed !== undefined) rememberLayer(changed, layers);
         writeNavigation('replace', get().place, layers);
       },
       popLayer(count = 1, returnFocusTo) {

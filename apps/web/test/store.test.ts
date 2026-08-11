@@ -555,9 +555,6 @@ describe('workbench route and history authority', () => {
       'vocabulary-row',
     );
     assertFenced();
-    const detail = store.getState().layers.at(-1)!;
-    store.getState().setLayerUI(detail.id, { detent: 'half' });
-    assertFenced();
     store.getState().replaceLayer(
       'row-detail',
       { term: 'Moriarty', token: 42 },
@@ -2885,7 +2882,6 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     await flush();
 
     const store = runtime.useApp;
-    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
     const semantic = workspaceSemanticKey(store.getState());
     const serialized = structuredClone(history.state);
     const url = history.url;
@@ -2906,7 +2902,6 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(store.getState().readerPlace).toBeNull();
     history.forward();
     expect(store.getState().layers.at(-1)?.kind).toBe('reader');
-    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
 
     store.getState().closeReader();
     store.getState().openReader({
@@ -2915,7 +2910,6 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       token: 2,
       from: 'barcode',
     });
-    expect(store.getState().layers.at(-1)?.ui).toBeUndefined();
     runtime.dispose();
   });
 

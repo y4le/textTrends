@@ -59,6 +59,10 @@ interface ReaderEdgePointer {
   readonly geometry: string;
 }
 
+type OpenUtilityPane =
+  | { readonly kind: 'method' }
+  | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
+
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
   return target instanceof Element
     && target.closest(
@@ -143,8 +147,8 @@ export function App() {
   const place = useApp((s) => s.place);
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
-  const [shortcutHelpContext, setShortcutHelpContext] = useState<ShortcutHelpContext | null>(null);
-  const shortcutReturnFocus = useRef<HTMLElement | null>(null);
+  const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
+  const utilityPaneReturnFocus = useRef<HTMLElement | null>(null);
   const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -161,14 +165,22 @@ export function App() {
   const openShortcutHelp = (context: ShortcutHelpContext) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    shortcutReturnFocus.current = document.activeElement instanceof HTMLElement
+    utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    setShortcutHelpContext(context);
+    setUtilityPane({ kind: 'shortcuts', context });
   };
-  const closeShortcutHelp = () => {
-    const target = shortcutReturnFocus.current;
-    setShortcutHelpContext(null);
+  const openMethod = () => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
+      ? document.activeElement
+      : null;
+    setUtilityPane({ kind: 'method' });
+  };
+  const closeUtilityPane = () => {
+    const target = utilityPaneReturnFocus.current;
+    setUtilityPane(null);
     requestAnimationFrame(() => {
       if (target?.isConnected) target.focus({ preventScroll: true });
     });
@@ -328,12 +340,12 @@ export function App() {
       // to document, defaultPrevented is the hand-off that keeps local meaning
       // authoritative. The document seam also reaches a fresh workbench while
       // focus still rests on <body>.
-      if (shortcutHelpContext !== null) return;
+      if (utilityPane !== null) return;
       handleRootShortcut(event, readerOpen ? 'reader' : 'workbench', true);
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [readerOpen, shortcutHelpContext]);
+  }, [readerOpen, utilityPane]);
 
   useEffect(() => () => {
     if (shortcutSequenceTimer.current !== null) clearTimeout(shortcutSequenceTimer.current);
@@ -404,6 +416,16 @@ export function App() {
       moveReaderPage(1);
     }
   };
+
+  const utilityPaneSurface = utilityPane?.kind === 'shortcuts'
+    ? <KeyboardShortcuts context={utilityPane.context} onClose={closeUtilityPane} />
+    : utilityPane?.kind === 'method'
+      ? (
+          <Suspense fallback={null}>
+            <MethodSurface place={place} onClose={closeUtilityPane} />
+          </Suspense>
+        )
+      : null;
 
   if (readerPlace) {
     const readerTitle = project?.data.docs.find((document) => document.doc === readerPlace.doc)?.meta.title
@@ -505,9 +527,7 @@ export function App() {
           />
         </Suspense>
       </main>
-      {shortcutHelpContext && (
-        <KeyboardShortcuts context={shortcutHelpContext} onClose={closeShortcutHelp} />
-      )}
+      {utilityPaneSurface}
       </>
     );
   }
@@ -559,7 +579,7 @@ export function App() {
             shortcuts
           </button>
         </div>
-        <ScopeBar />
+        <ScopeBar onOpenMethod={openMethod} />
         <LensOrgan />
       </header>
       <ResumeStatus />
@@ -618,14 +638,9 @@ export function App() {
           </PlaceSurface>
         </div>
       </div>
-      <Suspense fallback={null}>
-        <MethodSurface place={place} />
-      </Suspense>
       <WorkbenchDock globalShortcuts={place === 'trends'} />
     </main>
-    {shortcutHelpContext && (
-      <KeyboardShortcuts context={shortcutHelpContext} onClose={closeShortcutHelp} />
-    )}
+    {utilityPaneSurface}
     </>
   );
 }

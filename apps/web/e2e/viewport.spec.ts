@@ -329,11 +329,9 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
     return (await fetch(href)).text();
   });
   for (const rule of [
-    /\.workbench-sheet\{[^}]*block-size:28vh;block-size:28dvh/,
-    /\.workbench-sheet\[data-detent=half\]\{[^}]*block-size:58vh;block-size:58dvh/,
-    /\.workbench-sheet\[data-detent=tall\]\{[^}]*block-size:88vh;block-size:88dvh/,
     /\.reader-region\{[^}]*block-size:100vh;[^}]*block-size:100dvh/,
     /\.form-layer\{[^}]*min-block-size:100vh;min-block-size:100dvh/,
+    /\.utility-pane\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
     /\.term-manager\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
   ]) {
     expect(css).toMatch(rule);

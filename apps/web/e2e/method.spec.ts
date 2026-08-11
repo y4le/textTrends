@@ -5,8 +5,8 @@ test('Trend settings separate result geometry from resident presentation', async
   await page.goto('./');
   await awaitAllReady(page);
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
-  const settings = sheet.getByRole('form', { name: 'Trend settings' });
+  let pane = page.getByRole('dialog', { name: 'Method & settings' });
+  let settings = pane.getByRole('form', { name: 'Trend settings' });
 
   const geometryMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await settings.getByRole('combobox', { name: 'Bins', exact: true }).selectOption('fixed-tokens');
@@ -31,8 +31,13 @@ test('Trend settings separate result geometry from resident presentation', async
   await expect(page.getByText(/counts · 250 tokens per bin · unsmoothed/)).toHaveCount(0);
   await expect(page.locator('#trend-settings-open')).toHaveCount(0);
   await expect(page.getByRole('img', { name: /^Counts of / })).toBeVisible();
+  await expect(pane).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toBeFocused();
 
   const displayMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
+  pane = page.getByRole('dialog', { name: 'Method & settings' });
+  settings = pane.getByRole('form', { name: 'Trend settings' });
   await settings.getByRole('combobox', { name: 'Measure', exact: true }).selectOption('rate');
   await settings.getByRole('combobox', { name: 'Rate denominator', exact: true }).selectOption('100000');
   await settings.getByRole('combobox', { name: 'Smoothing', exact: true }).selectOption('5');
@@ -46,7 +51,7 @@ test('Trend settings separate result geometry from resident presentation', async
   expect(displayQueries).toEqual([]);
   await expect(page.getByText(/rate per 100,000 tokens · 250 tokens per bin · 5-bin rolling mean · raw behind/)).toHaveCount(0);
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
-  await sheet.getByRole('button', { name: 'Close Method & settings sheet' }).click();
+  await expect(pane).toHaveCount(0);
   await gotoPlace(page, 'catalog');
   await expect(page.getByRole('table', { name: /Book analysis · full corpus/ })
     .getByRole('columnheader', { name: /\/100,000/ }).first()).toBeVisible();
@@ -56,10 +61,9 @@ test('Method exposes visible, copyable provenance and result text', async ({ pag
   await page.goto('./');
   await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
-  const method = sheet.locator('details.method-summary');
-  await expect(method.locator('summary')).toContainText('trend');
-  await method.locator('summary').click();
+  const pane = page.getByRole('dialog', { name: 'Method & settings' });
+  const method = pane.locator('.method-summary');
+  await expect(method.locator('.method-summary-header')).toContainText('trend');
 
   await expect(method.getByText('rate per 10,000 selected tokens')).toBeVisible();
   await expect(method.getByText('declared-sequence')).toBeVisible();
@@ -81,9 +85,8 @@ test('Method range provenance and TSV use the selected overlay, never the retain
   await page.goto('./');
   await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  let sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
-  let method = sheet.locator('details.method-summary');
-  await method.locator('summary').click();
+  let pane = page.getByRole('dialog', { name: 'Method & settings' });
+  let method = pane.locator('.method-summary');
   await method.getByRole('button', { name: 'copy result as TSV' }).click();
   const prepared = method.getByTestId('prepared-export');
   const baseline = await prepared.textContent();
@@ -92,8 +95,8 @@ test('Method range provenance and TSV use the selected overlay, never the retain
     .filter((line) => line !== '' && !line.startsWith('#') && !line.startsWith('series\t'))
     .map((line) => line.split('\t'));
   expect(Math.max(...baselineRows.map((row) => Number(row[4])))).toBeGreaterThan(3);
-  await sheet.getByRole('button', { name: 'Close Method & settings sheet' }).click();
-  await expect(sheet).toHaveCount(0);
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(pane).toHaveCount(0);
 
   const plot = page.getByRole('slider', { name: 'Reading position scrubber' });
   const box = (await plot.boundingBox())!;
@@ -111,11 +114,10 @@ test('Method range provenance and TSV use the selected overlay, never the retain
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
-  method = sheet.locator('details.method-summary');
+  pane = page.getByRole('dialog', { name: 'Method & settings' });
+  method = pane.locator('.method-summary');
   const selectedPrepared = method.getByTestId('prepared-export');
-  await expect(method.locator('summary')).toContainText('complete');
-  await method.locator('summary').click();
+  await expect(method.locator('.method-summary-header')).toContainText('complete');
   await method.getByRole('button', { name: 'copy result as TSV' }).click();
   await expect(selectedPrepared).toContainText(/# Selection: .* tokens \d+–\d+/);
   const selected = await selectedPrepared.textContent();

@@ -1,16 +1,10 @@
 export const LAYER_KINDS = [
   'place',
   'row-detail',
-  'sheet',
   'reader',
 ] as const;
 
 export type LayerKind = (typeof LAYER_KINDS)[number];
-export type SheetDetent = 'peek' | 'half' | 'tall';
-
-export interface LayerUI {
-  readonly detent?: SheetDetent;
-}
 
 /**
  * Layer targets and focus return identities remain store-side. They are never
@@ -21,7 +15,6 @@ export interface Layer {
   readonly id: string;
   readonly target: unknown;
   readonly returnFocusTo: string;
-  readonly ui?: LayerUI;
 }
 
 export interface LayerRef {
@@ -167,21 +160,6 @@ export function replaceTopLayer(stack: readonly Layer[], layer: Layer): readonly
     : [...stack.slice(0, -1), layer];
   assertSerializableStack(next);
   return next;
-}
-
-/** Update presentation metadata without changing the history identity/depth. */
-export function updateLayerUI(
-  stack: readonly Layer[],
-  id: string,
-  ui: LayerUI,
-): readonly Layer[] {
-  let changed = false;
-  const next = stack.map((layer) => {
-    if (layer.id !== id) return layer;
-    changed = true;
-    return { ...layer, ui: { ...ui } };
-  });
-  return changed ? next : stack;
 }
 
 /**

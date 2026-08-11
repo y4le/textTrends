@@ -103,33 +103,16 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const methodNames = provenance.methods.map((method) => method.method).join(' + ');
 
   return (
-    <details
-      className="method-summary"
-      onToggle={(event) => {
-        if (!event.currentTarget.open) {
-          setPrepared(null);
-          setCopyStatus(null);
-        }
-      }}
-      style={{
-        borderBottom: '1px solid var(--rule)',
-        padding: 'var(--space-2) 0',
-      }}
-    >
-      <summary
-        style={{
-          cursor: 'pointer',
-          color: 'var(--fg-muted)',
-          fontSize: 'var(--text-xs)',
-        }}
-      >
-        <strong style={{ color: 'var(--fg)', fontSize: 'var(--text-sm)' }}>Method</strong>
-        {' · '}
-        {methodNames || 'waiting for resident results'}
-        {' · '}
-        {provenance.completeness.status}
-      </summary>
-      <div style={{ maxWidth: '72ch', padding: 'var(--space-2) 0' }}>
+    <section className="method-summary" aria-labelledby="method-summary-heading">
+      <header className="method-summary-header">
+        <h3 id="method-summary-heading">Analysis record</h3>
+        <p>
+          {methodNames || 'waiting for resident results'}
+          {' · '}
+          {provenance.completeness.status}
+        </p>
+      </header>
+      <div className="method-summary-content">
         <p style={{ marginTop: 0 }}>
           {provenance.completeness.statement}
         </p>
@@ -217,6 +200,6 @@ export function MethodSummary({ place }: { readonly place: Place }) {
           </pre>
         )}
       </div>
-    </details>
+    </section>
   );
 }

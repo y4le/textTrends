@@ -204,7 +204,7 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
 
   await expectReaderFillsViewport(page, reader, 390, 844);
   await expect(page.getByRole('region', { name: 'Scope' })).toHaveCount(0);
-  await expect(page.locator('.sheet-scrim')).toHaveCount(0);
+  await expect(page.locator('.utility-pane')).toHaveCount(0);
   await expect(page.locator('[inert]')).toHaveCount(0);
   expect(await page.locator('main button, main a, main input, main select, main textarea')
     .evaluateAll((elements, readerId) => elements.every(

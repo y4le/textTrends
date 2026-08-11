@@ -76,17 +76,17 @@ portrait wraps the publisher signature once, after its slash, to preserve that
 Scope port. Compact portrait and landscape move the Lens links to their
 governed bottom or side dock without duplicating the navigation DOM.
 
-Sheets and full-screen form layers overlay this flow. There are no permanent
+Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
 transient source position, passage, trend, progress, and dispersion context.
-**Method & settings** opens the sole shared sheet surface;
+**Method & settings** and the shortcut reference use the same full-screen pane frame;
 governed row details remain separate history layers.
 
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
 completeness. Its corpus label opens Catalog. **Method & settings** on Trends,
-and **Method** elsewhere, opens the same contextual sheet.
+and **Method** elsewhere, opens the same contextual pane.
 
 ### Terms rail
 
@@ -212,14 +212,21 @@ current or clicked position.
 
 ## Method and trend settings
 
-The graph carries one restrained current-method caption. Its settings action
-opens the shared Method & settings sheet. Method and provenance remain copyable
-there without consuming permanent workbench space.
+The graph carries no settings caption or control. The Scope organ opens the
+full-screen Method & settings pane. Settings and an always-expanded analysis
+record share the pane without consuming permanent workbench space; provenance
+and resident results remain visible and copyable there.
 
 Changing result geometry reissues only baseline and selected trend lanes.
 Changing resident presentation performs no worker query. Smoothing never
 crosses document boundaries or bridges zero-denominator gaps, and exact raw
 counts remain available for totals and provenance.
+
+Settings are a draft until Apply. A successful Apply closes the pane and
+restores focus to the Scope control; an unchanged or rejected draft remains
+open with an explicit status. Restore defaults changes only the draft, while
+close and Escape discard it. Method is transient UI state and never adds,
+replaces, or consumes a browser-history entry.
 
 ## Reader
 
@@ -297,9 +304,9 @@ changes analysis scope or issues work.
 - At 320px the page itself does not scroll horizontally; named data ports may.
 - Viewport changes never alter corpus, scope, notebook, linked range,
   comparison sides, persisted views, or Reader identity and issue no analysis.
-- Full-screen forms and modal sheet detents trap focus; non-modal `peek` does
-  not inert the workbench and stays above the fixed dock.
-- Escape and Back close exactly one governed layer and restore external focus.
+- Full-screen forms and utility panes trap focus and inert the workbench.
+- Escape closes one transient pane and restores its invoking focus. Back closes
+  exactly one governed history layer; utility panes do not participate in Back.
 - Browser save shortcuts are not intercepted.
 - Reduced motion removes nonessential transitions without removing state.
 
@@ -313,8 +320,7 @@ last-write-wins, with no multi-tab edit model.
 The design remains complete while these gates hold:
 
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
-2. one Terms rail and one active place at every width, with the rail never
-   occluded by a non-modal sheet;
+2. one Terms rail and one active place at every width;
 3. no persistent side rails beyond the transient corpus-reading instrument;
 4. 44px compact/coarse controls and keyboard-operable equivalents;
 5. viewport transforms issue no analysis and retain governed drafts and focus;

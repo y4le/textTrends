@@ -98,15 +98,6 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   }
   await expect(terms.getByRole('button', { name: /^Remove / }).first()).toBeHidden();
 
-  await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  const sheet = page.getByRole('dialog', { name: 'Method & settings sheet' });
-  await sheet.getByRole('button', { name: 'peek', exact: true }).click();
-  await expect(sheet).toHaveAttribute('data-detent', 'peek');
-  const sheetBox = await sheet.boundingBox();
-  expect(sheetBox && dockBox ? sheetBox.y + sheetBox.height : Number.POSITIVE_INFINITY)
-    .toBeLessThanOrEqual(dockBox.y + 1);
-  await sheet.getByRole('button', { name: 'Close Method & settings sheet' }).click();
-
   await terms.getByRole('button', { name: 'Manage', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   await manager.getByRole('button', { name: 'Remove Holmes' }).click();
