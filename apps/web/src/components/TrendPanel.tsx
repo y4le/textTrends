@@ -36,7 +36,12 @@ import {
   type BarcodeTrackVM,
   type CapturedBarcodeTarget,
 } from '../lib/barcode-view.ts';
-import { slotColor, slotDash } from '../lib/series-style.ts';
+import {
+  DEFAULT_SERIES_STYLE,
+  seriesColor,
+  seriesDash,
+  seriesLinecap,
+} from '../lib/series-style.ts';
 import {
   bookXFromToken,
   bookXFromTokenEdge,
@@ -203,15 +208,18 @@ export function TrendPanel() {
     readonly projection: NonNullable<typeof stageProjection>;
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
   } | null>(null);
-  const styleSlotBySeries = useMemo(
-    () => new Map(series.map((item) => [item.id, item.styleSlot])),
+  const styleBySeries = useMemo(
+    () => new Map(series.map((item) => [item.id, item.style])),
     [series],
   );
   const labelBySeries = useMemo(
     () => new Map(series.map((item) => [item.id, item.label])),
     [series],
   );
-  const slotOf = useCallback((id: string) => styleSlotBySeries.get(id) ?? 0, [styleSlotBySeries]);
+  const styleOf = useCallback(
+    (id: string) => styleBySeries.get(id) ?? DEFAULT_SERIES_STYLE,
+    [styleBySeries],
+  );
   const labelOf = useCallback((id: string) => labelBySeries.get(id) ?? id, [labelBySeries]);
 
   if (series.length === 0) return null;
@@ -383,7 +391,7 @@ export function TrendPanel() {
             bandGap={geometry.barcodeBandGap}
             trackHeight={geometry.barcodeTrackHeight}
             trackGap={geometry.barcodeTrackGap}
-            slotOf={slotOf}
+            styleOf={styleOf}
             focusedSeries={focusedSeries}
             coarse={presentation.coarseAvailable}
           />
@@ -423,7 +431,7 @@ export function TrendPanel() {
         selectedTracks={selectedTracks}
         linkedSelection={linkedSelection !== null}
         selectedStatus={linkedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
-        slotOf={slotOf}
+        styleOf={styleOf}
         labelOf={labelOf}
         focusedSeries={focusedSeries}
         onActivate={activateBarcode}
@@ -1359,9 +1367,9 @@ const SeriesView = memo(function SeriesView({
               data-raw-series-path={r.intent.id}
               d={path}
               fill="none"
-              stroke={slotColor(r.intent.styleSlot)}
+              stroke={seriesColor(r.intent.style)}
               strokeWidth={1}
-              strokeDasharray={slotDash(r.intent.styleSlot)}
+              strokeDasharray={seriesDash(r.intent.style)}
               opacity={0.2}
               pointerEvents="none"
             />
@@ -1384,10 +1392,10 @@ const SeriesView = memo(function SeriesView({
               data-series-path={r.intent.id}
               d={path}
               fill="none"
-              stroke={slotColor(r.intent.styleSlot)}
+              stroke={seriesColor(r.intent.style)}
               strokeWidth={strokeFor(r.intent.id)}
-              strokeDasharray={slotDash(r.intent.styleSlot)}
-              strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+              strokeDasharray={seriesDash(r.intent.style)}
+              strokeLinecap={seriesLinecap(r.intent.style)}
               opacity={selected.length > 0 ? 0.45 : 1}
             />
           ));
@@ -1409,9 +1417,9 @@ const SeriesView = memo(function SeriesView({
               data-selected-overlay={r.intent.id}
               d={path}
               fill="none"
-              stroke={slotColor(r.intent.styleSlot)}
+              stroke={seriesColor(r.intent.style)}
               strokeWidth={strokeFor(r.intent.id) + 1.5}
-              strokeDasharray={slotDash(r.intent.styleSlot)}
+              strokeDasharray={seriesDash(r.intent.style)}
               strokeLinecap="round"
               pointerEvents="none"
             />
@@ -1510,9 +1518,9 @@ const ByBookView = memo(function ByBookView({
                   data-raw-series-path={r.intent.id}
                   d={path}
                   fill="none"
-                  stroke={slotColor(r.intent.styleSlot)}
+                  stroke={seriesColor(r.intent.style)}
                   strokeWidth={1}
-                  strokeDasharray={slotDash(r.intent.styleSlot)}
+                  strokeDasharray={seriesDash(r.intent.style)}
                   opacity={0.2}
                   pointerEvents="none"
                 />
@@ -1531,10 +1539,10 @@ const ByBookView = memo(function ByBookView({
                   data-series-path={r.intent.id}
                   d={path}
                   fill="none"
-                  stroke={slotColor(r.intent.styleSlot)}
+                  stroke={seriesColor(r.intent.style)}
                   strokeWidth={strokeFor(r.intent.id)}
-                  strokeDasharray={slotDash(r.intent.styleSlot)}
-                  strokeLinecap={slotDash(r.intent.styleSlot) === '1 3' ? 'round' : 'butt'}
+                  strokeDasharray={seriesDash(r.intent.style)}
+                  strokeLinecap={seriesLinecap(r.intent.style)}
                   opacity={selected.length > 0 ? 0.45 : 1}
                 />
               )),
@@ -1552,9 +1560,9 @@ const ByBookView = memo(function ByBookView({
                   data-selected-overlay={r.intent.id}
                   d={path}
                   fill="none"
-                  stroke={slotColor(r.intent.styleSlot)}
+                  stroke={seriesColor(r.intent.style)}
                   strokeWidth={strokeFor(r.intent.id) + 1.5}
-                  strokeDasharray={slotDash(r.intent.styleSlot)}
+                  strokeDasharray={seriesDash(r.intent.style)}
                   strokeLinecap="round"
                   pointerEvents="none"
                 />

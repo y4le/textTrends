@@ -10,7 +10,6 @@ import {
   SERIES_COLOR_IDS,
   SERIES_LINE_IDS,
   type NotebookGroupV1,
-  type SeriesColorId,
   type SeriesLineId,
   type SeriesStyleV1,
 } from '@texttrends/core';
@@ -19,12 +18,18 @@ import {
   aliasesForTermEditor,
   firstFreeStyle,
   groupTitle,
-  styleSlotOf,
   termAliasesForSave,
 } from '../lib/notebook.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { termReorderScrollStep } from '../lib/term-reorder-gesture.ts';
+import {
+  isLegacySeriesColor,
+  seriesColorContrastWarning,
+  seriesColorFromNativeInput,
+  seriesColorLabel,
+} from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
+import { usePresentation } from './PresentationProvider.tsx';
 
 function CountCell({ count }: { readonly count: GroupCountVM }) {
   switch (count.kind) {
@@ -37,14 +42,6 @@ function CountCell({ count }: { readonly count: GroupCountVM }) {
     case 'ready': return <span>{count.total}{count.partial ? ' partial' : ''}</span>;
   }
 }
-
-const COLOR_LABELS: Record<SeriesColorId, string> = {
-  blue: 'Blue',
-  orange: 'Orange',
-  green: 'Green',
-  violet: 'Violet',
-  gold: 'Gold',
-};
 
 const LINE_LABELS: Record<SeriesLineId, string> = {
   solid: 'Solid',
@@ -79,41 +76,75 @@ function aliasesOf(input: string): string[] {
   return input.split(',').map((alias) => alias.trim()).filter(Boolean);
 }
 
+const LEGACY_COLOR_FALLBACK = {
+  blue: { dark: '#3b98d4', light: '#0072b2' },
+  orange: { dark: '#c28400', light: '#b36b00' },
+  green: { dark: '#009e73', light: '#007f5f' },
+  violet: { dark: '#d55e00', light: '#d55e00' },
+  gold: { dark: '#bc5f92', light: '#a23b72' },
+} as const;
+
+function nativeColorValue(
+  color: SeriesStyleV1['color'],
+  scheme: 'dark' | 'light',
+): string {
+  if (!isLegacySeriesColor(color)) return color;
+  if (typeof document !== 'undefined') {
+    const value = getComputedStyle(document.documentElement)
+      .getPropertyValue(`--series-${SERIES_COLOR_IDS.indexOf(color) + 1}`)
+      .trim()
+      .toLowerCase();
+    if (/^#[0-9a-f]{6}$/u.test(value)) return value;
+  }
+  return LEGACY_COLOR_FALLBACK[color][scheme];
+}
+
 function StylePicker({
   name,
+  termLabel,
   style,
   onChange,
 }: {
   readonly name: string;
+  readonly termLabel: string;
   readonly style: SeriesStyleV1;
   readonly onChange: (style: SeriesStyleV1) => void;
 }) {
+  const { colorScheme } = usePresentation();
+  const inputColor = nativeColorValue(style.color, colorScheme);
+  const contrastWarning = seriesColorContrastWarning(style.color);
+  const warningText = contrastWarning === 'both'
+    ? 'This color may be hard to see in dark and light mode.'
+    : contrastWarning
+      ? `This color may be hard to see in ${contrastWarning} mode.`
+      : null;
+  const warningId = `${name}-color-contrast`;
   return (
     <div className="term-style-picker">
       <fieldset>
         <legend>Color</legend>
-        <div className="term-style-options term-color-options">
-          {SERIES_COLOR_IDS.map((color) => {
-            const selected = style.color === color;
-            return (
-              <label key={color} data-selected={selected || undefined}>
-                <input
-                  type="radio"
-                  name={`${name}-color`}
-                  value={color}
-                  checked={selected}
-                  onChange={() => onChange({ ...style, color })}
-                />
-                <span
-                  className="term-color-swatch"
-                  style={{ color: `var(--series-${SERIES_COLOR_IDS.indexOf(color) + 1})` }}
-                  aria-hidden="true"
-                />
-                {COLOR_LABELS[color]}
-              </label>
-            );
-          })}
-        </div>
+        <label className="term-native-color">
+          <input
+            type="color"
+            name={`${name}-color`}
+            aria-label={`Color for ${termLabel}`}
+            aria-describedby={warningText ? warningId : undefined}
+            value={inputColor}
+            onInput={(event) => {
+              const color = seriesColorFromNativeInput(
+                style.color,
+                event.currentTarget.value,
+                inputColor,
+              );
+              if (color === style.color) return;
+              onChange({ ...style, color });
+            }}
+          />
+          <span className="term-native-color-value">{seriesColorLabel(style.color)}</span>
+        </label>
+        {warningText && (
+          <p id={warningId} className="term-color-warning">{warningText}</p>
+        )}
       </fieldset>
       <fieldset>
         <legend>Line</legend>
@@ -130,7 +161,7 @@ function StylePicker({
                   checked={selected}
                   onChange={() => onChange(candidate)}
                 />
-                <SeriesLineSample slot={styleSlotOf(candidate)} emphasized />
+                <SeriesLineSample style={candidate} emphasized />
                 {LINE_LABELS[line]}
               </label>
             );
@@ -255,6 +286,7 @@ function TermEditor({
       </div>
       <StylePicker
         name={group?.id ?? 'new-term'}
+        termLabel={label}
         style={draft.style}
         onChange={(style) => setDraft({ ...draft, style })}
       />
@@ -617,7 +649,7 @@ export function NotebookPanel({
                     setEditingId(expanded ? null : row.id);
                   }}
                 >
-                  <SeriesLineSample slot={row.slot ?? styleSlotOf(group.style)} emphasized={row.active} />
+                  <SeriesLineSample style={row.style ?? group.style} emphasized={row.active} />
                   <span className="term-manager-title">{row.name}</span>
                   {group.aliases.length > 1 && (
                     <span className="term-manager-alias-count">+{group.aliases.length - 1} aliases</span>

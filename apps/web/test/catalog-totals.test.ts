@@ -3,7 +3,11 @@ import { describe, expect, it } from 'vitest';
 import { catalogTotals } from '../src/lib/catalog-totals.ts';
 import type { SeriesIntent, SeriesTrendState } from '../src/lib/store.ts';
 
-const term: SeriesIntent = { id: 'term', label: 'wolves', styleSlot: 0 };
+const term: SeriesIntent = {
+  id: 'term',
+  label: 'wolves',
+  style: { color: 'blue', line: 'solid' },
+};
 
 function trend(
   order: readonly string[],

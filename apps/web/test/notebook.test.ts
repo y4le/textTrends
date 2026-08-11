@@ -4,6 +4,7 @@ import {
   aliasesForTermEditor,
   FOLDED_MATCH,
   coreGroupOf,
+  firstFreeStyle,
   groupIdentity,
   memberSemanticKey,
   NOTEBOOK_LIMITS_V1,
@@ -34,7 +35,7 @@ const group = (
 });
 
 const notebook = (...groups: NotebookGroupV1[]): QueryNotebookV1 => ({
-  schema: 'texttrends/query-notebook/2',
+  schema: 'texttrends/query-notebook/3',
   groups,
 });
 
@@ -142,6 +143,12 @@ describe('authored alias model', () => {
 });
 
 describe('durable styles', () => {
+  it('does not let custom colors consume the theme-aware default palette', () => {
+    const custom = group('custom', 'custom', { color: '#a1b2c3', line: 'solid' });
+    expect(firstFreeStyle([custom], new Set([custom.id])))
+      .toEqual({ color: 'blue', line: 'solid' });
+  });
+
   it('keeps active survivors and reassigns only a colliding returning term', () => {
     const source = notebook(
       group('returning', 'returning'),
@@ -165,10 +172,25 @@ describe('durable styles', () => {
     expect(resolveActiveStyleCollisions(source, new Set(['a'])).groups[1]!.style)
       .toEqual({ color: 'blue', line: 'solid' });
   });
+
+  it('keeps a unique custom style and reassigns only an exact returning collision', () => {
+    const custom = { color: '#a1b2c3' as const, line: 'dash' as const };
+    const source = notebook(
+      group('survivor', 'survivor', custom),
+      group('returning', 'returning', custom),
+    );
+    const resolved = resolveActiveStyleCollisions(
+      source,
+      new Set(['survivor', 'returning']),
+      new Set(['survivor']),
+    );
+    expect(resolved.groups[0]!.style).toEqual(custom);
+    expect(resolved.groups[1]!.style).not.toEqual(custom);
+  });
 });
 
 describe('query notebook admission', () => {
-  it('admits v2 and upgrades legacy members, names, sensitivity, and styles', () => {
+  it('admits v3 and upgrades legacy members, names, sensitivity, and styles', () => {
     const current = notebook(group('g1', 'wolf'));
     expect(parseQueryNotebook(current)).toBe(current);
     expect(parseQueryNotebook({
@@ -190,10 +212,10 @@ describe('query notebook admission', () => {
     expect(() => parseQueryNotebook({ schema: 'unknown', groups: [] })).toThrow(/schema/);
     expect(() => parseQueryNotebook(notebook(group('g', 'a'), group('g', 'b'))))
       .toThrow(/duplicate/);
-    expect(() => parseQueryNotebook({ schema: 'texttrends/query-notebook/2', groups: Array(1) }))
+    expect(() => parseQueryNotebook({ schema: 'texttrends/query-notebook/3', groups: Array(1) }))
       .toThrow(/dense/);
     expect(() => parseQueryNotebook({
-      schema: 'texttrends/query-notebook/2',
+      schema: 'texttrends/query-notebook/3',
       groups: Array.from({ length: NOTEBOOK_LIMITS_V1.maxGroups + 1 }, (_, i) => group(`g${i}`, `a${i}`)),
     })).toThrow(/at most/);
   });

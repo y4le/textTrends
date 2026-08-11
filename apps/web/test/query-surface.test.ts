@@ -48,7 +48,7 @@ describe('query surface', () => {
       groups: [group],
       activeGroupIds: new Set([group.id]),
       soloGroupId: null,
-      styleSlots: new Map([[group.id, 2]]),
+      styles: new Map([[group.id, group.style]]),
       trends: new Map(),
       hasSnapshot: false,
       partialCorpus: false,
@@ -59,7 +59,7 @@ describe('query surface', () => {
       name: 'wolf',
       active: true,
       solo: false,
-      slot: 2,
+      style: group.style,
       projected: true,
       count: { kind: 'not-run' },
     }]);

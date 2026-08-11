@@ -13,7 +13,7 @@ import {
   segmentReaderMarks,
   type ReaderSegment,
 } from '../lib/reader-marks.ts';
-import { slotColor } from '../lib/series-style.ts';
+import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import type { WidthClass } from '../lib/presentation.ts';
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
@@ -191,7 +191,7 @@ export function FooterPassage({
     return <div className="footer-passage footer-passage-message">loading source…</div>;
   }
 
-  const slots = new Map(passage?.tracks.map((track) => [track.seriesId, track.styleSlot]));
+  const styles = new Map(passage?.tracks.map((track) => [track.seriesId, track.style]));
   const styled = (segment: ReaderSegment, key: string) => {
     const text = display.slice(segment.start, segment.end);
     if (segment.seriesIds.length === 0) return <span key={key}>{text}</span>;
@@ -203,8 +203,8 @@ export function FooterPassage({
       <span
         key={key}
         style={{
-          background: `color-mix(in srgb, ${slotColor(slots.get(tintId) ?? 0)} 22%, transparent)`,
-          borderBlockEnd: `2px solid ${slotColor(slots.get(lineId) ?? 0)}`,
+          background: `color-mix(in srgb, ${seriesColor(styles.get(tintId) ?? DEFAULT_SERIES_STYLE)} 22%, transparent)`,
+          borderBlockEnd: `2px solid ${seriesColor(styles.get(lineId) ?? DEFAULT_SERIES_STYLE)}`,
         }}
       >
         {text}

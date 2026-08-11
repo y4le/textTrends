@@ -1,17 +1,19 @@
 /** Captured query-track presentation for Reader highlights. */
 
+import type { SeriesStyleV1 } from '@texttrends/core';
+
 export interface CapturedTrack {
   readonly seriesId: string;
   readonly groupId: string;
   readonly identity: string;
   readonly label: string;
-  readonly styleSlot: number;
+  readonly style: SeriesStyleV1;
 }
 
 export interface TrackLegendEntry {
   readonly seriesId: string;
   readonly label: string;
-  readonly styleSlot: number;
+  readonly style: SeriesStyleV1;
   readonly stale: boolean;
 }
 
@@ -24,7 +26,7 @@ export function trackLegend(
   liveSeries: readonly {
     readonly id: string;
     readonly label: string;
-    readonly styleSlot: number;
+    readonly style: SeriesStyleV1;
   }[],
 ): readonly TrackLegendEntry[] {
   const live = new Map(liveSeries.map((series) => [series.id, series]));
@@ -34,7 +36,7 @@ export function trackLegend(
     return {
       seriesId: track.seriesId,
       label: stale ? track.label : current.label,
-      styleSlot: stale ? track.styleSlot : current.styleSlot,
+      style: stale ? track.style : current.style,
       stale,
     };
   });

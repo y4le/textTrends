@@ -10,6 +10,7 @@
  */
 
 import { useEffect, useMemo, useRef } from 'react';
+import type { SeriesStyleV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import {
   barcodeLegendTotalText,
@@ -18,7 +19,7 @@ import {
   type BarcodeTrackVM,
 } from '../lib/barcode-view.ts';
 import { barcodeStepperFor } from '../lib/barcode-stepper.ts';
-import { slotColor } from '../lib/series-style.ts';
+import { seriesColor } from '../lib/series-style.ts';
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -36,7 +37,7 @@ interface BarcodeBandProps {
   readonly bandGap: number;
   readonly trackHeight: number;
   readonly trackGap: number;
-  readonly slotOf: (seriesId: string) => number;
+  readonly styleOf: (seriesId: string) => SeriesStyleV1;
   readonly focusedSeries: string | null;
   readonly coarse: boolean;
 }
@@ -54,7 +55,7 @@ export function BarcodeBand({
   bandGap,
   trackHeight,
   trackGap,
-  slotOf,
+  styleOf,
   focusedSeries,
   coarse,
 }: BarcodeBandProps) {
@@ -78,7 +79,7 @@ export function BarcodeBand({
         top={plotHeight + bandGap}
         trackHeight={trackHeight}
         trackGap={trackGap}
-        slotOf={slotOf}
+        styleOf={styleOf}
         focusedSeries={focusedSeries}
         coarse={coarse}
         colorScheme={presentation.colorScheme}
@@ -100,7 +101,7 @@ export function BarcodeBand({
       top={d * rowPitch + plotHeight + bandGap}
       trackHeight={trackHeight}
       trackGap={trackGap}
-      slotOf={slotOf}
+      styleOf={styleOf}
       focusedSeries={focusedSeries}
       coarse={coarse}
       colorScheme={presentation.colorScheme}
@@ -121,7 +122,7 @@ function BarcodeCanvas({
   top,
   trackHeight,
   trackGap,
-  slotOf,
+  styleOf,
   focusedSeries,
   coarse,
   colorScheme,
@@ -169,7 +170,7 @@ function BarcodeCanvas({
         // Canvas fillStyle does not resolve CSS custom-property expressions.
         // Resolve the shared series token explicitly so a per-book canvas
         // does not silently retain its default black fill.
-        ctx.fillStyle = canvasColor(slotColor(slotOf(track.seriesId)));
+        ctx.fillStyle = canvasColor(seriesColor(styleOf(track.seriesId)));
         const focusDim = focusedSeries !== null && track.seriesId !== focusedSeries ? 0.45 : 1;
         const paintBucket = (bucketOrdinal: number) => {
           const doc = track.docOrder[bucketOrdinal];
@@ -194,7 +195,7 @@ function BarcodeCanvas({
     };
     paint(tracks, linkedSelection);
     paint(selectedTracks, false);
-  }, [docs, docOrdinal, tracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, slotOf, focusedSeries, colorScheme, docOrdinalById]);
+  }, [docs, docOrdinal, tracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, styleOf, focusedSeries, colorScheme, docOrdinalById]);
 
   return (
     <canvas
@@ -228,7 +229,7 @@ export function BarcodeLegend({
   linkedSelection,
   selectedStatus,
   labelOf,
-  slotOf,
+  styleOf,
   focusedSeries,
   onActivate,
 }: {
@@ -237,7 +238,7 @@ export function BarcodeLegend({
   readonly linkedSelection: boolean;
   readonly selectedStatus: 'pending' | 'ready' | 'error' | null;
   readonly labelOf: (seriesId: string) => string;
-  readonly slotOf: (seriesId: string) => number;
+  readonly styleOf: (seriesId: string) => SeriesStyleV1;
   readonly focusedSeries: string | null;
   readonly onActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
 }) {
@@ -286,7 +287,7 @@ export function BarcodeLegend({
             }}
           >
             <SeriesLineSample
-              slot={slotOf(track.seriesId)}
+              style={styleOf(track.seriesId)}
               emphasized={focusedSeries === track.seriesId}
             />
             <span data-term-occurrence-label style={{ color: 'var(--fg)' }}>

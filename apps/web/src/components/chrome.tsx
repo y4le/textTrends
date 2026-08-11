@@ -6,7 +6,8 @@
  * design-token/global-primitive boundary, not a component-style home.
  */
 
-import { slotColor, slotDash } from '../lib/series-style.ts';
+import type { SeriesStyleV1 } from '@texttrends/core';
+import { seriesColor, seriesDash, seriesLinecap } from '../lib/series-style.ts';
 
 /** The one small mono action button used across the panels. Consumers spread
  *  it and override fields for variants (disabled, padding). */
@@ -24,7 +25,7 @@ export const SMALL_BUTTON_STYLE: React.CSSProperties = {
 /** The 22×8 series line sample (color + dash + emphasis weight) shared by the
  *  chart-focus and concordance chips. Identity styling only — never the sole
  *  carrier of state (both chips pair it with aria-pressed + text). */
-export function SeriesLineSample({ slot, emphasized }: { slot: number; emphasized: boolean }) {
+export function SeriesLineSample({ style, emphasized }: { style: SeriesStyleV1; emphasized: boolean }) {
   return (
     <svg width={22} height={8} aria-hidden="true">
       <line
@@ -32,10 +33,10 @@ export function SeriesLineSample({ slot, emphasized }: { slot: number; emphasize
         y1={4}
         x2={21}
         y2={4}
-        stroke={slotColor(slot)}
+        stroke={seriesColor(style)}
         strokeWidth={emphasized ? 2.5 : 1.5}
-        strokeDasharray={slotDash(slot)}
-        strokeLinecap={slotDash(slot) === '1 3' ? 'round' : 'butt'}
+        strokeDasharray={seriesDash(style)}
+        strokeLinecap={seriesLinecap(style)}
       />
     </svg>
   );

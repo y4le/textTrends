@@ -13,7 +13,7 @@
  *                `partial: true` when the snapshot is missing documents.
  */
 
-import { groupTitle, type NumericTrend } from '@texttrends/core';
+import { groupTitle, type NumericTrend, type SeriesStyleV1 } from '@texttrends/core';
 import type { SeriesTrendState } from './store.ts';
 import type { NotebookGroupV1 } from './notebook.ts';
 
@@ -38,8 +38,8 @@ export interface NotebookRowVM {
   /** Membership in the comparison ("Shown in analysis"). */
   readonly active: boolean;
   readonly solo: boolean;
-  /** Style slot while the group owns one; null renders neutral. */
-  readonly slot: number | null;
+  /** Authored style while the group owns one; null renders the default. */
+  readonly style: SeriesStyleV1 | null;
   /** In the EFFECTIVE projection (active ∩ solo) — rows outside it dim. */
   readonly projected: boolean;
   readonly count: GroupCountVM;
@@ -92,7 +92,7 @@ export function notebookRows(args: {
   readonly groups: readonly NotebookGroupV1[];
   readonly activeGroupIds: ReadonlySet<string>;
   readonly soloGroupId: string | null;
-  readonly styleSlots: ReadonlyMap<string, number>;
+  readonly styles: ReadonlyMap<string, SeriesStyleV1>;
   readonly trends: ReadonlyMap<string, SeriesTrendState>;
   readonly selectedTrends?: ReadonlyMap<string, SeriesTrendState>;
   readonly hasSelection?: boolean;
@@ -107,7 +107,7 @@ export function notebookRows(args: {
       name: groupTitle(g),
       active,
       solo: args.soloGroupId === g.id,
-      slot: args.styleSlots.get(g.id) ?? null,
+      style: args.styles.get(g.id) ?? null,
       projected,
       count: countFor(
         projected,

@@ -20,7 +20,7 @@ import {
   nodeCenterOffset,
   type ConcordanceRowVM,
 } from '../lib/concordance-view.ts';
-import { slotColor } from '../lib/series-style.ts';
+import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 import { useRowNavigation } from './useRowNavigation.ts';
@@ -62,8 +62,8 @@ export function KwicPanel({
     (id: string) => seriesById.get(id)?.label ?? id,
     [seriesById],
   );
-  const slotOf = useCallback(
-    (id: string) => seriesById.get(id)?.styleSlot ?? 0,
+  const styleOf = useCallback(
+    (id: string) => seriesById.get(id)?.style ?? DEFAULT_SERIES_STYLE,
     [seriesById],
   );
   const titleOf = useCallback(
@@ -73,8 +73,8 @@ export function KwicPanel({
 
   const readyRows = kwic?.state.status === 'ready' ? kwic.state.rows : [];
   const rows = useMemo(
-    () => concordanceRows(readyRows, view.contextChars, labelOf, slotOf, titleOf),
-    [readyRows, view.contextChars, labelOf, slotOf, titleOf],
+    () => concordanceRows(readyRows, view.contextChars, labelOf, styleOf, titleOf),
+    [readyRows, view.contextChars, labelOf, styleOf, titleOf],
   );
   const rowIdentity = rows.map((row) => row.key).join('\u001f');
 
@@ -232,7 +232,7 @@ export function KwicPanel({
                   type="button"
                   onClick={() => openRowReader(row)}
                   title="Open this occurrence in the reader"
-                  style={{ color: slotColor(row.slot) }}
+                  style={{ color: seriesColor(row.style) }}
                 >
                   {row.nodeText}
                 </button>
@@ -280,7 +280,7 @@ export function KwicPanel({
           data-series-label={row.label}
         >
           <p className="kwic-reading-source">
-            <span style={{ color: slotColor(row.slot) }}>{row.label}</span>
+            <span style={{ color: seriesColor(row.style) }}>{row.label}</span>
             {' · '}{sourcePosition(row)}
           </p>
           <p className="kwic-reading-context source-text">
@@ -291,7 +291,7 @@ export function KwicPanel({
               type="button"
               onClick={() => openRowReader(row)}
               title="Open this occurrence in the reader"
-              style={{ color: slotColor(row.slot) }}
+              style={{ color: seriesColor(row.style) }}
             >
               {row.nodeText}
             </button>
@@ -330,7 +330,7 @@ export function KwicPanel({
               ? `hide “${item.label}” from the concordance`
               : `show “${item.label}” in the concordance`}
           >
-            <SeriesLineSample slot={item.styleSlot} emphasized={on} />
+            <SeriesLineSample style={item.style} emphasized={on} />
             {on ? '✓ ' : ''}{item.label}
           </button>
         );

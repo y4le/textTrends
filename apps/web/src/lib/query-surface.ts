@@ -3,7 +3,7 @@ import {
   notebookRows,
   type NotebookRowVM,
 } from './notebook-view.ts';
-import type { NotebookGroupV1 } from './notebook.ts';
+import type { NotebookGroupV1, SeriesStyleV1 } from './notebook.ts';
 import type { SeriesTrendState } from './store.ts';
 
 export type QueryEditorTarget =
@@ -59,7 +59,7 @@ export function querySurfaceView(args: {
   readonly groups: readonly NotebookGroupV1[];
   readonly activeGroupIds: ReadonlySet<string>;
   readonly soloGroupId: string | null;
-  readonly styleSlots: ReadonlyMap<string, number>;
+  readonly styles: ReadonlyMap<string, SeriesStyleV1>;
   readonly trends: ReadonlyMap<string, SeriesTrendState>;
   readonly selectedTrends?: ReadonlyMap<string, SeriesTrendState>;
   readonly hasSelection?: boolean;

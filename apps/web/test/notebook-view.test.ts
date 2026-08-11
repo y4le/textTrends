@@ -91,20 +91,23 @@ describe('countFor — explicit, never-ambiguous count states', () => {
 });
 
 describe('notebookRows — projection flags', () => {
-  it('marks active/solo/projected/slot per group; solo dims every other row', () => {
+  it('marks active/solo/projected/style per group; solo dims every other row', () => {
     const rows = notebookRows({
       groups: [g('a', 'wolf'), g('b', 'bear'), g('c', 'fox')],
       activeGroupIds: new Set(['a', 'b']),
       soloGroupId: 'b',
-      styleSlots: new Map([['a', 0], ['b', 1]]),
+      styles: new Map([
+        ['a', { color: 'blue' as const, line: 'solid' as const }],
+        ['b', { color: 'orange' as const, line: 'dash' as const }],
+      ]),
       trends: new Map([['b', { status: 'pending' }]]),
       hasSnapshot: true,
       partialCorpus: false,
     });
-    expect(rows.map((r) => ({ id: r.id, active: r.active, solo: r.solo, projected: r.projected, slot: r.slot }))).toEqual([
-      { id: 'a', active: true, solo: false, projected: false, slot: 0 }, // solo'd out
-      { id: 'b', active: true, solo: true, projected: true, slot: 1 },
-      { id: 'c', active: false, solo: false, projected: false, slot: null }, // muted
+    expect(rows.map((r) => ({ id: r.id, active: r.active, solo: r.solo, projected: r.projected, style: r.style }))).toEqual([
+      { id: 'a', active: true, solo: false, projected: false, style: { color: 'blue', line: 'solid' } }, // solo'd out
+      { id: 'b', active: true, solo: true, projected: true, style: { color: 'orange', line: 'dash' } },
+      { id: 'c', active: false, solo: false, projected: false, style: null }, // muted
     ]);
     expect(rows[0]!.count).toEqual({ kind: 'not-run' }); // solo'd out ⇒ not in the comparison
     expect(rows[1]!.count).toEqual({ kind: 'pending' });

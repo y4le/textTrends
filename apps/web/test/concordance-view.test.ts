@@ -26,12 +26,12 @@ describe('Concordance presentation', () => {
       [ROW],
       12,
       () => 'Holmes',
-      () => 2,
+      () => ({ color: 'blue', line: 'dot' }),
       () => 'The Adventures',
     );
     expect(row).toMatchObject({
       label: 'Holmes',
-      slot: 2,
+      style: { color: 'blue', line: 'dot' },
       title: 'The Adventures',
       leftFull: 'all the context before',
       leftShown: 'ntext before',
@@ -42,7 +42,13 @@ describe('Concordance presentation', () => {
   });
 
   it('rejects invalid rendered context widths', () => {
-    expect(() => concordanceRows([ROW], 0, String, () => 0, String)).toThrow(
+    expect(() => concordanceRows(
+      [ROW],
+      0,
+      String,
+      () => ({ color: 'blue', line: 'solid' }),
+      String,
+    )).toThrow(
       'context width must be a positive integer',
     );
   });

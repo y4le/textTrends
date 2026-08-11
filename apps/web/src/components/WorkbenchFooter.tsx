@@ -18,7 +18,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
-import type { NumericTrend } from '@texttrends/core';
+import type { NumericTrend, SeriesStyleV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import { occurrenceNavigationText } from '../lib/store.ts';
 import {
@@ -58,7 +58,12 @@ import {
   type BarcodeTrackVM,
   type CapturedBarcodeTarget,
 } from '../lib/barcode-view.ts';
-import { slotColor, slotDash } from '../lib/series-style.ts';
+import {
+  DEFAULT_SERIES_STYLE,
+  seriesColor,
+  seriesDash,
+  seriesLinecap,
+} from '../lib/series-style.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { BarcodeBand } from './BarcodeStrip.tsx';
 import { FooterPassage } from './FooterPassage.tsx';
@@ -97,7 +102,7 @@ function keyboardReturnFocusId(target: EventTarget | null): string {
 
 interface FooterSeries {
   readonly id: string;
-  readonly styleSlot: number;
+  readonly style: SeriesStyleV1;
   readonly trend: NumericTrend;
   readonly values: Float64Array;
 }
@@ -169,12 +174,12 @@ const FooterSparkline = memo(function FooterSparkline({
             key={`${item.id}:${doc}:${index}`}
             d={path}
             fill="none"
-            stroke={slotColor(item.styleSlot)}
+            stroke={seriesColor(item.style)}
             strokeWidth={item.id === focusedSeries
               ? geometry.strokeFocused
               : geometry.strokeOther}
-            strokeDasharray={slotDash(item.styleSlot)}
-            strokeLinecap={slotDash(item.styleSlot) === '1 3' ? 'round' : 'butt'}
+            strokeDasharray={seriesDash(item.style)}
+            strokeLinecap={seriesLinecap(item.style)}
             opacity={focusedSeries !== null && item.id !== focusedSeries ? 0.55 : 1}
           />
         ));
@@ -1063,7 +1068,7 @@ export function WorkbenchFooter({
       return state?.status === 'ready'
         ? [{
             id: item.id,
-            styleSlot: item.styleSlot,
+            style: item.style,
             trend: state.trend,
             values: trendDisplayValues(state.trend, measure),
           }]
@@ -1126,7 +1131,7 @@ export function WorkbenchFooter({
           bandGap={geometry.barcodeBandGap}
           trackHeight={geometry.barcodeTrackHeight}
           trackGap={geometry.barcodeTrackGap}
-          slotOf={(id) => series.find((item) => item.id === id)?.styleSlot ?? 0}
+          styleOf={(id) => series.find((item) => item.id === id)?.style ?? DEFAULT_SERIES_STYLE}
           focusedSeries={focusedSeries}
           coarse={coarse}
         />

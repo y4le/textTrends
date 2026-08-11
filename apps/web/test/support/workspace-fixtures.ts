@@ -4,7 +4,7 @@ export function workspaceState(input: string | Partial<WorkspaceV1> = 'builtin/s
   const workspace: WorkspaceV1 = {
     schema: 'texttrends/workspace/1',
     corpus: { kind: 'builtin', id: typeof input === 'string' ? input : 'builtin/sherlock' },
-    notebook: { schema: 'texttrends/query-notebook/2', groups: [] },
+    notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
     active: [],
     kwicEnabled: [],
     views: {

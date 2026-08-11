@@ -4,6 +4,7 @@ import { FormLayer } from './FormLayer.tsx';
 import { groupTitle } from '../lib/notebook.ts';
 import { NotebookPanel } from './NotebookPanel.tsx';
 import { SeriesLineSample } from './chrome.tsx';
+import { DEFAULT_SERIES_STYLE } from '../lib/series-style.ts';
 import {
   queryEditorTarget,
   querySurfaceView,
@@ -62,7 +63,7 @@ function TermBucket({
         onClick={onFocus}
         title={row.projected ? `Emphasize ${row.name} in the chart` : `${row.name} is not shown`}
       >
-        <SeriesLineSample slot={row.slot ?? 0} emphasized={focused} />
+        <SeriesLineSample style={row.style ?? DEFAULT_SERIES_STYLE} emphasized={focused} />
         <span className="term-bucket-name">{row.name}</span>
         <span className="term-bucket-count">{countLabel(row.count)}</span>
       </button>
@@ -94,7 +95,7 @@ export function QuerySurface() {
   const notebook = useApp((state) => state.notebook);
   const activeGroupIds = useApp((state) => state.activeGroupIds);
   const soloGroupId = useApp((state) => state.soloGroupId);
-  const styleSlots = useApp((state) => state.styleSlots);
+  const styles = useApp((state) => state.styles);
   const trends = useApp((state) => state.trends);
   const selectedTrends = useApp((state) => state.selectedTrends);
   const linkedSelection = useApp((state) => state.linkedSelection);
@@ -116,7 +117,7 @@ export function QuerySurface() {
     groups: notebook.groups,
     activeGroupIds,
     soloGroupId,
-    styleSlots,
+    styles,
     trends,
     selectedTrends,
     hasSelection: linkedSelection !== null,

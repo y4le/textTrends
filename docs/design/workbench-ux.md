@@ -110,6 +110,12 @@ and recomputes the insertion position. A second touch cancels the reorder, and
 pointer cancellation clears every drag affordance. The same handles retain a
 Space/Enter grab-and-drop path with Up/Down movement for keyboard users.
 
+Each term editor uses the platform's native color input and a separate line
+pattern control. Existing palette colors remain theme-aware; choosing a custom
+color stores its lowercase six-digit hex value and keeps that color fixed
+across themes. The editor warns, without blocking or changing the choice, when
+a custom color falls below 3:1 contrast against either supported background.
+
 The Terms rail persists across all five places, including before a usable
 snapshot exists; with no corpus the dock honestly collapses to the Terms-only
 rail. Reader hides the complete dock while occupying the full viewport.

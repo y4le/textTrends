@@ -3,6 +3,7 @@ import {
   type ConcordanceSortMode,
   type KwicRowView,
 } from './store.ts';
+import type { SeriesStyleV1 } from '@texttrends/core';
 
 export const KWIC_SERVED_CONTEXT_TOKENS = 6;
 export const CONTEXT_CHAR_CHOICES = [12, 24, 38, 60] as const;
@@ -12,7 +13,7 @@ export interface ConcordanceRowVM {
   readonly key: string;
   readonly seriesId: string;
   readonly label: string;
-  readonly slot: number;
+  readonly style: SeriesStyleV1;
   readonly doc: string;
   readonly title: string;
   readonly pos: number;
@@ -34,7 +35,7 @@ export function concordanceRows(
   rows: readonly KwicRowView[],
   contextChars: number,
   labelOf: (seriesId: string) => string,
-  slotOf: (seriesId: string) => number,
+  styleOf: (seriesId: string) => SeriesStyleV1,
   titleOf: (doc: string) => string,
 ): readonly ConcordanceRowVM[] {
   if (!Number.isSafeInteger(contextChars) || contextChars < 1) {
@@ -47,7 +48,7 @@ export function concordanceRows(
       key: kwicRowKey(source),
       seriesId: source.seriesId,
       label: labelOf(source.seriesId),
-      slot: slotOf(source.seriesId),
+      style: styleOf(source.seriesId),
       doc: source.doc,
       title: titleOf(source.doc),
       pos: source.pos,

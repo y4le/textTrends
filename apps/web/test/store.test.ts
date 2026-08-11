@@ -738,7 +738,7 @@ describe('the session bridge', () => {
     const durable: WorkspaceV1 = {
         ...workspaceState(BUILTIN_SHERLOCK_ID),
         notebook: {
-          schema: 'texttrends/query-notebook/2',
+          schema: 'texttrends/query-notebook/3',
           groups: [{
             id: 'durable',
             aliases: ['Irene'],
@@ -1489,28 +1489,28 @@ describe('store query intent discipline', () => {
     );
   });
 
-  it('undoes explicit term deletion without retaining a style slot and preserves null focus', () => {
+  it('undoes explicit term deletion without granting the undo record style authority and preserves null focus', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     expect(f.store.getState().focusedSeries).toBeNull();
     const removed = f.store.getState().notebook.groups[0]!;
     f.store.getState().setSolo(removed.id);
-    const previousSlot = f.store.getState().styleSlots.get(removed.id);
+    const previousStyle = f.store.getState().styles.get(removed.id);
     f.store.getState().removeGroup(removed.id);
     expect(f.store.getState().removedGroups.at(-1)?.group).toBe(removed);
     expect(f.store.getState().removedGroups.at(-1)?.solo).toBe(true);
-    expect(f.store.getState().styleSlots.has(removed.id)).toBe(false);
+    expect(f.store.getState().styles.has(removed.id)).toBe(false);
     f.store.getState().undoRemoveGroup();
     expect(f.store.getState().notebook.groups[0]).toBe(removed);
     expect(f.store.getState().activeGroupIds.has(removed.id)).toBe(true);
     expect(f.store.getState().soloGroupId).toBe(removed.id);
     expect(f.store.getState().focusedSeries).toBeNull();
-    expect(f.store.getState().styleSlots.get(removed.id)).not.toBeUndefined();
-    // Slot reconciliation may naturally choose the same free slot; the undo
-    // record itself carries no slot authority.
+    expect(f.store.getState().styles.get(removed.id)).toEqual(previousStyle);
+    // Style reconciliation may naturally choose the same free pair; the undo
+    // record itself carries no style authority.
     expect(f.store.getState().removedGroups).toHaveLength(0);
-    expect(previousSlot).not.toBeUndefined();
+    expect(previousStyle).not.toBeUndefined();
 
     f.store.getState().removeGroup(removed.id);
     f.store.getState().dismissRemovedGroup();
@@ -1879,7 +1879,7 @@ describe('query notebook — identity discipline', () => {
     };
     f.store.setState({
       notebook: {
-        schema: 'texttrends/query-notebook/2',
+        schema: 'texttrends/query-notebook/3',
         groups: [original, duplicate],
       },
     });
@@ -1940,7 +1940,7 @@ describe('query notebook — identity discipline', () => {
     // Change the group's SEMANTICS without any action: no lane superseded, no
     // reissue, no epoch advance — only the issued-identity guard stands
     // between the old results and the store (review-B round-1 finding).
-    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/2', groups: [semanticEdit(g)] } });
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/3', groups: [semanticEdit(g)] } });
     expect(trend.cancelled).toBe(false); // the lease is genuinely still alive
     expect(kwic.cancelled).toBe(false);
     trend.resolve({ op: 'trend', trend: fakeTrend(3) });
@@ -1975,7 +1975,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
-    const slotBefore = f.store.getState().styleSlots.get(moriarty!.id);
+    const styleBefore = f.store.getState().styles.get(moriarty!.id);
     f.store.getState().toggleKwicSeries(moriarty!.id); // concordance OFF
     f.store.getState().setGroupActive(moriarty!.id, false); // mute
     expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id]);
@@ -1983,7 +1983,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(live.map((t) => t.groupId)).toEqual([holmes!.id]);
     f.store.getState().setGroupActive(moriarty!.id, true); // unmute
     expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false); // toggle survived the mute
-    expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slotBefore); // style identity survived
+    expect(f.store.getState().styles.get(moriarty!.id)).toBe(styleBefore); // style identity survived
   });
 
   it('persists style-only edits without reissuing and protects active survivors on collision', () => {
@@ -2006,6 +2006,22 @@ describe('query notebook — active set, solo, order, and style', () => {
     f.store.getState().setGroupActive(b!.id, true);
     expect(groupsOf(f)[0]!.style).toEqual({ color: 'gold', line: 'dot' });
     expect(groupsOf(f)[1]!.style).not.toEqual(groupsOf(f)[0]!.style);
+  });
+
+  it('refuses only exact custom color/line collisions and allows nearby authored colors', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('a, b');
+    const [a, b] = groupsOf(f);
+    f.store.getState().setGroupStyle(a!.id, { color: '#a1b2c3', line: 'dash' });
+    expect(groupsOf(f)[0]!.style).toEqual({ color: '#a1b2c3', line: 'dash' });
+
+    f.store.getState().setGroupStyle(b!.id, { color: '#a1b2c3', line: 'dash' });
+    expect(f.store.getState().notebookError).toMatch(/already uses/);
+    expect(groupsOf(f)[1]!.style).not.toEqual(groupsOf(f)[0]!.style);
+
+    f.store.getState().setGroupStyle(b!.id, { color: '#a1b2c4', line: 'dash' });
+    expect(groupsOf(f)[1]!.style).toEqual({ color: '#a1b2c4', line: 'dash' });
   });
 
   it('uses five distinct colors before varying line type for new active terms', () => {
@@ -2075,15 +2091,15 @@ describe('query notebook — active set, solo, order, and style', () => {
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
-    const slots = new Map(f.store.getState().styleSlots);
+    const styles = new Map(f.store.getState().styles);
     const issued = f.issued.length;
     f.store.getState().reorderGroups([moriarty!.id]); // not total → refused
     expect(f.store.getState().notebookError).toMatch(/every group/);
     f.store.getState().reorderGroups([moriarty!.id, holmes!.id]);
     expect(groupsOf(f).map((g) => g.id)).toEqual([moriarty!.id, holmes!.id]);
     expect(f.store.getState().series.map((s) => s.id)).toEqual([moriarty!.id, holmes!.id]);
-    expect(f.store.getState().styleSlots.get(holmes!.id)).toBe(slots.get(holmes!.id)); // slots pinned
-    expect(f.store.getState().styleSlots.get(moriarty!.id)).toBe(slots.get(moriarty!.id));
+    expect(f.store.getState().styles.get(holmes!.id)).toBe(styles.get(holmes!.id)); // styles pinned
+    expect(f.store.getState().styles.get(moriarty!.id)).toBe(styles.get(moriarty!.id));
     expect(f.issued.length).toBe(issued); // invariant 2: no reissue
   });
 
@@ -2099,7 +2115,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(state.notebook.groups.map((g) => g.id)).toEqual([holmes!.id]);
     expect(state.focusedSeries).toBe(holmes!.id);
     expect(state.soloGroupId).toBeNull();
-    expect(state.styleSlots.has(moriarty!.id)).toBe(false);
+    expect(state.styles.has(moriarty!.id)).toBe(false);
     expect(state.kwicEnabledSeries.has(moriarty!.id)).toBe(false);
     expect(state.activeGroupIds.has(moriarty!.id)).toBe(false);
   });
@@ -2182,7 +2198,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     f.store.getState().quickAdd('holmes');
     const g = f.store.getState().notebook.groups[0]!;
     const q = f.issued.filter((x) => x.op === 'dispersion' && !x.cancelled).at(-1)!;
-    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/2', groups: [semanticEditTop(g)] } });
+    f.store.setState({ notebook: { schema: 'texttrends/query-notebook/3', groups: [semanticEditTop(g)] } });
     expect(q.cancelled).toBe(false); // the lease is genuinely alive
     q.resolve({ op: 'dispersion', dispersion: { method: 'dispersion/1', geometry: null, tracks: [] } });
     await flush();

@@ -1,12 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import {
   coreGroupOf,
+  isSeriesColor,
   parseQueryNotebook,
   type QueryNotebookV1,
 } from '../src/project/notebook.ts';
 
 const NOTEBOOK: QueryNotebookV1 = {
-  schema: 'texttrends/query-notebook/2',
+  schema: 'texttrends/query-notebook/3',
   groups: [{
     id: 'g1',
     aliases: ['Holmes'],
@@ -37,6 +38,31 @@ describe('query notebook admission', () => {
     })).toThrow(/style/);
   });
 
+  it('admits canonical custom colors and rejects noncanonical CSS spellings', () => {
+    expect(isSeriesColor('#a1b2c3')).toBe(true);
+    for (const color of ['#abc', '#ABCDEF', '#abcdef0', 'red', 'rgb(0,0,0)', '']) {
+      expect(isSeriesColor(color)).toBe(false);
+      expect(() => parseQueryNotebook({
+        ...NOTEBOOK,
+        groups: [{ ...NOTEBOOK.groups[0]!, style: { color, line: 'solid' } }],
+      })).toThrow(/style/);
+    }
+    const custom = {
+      ...NOTEBOOK,
+      groups: [{ ...NOTEBOOK.groups[0]!, style: { color: '#a1b2c3', line: 'dash' } }],
+    };
+    expect(parseQueryNotebook(custom)).toBe(custom);
+  });
+
+  it('retags query-notebook/2 losslessly and never admits custom colors under the old tag', () => {
+    const legacyV2 = { ...NOTEBOOK, schema: 'texttrends/query-notebook/2' };
+    expect(parseQueryNotebook(legacyV2)).toEqual(NOTEBOOK);
+    expect(() => parseQueryNotebook({
+      ...legacyV2,
+      groups: [{ ...NOTEBOOK.groups[0]!, style: { color: '#a1b2c3', line: 'solid' } }],
+    })).toThrow(/query-notebook\/2/);
+  });
+
   it('lifts legacy v1 phrase surfaces instead of classifying the saved notebook as corrupt', () => {
     const legacy = {
       schema: 'texttrends/query-notebook/1',
@@ -49,7 +75,7 @@ describe('query notebook admission', () => {
       }],
     };
     expect(parseQueryNotebook(legacy)).toEqual({
-      schema: 'texttrends/query-notebook/2',
+      schema: 'texttrends/query-notebook/3',
       groups: [{
         id: 'g1', aliases: ['New York'], exactMatch: false, countOverlaps: false,
         style: { color: 'blue', line: 'solid' },

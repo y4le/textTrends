@@ -23,7 +23,7 @@ import {
   type ReaderFitSearch,
 } from '../lib/reader-fit.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
-import { slotColor } from '../lib/series-style.ts';
+import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
 import { shortcutAria } from '../lib/shortcuts.ts';
 
@@ -39,7 +39,7 @@ function ReaderProse({
   const selection = useApp((state) => state.linkedSelection);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const selected = readerSelectionChars(page, selection, snapshot);
-  const slotOf = new Map(legend.map((entry) => [entry.seriesId, entry.styleSlot]));
+  const styleOf = new Map(legend.map((entry) => [entry.seriesId, entry.style]));
   const labelOf = new Map(legend.map((entry) => [entry.seriesId, entry.label]));
   const boundaries = [
     ...(selected ? [selected.start, selected.end] : []),
@@ -85,7 +85,9 @@ function ReaderProse({
           page.anchor !== null
           && segment.start >= page.anchor.charsUtf16.start
           && segment.end <= page.anchor.charsUtf16.end;
-        const color = mark ? slotColor(slotOf.get(mark.seriesId) ?? 0) : undefined;
+        const color = mark
+          ? seriesColor(styleOf.get(mark.seriesId) ?? DEFAULT_SERIES_STYLE)
+          : undefined;
         const text = page.text.slice(segment.start, segment.end);
         if (!mark) {
           return (
@@ -170,7 +172,7 @@ export function ReaderDrawer({
   const result = useApp((state) => state.readerPage);
   const navigation = useApp((state) => state.readerNavigation);
   const notebook = useApp((state) => state.notebook);
-  const styleSlots = useApp((state) => state.styleSlots);
+  const styles = useApp((state) => state.styles);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const closeReader = useApp((state) => state.closeReader);
   const navigateReader = useApp((state) => state.navigateReader);
@@ -370,7 +372,7 @@ export function ReaderDrawer({
   const liveSeries = notebook.groups.map((group) => ({
     id: group.id,
     label: groupTitle(group),
-    styleSlot: styleSlots.get(group.id) ?? 0,
+    style: styles.get(group.id) ?? group.style,
   }));
   const legend = trackLegend(
     current?.tracks ?? [],
@@ -429,7 +431,7 @@ export function ReaderDrawer({
           {legend.length === 0 && <span>none</span>}
           {legend.map((entry) => (
             <span key={entry.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
-              <SeriesLineSample slot={entry.styleSlot} emphasized />
+              <SeriesLineSample style={entry.style} emphasized />
               {entry.label}{entry.stale ? ' (query changed)' : ''}
             </span>
           ))}

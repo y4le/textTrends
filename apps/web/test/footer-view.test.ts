@@ -251,7 +251,13 @@ describe('reading footer view', () => {
     const state = {
       snapshot: 's1',
       doc: 'a',
-      tracks: [{ seriesId: 'q', groupId: 'g', identity: 'i1', label: 'q', styleSlot: 0 }],
+      tracks: [{
+        seriesId: 'q',
+        groupId: 'g',
+        identity: 'i1',
+        label: 'q',
+        style: { color: 'blue' as const, line: 'solid' as const },
+      }],
       page: page(),
       state: { status: 'ready' as const },
     };

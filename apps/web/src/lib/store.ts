@@ -94,7 +94,7 @@ import {
   NOTEBOOK_LIMITS_V1,
   parseQuickAdd,
   resolveActiveStyleCollisions,
-  styleSlotOf,
+  styleKey,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
@@ -221,9 +221,9 @@ export interface SeriesIntent {
   readonly id: string;
   /** The group's display name (quick-add: the NFC term). */
   readonly label: string;
-  /** Fixed visual slot (color + dash) — owned by the group, preserved
+  /** Authored visual style (color + dash) — owned by the group, preserved
    *  through rename/edit/reorder/mute, freed on removal. */
-  readonly styleSlot: number;
+  readonly style: SeriesStyleV1;
 }
 
 export type SeriesTrendState =
@@ -651,14 +651,14 @@ export interface AppState {
    *  this group; clearing restores the prior state exactly (nothing else is
    *  mutated). Cleared when the group is removed or deactivated. */
   soloGroupId: string | null;
-  /** Style-slot ownership (group id → slot). Preserved through rename,
+  /** Style ownership (group id → authored pair). Preserved through rename,
    *  member edits, reorder, and mute; freed on removal; unique among actives. */
-  styleSlots: ReadonlyMap<string, number>;
+  styles: ReadonlyMap<string, SeriesStyleV1>;
   /** One bounded notebook-authoring refusal (sixth activation, invalid member
    *  set, over-limit name). Cleared by the next successful notebook action. */
   notebookError: string | null;
-  /** Session undo for explicit term deletion. No style slot is retained;
-   * undo re-enters normal slot reconciliation. Cleared across workspace
+  /** Session undo for explicit term deletion. No derived style entry is retained;
+   * undo re-enters normal style reconciliation. Cleared across workspace
    * identity changes. */
   removedGroups: readonly RemovedNotebookGroup[];
   /** The EFFECTIVE active comparison, in notebook order (solo-projected) —
@@ -1579,16 +1579,16 @@ export function createAppRuntime(
     };
 
     /** The stored `series` projection: effective actives in notebook order
-     *  (solo narrows to one), carrying group-owned style slots. */
+     *  (solo narrows to one), carrying group-owned styles. */
     const projectSeries = (
       nb: QueryNotebookV1,
       active: ReadonlySet<string>,
       solo: string | null,
-      slots: ReadonlyMap<string, number>,
+      styles: ReadonlyMap<string, SeriesStyleV1>,
     ): SeriesIntent[] =>
       nb.groups
         .filter((g) => active.has(g.id) && (solo === null || g.id === solo))
-        .map((g) => ({ id: g.id, label: groupTitle(g), styleSlot: slots.get(g.id) ?? 0 }));
+        .map((g) => ({ id: g.id, label: groupTitle(g), style: styles.get(g.id) ?? g.style }));
 
     /** Wire tracks + captured issue-time identities for a series set; null if
      *  any group vanished (the intent is already superseded). */
@@ -1613,7 +1613,7 @@ export function createAppRuntime(
           groupId: spec.id,
           identity,
           label: s.label,
-          styleSlot: s.styleSlot,
+          style: s.style,
         }));
       }
       return { wire, identities, captured: Object.freeze(captured) };
@@ -2104,7 +2104,7 @@ export function createAppRuntime(
     };
 
     /**
-     * Adopt a notebook mutation: recompute style slots, the series
+     * Adopt a notebook mutation: recompute styles, the series
      * projection, and the dependent normalizations (focus in projection;
      * concordance membership per surviving group, newly active groups
      * enabled; solo only on an active group). ONE authority so every action
@@ -2143,8 +2143,8 @@ export function createAppRuntime(
       notebook = resolveActiveStyleCollisions(notebook, active, prev.activeGroupIds);
       let solo = next.soloGroupId === undefined ? prev.soloGroupId : next.soloGroupId;
       if (solo !== null && !active.has(solo)) solo = null;
-      const styleSlots = new Map(notebook.groups.map((group) => [group.id, styleSlotOf(group.style)]));
-      const series = projectSeries(notebook, active, solo, styleSlots);
+      const styles = new Map(notebook.groups.map((group) => [group.id, group.style]));
+      const series = projectSeries(notebook, active, solo, styles);
       // Concordance membership: preserved for every SURVIVING group (muting
       // must not destroy the toggle — invariant 6); a newly created group
       // joins enabled. Effective KWIC stays `series ∩ enabled` at issue
@@ -2167,7 +2167,7 @@ export function createAppRuntime(
         notebook,
         activeGroupIds: active,
         soloGroupId: solo,
-        styleSlots,
+        styles,
         series,
         notebookError: null,
         kwicEnabledSeries: nextEnabled,
@@ -2190,7 +2190,7 @@ export function createAppRuntime(
       const parsed = parseQuickAdd(input, newId, MAX_SERIES, []);
       if (parsed.error !== null) throw new Error(`invalid built-in starter terms: ${parsed.error}`);
       const notebook: QueryNotebookV1 = {
-        schema: 'texttrends/query-notebook/2',
+        schema: 'texttrends/query-notebook/3',
         groups: parsed.groups,
       };
       const ids = new Set(parsed.groups.map((group) => group.id));
@@ -2255,10 +2255,10 @@ export function createAppRuntime(
       popLayer(count = 1, returnFocusTo) {
         return requestBack(count, returnFocusTo);
       },
-      notebook: { schema: 'texttrends/query-notebook/2', groups: [] },
+      notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
       activeGroupIds: new Set<string>(),
       soloGroupId: null,
-      styleSlots: new Map<string, number>(),
+      styles: new Map<string, SeriesStyleV1>(),
       notebookError: null,
       removedGroups: [],
       series: [],
@@ -2326,7 +2326,7 @@ export function createAppRuntime(
         set({ inputError: null });
         if (parsed.groups.length === 0) return; // blank or all-duplicates: no-op
         const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/2',
+          schema: 'texttrends/query-notebook/3',
           groups: [...state.notebook.groups, ...parsed.groups],
         };
         const active = new Set(state.activeGroupIds);
@@ -2369,14 +2369,14 @@ export function createAppRuntime(
         if (state.activeGroupIds.size < MAX_SERIES) {
           const collision = state.notebook.groups.find((candidate) =>
             state.activeGroupIds.has(candidate.id)
-            && styleSlotOf(candidate.style) === styleSlotOf(group.style));
+            && styleKey(candidate.style) === styleKey(group.style));
           if (collision) {
             refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
             return null;
           }
         }
         const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/2',
+          schema: 'texttrends/query-notebook/3',
           groups: [...state.notebook.groups, group],
         };
         const active = new Set(state.activeGroupIds);
@@ -2409,7 +2409,7 @@ export function createAppRuntime(
           const collision = state.notebook.groups.find((group) =>
             group.id !== groupId
             && state.activeGroupIds.has(group.id)
-            && styleSlotOf(group.style) === styleSlotOf(edited.style));
+            && styleKey(group.style) === styleKey(edited.style));
           if (collision) {
             refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
             return false;
@@ -3765,7 +3765,7 @@ export function createAppRuntime(
           return;
         }
         const notebook: QueryNotebookV1 = {
-          schema: 'texttrends/query-notebook/2',
+          schema: 'texttrends/query-notebook/3',
           groups: [...state.notebook.groups, group],
         };
         const active = new Set(state.activeGroupIds);

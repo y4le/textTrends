@@ -24,8 +24,6 @@ import {
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
-  type SeriesColorId,
-  type SeriesLineId,
   type SeriesStyleV1,
 } from '@texttrends/core';
 
@@ -45,24 +43,12 @@ export {
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
+  type SeriesColor,
+  type SeriesCustomColor,
   type SeriesColorId,
   type SeriesLineId,
   type SeriesStyleV1,
 } from '@texttrends/core';
-
-export function styleSlotOf(style: { readonly color: string; readonly line: string }): number {
-  const color = SERIES_COLOR_IDS.indexOf(style.color as never);
-  const line = SERIES_LINE_IDS.indexOf(style.line as never);
-  return color * SERIES_LINE_IDS.length + line;
-}
-
-export function styleOfSlot(slot: number): { readonly color: SeriesColorId; readonly line: SeriesLineId } {
-  const safe = Math.max(0, Math.min(SERIES_COLOR_IDS.length * SERIES_LINE_IDS.length - 1, slot));
-  return {
-    color: SERIES_COLOR_IDS[Math.floor(safe / SERIES_LINE_IDS.length)]!,
-    line: SERIES_LINE_IDS[safe % SERIES_LINE_IDS.length]!,
-  };
-}
 
 export function styleKey(style: { readonly color: string; readonly line: string }): string {
   return `${style.color}|${style.line}`;

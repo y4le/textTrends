@@ -60,6 +60,57 @@ describe('workspace admission', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
   });
 
+  it('round-trips a query-notebook/3 workspace with an authored custom color', () => {
+    const value = validWorkspace();
+    const custom: WorkspaceV1 = {
+      ...value,
+      notebook: {
+        schema: 'texttrends/query-notebook/3',
+        groups: [{
+          id: 'g1',
+          aliases: ['Holmes'],
+          exactMatch: false,
+          countOverlaps: false,
+          style: { color: '#a1b2c3', line: 'dash' },
+        }],
+      },
+      active: ['g1'],
+      kwicEnabled: ['g1'],
+    };
+    expect(parseWorkspace(custom)).toEqual(custom);
+  });
+
+  it('upgrades a workspace carrying a query-notebook/2 without changing its terms', () => {
+    const value = validWorkspace();
+    const parsed = parseWorkspace({
+      ...value,
+      notebook: {
+        schema: 'texttrends/query-notebook/2',
+        groups: [{
+          id: 'g1',
+          aliases: ['Holmes'],
+          exactMatch: false,
+          countOverlaps: false,
+          style: { color: 'blue', line: 'solid' },
+        }],
+      },
+      active: ['g1'],
+      kwicEnabled: ['g1'],
+    });
+    expect(parsed.notebook).toEqual({
+      schema: 'texttrends/query-notebook/3',
+      groups: [{
+        id: 'g1',
+        aliases: ['Holmes'],
+        exactMatch: false,
+        countOverlaps: false,
+        style: { color: 'blue', line: 'solid' },
+      }],
+    });
+    expect(parsed.active).toEqual(['g1']);
+    expect(parsed.kwicEnabled).toEqual(['g1']);
+  });
+
   it('reopens a legacy v1 workspace whose phrase members used surfaces', () => {
     const value = validWorkspace();
     const parsed = parseWorkspace({

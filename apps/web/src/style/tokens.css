@@ -2920,11 +2920,39 @@ canvas {
   outline-offset: 1px;
 }
 
-.term-color-swatch {
-  inline-size: 1.1rem;
-  block-size: 0.25rem;
-  flex: 0 0 auto;
-  background: currentColor;
+.term-native-color {
+  display: flex;
+  min-block-size: 44px;
+  align-items: center;
+  gap: var(--space-2);
+  cursor: pointer;
+}
+
+.term-native-color input[type='color'] {
+  inline-size: 3.5rem;
+  min-inline-size: 44px;
+  block-size: 44px;
+  padding: 2px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.term-native-color input[type='color']:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.term-native-color-value {
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.term-color-warning {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .term-manager-error {

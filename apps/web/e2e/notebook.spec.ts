@@ -129,6 +129,7 @@ test('the exact-match toggle distinguishes what the folded default merges', asyn
 test('the full-screen manager adds aliases, picks style, reorders with feedback, and keeps visibility and removal on the right', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (error) => pageErrors.push(error.message));
+  await page.emulateMedia({ colorScheme: 'dark' });
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf, absentterm, dire');
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
@@ -205,6 +206,26 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   });
   await expect(list.locator('.term-manager-title')).toHaveText(['absentterm', 'dire', 'wolf']);
 
+  // Merely opening and saving the editor must preserve a legacy color's
+  // theme-aware identity. The native input reflects the resolved token in
+  // each theme without turning that value into a fixed custom hex.
+  const wolf = manager.getByRole('button', { name: 'Edit term: wolf' });
+  const wolfGroupId = await wolf.locator('xpath=ancestor::li[1]')
+    .getAttribute('data-term-manager-id');
+  if (!wolfGroupId) throw new Error('legacy term id is unavailable');
+  await wolf.click();
+  const wolfColor = manager.getByLabel('Color for wolf');
+  await expect(wolfColor).toHaveAttribute('type', 'color');
+  await expect(wolfColor).toHaveValue('#3b98d4');
+  await expect(manager.getByText('Blue', { exact: true })).toBeVisible();
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(wolfColor).toHaveValue('#0072b2');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(wolfColor).toHaveValue('#3b98d4');
+  await manager.getByRole('button', { name: 'Save term' }).click();
+  await expect(page.locator(`[data-series-path="${wolfGroupId}"]`).first())
+    .toHaveAttribute('stroke', 'var(--series-1)');
+
   await manager.getByRole('button', { name: '+ Add term', exact: true }).click();
   const aliases = manager.getByRole('textbox', { name: 'Term and aliases for new term' });
   await expect(aliases).toBeFocused();
@@ -214,13 +235,13 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(aliases).toBeVisible();
   await aliases.fill('NYC, NY, New York, New Yo*');
   await manager.getByRole('checkbox', { name: 'Exact match' }).check();
-  await manager.getByText('Blue', { exact: true }).click();
-  await manager.getByText('Solid', { exact: true }).click();
-  await manager.getByRole('button', { name: 'Add term', exact: true }).click();
-  await expect(manager.locator('.term-manager-error'))
-    .toHaveText('wolf already uses that color and line type');
-  await expect(aliases).toBeVisible();
-  await manager.getByText('Gold', { exact: true }).click();
+  const customColor = manager.getByLabel('Color for new term');
+  await expect(customColor).toHaveAttribute('type', 'color');
+  const customColorBox = await customColor.boundingBox();
+  expect(customColorBox?.width ?? 0).toBeGreaterThanOrEqual(44);
+  expect(customColorBox?.height ?? 0).toBeGreaterThanOrEqual(44);
+  await customColor.fill('#6a5acd');
+  await expect(manager.getByText('#6a5acd', { exact: true })).toBeVisible();
   await manager.getByText('Dotted', { exact: true }).click();
   await manager.getByRole('button', { name: 'Add term', exact: true }).click();
 
@@ -245,10 +266,15 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(manager.locator('.term-manager-error')).toHaveCount(0);
   expect(pageErrors).toEqual([]);
   await expect(manager.getByRole('checkbox', { name: 'Exact match' })).toBeChecked();
-  await expect(manager.getByRole('radio', { name: 'Gold' })).toBeChecked();
+  await expect(manager.getByLabel('Color for NYC')).toHaveValue('#6a5acd');
+  await expect(manager.getByText('#6a5acd', { exact: true })).toBeVisible();
+  await expect(manager.getByRole('radio', { name: /Blue|Amber|Teal|Vermillion|Magenta/ }))
+    .toHaveCount(0);
   await expect(manager.getByRole('radio', { name: 'Dotted' })).toBeChecked();
 
   const item = nyc.locator('xpath=ancestor::li[1]');
+  const customGroupId = await item.getAttribute('data-term-manager-id');
+  if (!customGroupId) throw new Error('custom term id is unavailable');
   const visibility = item.getByRole('checkbox', { name: 'Shown in analysis: NYC' });
   await expect(visibility).toBeChecked();
   const [summaryBox, visibilityBox, removeBox, colors] = await Promise.all([
@@ -274,8 +300,22 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(nyc).toBeFocused();
   await page.keyboard.press('Escape');
   await expect(manager).toHaveCount(0);
+  await expect(page.locator(`[data-series-path="${customGroupId}"]`).first())
+    .toHaveAttribute('stroke', '#6a5acd');
+
+  // The authored custom value survives closing the manager and stays fixed
+  // when the presentation theme changes. Workspace round-trip persistence is
+  // covered by the core serialization test.
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await expect(manager).toBeVisible();
+  await manager.getByRole('button', { name: 'Edit term: NYC' }).click();
+  const persistedCustomColor = manager.getByLabel('Color for NYC');
+  await expect(persistedCustomColor).toHaveValue('#6a5acd');
+  await page.emulateMedia({ colorScheme: 'light' });
+  await expect(persistedCustomColor).toHaveValue('#6a5acd');
+  await page.emulateMedia({ colorScheme: 'dark' });
+  await expect(persistedCustomColor).toHaveValue('#6a5acd');
+  await manager.getByRole('button', { name: 'Save term' }).click();
   await item.getByRole('button', { name: 'Remove NYC' }).click();
   const undo = manager.locator('.term-manager-undo');
   await expect(undo).toContainText('Removed NYC.');

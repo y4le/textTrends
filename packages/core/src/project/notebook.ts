@@ -19,15 +19,17 @@ export const SERIES_COLOR_IDS = ['blue', 'orange', 'green', 'violet', 'gold'] as
 export const SERIES_LINE_IDS = ['solid', 'dash', 'dot', 'dash-dot', 'fine-dot'] as const;
 
 export type SeriesColorId = (typeof SERIES_COLOR_IDS)[number];
+export type SeriesCustomColor = `#${string}`;
+export type SeriesColor = SeriesColorId | SeriesCustomColor;
 export type SeriesLineId = (typeof SERIES_LINE_IDS)[number];
 
 export interface SeriesStyleV1 {
-  readonly color: SeriesColorId;
+  readonly color: SeriesColor;
   readonly line: SeriesLineId;
 }
 
 /** Kept under the established exported type name to limit app churn; the
- * nested schema tag is the authority and is now query-notebook/2. */
+ * nested schema tag is the authority and is now query-notebook/3. */
 export interface NotebookGroupV1 {
   readonly id: string;
   readonly aliases: readonly string[];
@@ -38,7 +40,7 @@ export interface NotebookGroupV1 {
 }
 
 export interface QueryNotebookV1 {
-  readonly schema: 'texttrends/query-notebook/2';
+  readonly schema: 'texttrends/query-notebook/3';
   readonly groups: readonly NotebookGroupV1[];
 }
 
@@ -61,9 +63,19 @@ export const EXACT_MATCH: MatchMode = {
 };
 
 export const EMPTY_NOTEBOOK: QueryNotebookV1 = {
-  schema: 'texttrends/query-notebook/2',
+  schema: 'texttrends/query-notebook/3',
   groups: [],
 };
+
+const CUSTOM_SERIES_COLOR = /^#[0-9a-f]{6}$/u;
+
+export function isSeriesColor(value: unknown): value is SeriesColor {
+  return typeof value === 'string'
+    && (
+      SERIES_COLOR_IDS.includes(value as SeriesColorId)
+      || CUSTOM_SERIES_COLOR.test(value)
+    );
+}
 
 export function defaultSeriesStyle(index: number): SeriesStyleV1 {
   const ordinal = Math.abs(index) % SERIES_COLOR_IDS.length;
@@ -130,7 +142,7 @@ export function validateNotebookGroup(group: NotebookGroupV1): void {
     throw new RangeError('exact-match and overlap settings must be boolean');
   }
   if (
-    !SERIES_COLOR_IDS.includes(group.style.color)
+    !isSeriesColor(group.style.color)
     || !SERIES_LINE_IDS.includes(group.style.line)
   ) {
     throw new RangeError('a term style must use a supported color and line type');
@@ -214,7 +226,7 @@ function aliasOfLegacyMember(member: GroupMember): string {
   }
 }
 
-function parseV2Group(value: unknown): NotebookGroupV1 {
+function parseAuthoredGroup(value: unknown, allowCustomColor: boolean): NotebookGroupV1 {
   if (value === null || typeof value !== 'object') throw new RangeError('a term must be an exact record');
   const hasDisplayName = Object.prototype.hasOwnProperty.call(value, 'displayName');
   const keys = ['id', 'aliases', 'exactMatch', 'countOverlaps', 'style'];
@@ -224,6 +236,13 @@ function parseV2Group(value: unknown): NotebookGroupV1 {
   }
   if (!Array.isArray(value.aliases) || !exactArray(value.aliases, value.aliases.length)) {
     throw new RangeError('term aliases must be a dense array');
+  }
+  if (
+    !allowCustomColor
+    && exactRecord(value.style, ['color', 'line'])
+    && !SERIES_COLOR_IDS.includes(value.style.color as SeriesColorId)
+  ) {
+    throw new RangeError('query-notebook/2 terms must use a legacy series color');
   }
   const group = {
     id: value.id,
@@ -300,17 +319,19 @@ export function parseQueryNotebook(value: unknown): QueryNotebookV1 {
     || !exactArray(value.groups, value.groups.length)) {
     throw new RangeError(`a notebook holds a dense list of at most ${NOTEBOOK_LIMITS_V1.maxGroups} terms`);
   }
-  const groups = value.schema === 'texttrends/query-notebook/2'
-    ? value.groups.map(parseV2Group)
-    : value.schema === 'texttrends/query-notebook/1'
-      ? value.groups.map(upgradeV1Group).filter((group): group is NotebookGroupV1 => group !== null)
-      : (() => { throw new RangeError('unknown notebook schema'); })();
+  const groups = value.schema === 'texttrends/query-notebook/3'
+    ? value.groups.map((group) => parseAuthoredGroup(group, true))
+    : value.schema === 'texttrends/query-notebook/2'
+      ? value.groups.map((group) => parseAuthoredGroup(group, false))
+      : value.schema === 'texttrends/query-notebook/1'
+        ? value.groups.map(upgradeV1Group).filter((group): group is NotebookGroupV1 => group !== null)
+        : (() => { throw new RangeError('unknown notebook schema'); })();
   const ids = new Set<string>();
   for (const group of groups) {
     if (ids.has(group.id)) throw new RangeError(`duplicate group id '${group.id.slice(0, 32)}'`);
     ids.add(group.id);
   }
-  return value.schema === 'texttrends/query-notebook/2'
+  return value.schema === 'texttrends/query-notebook/3'
     ? value as unknown as QueryNotebookV1
-    : { schema: 'texttrends/query-notebook/2', groups };
+    : { schema: 'texttrends/query-notebook/3', groups };
 }
