@@ -2,6 +2,7 @@ import type {
   NumericTrend,
   WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
+import { formatRate } from './rate-format.ts';
 
 /** Presentation values derived from immutable kernel output. Display choices
  * never re-enter the worker: rate scaling, count display, and smoothing are
@@ -77,4 +78,12 @@ export function trendMeasureUnit(measure: WorkspaceTrendMeasureV1): string {
   return measure.kind === 'count'
     ? 'count'
     : `/${measure.denominator.toLocaleString()}`;
+}
+
+export function formatTrendDisplayValue(
+  value: number,
+  measure: WorkspaceTrendMeasureV1,
+): string {
+  if (!Number.isFinite(value)) return 'unavailable';
+  return measure.kind === 'count' ? value.toFixed(0) : formatRate(value);
 }

@@ -32,6 +32,7 @@ import type {
   FrequencyViewV1,
 } from '../../lib/store.ts';
 import { useRowNavigation } from '../useRowNavigation.ts';
+import { formatRate } from '../../lib/rate-format.ts';
 
 const number = new Intl.NumberFormat('en-US');
 const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
@@ -201,7 +202,7 @@ function FrequencyRowDetail({
       <dl>
         <div><dt>term</dt><dd>{row.key}</dd></div>
         <div><dt>count</dt><dd className="selectable-stat">{number.format(row.count)}</dd></div>
-        <div><dt>rate / 10k</dt><dd className="selectable-stat">{decimal.format(row.ratePer10k)}</dd></div>
+        <div><dt>rate / 10k</dt><dd className="selectable-stat">{formatRate(row.ratePer10k)}</dd></div>
         <div><dt>documents</dt><dd className="selectable-stat">{number.format(row.docFreq)}</dd></div>
         <div><dt>DP</dt><dd className="selectable-stat">{value(row.dp)}</dd></div>
         <div><dt>DPnorm</dt><dd className="selectable-stat">{value(row.dpNorm)}</dd></div>
@@ -560,7 +561,7 @@ export function FrequencyTable({
                           role="cell"
                           aria-colindex={6}
                         >
-                          {decimal.format(row.ratePer10k)}
+                          {formatRate(row.ratePer10k)}
                         </td>
                         <td
                           className="frequency-class"

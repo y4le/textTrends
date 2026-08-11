@@ -1,5 +1,17 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
+
+test('an all-zero rate series labels its data maximum rather than its geometry floor', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await submitAndAwaitFreshResults(page, 'absentterm');
+  await gotoPlace(page, 'trends');
+
+  const seriesChart = page.locator('svg[data-trend-view="series"]');
+  await expect(seriesChart).toBeVisible();
+  await expect(seriesChart.locator('text').filter({ hasText: '0/10,000' })).toHaveCount(1);
+  await expect(seriesChart).not.toContainText('0.000000001/10,000');
+});
 
 for (const viewport of [
   { width: 320, height: 568 },

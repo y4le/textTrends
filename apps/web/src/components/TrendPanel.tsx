@@ -69,6 +69,7 @@ import {
 import { usePresentation } from './PresentationProvider.tsx';
 import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
 import {
+  formatTrendDisplayValue,
   trendDisplayValues,
   trendMeasureUnit,
   trendRawValues,
@@ -333,8 +334,8 @@ export function TrendPanel() {
     ]),
     ...displayedSelected.map((item) => item.values),
   ];
-  const maxValue = Math.max(
-    1e-9,
+  const dataMaxValue = Math.max(
+    0,
     ...plottedArrays.map((values) => {
       let maximum = 0;
       for (const value of values) {
@@ -343,6 +344,7 @@ export function TrendPanel() {
       return maximum;
     }),
   );
+  const maxValue = Math.max(1e-9, dataMaxValue);
   const strokeFor = (id: string) =>
     id === focusedSeries ? geometry.strokeFocused : geometry.strokeOther;
 
@@ -405,6 +407,7 @@ export function TrendPanel() {
             titles={titles}
             bases={bases}
             maxValue={maxValue}
+            dataMaxValue={dataMaxValue}
             measure={trendMeasure}
             plotW={plotW}
             strokeFor={strokeFor}
@@ -1268,6 +1271,7 @@ const SeriesView = memo(function SeriesView({
   titles,
   bases,
   maxValue,
+  dataMaxValue,
   measure,
   plotW,
   strokeFor,
@@ -1280,6 +1284,7 @@ const SeriesView = memo(function SeriesView({
   titles: readonly string[];
   bases: readonly number[];
   maxValue: number;
+  dataMaxValue: number;
   measure: WorkspaceTrendMeasureV1;
   plotW: number;
   strokeFor: (id: string) => number;
@@ -1349,7 +1354,7 @@ const SeriesView = memo(function SeriesView({
       {/* y extent, direct-labeled at the max gridline — no axis chrome */}
       <line x1={0} y1={y(maxValue)} x2={plotW} y2={y(maxValue)} stroke="var(--rule)" strokeWidth={1} />
       <text x={0} y={y(maxValue) - 3} fill="var(--fg-muted)" fontSize="var(--text-xs)" fontFamily="var(--font-mono)">
-        {maxValue.toFixed(measure.kind === 'count' ? 0 : 1)}{trendMeasureUnit(measure)}
+        {formatTrendDisplayValue(dataMaxValue, measure)}{trendMeasureUnit(measure)}
       </text>
       {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && ready.flatMap((r) =>
         docs.flatMap((doc, d) => {
@@ -1443,7 +1448,7 @@ const SeriesView = memo(function SeriesView({
               const iRow = rows.start + b;
               const displayed = r.values[iRow];
               const formatted = displayed !== undefined && Number.isFinite(displayed)
-                ? `${displayed.toFixed(measure.kind === 'count' ? 0 : 1)}${trendMeasureUnit(measure)}`
+                ? `${formatTrendDisplayValue(displayed, measure)}${trendMeasureUnit(measure)}`
                 : 'gap';
               return `${r.intent.label}: ${r.trend.count[iRow]}× (${formatted})`;
             })
@@ -1577,7 +1582,7 @@ const ByBookView = memo(function ByBookView({
                   const iRow = rows.start + b;
                   const displayed = r.values[iRow];
                   const formatted = displayed !== undefined && Number.isFinite(displayed)
-                    ? `${displayed.toFixed(measure.kind === 'count' ? 0 : 1)}${trendMeasureUnit(measure)}`
+                    ? `${formatTrendDisplayValue(displayed, measure)}${trendMeasureUnit(measure)}`
                     : 'gap';
                   return `${r.intent.label}: ${r.trend.count[iRow]}× (${formatted})`;
                 })

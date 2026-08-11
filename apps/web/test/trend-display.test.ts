@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { NumericTrend } from '@texttrends/core';
 import {
+  formatTrendDisplayValue,
   smoothTrendValues,
   trendDisplayValues,
 } from '../src/lib/trend-display.ts';
@@ -84,6 +85,14 @@ describe('trend display transforms', () => {
       kind: 'rate', denominator: 100_000, smoothing: 0, showRaw: false,
     })]).toEqual([200, 300, 400]);
     expect([...trendDisplayValues(trend, { kind: 'count' })]).toEqual([2, 3, 4]);
+  });
+
+  it('formats rate and count values without leaking non-finite input', () => {
+    expect(formatTrendDisplayValue(0.05432, {
+      kind: 'rate', denominator: 10_000, smoothing: 0, showRaw: false,
+    })).toBe('0.0543');
+    expect(formatTrendDisplayValue(12.6, { kind: 'count' })).toBe('13');
+    expect(formatTrendDisplayValue(Number.NaN, { kind: 'count' })).toBe('unavailable');
   });
 
   it('is token-weighted, document-fenced, gap-preserving, and contributor-bounded', () => {

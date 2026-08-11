@@ -29,6 +29,7 @@ import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
 import { RhythmMark } from '../corpus/RhythmMark.tsx';
 import { SourceDetails } from './SourceDetails.tsx';
 import { useRowNavigation } from '../useRowNavigation.ts';
+import { formatRate } from '../../lib/rate-format.ts';
 
 const number = new Intl.NumberFormat('en-US');
 
@@ -45,7 +46,7 @@ function TotalValue({ value }: { readonly value: CatalogTotalValue | undefined }
   return (
     <span className="selectable-stat">
       {number.format(value.count)} <span aria-hidden="true">·</span>{' '}
-      <span className="catalog-term-rate">{value.rate.toFixed(1)}</span>
+      <span className="catalog-term-rate">{formatRate(value.rate)}</span>
     </span>
   );
 }
