@@ -24,7 +24,9 @@ export const WORKSPACE_MAX_ID_UNITS = 256;
 const WORKSPACE_MAX_META_UNITS = 512;
 const SOURCE_HASH = /^[0-9a-f]{64}$/u;
 
+/** Legacy values accepted while reading workspace/1. New state is normalized. */
 export const TREND_RATE_DENOMINATORS = [1_000, 10_000, 100_000] as const;
+export const TREND_RATE_DENOMINATOR = 10_000 as const;
 export const TREND_SMOOTHING_WINDOWS = [3, 5, 7, 9] as const;
 
 export type TrendRateDenominator = (typeof TREND_RATE_DENOMINATORS)[number];
@@ -33,7 +35,7 @@ export type TrendSmoothingWindow = (typeof TREND_SMOOTHING_WINDOWS)[number];
 export type WorkspaceTrendMeasureV1 =
   | {
       readonly kind: 'rate';
-      readonly denominator: TrendRateDenominator;
+      readonly denominator: typeof TREND_RATE_DENOMINATOR;
       readonly smoothing: 0 | TrendSmoothingWindow;
       readonly showRaw: boolean;
     }
@@ -275,7 +277,12 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
     && (value.measure.smoothing === 0 || TREND_SMOOTHING_WINDOWS.includes(value.measure.smoothing as never))
     && typeof value.measure.showRaw === 'boolean'
   ) {
-    measure = value.measure as unknown as WorkspaceTrendMeasureV1;
+    measure = {
+      kind: 'rate',
+      denominator: TREND_RATE_DENOMINATOR,
+      smoothing: value.measure.smoothing as 0 | TrendSmoothingWindow,
+      showRaw: value.measure.showRaw,
+    };
   } else {
     throw new RangeError('trend measure is invalid');
   }

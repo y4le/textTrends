@@ -56,6 +56,7 @@ import {
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
   TREND_MAX_ROWS,
+  TREND_RATE_DENOMINATOR,
   termGroupIdentity,
   type GroupMember,
   type NumericTrend,
@@ -198,7 +199,7 @@ export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
 });
 export const DEFAULT_TREND_MEASURE: WorkspaceTrendMeasureV1 = Object.freeze({
   kind: 'rate',
-  denominator: 10_000,
+  denominator: TREND_RATE_DENOMINATOR,
   smoothing: 0,
   showRaw: false,
 });

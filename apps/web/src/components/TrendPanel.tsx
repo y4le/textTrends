@@ -10,8 +10,8 @@
  *   each row.
  *
  * Both views share one y-scale across every term and book so magnitude
- * comparison stays honest. Rate denominator and optional within-book
- * smoothing are presentation settings; count is a separate unsmoothed view. Series identity
+ * comparison stays honest. Optional within-book smoothing is a presentation
+ * setting; count is a separate unsmoothed view. Series identity
  * is color + dash in the Terms footer — never color alone. The plot holds
  * until every non-failed series resolves so the shared scale never jumps.
  * Exact per-book values live in Catalog; this surface stays focused on shape,

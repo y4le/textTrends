@@ -39,7 +39,6 @@ test('Trend settings separate result geometry from resident presentation', async
   pane = page.getByRole('dialog', { name: 'Method & settings' });
   settings = pane.getByRole('form', { name: 'Trend settings' });
   await settings.getByRole('combobox', { name: 'Measure', exact: true }).selectOption('rate');
-  await settings.getByRole('combobox', { name: 'Rate denominator', exact: true }).selectOption('100000');
   await settings.getByRole('combobox', { name: 'Smoothing', exact: true }).selectOption('5');
   await settings.getByLabel('Show raw line behind smoothed line').check();
   await settings.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -49,12 +48,11 @@ test('Trend settings separate result geometry from resident presentation', async
     && event.direction === 'to-worker'
     && event.t === 'query');
   expect(displayQueries).toEqual([]);
-  await expect(page.getByText(/rate per 100,000 tokens · 250 tokens per bin · 5-bin rolling mean · raw behind/)).toHaveCount(0);
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
   await expect(pane).toHaveCount(0);
   await gotoPlace(page, 'catalog');
   await expect(page.getByRole('table', { name: /Book analysis · full corpus/ })
-    .getByRole('columnheader', { name: /\/100,000/ }).first()).toBeVisible();
+    .getByRole('columnheader', { name: /\/10,000/ }).first()).toBeVisible();
 });
 
 test('Method exposes visible, copyable provenance and result text', async ({ page }) => {

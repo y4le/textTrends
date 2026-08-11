@@ -1,11 +1,12 @@
-import type {
-  NumericTrend,
-  WorkspaceTrendMeasureV1,
+import {
+  TREND_RATE_DENOMINATOR,
+  type NumericTrend,
+  type WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
 import { formatRate } from './rate-format.ts';
 
 /** Presentation values derived from immutable kernel output. Display choices
- * never re-enter the worker: rate scaling, count display, and smoothing are
+ * never re-enter the worker: rate/count display and smoothing are
  * resident-data transforms over the exact result. */
 export function trendDisplayValues(
   trend: NumericTrend,
@@ -14,8 +15,7 @@ export function trendDisplayValues(
   if (measure.kind === 'count') {
     return Float64Array.from(trend.count);
   }
-  const scale = measure.denominator / 10_000;
-  const raw = Float64Array.from(trend.ratePer10k, (value) => value * scale);
+  const raw = Float64Array.from(trend.ratePer10k);
   return measure.smoothing === 0
     ? raw
     : smoothTrendValues(trend, raw, measure.smoothing);
@@ -70,14 +70,13 @@ export function trendRawValues(
   measure: WorkspaceTrendMeasureV1,
 ): Float64Array {
   if (measure.kind === 'count') return Float64Array.from(trend.count);
-  const scale = measure.denominator / 10_000;
-  return Float64Array.from(trend.ratePer10k, (value) => value * scale);
+  return Float64Array.from(trend.ratePer10k);
 }
 
 export function trendMeasureUnit(measure: WorkspaceTrendMeasureV1): string {
   return measure.kind === 'count'
     ? 'count'
-    : `/${measure.denominator.toLocaleString()}`;
+    : `/${TREND_RATE_DENOMINATOR.toLocaleString('en-US')}`;
 }
 
 export function formatTrendDisplayValue(

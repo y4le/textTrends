@@ -41,6 +41,7 @@ import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
+  parseWorkspace,
   TERM_GROUP_LIMITS_V1,
   type NumericTrend,
   type WorkspaceV1,
@@ -732,7 +733,7 @@ describe('the session bridge', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort();
-    const durable: WorkspaceV1 = {
+    const durable = {
         ...workspaceState(BUILTIN_SHERLOCK_ID),
         notebook: {
           schema: 'texttrends/query-notebook/3',
@@ -760,14 +761,14 @@ describe('the session bridge', () => {
             },
           },
         },
-    };
-    runtime.attachSession(port, durable);
+    } as unknown as WorkspaceV1;
+    runtime.attachSession(port, parseWorkspace(durable));
     expect(runtime.useApp.getState()).toMatchObject({
       trendView: 'by-book',
       trendBins: { mode: 'fixed-tokens', count: 500 },
       trendMeasure: {
         kind: 'rate',
-        denominator: 100_000,
+        denominator: 10_000,
         smoothing: 7,
         showRaw: true,
       },
@@ -1321,7 +1322,7 @@ describe('store query intent discipline', () => {
       bins: { mode: 'per-doc', count: 40 },
       measure: {
         kind: 'rate',
-        denominator: 100_000,
+        denominator: 10_000,
         smoothing: 5,
         showRaw: true,
       },
@@ -1329,7 +1330,7 @@ describe('store query intent discipline', () => {
     expect(f.issued).toHaveLength(issued);
     expect(f.store.getState().trendMeasure).toEqual({
       kind: 'rate',
-      denominator: 100_000,
+      denominator: 10_000,
       smoothing: 5,
       showRaw: true,
     });
@@ -1364,7 +1365,7 @@ describe('store query intent discipline', () => {
       bins: { mode: 'fixed-tokens', count: 250 },
       measure: {
         kind: 'rate',
-        denominator: 100_000,
+        denominator: 10_000,
         smoothing: 5,
         showRaw: true,
       },

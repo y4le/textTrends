@@ -192,8 +192,8 @@ tails (no overflow/NaN), and `k=0` (surprise 0).
 
 ## Trend rates (`trend/1`)
 
-Per equal-token bin: `rate = count / binTokens × 10_000` (per-10k-tokens scale, the
-app-wide default denominator; raw `count` and `binTokens` always accompany the rate in
+Per equal-token bin: `rate = count / binTokens × 10_000` (the canonical app-wide
+denominator; raw `count` and `binTokens` always accompany the rate in
 results). Bins partition each document's lexical tokens per the selected
 `TimeCoordinate`; the final bin of a document may be short and is reported with its
 true `binTokens`, never padded. Occurrence de-duplication within a term group follows

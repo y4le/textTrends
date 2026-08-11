@@ -210,6 +210,14 @@ describe('workspace admission', () => {
         kind: 'rate', denominator: 10_000, smoothing: 4, showRaw: false,
       },
     })).toThrow(/trend measure/);
+    for (const denominator of [1_000, 100_000]) {
+      expect(parseWorkspaceTrendView({
+        ...trend,
+        measure: { kind: 'rate', denominator, smoothing: 3, showRaw: true },
+      }).measure).toEqual({
+        kind: 'rate', denominator: 10_000, smoothing: 3, showRaw: true,
+      });
+    }
   });
 
   it('reconciles presentation references against the opened corpus', () => {

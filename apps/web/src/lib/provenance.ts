@@ -153,7 +153,7 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
     : `${first.bins.count.toLocaleString()} tokens per bin`;
   const presentation = input.trendMeasure.kind === 'count'
     ? 'count per bin (unsmoothed)'
-    : `rate per ${input.trendMeasure.denominator.toLocaleString()} tokens`;
+    : 'rate';
   const smoothing = input.trendMeasure.kind === 'count'
     ? 'disabled for counts'
     : input.trendMeasure.smoothing === 0

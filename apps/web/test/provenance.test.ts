@@ -142,6 +142,8 @@ describe('provenanceFor', () => {
   it('names every enumerated Trends parameter from resident results', () => {
     const value = formatProvenanceText(provenanceFor(input(), 'trends'));
     expect(value).toContain('result · kernel rate: rate per 10,000 selected tokens');
+    expect(value).toContain('presentation · measure: rate');
+    expect(value.match(/10,000/gu)).toHaveLength(1);
     expect(value).toContain('result · bin policy: 4 equal bins per document');
     expect(value).toContain('result · coordinate: declared-sequence');
     expect(value).toContain('presentation · smoothing: none');

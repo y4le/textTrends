@@ -5,6 +5,7 @@ import {
   useRef,
   useState,
 } from 'react';
+import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
 import { useApp } from '../../lib/store-instance.ts';
 import {
   bookDetailRegionId,
@@ -62,7 +63,6 @@ export function BookAnalysis() {
   const focusedSeries = useApp((s) => s.focusedSeries);
   const trends = useApp((s) => s.trends);
   const selectedTrends = useApp((s) => s.selectedTrends);
-  const trendMeasure = useApp((s) => s.trendMeasure);
   const corpusTokenCounts = useApp((s) => s.corpusTokenCounts);
   const layers = useApp((s) => s.layers);
   const pushLayer = useApp((s) => s.pushLayer);
@@ -170,7 +170,6 @@ export function BookAnalysis() {
             ranged: selectedTrends,
             fullTokens,
             rangeTokens,
-            denominator: trendMeasure.kind === 'rate' ? trendMeasure.denominator : 10_000,
           });
           const compact = presentation.width === 'compact';
           const focusedTerm = series.find((term) => term.id === focusedSeries) ?? series[0] ?? null;
@@ -205,7 +204,7 @@ export function BookAnalysis() {
               )}
               <p className="catalog-analysis-scope">
                 Comparing {number.format(totals.rows.length)} book{totals.rows.length === 1 ? '' : 's'} across the {scopeLabel}.
-                {' '}Term cells are exact count <span aria-hidden="true">·</span> rate per {number.format(totals.denominator)} tokens.
+                {' '}Term cells are exact count <span aria-hidden="true">·</span> rate per {number.format(TREND_RATE_DENOMINATOR)} tokens.
               </p>
               <dl className="catalog-summary">
                 {summaryEntries.map(([label, count]) => (
@@ -270,7 +269,7 @@ export function BookAnalysis() {
                       {visibleSeries.map((term) => (
                         <th key={term.id} scope="col">
                           <span>{term.label}</span>
-                          <span className="catalog-term-unit">n · /{number.format(totals.denominator)}</span>
+                          <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                         </th>
                       ))}
                       <th scope="col">rhythm</th>
@@ -320,7 +319,7 @@ export function BookAnalysis() {
                             {visibleSeries.map((term) => (
                               <td key={term.id} className="catalog-term-total">
                                 <span className="catalog-cell-label">
-                                  {term.label} <span className="catalog-term-unit">n · /{number.format(totals.denominator)}</span>
+                                  {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                                 </span>
                                 <TotalValue value={row.values.get(term.id)} />
                               </td>
@@ -382,7 +381,7 @@ export function BookAnalysis() {
                       {visibleSeries.map((term) => (
                         <td key={term.id} className="catalog-term-total">
                           <span className="catalog-cell-label">
-                            {term.label} <span className="catalog-term-unit">n · /{number.format(totals.denominator)}</span>
+                            {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                           </span>
                           <TotalValue value={totals.corpus.values.get(term.id)} />
                         </td>

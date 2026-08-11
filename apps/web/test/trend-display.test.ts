@@ -72,7 +72,7 @@ describe('variable trend geometry', () => {
 });
 
 describe('trend display transforms', () => {
-  it('scales rates and exposes exact counts without worker recomputation', () => {
+  it('uses canonical per-10k rates and exposes exact counts without worker recomputation', () => {
     const trend = result({
       rowOffsets: [0, 3],
       starts: [0, 1, 2],
@@ -82,8 +82,8 @@ describe('trend display transforms', () => {
       docTokens: [3],
     });
     expect([...trendDisplayValues(trend, {
-      kind: 'rate', denominator: 100_000, smoothing: 0, showRaw: false,
-    })]).toEqual([200, 300, 400]);
+      kind: 'rate', denominator: 10_000, smoothing: 0, showRaw: false,
+    })]).toEqual([20, 30, 40]);
     expect([...trendDisplayValues(trend, { kind: 'count' })]).toEqual([2, 3, 4]);
   });
 

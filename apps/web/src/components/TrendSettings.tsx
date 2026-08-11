@@ -5,10 +5,9 @@ import {
   TREND_MAX_ROWS,
   TREND_PER_DOC_MAX,
   TREND_PER_DOC_MIN,
-  TREND_RATE_DENOMINATORS,
+  TREND_RATE_DENOMINATOR,
   TREND_SMOOTHING_WINDOWS,
   type TrendBinMode,
-  type TrendRateDenominator,
   type TrendSmoothingWindow,
 } from '@texttrends/core';
 import {
@@ -23,7 +22,6 @@ interface Draft {
   readonly binMode: TrendBinMode;
   readonly binCount: string;
   readonly measure: 'rate' | 'count';
-  readonly denominator: TrendRateDenominator;
   readonly smoothing: 0 | TrendSmoothingWindow;
   readonly showRaw: boolean;
 }
@@ -41,7 +39,6 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
     binMode: bins.mode,
     binCount: String(bins.count),
     measure: measure.kind,
-    denominator: measure.kind === 'rate' ? measure.denominator : 10_000,
     smoothing: measure.kind === 'rate' ? measure.smoothing : 0,
     showRaw: measure.kind === 'rate' ? measure.showRaw : false,
   });
@@ -99,7 +96,7 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
         ? { kind: 'count' }
         : {
             kind: 'rate',
-            denominator: draft.denominator,
+            denominator: TREND_RATE_DENOMINATOR,
             smoothing: draft.smoothing,
             showRaw: draft.smoothing === 0 ? false : draft.showRaw,
           },
@@ -207,23 +204,6 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
           </select>
         </label>
         <label>
-          Rate denominator
-          <select
-            value={draft.denominator}
-            disabled={draft.measure === 'count'}
-            onChange={(event) => setDraft((current) => ({
-              ...current,
-              denominator: Number(event.target.value) as TrendRateDenominator,
-            }))}
-          >
-            {TREND_RATE_DENOMINATORS.map((denominator) => (
-              <option key={denominator} value={denominator}>
-                per {denominator.toLocaleString()} tokens
-              </option>
-            ))}
-          </select>
-        </label>
-        <label>
           Smoothing
           <select
             value={draft.measure === 'count' ? 0 : draft.smoothing}
@@ -266,9 +246,6 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
               binMode: DEFAULT_TREND_BINS.mode,
               binCount: String(DEFAULT_TREND_BINS.count),
               measure: DEFAULT_TREND_MEASURE.kind,
-              denominator: DEFAULT_TREND_MEASURE.kind === 'rate'
-                ? DEFAULT_TREND_MEASURE.denominator
-                : 10_000,
               smoothing: DEFAULT_TREND_MEASURE.kind === 'rate'
                 ? DEFAULT_TREND_MEASURE.smoothing
                 : 0,

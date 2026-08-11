@@ -1,4 +1,4 @@
-import type { NumericTrend } from '@texttrends/core';
+import { TREND_RATE_DENOMINATOR, type NumericTrend } from '@texttrends/core';
 import { trendRowsForDoc } from './trend-geometry.ts';
 import type { SeriesIntent, SeriesTrendState } from './store.ts';
 
@@ -18,7 +18,6 @@ export interface CatalogTotalRow {
 
 export interface CatalogTotalsVM {
   readonly scope: CatalogTotalsScope;
-  readonly denominator: number;
   readonly series: readonly SeriesIntent[];
   readonly rows: readonly CatalogTotalRow[];
   readonly missingDocs: readonly string[];
@@ -43,7 +42,6 @@ function valueFor(
   state: SeriesTrendState | undefined,
   doc: string,
   tokens: number,
-  denominator: number,
 ): CatalogTotalValue {
   if (!state || state.status === 'pending') return { status: 'pending' };
   if (state.status === 'error') return { status: 'error', message: state.message };
@@ -52,7 +50,7 @@ function valueFor(
   return {
     status: 'ready',
     count,
-    rate: tokens === 0 ? 0 : (count / tokens) * denominator,
+    rate: tokens === 0 ? 0 : (count / tokens) * TREND_RATE_DENOMINATOR,
   };
 }
 
@@ -69,9 +67,7 @@ export function catalogTotals(input: {
   readonly ranged: ReadonlyMap<string, SeriesTrendState>;
   readonly fullTokens: ReadonlyMap<string, number>;
   readonly rangeTokens: ReadonlyMap<string, number>;
-  readonly denominator?: number;
 }): CatalogTotalsVM {
-  const denominator = input.denominator ?? 10_000;
   const lane = input.scope === 'range' ? input.ranged : input.baseline;
   const tokenSource = input.scope === 'range' ? input.rangeTokens : input.fullTokens;
   const inScopeDocs = input.scope === 'range'
@@ -86,7 +82,7 @@ export function catalogTotals(input: {
       tokens,
       values: new Map(input.series.map((term) => [
         term.id,
-        valueFor(lane.get(term.id), doc, tokens, denominator),
+        valueFor(lane.get(term.id), doc, tokens),
       ])),
     };
   });
@@ -120,12 +116,13 @@ export function catalogTotals(input: {
     corpusValues.set(term.id, {
       status: 'ready',
       count,
-      rate: corpusTokens === 0 ? 0 : (count / corpusTokens) * denominator,
+      rate: corpusTokens === 0
+        ? 0
+        : (count / corpusTokens) * TREND_RATE_DENOMINATOR,
     });
   }
   return {
     scope: input.scope,
-    denominator,
     series: input.series,
     rows,
     missingDocs,
