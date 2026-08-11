@@ -220,7 +220,8 @@ and resident results remain visible and copyable there.
 Changing result geometry reissues only baseline and selected trend lanes.
 Changing resident presentation performs no worker query. Smoothing never
 crosses document boundaries or bridges zero-denominator gaps, and exact raw
-counts remain available for totals and provenance.
+counts remain available for totals and provenance. Rates use the fixed,
+explicit 10,000-token denominator; there is no denominator preference.
 
 Settings are a draft until Apply. A successful Apply closes the pane and
 restores focus to the Scope control; an unchanged or rejected draft remains
@@ -254,13 +255,15 @@ buckets and linked analytical ranges never approximate or narrow this action.
 The shared scrub position and Concordance center follow the result, and an open
 Reader replaces its current page around that exact occurrence.
 
-## Keyboard model
+## Keys and gestures
 
 Vim and conventional bindings are simultaneous; there is no keyboard mode to
 enter or remember. A central registry is the source for event matching,
 `aria-keyshortcuts`, and the contextual shortcuts reference opened by `?` or
-the visible Shortcuts control. Workbench help includes its persistent reading
-footer, while Reader help contains only Reader-owned actions.
+the visible Shortcuts control. The reference interleaves keyboard and touch
+gestures under the surfaces they govern. Workbench help includes Terms, Trends,
+and its persistent reading footer, while Reader help contains only Reader-owned
+actions.
 
 Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable

@@ -60,7 +60,7 @@ interface ReaderEdgePointer {
 }
 
 type OpenUtilityPane =
-  | { readonly kind: 'method' }
+  | { readonly kind: 'method'; readonly place: Place }
   | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
@@ -176,7 +176,7 @@ export function App() {
     utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    setUtilityPane({ kind: 'method' });
+    setUtilityPane({ kind: 'method', place });
   };
   const closeUtilityPane = () => {
     const target = utilityPaneReturnFocus.current;
@@ -422,7 +422,7 @@ export function App() {
     : utilityPane?.kind === 'method'
       ? (
           <Suspense fallback={null}>
-            <MethodSurface place={place} onClose={closeUtilityPane} />
+            <MethodSurface place={utilityPane.place} onClose={closeUtilityPane} />
           </Suspense>
         )
       : null;

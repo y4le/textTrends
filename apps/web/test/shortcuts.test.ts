@@ -66,7 +66,7 @@ describe('shortcut registry', () => {
     expect(workbench.map((section) => section.title)).toEqual([
       'General',
       'Navigation',
-      'Focus',
+      'Terms',
       'Rows',
       'Trends',
       'Reading footer',
@@ -79,6 +79,10 @@ describe('shortcut registry', () => {
       });
     expect(workbench.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
+    expect(workbench.find((section) => section.title === 'Navigation')?.entries
+      .map((entry) => entry.id)).toContain('go-catalog');
+    expect(workbench.find((section) => section.title === 'Terms')?.entries
+      .map((entry) => entry.id)).toContain('go-terms');
     const readerIds = shortcutHelpSections('reader')
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');

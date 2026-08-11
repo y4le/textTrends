@@ -59,7 +59,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'General' | 'Navigation' | 'Focus' | 'Rows' | 'Trends' | 'Reading footer' | 'Reader';
+  readonly group: 'General' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -108,21 +108,21 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   },
   {
     id: 'focus-horizontal-previous',
-    group: 'Focus',
+    group: 'Navigation',
     helpContexts: ['workbench'],
     label: 'Previous term or lens',
     strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
   },
   {
     id: 'focus-horizontal-next',
-    group: 'Focus',
+    group: 'Navigation',
     helpContexts: ['workbench'],
     label: 'Next term or lens',
     strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
   },
   {
     id: 'focus-term-previous',
-    group: 'Focus',
+    group: 'Terms',
     helpContexts: ['workbench'],
     label: 'Previous active term',
     strokes: [],
@@ -130,7 +130,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   },
   {
     id: 'focus-term-next',
-    group: 'Focus',
+    group: 'Terms',
     helpContexts: ['workbench'],
     label: 'Next active term',
     strokes: [],
@@ -138,7 +138,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   },
   {
     id: 'focus-book-previous',
-    group: 'Focus',
+    group: 'Navigation',
     helpContexts: ['workbench'],
     label: 'Previous ready book',
     strokes: [],
@@ -146,7 +146,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   },
   {
     id: 'focus-book-next',
-    group: 'Focus',
+    group: 'Navigation',
     helpContexts: ['workbench'],
     label: 'Next ready book',
     strokes: [],
@@ -202,7 +202,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   },
   {
     id: 'go-terms',
-    group: 'Navigation',
+    group: 'Terms',
     helpContexts: ['workbench'],
     label: 'Focus Terms',
     strokes: [],
@@ -585,7 +585,7 @@ export function shortcutAria(ids: readonly ShortcutId[]): string {
 export function shortcutHelpSections(context: ShortcutHelpContext): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = context === 'reader'
     ? ['General', 'Reader']
-    : ['General', 'Navigation', 'Focus', 'Rows', 'Trends', 'Reading footer'];
+    : ['General', 'Navigation', 'Terms', 'Rows', 'Trends', 'Reading footer'];
   return order.flatMap((group) => {
     const entries = SHORTCUTS
       .filter((shortcut) => shortcut.group === group && shortcut.helpContexts.includes(context))

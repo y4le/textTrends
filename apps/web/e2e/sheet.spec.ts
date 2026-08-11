@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
@@ -22,6 +22,8 @@ test('Method is a transient full-screen modal outside browser history', async ({
   expect(box?.y).toBe(0);
   expect(box?.width).toBe(390);
   expect(box?.height).toBe(844);
+  expect((await pane.locator('.trend-settings-check').boundingBox())?.height)
+    .toBeGreaterThanOrEqual(44);
 
   await page.keyboard.press('Escape');
   await expect(pane).toHaveCount(0);
@@ -30,6 +32,20 @@ test('Method is a transient full-screen modal outside browser history', async ({
   expect(await page.evaluate(() => history.length)).toBe(historyBefore);
   expect((await trace(page)).events.filter((event) =>
     event.seq > mark && event.direction === 'to-worker' && event.t === 'query')).toEqual([]);
+});
+
+test('Method keeps the context in which it was opened while Back navigates beneath it', async ({ page }) => {
+  await gotoPlace(page, 'catalog');
+  await page.getByRole('button', { name: 'Method', exact: true }).click();
+  const pane = page.getByRole('dialog', { name: 'Method', exact: true });
+
+  await page.goBack();
+  await expect(page).toHaveURL(/\?p=trends$/);
+  await expect(pane).toBeVisible();
+  await expect(pane.getByRole('form', { name: 'Trend settings' })).toHaveCount(0);
+
+  await page.keyboard.press('Escape');
+  await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toBeFocused();
 });
 
 test('an open Method pane preserves its draft and focus across widths', async ({ page }) => {

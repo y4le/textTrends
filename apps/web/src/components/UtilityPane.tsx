@@ -32,6 +32,7 @@ export function UtilityPane({
     >
       <section
         className={['utility-pane', className].filter(Boolean).join(' ')}
+        data-footer={footer ? true : undefined}
         onKeyDown={onKeyDown}
       >
         <header className="utility-pane-header">

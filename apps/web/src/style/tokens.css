@@ -226,14 +226,19 @@ canvas {
 }
 
 .shortcut-help-open {
+  min-inline-size: 44px;
+  min-block-size: 44px;
   padding: 0;
   border: 0;
-  border-bottom: 1px solid var(--rule-strong);
   color: var(--fg-muted);
   background: none;
   cursor: pointer;
   font: inherit;
   font-size: var(--text-xs);
+  text-decoration-line: underline;
+  text-decoration-color: var(--rule-strong);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 0.2em;
 }
 
 .workbench {
@@ -2416,10 +2421,21 @@ canvas {
 
 .utility-pane {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: auto minmax(0, 1fr);
   min-block-size: calc(100vh - 2 * var(--space-3));
-  min-block-size: calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
+  min-block-size:
+    calc(
+      100dvh
+      - 2 * var(--space-3)
+      - var(--keyboard-inset)
+      - env(safe-area-inset-top, 0px)
+      - env(safe-area-inset-bottom, 0px)
+    );
   gap: var(--space-4);
+}
+
+.utility-pane[data-footer='true'] {
+  grid-template-rows: auto minmax(0, 1fr) auto;
 }
 
 .utility-pane-header {
@@ -2465,7 +2481,14 @@ canvas {
 .utility-pane-footer {
   position: sticky;
   z-index: 2;
-  inset-block-end: calc(-1 * (var(--space-3) + var(--keyboard-inset)));
+  inset-block-end:
+    calc(
+      -1 * (
+        var(--space-3)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      )
+    );
   display: flex;
   justify-content: flex-end;
   gap: var(--space-2);
@@ -2506,14 +2529,8 @@ canvas {
 }
 
 .shortcut-help-list kbd {
-  min-inline-size: 2.4ch;
-  padding: 0.1em 0.45em;
-  border: 1px solid var(--rule-strong);
-  border-radius: 2px;
-  background: color-mix(in srgb, var(--fg) 4%, transparent);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-  text-align: center;
   white-space: nowrap;
 }
 
@@ -2961,6 +2978,7 @@ canvas {
 .trend-settings-check {
   display: flex !important;
   align-items: center;
+  min-block-size: 44px;
 }
 
 .trend-settings fieldset > p {
