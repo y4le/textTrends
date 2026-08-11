@@ -2528,12 +2528,15 @@ canvas {
   min-block-size: 44px;
 }
 
-.shortcut-help {
+.utility-pane {
   display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-block-size: calc(100vh - 2 * var(--space-3));
+  min-block-size: calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
   gap: var(--space-4);
 }
 
-.shortcut-help-header {
+.utility-pane-header {
   position: sticky;
   z-index: 2;
   inset-block-start: calc(-1 * var(--space-3));
@@ -2546,26 +2549,43 @@ canvas {
   background: var(--bg);
 }
 
-.shortcut-help-header h2,
-.shortcut-help-header p,
+.utility-pane-header h2,
+.utility-pane-header p,
 .shortcut-help-sections h3,
 .shortcut-help-list {
   margin: 0;
 }
 
-.shortcut-help-header p {
+.utility-pane-header p {
   max-inline-size: 64ch;
   margin-block-start: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-sm);
 }
 
-.shortcut-help-header button {
+.utility-pane-header button {
+  min-inline-size: 44px;
   border: 1px solid var(--rule-strong);
   color: var(--fg);
   background: none;
   cursor: pointer;
   font: inherit;
+}
+
+.utility-pane-body {
+  min-width: 0;
+}
+
+.utility-pane-footer {
+  position: sticky;
+  z-index: 2;
+  inset-block-end: calc(-1 * (var(--space-3) + var(--keyboard-inset)));
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-block: var(--space-2) calc(var(--space-3) + var(--keyboard-inset));
+  border-top: 1px solid var(--rule-strong);
+  background: var(--bg);
 }
 
 .shortcut-help-sections {

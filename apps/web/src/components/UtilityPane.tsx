@@ -1,0 +1,55 @@
+import { useId, type KeyboardEvent, type ReactNode } from 'react';
+import { FormLayer } from './FormLayer.tsx';
+
+export function UtilityPane({
+  title,
+  subtitle,
+  focusKey,
+  closeKeyshortcuts,
+  className,
+  onClose,
+  onKeyDown,
+  children,
+  footer,
+}: {
+  readonly title: string;
+  readonly subtitle?: string;
+  readonly focusKey?: string;
+  readonly closeKeyshortcuts?: string;
+  readonly className?: string;
+  readonly onClose: () => void;
+  readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+  readonly children: ReactNode;
+  readonly footer?: ReactNode;
+}) {
+  const titleId = useId();
+
+  return (
+    <FormLayer
+      labelledBy={titleId}
+      {...(focusKey === undefined ? {} : { focusKey })}
+      onClose={onClose}
+    >
+      <section
+        className={['utility-pane', className].filter(Boolean).join(' ')}
+        onKeyDown={onKeyDown}
+      >
+        <header className="utility-pane-header">
+          <div>
+            <h2 id={titleId}>{title}</h2>
+            {subtitle && <p>{subtitle}</p>}
+          </div>
+          <button
+            type="button"
+            {...(closeKeyshortcuts === undefined ? {} : { 'aria-keyshortcuts': closeKeyshortcuts })}
+            onClick={onClose}
+          >
+            close
+          </button>
+        </header>
+        <div className="utility-pane-body">{children}</div>
+        {footer && <footer className="utility-pane-footer">{footer}</footer>}
+      </section>
+    </FormLayer>
+  );
+}
