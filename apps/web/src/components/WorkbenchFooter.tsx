@@ -15,6 +15,7 @@ import {
   type CSSProperties,
   type KeyboardEvent,
   type MouseEvent,
+  type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from 'react';
 import type { NumericTrend } from '@texttrends/core';
@@ -67,6 +68,15 @@ import {
   shortcutMatches,
 } from '../lib/shortcuts.ts';
 import { pointerIntentFor, type PointerIntent } from '../lib/pointer-capability.ts';
+import {
+  beginFooterTouchGesture,
+  footerTouchCancel,
+  footerTouchDown,
+  footerTouchMove,
+  footerTouchUp,
+  resetFooterTouchGesture,
+  type FooterTouchTransition,
+} from '../lib/footer-touch-gesture.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
@@ -226,6 +236,7 @@ function FooterInteractive({
   const hoverTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hoverReady = useRef(false);
   const lastPointerIntent = useRef<PointerIntent>('direct');
+  const lastDirectPointerAt = useRef(0);
   const snapIndexCache = useRef<{
     readonly tracks: readonly BarcodeTrackVM[];
     readonly indexes: ReturnType<typeof projectedBarcodeSnapIndexes>;
@@ -247,6 +258,8 @@ function FooterInteractive({
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
+  const footerTouch = useRef(beginFooterTouchGesture());
+  const [touchScrubbing, setTouchScrubbing] = useState(false);
   const pointerTap = useRef<{
     readonly pointerId: number;
     readonly pointerType: string;
@@ -318,6 +331,8 @@ function FooterInteractive({
     passageWindow.current = null;
     queuedPageDirection.current = null;
     setKeyboardStatus('');
+    footerTouch.current = resetFooterTouchGesture().state;
+    setTouchScrubbing(false);
   }, [snapshot?.snapshot]);
 
   useEffect(() => {
@@ -334,6 +349,21 @@ function FooterInteractive({
       if (pointerSample.current) setAbsoluteScrub(pointerSample.current);
     });
   }, [setAbsoluteScrub]);
+
+  const applyFooterTouchTransition = (transition: FooterTouchTransition) => {
+    footerTouch.current = transition.state;
+    const scrubbing = transition.state.phase === 'scrubbing';
+    setTouchScrubbing((current) => current === scrubbing ? current : scrubbing);
+    if (transition.state.phase === 'spent') {
+      pointerSample.current = null;
+      if (frame.current !== null) {
+        cancelAnimationFrame(frame.current);
+        frame.current = null;
+      }
+    }
+    if (transition.effect.kind === 'jump') setAbsoluteScrub(transition.effect.point);
+    else if (transition.effect.kind === 'scrub') schedule(transition.effect.point);
+  };
 
   useEffect(() => {
     ariaScrubLatest.current = scrub;
@@ -404,7 +434,9 @@ function FooterInteractive({
     containerRef(element);
   }, [containerRef]);
 
-  const localPoint = (event: MouseEvent<HTMLDivElement>) => {
+  const localPoint = (
+    event: MouseEvent<HTMLDivElement> | ReactPointerEvent<HTMLDivElement>,
+  ) => {
     const box = sliderRef.current?.getBoundingClientRect();
     if (!box || box.width <= 0) return null;
     return {
@@ -625,6 +657,7 @@ function FooterInteractive({
       className="footer-interactive"
       data-shortcut-context="footer"
       onDoubleClick={(event) => {
+        if (Date.now() - lastDirectPointerAt.current < 700) return;
         if (Date.now() < suppressDoubleClickUntil.current) {
           event.preventDefault();
           return;
@@ -705,6 +738,7 @@ function FooterInteractive({
           ? `${ariaTitle} · token ${(announcedScrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[ariaDocOrdinal] ?? 0).toLocaleString()} · ${ariaProgress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}${shuttleRate === null ? '' : ` · reading ${shuttleRate >= 0 ? 'forward' : 'backward'} at ${Math.abs(shuttleRate).toFixed(1)} tokens per second`}`
           : 'no position'}
         data-shuttling={shuttleRate === null ? undefined : 'true'}
+        data-touch-scrubbing={touchScrubbing || undefined}
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
         onPointerEnter={(event) => {
@@ -733,6 +767,16 @@ function FooterInteractive({
           }
         }}
         onPointerMove={(event) => {
+          if (event.pointerType === 'touch') {
+            const point = localPoint(event);
+            applyFooterTouchTransition(footerTouchMove(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: point ? rawTarget(point.x) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
           const precise = observePrecisePointer(event.pointerType);
           const tap = pointerTap.current;
           if (tap?.pointerId === event.pointerId) {
@@ -763,6 +807,12 @@ function FooterInteractive({
               runShuttle();
               event.preventDefault();
             }
+            if (tap.moved && tap.pointerType === 'pen') {
+              const point = localPoint(event);
+              const target = point ? rawTarget(point.x) : null;
+              if (target) schedule(target);
+              event.preventDefault();
+            }
             return;
           }
           if (!precise || event.buttons !== 0) return;
@@ -776,6 +826,20 @@ function FooterInteractive({
           else pointerSample.current = sample;
         }}
         onPointerDown={(event) => {
+          if (event.pointerType === 'touch') {
+            lastPointerIntent.current = 'direct';
+            lastDirectPointerAt.current = Date.now();
+            const point = localPoint(event);
+            const target = point ? rawTarget(point.x) : null;
+            if (!target) return;
+            applyFooterTouchTransition(footerTouchDown(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: target,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
           if (!event.isPrimary || event.button !== 0) return;
           const precise = observePrecisePointer(event.pointerType);
           event.currentTarget.setPointerCapture(event.pointerId);
@@ -797,6 +861,16 @@ function FooterInteractive({
           };
         }}
         onPointerUp={(event) => {
+          if (event.pointerType === 'touch') {
+            const point = localPoint(event);
+            applyFooterTouchTransition(footerTouchUp(footerTouch.current, {
+              pointerId: event.pointerId,
+              point: point ? rawTarget(point.x) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            }));
+            return;
+          }
           const tap = pointerTap.current;
           if (!tap || tap.pointerId !== event.pointerId) return;
           pointerTap.current = null;
@@ -836,6 +910,18 @@ function FooterInteractive({
           if (target) setAbsoluteScrub({ doc: target.doc, token: target.token });
         }}
         onPointerCancel={(event) => {
+          if (event.pointerType === 'touch') {
+            applyFooterTouchTransition(footerTouchCancel(
+              footerTouch.current,
+              event.pointerId,
+            ));
+            pointerSample.current = null;
+            if (frame.current !== null) {
+              cancelAnimationFrame(frame.current);
+              frame.current = null;
+            }
+            return;
+          }
           if (pointerTap.current?.pointerId === event.pointerId) {
             pointerTap.current = null;
             stopShuttle();
@@ -852,6 +938,13 @@ function FooterInteractive({
           }
         }}
         onLostPointerCapture={(event) => {
+          if (event.pointerType === 'touch') {
+            applyFooterTouchTransition(footerTouchCancel(
+              footerTouch.current,
+              event.pointerId,
+            ));
+            return;
+          }
           if (pointerTap.current?.pointerId === event.pointerId) {
             pointerTap.current = null;
             stopShuttle();

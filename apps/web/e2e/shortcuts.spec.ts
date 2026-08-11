@@ -11,6 +11,8 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Touch gestures' })).toBeVisible();
   await expect(dialog).toContainText('Press and hold a range start');
+  await expect(dialog).toContainText('Tap or drag horizontally to read');
+  await expect(dialog).toContainText('Drag a term only from its reorder handle');
   await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
 

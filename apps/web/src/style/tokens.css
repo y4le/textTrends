@@ -3294,7 +3294,7 @@ canvas {
   overflow: hidden;
   outline: none;
   cursor: crosshair;
-  touch-action: pan-y;
+  touch-action: pan-y pinch-zoom;
 }
 
 .footer-strip[data-shuttling='true'] {
@@ -3361,6 +3361,12 @@ canvas {
   background: var(--fg);
   pointer-events: none;
   will-change: transform;
+}
+
+.footer-strip[data-touch-scrubbing='true'] .footer-cursor {
+  inline-size: 3px;
+  margin-inline-start: -1px;
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
 @media (max-width: 599.98px) {

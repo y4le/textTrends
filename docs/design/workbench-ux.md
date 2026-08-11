@@ -151,7 +151,12 @@ pointer is held, and release pauses at the exact displayed token. This
 time-based gesture can traverse the whole corpus without being limited by a
 many-tokens-per-pixel absolute scale; at slower rates it exposes each successive
 token, while the maximum rate is intentionally a skim. An unmoved click keeps
-its existing barcode/raw activation. Mouse or pen
+its existing barcode/raw activation. Touch instead uses direct manipulation:
+a tap jumps to that corpus position, a horizontal drag scrubs the absolute
+axis with an emphasized live cursor, and a vertical drag remains page-owned.
+Additional simultaneous contacts cancel the footer gesture rather than
+starting the mouse shuttle, and touch-generated double-clicks never open
+Reader. Mouse or pen
 hover requires a brief entry dwell before it moves global focus and snaps to a
 nearby exact barcode occurrence; density hover remains at the raw corpus
 position. Any available coarse input keeps a 44px strip and a 44px passage

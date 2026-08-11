@@ -69,6 +69,14 @@ export function KeyboardShortcuts({
                       its end; two fingers select the same range directly.
                     </dd>
                   </div>
+                  <div>
+                    <dt><span className="shortcut-help-gesture">Footer</span></dt>
+                    <dd>Tap or drag horizontally to read; drag vertically to scroll.</dd>
+                  </div>
+                  <div>
+                    <dt><span className="shortcut-help-gesture">Terms</span></dt>
+                    <dd>Drag a term only from its reorder handle.</dd>
+                  </div>
                 </>
               ) : (
                 <div>
