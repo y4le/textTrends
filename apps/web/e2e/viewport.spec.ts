@@ -188,6 +188,130 @@ test('an attached mouse reorders terms with insertion feedback in a touch-capabl
   }
 });
 
+test('touch term reordering cancels extra contacts and autoscrolls at modal edges', async ({
+  browser,
+}) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 260 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const page = await context.newPage();
+  try {
+    await page.goto('./');
+    await awaitAllReady(page);
+    await page.getByRole('button', { name: 'Manage', exact: true }).click();
+    const manager = page.getByRole('dialog', { name: 'Manage terms' });
+    const source = manager.getByRole('button', { name: 'Reorder Holmes' });
+    const other = manager.getByRole('button', { name: 'Edit term: Moriarty' });
+    const sourceBox = await source.boundingBox();
+    const otherBox = await other.boundingBox();
+    if (!sourceBox || !otherBox) throw new Error('term touch geometry is unavailable');
+    const touch = (
+      pointerId: number,
+      x: number,
+      y: number,
+      isPrimary: boolean,
+    ) => ({
+      pointerId,
+      pointerType: 'touch',
+      isPrimary,
+      button: 0,
+      buttons: 1,
+      clientX: x,
+      clientY: y,
+    });
+
+    await source.dispatchEvent('pointerdown', touch(
+      31,
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+      true,
+    ));
+    await expect(source.locator('xpath=ancestor::li[1]')).toHaveAttribute('data-dragging', 'true');
+    await other.dispatchEvent('pointerdown', touch(
+      32,
+      otherBox.x + otherBox.width / 2,
+      otherBox.y + otherBox.height / 2,
+      false,
+    ));
+    await expect(manager.locator('[data-dragging]')).toHaveCount(0);
+    await expect(manager.getByRole('status'))
+      .toContainText('cancelled because another touch was detected');
+    await source.dispatchEvent('pointercancel', touch(
+      31,
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+      true,
+    ));
+    await other.dispatchEvent('pointerup', {
+      ...touch(
+        32,
+        otherBox.x + otherBox.width / 2,
+        otherBox.y + otherBox.height / 2,
+        false,
+      ),
+      buttons: 0,
+    });
+    await expect(manager.getByRole('status'))
+      .toContainText('cancelled because another touch was detected');
+
+    const managerBox = await manager.boundingBox();
+    if (!managerBox) throw new Error('term manager has no layout box');
+    await source.dispatchEvent('pointerdown', touch(
+      33,
+      sourceBox.x + sourceBox.width / 2,
+      sourceBox.y + sourceBox.height / 2,
+      true,
+    ));
+    await source.dispatchEvent('pointermove', touch(
+      33,
+      managerBox.x + managerBox.width / 2,
+      managerBox.y + managerBox.height - 3,
+      true,
+    ));
+    await expect.poll(() => manager.evaluate((element) => element.scrollTop))
+      .toBeGreaterThan(0);
+    await expect(source.locator('xpath=ancestor::li[1]')).toHaveAttribute('data-dragging', 'true');
+    await expect.poll(() => manager.evaluate((element) => (
+      element.scrollHeight - element.clientHeight - element.scrollTop
+    ))).toBeLessThanOrEqual(1);
+    await expect(manager.getByRole('button', { name: 'Edit term: Moriarty' })
+      .locator('xpath=ancestor::li[1]')).toHaveAttribute('data-drop-position', 'after');
+    await source.dispatchEvent('pointerup', {
+      ...touch(
+        33,
+        managerBox.x + managerBox.width / 2,
+        managerBox.y + managerBox.height - 3,
+        true,
+      ),
+      buttons: 0,
+    });
+    await expect(manager.getByRole('list', { name: 'Terms' }).locator('.term-manager-title'))
+      .toHaveText(['Watson', 'Moriarty', 'Holmes']);
+    await expect(manager.locator('[data-dragging], [data-drop-position]')).toHaveCount(0);
+
+    const movedSource = manager.getByRole('button', { name: 'Reorder Holmes' });
+    const movedSourceBox = await movedSource.boundingBox();
+    if (!movedSourceBox) throw new Error('moved term touch geometry is unavailable');
+    await movedSource.dispatchEvent('pointerdown', touch(
+      34,
+      movedSourceBox.x + movedSourceBox.width / 2,
+      movedSourceBox.y + movedSourceBox.height / 2,
+      true,
+    ));
+    await movedSource.dispatchEvent('pointercancel', touch(
+      34,
+      movedSourceBox.x + movedSourceBox.width / 2,
+      movedSourceBox.y + movedSourceBox.height / 2,
+      true,
+    ));
+    await expect(manager.locator('[data-dragging], [data-drop-position]')).toHaveCount(0);
+  } finally {
+    await context.close();
+  }
+});
+
 test('full-height editors honor resizes-visual geometry without losing draft or issuing work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

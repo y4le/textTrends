@@ -23,6 +23,7 @@ import {
   termAliasesForSave,
 } from '../lib/notebook.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
+import { termReorderScrollStep } from '../lib/term-reorder-gesture.ts';
 import { SeriesLineSample } from './chrome.tsx';
 
 function CountCell({ count }: { readonly count: GroupCountVM }) {
@@ -300,8 +301,14 @@ export function NotebookPanel({
   const pointerDragRef = useRef<{
     readonly id: string;
     readonly pointerId: number;
+    readonly pointerType: string;
+    readonly scrollContainer: HTMLElement | null;
+    clientX: number;
+    clientY: number;
     target: TermDropTarget | null;
   } | null>(null);
+  const dragScrollFrame = useRef<number | null>(null);
+  const spentTouchIds = useRef(new Set<number>());
   const newStyle = useMemo(
     () => firstFreeStyle(notebook.groups, activeGroupIds),
     [activeGroupIds, notebook.groups],
@@ -359,18 +366,91 @@ export function NotebookPanel({
   };
 
   const clearPointerDrag = () => {
+    if (dragScrollFrame.current !== null) {
+      cancelAnimationFrame(dragScrollFrame.current);
+      dragScrollFrame.current = null;
+    }
     pointerDragRef.current = null;
     setDraggingId(null);
     showDropTarget(null);
+  };
+
+  useEffect(() => () => {
+    if (dragScrollFrame.current !== null) cancelAnimationFrame(dragScrollFrame.current);
+  }, []);
+
+  useEffect(() => {
+    const cancelForAdditionalTouch = (event: globalThis.PointerEvent) => {
+      if (event.pointerType !== 'touch') return;
+      const spent = spentTouchIds.current;
+      if (spent.size > 0) {
+        spent.add(event.pointerId);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      }
+      const active = pointerDragRef.current;
+      if (
+        !active
+        || active.pointerId === event.pointerId
+      ) return;
+      if (active.pointerType === 'touch') spent.add(active.pointerId);
+      spent.add(event.pointerId);
+      clearPointerDrag();
+      setReorderStatus('Term reorder cancelled because another touch was detected.');
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    const releaseSpentTouch = (event: globalThis.PointerEvent) => {
+      if (event.pointerType !== 'touch' || !spentTouchIds.current.has(event.pointerId)) return;
+      spentTouchIds.current.delete(event.pointerId);
+      event.preventDefault();
+      event.stopPropagation();
+    };
+    document.addEventListener('pointerdown', cancelForAdditionalTouch, true);
+    document.addEventListener('pointerup', releaseSpentTouch, true);
+    document.addEventListener('pointercancel', releaseSpentTouch, true);
+    return () => {
+      document.removeEventListener('pointerdown', cancelForAdditionalTouch, true);
+      document.removeEventListener('pointerup', releaseSpentTouch, true);
+      document.removeEventListener('pointercancel', releaseSpentTouch, true);
+      spentTouchIds.current.clear();
+    };
+  }, []);
+
+  const runPointerAutoscroll = () => {
+    if (dragScrollFrame.current !== null) return;
+    const tick = () => {
+      dragScrollFrame.current = null;
+      const pointerDrag = pointerDragRef.current;
+      const scroller = pointerDrag?.scrollContainer;
+      if (!pointerDrag || !scroller) return;
+      const rect = scroller.getBoundingClientRect();
+      const step = termReorderScrollStep(pointerDrag.clientY, rect.top, rect.bottom);
+      if (step === 0) return;
+      const before = scroller.scrollTop;
+      scroller.scrollTop += step;
+      if (scroller.scrollTop === before) return;
+      const target = pointerTargetAt(pointerDrag.clientX, pointerDrag.clientY, pointerDrag.id);
+      if (target) {
+        pointerDrag.target = target;
+        showDropTarget(target);
+      }
+      dragScrollFrame.current = requestAnimationFrame(tick);
+    };
+    dragScrollFrame.current = requestAnimationFrame(tick);
   };
 
   const updatePointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
     const pointerDrag = pointerDragRef.current;
     if (!pointerDrag || pointerDrag.id !== id || pointerDrag.pointerId !== event.pointerId) return;
     event.preventDefault();
+    pointerDrag.clientX = event.clientX;
+    pointerDrag.clientY = event.clientY;
     const target = pointerTargetAt(event.clientX, event.clientY, id);
     pointerDrag.target = target;
     showDropTarget(target);
+    runPointerAutoscroll();
   };
 
   const finishPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
@@ -379,6 +459,9 @@ export function NotebookPanel({
     event.preventDefault();
     const target = pointerTargetAt(event.clientX, event.clientY, id) ?? pointerDrag.target;
     if (target) place(id, target.id, target.after);
+    // Clear first so the expected lostpointercapture from a successful drop
+    // cannot be mistaken for a cancellation of this (or a reused-id) drag.
+    clearPointerDrag();
     try {
       if (event.currentTarget.hasPointerCapture(event.pointerId)) {
         event.currentTarget.releasePointerCapture(event.pointerId);
@@ -386,7 +469,6 @@ export function NotebookPanel({
     } catch {
       // Synthetic pointer tests do not create browser-level capture state.
     }
-    clearPointerDrag();
   };
 
   const beginNew = () => {
@@ -466,6 +548,10 @@ export function NotebookPanel({
                     pointerDragRef.current = {
                       id: row.id,
                       pointerId: event.pointerId,
+                      pointerType: event.pointerType,
+                      scrollContainer: event.currentTarget.closest<HTMLElement>('.form-layer'),
+                      clientX: event.clientX,
+                      clientY: event.clientY,
                       target: null,
                     };
                     setKeyboardGrabbedId(null);
@@ -480,7 +566,21 @@ export function NotebookPanel({
                   }}
                   onPointerMove={(event) => updatePointerDrag(event, row.id)}
                   onPointerUp={(event) => finishPointerDrag(event, row.id)}
-                  onPointerCancel={() => {
+                  onPointerCancel={(event) => {
+                    const active = pointerDragRef.current;
+                    if (
+                      active?.id !== row.id
+                      || active.pointerId !== event.pointerId
+                    ) return;
+                    clearPointerDrag();
+                    setReorderStatus(`${row.name} reorder cancelled.`);
+                  }}
+                  onLostPointerCapture={(event) => {
+                    const active = pointerDragRef.current;
+                    if (
+                      active?.id !== row.id
+                      || active.pointerId !== event.pointerId
+                    ) return;
                     clearPointerDrag();
                     setReorderStatus(`${row.name} reorder cancelled.`);
                   }}

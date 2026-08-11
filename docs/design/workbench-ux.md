@@ -103,6 +103,13 @@ removal are intentionally reached through Manage, the visible Terms label is
 omitted, and the remaining rail targets stay at least 44 CSS pixels. A removal
 Undo notice opens upward from the dock rather than covering the reading lane.
 
+Manage is a full-screen editor. Reordering begins only from the leading drag
+handle and keeps the source plus insertion position visible. Mouse and touch
+share the pointer path; holding near either scrolling edge advances the editor
+and recomputes the insertion position. A second touch cancels the reorder, and
+pointer cancellation clears every drag affordance. The same handles retain a
+Space/Enter grab-and-drop path with Up/Down movement for keyboard users.
+
 The Terms rail persists across all five places, including before a usable
 snapshot exists; with no corpus the dock honestly collapses to the Terms-only
 rail. Reader hides the complete dock while occupying the full viewport.
