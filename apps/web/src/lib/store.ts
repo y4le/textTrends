@@ -2366,6 +2366,15 @@ export function createAppRuntime(
           set({ notebookError: null });
           return duplicate.id;
         }
+        if (state.activeGroupIds.size < MAX_SERIES) {
+          const collision = state.notebook.groups.find((candidate) =>
+            state.activeGroupIds.has(candidate.id)
+            && styleSlotOf(candidate.style) === styleSlotOf(group.style));
+          if (collision) {
+            refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
+            return null;
+          }
+        }
         const notebook: QueryNotebookV1 = {
           schema: 'texttrends/query-notebook/2',
           groups: [...state.notebook.groups, group],

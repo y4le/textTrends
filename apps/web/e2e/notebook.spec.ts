@@ -1,8 +1,8 @@
 /**
  * Slice-1 commit E acceptance (recorded ruling §4E): the query notebook in
  * the real browser over a tiny deterministic imported corpus. Proves:
- * - a MULTI-MEMBER group (alias + phrase + prefix, authored through the
- *   editor's draft/Apply flow) drives trends and concordance as OR
+ * - a multi-alias term (token + phrase + prefix, authored in one comma field)
+ *   drives trends and concordance as OR
  *   alternatives, with the complete phrase span in the concordance node;
  * - mute removes the track globally while the CONCORDANCE chips stay an
  *   orthogonal filter; solo restores state exactly; zero-hit is a real,
@@ -81,25 +81,19 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
     .toBe('answered');
 }
 
-test('a multi-member group (alias + phrase + prefix) authored in the editor drives every lane as OR alternatives', async ({ page }) => {
+test('one comma-authored term compiles token, phrase, and prefix aliases as OR alternatives', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf');
 
-  // Author members through the DRAFT editor: prefix wolv* and phrase "dire wolf".
-  await page.getByRole('button', { name: 'Edit members: wolf' }).click();
-  const editor = page.getByRole('group', { name: 'Edit members: wolf' });
-  const addInput = editor.getByLabel(/Add member to wolf/);
-  await addInput.fill('wolv*');
-  await editor.getByRole('button', { name: 'add', exact: true }).click();
-  const chipInput = editor.getByLabel(/Add phrase word to wolf/);
-  await chipInput.fill('dire');
-  await editor.getByRole('button', { name: 'add word' }).click();
-  await chipInput.fill('wolf');
-  await editor.getByRole('button', { name: 'add word' }).click();
+  await page.getByRole('button', { name: 'Edit term: wolf' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const editor = manager.getByRole('form', { name: 'Edit term: wolf' });
+  await editor.getByRole('textbox', { name: 'Term and aliases for wolf' })
+    .fill('wolf, wolv*, dire wolf');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await editor.getByRole('button', { name: 'Add phrase to wolf' }).click();
-  await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
+  await editor.getByRole('button', { name: 'Save term' }).click();
   await awaitFreshKwic(page, mark);
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
 
   // All OR alternatives appear under the ONE group's track — including the
@@ -116,25 +110,159 @@ test('a multi-member group (alias + phrase + prefix) authored in the editor driv
 
 });
 
-test('a case-SENSITIVE member distinguishes what the folded default merges', async ({ page }) => {
+test('the exact-match toggle distinguishes what the folded default merges', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'nothingyet');
-  // Author exactly one member: token 'Wolf' with exact case.
-  await page.getByRole('button', { name: 'Edit members: nothingyet' }).click();
-  const editor = page.getByRole('group', { name: 'Edit members: nothingyet' });
-  await editor.getByRole('button', { name: 'Remove member nothingyet' }).click();
-  const caseToggle = editor.getByRole('button', { name: 'Exact case: new member' });
-  await expect(caseToggle).toHaveAttribute('aria-pressed', 'false');
-  await caseToggle.click();
-  await expect(caseToggle).toHaveAttribute('aria-pressed', 'true');
-  await editor.getByLabel(/Add member to nothingyet/).fill('Wolf');
-  await editor.getByRole('button', { name: 'add', exact: true }).click();
+  await page.getByRole('button', { name: 'Edit term: nothingyet' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const editor = manager.getByRole('form', { name: 'Edit term: nothingyet' });
+  await editor.getByRole('textbox', { name: 'Term and aliases for nothingyet' }).fill('Wolf');
+  await editor.getByRole('checkbox', { name: 'Exact match' }).check();
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await editor.getByRole('button', { name: 'Apply changes to nothingyet' }).click();
+  await editor.getByRole('button', { name: 'Save term' }).click();
   await awaitFreshKwic(page, mark);
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
   // Only the capitalized occurrence matches — the folded default would find 3+.
   await gotoPlace(page, 'concordance');
   await expect.poll(async () => (await rowNodes(page)).map((r) => r.node)).toEqual(['Wolf']);
+});
+
+test('the full-screen manager adds aliases, picks style, reorders by handle, and keeps removal on the right', async ({ page }) => {
+  const pageErrors: string[] = [];
+  page.on('pageerror', (error) => pageErrors.push(error.message));
+  await importCorpus(page);
+  await submitAndAwaitFreshResults(page, 'wolf, absentterm, dire');
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const list = manager.getByRole('list', { name: 'Terms' });
+  await expect(manager.getByRole('button', { name: /^Reorder / })).toHaveCount(3);
+  await expect(manager.getByRole('button', { name: /exact case|accents/i })).toHaveCount(0);
+
+  const direHandle = manager.getByRole('button', { name: 'Reorder dire' });
+  await expect(direHandle).toHaveAttribute('draggable', 'true');
+  await direHandle.focus();
+  await direHandle.press('Space');
+  await expect(direHandle).toHaveAttribute('aria-pressed', 'true');
+  await direHandle.press('ArrowUp');
+  await direHandle.press('Space');
+  await expect(direHandle).toHaveAttribute('aria-pressed', 'false');
+  await expect(list.locator('.term-manager-title')).toHaveText(['wolf', 'dire', 'absentterm']);
+  await expect(direHandle).toBeFocused();
+  await manager.getByRole('button', { name: 'Reorder wolf' })
+    .dragTo(manager.getByRole('button', { name: 'Edit term: absentterm' }), {
+      targetPosition: { x: 8, y: 4 },
+    });
+  await expect(list.locator('.term-manager-title')).toHaveText(['dire', 'wolf', 'absentterm']);
+
+  const touchHandle = manager.getByRole('button', { name: 'Reorder absentterm' });
+  const touchTarget = manager.getByRole('button', { name: 'Edit term: dire' });
+  const [touchStart, touchEnd] = await Promise.all([touchHandle.boundingBox(), touchTarget.boundingBox()]);
+  if (!touchStart || !touchEnd) throw new Error('touch reorder geometry is unavailable');
+  const pointer = {
+    pointerId: 17,
+    pointerType: 'touch',
+    isPrimary: true,
+    button: 0,
+    buttons: 1,
+  };
+  await touchHandle.dispatchEvent('pointerdown', {
+    ...pointer,
+    clientX: touchStart.x + touchStart.width / 2,
+    clientY: touchStart.y + touchStart.height / 2,
+  });
+  await touchHandle.dispatchEvent('pointermove', {
+    ...pointer,
+    clientX: touchEnd.x + 8,
+    clientY: touchEnd.y + 4,
+  });
+  await touchHandle.dispatchEvent('pointerup', {
+    ...pointer,
+    buttons: 0,
+    clientX: touchEnd.x + 8,
+    clientY: touchEnd.y + 4,
+  });
+  await expect(list.locator('.term-manager-title')).toHaveText(['absentterm', 'dire', 'wolf']);
+
+  await manager.getByRole('button', { name: '+ Add term', exact: true }).click();
+  const aliases = manager.getByRole('textbox', { name: 'Term and aliases for new term' });
+  await expect(aliases).toBeFocused();
+  await aliases.fill('dire');
+  await aliases.press('Enter');
+  await expect(manager.locator('.term-manager-notice')).toHaveText('dire is already in Terms.');
+  await expect(aliases).toBeVisible();
+  await aliases.fill('NYC, NY, New York, New Yo*');
+  await manager.getByRole('checkbox', { name: 'Exact match' }).check();
+  await manager.getByText('Blue', { exact: true }).click();
+  await manager.getByText('Solid', { exact: true }).click();
+  await manager.getByRole('button', { name: 'Add term', exact: true }).click();
+  await expect(manager.locator('.term-manager-error'))
+    .toHaveText('wolf already uses that color and line type');
+  await expect(aliases).toBeVisible();
+  await manager.getByText('Gold', { exact: true }).click();
+  await manager.getByText('Dotted', { exact: true }).click();
+  await manager.getByRole('button', { name: 'Add term', exact: true }).click();
+
+  const nyc = manager.getByRole('button', { name: 'Edit term: NYC' });
+  await expect(nyc).toBeVisible();
+  await expect(nyc).toBeFocused();
+  await expect(manager.getByText('+3 aliases', { exact: true })).toBeVisible();
+  await nyc.click();
+  const nycAliases = manager.getByRole('textbox', { name: 'Term and aliases for NYC' });
+  await expect(nycAliases).toHaveValue('NYC, NY, New York, New Yo*');
+  const nativeDropWasUnclaimed = await nycAliases.evaluate((input) => {
+    const transfer = new DataTransfer();
+    transfer.setData('text/plain', 'ordinary text, not a term id');
+    return input.dispatchEvent(new DragEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer,
+    }));
+  });
+  expect(nativeDropWasUnclaimed).toBe(true);
+  await expect(nycAliases).toHaveValue('NYC, NY, New York, New Yo*');
+  await expect(manager.locator('.term-manager-error')).toHaveCount(0);
+  expect(pageErrors).toEqual([]);
+  await expect(manager.getByRole('checkbox', { name: 'Exact match' })).toBeChecked();
+  await expect(manager.getByRole('radio', { name: 'Gold' })).toBeChecked();
+  await expect(manager.getByRole('radio', { name: 'Dotted' })).toBeChecked();
+
+  const item = nyc.locator('xpath=ancestor::li[1]');
+  const [summaryBox, removeBox, colors] = await Promise.all([
+    nyc.boundingBox(),
+    item.getByRole('button', { name: 'Remove NYC' }).boundingBox(),
+    item.getByRole('button', { name: 'Remove NYC' }).evaluate((node) => ({
+      actual: getComputedStyle(node).color,
+      accent: getComputedStyle(document.documentElement).getPropertyValue('--accent-text').trim(),
+    })),
+  ]);
+  expect(summaryBox && removeBox ? removeBox.x : 0).toBeGreaterThan(summaryBox?.x ?? 0);
+  expect(colors.actual).toBe(await page.evaluate((accent) => {
+    const probe = document.createElement('span');
+    probe.style.color = accent;
+    document.body.append(probe);
+    const computed = getComputedStyle(probe).color;
+    probe.remove();
+    return computed;
+  }, colors.accent));
+  await manager.getByRole('button', { name: 'Save term' }).click();
+  await expect(nyc).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(manager).toHaveCount(0);
+  await page.getByRole('button', { name: 'Manage', exact: true }).click();
+  await expect(manager).toBeVisible();
+  await item.getByRole('button', { name: 'Remove NYC' }).click();
+  const undo = manager.locator('.term-manager-undo');
+  await expect(undo).toContainText('Removed NYC.');
+  const undoButton = undo.getByRole('button', { name: 'Undo' });
+  await expect(undoButton).toBeFocused();
+  await undoButton.click();
+  await expect(manager.getByRole('button', { name: 'Edit term: NYC' })).toBeVisible();
+  await expect(manager.getByRole('button', { name: 'Edit term: NYC' })).toBeFocused();
+  await item.getByRole('button', { name: 'Remove NYC' }).click();
+  const dismissButton = undo.getByRole('button', { name: 'Dismiss' });
+  await expect(dismissButton).toBeVisible();
+  await dismissButton.click();
+  await expect(manager.getByRole('button', { name: '+ Add term', exact: true })).toBeFocused();
 });
 
 test('mute is global, the concordance filter stays orthogonal, solo restores exactly, and zero-hit is a visible ready state', async ({ page }) => {
@@ -224,12 +352,14 @@ test('mute is global, the concordance filter stays orthogonal, solo restores exa
   const direKwicChip = page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ });
   await expect(direKwicChip).toHaveAttribute('aria-pressed', 'false');
 
-  // Keyboard: the quick-add field and notebook controls are reachable and
+  // Keyboard: the new-term field and notebook controls are reachable and
   // operable without a pointer (smoke — full traversal is not the contract).
   await gotoPlace(page, 'trends');
   const quickAdd = await openQuickAdd(page);
   await quickAdd.focus();
   await page.keyboard.type('keyterm');
   await page.keyboard.press('Enter');
+  await page.getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Done', exact: true }).click();
   await expect(terms.getByRole('button', { name: /^keyterm \d+$/ })).toBeVisible();
 });

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
 
 test('book focus preserves scope while only this book explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
@@ -79,8 +79,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   // fullTokens. Even with no trend series left as a fallback, the named
   // one-step escape must remain enabled and correctly labelled.
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'Remove Holmes' }).click();
-  await page.getByRole('button', { name: 'Remove Moriarty' }).click();
+  await clearNotebook(page);
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
   await gotoPlace(page, 'catalog');
   const rowEscape = documents.getByRole('button', { name: 'all books' });

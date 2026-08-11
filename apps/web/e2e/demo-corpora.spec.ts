@@ -16,9 +16,9 @@ test('the private built-in picker switches among TXT corpora with useful starter
   await awaitReadyCount(page, ASOIF.length);
   await expect(page.getByRole('region', { name: 'Scope' })).toContainText('A Song of Ice and Fire');
   await expect(page.getByRole('button', { name: 'A Game of Thrones', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Jon' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Tyrion' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Daenerys' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Jon' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Tyrion' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Daenerys' })).toBeVisible();
   const asoifFiles = requests
     .slice(beforeAsoif)
     .filter((url) => new URL(url).pathname.includes('/corpora/asoif/'))
@@ -31,9 +31,9 @@ test('the private built-in picker switches among TXT corpora with useful starter
   await awaitReadyCount(page, LOTR.length);
   await expect(page.getByRole('region', { name: 'Scope' })).toContainText('The Lord of the Rings');
   await expect(page.getByRole('button', { name: 'The Fellowship of the Ring', exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Frodo' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Gandalf' })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Edit members: Sauron' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Frodo' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Gandalf' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Sauron' })).toBeVisible();
   const lotrFiles = requests
     .slice(beforeLotr)
     .filter((url) => new URL(url).pathname.includes('/corpora/lotr/'))

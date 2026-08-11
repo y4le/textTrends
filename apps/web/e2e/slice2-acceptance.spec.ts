@@ -72,14 +72,15 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
-  // Author one multi-member group: wolf OR hound.
-  await page.getByRole('button', { name: 'Edit members: wolf' }).click();
-  const editor = page.getByRole('group', { name: 'Edit members: wolf' });
-  await editor.getByLabel(/Add member to wolf/).fill('hound');
-  await editor.getByRole('button', { name: 'add', exact: true }).click();
+  // Author one multi-alias term: wolf OR hound.
+  await page.getByRole('button', { name: 'Edit term: wolf' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const editor = manager.getByRole('form', { name: 'Edit term: wolf' });
+  await editor.getByRole('textbox', { name: 'Term and aliases for wolf' }).fill('wolf, hound');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
+  await editor.getByRole('button', { name: 'Save term' }).click();
   await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
   await expect(page.getByText('wolf: 6 occurrences', { exact: true })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();

@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, clearNotebook, gotoPlace, openQuickAdd, trace } from './helpers.ts';
+import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 import { PLACE_HEADING, PLACES } from '../src/lib/places.ts';
 
 test('every route exposes one canonical place and no canonical peer', async ({ page }) => {
@@ -18,25 +18,24 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
   }
 });
 
-test('Vocabulary notebook refusals are visible at the action and cleared on departure', async ({ page }) => {
+test('Vocabulary additions beyond five persist hidden and open in the manager', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await clearNotebook(page);
-  const quickAdd = await openQuickAdd(page);
-  await quickAdd.fill('alpha, beta, gamma, delta, epsilon');
-  await quickAdd.press('Enter');
+  await submitAndAwaitFreshResults(page, 'alpha, beta, gamma, delta, epsilon');
 
   await gotoPlace(page, 'vocabulary');
   const vocabulary = page.getByRole('table', { name: 'Vocabulary frequency list' });
   await expect(vocabulary).toBeVisible();
-  await vocabulary.locator('tr[data-frequency-row]').first().getByRole('button').click();
+  const firstRow = vocabulary.locator('tr[data-frequency-row]').first();
+  const key = (await firstRow.locator('.frequency-term').innerText()).trim();
+  await firstRow.getByRole('button').click();
   await vocabulary.getByRole('button', { name: 'add exact' }).first().click();
-  await expect(page.getByRole('alert')).toContainText(
-    'deactivate a group before adding this frequency-table term',
-  );
-
-  await gotoPlace(page, 'catalog');
-  await expect(page.getByRole('alert')).toHaveCount(0);
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  await expect(manager).toBeVisible();
+  await expect(manager.getByRole('textbox', { name: `Term and aliases for ${key}` })).toBeFocused();
+  await expect(manager.getByRole('button', { name: `Shown in analysis: ${key}` }))
+    .toHaveAttribute('aria-pressed', 'false');
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
 });
 
 test('resume reconciles visible state without claiming background work or issuing queries', async ({ page }) => {

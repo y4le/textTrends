@@ -10,15 +10,8 @@ export type QueryEditorTarget =
   | {
       readonly surface: 'query-editor';
       readonly mode: 'manage';
-    }
-  | {
-      readonly surface: 'query-editor';
-      readonly mode: 'quick-add';
-    }
-  | {
-      readonly surface: 'query-editor';
-      readonly mode: 'group';
-      readonly groupId: string;
+      readonly groupId?: string;
+      readonly create?: boolean;
     };
 
 export interface QuerySurfaceVM {
@@ -44,20 +37,13 @@ export function queryEditorTarget(value: unknown): QueryEditorTarget | null {
   const candidate = value as Record<string, unknown>;
   if (candidate.surface !== 'query-editor') return null;
   if (candidate.mode === 'manage') {
-    return { surface: 'query-editor', mode: 'manage' };
-  }
-  if (candidate.mode === 'quick-add') {
-    return { surface: 'query-editor', mode: 'quick-add' };
-  }
-  if (
-    candidate.mode === 'group'
-    && typeof candidate.groupId === 'string'
-    && candidate.groupId !== ''
-  ) {
     return {
       surface: 'query-editor',
-      mode: 'group',
-      groupId: candidate.groupId,
+      mode: 'manage',
+      ...(typeof candidate.groupId === 'string' && candidate.groupId !== ''
+        ? { groupId: candidate.groupId }
+        : {}),
+      ...(candidate.create === true ? { create: true } : {}),
     };
   }
   return null;

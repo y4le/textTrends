@@ -21,4 +21,4 @@ on.
   offer vocabulary-backed suggestions and bounded precommit hit estimates,
   but first needs an explicit bounded vocabulary query. Quote-to-phrase
   tokenization likewise needs tokenizer-aware semantics before it belongs in
-  the quick-add surface.
+  the term manager.

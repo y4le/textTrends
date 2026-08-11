@@ -87,7 +87,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   for (const control of [
     terms.locator('.term-bucket-focus').first(),
     terms.locator('.term-bucket-toggle').first(),
-    terms.getByRole('button', { name: 'Add terms to the notebook, comma-separated' }),
+    terms.getByRole('button', { name: 'Add term', exact: true }),
     terms.getByRole('button', { name: 'Manage', exact: true }),
   ]) {
     const box = await control.boundingBox();
@@ -137,7 +137,7 @@ test('the coarse regular-width rail keeps every visible action at target size', 
   await awaitAllReady(page);
 
   const terms = page.getByRole('complementary', { name: 'Terms' });
-  const edit = terms.getByRole('button', { name: /^Edit members:/ }).first();
+  const edit = terms.getByRole('button', { name: /^Edit term:/ }).first();
   await expect(edit).toBeVisible();
   const editBox = await edit.boundingBox();
   expect(editBox?.width).toBeGreaterThanOrEqual(44);

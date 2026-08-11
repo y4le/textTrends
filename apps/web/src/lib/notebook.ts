@@ -68,6 +68,29 @@ export function styleKey(style: { readonly color: string; readonly line: string 
   return `${style.color}|${style.line}`;
 }
 
+/** Present a legacy custom title in the unified comma-authored field. An
+ * untouched save can still round-trip the legacy representation losslessly;
+ * once the aliases are edited, the title becomes the first matching alias. */
+export function aliasesForTermEditor(group: NotebookGroupV1): readonly string[] {
+  if (!group.displayName) return group.aliases;
+  return [
+    group.displayName,
+    ...group.aliases.filter((alias) => alias !== group.displayName),
+  ];
+}
+
+/** Keep a legacy title lossless on a no-op/style-only save. Any actual edit
+ * adopts the unified model, where the first authored alias is also the title. */
+export function termAliasesForSave(
+  group: NotebookGroupV1,
+  aliases: readonly string[],
+  aliasesTouched: boolean,
+): { readonly aliases: readonly string[]; readonly displayName?: string } {
+  return group.displayName && !aliasesTouched
+    ? { aliases: group.aliases, displayName: group.displayName }
+    : { aliases };
+}
+
 export function firstFreeStyle(groups: readonly NotebookGroupV1[], active: ReadonlySet<string>): SeriesStyleV1 {
   const taken = new Set(groups.filter((group) => active.has(group.id)).map((group) => styleKey(group.style)));
   // The first five terms should be distinguishable by color before line type

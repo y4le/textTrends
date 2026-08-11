@@ -135,17 +135,16 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
     /\.workbench-sheet\[data-detent=tall\]\{[^}]*block-size:88vh;block-size:88dvh/,
     /\.reader-region\{[^}]*block-size:100vh;[^}]*block-size:100dvh/,
     /\.form-layer\{[^}]*min-block-size:100vh;min-block-size:100dvh/,
-    /\.query-editor-form\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
-    /\.form-layer \.group-editor\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
+    /\.term-manager\{[^}]*min-block-size:calc\(100vh[^;]+;min-block-size:calc\(100dvh/,
   ]) {
     expect(css).toMatch(rule);
   }
 
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await page.getByRole('dialog', { name: 'Manage terms' })
-    .getByRole('button', { name: 'Edit members: Holmes' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
-  const draft = dialog.getByRole('textbox', { name: /Add member to Holmes/ });
+    .getByRole('button', { name: 'Edit term: Holmes' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Manage terms' });
+  const draft = dialog.getByRole('textbox', { name: 'Term and aliases for Holmes' });
   await draft.fill('watson');
   await draft.focus();
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -157,12 +156,12 @@ test('full-height editors honor resizes-visual geometry without losing draft or 
   await expectAboveOccludedBand(page, draft, 284);
   await expectAboveOccludedBand(
     page,
-    dialog.getByRole('button', { name: 'Apply changes to Holmes' }),
+    dialog.getByRole('button', { name: 'Save term' }),
     284,
   );
   await expectAboveOccludedBand(
     page,
-    dialog.getByRole('button', { name: 'Cancel editing Holmes' }),
+    dialog.getByRole('button', { name: 'Cancel', exact: true }),
     284,
   );
   const compactOverflow = await page.evaluate(() => ({
@@ -201,9 +200,9 @@ test('Chromium resizes-content uses dvh once and preserves the open draft', asyn
   await awaitAllReady(page);
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await page.getByRole('dialog', { name: 'Manage terms' })
-    .getByRole('button', { name: 'Edit members: Holmes' }).click();
-  const dialog = page.getByRole('dialog', { name: 'Query editor: Holmes' });
-  const draft = dialog.getByRole('textbox', { name: /Add member to Holmes/ });
+    .getByRole('button', { name: 'Edit term: Holmes' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Manage terms' });
+  const draft = dialog.getByRole('textbox', { name: 'Term and aliases for Holmes' });
   await draft.fill('watson');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
@@ -212,12 +211,12 @@ test('Chromium resizes-content uses dvh once and preserves the open draft', asyn
   await expect(draft).toHaveValue('watson');
   await expectAboveOccludedBand(
     page,
-    dialog.getByRole('button', { name: 'Apply changes to Holmes' }),
+    dialog.getByRole('button', { name: 'Save term' }),
     0,
   );
   await expectAboveOccludedBand(
     page,
-    dialog.getByRole('button', { name: 'Cancel editing Holmes' }),
+    dialog.getByRole('button', { name: 'Cancel', exact: true }),
     0,
   );
   expect(queriesAfter((await trace(page)).events, mark)).toEqual([]);

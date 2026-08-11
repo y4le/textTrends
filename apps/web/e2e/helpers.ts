@@ -152,12 +152,7 @@ export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void>
 /** Remove every notebook group through the UI (the notebook is append-only;
  *  specs that want a FRESH comparison clear it first). */
 export async function clearNotebook(page: Page): Promise<void> {
-  const railRemovals = page.locator('.term-bar .term-bucket-remove');
-  if ((await railRemovals.count()) === 0) return;
-  if (await railRemovals.first().isVisible()) {
-    while ((await railRemovals.count()) > 0) await railRemovals.first().click();
-    return;
-  }
+  if ((await page.locator('.term-bar .term-bucket').count()) === 0) return;
 
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
@@ -166,15 +161,11 @@ export async function clearNotebook(page: Page): Promise<void> {
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
-/** Open the cross-width quick-add layer and return its text field. */
+/** Open the full-screen manager with a new bottom entry and return its alias field. */
 export async function openQuickAdd(page: Page) {
-  const input = page.getByRole('textbox', {
-    name: 'Add terms to the notebook, comma-separated',
-  });
+  const input = page.getByRole('textbox', { name: 'Term and aliases for new term' });
   if (!(await input.isVisible())) {
-    await page.getByRole('button', {
-      name: 'Add terms to the notebook, comma-separated',
-    }).click();
+    await page.getByRole('button', { name: 'Add term', exact: true }).click();
   }
   await expect(input).toBeVisible();
   return input;
@@ -192,35 +183,45 @@ export async function openQuickAdd(page: Page) {
  */
 export async function submitAndAwaitFreshResults(page: Page, terms: string): Promise<ProtocolTraceEvent[]> {
   // The notebook is APPEND-ONLY (slice-1 commit C): "submit a comparison"
-  // now means clear the notebook, then quick-add the terms. Removals happen
+  // now means clear the notebook, then add the terms in the manager. Removals happen
   // BEFORE the trace mark so their superseded (cancelled, never-delivering)
   // bursts can't stall the fresh-results poll.
   await clearNotebook(page);
-  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const input = await openQuickAdd(page);
-  await input.fill(terms);
-  await input.press('Enter');
-  let fresh: ProtocolTraceEvent[] = [];
-  await expect
-    .poll(
-      async () => {
-        const t = await trace(page);
-        const freshQueries = t.events.filter(
-          (e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query',
-        );
-        if (freshQueries.length === 0) return 'no fresh query posted';
-        const trendJobs = freshQueries.filter((q) => q.op === 'trend');
-        if (trendJobs.length === 0) return 'no fresh trend job posted';
-        const jobs = new Set(freshQueries.map((q) => q.job));
-        fresh = t.events.filter(
-          (e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && jobs.has(e.job),
-        );
-        return fresh.length === jobs.size ? 'all fresh results' : `${fresh.length}/${jobs.size} fresh results`;
-      },
-      { timeout: 30_000, message: `fresh queries for '${terms}' did not all deliver` },
-    )
-    .toBe('all fresh results');
-  return fresh;
+  let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  const delivered: ProtocolTraceEvent[] = [];
+  const labels = terms.split(',').map((term) => term.trim()).filter(Boolean);
+  for (let index = 0; index < labels.length; index++) {
+    const input = index === 0
+      ? await openQuickAdd(page)
+      : page.getByRole('textbox', { name: 'Term and aliases for new term' });
+    if (index > 0) {
+      await page.getByRole('dialog', { name: 'Manage terms' })
+        .getByRole('button', { name: '+ Add term', exact: true }).click();
+      await expect(input).toBeVisible();
+    }
+    await input.fill(labels[index]!);
+    await input.press('Enter');
+    let fresh: ProtocolTraceEvent[] = [];
+    await expect.poll(async () => {
+      const snapshot = await trace(page);
+      const queries = snapshot.events.filter(
+        (event) => event.seq > mark && event.direction === 'to-worker' && event.t === 'query',
+      );
+      if (!queries.some((event) => event.op === 'trend')) return 'no fresh trend job posted';
+      const jobs = new Set(queries.map((event) => event.job));
+      fresh = snapshot.events.filter(
+        (event) => event.seq > mark && event.direction === 'from-worker'
+          && event.t === 'result' && jobs.has(event.job),
+      );
+      return fresh.length === jobs.size ? 'all fresh results' : `${fresh.length}/${jobs.size} fresh results`;
+    }, { timeout: 30_000, message: `fresh queries for '${labels[index]}' did not all deliver` })
+      .toBe('all fresh results');
+    delivered.push(...fresh);
+    mark = (await trace(page)).events.at(-1)?.seq ?? mark;
+  }
+  await page.getByRole('dialog', { name: 'Manage terms' })
+    .getByRole('button', { name: 'Done', exact: true }).click();
+  return delivered;
 }
 
 /** Record all corpus asset requests from now on. */

@@ -1,184 +1,573 @@
-/**
- * The query notebook (slice-1 commit C): the authoritative group list behind
- * the comparison. Rendering rules live in lib/notebook-view.ts (pure,
- * unit-tested); this component only lays rows out and forwards intents.
- *
- * Control semantics (recorded ruling §3 — deliberately DISTINCT controls):
- * - "Shown in analysis" (active/mute) — membership in the whole comparison:
- *   trends, Reader marks, and KWIC eligibility;
- * - the CONCORDANCE chips stay in KwicPanel (orthogonal: hide one track
- *   from the table without touching the chart);
- * - chart FOCUS stays the header chips' job (emphasis only);
- * - solo — transient projection to one group; clearing restores exactly.
- * Reorder uses accessible Up/Down buttons (ruling: no drag requirement).
- * Member editing (aliases/phrases/affixes) arrives with commit D.
- */
-
-import { useState } from 'react';
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+  type KeyboardEvent,
+  type PointerEvent as ReactPointerEvent,
+} from 'react';
+import {
+  SERIES_COLOR_IDS,
+  SERIES_LINE_IDS,
+  type NotebookGroupV1,
+  type SeriesColorId,
+  type SeriesLineId,
+  type SeriesStyleV1,
+} from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
 import {
-  type GroupCountVM,
-  type NotebookRowVM,
-} from '../lib/notebook-view.ts';
+  aliasesForTermEditor,
+  firstFreeStyle,
+  groupTitle,
+  styleSlotOf,
+  termAliasesForSave,
+} from '../lib/notebook.ts';
+import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { SeriesLineSample } from './chrome.tsx';
-import { groupTitle } from '../lib/notebook.ts';
 
-function CountCell({ count }: { count: GroupCountVM }) {
-  const muted = { color: 'var(--fg-muted)' } as const;
+function CountCell({ count }: { readonly count: GroupCountVM }) {
   switch (count.kind) {
-    case 'not-run': return <span style={muted}>not run</span>;
-    case 'pending': return <span style={muted}>…</span>;
-    case 'error': return <span style={{ color: 'var(--accent-text)' }} title={count.message}>error</span>;
-    case 'selected': {
-      const suffix = count.partial ? <span style={muted}> (partial)</span> : null;
-      if (count.selected.kind === 'pending') {
-        return <span><span style={muted}>… selected</span> / {count.total} corpus{suffix}</span>;
-      }
-      if (count.selected.kind === 'error') {
-        return <span title={count.selected.message}><span style={{ color: 'var(--accent-text)' }}>error</span> / {count.total} corpus{suffix}</span>;
-      }
-      return <span>{count.selected.total} selected / {count.total} corpus{suffix}</span>;
-    }
-    default:
-      return (
-        <span title={count.partial ? 'total over the READY documents only' : 'total occurrences'}>
-          {count.total}{count.partial ? <span style={muted}> (partial)</span> : null}
-        </span>
-      );
+    case 'not-run': return <span>not run</span>;
+    case 'pending': return <span>counting…</span>;
+    case 'error': return <span title={count.message}>error</span>;
+    case 'selected': return count.selected.kind === 'ready'
+      ? <span>{count.selected.total} selected / {count.total}</span>
+      : <span>{count.selected.kind} selected / {count.total}</span>;
+    case 'ready': return <span>{count.total}{count.partial ? ' partial' : ''}</span>;
   }
 }
 
-const rowButton = {
-  font: 'inherit',
-  fontFamily: 'var(--font-mono)',
-  fontSize: 'var(--text-xs)',
-  color: 'var(--fg)',
-  background: 'none',
-  border: '1px solid var(--rule)',
-  cursor: 'pointer',
-  padding: '0 0.5ch',
-} as const;
+const COLOR_LABELS: Record<SeriesColorId, string> = {
+  blue: 'Blue',
+  orange: 'Orange',
+  green: 'Green',
+  violet: 'Violet',
+  gold: 'Gold',
+};
 
-export function NotebookPanel({
-  rows,
-  onEdit,
-  activeEditorGroupId,
-}: {
-  readonly rows: readonly NotebookRowVM[];
-  readonly onEdit: (groupId: string, returnFocusTo: string) => void;
-  readonly activeEditorGroupId: string | null;
-}) {
-  const notebook = useApp((s) => s.notebook);
-  const renameGroup = useApp((s) => s.renameGroup);
-  const removeGroup = useApp((s) => s.removeGroup);
-  const reorderGroups = useApp((s) => s.reorderGroups);
-  const setGroupActive = useApp((s) => s.setGroupActive);
-  const setSolo = useApp((s) => s.setSolo);
-  // Rename drafts are local until commit (Enter/blur) — keystrokes must not
-  // hit the store (and thus never a worker) per the draft-and-Apply rule.
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
+const LINE_LABELS: Record<SeriesLineId, string> = {
+  solid: 'Solid',
+  dash: 'Dashed',
+  dot: 'Dotted',
+  'dash-dot': 'Dash dot',
+  'fine-dot': 'Fine dots',
+};
 
-  if (notebook.groups.length === 0) return null;
+interface TermDraft {
+  readonly aliases: string;
+  readonly exactMatch: boolean;
+  readonly countOverlaps: boolean;
+  readonly style: SeriesStyleV1;
+}
 
-  const order = notebook.groups.map((g) => g.id);
-  const move = (id: string, delta: -1 | 1) => {
-    const i = order.indexOf(id);
-    const j = i + delta;
-    if (i < 0 || j < 0 || j >= order.length) return;
-    const next = [...order];
-    [next[i], next[j]] = [next[j]!, next[i]!];
-    reorderGroups(next);
+function draftOf(group: NotebookGroupV1): TermDraft {
+  return {
+    aliases: aliasesForTermEditor(group).join(', '),
+    exactMatch: group.exactMatch,
+    countOverlaps: group.countOverlaps,
+    style: group.style,
   };
-  const commitRename = (id: string) => {
-    const draft = drafts[id];
-    if (draft === undefined) return;
-    setDrafts(({ [id]: _done, ...rest }) => rest);
-    const current = notebook.groups.find((g) => g.id === id);
-    if (!current || draft.normalize('NFC') === groupTitle(current)) return;
-    renameGroup(id, draft.normalize('NFC'));
+}
+
+function aliasesOf(input: string): string[] {
+  return input.split(',').map((alias) => alias.trim()).filter(Boolean);
+}
+
+function StylePicker({
+  name,
+  style,
+  onChange,
+}: {
+  readonly name: string;
+  readonly style: SeriesStyleV1;
+  readonly onChange: (style: SeriesStyleV1) => void;
+}) {
+  return (
+    <div className="term-style-picker">
+      <fieldset>
+        <legend>Color</legend>
+        <div className="term-style-options term-color-options">
+          {SERIES_COLOR_IDS.map((color) => {
+            const selected = style.color === color;
+            return (
+              <label key={color} data-selected={selected || undefined}>
+                <input
+                  type="radio"
+                  name={`${name}-color`}
+                  value={color}
+                  checked={selected}
+                  onChange={() => onChange({ ...style, color })}
+                />
+                <span
+                  className="term-color-swatch"
+                  style={{ color: `var(--series-${SERIES_COLOR_IDS.indexOf(color) + 1})` }}
+                  aria-hidden="true"
+                />
+                {COLOR_LABELS[color]}
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Line</legend>
+        <div className="term-style-options term-line-options">
+          {SERIES_LINE_IDS.map((line) => {
+            const selected = style.line === line;
+            const candidate = { ...style, line };
+            return (
+              <label key={line} data-selected={selected || undefined}>
+                <input
+                  type="radio"
+                  name={`${name}-line`}
+                  value={line}
+                  checked={selected}
+                  onChange={() => onChange(candidate)}
+                />
+                <SeriesLineSample slot={styleSlotOf(candidate)} emphasized />
+                {LINE_LABELS[line]}
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+    </div>
+  );
+}
+
+function TermEditor({
+  group,
+  initialStyle,
+  onSaved,
+  onCancel,
+}: {
+  readonly group: NotebookGroupV1 | null;
+  readonly initialStyle: SeriesStyleV1;
+  readonly onSaved: (groupId: string) => void;
+  readonly onCancel: () => void;
+}) {
+  const addTerm = useApp((state) => state.addTerm);
+  const saveTerm = useApp((state) => state.saveTerm);
+  const clearNotebookError = useApp((state) => state.clearNotebookError);
+  const notebookError = useApp((state) => state.notebookError);
+  const groups = useApp((state) => state.notebook.groups);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+  const [aliasesTouched, setAliasesTouched] = useState(false);
+  const [editorNotice, setEditorNotice] = useState<string | null>(null);
+  const [draft, setDraft] = useState<TermDraft>(() => group
+    ? draftOf(group)
+    : {
+        aliases: '',
+        exactMatch: false,
+        countOverlaps: false,
+        style: initialStyle,
+      });
+  const label = group ? groupTitle(group) : 'new term';
+
+  useEffect(() => {
+    clearNotebookError();
+    const frame = requestAnimationFrame(() => {
+      inputRef.current?.focus({ preventScroll: true });
+      inputRef.current?.select();
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [clearNotebookError, group?.id]);
+
+  const save = () => {
+    clearNotebookError();
+    setEditorNotice(null);
+    const aliases = aliasesOf(draft.aliases);
+    if (group) {
+      if (!saveTerm(group.id, {
+        ...draft,
+        ...termAliasesForSave(group, aliases, aliasesTouched),
+      })) return;
+      onSaved(group.id);
+      return;
+    }
+    const groupId = addTerm({ ...draft, aliases });
+    if (groupId === null) return;
+    const duplicate = groups.find((candidate) => candidate.id === groupId);
+    if (duplicate) {
+      setEditorNotice(`${groupTitle(duplicate)} is already in Terms.`);
+      return;
+    }
+    onSaved(groupId);
   };
 
   return (
-    <section className="query-notebook" aria-labelledby="query-notebook-heading" style={{ marginTop: 'var(--space-2)' }}>
-      <h3 id="query-notebook-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
-        Query notebook
-      </h3>
-      <ul style={{ listStyle: 'none', margin: 0, padding: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}>
-        {rows.map((row, i) => (
-          <li
-            key={row.id}
-            className="query-notebook-row"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 'var(--space-2)',
-              fontFamily: 'var(--font-mono)',
-              fontSize: 'var(--text-xs)',
-              opacity: row.projected ? 1 : 0.55,
+    <form
+      className="term-inline-editor"
+      aria-label={`Edit term: ${label}`}
+      onSubmit={(event) => {
+        event.preventDefault();
+        save();
+      }}
+    >
+      <label className="term-alias-field">
+        <span>Term and aliases</span>
+        <input
+          ref={inputRef}
+          id={`term-aliases-${group?.id ?? 'new'}`}
+          className="exact-input"
+          value={draft.aliases}
+          onChange={(event) => {
+            setAliasesTouched(true);
+            setEditorNotice(null);
+            setDraft({ ...draft, aliases: event.currentTarget.value });
+          }}
+          aria-label={`Term and aliases for ${label}`}
+          aria-describedby={`term-help-${group?.id ?? 'new'}`}
+          placeholder="NYC, NY, New York, New Yo*"
+          autoCapitalize="none"
+          autoCorrect="off"
+          spellCheck={false}
+        />
+      </label>
+      <p className="term-editor-help" id={`term-help-${group?.id ?? 'new'}`}>
+        Separate aliases with commas. The first alias is the term name. Spaces make phrases;
+        put one * at the start or end for a wildcard.
+      </p>
+      <div className="term-match-options">
+        <label>
+          <input
+            type="checkbox"
+            checked={draft.exactMatch}
+            onChange={(event) => setDraft({ ...draft, exactMatch: event.currentTarget.checked })}
+          />
+          Exact match
+        </label>
+        <span>Case and accents are ignored unless exact match is on.</span>
+        <label>
+          <input
+            type="checkbox"
+            checked={draft.countOverlaps}
+            onChange={(event) => setDraft({ ...draft, countOverlaps: event.currentTarget.checked })}
+          />
+          Count overlapping matches
+        </label>
+      </div>
+      <StylePicker
+        name={group?.id ?? 'new-term'}
+        style={draft.style}
+        onChange={(style) => setDraft({ ...draft, style })}
+      />
+      {notebookError && (
+        <p className="term-manager-error" role="alert">{notebookError}</p>
+      )}
+      {editorNotice && <p className="term-manager-notice" role="status">{editorNotice}</p>}
+      <div className="term-editor-actions">
+        <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="submit">{group ? 'Save term' : 'Add term'}</button>
+      </div>
+    </form>
+  );
+}
+
+export function NotebookPanel({
+  rows,
+  initialGroupId,
+  createOnOpen,
+}: {
+  readonly rows: readonly NotebookRowVM[];
+  readonly initialGroupId?: string;
+  readonly createOnOpen?: boolean;
+}) {
+  const notebook = useApp((state) => state.notebook);
+  const activeGroupIds = useApp((state) => state.activeGroupIds);
+  const removeGroup = useApp((state) => state.removeGroup);
+  const reorderGroups = useApp((state) => state.reorderGroups);
+  const setGroupActive = useApp((state) => state.setGroupActive);
+  const setSolo = useApp((state) => state.setSolo);
+  const clearNotebookError = useApp((state) => state.clearNotebookError);
+  const notebookError = useApp((state) => state.notebookError);
+  const removedGroups = useApp((state) => state.removedGroups);
+  const undoRemoveGroup = useApp((state) => state.undoRemoveGroup);
+  const dismissRemovedGroup = useApp((state) => state.dismissRemovedGroup);
+  const [editingId, setEditingId] = useState<string | 'new' | null>(
+    createOnOpen ? 'new' : initialGroupId ?? null,
+  );
+  const [draggingId, setDraggingId] = useState<string | null>(null);
+  const [keyboardGrabbedId, setKeyboardGrabbedId] = useState<string | null>(null);
+  const [reorderStatus, setReorderStatus] = useState('');
+  const pointerDragRef = useRef<{ readonly id: string; readonly pointerId: number } | null>(null);
+  const newStyle = useMemo(
+    () => firstFreeStyle(notebook.groups, activeGroupIds),
+    [activeGroupIds, notebook.groups],
+  );
+  const order = notebook.groups.map((group) => group.id);
+
+  const move = (id: string, delta: -1 | 1) => {
+    const from = order.indexOf(id);
+    const to = from + delta;
+    const group = notebook.groups.find((candidate) => candidate.id === id);
+    if (from < 0 || !group) return;
+    if (to < 0 || to >= order.length) {
+      setReorderStatus(`${groupTitle(group)} is already ${delta === -1 ? 'first' : 'last'}.`);
+      return;
+    }
+    const next = [...order];
+    [next[from], next[to]] = [next[to]!, next[from]!];
+    reorderGroups(next);
+    setReorderStatus(`${groupTitle(group)} moved to position ${to + 1} of ${order.length}`);
+    requestAnimationFrame(() => document.getElementById(`term-drag-${id}`)?.focus());
+  };
+
+  const place = (dragged: string, overId: string, after: boolean) => {
+    if (!dragged || dragged === overId) return;
+    const group = notebook.groups.find((candidate) => candidate.id === dragged);
+    if (!group) return;
+    const without = order.filter((id) => id !== dragged);
+    const over = without.indexOf(overId);
+    if (over < 0) return;
+    without.splice(over + (after ? 1 : 0), 0, dragged);
+    reorderGroups(without);
+    setReorderStatus(
+      `${groupTitle(group)} moved to position ${without.indexOf(dragged) + 1} of ${without.length}`,
+    );
+    setDraggingId(null);
+  };
+
+  const drop = (event: DragEvent<HTMLLIElement>, overId: string) => {
+    const dragged = draggingId ?? event.dataTransfer.getData('text/plain');
+    if (!order.includes(dragged)) return;
+    event.preventDefault();
+    const rect = event.currentTarget.getBoundingClientRect();
+    place(dragged, overId, event.clientY >= rect.top + rect.height / 2);
+  };
+
+  const finishPointerDrag = (event: ReactPointerEvent<HTMLButtonElement>, id: string) => {
+    const pointerDrag = pointerDragRef.current;
+    if (!pointerDrag || pointerDrag.id !== id || pointerDrag.pointerId !== event.pointerId) return;
+    event.preventDefault();
+    const target = document.elementFromPoint(event.clientX, event.clientY)
+      ?.closest<HTMLElement>('[data-term-manager-id]');
+    const overId = target?.dataset.termManagerId;
+    if (overId) {
+      const rect = target.getBoundingClientRect();
+      place(id, overId, event.clientY >= rect.top + rect.height / 2);
+    }
+    try {
+      if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+        event.currentTarget.releasePointerCapture(event.pointerId);
+      }
+    } catch {
+      // Synthetic pointer tests do not create browser-level capture state.
+    }
+    pointerDragRef.current = null;
+    setDraggingId(null);
+  };
+
+  const beginNew = () => {
+    clearNotebookError();
+    setEditingId('new');
+    requestAnimationFrame(() => document.getElementById('term-aliases-new')?.scrollIntoView({ block: 'center' }));
+  };
+
+  const closeEditorAndFocus = (controlId: string) => {
+    setEditingId(null);
+    requestAnimationFrame(() => document.getElementById(controlId)?.focus());
+  };
+
+  const focusAfterNotice = (preferredId?: string) => {
+    requestAnimationFrame(() => {
+      const preferred = preferredId ? document.getElementById(preferredId) : null;
+      (preferred ?? document.getElementById('term-manager-add'))?.focus();
+    });
+  };
+
+  return (
+    <section className="query-notebook" aria-label="Query notebook">
+      <p id="term-reorder-instructions" className="visually-hidden">
+        Drag this handle to reorder. With a keyboard, press Space or Enter to grab,
+        use the up and down arrow keys, then press Space or Enter to drop.
+      </p>
+      <p className="visually-hidden" role="status" aria-live="polite">{reorderStatus}</p>
+      {notebookError && editingId === null && (
+        <p className="term-manager-error" role="alert">{notebookError}</p>
+      )}
+      {removedGroups.length > 0 && (
+        <div className="term-manager-undo" role="status">
+          Removed {groupTitle(removedGroups.at(-1)!.group)}.
+          {' '}<button
+            type="button"
+            onClick={() => {
+              const restoredId = removedGroups.at(-1)!.group.id;
+              undoRemoveGroup();
+              focusAfterNotice(`term-summary-${restoredId}`);
             }}
-          >
-            <SeriesLineSample slot={row.slot ?? 0} emphasized={row.projected} />
-            <input
-              className="exact-input"
-              value={drafts[row.id] ?? row.name}
-              onChange={(e) => setDrafts((d) => ({ ...d, [row.id]: e.target.value }))}
-              onBlur={() => commitRename(row.id)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter') { e.preventDefault(); commitRename(row.id); }
+          >Undo</button>
+          {' '}<button
+            type="button"
+            onClick={() => {
+              dismissRemovedGroup();
+              focusAfterNotice();
+            }}
+          >Dismiss</button>
+        </div>
+      )}
+      <ul className="term-manager-list" aria-label="Terms">
+        {rows.map((row) => {
+          const group = notebook.groups.find((candidate) => candidate.id === row.id)!;
+          const expanded = editingId === row.id;
+          return (
+            <li
+              key={row.id}
+              className="term-manager-item"
+              data-term-manager-id={row.id}
+              data-dragging={draggingId === row.id || undefined}
+              onDragOver={(event) => {
+                if (draggingId) event.preventDefault();
               }}
-              aria-label={`Group name: ${row.name}`}
-              autoCapitalize="none"
-              autoCorrect="off"
-              spellCheck={false}
-              style={{
-                font: 'inherit',
-                background: 'transparent',
-                color: 'var(--fg)',
-                border: 'none',
-                borderBottom: '1px dashed var(--rule)',
-                padding: '1px 0',
-                width: '18ch',
+              onDrop={(event) => drop(event, row.id)}
+            >
+              <div className="term-manager-row">
+                <button
+                  id={`term-drag-${row.id}`}
+                  type="button"
+                  className="term-drag-handle"
+                  draggable
+                  aria-label={`Reorder ${row.name}`}
+                  aria-describedby="term-reorder-instructions"
+                  aria-pressed={keyboardGrabbedId === row.id}
+                  onDragStart={(event) => {
+                    setDraggingId(row.id);
+                    event.dataTransfer.effectAllowed = 'move';
+                    event.dataTransfer.setData('text/plain', row.id);
+                  }}
+                  onDragEnd={() => setDraggingId(null)}
+                  onPointerDown={(event) => {
+                    if (event.pointerType === 'mouse' || event.button !== 0) return;
+                    event.preventDefault();
+                    pointerDragRef.current = { id: row.id, pointerId: event.pointerId };
+                    setDraggingId(row.id);
+                    try {
+                      event.currentTarget.setPointerCapture(event.pointerId);
+                    } catch {
+                      // Pointer capture is unavailable for synthetic events.
+                    }
+                  }}
+                  onPointerMove={(event) => {
+                    if (pointerDragRef.current?.pointerId === event.pointerId) event.preventDefault();
+                  }}
+                  onPointerUp={(event) => finishPointerDrag(event, row.id)}
+                  onPointerCancel={() => {
+                    pointerDragRef.current = null;
+                    setDraggingId(null);
+                  }}
+                  onKeyDown={(event: KeyboardEvent<HTMLButtonElement>) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      const grabbed = keyboardGrabbedId !== row.id;
+                      setKeyboardGrabbedId(grabbed ? row.id : null);
+                      setReorderStatus(grabbed
+                        ? `${row.name} grabbed. Use the up and down arrow keys to reorder.`
+                        : `${row.name} dropped at position ${order.indexOf(row.id) + 1} of ${order.length}`);
+                      return;
+                    }
+                    if (event.key !== 'ArrowUp' && event.key !== 'ArrowDown') return;
+                    event.preventDefault();
+                    if (keyboardGrabbedId !== row.id) {
+                      setReorderStatus(`${row.name} is not grabbed. Press Space or Enter to grab it.`);
+                      return;
+                    }
+                    move(row.id, event.key === 'ArrowUp' ? -1 : 1);
+                  }}
+                >
+                  <span aria-hidden="true">⠿</span>
+                </button>
+                <button
+                  id={`term-summary-${row.id}`}
+                  type="button"
+                  className="term-manager-summary"
+                  aria-label={`Edit term: ${row.name}`}
+                  aria-expanded={expanded}
+                  {...(expanded ? { 'aria-controls': `term-editor-${row.id}` } : {})}
+                  onClick={() => {
+                    clearNotebookError();
+                    setEditingId(expanded ? null : row.id);
+                  }}
+                >
+                  <SeriesLineSample slot={row.slot ?? styleSlotOf(group.style)} emphasized={row.active} />
+                  <span className="term-manager-title">{row.name}</span>
+                  {group.aliases.length > 1 && (
+                    <span className="term-manager-alias-count">+{group.aliases.length - 1} aliases</span>
+                  )}
+                </button>
+                <span className="term-manager-count"><CountCell count={row.count} /></span>
+                <button
+                  type="button"
+                  className="term-manager-active"
+                  aria-label={`Shown in analysis: ${row.name}`}
+                  aria-pressed={row.active}
+                  onClick={() => setGroupActive(row.id, !row.active)}
+                >
+                  {row.active ? 'Shown' : 'Hidden'}
+                </button>
+                <button
+                  type="button"
+                  className="term-manager-solo"
+                  aria-label={`Solo: ${row.name}`}
+                  aria-pressed={row.solo}
+                  disabled={!row.active}
+                  onClick={() => setSolo(row.solo ? null : row.id)}
+                >
+                  Solo
+                </button>
+                <button
+                  type="button"
+                  className="term-manager-remove"
+                  aria-label={`Remove ${row.name}`}
+                  onClick={() => {
+                    if (expanded) setEditingId(null);
+                    removeGroup(row.id);
+                    requestAnimationFrame(() => {
+                      document.querySelector<HTMLButtonElement>('.term-manager-undo button')?.focus();
+                    });
+                  }}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </div>
+              {expanded && (
+                <div id={`term-editor-${row.id}`}>
+                  <TermEditor
+                    key={row.id}
+                    group={group}
+                    initialStyle={group.style}
+                    onSaved={() => closeEditorAndFocus(`term-summary-${row.id}`)}
+                    onCancel={() => {
+                      clearNotebookError();
+                      closeEditorAndFocus(`term-summary-${row.id}`);
+                    }}
+                  />
+                </div>
+              )}
+            </li>
+          );
+        })}
+        {rows.length === 0 && editingId !== 'new' && (
+          <li className="term-manager-empty">No terms yet. Add one to begin comparing.</li>
+        )}
+        {editingId === 'new' && (
+          <li className="term-manager-item term-new-row" id="term-editor-new">
+            <span className="term-drag-placeholder" aria-hidden="true">⠿</span>
+            <TermEditor
+              group={null}
+              initialStyle={newStyle}
+              onSaved={(groupId) => closeEditorAndFocus(`term-summary-${groupId}`)}
+              onCancel={() => {
+                clearNotebookError();
+                closeEditorAndFocus('term-manager-add');
               }}
             />
-            <span style={{ minWidth: '8ch', textAlign: 'right' }}><CountCell count={row.count} /></span>
-            <button
-              type="button"
-              style={rowButton}
-              // STABLE group-qualified accessible name (review-C): several
-              // rows carry this control, and the name must say WHICH group it
-              // operates and never vary with the pressed state — aria-pressed
-              // already conveys that; the checkmark is decorative.
-              aria-label={`Shown in analysis: ${row.name}`}
-              aria-pressed={row.active}
-              onClick={() => setGroupActive(row.id, !row.active)}
-              title={row.active ? 'remove from the comparison (keeps results settings)' : 'add to the comparison'}
-            >
-              <span aria-hidden="true">{row.active ? '✓ ' : ''}</span>shown in analysis
-            </button>
-            <button
-              type="button"
-              style={rowButton}
-              aria-label={`Solo: ${row.name}`}
-              aria-pressed={row.solo}
-              onClick={() => setSolo(row.solo ? null : row.id)}
-              title={row.solo ? 'end solo — restore the full comparison' : 'solo — temporarily show only this group'}
-            >
-              solo
-            </button>
-            <button type="button" style={rowButton} aria-label={`Move ${row.name} up`} disabled={i === 0} onClick={() => move(row.id, -1)}>↑</button>
-            <button type="button" style={rowButton} aria-label={`Move ${row.name} down`} disabled={i === rows.length - 1} onClick={() => move(row.id, 1)}>↓</button>
-            <button
-              type="button"
-              style={rowButton}
-              id={`query-edit-${row.id}`}
-              aria-label={`Edit members: ${row.name}`}
-              aria-expanded={activeEditorGroupId === row.id}
-              onClick={() => onEdit(row.id, `query-edit-${row.id}`)}
-            >edit</button>
-            <button type="button" style={rowButton} aria-label={`Remove ${row.name}`} onClick={() => removeGroup(row.id)}>remove</button>
           </li>
-        ))}
+        )}
       </ul>
+      <button id="term-manager-add" type="button" className="term-manager-add" onClick={beginNew}>
+        + Add term
+      </button>
     </section>
   );
 }

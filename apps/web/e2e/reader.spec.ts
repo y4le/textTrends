@@ -295,13 +295,14 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 
   // Return to Trends to make a semantic edit, then reopen from the refreshed
   // concordance and verify the Reader's current projection.
-  await page.getByRole('button', { name: 'Edit members: wolf' }).click();
-  const editor = page.getByRole('group', { name: 'Edit members: wolf' });
+  await page.getByRole('button', { name: 'Edit term: wolf' }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  const editor = manager.getByRole('form', { name: 'Edit term: wolf' });
   await expect(editor).toBeVisible();
-  await editor.getByLabel(/Add member to wolf/).fill('w0100');
-  await editor.getByRole('button', { name: 'add', exact: true }).click();
-  await editor.getByRole('button', { name: 'Apply changes to wolf' }).click();
+  await editor.getByRole('textbox', { name: 'Term and aliases for wolf' }).fill('wolf, w0100');
+  await editor.getByRole('button', { name: 'Save term' }).click();
   await expect(editor).toHaveCount(0);
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
   const refreshedOpen = page.getByRole('table', { name: 'Concordance' })
     .getByRole('button', { name: 'w0100', exact: true }).first();

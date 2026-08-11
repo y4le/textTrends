@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { TERM_GROUP_LIMITS_V1, termGroupIdentity } from '@texttrends/core';
 import {
+  aliasesForTermEditor,
   FOLDED_MATCH,
   coreGroupOf,
   groupIdentity,
@@ -9,6 +10,7 @@ import {
   parseQueryNotebook,
   parseQuickAdd,
   resolveActiveStyleCollisions,
+  termAliasesForSave,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
@@ -86,6 +88,24 @@ describe('parseQuickAdd', () => {
 });
 
 describe('authored alias model', () => {
+  it('presents a legacy custom title first without duplicating an existing alias', () => {
+    const legacy = {
+      ...group('g', 'holmes'),
+      aliases: ['holmes', 'sherlock'],
+      displayName: 'Detective',
+    };
+    expect(aliasesForTermEditor(legacy)).toEqual(['Detective', 'holmes', 'sherlock']);
+    expect(termAliasesForSave(legacy, ['Detective', 'holmes', 'sherlock'], false))
+      .toEqual({ aliases: ['holmes', 'sherlock'], displayName: 'Detective' });
+    expect(termAliasesForSave(legacy, ['Detective', 'holmes', 'sherlock'], true))
+      .toEqual({ aliases: ['Detective', 'holmes', 'sherlock'] });
+    expect(aliasesForTermEditor({
+      ...group('g', 'holmes'),
+      aliases: ['holmes', 'Detective'],
+      displayName: 'Detective',
+    })).toEqual(['Detective', 'holmes']);
+  });
+
   it('compiles token, multiword, and wildcard aliases using one uniform mode', () => {
     const term: NotebookGroupV1 = {
       ...group('nyc', 'NYC'),

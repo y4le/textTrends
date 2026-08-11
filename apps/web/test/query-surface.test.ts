@@ -26,19 +26,19 @@ describe('query surface', () => {
   it('parses only governed query-editor targets', () => {
     expect(queryEditorTarget({ surface: 'query-editor', mode: 'manage' }))
       .toEqual({ surface: 'query-editor', mode: 'manage' });
-    expect(queryEditorTarget({ surface: 'query-editor', mode: 'quick-add' }))
-      .toEqual({ surface: 'query-editor', mode: 'quick-add' });
     expect(queryEditorTarget({
       surface: 'query-editor',
-      mode: 'group',
+      mode: 'manage',
       groupId: 'group-1',
     })).toEqual({
       surface: 'query-editor',
-      mode: 'group',
+      mode: 'manage',
       groupId: 'group-1',
     });
+    expect(queryEditorTarget({ surface: 'query-editor', mode: 'manage', create: true }))
+      .toEqual({ surface: 'query-editor', mode: 'manage', create: true });
     expect(queryEditorTarget({ surface: 'query-editor', mode: 'group' })).toBeNull();
-    expect(queryEditorTarget({ surface: 'other', mode: 'group', groupId: 'x' }))
+    expect(queryEditorTarget({ surface: 'other', mode: 'manage', groupId: 'x' }))
       .toBeNull();
   });
 

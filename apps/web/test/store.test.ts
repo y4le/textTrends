@@ -1817,6 +1817,20 @@ describe('query notebook — identity discipline', () => {
     expect(f.store.getState().activeGroupIds.has(term.id)).toBe(true);
   });
 
+  it('refuses an authored style collision for a new active term', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('Holmes');
+    const holmes = groupsOf(f)[0]!;
+    expect(f.store.getState().addTerm({
+      aliases: ['Watson'],
+      style: holmes.style,
+    })).toBeNull();
+    expect(groupsOf(f).map(groupTitle)).toEqual(['Holmes']);
+    expect(f.store.getState().notebookError)
+      .toBe('Holmes already uses that color and line type');
+  });
+
   it('commits exact-match alias edits explicitly and reissues matching work', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');

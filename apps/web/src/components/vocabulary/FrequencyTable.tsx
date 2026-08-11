@@ -214,7 +214,7 @@ function FrequencyRowDetail({
         <button
           type="button"
           onClick={onAdd}
-          title="Add this exact, case-sensitive term as a notebook group"
+          title="Add this exact, case-sensitive term"
         >
           add exact
         </button>
@@ -243,7 +243,7 @@ export function FrequencyTable({
   const setSort = useApp((store) => store.setFrequencySort);
   const applyView = useApp((store) => store.applyFrequencyView);
   const setPage = useApp((store) => store.setFrequencyPage);
-  const addTerm = useApp((store) => store.addFrequencyTerm);
+  const addTerm = useApp((store) => store.addTerm);
   const showInKwic = useApp((store) => store.showFrequencyTermInKwic);
   const pushLayer = useApp((store) => store.pushLayer);
   const replaceLayer = useApp((store) => store.replaceLayer);
@@ -307,6 +307,21 @@ export function FrequencyTable({
     if (write === 'replace') replaceLayer('row-detail', Object.freeze(next), returnFocusTo);
     else pushLayer('row-detail', Object.freeze(next), returnFocusTo);
     return true;
+  };
+  const addAndManage = (key: string, typeId: number) => {
+    const groupId = addTerm({ aliases: [key], exactMatch: true });
+    if (groupId === null) return;
+    const next = Object.freeze({
+      surface: 'query-editor' as const,
+      mode: 'manage' as const,
+      groupId,
+    });
+    const write = rowDetailWrite(
+      topLayer?.kind === 'row-detail' ? rowDetailSurface(topLayer.target) : null,
+      'query-editor',
+    );
+    if (write === 'replace') replaceLayer('row-detail', next, vocabularyRowControlId(typeId));
+    else pushLayer('row-detail', next, vocabularyRowControlId(typeId));
   };
   const openFilter = () => writeTarget(
     { surface: 'vocab-filter' },
@@ -561,7 +576,7 @@ export function FrequencyTable({
                           <td role="cell" aria-colindex={1} colSpan={7}>
                             <FrequencyRowDetail
                               row={row}
-                              onAdd={() => addTerm(row.key)}
+                              onAdd={() => addAndManage(row.key, row.typeId)}
                               onConcordance={() => showInKwic(row.key)}
                             />
                           </td>
