@@ -12,7 +12,7 @@
  * Both views share one y-scale across every term and book so magnitude
  * comparison stays honest. Rate denominator and optional within-book
  * smoothing are presentation settings; count is a separate unsmoothed view. Series identity
- * is color + dash + chips/direct labels — never color alone. The plot holds
+ * is color + dash in the Terms footer — never color alone. The plot holds
  * until every non-failed series resolves so the shared scale never jumps.
  * Exact per-book values live in Catalog; this surface stays focused on shape,
  * distribution, and reading-position interaction.
@@ -46,7 +46,6 @@ import {
   selectedTrendPathData,
   seriesXFromToken,
   seriesXFromTokenEdge,
-  spreadLabels,
   stepAlongSequence,
   trendBinAtToken,
   trendBinSpan,
@@ -86,8 +85,6 @@ import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
-const MIN_LABEL_GAP = 12;
-
 interface ReadySeries {
   readonly intent: SeriesIntent;
   readonly trend: NumericTrend;
@@ -127,7 +124,7 @@ type CaptureBarcodePointer = (
 export function TrendPanel() {
   // Deliberately NO `scrub` subscription here: it updates once per
   // pointer animation frame, and this component's render rebuilds every path,
-  // hover rect, label, and totals row. The ScrubSurface child owns the
+  // hover rect, and totals row. The ScrubSurface child owns the
   // per-frame state; this panel re-renders only on data/view/focus/resize
   // changes (the Phase B ruling's invariant).
   const series = useApp((s) => s.series);
@@ -160,15 +157,12 @@ export function TrendPanel() {
     const observer = new ResizeObserver((entries) => {
       const width = entries[0]?.contentRect.width;
       if (!width) return; // ignore zero/unavailable observations
-      // The plot and its direct-label rail must fit their measured owner.
-      // Compact geometry gets richer in Stage 3, but the foundation must not
-      // impose a desktop minimum that makes the page itself pan horizontally.
-      const next = Math.max(1, Math.round(width) - geometry.labelSpace);
+      const next = Math.max(1, Math.round(width));
       setPlotW((prev) => (prev === next ? prev : next));
     });
     observer.observe(containerEl);
     return () => observer.disconnect();
-  }, [containerEl, geometry]);
+  }, [containerEl]);
 
   const states = series.map((intent) => ({ intent, state: trends.get(intent.id) }));
   const pending = states.filter((s) => !s.state || s.state.status === 'pending');
@@ -1294,32 +1288,23 @@ const SeriesView = memo(function SeriesView({
     return x((bases[d] ?? 0) + (start + end) / 2);
   };
 
-  const endPoints = ready.map((r) => {
-    for (let d = docs.length - 1; d >= 0; d--) {
-      const rows = trendRowsForDoc(r.trend, d);
-      for (let row = rows.end - 1; row >= rows.start; row--) {
-        const value = r.values[row];
-        if (value !== undefined && Number.isFinite(value)) return y(value);
-      }
-    }
-    return y(0);
-  });
-  const labelY = spreadLabels(
-    endPoints,
-    geometry.topPad + 4,
-    geometry.seriesHeight - 2,
-    MIN_LABEL_GAP,
-  );
-
   return (
     <svg
       data-trend-view="series"
-      width={plotW + geometry.labelSpace}
+      width={plotW}
       height={height}
       role="img"
       aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${ready.map((r) => r.intent.label).join(', ')} across ${docs.length} books in reading order`}
     >
-      <line x1={0} y1={axisY} x2={plotW} y2={axisY} stroke="var(--rule-strong)" strokeWidth={1} />
+      <line
+        data-trend-axis="series"
+        x1={0}
+        y1={axisY}
+        x2={plotW}
+        y2={axisY}
+        stroke="var(--rule-strong)"
+        strokeWidth={1}
+      />
       {docs.map((doc, d) => {
         const x0 = x(bases[d] ?? 0);
         const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
@@ -1427,29 +1412,6 @@ const SeriesView = memo(function SeriesView({
           ));
         }),
       )}
-      {/* Direct end labels, collision-spread, foreground text + colored leader */}
-      {geometry.directLabels && ready.map((r, i) => (
-        <g key={`label-${r.intent.id}`}>
-          <line
-            x1={plotW + 2}
-            y1={endPoints[i]!}
-            x2={plotW + 14}
-            y2={labelY[i]!}
-            stroke={slotColor(r.intent.styleSlot)}
-            strokeWidth={1}
-            strokeDasharray={slotDash(r.intent.styleSlot)}
-          />
-          <text
-            x={plotW + 18}
-            y={labelY[i]! + 3}
-            fill="var(--fg)"
-            fontSize="var(--text-xs)"
-            fontFamily="var(--font-mono)"
-          >
-            {r.intent.label}
-          </text>
-        </g>
-      ))}
       {/* The moving cursor is NOT here: it is ScrubSurface's overlay div, so
           scrubbing never re-renders this SVG. */}
       {__TT_E2E__ && <ChartCommitProbe view="series" />}
@@ -1518,7 +1480,7 @@ const ByBookView = memo(function ByBookView({
   return (
     <svg
       data-trend-view="by-book"
-      width={plotW + geometry.labelSpace}
+      width={plotW}
       height={height}
       role="img"
       aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
@@ -1591,18 +1553,6 @@ const ByBookView = memo(function ByBookView({
                   pointerEvents="none"
                 />
               )),
-            )}
-            {geometry.directLabels && (
-              <text
-                x={plotW + 6}
-                y={rowY + geometry.rowHeight - 2}
-                fill="var(--fg)"
-                fontSize="var(--text-xs)"
-                fontFamily="var(--font-mono)"
-              >
-                {`${d + 1} · `}{title.slice(0, 16)}
-                <title>{title}</title>
-              </text>
             )}
             {Array.from({ length: trendRowsForDoc(geo, d).count }, (_, b) => {
               const rows = trendRowsForDoc(geo, d);

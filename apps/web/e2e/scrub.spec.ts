@@ -24,8 +24,24 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   await submitAndAwaitFreshResults(page, 'holmes');
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
+  const seriesChart = page.locator('svg[data-trend-view="series"]');
   const cursor = page.getByTestId('chart-cursor');
   await expect(scrubber).toBeVisible();
+  await expect(seriesChart).toBeVisible();
+  const seriesBounds = await seriesChart.boundingBox();
+  const viewport = page.viewportSize()!;
+  expect(seriesBounds).not.toBeNull();
+  expect(Math.abs(
+    seriesBounds!.x - (viewport.width - seriesBounds!.x - seriesBounds!.width),
+  )).toBeLessThanOrEqual(1);
+  const axis = await seriesChart.locator('[data-trend-axis="series"]').evaluate((element) => ({
+    x1: Number(element.getAttribute('x1')),
+    x2: Number(element.getAttribute('x2')),
+    chartWidth: element.closest('svg')?.getBoundingClientRect().width ?? 0,
+  }));
+  expect(axis.x1).toBe(0);
+  expect(Math.abs(axis.x2 - axis.chartWidth)).toBeLessThanOrEqual(1);
+  await expect(seriesChart.getByText('holmes', { exact: true })).toHaveCount(0);
   const seriesBaseline = await commits(page, 'series');
   expect(seriesBaseline).toBeGreaterThan(0);
 
@@ -51,6 +67,7 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   // Probe liveness 1: switching views really commits the other chart.
   await page.getByRole('button', { name: 'by book' }).click();
   await expect.poll(() => commits(page, 'by-book')).toBeGreaterThan(0);
+  await expect(page.locator('svg[data-trend-view="by-book"] text')).toHaveCount(0);
   const byBookBaseline = await commits(page, 'by-book');
 
   // Cursor stays frozen-chart in the by-book view too.
@@ -62,7 +79,6 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   // Probe liveness 2: a genuine geometry change (viewport width → plotW)
   // must increment the counter — proving the frozen counts above are not a
   // dead probe.
-  const viewport = page.viewportSize()!;
   await page.setViewportSize({ width: viewport.width + 200, height: viewport.height });
   await expect.poll(() => commits(page, 'by-book')).toBeGreaterThan(byBookBaseline);
 });

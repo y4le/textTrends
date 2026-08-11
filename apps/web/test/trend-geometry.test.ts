@@ -12,7 +12,6 @@ import {
   seriesTokenFromX,
   seriesXFromToken,
   seriesXFromTokenEdge,
-  spreadLabels,
   stepAlongSequence,
   trendStageHit,
   type SequenceLayout,
@@ -161,7 +160,7 @@ describe('token-edge geometry (range boundary rules)', () => {
 });
 
 describe('pointer plot containment', () => {
-  it('series: label rail, above-plot, and below-axis coordinates are rejected, never clamped', () => {
+  it('series: right-edge, above-plot, and below-axis coordinates are rejected, never clamped', () => {
     const plotW = 600;
     const plotH = 180;
     const stage = {
@@ -174,8 +173,8 @@ describe('pointer plot containment', () => {
       layout: LAYOUT,
     };
     expect(trendStageHit(300, 90, stage)).not.toBeNull();
-    expect(trendStageHit(600, 90, stage)).toBeNull(); // label rail
-    expect(trendStageHit(700, 90, stage)).toBeNull(); // end labels
+    expect(trendStageHit(600, 90, stage)).toBeNull(); // exclusive right edge
+    expect(trendStageHit(700, 90, stage)).toBeNull(); // beyond the plot
     expect(trendStageHit(-1, 90, stage)).toBeNull();
     expect(trendStageHit(300, 181, stage)).toBeNull(); // passage line below
     expect(trendStageHit(300, -1, stage)).toBeNull();
@@ -198,7 +197,7 @@ describe('pointer plot containment', () => {
     expect(trendStageHit(300, 50, stage)).toBeNull(); // gap after row 0
     expect(trendStageHit(300, 80, stage)?.d).toBe(1);
     expect(trendStageHit(300, 200, stage)).toBeNull(); // below last row
-    expect(trendStageHit(600, 20, stage)).toBeNull(); // label rail
+    expect(trendStageHit(600, 20, stage)).toBeNull(); // exclusive right edge
   });
 
   it('by-book: an empty document row rejects instead of producing a position', () => {
@@ -261,30 +260,5 @@ describe('integrated barcode stage geometry', () => {
     expect(hit(70)).toBeNull();
     expect(hit(pitch + 20)).toMatchObject({ d: 1, token: 25, zone: 'plot' });
     expect(hit(pitch + 48)).toMatchObject({ d: 1, zone: 'barcode', trackRow: 0 });
-  });
-});
-
-describe('spreadLabels', () => {
-  it('leaves non-colliding labels at their desired positions', () => {
-    expect(spreadLabels([10, 40, 80], 0, 100, 12)).toEqual([10, 40, 80]);
-  });
-
-  it('spreads colliding labels to the minimum gap, preserving vertical order', () => {
-    const out = spreadLabels([50, 52, 51], 0, 100, 12);
-    const sorted = [...out].sort((a, b) => a - b);
-    for (let i = 1; i < sorted.length; i++) {
-      expect(sorted[i]! - sorted[i - 1]!).toBeGreaterThanOrEqual(12);
-    }
-    // Relative order of the inputs' ranks is preserved.
-    expect(out[0]!).toBeLessThan(out[2]!);
-    expect(out[2]!).toBeLessThan(out[1]!);
-  });
-
-  it('respects the [min, max] range even when crowded at the bottom', () => {
-    const out = spreadLabels([98, 99, 100], 0, 100, 12);
-    for (const y of out) {
-      expect(y).toBeGreaterThanOrEqual(0);
-      expect(y).toBeLessThanOrEqual(100);
-    }
   });
 });

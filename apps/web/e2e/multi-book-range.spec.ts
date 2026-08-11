@@ -22,8 +22,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await expect(scrubber).toBeVisible();
   const box = (await scrubber.boundingBox())!;
   const y = box.y + Math.min(40, box.height * 0.25);
-  // Leave enough room for the chart's right-side direct-label gutter: the
-  // two equal-length books meet slightly left of the slider's visual centre.
+  // Cross the midpoint where the two equal-length books meet.
   await page.mouse.move(box.x + box.width * 0.35, y);
   await page.mouse.down();
   await page.mouse.move(box.x + box.width * 0.55, y, { steps: 8 });

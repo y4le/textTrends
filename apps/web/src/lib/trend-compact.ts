@@ -1,5 +1,4 @@
 import type { WidthClass } from './presentation.ts';
-import { TREND_LABEL_SPACE } from './trend-geometry.ts';
 
 export interface TrendGeometry {
   readonly seriesHeight: number;
@@ -9,10 +8,8 @@ export interface TrendGeometry {
   readonly barcodeTrackHeight: number;
   readonly barcodeTrackGap: number;
   readonly barcodeBandGap: number;
-  readonly labelSpace: number;
   readonly strokeFocused: number;
   readonly strokeOther: number;
-  readonly directLabels: boolean;
   readonly bookMarks: 'ticks' | 'boundaries';
 }
 
@@ -24,10 +21,8 @@ const STANDARD: TrendGeometry = Object.freeze({
   barcodeTrackHeight: 7,
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
-  labelSpace: TREND_LABEL_SPACE,
   strokeFocused: 2.5,
   strokeOther: 1.5,
-  directLabels: true,
   bookMarks: 'ticks',
 });
 
@@ -39,10 +34,8 @@ const COMPACT: TrendGeometry = Object.freeze({
   barcodeTrackHeight: 5,
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
-  labelSpace: 0,
   strokeFocused: 3.5,
   strokeOther: 2,
-  directLabels: false,
   bookMarks: 'boundaries',
 });
 

@@ -9,10 +9,6 @@ import { barcodeBandExtent } from './footer-metrics.ts';
 
 export { barcodeBandExtent, barcodeBandHeight } from './footer-metrics.ts';
 
-/** Horizontal space reserved for direct labels beside the plot. Shared with
- * pointer-driven browser tests so gesture coordinates cannot drift silently. */
-export const TREND_LABEL_SPACE = 130;
-
 /** Selected trends retain the full document bin geometry, but bins with no
  * selected denominator are GAPS rather than fabricated zero observations.
  * A one-bin run receives a near-zero horizontal tail so SVG paints the mark. */
@@ -320,29 +316,4 @@ export function stepAlongSequence(
   layout: SequenceLayout,
 ): { d: number; token: number } | null {
   return seriesDocFromGlobal((layout.bases[d] ?? 0) + token + delta, layout);
-}
-
-/** Resolve direct-label y-positions with a minimum vertical gap, preserving
- *  the input order of ties by rank; positions stay within [min, max]. */
-export function spreadLabels(
-  desired: readonly number[],
-  min: number,
-  max: number,
-  gap: number,
-): number[] {
-  const order = desired.map((y, i) => ({ y, i })).sort((a, b) => a.y - b.y);
-  const placed: number[] = [];
-  for (const { y } of order) {
-    const lo = placed.length === 0 ? min : placed[placed.length - 1]! + gap;
-    placed.push(Math.min(Math.max(y, lo), max));
-  }
-  // Push overflow back up if we ran past max.
-  for (let i = placed.length - 2; i >= 0; i--) {
-    placed[i] = Math.min(placed[i]!, placed[i + 1]! - gap);
-  }
-  const out: number[] = new Array(desired.length);
-  order.forEach(({ i }, k) => {
-    out[i] = placed[k]!;
-  });
-  return out;
 }

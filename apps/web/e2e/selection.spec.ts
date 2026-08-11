@@ -8,7 +8,6 @@
 
 import { expect, test, type Page, type Worker } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
-import { TREND_LABEL_SPACE } from '../src/lib/trend-geometry.ts';
 
 // 12 tokens; wolf at 1, 6, and 9.
 const CORPUS = 'alpha wolf beta gamma fox delta wolf eta theta wolf iota omega\n';
@@ -196,7 +195,7 @@ test('pointer and keyboard selections share detail results and stale results can
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const box = (await scrubber.boundingBox())!;
-  const plotWidth = box.width - TREND_LABEL_SPACE;
+  const plotWidth = box.width;
 
   // Pointer selection A: drag token 5 → token 10, committing [5,11). Until
   // pointer-up, the preview is local and no selected query is posted.
