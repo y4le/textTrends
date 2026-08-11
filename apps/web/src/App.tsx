@@ -538,7 +538,18 @@ export function App() {
       </p>
       <header className="app-header">
         <div className="app-identity">
-          <h1 style={{ fontSize: 'var(--text-lg)', fontWeight: 600, margin: 0 }}>textTrends</h1>
+          <h1 className="app-brand">
+            <a
+              className="app-brand-link"
+              href="https://yalethom.as/"
+              aria-label="yalethom.as/textTrends, publisher home"
+            >
+              <span>
+                yalethom<span className="app-brand-dot">.</span>as/
+              </span>
+              <span>textTrends</span>
+            </a>
+          </h1>
           <button
             type="button"
             className="shortcut-help-open"

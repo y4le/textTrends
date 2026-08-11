@@ -42,13 +42,41 @@ async function expectAboveOccludedBand(
   expect(box!.y + box!.height).toBeLessThanOrEqual(innerHeight - occlusion + 1);
 }
 
-test('compact header combines brand and single-line Scope without duplicating Lens', async ({ page }) => {
-  await page.setViewportSize({ width: 390, height: 844 });
+test('compact header reflows the publisher mark without starving single-line Scope', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
 
   const header = page.locator('.app-header');
-  await expect(header.locator('h1')).toHaveText('textTrends');
+  await expect(header.locator('h1')).toHaveText('yalethom.as/textTrends');
+  const publisher = header.getByRole('link', {
+    name: 'yalethom.as/textTrends, publisher home',
+  });
+  await expect(publisher).toHaveAttribute('href', 'https://yalethom.as/');
+  await expect(publisher).toHaveText('yalethom.as/textTrends');
+  await expect(publisher.locator('.app-brand-dot')).toHaveCSS('color', 'rgb(193, 67, 46)');
+  const publisherBox = await publisher.boundingBox();
+  if (!publisherBox) throw new Error('publisher signature has no layout box');
+  expect(publisherBox.height).toBeGreaterThanOrEqual(24);
+  const publisherType = await publisher.evaluate((node) => {
+    const style = getComputedStyle(node);
+    return {
+      family: style.fontFamily,
+      size: Number.parseFloat(style.fontSize),
+      weight: style.fontWeight,
+      lineHeight: Number.parseFloat(style.lineHeight),
+    };
+  });
+  expect(publisherType.family.replaceAll(/["']/g, '')).toBe(
+    'Geist Mono, ui-monospace, SFMono-Regular, Menlo, Consolas, Liberation Mono, monospace',
+  );
+  expect(publisherType.size).toBeGreaterThanOrEqual(12);
+  expect(publisherType.weight).toBe('500');
+  expect(publisherType.lineHeight).toBeGreaterThanOrEqual(publisherType.size * 1.25 - 0.1);
+  expect(publisherBox.height).toBeLessThanOrEqual(publisherType.lineHeight * 2 + 1);
+  await page.keyboard.press('Tab');
+  await expect(publisher).toBeFocused();
+  await expect(publisher).not.toHaveCSS('outline-style', 'none');
   await expect(header.getByRole('region', { name: 'Scope' })).toHaveCount(1);
   await expect(header.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(1);
 
@@ -63,11 +91,13 @@ test('compact header combines brand and single-line Scope without duplicating Le
       bottom: box.bottom,
       brand: { top: brand.top, bottom: brand.bottom },
       scope: { top: scope.top, bottom: scope.bottom },
+      scopeWidth: scope.width,
       scopeClientHeight: content.clientHeight,
       scopeScrollHeight: content.scrollHeight,
     };
   });
   expect(geometry.height).toBeLessThanOrEqual(60);
+  expect(geometry.scopeWidth).toBeGreaterThanOrEqual(72);
   for (const child of [geometry.brand, geometry.scope]) {
     expect(child.top).toBeGreaterThanOrEqual(geometry.top);
     expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);

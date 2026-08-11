@@ -60,18 +60,21 @@ Terms, source text, and workspace data never enter the query string.
 At every width the workbench is one column beneath a unified page header:
 
 ```text
-textTrends + Scope + Lens
+yalethom.as/textTrends + Scope + Lens
 Active analytical place, full available width
 ── fixed dock ──────────────────────────────
 Terms bucket rail
 Corpus-reading footer
 ```
 
-The brand, Scope, and Lens share one header row. The selected Scope or Lens
-control supplies the active place name; the analytical surface does not repeat
-it as an interior title. Scope is a single-line local horizontal scroll port
-when its facts do not fit. Compact portrait and landscape move the Lens links
-to their governed bottom or side dock without duplicating the navigation DOM.
+The publisher signature is the first header item and links to
+`https://yalethom.as/` in the current context. The brand, Scope, and Lens share
+one header row. The selected Scope or Lens control supplies the active place
+name; the analytical surface does not repeat it as an interior title. Scope is
+a single-line local horizontal scroll port when its facts do not fit. Compact
+portrait wraps the publisher signature once, after its slash, to preserve that
+Scope port. Compact portrait and landscape move the Lens links to their
+governed bottom or side dock without duplicating the navigation DOM.
 
 Sheets and full-screen form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the

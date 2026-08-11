@@ -178,8 +178,44 @@ canvas {
   background: var(--bg);
 }
 
-.app-header h1 {
+.app-brand {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  line-height: 1.25;
   white-space: nowrap;
+}
+
+.app-brand-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 24px;
+  color: var(--fg);
+  font-family: 'Geist Mono', ui-monospace, 'SFMono-Regular', Menlo, Consolas, 'Liberation Mono', monospace;
+  font-style: normal;
+  font-weight: 500;
+  letter-spacing: normal;
+  line-height: 1.25;
+  text-decoration: none;
+}
+
+.app-brand-link:hover {
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 3px;
+}
+
+.app-brand-dot {
+  /* The publisher contract fixes this punctuation accent across themes. */
+  color: #c1432e;
+}
+
+@media (max-width: 599.98px) and (orientation: portrait) {
+  .app-brand-link {
+    /* Keep the publisher domain atomic and wrap the project name after `/`. */
+    max-inline-size: 12ch;
+    flex-wrap: wrap;
+  }
 }
 
 .app-identity {
