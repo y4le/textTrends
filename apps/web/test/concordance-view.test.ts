@@ -19,11 +19,10 @@ const ROW: KwicRowView = {
 };
 
 describe('Concordance presentation', () => {
-  it('collapses display whitespace and trims only the rendered edges', () => {
+  it('collapses display whitespace while retaining the complete delivered context', () => {
     expect(oneLine(' a\n\t b ')).toBe('a b');
     const [row] = concordanceRows(
       [ROW],
-      12,
       () => 'Holmes',
       () => ({ color: 'blue', line: 'dot' }),
       () => 'The Adventures',
@@ -33,23 +32,9 @@ describe('Concordance presentation', () => {
       style: { color: 'blue', line: 'dot' },
       title: 'The Adventures',
       leftFull: 'all the context before',
-      leftShown: 'ntext before',
       nodeText: 'Holmes',
       rightFull: 'context after the node',
-      rightShown: 'context afte',
     });
-  });
-
-  it('rejects invalid rendered context widths', () => {
-    expect(() => concordanceRows(
-      [ROW],
-      0,
-      String,
-      () => ({ color: 'blue', line: 'solid' }),
-      String,
-    )).toThrow(
-      'context width must be a positive integer',
-    );
   });
 
   it('centers the shared node column without producing negative scroll', () => {

@@ -127,6 +127,13 @@ import type {
   WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 import {
+  clampConcordanceColumnWidth,
+  CONCORDANCE_COLUMN_DEFAULTS,
+  CONCORDANCE_CONTEXT_TOKENS,
+  type ConcordanceColumn,
+  type ConcordanceColumnWidths,
+} from './concordance-columns.ts';
+import {
   SessionCommandError,
   type AnalysisPhase,
   type SessionState,
@@ -538,7 +545,7 @@ export interface RemovedNotebookGroup {
 }
 
 export interface ConcordanceView {
-  readonly contextChars: 12 | 24 | 38 | 60;
+  readonly columns: ConcordanceColumnWidths;
 }
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -784,7 +791,8 @@ export interface AppState {
     anchor: ConcordanceAnchorV1,
     window?: { readonly before: number; readonly after: number },
   ): void;
-  setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
+  setConcordanceColumnWidth(column: ConcordanceColumn, width: number): void;
+  resetConcordanceColumns(): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
   /** Reveal an activated barcode occurrence immediately. Density midpoints
@@ -2076,8 +2084,13 @@ export function createAppRuntime(
         && held?.snapshot === snapshot.snapshot
         && held.trackKey === trackKey
         && held.resident !== null
-        && held.resident.before === window.before
-        && held.resident.after === window.after
+        && (
+          (held.resident.firstRank === 0 && held.resident.rows.length === held.resident.total)
+          || (
+            held.resident.before === window.before
+            && held.resident.after === window.after
+          )
+        )
         && residentCoversAnchor(held.resident, anchor, snapshot.readyDocs)
       ) {
         // A reversal can return to resident evidence while an obsolete
@@ -2125,7 +2138,7 @@ export function createAppRuntime(
             anchor,
             before: window.before,
             after: window.after,
-            contextTokens: 6,
+            contextTokens: CONCORDANCE_CONTEXT_TOKENS,
             includeAxis: retainedAxis === null,
           },
         },
@@ -2351,7 +2364,7 @@ export function createAppRuntime(
       kwic: null,
       concordanceReveal: null,
       concordanceView: {
-        contextChars: 38,
+        columns: CONCORDANCE_COLUMN_DEFAULTS,
       },
       dispersion: null,
       linkedSelection: null,
@@ -2684,11 +2697,24 @@ export function createAppRuntime(
         runConcordanceWindow(anchor, window);
       },
 
-      setConcordanceContext(contextChars) {
-        if (!([12, 24, 38, 60] as const).includes(contextChars)) return;
+      setConcordanceColumnWidth(column, width) {
+        if (!(column in CONCORDANCE_COLUMN_DEFAULTS) || !Number.isFinite(width)) return;
         const view = get().concordanceView;
-        if (view.contextChars === contextChars) return;
-        set({ concordanceView: { ...view, contextChars } });
+        const next = clampConcordanceColumnWidth(column, width);
+        if (view.columns[column] === next) return;
+        set({
+          concordanceView: {
+            columns: { ...view.columns, [column]: next },
+          },
+        });
+      },
+
+      resetConcordanceColumns() {
+        const columns = get().concordanceView.columns;
+        if ((Object.keys(CONCORDANCE_COLUMN_DEFAULTS) as ConcordanceColumn[]).every(
+          (column) => columns[column] === CONCORDANCE_COLUMN_DEFAULTS[column],
+        )) return;
+        set({ concordanceView: { columns: CONCORDANCE_COLUMN_DEFAULTS } });
       },
 
       setTrendView(view) {

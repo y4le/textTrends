@@ -63,10 +63,15 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
   await expect(grid).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
-  // A single-book corpus keeps only token progress in the rightmost column.
+  // A single-book corpus omits the redundant book column and keeps token
+  // progress in its own rightmost column.
+  await expect(grid.locator('.kwic-book-heading')).toHaveCount(0);
+  await expect(grid.getByRole('separator', { name: 'Book width' })).toHaveCount(0);
   await expect(grid
     .getByRole('columnheader', { name: 'token', exact: true })).toBeVisible();
-  await expect(grid.locator('[role="row"][aria-rowindex] .kwic-book').first()).toHaveText(/^\d+ \/ \d+$/);
+  await expect(grid.locator('[role="row"][aria-rowindex] .kwic-book')).toHaveCount(0);
+  await expect(grid.locator('[role="row"][aria-rowindex] .kwic-token').first())
+    .toHaveText(/^\d+ \/ \d+$/);
   // Catalog labels the book by reading-order ordinal + title alongside exact totals.
   await gotoPlace(page, 'catalog');
   await expect(page.getByRole('table', { name: 'Book analysis' }).getByText('1 · beasts')).toBeVisible();

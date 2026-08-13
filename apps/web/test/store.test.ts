@@ -1525,9 +1525,21 @@ describe('store query intent discipline', () => {
     const before = workspaceSemanticKey(f.store.getState());
     const issued = f.issued.length;
 
-    f.store.getState().setConcordanceContext(24);
+    f.store.getState().setConcordanceColumnWidth('left', 72);
     expect(f.store.getState().concordanceView).toMatchObject({
-      contextChars: 24,
+      columns: { left: 72, node: 18, right: 40, book: 4 },
+    });
+    expect(workspaceSemanticKey(f.store.getState())).toBe(before);
+    expect(f.issued).toHaveLength(issued);
+
+    f.store.getState().setConcordanceColumnWidth('node', -20);
+    expect(f.store.getState().concordanceView.columns.node).toBe(1);
+    f.store.getState().resetConcordanceColumns();
+    expect(f.store.getState().concordanceView.columns).toEqual({
+      left: 40,
+      node: 18,
+      right: 40,
+      book: 4,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
@@ -1547,7 +1559,7 @@ describe('store query intent discipline', () => {
       anchor: { kind: 'rank', rank: 0 },
       before: 24,
       after: 24,
-      contextTokens: 6,
+      contextTokens: 24,
       includeAxis: true,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
@@ -2257,6 +2269,42 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     second.resolve(fakeConcordance(20, [], false));
     await flush();
     expect(f.store.getState().kwic!.axis).toBe(axis);
+  });
+
+  it('does not refetch a fully resident result when viewport window geometry changes', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const sid = f.store.getState().series[0]!.id;
+    const groupId = f.store.getState().notebook.groups[0]!.id;
+    f.kwics().at(-1)!.resolve(fakeConcordance(1, [{
+      seriesId: sid,
+      groupId,
+      doc: 'a',
+      pos: 5,
+      members: [0],
+      node: { start: 10, end: 16 },
+      left: 'left',
+      nodeText: 'holmes',
+      right: 'right',
+    }]));
+    await flush();
+    const count = f.kwics().length;
+
+    f.store.getState().requestConcordanceWindow(
+      { kind: 'position', doc: 'a', token: 9 },
+      { before: 40, after: 40 },
+    );
+
+    expect(f.kwics()).toHaveLength(count);
+    expect(f.store.getState().kwic).toMatchObject({
+      request: {
+        anchor: { kind: 'position', doc: 'a', token: 9 },
+        before: 40,
+        after: 40,
+      },
+      state: { status: 'ready' },
+    });
   });
 
   it('serves cursor motion from resident rows and cancels an obsolete outside-window request on reversal', async () => {

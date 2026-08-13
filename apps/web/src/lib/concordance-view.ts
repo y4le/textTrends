@@ -1,9 +1,6 @@
 import { kwicRowKey, type KwicRowView } from './store.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
 
-export const CONTEXT_CHAR_CHOICES = [12, 24, 38, 60] as const;
-export const DEFAULT_CONTEXT_CHARS = 38;
-
 export interface ConcordanceRowVM {
   readonly key: string;
   readonly seriesId: string;
@@ -13,10 +10,8 @@ export interface ConcordanceRowVM {
   readonly title: string;
   readonly pos: number;
   readonly leftFull: string;
-  readonly leftShown: string;
   readonly nodeText: string;
   readonly rightFull: string;
-  readonly rightShown: string;
   readonly source: KwicRowView;
 }
 
@@ -28,14 +23,10 @@ export function oneLine(value: string): string {
 
 export function concordanceRows(
   rows: readonly KwicRowView[],
-  contextChars: number,
   labelOf: (seriesId: string) => string,
   styleOf: (seriesId: string) => SeriesStyleV1,
   titleOf: (doc: string) => string,
 ): readonly ConcordanceRowVM[] {
-  if (!Number.isSafeInteger(contextChars) || contextChars < 1) {
-    throw new RangeError('context width must be a positive integer');
-  }
   return rows.map((source) => {
     const leftFull = oneLine(source.left);
     const rightFull = oneLine(source.right);
@@ -48,10 +39,8 @@ export function concordanceRows(
       title: titleOf(source.doc),
       pos: source.pos,
       leftFull,
-      leftShown: leftFull.slice(-contextChars),
       nodeText: oneLine(source.nodeText),
       rightFull,
-      rightShown: rightFull.slice(0, contextChars),
       source,
     };
   });

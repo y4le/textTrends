@@ -51,6 +51,46 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await gotoPlace(page, 'concordance');
   const concordance = page.getByRole('grid', { name: 'Concordance' });
   await expect(concordance).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByText(/80 occurrences · 2 ready books/i)).toBeVisible();
+  await expect(page.getByText(/occurrences · .*ready books/i)).toHaveCount(0);
+  await expect(concordance.locator('.kwic-book-heading')).toBeVisible();
+  await expect(concordance.getByRole('columnheader', { name: 'token', exact: true }))
+    .toBeVisible();
+  const firstBook = concordance.locator('[role="row"][aria-rowindex] .kwic-book').first();
+  await expect(firstBook).toHaveText(/^\([12]\) (alpha|beta)$/);
+  await expect(firstBook).toHaveAttribute('title', /^\([12]\) (alpha|beta)$/);
+  const narrowBook = await firstBook.evaluate((cell) => {
+    const span = cell.querySelector('span')!;
+    const text = span.firstChild!;
+    const bounds = span.getBoundingClientRect();
+    const prefix = document.createRange();
+    prefix.setStart(text, 0);
+    prefix.setEnd(text, 3);
+    const titleStart = document.createRange();
+    titleStart.setStart(text, 4);
+    titleStart.setEnd(text, 5);
+    return {
+      clipped: span.scrollWidth > span.clientWidth,
+      prefixVisible: prefix.getBoundingClientRect().right <= bounds.right + 1,
+      titleHidden: titleStart.getBoundingClientRect().left >= bounds.right - 1,
+      width: cell.getBoundingClientRect().width,
+    };
+  });
+  expect(narrowBook.clipped).toBe(true);
+  expect(narrowBook.prefixVisible).toBe(true);
+  expect(narrowBook.titleHidden).toBe(true);
+
+  await page.getByRole('toolbar', { name: 'Concordance columns' })
+    .getByRole('button', { name: 'Adjust column widths' }).click();
+  const bookWidth = concordance.getByRole('separator', { name: 'Book width' });
+  await bookWidth.focus();
+  await bookWidth.press('End');
+  await expect(bookWidth).toHaveAttribute('aria-valuenow', '48');
+  const expandedBook = await firstBook.evaluate((cell) => ({
+    clipped: cell.querySelector('span')!.scrollWidth
+      > cell.querySelector('span')!.clientWidth,
+    width: cell.getBoundingClientRect().width,
+  }));
+  expect(expandedBook.clipped).toBe(false);
+  expect(expandedBook.width).toBeGreaterThan(narrowBook.width);
   await expect(concordance.locator('[data-linked-selection="true"]').first()).toBeVisible();
 });
