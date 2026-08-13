@@ -114,21 +114,43 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
 
   const residentMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   const scrollWindowStart = await page.evaluate(() => performance.now());
-  await grid.evaluate(async (node) => {
+  const unfilledFrames = await grid.evaluate(async (node) => {
     const port = node as HTMLElement;
-    for (let frame = 0; frame < 16; frame++) {
+    const gaps: { frame: number; from: number; to: number }[] = [];
+    for (let frame = 0; frame < 48; frame++) {
       port.scrollTop += 32;
       await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
+      const portRect = port.getBoundingClientRect();
+      const headerRect = port.querySelector<HTMLElement>('.kwic-grid-header')!.getBoundingClientRect();
+      const top = Math.max(portRect.top, headerRect.bottom);
+      const bottom = portRect.bottom;
+      const rowRects = [...port.querySelectorAll<HTMLElement>('.kwic-virtual-row')]
+        .map((row) => row.getBoundingClientRect())
+        .filter((rect) => rect.bottom > top && rect.top < bottom)
+        .sort((left, right) => left.top - right.top);
+      let coveredThrough = top;
+      for (const rect of rowRects) {
+        if (rect.top > coveredThrough + 1) {
+          gaps.push({ frame, from: coveredThrough - portRect.top, to: rect.top - portRect.top });
+        }
+        coveredThrough = Math.max(coveredThrough, rect.bottom);
+      }
+      if (coveredThrough < bottom - 1) {
+        gaps.push({ frame, from: coveredThrough - portRect.top, to: bottom - portRect.top });
+      }
     }
+    return gaps;
   });
   await page.waitForTimeout(250);
   const scrollWindowEnd = await page.evaluate(() => performance.now());
-  const residentQueries = (await trace(page)).events.filter((event) =>
+  const prefetchQueries = (await trace(page)).events.filter((event) =>
     event.seq > residentMark
     && event.direction === 'to-worker'
     && event.t === 'query'
     && event.op === 'concordance-window');
-  expect(residentQueries).toHaveLength(0);
+  expect(prefetchQueries.length).toBeGreaterThan(0);
+  expect(prefetchQueries.length).toBeLessThan(6);
+  expect(unfilledFrames).toEqual([]);
   const longTasks = await page.evaluate(
     () => (window as unknown as {
       __ttConcordanceLongTasks: { start: number; duration: number }[];

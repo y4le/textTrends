@@ -79,6 +79,37 @@ export function concordanceWindowSize(viewportHeight: number): {
   return { before: radius, after: radius };
 }
 
+/** Choose a rank anchor for the next resident window before visible overscan
+ * reaches the leading unloaded edge. Returning the first rank just outside
+ * residency makes neighboring windows overlap; ignoring trailing overscan
+ * prevents newly shifted windows from immediately refetching in reverse. */
+export function concordancePrefetchRank(
+  logical: number,
+  totalRows: number,
+  viewportHeight: number,
+  resident: ConcordanceResidentLike | null,
+  direction: -1 | 0 | 1,
+): number | null {
+  if (!Number.isFinite(totalRows) || totalRows <= 0) return null;
+  const active = Math.max(0, Math.min(totalRows - 1, Math.floor(logical)));
+  if (resident === null || resident.total !== totalRows || resident.rows.length === 0) {
+    return active;
+  }
+  const first = Math.max(0, Math.min(totalRows, resident.firstRank));
+  const end = Math.max(first, Math.min(totalRows, first + resident.rows.length));
+  if (active < first || active >= end) return active;
+
+  const visible = concordanceVisibleRanks(logical, totalRows, viewportHeight);
+  const needsBefore = direction <= 0 && first > 0 && visible.start <= first;
+  const needsAfter = direction >= 0 && end < totalRows && visible.end >= end;
+  if (needsBefore && needsAfter) {
+    return active - first < end - active ? first - 1 : end;
+  }
+  if (needsBefore) return first - 1;
+  if (needsAfter) return end;
+  return null;
+}
+
 export function globalTokenForTarget(
   docs: readonly string[],
   layout: SequenceLayout,

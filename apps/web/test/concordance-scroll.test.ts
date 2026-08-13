@@ -3,6 +3,7 @@ import {
   CONCORDANCE_SAFE_SCROLL_EXTENT,
   concordanceLogicalAtScroll,
   concordancePhysicalExtent,
+  concordancePrefetchRank,
   concordanceScrollTop,
   concordanceVisibleRanks,
   concordanceWindowSize,
@@ -90,5 +91,30 @@ describe('Concordance scroll geometry', () => {
     expect(concordanceVisibleRanks(100, 100, 320)).toEqual({ start: 85, end: 100 });
     expect(concordanceWindowSize(320)).toEqual({ before: 24, after: 24 });
     expect(concordanceWindowSize(10_000)).toEqual({ before: 249, after: 249 });
+  });
+
+  it('prefetches overlapping windows before visible rows reach resident edges', () => {
+    const middle = {
+      total: 100,
+      firstRank: 20,
+      rows: Array.from({ length: 49 }, () => ({ doc: 'a', pos: 0 })),
+    };
+    expect(concordancePrefetchRank(40.5, 100, 320, middle, 0)).toBeNull();
+    expect(concordancePrefetchRank(35.5, 100, 320, middle, -1)).toBe(19);
+    expect(concordancePrefetchRank(35.5, 100, 320, middle, 1)).toBeNull();
+    expect(concordancePrefetchRank(53.5, 100, 320, middle, 1)).toBe(69);
+    expect(concordancePrefetchRank(53.5, 100, 320, middle, -1)).toBeNull();
+    expect(concordancePrefetchRank(90.5, 100, 320, middle, 1)).toBe(90);
+
+    expect(concordancePrefetchRank(0.5, 100, 320, {
+      ...middle,
+      firstRank: 0,
+      rows: middle.rows.slice(0, 25),
+    }, -1)).toBeNull();
+    expect(concordancePrefetchRank(99.5, 100, 320, {
+      ...middle,
+      firstRank: 75,
+      rows: middle.rows.slice(0, 25),
+    }, 1)).toBeNull();
   });
 });

@@ -25,6 +25,7 @@ import {
   CONCORDANCE_ROW_HEIGHT,
   concordanceLogicalAtScroll,
   concordancePhysicalExtent,
+  concordancePrefetchRank,
   concordanceScrollTop,
   concordanceVisibleRanks,
   concordanceWindowSize,
@@ -195,21 +196,29 @@ export function KwicPanel({
     port.scrollTop = top;
   }, [total]);
 
-  const requestRank = useCallback((rank: number) => {
+  const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
     const size = concordanceWindowSize(viewport.height);
+    const prefetchRank = concordancePrefetchRank(
+      bounded + 0.5,
+      total,
+      viewport.height,
+      resident,
+      direction,
+    );
+    if (prefetchRank === null) return;
     const request = kwic?.request;
     if (
       kwic?.state.status === 'pending'
       && request?.anchor.kind === 'rank'
       && request.before === size.before
       && request.after === size.after
-      && bounded >= request.anchor.rank - request.before
-      && bounded <= request.anchor.rank + request.after
+      && prefetchRank >= request.anchor.rank - request.before
+      && prefetchRank <= request.anchor.rank + request.after
     ) return;
-    requestWindow({ kind: 'rank', rank: bounded }, size);
-  }, [kwic?.request, kwic?.state.status, requestWindow, total, viewport.height]);
+    requestWindow({ kind: 'rank', rank: prefetchRank }, size);
+  }, [kwic?.request, kwic?.state.status, requestWindow, resident, total, viewport.height]);
 
   const publishLogicalCursor = useCallback((nextLogical: number) => {
     if (!layout || total <= 0) return null;
@@ -232,11 +241,12 @@ export function KwicPanel({
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
     const nextLogical = bounded + 0.5;
+    const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
     pendingKeyboardRankRef.current = rowAtRank(bounded) ? null : bounded;
     setLogicalPosition(nextLogical, true);
     const target = publishLogicalCursor(nextLogical);
     if (target) announceRank(bounded, target);
-    requestRank(bounded);
+    requestRank(bounded, direction);
   }, [announceRank, publishLogicalCursor, requestRank, rowAtRank, setLogicalPosition, total]);
 
   useLayoutEffect(() => {
@@ -352,11 +362,12 @@ export function KwicPanel({
       const livePort = portRef.current;
       if (!livePort || total <= 0) return;
       const nextLogical = concordanceLogicalAtScroll(livePort.scrollTop, total);
+      const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
       setLogicalPosition(nextLogical, false);
       const target = publishLogicalCursor(nextLogical);
       const rank = Math.max(0, Math.min(total - 1, Math.floor(nextLogical)));
       if (target) announceRank(rank, target);
-      requestRank(rank);
+      requestRank(rank, direction);
     });
   }, [announceRank, publishLogicalCursor, requestRank, setLogicalPosition, total]);
 
