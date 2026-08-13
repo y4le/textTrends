@@ -134,6 +134,21 @@ export {
   type KwicRow,
 } from './ops/kwic.ts';
 export {
+  buildConcordanceAxis,
+  CONCORDANCE_AXIS_STRIDE,
+  concordanceAxisPayloadBytes,
+  copyConcordanceAxis,
+  materializeConcordanceWindow,
+  planConcordanceWindow,
+  type ConcordanceAnchorV1,
+  type ConcordanceAxisArraysV1,
+  type ConcordanceAxisV1,
+  type ConcordancePositionBracketV1,
+  type ConcordanceWindowRequestV1,
+  type ConcordanceWindowV1,
+  type NumericConcordanceWindowV1,
+} from './ops/concordance.ts';
+export {
   checkedResolverFor,
   occurrencePayloadBytes,
   occurrences,
