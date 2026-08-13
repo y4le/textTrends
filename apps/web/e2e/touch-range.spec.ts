@@ -103,10 +103,66 @@ test('single touch reads and scrolls while two touches commit one range', async 
       )
       .map((event) => event.op),
   )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list']));
+
+  const handles = scrubber.locator('[data-range-handle]');
+  await expect(handles).toHaveCount(2);
+  for (const edge of ['start', 'end'] as const) {
+    const handleBox = await scrubber.locator(`[data-range-handle="${edge}"]`).boundingBox();
+    expect(handleBox?.width).toBeGreaterThanOrEqual(44);
+    expect(handleBox?.height).toBeGreaterThanOrEqual(44);
+  }
+  const committedBeforeHandle = (await page.getByTestId('linked-selection').boundingBox())!;
+  const endHandle = scrubber.locator('[data-range-handle="end"]');
+  const initialEndHandleBox = (await endHandle.boundingBox())!;
+  await page.evaluate((top) => window.scrollBy(0, top - 160), initialEndHandleBox.y);
+  const endHandleBox = (await endHandle.boundingBox())!;
+  const handlePoint = {
+    x: endHandleBox.x + 4,
+    y: endHandleBox.y + endHandleBox.height / 2,
+  };
+  expect(await page.evaluate(({ x, y }) =>
+    document.elementFromPoint(x, y)?.closest('[data-range-handle]')
+      ?.getAttribute('data-range-handle') ?? null, handlePoint)).toBe('end');
+  const cdp = await context.newCDPSession(page);
+  const handleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [{ id: 23, ...handlePoint, radiusX: 2, radiusY: 2, force: 1 }],
+  });
+  await expect(endHandle).toHaveAttribute('data-dragging', 'true');
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{
+      id: 23,
+      x: handlePoint.x + 70,
+      y: handlePoint.y,
+      radiusX: 2,
+      radiusY: 2,
+      force: 1,
+    }],
+  });
+  await expect(endHandle).toHaveAttribute('data-dragging', 'true');
+  await expect(page.getByTestId('selection-preview')).toBeVisible();
+  expect((await trace(page)).events.filter((event) =>
+    event.seq > handleMark
+    && event.direction === 'to-worker'
+    && event.t === 'query')).toEqual([]);
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await expect(page.getByTestId('selection-preview')).toHaveCount(0);
+  await expect.poll(async () => (await page.getByTestId('linked-selection').boundingBox())?.width ?? 0)
+    .toBeGreaterThan(committedBeforeHandle.width);
+  await expect.poll(async () => new Set(
+    (await trace(page)).events
+      .filter(
+        (event) => event.seq > handleMark
+          && event.direction === 'to-worker'
+          && event.t === 'query',
+      )
+      .map((event) => event.op),
+  )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list']));
   await page.getByRole('button', { name: 'clear selection' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
 
-  const cdp = await context.newCDPSession(page);
   const rangeBox = (await scrubber.boundingBox())!;
   const touchPoint = (id: number, fraction: number) => ({
     id,

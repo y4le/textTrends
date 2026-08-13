@@ -3381,6 +3381,42 @@ canvas {
   box-shadow: 0 0 0 4px color-mix(in srgb, var(--bg) 55%, transparent);
 }
 
+.trend-range-handle {
+  position: absolute;
+  z-index: 3;
+  inline-size: 44px;
+  block-size: 44px;
+  padding: 0;
+  border: 0;
+  color: var(--accent);
+  background: transparent;
+  cursor: ew-resize;
+  touch-action: none;
+}
+
+.trend-range-handle-mark {
+  position: absolute;
+  inset-block: 5px;
+  inline-size: 3px;
+  border-radius: 2px;
+  background: currentColor;
+  box-shadow:
+    -3px 0 0 color-mix(in srgb, var(--bg) 76%, transparent),
+    3px 0 0 color-mix(in srgb, var(--bg) 76%, transparent);
+}
+
+.trend-range-handle[data-dragging='true'] .trend-range-handle-mark {
+  inline-size: 5px;
+}
+
+.trend-range-handle-start .trend-range-handle-mark {
+  inset-block-start: 5px;
+}
+
+.trend-range-handle-end .trend-range-handle-mark {
+  inset-block-end: 5px;
+}
+
 @media (max-width: 599.98px) {
   :root {
     --lens-block-size: 53px;

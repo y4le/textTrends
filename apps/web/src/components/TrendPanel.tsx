@@ -43,6 +43,7 @@ import {
   seriesLinecap,
 } from '../lib/series-style.ts';
 import {
+  bookTokenFromX,
   bookXFromToken,
   bookXFromTokenEdge,
   barcodeBandExtent,
@@ -51,6 +52,7 @@ import {
   selectedTrendPathData,
   seriesXFromToken,
   seriesXFromTokenEdge,
+  seriesTokenFromX,
   stepAlongSequence,
   trendBinAtToken,
   trendBinSpan,
@@ -102,7 +104,7 @@ interface DisplayedSeries extends ReadySeries {
 }
 
 interface RangePreview {
-  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard';
+  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle';
   readonly origin: ScrubTarget;
   readonly head: ScrubTarget;
 }
@@ -380,6 +382,7 @@ export function TrendPanel() {
         barcodeTracks={tracks}
         captureBarcode={captureBarcode}
         hitSpec={hitSpec}
+        coarse={presentation.coarseAvailable}
         onBarcodeActivate={activateBarcode}
         barcodeBand={(
           <BarcodeBand
@@ -476,6 +479,7 @@ function ScrubSurface({
   barcodeTracks,
   captureBarcode,
   hitSpec,
+  coarse,
   onBarcodeActivate,
   barcodeBand,
   children,
@@ -495,6 +499,7 @@ function ScrubSurface({
   barcodeTracks: readonly BarcodeTrackVM[];
   captureBarcode: CaptureBarcodePointer;
   hitSpec: TrendStageSpec;
+  coarse: boolean;
   onBarcodeActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
   barcodeBand: React.ReactNode;
   children: React.ReactNode;
@@ -514,6 +519,13 @@ function ScrubSurface({
     readonly timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const releasedTouchPointers = useRef(new Set<number>());
+  const rangeHandleDrag = useRef<{
+    readonly pointerId: number;
+    readonly edge: 'start' | 'end';
+    readonly fixed: ScrubTarget;
+    head: ScrubTarget;
+    moved: boolean;
+  } | null>(null);
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -843,6 +855,68 @@ function ScrubSurface({
           height: geometry.rowHeight + bandExtent,
         }];
       });
+  const firstCommittedRange = linkedSelection?.ranges[0] ?? null;
+  const lastCommittedRange = linkedSelection?.ranges.at(-1) ?? null;
+  const committedRangeEndpoints = firstCommittedRange && lastCommittedRange
+    ? {
+        start: {
+          doc: firstCommittedRange.doc,
+          token: firstCommittedRange.tokens.start,
+        },
+        end: {
+          doc: lastCommittedRange.doc,
+          token: lastCommittedRange.tokens.end - 1,
+        },
+      }
+    : null;
+  const rangeHandleSpecs = coarse
+    && committedRangeEndpoints
+    && (preview === null || preview.mode === 'handle')
+    && rangeBoxes.length > 0
+      ? ([
+          {
+            edge: 'start' as const,
+            x: rangeBoxes[0]!.left,
+            top: rangeBoxes[0]!.top,
+            bottom: rangeBoxes[0]!.top + rangeBoxes[0]!.height,
+          },
+          {
+            edge: 'end' as const,
+            x: rangeBoxes.at(-1)!.right,
+            top: rangeBoxes.at(-1)!.top,
+            bottom: rangeBoxes.at(-1)!.top + rangeBoxes.at(-1)!.height,
+          },
+        ])
+      : [];
+  const handleTargetAt = (clientX: number, clientY: number): ScrubTarget | null => {
+    const rect = sliderRef.current?.getBoundingClientRect();
+    if (!rect || rect.width <= 0 || rect.height <= 0) return null;
+    const px = Math.max(0, Math.min(plotW - 0.001, clientX - rect.left));
+    if (trendView === 'series') {
+      const target = seriesTokenFromX(px, plotW, layout);
+      const doc = target ? docs[target.d] : undefined;
+      return target && doc ? { doc, token: target.token } : null;
+    }
+    const py = Math.max(0, Math.min(rect.height - 0.001, clientY - rect.top));
+    const d = Math.max(0, Math.min(docs.length - 1, Math.floor(py / rowPitch)));
+    const doc = docs[d];
+    const token = bookTokenFromX(px, plotW, docTokenCount[d] ?? 0);
+    return doc && token !== null ? { doc, token } : null;
+  };
+  const boundedHandleTarget = (
+    edge: 'start' | 'end',
+    fixed: ScrubTarget,
+    target: ScrubTarget,
+  ): ScrubTarget => {
+    const fixedOrdinal = docs.indexOf(fixed.doc);
+    const targetOrdinal = docs.indexOf(target.doc);
+    if (fixedOrdinal < 0 || targetOrdinal < 0) return fixed;
+    const fixedPosition = (layout.bases[fixedOrdinal] ?? 0) + fixed.token;
+    const targetPosition = (layout.bases[targetOrdinal] ?? 0) + target.token;
+    if (edge === 'start' && targetPosition > fixedPosition) return fixed;
+    if (edge === 'end' && targetPosition < fixedPosition) return fixed;
+    return target;
+  };
   const describeRanges = (ranges: readonly TokenRangeSelectionSpanV1[]): string => {
     if (ranges.length === 0) return 'no tokens';
     if (ranges.length === 1) {
@@ -1171,6 +1245,103 @@ function ScrubSurface({
             }}
           />
         ))}
+        {rangeHandleSpecs.map((handle) => {
+          const preferredLeft = handle.edge === 'start' ? handle.x - 40 : handle.x - 4;
+          const left = Math.max(0, Math.min(plotW - 44, preferredLeft));
+          const top = handle.edge === 'start'
+            ? handle.top
+            : Math.max(handle.top, handle.bottom - 44);
+          const markerLeft = Math.max(2, Math.min(42, handle.x - left));
+          return (
+            <button
+              key={handle.edge}
+              type="button"
+              className={`trend-range-handle trend-range-handle-${handle.edge}`}
+              data-range-handle={handle.edge}
+              aria-label={`Drag active scope ${handle.edge}`}
+              style={{ left, top }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => {
+                if (!event.isPrimary || event.button !== 0 || !committedRangeEndpoints) return;
+                clearTouchHold();
+                const reset = resetTouchRangeGesture(touchGesture.current);
+                touchGesture.current = reset.state;
+                const head = committedRangeEndpoints[handle.edge];
+                rangeHandleDrag.current = {
+                  pointerId: event.pointerId,
+                  edge: handle.edge,
+                  fixed: committedRangeEndpoints[handle.edge === 'start' ? 'end' : 'start'],
+                  head,
+                  moved: false,
+                };
+                event.currentTarget.dataset.dragging = 'true';
+                try {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {
+                  // Synthetic pointer events used by accessibility and browser
+                  // regression tests have no native pointer to capture.
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerMove={(event) => {
+                const drag = rangeHandleDrag.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                const raw = handleTargetAt(event.clientX, event.clientY);
+                if (raw) {
+                  const head = boundedHandleTarget(drag.edge, drag.fixed, raw);
+                  drag.head = head;
+                  drag.moved = drag.moved
+                    || head.doc !== committedRangeEndpoints?.[drag.edge].doc
+                    || head.token !== committedRangeEndpoints?.[drag.edge].token;
+                  if (drag.moved) {
+                    setPreview({ mode: 'handle', origin: drag.fixed, head });
+                  }
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerUp={(event) => {
+                const drag = rangeHandleDrag.current;
+                if (!drag || drag.pointerId !== event.pointerId) return;
+                rangeHandleDrag.current = null;
+                delete event.currentTarget.dataset.dragging;
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                if (drag.moved) {
+                  commitPreview({ mode: 'handle', origin: drag.fixed, head: drag.head });
+                } else {
+                  setPreview(null);
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerCancel={(event) => {
+                if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
+                rangeHandleDrag.current = null;
+                delete event.currentTarget.dataset.dragging;
+                setPreview(null);
+                event.stopPropagation();
+              }}
+              onLostPointerCapture={(event) => {
+                if (rangeHandleDrag.current?.pointerId !== event.pointerId) return;
+                rangeHandleDrag.current = null;
+                delete event.currentTarget.dataset.dragging;
+                setPreview(null);
+              }}
+            >
+              <span
+                className="trend-range-handle-mark"
+                style={{ left: markerLeft }}
+                aria-hidden="true"
+              />
+            </button>
+          );
+        })}
         {scrubX !== null && (
           <div
             aria-hidden="true"
