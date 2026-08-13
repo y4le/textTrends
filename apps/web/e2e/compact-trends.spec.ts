@@ -40,11 +40,12 @@ for (const viewport of [
     expect(dockBox && lensBox ? dockBox.y + dockBox.height : Number.POSITIVE_INFINITY)
       .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
     if (testInfo.project.name === 'webkit-compact') {
-      expect((await footer.locator('.footer-sparkline').boundingBox())?.height).toBe(34);
+      expect((await footer.locator('.footer-passage').boundingBox())?.height).toBe(36);
+      expect((await footer.locator('.footer-sparkline').boundingBox())?.height).toBe(38);
       expect((await footer.locator('canvas[data-barcode-band="series"]').boundingBox())?.height)
-        .toBe(24);
+        .toBe(27);
       expect((await footer.getByRole('slider', { name: 'Corpus footer position' }).boundingBox())?.height)
-        .toBe(62);
+        .toBe(70);
     }
 
     const scrubber = page.getByRole('slider', { name: /reading position/i });

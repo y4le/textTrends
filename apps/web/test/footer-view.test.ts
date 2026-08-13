@@ -50,10 +50,10 @@ describe('reading footer view', () => {
     expect(footerBlockSize(compact, 1)).toBe(78);
     expect(footerBlockSize(compact, 5)).toBe(102);
     expect(footerBlockSize(regular, 5)).toBeGreaterThan(footerBlockSize(compact, 5));
-    expect(compactCoarse.passageHeight).toBeGreaterThanOrEqual(44);
-    expect(compactCoarse.seriesHeight).toBe(34);
-    expect(compactCoarse.barcodeTrackHeight).toBe(7);
-    expect(compactCoarse.stripMinHeight).toBe(62);
+    expect(compactCoarse.passageHeight).toBe(36);
+    expect(compactCoarse.seriesHeight).toBe(38);
+    expect(compactCoarse.barcodeTrackHeight).toBe(8);
+    expect(compactCoarse.stripMinHeight).toBe(70);
     expect(footerBlockSize(compactCoarse, 1)).toBeGreaterThan(footerBlockSize(compact, 1));
   });
 

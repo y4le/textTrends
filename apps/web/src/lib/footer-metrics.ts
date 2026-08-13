@@ -71,11 +71,14 @@ const COMPACT_COARSE: FooterGeometry = Object.freeze({
   // The compact bottom navigation is 53px tall. Its historical 72px reserve
   // left 19px of dead air above the tabs; keep the dock's upper edge stable
   // and spend that recovered space on legible mobile data marks instead.
-  seriesHeight: 34,
+  // The passage remains comfortably above the 24px pointer-target floor but
+  // gives back some of its former 44px tap padding to the data-rich strip.
+  passageHeight: 36,
+  seriesHeight: 38,
   topPad: 3,
-  barcodeTrackHeight: 7,
+  barcodeTrackHeight: 8,
   barcodeBandGap: 4,
-  stripMinHeight: 62,
+  stripMinHeight: 70,
 });
 const STANDARD_COARSE = coarseGeometry(STANDARD_FINE);
 

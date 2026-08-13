@@ -19,7 +19,7 @@ describe('eager footer metrics', () => {
     const expected = {
       'compact-fine': [69, 78, 90, 102],
       'regular-fine': [85, 96, 112, 128],
-      'compact-coarse': [135, 135, 135, 151],
+      'compact-coarse': [135, 135, 135, 152],
       'regular-coarse': [125, 125, 134, 150],
     } as const;
     const trackCounts = [0, 1, 3, 5] as const;
