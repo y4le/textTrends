@@ -17,7 +17,7 @@ for (const viewport of [
   { width: 320, height: 568 },
   { width: 390, height: 844 },
 ]) {
-  test(`compact Trends preserves exact values at ${viewport.width}px`, async ({ page }) => {
+  test(`compact Trends preserves exact values at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
     await awaitAllReady(page);
@@ -39,6 +39,13 @@ for (const viewport of [
       .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
     expect(dockBox && lensBox ? dockBox.y + dockBox.height : Number.POSITIVE_INFINITY)
       .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
+    if (testInfo.project.name === 'webkit-compact') {
+      expect((await footer.locator('.footer-sparkline').boundingBox())?.height).toBe(34);
+      expect((await footer.locator('canvas[data-barcode-band="series"]').boundingBox())?.height)
+        .toBe(24);
+      expect((await footer.getByRole('slider', { name: 'Corpus footer position' }).boundingBox())?.height)
+        .toBe(62);
+    }
 
     const scrubber = page.getByRole('slider', { name: /reading position/i });
     const seriesChart = page.locator('svg[data-trend-view="series"]');

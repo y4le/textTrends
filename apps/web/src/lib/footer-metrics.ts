@@ -66,7 +66,17 @@ const coarseGeometry = (fine: FooterGeometry): FooterGeometry => Object.freeze({
   stripMinHeight: 44,
 });
 
-const COMPACT_COARSE = coarseGeometry(COMPACT_FINE);
+const COMPACT_COARSE: FooterGeometry = Object.freeze({
+  ...coarseGeometry(COMPACT_FINE),
+  // The compact bottom navigation is 53px tall. Its historical 72px reserve
+  // left 19px of dead air above the tabs; keep the dock's upper edge stable
+  // and spend that recovered space on legible mobile data marks instead.
+  seriesHeight: 34,
+  topPad: 3,
+  barcodeTrackHeight: 7,
+  barcodeBandGap: 4,
+  stripMinHeight: 62,
+});
 const STANDARD_COARSE = coarseGeometry(STANDARD_FINE);
 
 /** Footer geometry is presentation-only and never changes query intent. */

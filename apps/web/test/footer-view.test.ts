@@ -40,7 +40,7 @@ function page(start = 10, end = 20): ReaderPageResultV1 {
 }
 
 describe('reading footer view', () => {
-  it('uses compact geometry without shrinking the strip below 24px', () => {
+  it('uses compact geometry and gives coarse mobile marks the recovered tab space', () => {
     const compact = footerGeometryFor('compact');
     const regular = footerGeometryFor('regular');
     const compactCoarse = footerGeometryFor('compact', true);
@@ -50,7 +50,9 @@ describe('reading footer view', () => {
     expect(footerBlockSize(compact, 5)).toBe(102);
     expect(footerBlockSize(regular, 5)).toBeGreaterThan(footerBlockSize(compact, 5));
     expect(compactCoarse.passageHeight).toBeGreaterThanOrEqual(44);
-    expect(compactCoarse.stripMinHeight).toBeGreaterThanOrEqual(44);
+    expect(compactCoarse.seriesHeight).toBe(34);
+    expect(compactCoarse.barcodeTrackHeight).toBe(7);
+    expect(compactCoarse.stripMinHeight).toBe(62);
     expect(footerBlockSize(compactCoarse, 1)).toBeGreaterThan(footerBlockSize(compact, 1));
   });
 

@@ -2239,7 +2239,7 @@ canvas {
   align-items: center;
   gap: var(--space-1);
   overflow-x: auto;
-  overscroll-behavior-inline: contain;
+  overscroll-behavior: none;
   padding-block: var(--space-1);
   scroll-padding-inline: var(--space-2);
   scrollbar-width: thin;
@@ -3219,11 +3219,26 @@ canvas {
   display: block;
   inline-size: 100%;
   padding: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  overscroll-behavior: none;
   border: 0;
   color: inherit;
   background: transparent;
   text-align: start;
   cursor: pointer;
+  scrollbar-width: none;
+  touch-action: pan-x pinch-zoom;
+}
+
+.footer-passage-coarse::-webkit-scrollbar {
+  display: none;
+}
+
+.footer-passage-scroll-content {
+  position: relative;
+  display: block;
+  block-size: 100%;
 }
 
 .footer-passage-coarse .footer-passage-text {
@@ -3290,7 +3305,8 @@ canvas {
   overflow: hidden;
   outline: none;
   cursor: crosshair;
-  touch-action: pan-y pinch-zoom;
+  overscroll-behavior: none;
+  touch-action: none;
 }
 
 .footer-strip[data-shuttling='true'] {
@@ -3367,6 +3383,7 @@ canvas {
 
 @media (max-width: 599.98px) {
   :root {
+    --lens-block-size: 53px;
     --terms-rail-block-size: 62px;
   }
 
@@ -3427,6 +3444,16 @@ canvas {
 }
 
 @media (pointer: coarse), (any-pointer: coarse) {
+  .workbench-dock {
+    overscroll-behavior: none;
+    touch-action: pan-x pinch-zoom;
+  }
+
+  .term-bucket-port {
+    overflow-y: hidden;
+    touch-action: pan-x;
+  }
+
   .footer-passage-retry {
     min-inline-size: 44px;
     min-block-size: 44px;

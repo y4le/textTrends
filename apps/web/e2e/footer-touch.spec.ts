@@ -30,7 +30,7 @@ test('footer touch is direct, axis-locked, multi-touch-safe, and never shuttles'
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
-  await expect(slider).toHaveCSS('touch-action', 'pan-y pinch-zoom');
+  await expect(slider).toHaveCSS('touch-action', 'none');
   const box = await slider.boundingBox();
   if (!box) throw new Error('footer slider has no layout box');
   const y = box.y + Math.min(5, box.height / 2);
@@ -105,24 +105,34 @@ test('footer touch is direct, axis-locked, multi-touch-safe, and never shuttles'
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
-test('a real vertical touch beginning on the footer remains page-owned', async ({
+test('passage text pans freely without moving the corpus position', async ({
   page,
   context,
   browserName,
 }) => {
-  test.skip(browserName !== 'chromium', 'CDP supplies the browser-owned scroll proof');
+  test.skip(browserName !== 'chromium', 'CDP supplies a real momentum-capable touch stream');
   await page.goto('./');
   await awaitAllReady(page);
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
-  const box = await slider.boundingBox();
-  if (!box) throw new Error('footer slider has no layout box');
-  const before = await page.evaluate(() => window.scrollY);
-  const max = await page.evaluate(() =>
-    Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
-  const direction = before < max ? -1 : 1;
+  const sliderBox = await slider.boundingBox();
+  if (!sliderBox) throw new Error('footer slider has no layout box');
+  await page.touchscreen.tap(sliderBox.x + sliderBox.width / 2, sliderBox.y + 5);
+
+  const passage = page.locator('.footer-passage-coarse[data-passage-for]');
+  await expect(passage).toBeVisible({ timeout: 15_000 });
+  await expect(passage).toHaveCSS('touch-action', 'pan-x pinch-zoom');
+  const passageBox = await passage.boundingBox();
+  if (!passageBox) throw new Error('footer passage has no layout box');
+  const metrics = await passage.evaluate((node) => ({
+    before: node.scrollLeft,
+    max: node.scrollWidth - node.clientWidth,
+  }));
+  expect(metrics.max).toBeGreaterThan(metrics.before);
+  const corpusPosition = await slider.getAttribute('aria-valuenow');
+  const pageY = await page.evaluate(() => window.scrollY);
   const point = {
-    x: Math.round(box.x + box.width / 2),
-    y: Math.round(box.y + Math.min(5, box.height / 2)),
+    x: Math.round(passageBox.x + passageBox.width * 0.7),
+    y: Math.round(passageBox.y + passageBox.height / 2),
   };
   const cdp = await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', {
@@ -131,12 +141,60 @@ test('a real vertical touch beginning on the footer remains page-owned', async (
   });
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchMove',
-    touchPoints: [{ ...point, y: point.y + direction * 60 }],
+    touchPoints: [{ ...point, x: point.x - 70 }],
   });
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchMove',
-    touchPoints: [{ ...point, y: point.y + direction * 120 }],
+    touchPoints: [{ ...point, x: point.x - 130 }],
   });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect.poll(() => page.evaluate(() => window.scrollY)).not.toBe(before);
+  await expect.poll(() => passage.evaluate((node) => node.scrollLeft))
+    .toBeGreaterThan(metrics.before);
+  await expect(slider).toHaveAttribute('aria-valuenow', corpusPosition ?? '');
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+});
+
+test('vertical touches on the scrub and tag bars do not scroll the page', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'CDP supplies the browser-owned scroll proof');
+  await page.goto('./');
+  await awaitAllReady(page);
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const tagPort = page.getByRole('group', { name: 'Query terms' });
+  const dock = page.locator('.workbench-dock');
+  await expect(slider).toHaveCSS('touch-action', 'none');
+  await expect(tagPort).toHaveCSS('touch-action', 'pan-x');
+  await expect(dock).toHaveCSS('touch-action', 'pan-x pinch-zoom');
+  const cdp = await context.newCDPSession(page);
+  for (const [label, target] of [['scrub', slider], ['tag', tagPort]] as const) {
+    const box = await target.boundingBox();
+    if (!box) throw new Error('dock touch target has no layout box');
+    const before = await page.evaluate(() => window.scrollY);
+    const max = await page.evaluate(() =>
+      Math.max(0, document.documentElement.scrollHeight - window.innerHeight));
+    const direction = before < max ? -1 : 1;
+    const point = {
+      x: Math.round(box.x + box.width / 2),
+      y: Math.round(box.y + Math.min(8, box.height / 2)),
+    };
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchStart',
+      touchPoints: [point],
+    });
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...point, y: point.y + direction * 60 }],
+    });
+    await cdp.send('Input.dispatchTouchEvent', {
+      type: 'touchMove',
+      touchPoints: [{ ...point, y: point.y + direction * 120 }],
+    });
+    await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+    await page.waitForTimeout(150);
+    expect(await page.evaluate(() => window.scrollY), `${label} bar moved the page`).toBe(before);
+  }
 });

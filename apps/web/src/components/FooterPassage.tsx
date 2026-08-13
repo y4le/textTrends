@@ -169,6 +169,18 @@ export function FooterPassage({
     display.slice(centerStart, centerEnd),
     canvasFont,
   ) / 2, [canvasFont, centerEnd, centerStart, display]);
+  const coarseScrollLeft = coarse && crosshairX !== null
+    ? containerWidth + (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
+    : null;
+
+  useLayoutEffect(() => {
+    const element = passageRef.current;
+    if (element === null || coarseScrollLeft === null) return;
+    // Coarse passage text lives in a real horizontal scrollport. Recenter
+    // when the reading target changes, then leave subsequent touch panning
+    // entirely to the browser (including momentum).
+    element.scrollLeft = Math.max(0, coarseScrollLeft);
+  }, [coarseScrollLeft, page, viewToken]);
 
   if (scrub === null || crosshairX === null) {
     return <div className="footer-passage footer-passage-message">scrub the corpus strip to read</div>;
@@ -228,8 +240,10 @@ export function FooterPassage({
     <span
       className="footer-passage-text"
       style={{
-        left: crosshairX,
-        transform: `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`,
+        left: coarse ? containerWidth : crosshairX,
+        transform: coarse
+          ? undefined
+          : `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`,
       }}
     >
       <span ref={beforeRef}>
@@ -270,17 +284,33 @@ export function FooterPassage({
   } : {};
 
   return coarse && !stale ? (
-    <button
+    <div
       {...windowAttributes}
       ref={(element) => { passageRef.current = element; }}
       id="footer-passage-node"
-      type="button"
       className="footer-passage footer-passage-coarse source-text"
+      role="button"
+      tabIndex={0}
       aria-label={`Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`}
       onClick={openCurrent}
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        event.preventDefault();
+        openCurrent();
+      }}
     >
-      {line}
-    </button>
+      <span
+        className="footer-passage-scroll-content"
+        style={{
+          width: Math.max(
+            containerWidth,
+            2 * containerWidth + (tokenGeometry?.textWidth ?? 0),
+          ),
+        }}
+      >
+        {line}
+      </span>
+    </div>
   ) : (
     <div
       {...windowAttributes}
