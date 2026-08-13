@@ -4,8 +4,8 @@
  * - a multi-alias term (token + phrase + prefix, authored in one comma field)
  *   drives trends and concordance as OR
  *   alternatives, with the complete phrase span in the concordance node;
- * - visibility removes the track globally while the CONCORDANCE chips stay
- *   an orthogonal filter; zero-hit is a real, visible ready state;
+ * - visibility removes the track globally, including from Concordance, while
+ *   zero-hit remains a real, visible ready state;
  * - a case-SENSITIVE member distinguishes what the folded default merges;
  * - the panel controls carry stable group-qualified accessible names and
  *   native checked/pressed state.
@@ -331,7 +331,7 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(manager.getByRole('button', { name: '+ Add term', exact: true })).toBeFocused();
 });
 
-test('visibility is global, the concordance filter stays orthogonal, and zero-hit is a visible ready state', async ({ page }) => {
+test('visibility is global across Concordance and zero-hit is a visible ready state', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf, dire, absentterm');
   const terms = page.getByRole('group', { name: 'Query terms' });
@@ -362,20 +362,10 @@ test('visibility is global, the concordance filter stays orthogonal, and zero-hi
   expect(managerShownBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 
-  // Concordance chip OFF for dire — the chart focus chips are untouched.
-  const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
+  // The shared terms rail remains the sole term control in Concordance.
   await gotoPlace(page, 'concordance');
-  await page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ }).click();
-  await awaitFreshKwic(page, mark0);
-  await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
-  // dire still SHOWN IN ANALYSIS (mute is a different control).
-  await gotoPlace(page, 'trends');
-  await expect(showDire).toHaveAttribute('aria-pressed', 'true');
-
-  // Mute dire GLOBALLY and observe the muted interval itself: its term bucket
-  // becomes unavailable for focus and the fresh reissued burst carries exactly the
-  // two remaining tracks (wolf + absentterm) — a mute that only flipped the
-  // button would fail both.
+  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
   const direChip = showDire.locator('..').locator('.term-bucket-focus');
   await expect(direChip).toBeVisible();
   const muteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -384,22 +374,18 @@ test('visibility is global, the concordance filter stays orthogonal, and zero-hi
   await expect(direChip).toBeDisabled();
   const mutedBurst = await awaitFreshAnswered(page, muteMark);
   expect(mutedBurst.filter((q) => q.op === 'trend').length).toBe(2);
-  // Unmute: the track RETURNS (fresh burst of three) and its concordance
-  // toggle survived the round-trip OFF.
+  await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term)))
+    .toEqual(new Set(['wolf']));
+
+  // Restoring global visibility restores the term in Concordance too.
   const unmuteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
   await expect(direChip).toBeEnabled();
   const unmutedBurst = await awaitFreshAnswered(page, unmuteMark);
   expect(unmutedBurst.filter((q) => q.op === 'trend').length).toBe(3);
-  await gotoPlace(page, 'concordance');
-  await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
-  await gotoPlace(page, 'trends');
-
-  await gotoPlace(page, 'concordance');
-  await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term))).toEqual(new Set(['wolf']));
-  const direKwicChip = page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /dire/ });
-  await expect(direKwicChip).toHaveAttribute('aria-pressed', 'false');
+  await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term)))
+    .toEqual(new Set(['wolf', 'dire']));
 
   // Keyboard: the new-term field and notebook controls are reachable and
   // operable without a pointer (smoke — full traversal is not the contract).

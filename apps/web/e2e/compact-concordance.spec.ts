@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, gotoPlace, simulateKeyboard, trace } from './helpers.ts';
 
-test('compact Concordance keeps only direct result and display controls', async ({ page }) => {
+test('compact Concordance keeps the shared terms rail and direct result controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page);
@@ -10,7 +10,8 @@ test('compact Concordance keeps only direct result and display controls', async 
   const controls = page.getByLabel('Concordance display');
   const grid = page.getByRole('grid', { name: 'Concordance' });
   await expect(grid).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
+  await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Method', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Concordance order')).toHaveCount(0);
   await expect(page.getByLabel('Occurrence navigation')).toHaveCount(0);
@@ -20,13 +21,17 @@ test('compact Concordance keeps only direct result and display controls', async 
     const dock = shell.querySelector<HTMLElement>('.workbench-dock');
     const footer = shell.querySelector<HTMLElement>('.workbench-footer');
     return {
-      termsRail: getComputedStyle(shell).getPropertyValue('--terms-rail-block-size').trim(),
+      termsRail: Number.parseFloat(
+        getComputedStyle(shell).getPropertyValue('--terms-rail-block-size'),
+      ),
       dockHeight: dock?.getBoundingClientRect().height ?? -1,
       footerHeight: footer?.getBoundingClientRect().height ?? -2,
     };
   });
-  expect(dockGeometry.termsRail).toBe('0px');
-  expect(Math.abs(dockGeometry.dockHeight - dockGeometry.footerHeight)).toBeLessThanOrEqual(1);
+  expect(dockGeometry.termsRail).toBeGreaterThan(0);
+  expect(Math.abs(
+    dockGeometry.dockHeight - dockGeometry.footerHeight - dockGeometry.termsRail,
+  )).toBeLessThanOrEqual(1);
 
   for (const control of await controls.locator('button, select').all()) {
     expect((await control.boundingBox())?.height).toBeGreaterThanOrEqual(44);
@@ -98,4 +103,26 @@ test('compact Concordance keeps only direct result and display controls', async 
   }));
   expect(overflow.root).toBeLessThanOrEqual(overflow.client);
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+});
+
+test('short landscape Concordance leaves a usable centered results viewport', async ({ page }) => {
+  await page.setViewportSize({ width: 568, height: 320 });
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'concordance');
+
+  const geometry = await page.locator('.kwic-grid-shell').evaluate((shell) => {
+    const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
+    const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
+    const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
+    return {
+      portHeight: port.height,
+      midpointError: Math.abs(line.top - (port.top + port.height / 2)),
+      portBottom: port.bottom,
+      dockTop: dock.top,
+    };
+  });
+  expect(geometry.portHeight).toBeGreaterThan(0);
+  expect(geometry.midpointError).toBeLessThanOrEqual(1);
+  expect(geometry.portBottom).toBeLessThanOrEqual(geometry.dockTop + 1);
 });

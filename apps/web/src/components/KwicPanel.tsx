@@ -43,8 +43,6 @@ import {
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { selectionContains } from '../lib/selection.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
-import { SeriesLineSample } from './chrome.tsx';
-import { usePresentation } from './PresentationProvider.tsx';
 
 const SCROLL_TOLERANCE_PX = 0.75;
 const ANNOUNCEMENT_INTERVAL_MS = 250;
@@ -70,14 +68,11 @@ export function KwicPanel({
   const scrub = useApp((state) => state.scrub);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const series = useApp((state) => state.series);
-  const enabled = useApp((state) => state.kwicEnabledSeries);
   const view = useApp((state) => state.concordanceView);
-  const toggle = useApp((state) => state.toggleKwicSeries);
   const requestWindow = useApp((state) => state.requestConcordanceWindow);
   const setContext = useApp((state) => state.setConcordanceContext);
   const setScrub = useApp((state) => state.setScrub);
   const openReader = useApp((state) => state.openReader);
-  const presentation = usePresentation();
 
   const portRef = useRef<HTMLDivElement | null>(null);
   const nodeHeadingRef = useRef<HTMLDivElement | null>(null);
@@ -430,36 +425,6 @@ export function KwicPanel({
     if (target >= 0) moveToRank(target);
   };
 
-  if (series.length === 0) return null;
-
-  const chips = (
-    <div
-      role="group"
-      aria-label="Concordance terms"
-      className="kwic-term-chips"
-      data-compact={presentation.width === 'compact' || undefined}
-    >
-      <span>terms:</span>
-      {series.map((item) => {
-        const on = enabled.has(item.id);
-        return (
-          <button
-            key={item.id}
-            type="button"
-            onClick={() => toggle(item.id)}
-            aria-pressed={on}
-            title={on
-              ? `hide “${item.label}” from the concordance`
-              : `show “${item.label}” in the concordance`}
-          >
-            <SeriesLineSample style={item.style} emphasized={on} />
-            {on ? '✓ ' : ''}{item.label}
-          </button>
-        );
-      })}
-    </div>
-  );
-
   const controls = (
     <div className="kwic-controls" aria-label="Concordance display">
       <label>
@@ -479,8 +444,8 @@ export function KwicPanel({
 
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode;
-  if (status === 'no-terms') {
-    body = <p className="kwic-message">No concordance terms enabled.</p>;
+  if (series.length === 0) {
+    body = <p className="kwic-message">No terms shown in analysis.</p>;
   } else if (status === 'error' && resident === null) {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p className="kwic-message kwic-error">concordance failed: {message}</p>;
@@ -598,7 +563,6 @@ export function KwicPanel({
       className="kwic-panel"
     >
       {showHeading && <h2 id="concordance-heading">Concordance</h2>}
-      {chips}
       {controls}
       {resident && total > 0 && (
         <div className="kwic-result-bar">

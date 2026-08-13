@@ -110,6 +110,8 @@ export interface WorkspaceV1 {
   readonly corpus: WorkspaceCorpusV1;
   readonly notebook: QueryNotebookV1;
   readonly active: readonly string[];
+  /** @deprecated Compatibility field for workspace/1 readers. New clients
+   * mirror `active`; Concordance uses the shared active projection. */
   readonly kwicEnabled: readonly string[];
   readonly views: {
     readonly trend: WorkspaceTrendViewV1;

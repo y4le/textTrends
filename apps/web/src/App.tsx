@@ -639,10 +639,7 @@ export function App() {
           </PlaceSurface>
         </div>
       </div>
-      <WorkbenchDock
-        globalShortcuts={place === 'trends'}
-        showTerms={place !== 'concordance'}
-      />
+      <WorkbenchDock globalShortcuts={place === 'trends'} />
     </main>
     {utilityPaneSurface}
     </>

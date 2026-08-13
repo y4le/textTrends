@@ -1249,7 +1249,6 @@ canvas {
   font-size: var(--text-md);
 }
 
-.kwic-term-chips,
 .kwic-controls {
   display: flex;
   align-items: center;
@@ -1257,37 +1256,11 @@ canvas {
   flex-wrap: wrap;
 }
 
-.kwic-term-chips {
-  margin-block-end: var(--space-2);
-}
-
-.kwic-term-chips > span,
 .kwic-controls label,
 .kwic-controls legend {
   color: var(--fg-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
-}
-
-.kwic-term-chips button {
-  display: inline-flex;
-  min-block-size: 32px;
-  align-items: center;
-  gap: 0.75ch;
-  padding-inline: 0.75ch;
-  border: 1px solid var(--rule);
-  background: none;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  cursor: pointer;
-  opacity: 0.65;
-}
-
-.kwic-term-chips button[aria-pressed='true'] {
-  border-color: var(--rule-strong);
-  color: var(--fg);
-  opacity: 1;
 }
 
 .kwic-controls {
@@ -2038,13 +2011,11 @@ canvas {
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   }
 
-  .kwic-term-chips button,
   .kwic-controls select {
     min-block-size: 44px;
     font-size: var(--text-sm);
   }
 
-  .kwic-term-chips > span,
   .kwic-controls label {
     font-size: var(--text-sm);
   }
@@ -3071,8 +3042,6 @@ canvas {
 }
 
 .app-shell[data-place='concordance'] {
-  --terms-rail-block-size: 0px;
-  --dock-block-size: var(--reading-lane-block-size);
   display: flex;
   block-size: calc(100vh - var(--keyboard-inset));
   block-size: calc(100dvh - var(--keyboard-inset));
@@ -3115,10 +3084,6 @@ canvas {
   min-inline-size: 0;
   overflow: visible;
   background: var(--bg);
-}
-
-.workbench-dock[data-terms='false'] {
-  grid-template-rows: minmax(0, 1fr);
 }
 
 .workbench-footer {
@@ -3365,6 +3330,20 @@ canvas {
   .app-shell {
     padding-block-end:
       calc(var(--space-3) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell[data-place='concordance'] {
+    padding-block-start: env(safe-area-inset-top, 0px);
+    padding-block-end:
+      calc(var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
+
+  .app-shell[data-place='concordance'] .kwic-panel {
+    margin-block-start: 0;
+  }
+
+  .app-shell[data-place='concordance'] .kwic-result-bar {
+    display: none;
   }
 
   .workbench-dock {

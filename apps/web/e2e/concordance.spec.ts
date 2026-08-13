@@ -87,10 +87,11 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
     && event.direction === 'to-worker'
     && event.t === 'query'
     && event.op === 'concordance-window')).toEqual([]);
-  // The scrubber's accessible position text uses the same metadata title.
+  // Concordance centers the nearest enabled mention and publishes that exact
+  // mention back to the shared scrubber.
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('slider', { name: /reading position/i }))
-    .toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
+    .toHaveAttribute('aria-valuetext', /^beasts · token 11\b/);
   await gotoPlace(page, 'concordance');
   await expect
     .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged corpus order' })
@@ -98,9 +99,11 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
   await expect(grid.locator('[role="row"][aria-selected="true"] .kwic-right-context'))
     .toContainText('fled');
 
-  // Toggle 'fox' OFF: a fresh concordance drops that track, keeps wolf.
+  // Toggle 'fox' OFF in the shared terms rail: a fresh concordance drops
+  // that globally hidden track and keeps wolf.
   const mark2 = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /fox/ }).click();
+  await page.getByRole('complementary', { name: 'Terms' })
+    .getByRole('button', { name: 'Shown in analysis: fox' }).click();
   await awaitFreshConcordance(page, mark2);
   await expect.poll(async () => new Set(await rowTerms(page)), { message: 'fox track did not disappear' }).toEqual(new Set(['wolf']));
 });

@@ -51,10 +51,12 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
   await submitAndAwaitFreshResults(page, 'holmes, watson, moriarty');
   await gotoPlace(page, 'concordance');
 
-  const concordanceTerms = page.getByRole('group', { name: 'Concordance terms' });
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  await expect(terms).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
   for (const term of ['holmes', 'watson']) {
     const toggleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-    await concordanceTerms.getByRole('button', { name: new RegExp(term) }).click();
+    await terms.getByRole('button', { name: `Shown in analysis: ${term}` }).click();
     await awaitFreshWindow(page, toggleMark);
   }
 

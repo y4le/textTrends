@@ -265,7 +265,7 @@ export type ConcordanceActivationOrigin =
       readonly members?: readonly number[];
     };
 
-/** The bounded resident window and sparse axis for enabled Concordance terms. */
+/** The bounded resident window and sparse axis for the active comparison. */
 export interface KwicState {
   readonly snapshot: string;
   readonly trackKey: string;
@@ -281,8 +281,7 @@ export interface KwicState {
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready' }
-    | { readonly status: 'error'; readonly message: string }
-    | { readonly status: 'no-terms' }; // no concordance terms enabled
+    | { readonly status: 'error'; readonly message: string };
 }
 
 /** The dispersion barcode result for the CURRENT effective comparison —
@@ -535,7 +534,6 @@ export interface RemovedNotebookGroup {
   readonly group: NotebookGroupV1;
   readonly index: number;
   readonly active: boolean;
-  readonly kwicEnabled: boolean;
   readonly solo: boolean;
 }
 
@@ -693,10 +691,6 @@ export interface AppState {
   kwic: KwicState | null;
   /** One-shot exact activation intent; consumed by the next matching window. */
   concordanceReveal: ConcordanceRevealTarget | null;
-  /** Which series appear in the merged concordance — ALL on by default, toggled
-   *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
-   *  surviving series (by presentation id). */
-  kwicEnabledSeries: ReadonlySet<string>;
   /** Session-local Concordance controls. Never serialized or autosaved. */
   concordanceView: ConcordanceView;
   /** The barcode's dispersion result (null = no comparison/corpus). */
@@ -754,7 +748,7 @@ export interface AppState {
 
   // ── Query/presentation intent (owned here). ──
   /** Append-only quick-add: each comma term becomes a single-token folded
-   *  group, active and concordance-enabled; a term already in the notebook
+   *  group and active; a term already in the notebook
    *  (same matching identity) is skipped; a batch that cannot FULLY activate
    *  is refused atomically via `inputError` (nothing partial, ruling §3). */
   quickAdd(input: string): void;
@@ -786,8 +780,6 @@ export interface AppState {
   setSolo(groupId: string | null): void;
   clearNotebookError(): void;
   setFocus(seriesId: string): void;
-  /** Toggle a term in/out of the merged Concordance window. */
-  toggleKwicSeries(seriesId: string): void;
   requestConcordanceWindow(
     anchor: ConcordanceAnchorV1,
     window?: { readonly before: number; readonly after: number },
@@ -795,11 +787,8 @@ export interface AppState {
   setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
-  /** Reveal an activated barcode occurrence immediately. Carries the series: a deliberate occurrence
-   *  click must yield a concordance CAPABLE of containing it, so a disabled
-   *  concordance chip for that series is visibly re-enabled first (review-D
-   *  HIGH). Density midpoints publish only the shared cursor, never an exact
-   *  reveal target. */
+  /** Reveal an activated barcode occurrence immediately. Density midpoints
+   *  publish only the shared cursor, never an exact reveal target. */
   centerKwicAt(seriesId: string, doc: string, token: number, origin?: ConcordanceActivationOrigin): void;
   /** Commit explicit per-document spans from one contiguous reading-order
    *  gesture. Reissues detail consumers; baseline results remain resident.
@@ -1063,8 +1052,10 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
     active: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
       .map((group) => group.id),
+    // Deprecated workspace/1 compatibility field. Concordance now follows
+    // the shared active projection, so new saves mirror `active` here.
     kwicEnabled: state.notebook.groups
-      .filter((group) => state.kwicEnabledSeries.has(group.id))
+      .filter((group) => state.activeGroupIds.has(group.id))
       .map((group) => group.id),
     views: {
       trend: {
@@ -2039,29 +2030,13 @@ export function createAppRuntime(
       window = { before: 24, after: 24 },
       force = false,
     ) => {
-      const { snapshot, series, kwicEnabledSeries, scrub } = get();
+      const { snapshot, series, scrub } = get();
       if (!snapshot || series.length === 0) {
         concordanceLane.supersede();
         set({ kwic: null, concordanceReveal: null });
         return;
       }
-      const enabled = series.filter((item) => kwicEnabledSeries.has(item.id));
-      if (enabled.length === 0) {
-        concordanceLane.supersede();
-        set({
-          kwic: {
-            snapshot: snapshot.snapshot,
-            trackKey: '',
-            request: null,
-            axis: null,
-            resident: null,
-            state: { status: 'no-terms' },
-          },
-          concordanceReveal: null,
-        });
-        return;
-      }
-      const tracks = trackSpecs(enabled);
+      const tracks = trackSpecs(series);
       if (tracks === null) {
         concordanceLane.supersede();
         set({ kwic: null, concordanceReveal: null });
@@ -2252,24 +2227,22 @@ export function createAppRuntime(
     const effectiveIntentKey = (
       nb: QueryNotebookV1,
       series: readonly SeriesIntent[],
-      enabled: ReadonlySet<string>,
     ): string =>
       JSON.stringify(series.map((s) => {
         const g = nb.groups.find((x) => x.id === s.id);
-        return [s.id, g ? groupIdentity(g) : null, enabled.has(s.id)];
+        return [s.id, g ? groupIdentity(g) : null];
       }));
 
     const adoptNotebook = (
       next: {
         notebook?: QueryNotebookV1;
         activeGroupIds?: ReadonlySet<string>;
-        kwicEnabledGroupIds?: ReadonlySet<string>;
         soloGroupId?: string | null;
       },
       opts: { reissue: boolean },
     ): void => {
       const prev = get();
-      const prevIntent = effectiveIntentKey(prev.notebook, prev.series, prev.kwicEnabledSeries);
+      const prevIntent = effectiveIntentKey(prev.notebook, prev.series);
       let notebook = next.notebook ?? prev.notebook;
       const known = new Set(notebook.groups.map((g) => g.id));
       const active = new Set([...(next.activeGroupIds ?? prev.activeGroupIds)].filter((id) => known.has(id)));
@@ -2278,23 +2251,6 @@ export function createAppRuntime(
       if (solo !== null && !active.has(solo)) solo = null;
       const styles = new Map(notebook.groups.map((group) => [group.id, group.style]));
       const series = projectSeries(notebook, active, solo, styles);
-      // Concordance membership: preserved for every SURVIVING group (muting
-      // must not destroy the toggle — invariant 6); a newly created group
-      // joins enabled. Effective KWIC stays `series ∩ enabled` at issue
-      // time, always a subset of the actives.
-      const nextEnabled = next.kwicEnabledGroupIds === undefined
-        ? new Set<string>()
-        : new Set(
-            [...next.kwicEnabledGroupIds].filter((id) => known.has(id)),
-          );
-      if (next.kwicEnabledGroupIds === undefined) {
-        for (const g of notebook.groups) {
-          const existedBefore = prev.notebook.groups.some((p) => p.id === g.id);
-          if (existedBefore ? prev.kwicEnabledSeries.has(g.id) : true) {
-            nextEnabled.add(g.id);
-          }
-        }
-      }
       const stillFocused = series.some((s) => s.id === prev.focusedSeries);
       set({
         notebook,
@@ -2303,14 +2259,13 @@ export function createAppRuntime(
         styles,
         series,
         notebookError: null,
-        kwicEnabledSeries: nextEnabled,
         focusedSeries: prev.focusedSeries === null
           ? null
           : stillFocused
             ? prev.focusedSeries
             : series[0]?.id ?? null,
       });
-      if (opts.reissue && effectiveIntentKey(notebook, series, nextEnabled) !== prevIntent) {
+      if (opts.reissue && effectiveIntentKey(notebook, series) !== prevIntent) {
         get().runQueries();
       }
     };
@@ -2331,7 +2286,6 @@ export function createAppRuntime(
         {
           notebook,
           activeGroupIds: ids,
-          kwicEnabledGroupIds: ids,
           soloGroupId: null,
         },
         { reissue: true },
@@ -2396,8 +2350,6 @@ export function createAppRuntime(
       trends: new Map(),
       kwic: null,
       concordanceReveal: null,
-      // Every term appears in the concordance by default.
-      kwicEnabledSeries: new Set<string>(),
       concordanceView: {
         contextChars: 38,
       },
@@ -2635,7 +2587,6 @@ export function createAppRuntime(
           group,
           index,
           active: get().activeGroupIds.has(groupId),
-          kwicEnabled: get().kwicEnabledSeries.has(groupId),
           solo: get().soloGroupId === groupId,
         };
         const notebook: QueryNotebookV1 = { ...nb, groups: nb.groups.filter((x) => x.id !== groupId) };
@@ -2660,13 +2611,10 @@ export function createAppRuntime(
         groups.splice(Math.min(removed.index, groups.length), 0, removed.group);
         const active = new Set(state.activeGroupIds);
         if (removed.active && active.size < MAX_SERIES) active.add(removed.group.id);
-        const enabled = new Set(state.kwicEnabledSeries);
-        if (removed.kwicEnabled) enabled.add(removed.group.id);
         set({ removedGroups: state.removedGroups.slice(0, -1) });
         adoptNotebook({
           notebook: { ...state.notebook, groups },
           activeGroupIds: active,
-          kwicEnabledGroupIds: enabled,
           soloGroupId: removed.solo && state.soloGroupId === null
             ? removed.group.id
             : state.soloGroupId,
@@ -2730,15 +2678,6 @@ export function createAppRuntime(
         // multi-term view independent of focus, so no KWIC reissue here.
         occurrenceLane.supersede();
         set({ focusedSeries: seriesId, occurrenceNavigation: null });
-      },
-
-      toggleKwicSeries(seriesId) {
-        if (!get().series.some((s) => s.id === seriesId)) return;
-        const next = new Set(get().kwicEnabledSeries);
-        if (next.has(seriesId)) next.delete(seriesId);
-        else next.add(seriesId);
-        set({ kwicEnabledSeries: next, concordanceReveal: null });
-        runConcordanceWindow();
       },
 
       requestConcordanceWindow(anchor, window) {
@@ -3894,7 +3833,6 @@ export function createAppRuntime(
         const active = new Set(state.activeGroupIds);
         active.add(group.id);
         adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
-        if (!get().kwicEnabledSeries.has(group.id)) get().toggleKwicSeries(group.id);
         get().setFocus(group.id);
         get().setPlace('concordance');
       },
@@ -3917,20 +3855,11 @@ export function createAppRuntime(
       centerKwicAt(seriesId, doc, token, origin) {
         const state = get();
         if (!state.snapshot?.readyDocs.includes(doc)) return;
-        // The activated track must be able to appear in the result: a
-        // disabled chip is re-enabled (visible state change, not a silent
-        // override) before the reissue (review-D HIGH).
-        if (state.series.some((s) => s.id === seriesId) && !state.kwicEnabledSeries.has(seriesId)) {
-          const next = new Set(state.kwicEnabledSeries);
-          next.add(seriesId);
-          set({ kwicEnabledSeries: next });
-        }
         // All navigation publishes the ONE shared cursor. Exact evidence also
         // carries a one-shot row disambiguator; density midpoints never do.
         get().setScrub({ doc, token });
         const live = get();
-        const enabled = live.series.filter((item) => live.kwicEnabledSeries.has(item.id));
-        const tracks = trackSpecs(enabled);
+        const tracks = trackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
         set({
           concordanceReveal: origin?.kind !== 'bucket'
@@ -4051,7 +3980,6 @@ export function createAppRuntime(
           {
             notebook: workspace.notebook,
             activeGroupIds: new Set(workspace.active),
-            kwicEnabledGroupIds: new Set(workspace.kwicEnabled),
             soloGroupId: null,
           },
           { reissue: true },

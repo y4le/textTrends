@@ -25,7 +25,6 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const trendMeasure = useApp((state) => state.trendMeasure);
   const selectedTrends = useApp((state) => state.selectedTrends);
   const kwic = useApp((state) => state.kwic);
-  const kwicEnabledSeries = useApp((state) => state.kwicEnabledSeries);
   const frequency = useApp((state) => state.frequency);
   const frequencyView = useApp((state) => state.frequencyView);
   const keynessView = useApp((state) => state.keynessView);
@@ -59,7 +58,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
       trendMeasure,
       concordance: {
         resident: kwic?.resident !== null && kwic?.resident !== undefined,
-        enabledTracks: kwicEnabledSeries.size,
+        enabledTracks: series.length,
         total: kwic?.resident?.total ?? null,
       },
       frequency: {
@@ -82,7 +81,6 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     keynessB,
     keynessView,
     kwic,
-    kwicEnabledSeries,
     linkedSelection,
     series,
     selectedTrends,

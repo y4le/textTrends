@@ -11,7 +11,7 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
     await expect(page.getByRole('button', { name: methodLabel, exact: true }))
       .toHaveCount(place === 'concordance' ? 0 : 1);
     await expect(page.getByRole('complementary', { name: 'Terms' }))
-      .toHaveCount(place === 'concordance' ? 0 : 1);
+      .toHaveCount(1);
     await expect(page.locator('details.method-summary')).toHaveCount(0);
     for (const [candidate, heading] of Object.entries(PLACE_HEADING)) {
       const expected = candidate === place ? 1 : 0;

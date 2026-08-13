@@ -196,8 +196,8 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('group', { name: 'Query terms' })).toHaveCount(0);
-  await expect(page.getByRole('group', { name: 'Concordance terms' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
 });
 
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {

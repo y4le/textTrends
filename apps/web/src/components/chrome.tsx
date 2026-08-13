@@ -1,8 +1,7 @@
 /**
  * Shared component chrome (Phase B ruling W4): presentation-only primitives
- * with no semantic content. Semantic controls (the chart-focus chip, the
- * concordance toggle chip) stay with their owners — only the truly common
- * visuals live here. Deliberately NOT in style/tokens.css, which is the
+ * with no semantic content. Semantic controls stay with their owners — only
+ * the truly common visuals live here. Deliberately NOT in style/tokens.css, which is the
  * design-token/global-primitive boundary, not a component-style home.
  */
 
@@ -22,9 +21,8 @@ export const SMALL_BUTTON_STYLE: React.CSSProperties = {
   padding: '1px 0.75ch',
 };
 
-/** The 22×8 series line sample (color + dash + emphasis weight) shared by the
- *  chart-focus and concordance chips. Identity styling only — never the sole
- *  carrier of state (both chips pair it with aria-pressed + text). */
+/** The 22×8 series line sample (color + dash + emphasis weight) shared by
+ * series controls. Identity styling only — never the sole carrier of state. */
 export function SeriesLineSample({ style, emphasized }: { style: SeriesStyleV1; emphasized: boolean }) {
   return (
     <svg width={22} height={8} aria-hidden="true">

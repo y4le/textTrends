@@ -21,6 +21,7 @@ import {
   DEFAULT_KEYNESS_VIEW,
   MAX_SERIES,
   occurrenceNavigationText,
+  workspaceFromApp,
   workspaceSemanticKey,
   type MetaPatch,
   type QueryClient,
@@ -751,7 +752,7 @@ describe('the session bridge', () => {
     }
   });
 
-  it('restores a workspace notebook and semantic views before analysis continues', async () => {
+  it('restores a workspace notebook from active state, ignoring the deprecated Concordance filter', async () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort();
@@ -768,7 +769,7 @@ describe('the session bridge', () => {
           }],
         },
         active: ['durable'],
-        kwicEnabled: ['durable'],
+        kwicEnabled: [],
         views: {
           ...workspaceState(BUILTIN_SHERLOCK_ID).views,
           trend: {
@@ -798,6 +799,11 @@ describe('the session bridge', () => {
       workspacePersistence: { phase: 'idle' },
     });
     expect(runtime.useApp.getState().activeGroupIds.has('durable')).toBe(true);
+    expect(runtime.useApp.getState().series.map((series) => series.id)).toEqual(['durable']);
+    expect(workspaceFromApp(runtime.useApp.getState())).toMatchObject({
+      active: ['durable'],
+      kwicEnabled: ['durable'],
+    });
     runtime.dispose();
   });
 
@@ -978,7 +984,8 @@ describe('the session bridge', () => {
     expect(port.calls.at(-1)).toEqual({ method: 'openBuiltinProject', args: ['builtin/asoif'] });
     expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Jon', 'Tyrion', 'Daenerys']);
     expect(store.getState().activeGroupIds.size).toBe(3);
-    expect(store.getState().kwicEnabledSeries.size).toBe(3);
+    expect(store.getState().series.map((series) => series.id))
+      .toEqual(store.getState().notebook.groups.map((group) => group.id));
   });
 
   it('importFiles creates a library corpus from a built-in and then appends', () => {
@@ -1187,42 +1194,51 @@ describe('store query intent discipline', () => {
     expect(f.kwics().length).toBe(kwicCount); // no reissue
   });
 
-  it('toggling a term off reissues the concordance without that track; on re-adds it', () => {
+  it('global activation reissues the concordance with exactly the effective series', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = f.store.getState().series;
     const tracksOf = () => (f.kwics().filter((q) => !q.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] }).tracks.map((t) => t.seriesId);
-    f.store.getState().toggleKwicSeries(moriarty!.id);
-    expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false);
+    f.store.getState().setGroupActive(moriarty!.id, false);
+    expect(f.store.getState().activeGroupIds.has(moriarty!.id)).toBe(false);
+    expect(f.store.getState().series.map((series) => series.id)).toEqual([holmes!.id]);
     expect(tracksOf()).toEqual([holmes!.id]);
-    f.store.getState().toggleKwicSeries(moriarty!.id);
+    f.store.getState().setGroupActive(moriarty!.id, true);
+    expect(f.store.getState().series.map((series) => series.id)).toEqual([holmes!.id, moriarty!.id]);
     expect(tracksOf()).toEqual([holmes!.id, moriarty!.id]);
   });
 
-  it('toggling ALL terms off shows the no-terms state and issues no query', () => {
+  it('deactivating every term clears the effective comparison and Concordance without an empty request', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const before = f.kwics().length; // the initial merged query
-    for (const s of f.store.getState().series) f.store.getState().toggleKwicSeries(s.id);
-    expect(f.store.getState().kwicEnabledSeries.size).toBe(0);
-    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
-    expect(f.kwics().length).toBe(before + 1); // only the first toggle queried; the emptying toggle did not
+    for (const group of f.store.getState().notebook.groups) {
+      f.store.getState().setGroupActive(group.id, false);
+    }
+    expect(f.store.getState().activeGroupIds.size).toBe(0);
+    expect(f.store.getState().series).toEqual([]);
+    expect(f.store.getState().kwic).toBeNull();
+    expect(f.kwics().length).toBe(before + 1); // only the first deactivation queried; the empty comparison did not
   });
 
-  it('preserves enabled on/off across an input edit; adds new terms enabled, drops departed', () => {
+  it('global activation survives append-only additions and new groups join effective Concordance', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
-    f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // moriarty OFF
+    const moriarty = f.store.getState().series[1]!;
+    f.store.getState().setGroupActive(moriarty.id, false);
     f.store.getState().quickAdd('holmes, watson, moriarty'); // add watson, keep the others
-    const series = f.store.getState().series;
-    const enabled = f.store.getState().kwicEnabledSeries;
-    const id = (label: string) => series.find((s) => s.label === label)!.id;
-    expect(enabled.has(id('holmes'))).toBe(true); // surviving, was on
-    expect(enabled.has(id('moriarty'))).toBe(false); // surviving, was off — preserved
-    expect(enabled.has(id('watson'))).toBe(true); // newly introduced → enabled
+    const groups = f.store.getState().notebook.groups;
+    const id = (label: string) => groups.find((group) => groupTitle(group) === label)!.id;
+    expect(f.store.getState().activeGroupIds.has(id('holmes'))).toBe(true);
+    expect(f.store.getState().activeGroupIds.has(id('moriarty'))).toBe(false);
+    expect(f.store.getState().activeGroupIds.has(id('watson'))).toBe(true);
+    expect(f.store.getState().series.map((series) => series.id))
+      .toEqual([id('holmes'), id('watson')]);
+    const query = f.kwics().filter((q) => !q.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(query.tracks.map((track) => track.seriesId)).toEqual([id('holmes'), id('watson')]);
   });
 
   it('raw scrub publishes only the cursor; the mounted surface explicitly requests its window', () => {
@@ -1261,16 +1277,18 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().kwic).toBeNull();
   });
 
-  it('scrubbing with every term disabled keeps no-terms state and issues no query', () => {
+  it('scrubbing with no active terms leaves Concordance absent and issues no window', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes, moriarty');
-    for (const series of f.store.getState().series) f.store.getState().toggleKwicSeries(series.id);
-    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    for (const group of f.store.getState().notebook.groups) {
+      f.store.getState().setGroupActive(group.id, false);
+    }
+    expect(f.store.getState().kwic).toBeNull();
     const count = f.kwics().length;
     f.store.getState().setScrub({ doc: 'a', token: 50 });
     expect(f.kwics()).toHaveLength(count);
-    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    expect(f.store.getState().kwic).toBeNull();
   });
 
   it('a late KWIC result from a superseded intent cannot land', async () => {
@@ -1278,7 +1296,7 @@ describe('store query intent discipline', () => {
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    f.store.getState().toggleKwicSeries(f.store.getState().series[1]!.id); // reissues, supersedes oldKwic
+    f.store.getState().setGroupActive(f.store.getState().series[1]!.id, false); // reissues, supersedes oldKwic
     oldKwic.resolve(fakeConcordance(9)); // raced past cancel
     await flush();
     expect(f.store.getState().kwic!.state.status).toBe('pending'); // the stale result did not land
@@ -1731,21 +1749,23 @@ describe('query notebook — identity discipline', () => {
     aliases: ['holm*'],
   });
 
-  it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, focus, and concordance selection untouched)', () => {
+  it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, focus, and global activation untouched)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     f.store.getState().setFocus(moriarty!.id);
-    f.store.getState().toggleKwicSeries(holmes!.id); // holmes OFF
+    f.store.getState().setGroupActive(holmes!.id, false);
     f.store.getState().quickAdd('holmes, watson'); // holmes skipped, watson appended
     const after = groupsOf(f);
     expect(after.map(groupTitle)).toEqual(['holmes', 'moriarty', 'watson']);
     expect(after[0]!.id).toBe(holmes!.id); // the duplicate touched nothing
     expect(after[0]!.aliases).toEqual(holmes!.aliases);
     expect(after[1]!.id).toBe(moriarty!.id); // append-only: nothing replaced
-    expect(f.store.getState().kwicEnabledSeries.has(holmes!.id)).toBe(false); // toggle survives
-    expect(f.store.getState().kwicEnabledSeries.has(after[2]!.id)).toBe(true); // new group enabled
+    expect(f.store.getState().activeGroupIds.has(holmes!.id)).toBe(false);
+    expect(f.store.getState().activeGroupIds.has(after[2]!.id)).toBe(true);
+    expect(f.store.getState().series.map((series) => series.id))
+      .toEqual([moriarty!.id, after[2]!.id]);
     expect(f.store.getState().focusedSeries).toBe(moriarty!.id); // focus survives
   });
 
@@ -1934,19 +1954,22 @@ describe('query notebook — identity discipline', () => {
 describe('query notebook — active set, solo, order, and style', () => {
   const groupsOf = (f: ReturnType<typeof harness>) => f.store.getState().notebook.groups;
 
-  it('mute drops the track globally (trend reissue without it) but PRESERVES the concordance toggle and style slot', () => {
+  it('mute drops and restores the track globally while preserving its style slot', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
     const styleBefore = f.store.getState().styles.get(moriarty!.id);
-    f.store.getState().toggleKwicSeries(moriarty!.id); // concordance OFF
     f.store.getState().setGroupActive(moriarty!.id, false); // mute
     expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id]);
     const live = f.trends().filter((t) => !t.cancelled);
     expect(live.map((t) => t.groupId)).toEqual([holmes!.id]);
+    let concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(concordance.tracks.map((track) => track.seriesId)).toEqual([holmes!.id]);
     f.store.getState().setGroupActive(moriarty!.id, true); // unmute
-    expect(f.store.getState().kwicEnabledSeries.has(moriarty!.id)).toBe(false); // toggle survived the mute
+    expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id, moriarty!.id]);
+    concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(concordance.tracks.map((track) => track.seriesId)).toEqual([holmes!.id, moriarty!.id]);
     expect(f.store.getState().styles.get(moriarty!.id)).toBe(styleBefore); // style identity survived
   });
 
@@ -2067,7 +2090,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.issued.length).toBe(issued); // invariant 2: no reissue
   });
 
-  it('removal cleans results, focus, concordance selection, solo, and style ownership', () => {
+  it('removal cleans results, focus, effective Concordance projection, solo, and style ownership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -2080,8 +2103,8 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(state.focusedSeries).toBe(holmes!.id);
     expect(state.soloGroupId).toBeNull();
     expect(state.styles.has(moriarty!.id)).toBe(false);
-    expect(state.kwicEnabledSeries.has(moriarty!.id)).toBe(false);
     expect(state.activeGroupIds.has(moriarty!.id)).toBe(false);
+    expect(state.series.map((series) => series.id)).toEqual([holmes!.id]);
   });
 });
 
@@ -2169,17 +2192,19 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     expect(f.store.getState().dispersion!.state.status).toBe('pending'); // never adopted
   });
 
-  it('activating a DISABLED track re-enables its concordance chip so the clicked occurrence can appear (review-D HIGH)', () => {
+  it('exact activation preserves global activation and requests the effective Concordance tracks', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
-    f.store.getState().quickAdd('holmes');
+    f.store.getState().quickAdd('holmes, moriarty');
     const sid = f.store.getState().series[0]!.id;
-    f.store.getState().toggleKwicSeries(sid); // chip OFF → no-terms state
-    expect(f.store.getState().kwic!.state.status).toBe('no-terms');
+    const activeBefore = [...f.store.getState().activeGroupIds];
     f.store.getState().centerKwicAt(sid, 'a', 3);
-    expect(f.store.getState().kwicEnabledSeries.has(sid)).toBe(true); // visibly re-enabled
+    expect([...f.store.getState().activeGroupIds]).toEqual(activeBefore);
     const q = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
-    expect(q.tracks.map((t) => t.seriesId)).toContain(sid); // the track IS in the request
+    expect(q.tracks.map((t) => t.seriesId))
+      .toEqual(f.store.getState().series.map((series) => series.id));
+    expect(f.store.getState().concordanceReveal)
+      .toMatchObject({ seriesId: sid, doc: 'a', token: 3 });
   });
 
   it('density activation publishes only a cursor while exact activation carries a reveal identity', () => {
@@ -2192,7 +2217,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     expect(f.store.getState().concordanceReveal).toBeNull();
     f.store.getState().centerKwicAt(sid, 'a', 7); // occurrence: no origin marker
     expect(f.store.getState().concordanceReveal).toMatchObject({ seriesId: sid, doc: 'a', token: 7 });
-    f.store.getState().toggleKwicSeries(sid);
+    f.store.getState().setGroupActive(sid, false);
     expect(f.store.getState().concordanceReveal).toBeNull();
   });
 
@@ -3485,7 +3510,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
   });
 
-  it('the frequency concordance action adds, reactivates, and re-enables the exact group', () => {
+  it('the frequency concordance action adds and globally reactivates the exact group', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().showFrequencyTermInKwic('Holmes');
@@ -3496,16 +3521,20 @@ describe('corpus dashboard query intent (slice-3)', () => {
         match: { case: 'sensitive', diacritics: 'sensitive' },
       }),
     ]);
-    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
+    expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
+    expect(f.store.getState().series.map((series) => series.id)).toContain(group.id);
+    let query = f.kwics().filter((item) => !item.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(query.tracks.map((track) => track.seriesId)).toContain(group.id);
     expect(f.store.getState().place).toBe('concordance');
 
-    f.store.getState().toggleKwicSeries(group.id);
     f.store.getState().setGroupActive(group.id, false);
-    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(false);
+    expect(f.store.getState().series.map((series) => series.id)).not.toContain(group.id);
     f.store.getState().showFrequencyTermInKwic('Holmes');
     expect(f.store.getState().notebook.groups).toHaveLength(1);
     expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
-    expect(f.store.getState().kwicEnabledSeries.has(group.id)).toBe(true);
+    expect(f.store.getState().series.map((series) => series.id)).toContain(group.id);
+    query = f.kwics().filter((item) => !item.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(query.tracks.map((track) => track.seriesId)).toContain(group.id);
     expect(f.store.getState().focusedSeries).toBe(group.id);
     expect(f.store.getState().place).toBe('concordance');
   });
