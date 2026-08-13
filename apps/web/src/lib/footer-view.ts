@@ -425,8 +425,6 @@ export function corpusProgress(
 export function footerStatusText(input: {
   readonly compact: boolean;
   readonly partial: boolean;
-  readonly docOrdinal: number;
-  readonly docCount: number;
   readonly title: string;
   readonly token: number;
   readonly docTokenCount: number;
@@ -438,15 +436,12 @@ export function footerStatusText(input: {
   const position = input.compact
     ? `${(input.token + 1).toLocaleString()}/${input.docTokenCount.toLocaleString()} · ${input.percent}%`
     : `token ${(input.token + 1).toLocaleString()} of ${input.docTokenCount.toLocaleString()} · ${input.percent}% of corpus`;
-  const book = input.docCount > 1
-    ? `${input.docOrdinal + 1}/${input.docCount} · ${input.title}`
-    : input.title;
   const suffix = input.pending
     ? ' · computing…'
     : input.failed > 0
       ? ` · ${input.failed} ${input.failed === 1 ? 'query' : 'queries'} failed`
       : '';
-  return `${input.partial ? 'partial corpus · ' : ''}${book} · ${position}${suffix}`;
+  return `${input.partial ? 'partial corpus · ' : ''}${input.title} · ${position}${suffix}`;
 }
 
 export interface FooterPassageLike {

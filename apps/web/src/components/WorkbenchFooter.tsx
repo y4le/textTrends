@@ -297,8 +297,6 @@ function FooterInteractive({
   const baseStatus = footerStatusText(progress && scrub ? {
     compact: presentation.width === 'compact',
     partial,
-    docOrdinal,
-    docCount: docs.length,
     title,
     token: scrub.token,
     docTokenCount: layout.tokenCounts[docOrdinal] ?? 0,

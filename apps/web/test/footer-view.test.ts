@@ -255,15 +255,13 @@ describe('reading footer view', () => {
     expect(footerStatusText({
       compact: false,
       partial: true,
-      docOrdinal: 1,
-      docCount: 3,
       title: 'Second book',
       token: 9,
       docTokenCount: 100,
       percent: 40,
       pending: false,
       failed: 1,
-    })).toBe('partial corpus · 2/3 · Second book · token 10 of 100 · 40% of corpus · 1 query failed');
+    })).toBe('partial corpus · Second book · token 10 of 100 · 40% of corpus · 1 query failed');
   });
 
   it('serves only a current canonical page and matching track identities', () => {
