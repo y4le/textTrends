@@ -5,12 +5,11 @@ import {
   concordancePhysicalExtent,
   concordancePrefetchRank,
   concordanceScrollTop,
+  concordanceTargetAtLogical,
   concordanceVisibleRanks,
   concordanceWindowSize,
-  globalTokenForLogical,
   globalTokenForTarget,
   logicalForGlobalToken,
-  targetForGlobalToken,
 } from '../src/lib/concordance-scroll.ts';
 import type { SequenceLayout } from '../src/lib/trend-geometry.ts';
 
@@ -41,14 +40,6 @@ describe('Concordance scroll geometry', () => {
     expect(concordanceLogicalAtScroll(Number.POSITIVE_INFINITY, 20)).toBe(0);
   });
 
-  it('uses distinct sentinels and fixed-height occurrence centers', () => {
-    expect(globalTokenForLogical({ docs, layout, totalRows: 4, logical: 0, axis: null, resident })).toBe(0);
-    expect(globalTokenForLogical({ docs, layout, totalRows: 4, logical: 0.5, axis: null, resident })).toBe(10);
-    expect(globalTokenForLogical({ docs, layout, totalRows: 4, logical: 1.5, axis: null, resident })).toBe(10);
-    expect(globalTokenForLogical({ docs, layout, totalRows: 4, logical: 2, axis: null, resident })).toBe(15);
-    expect(globalTokenForLogical({ docs, layout, totalRows: 4, logical: 4, axis: null, resident })).toBe(99);
-  });
-
   it('chooses the leftmost duplicate row and interpolates compressed source gaps', () => {
     expect(logicalForGlobalToken({ docs, layout, totalRows: 4, globalToken: 10, axis: null, resident })).toBe(0.5);
     expect(logicalForGlobalToken({ docs, layout, totalRows: 4, globalToken: 15, axis: null, resident })).toBe(2);
@@ -66,23 +57,17 @@ describe('Concordance scroll geometry', () => {
     };
     expect(logicalForGlobalToken({ docs, layout, totalRows: 256, globalToken: 10, axis, resident: null })).toBe(0.5);
     expect(logicalForGlobalToken({ docs, layout, totalRows: 256, globalToken: 30, axis, resident: null })).toBe(64.5);
-    expect(globalTokenForLogical({ docs, layout, totalRows: 256, logical: 64.5, axis, resident: null })).toBe(30);
   });
 
-  it('keeps a one-token corpus sentinel and occurrence logically distinct', () => {
+  it('keeps the start sentinel distinct in a one-token corpus', () => {
     const one: SequenceLayout = { bases: [0], tokenCounts: [1], totalTokens: 1 };
     const oneResident = { total: 1, firstRank: 0, rows: [{ doc: 'only', pos: 0 }] };
     expect(logicalForGlobalToken({ docs: ['only'], layout: one, totalRows: 1, globalToken: 0, axis: null, resident: oneResident })).toBe(0);
-    expect(globalTokenForLogical({ docs: ['only'], layout: one, totalRows: 1, logical: 0.5, axis: null, resident: oneResident })).toBe(0);
-    expect(globalTokenForLogical({ docs: ['only'], layout: one, totalRows: 1, logical: 1, axis: null, resident: oneResident })).toBe(0);
   });
 
   it('maps global tokens through declared order while skipping empty documents', () => {
     expect(globalTokenForTarget(docs, layout, { doc: 'b', token: 4 })).toBe(44);
     expect(globalTokenForTarget(docs, layout, { doc: 'empty', token: 0 })).toBeNull();
-    expect(targetForGlobalToken(docs, layout, 0)).toEqual({ doc: 'a', token: 0 });
-    expect(targetForGlobalToken(docs, layout, 44)).toEqual({ doc: 'b', token: 4 });
-    expect(targetForGlobalToken(docs, layout, 1_000)).toEqual({ doc: 'b', token: 59 });
   });
 
   it('bounds visible overscan and the requested worker window', () => {
@@ -116,5 +101,18 @@ describe('Concordance scroll geometry', () => {
       firstRank: 75,
       rows: middle.rows.slice(0, 25),
     }, 1)).toBeNull();
+  });
+
+  it('publishes the nearest resident occurrence instead of an interpolated token', () => {
+    expect(concordanceTargetAtLogical(0, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
+    expect(concordanceTargetAtLogical(0.99, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
+    expect(concordanceTargetAtLogical(1, resident)).toEqual({ rank: 1, doc: 'a', token: 10 });
+    expect(concordanceTargetAtLogical(2.4, resident)).toEqual({ rank: 2, doc: 'a', token: 20 });
+    expect(concordanceTargetAtLogical(4, resident)).toEqual({ rank: 3, doc: 'b', token: 40 });
+    expect(concordanceTargetAtLogical(1.5, {
+      ...resident,
+      firstRank: 2,
+      rows: resident.rows.slice(2),
+    })).toBeNull();
   });
 });

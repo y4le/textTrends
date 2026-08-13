@@ -26,6 +26,12 @@ export interface ConcordanceVisibleRanks {
   readonly end: number;
 }
 
+export interface ConcordanceRankTarget {
+  readonly rank: number;
+  readonly doc: string;
+  readonly token: number;
+}
+
 export function concordancePhysicalExtent(
   totalRows: number,
   rowHeight = CONCORDANCE_ROW_HEIGHT,
@@ -110,6 +116,19 @@ export function concordancePrefetchRank(
   return null;
 }
 
+/** Resolve the occurrence nearest the now line. Concordance-originated cursor
+ * publication is intentionally discrete; continuous corpus interpolation is
+ * reserved for the reverse scrub-to-Concordance direction. */
+export function concordanceTargetAtLogical(
+  logical: number,
+  resident: ConcordanceResidentLike | null,
+): ConcordanceRankTarget | null {
+  if (resident === null || resident.total <= 0 || !Number.isFinite(logical)) return null;
+  const rank = Math.max(0, Math.min(resident.total - 1, Math.floor(logical)));
+  const row = resident.rows[rank - resident.firstRank];
+  return row === undefined ? null : { rank, doc: row.doc, token: row.pos };
+}
+
 export function globalTokenForTarget(
   docs: readonly string[],
   layout: SequenceLayout,
@@ -125,27 +144,6 @@ export function globalTokenForTarget(
     || target.token >= count
   ) return null;
   return (layout.bases[ordinal] ?? 0) + target.token;
-}
-
-export function targetForGlobalToken(
-  docs: readonly string[],
-  layout: SequenceLayout,
-  requestedGlobalToken: number,
-): { readonly doc: string; readonly token: number } | null {
-  if (layout.totalTokens <= 0 || !Number.isFinite(requestedGlobalToken)) return null;
-  const globalToken = Math.max(
-    0,
-    Math.min(layout.totalTokens - 1, Math.round(requestedGlobalToken)),
-  );
-  for (let ordinal = 0; ordinal < docs.length; ordinal++) {
-    const count = layout.tokenCounts[ordinal] ?? 0;
-    const base = layout.bases[ordinal] ?? 0;
-    if (count > 0 && globalToken >= base && globalToken < base + count) {
-      const doc = docs[ordinal];
-      return doc === undefined ? null : { doc, token: globalToken - base };
-    }
-  }
-  return null;
 }
 
 function rankTokenPoints(input: {
@@ -219,38 +217,4 @@ export function logicalForGlobalToken(input: {
   if (upper.globalToken <= lower.globalToken) return lower.logical;
   const ratio = (target - lower.globalToken) / (upper.globalToken - lower.globalToken);
   return lower.logical + (upper.logical - lower.logical) * ratio;
-}
-
-export function globalTokenForLogical(input: {
-  readonly docs: readonly string[];
-  readonly layout: SequenceLayout;
-  readonly totalRows: number;
-  readonly logical: number;
-  readonly axis: ConcordanceAxisLike | null;
-  readonly resident: ConcordanceResidentLike | null;
-}): number | null {
-  const { layout, totalRows } = input;
-  if (totalRows <= 0 || layout.totalTokens <= 0) return null;
-  const logical = Math.max(0, Math.min(totalRows, input.logical));
-  if (logical <= 0) return 0;
-  if (logical >= totalRows) return layout.totalTokens - 1;
-  const points = rankTokenPoints(input);
-  let lower = points[0]!;
-  let upper = points.at(-1)!;
-  for (const point of points) {
-    if (point.logical <= logical) lower = point;
-    if (point.logical >= logical) {
-      upper = point;
-      break;
-    }
-  }
-  if (upper.logical <= lower.logical) return lower.globalToken;
-  const ratio = (logical - lower.logical) / (upper.logical - lower.logical);
-  return Math.max(
-    0,
-    Math.min(
-      layout.totalTokens - 1,
-      Math.round(lower.globalToken + (upper.globalToken - lower.globalToken) * ratio),
-    ),
-  );
 }

@@ -27,12 +27,11 @@ import {
   concordancePhysicalExtent,
   concordancePrefetchRank,
   concordanceScrollTop,
+  concordanceTargetAtLogical,
   concordanceVisibleRanks,
   concordanceWindowSize,
-  globalTokenForLogical,
   globalTokenForTarget,
   logicalForGlobalToken,
-  targetForGlobalToken,
 } from '../lib/concordance-scroll.ts';
 import { sequenceLayoutFor } from '../lib/footer-view.ts';
 import {
@@ -88,7 +87,7 @@ export function KwicPanel({
   const logicalRef = useRef(0);
   const selfPublishedRef = useRef<SelfPublishedCursor | null>(null);
   const appliedRevealRef = useRef<object | null>(null);
-  const pendingKeyboardRankRef = useRef<number | null>(null);
+  const pendingRankRef = useRef<number | null>(null);
   const identityRef = useRef('');
   const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const announcementPendingRef = useRef('');
@@ -221,28 +220,20 @@ export function KwicPanel({
   }, [kwic?.request, kwic?.state.status, requestWindow, resident, total, viewport.height]);
 
   const publishLogicalCursor = useCallback((nextLogical: number) => {
-    if (!layout || total <= 0) return null;
-    const globalToken = globalTokenForLogical({
-      docs,
-      layout,
-      totalRows: total,
-      logical: nextLogical,
-      axis: kwic?.axis ?? null,
-      resident,
-    });
-    const target = globalToken === null ? null : targetForGlobalToken(docs, layout, globalToken);
+    const target = concordanceTargetAtLogical(nextLogical, resident);
     if (!target) return null;
-    selfPublishedRef.current = { ...target, logical: nextLogical };
-    if (scrub?.doc !== target.doc || scrub.token !== target.token) setScrub(target);
-    return target;
-  }, [docs, kwic?.axis, layout, resident, scrub, setScrub, total]);
+    const cursor = { doc: target.doc, token: target.token };
+    selfPublishedRef.current = { ...cursor, logical: nextLogical };
+    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) setScrub(cursor);
+    return cursor;
+  }, [resident, scrub, setScrub]);
 
   const moveToRank = useCallback((rank: number) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
     const nextLogical = bounded + 0.5;
     const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
-    pendingKeyboardRankRef.current = rowAtRank(bounded) ? null : bounded;
+    pendingRankRef.current = rowAtRank(bounded) ? null : bounded;
     setLogicalPosition(nextLogical, true);
     const target = publishLogicalCursor(nextLogical);
     if (target) announceRank(bounded, target);
@@ -276,25 +267,30 @@ export function KwicPanel({
     identityRef.current = identity;
     selfPublishedRef.current = null;
     appliedRevealRef.current = null;
-    pendingKeyboardRankRef.current = null;
+    pendingRankRef.current = null;
     setLogicalPosition(0, true);
   }, [kwic?.snapshot, kwic?.trackKey, setLogicalPosition]);
 
   useEffect(() => {
     if (!layout || total <= 0 || !kwic) return;
     const size = concordanceWindowSize(viewport.height);
-    const pendingRank = pendingKeyboardRankRef.current;
+    const pendingRank = pendingRankRef.current;
     if (pendingRank !== null) {
       const row = rowAtRank(pendingRank);
       if (row) {
         const target = { doc: row.doc, token: row.pos };
-        pendingKeyboardRankRef.current = null;
+        pendingRankRef.current = null;
         selfPublishedRef.current = { ...target, logical: pendingRank + 0.5 };
         if (scrub?.doc !== target.doc || scrub.token !== target.token) setScrub(target);
         setLogicalPosition(pendingRank + 0.5, true);
         announceRank(pendingRank, target);
         return;
       }
+      // Hold the last exact scrub value only while some replacement window is
+      // in flight. A settled error or superseding window that omitted this
+      // rank must release the fence so authoritative scrub state can recover.
+      if (kwic.state.status === 'pending') return;
+      pendingRankRef.current = null;
     }
 
     if (resident?.revealRank !== null
@@ -364,8 +360,9 @@ export function KwicPanel({
       const nextLogical = concordanceLogicalAtScroll(livePort.scrollTop, total);
       const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
       setLogicalPosition(nextLogical, false);
-      const target = publishLogicalCursor(nextLogical);
       const rank = Math.max(0, Math.min(total - 1, Math.floor(nextLogical)));
+      const target = publishLogicalCursor(nextLogical);
+      pendingRankRef.current = target === null ? rank : null;
       if (target) announceRank(rank, target);
       requestRank(rank, direction);
     });

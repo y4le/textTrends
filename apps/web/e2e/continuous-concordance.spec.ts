@@ -37,16 +37,26 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
-  const words = Array.from({ length: 1_200 }, (_, index) => `wolf marker${index}`).join(' ');
+  const words = Array.from(
+    { length: 1_200 },
+    (_, index) => `holmes watson moriarty marker${index}`,
+  ).join(' ');
   await page.getByLabel('Create project from files').setInputFiles({
-    name: 'many-wolves.txt',
+    name: 'many-mentions.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(words, 'utf-8'),
   });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
-  await submitAndAwaitFreshResults(page, 'wolf');
+  await submitAndAwaitFreshResults(page, 'holmes, watson, moriarty');
   await gotoPlace(page, 'concordance');
+
+  const concordanceTerms = page.getByRole('group', { name: 'Concordance terms' });
+  for (const term of ['holmes', 'watson']) {
+    const toggleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+    await concordanceTerms.getByRole('button', { name: new RegExp(term) }).click();
+    await awaitFreshWindow(page, toggleMark);
+  }
 
   const grid = page.getByRole('grid', { name: 'Concordance' });
   await expect(grid).toBeVisible({ timeout: 30_000 });
@@ -90,6 +100,22 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
     .toBeGreaterThan(500);
   await expect(footerSlider)
     .not.toHaveAttribute('aria-valuenow', initialFooter ?? '');
+
+  const activeOccurrenceToken = async () => {
+    const text = await grid
+      .locator('.kwic-virtual-row[aria-selected="true"] .kwic-token-position')
+      .textContent();
+    return Number.parseInt((text ?? '').split('/')[0]!.replaceAll(',', '').trim(), 10) - 1;
+  };
+  await expect.poll(async () =>
+    Number(await footerSlider.getAttribute('aria-valuenow')) - await activeOccurrenceToken())
+    .toBe(0);
+  const centeredToken = await activeOccurrenceToken();
+  await grid.evaluate((node) => { (node as HTMLElement).scrollTop += 32; });
+  await expect.poll(activeOccurrenceToken).toBeGreaterThan(centeredToken);
+  await expect.poll(async () =>
+    Number(await footerSlider.getAttribute('aria-valuenow')) - await activeOccurrenceToken())
+    .toBe(0);
 
   // Reverse direction: a shared-axis keyboard scrub drives the scroll plane,
   // lands a fresh exact window, and then stays fenced rather than oscillating.
