@@ -1,11 +1,6 @@
-import {
-  kwicRowKey,
-  type ConcordanceSortMode,
-  type KwicRowView,
-} from './store.ts';
+import { kwicRowKey, type KwicRowView } from './store.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
 
-export const KWIC_SERVED_CONTEXT_TOKENS = 6;
 export const CONTEXT_CHAR_CHOICES = [12, 24, 38, 60] as const;
 export const DEFAULT_CONTEXT_CHARS = 38;
 
@@ -70,14 +65,4 @@ export function nodeCenterOffset(
 ): number {
   if (![portWidth, nodeLeft, nodeWidth].every(Number.isFinite)) return 0;
   return Math.max(0, nodeLeft + nodeWidth / 2 - portWidth / 2);
-}
-
-export function concordanceMethodLine(
-  sort: ConcordanceSortMode,
-  contextChars: number,
-): string {
-  const order = sort === 'proximity'
-    ? 'nearest reading position · reading-order tiebreak'
-    : `first ${sort} collocate · reading-order tiebreak · reading position is not used`;
-  return `order: ${order} · context: ${KWIC_SERVED_CONTEXT_TOKENS} tokens served per side, up to ${contextChars} characters shown`;
 }

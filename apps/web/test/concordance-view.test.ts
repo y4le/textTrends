@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  concordanceMethodLine,
   concordanceRows,
   nodeCenterOffset,
   oneLine,
@@ -57,14 +56,5 @@ describe('Concordance presentation', () => {
     expect(nodeCenterOffset(320, 500, 80)).toBe(380);
     expect(nodeCenterOffset(800, 120, 80)).toBe(0);
     expect(nodeCenterOffset(Number.NaN, 120, 80)).toBe(0);
-  });
-
-  it('states whether reading position participates in ordering', () => {
-    expect(concordanceMethodLine('proximity', 38)).toContain(
-      'nearest reading position',
-    );
-    expect(concordanceMethodLine('L1', 24)).toBe(
-      'order: first L1 collocate · reading-order tiebreak · reading position is not used · context: 6 tokens served per side, up to 24 characters shown',
-    );
   });
 });

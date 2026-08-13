@@ -1515,7 +1515,7 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().removedGroups).toHaveLength(0);
   });
 
-  it('keeps Concordance reading and context local while sort alone reissues KWIC', () => {
+  it('keeps Concordance reading and context local while ordering stays nearest', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes');
@@ -1531,8 +1531,6 @@ describe('store query intent discipline', () => {
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
 
-    f.store.getState().setConcordanceSort('L1');
-    expect(f.issued).toHaveLength(issued + 1);
     const request = f.kwics().at(-1)!.query as {
       request: {
         center?: { doc: string; token: number };
@@ -1541,53 +1539,48 @@ describe('store query intent discipline', () => {
     };
     expect(request.request.center).toBeUndefined();
     expect(request.request.sort).toEqual([
-      { at: 'L1', dir: 1 },
       { at: 'doc', dir: 1 },
       { at: 'pos', dir: 1 },
     ]);
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
   });
 
-  it('does not requery a collocate order while the reading position moves', () => {
+  it('always requeries nearest ordering when the reading position settles', () => {
     vi.useFakeTimers();
     try {
       const f = harness();
       f.port.publishSnapshot('g1', 's1');
       f.store.getState().quickAdd('holmes');
-      f.store.getState().setConcordanceSort('R2');
       const issued = f.kwics().length;
       f.store.getState().setScrub({ doc: 'a', token: 20 });
       vi.advanceTimersByTime(KWIC_CENTER_DEBOUNCE_MS + 1);
-      expect(f.kwics()).toHaveLength(issued);
-
-      f.store.getState().setConcordanceSort('proximity');
       expect(f.kwics()).toHaveLength(issued + 1);
       const request = f.kwics().at(-1)!.query as {
-        request: { center?: { doc: string; token: number } };
+        request: {
+          center?: { doc: string; token: number };
+          sort: readonly { at: string; dir: number }[];
+        };
       };
       expect(request.request.center).toEqual({ doc: 'a', token: 20 });
+      expect(request.request.sort).toEqual([
+        { at: 'doc', dir: 1 },
+        { at: 'pos', dir: 1 },
+      ]);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it('does not requery collocate order for barcode evidence unless query intent changes', () => {
+  it('recenters nearest ordering immediately for barcode evidence', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes, moriarty');
-    f.store.getState().setConcordanceSort('L1');
+    f.store.getState().quickAdd('holmes');
     const holmes = f.store.getState().series[0]!.id;
-    const moriarty = f.store.getState().series[1]!.id;
-    let issued = f.kwics().length;
+    const issued = f.kwics().length;
 
     f.store.getState().centerKwicAt(holmes, 'a', 20);
-    expect(f.kwics()).toHaveLength(issued);
-
-    f.store.getState().toggleKwicSeries(moriarty);
-    issued = f.kwics().length;
-    f.store.getState().centerKwicAt(moriarty, 'a', 30);
     expect(f.kwics()).toHaveLength(issued + 1);
-    expect(f.store.getState().kwicEnabledSeries.has(moriarty)).toBe(true);
+    expect(f.store.getState().kwic!.center).toEqual({ doc: 'a', token: 20 });
   });
 
   it('clears results to pending on reissue — old arrays are never relabeled', async () => {
