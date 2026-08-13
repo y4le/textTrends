@@ -14,6 +14,7 @@ import {
   nextPassageToken,
   passageLayout,
   passageMarginTokens,
+  passageTokenAtTextOffset,
   passageTokenGeometry,
   sequenceLayoutFor,
 } from '../src/lib/footer-view.ts';
@@ -123,6 +124,22 @@ describe('reading footer view', () => {
     expect(shaped?.usedPrefixFallback).toBe(true);
     expect(shaped?.textWidth).toBe(6);
     expect([...shaped!.ends]).toEqual([2, 6]);
+  });
+
+  it('maps a freely scrolled text offset to the nearest authenticated token', () => {
+    const geometry = passageTokenGeometry(
+      'aa b ccc',
+      [0, 3, 5],
+      [2, 4, 8],
+      (value) => value.length * 2,
+    )!;
+    expect(passageTokenAtTextOffset(geometry, -100)).toBe(0);
+    expect(passageTokenAtTextOffset(geometry, 2)).toBe(0);
+    expect(passageTokenAtTextOffset(geometry, 7)).toBe(1);
+    expect(passageTokenAtTextOffset(geometry, 13)).toBe(2);
+    expect(passageTokenAtTextOffset(geometry, 10_000)).toBe(2);
+    expect(passageTokenAtTextOffset({ ...geometry, starts: new Float64Array() }, 2))
+      .toBeNull();
   });
 
   it('pages variable-width source in both directions with centered, gapless windows', () => {

@@ -105,7 +105,7 @@ test('footer touch is direct, axis-locked, multi-touch-safe, and never shuttles'
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
-test('passage text pans freely without moving the corpus position', async ({
+test('passage text pans freely and advances the shared corpus position', async ({
   page,
   context,
   browserName,
@@ -128,7 +128,7 @@ test('passage text pans freely without moving the corpus position', async ({
     max: node.scrollWidth - node.clientWidth,
   }));
   expect(metrics.max).toBeGreaterThan(metrics.before);
-  const corpusPosition = await slider.getAttribute('aria-valuenow');
+  const corpusPosition = Number(await slider.getAttribute('aria-valuenow'));
   const pageY = await page.evaluate(() => window.scrollY);
   const point = {
     x: Math.round(passageBox.x + passageBox.width * 0.7),
@@ -150,9 +150,68 @@ test('passage text pans freely without moving the corpus position', async ({
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
   await expect.poll(() => passage.evaluate((node) => node.scrollLeft))
     .toBeGreaterThan(metrics.before);
-  await expect(slider).toHaveAttribute('aria-valuenow', corpusPosition ?? '');
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(corpusPosition);
   expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+});
+
+test('scrolling to resident text edges loads another source window without blank space', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const sliderBox = await slider.boundingBox();
+  if (!sliderBox) throw new Error('footer slider has no layout box');
+  await page.touchscreen.tap(sliderBox.x + sliderBox.width / 2, sliderBox.y + 5);
+
+  const passage = page.locator('.footer-passage-coarse[data-passage-for]');
+  await expect(passage).toBeVisible({ timeout: 15_000 });
+  const initial = await passage.evaluate((node) => ({
+    start: Number(node.getAttribute('data-passage-page-start')),
+    end: Number(node.getAttribute('data-passage-page-end')),
+    position: Number(document.querySelector('[aria-label="Corpus footer position"]')
+      ?.getAttribute('aria-valuenow')),
+  }));
+  const readerQueries = () => trace(page).then(({ events }) => events.filter((event) =>
+    event.direction === 'to-worker'
+    && event.t === 'query'
+    && event.op === 'reader-page').length);
+  const queryCount = await readerQueries();
+
+  await passage.evaluate((node) => { node.scrollLeft = node.scrollWidth; });
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(initial.position);
+  await expect.poll(readerQueries).toBeGreaterThan(queryCount);
+  await expect.poll(async () => ({
+    start: Number(await passage.getAttribute('data-passage-page-start')),
+    end: Number(await passage.getAttribute('data-passage-page-end')),
+  })).not.toEqual({ start: initial.start, end: initial.end });
+  const forward = {
+    start: Number(await passage.getAttribute('data-passage-page-start')),
+    position: Number(await slider.getAttribute('aria-valuenow')),
+    queryCount: await readerQueries(),
+  };
+
+  const fill = await passage.evaluate((node) => {
+    const port = node.getBoundingClientRect();
+    const text = node.querySelector('.footer-passage-text')?.getBoundingClientRect();
+    return text ? {
+      leftGap: Math.max(0, text.left - port.left),
+      rightGap: Math.max(0, port.right - text.right),
+    } : null;
+  });
+  expect(fill).not.toBeNull();
+  expect(fill!.leftGap).toBeLessThanOrEqual(1);
+  expect(fill!.rightGap).toBeLessThanOrEqual(1);
+
+  await passage.evaluate((node) => { node.scrollLeft = 0; });
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeLessThan(forward.position);
+  await expect.poll(readerQueries).toBeGreaterThan(forward.queryCount);
+  await expect.poll(async () => Number(await passage.getAttribute('data-passage-page-start')))
+    .toBeLessThan(forward.start);
 });
 
 test('vertical touches on the scrub and tag bars do not scroll the page', async ({

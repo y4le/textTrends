@@ -38,6 +38,30 @@ export interface PassageLayoutV1 {
   readonly window: PassageWindowV1;
 }
 
+/** Resolve a horizontal source-text offset to the nearest token center. The
+ * offset is in the measured text's own coordinate space, not the scrollport.
+ * Clamping keeps native momentum at a resident slice edge on authenticated
+ * source instead of inventing a position in surrounding layout padding. */
+export function passageTokenAtTextOffset(
+  geometry: PassageTokenGeometry,
+  offsetPx: number,
+): number | null {
+  if (geometry.starts.length === 0 || !Number.isFinite(offsetPx)) return null;
+  let lo = 0;
+  let hi = geometry.starts.length - 1;
+  while (lo < hi) {
+    const mid = Math.floor((lo + hi) / 2);
+    const center = (geometry.starts[mid]! + geometry.ends[mid]!) / 2;
+    if (center < offsetPx) lo = mid + 1;
+    else hi = mid;
+  }
+  if (lo === 0) return 0;
+  const prior = lo - 1;
+  const priorCenter = (geometry.starts[prior]! + geometry.ends[prior]!) / 2;
+  const nextCenter = (geometry.starts[lo]! + geometry.ends[lo]!) / 2;
+  return offsetPx - priorCenter <= nextCenter - offsetPx ? prior : lo;
+}
+
 type MeasureText = (text: string) => number;
 
 /** Measure every token boundary in the exact rendered source string. The fast

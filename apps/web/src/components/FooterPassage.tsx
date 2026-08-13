@@ -5,6 +5,7 @@ import {
   footerPassageDisplay,
   passageLayout,
   passageMarginTokens,
+  passageTokenAtTextOffset,
   passageTokenGeometry,
   type PassageWindowV1,
 } from '../lib/footer-view.ts';
@@ -71,9 +72,15 @@ export function FooterPassage({
 }) {
   const openReader = useApp((state) => state.openReader);
   const retryPassage = useApp((state) => state.runFooterPassage);
+  const setScrub = useApp((state) => state.setScrub);
   const focusedSeries = useApp((state) => state.focusedSeries);
   const beforeRef = useRef<HTMLSpanElement | null>(null);
   const passageRef = useRef<HTMLElement | null>(null);
+  const scrollFrame = useRef<number | null>(null);
+  const scrollDrivenToken = useRef<number | null>(null);
+  const programmaticScrollLeft = useRef<number | null>(null);
+  const suppressOpenUntil = useRef(0);
+  const residentPageKey = useRef('');
   const [canvasFont, setCanvasFont] = useState('');
   const [containerWidth, setContainerWidth] = useState(0);
   const page = passage?.snapshot === snapshot ? passage.page : null;
@@ -121,7 +128,15 @@ export function FooterPassage({
   const passageMargin = useMemo(() => tokenGeometry
     ? passageMarginTokens(tokenGeometry, containerWidth)
     : 0, [containerWidth, tokenGeometry]);
-  const view = footerPassageDisplay(passage, scrub, snapshot, passageMargin);
+  // Native coarse scrolling may legitimately enter the prefetch margin while
+  // a replacement page is in flight. Keep that authenticated resident source
+  // interactive; the store still uses the measured margin to request early.
+  const view = footerPassageDisplay(
+    passage,
+    scrub,
+    snapshot,
+    coarse ? 0 : passageMargin,
+  );
   const stale = view?.stale ?? false;
   const crosshairX = view
     ? crosshairXForToken(view.page.doc, view.token)
@@ -170,17 +185,31 @@ export function FooterPassage({
     canvasFont,
   ) / 2, [canvasFont, centerEnd, centerStart, display]);
   const coarseScrollLeft = coarse && crosshairX !== null
-    ? containerWidth + (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
+    ? (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
     : null;
+  const pageKey = page
+    ? `${page.doc}:${page.tokens.start}:${page.tokens.end}`
+    : '';
 
   useLayoutEffect(() => {
     const element = passageRef.current;
     if (element === null || coarseScrollLeft === null) return;
+    const sameResidentPage = residentPageKey.current === pageKey;
+    residentPageKey.current = pageKey;
+    if (sameResidentPage && scrollDrivenToken.current === viewToken) return;
+    scrollDrivenToken.current = null;
     // Coarse passage text lives in a real horizontal scrollport. Recenter
     // when the reading target changes, then leave subsequent touch panning
     // entirely to the browser (including momentum).
-    element.scrollLeft = Math.max(0, coarseScrollLeft);
-  }, [coarseScrollLeft, page, viewToken]);
+    const maximum = Math.max(0, element.scrollWidth - element.clientWidth);
+    const next = Math.max(0, Math.min(maximum, coarseScrollLeft));
+    programmaticScrollLeft.current = next;
+    element.scrollLeft = next;
+  }, [coarseScrollLeft, pageKey, viewToken]);
+
+  useEffect(() => () => {
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+  }, []);
 
   if (scrub === null || crosshairX === null) {
     return <div className="footer-passage footer-passage-message">scrub the corpus strip to read</div>;
@@ -230,17 +259,20 @@ export function FooterPassage({
   const after = segments.filter((segment) => segment.start >= centerEnd);
   const centerContent = center.map((segment, index) => styled(segment, `c:${index}`));
 
-  const openCurrent = () => openReader({
-    snapshot,
-    doc: scrub.doc,
-    token: scrub.token,
-    from: 'footer',
-  }, 'footer-passage-node');
+  const openCurrent = () => {
+    if (Date.now() < suppressOpenUntil.current) return;
+    openReader({
+      snapshot,
+      doc: scrub.doc,
+      token: scrub.token,
+      from: 'footer',
+    }, 'footer-passage-node');
+  };
   const line = (
     <span
       className="footer-passage-text"
       style={{
-        left: coarse ? containerWidth : crosshairX,
+        left: coarse ? 0 : crosshairX,
         transform: coarse
           ? undefined
           : `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`,
@@ -278,6 +310,8 @@ export function FooterPassage({
   ) : null;
   const windowData = measuredLayout?.window;
   const windowAttributes = windowData ? {
+    'data-passage-page-start': windowData.pageTokens.start,
+    'data-passage-page-end': windowData.pageTokens.end,
     'data-passage-first': windowData.firstVisibleToken,
     'data-passage-last': windowData.lastVisibleToken,
     'data-passage-for': windowData.forToken,
@@ -293,6 +327,31 @@ export function FooterPassage({
       tabIndex={0}
       aria-label={`Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`}
       onClick={openCurrent}
+      onScroll={(event) => {
+        const element = event.currentTarget;
+        const programmed = programmaticScrollLeft.current;
+        if (programmed !== null && Math.abs(element.scrollLeft - programmed) <= 0.75) {
+          programmaticScrollLeft.current = null;
+          return;
+        }
+        programmaticScrollLeft.current = null;
+        suppressOpenUntil.current = Date.now() + 350;
+        if (!tokenGeometry || !page || crosshairX === null) return;
+        const relative = passageTokenAtTextOffset(
+          tokenGeometry,
+          element.scrollLeft + crosshairX,
+        );
+        if (relative === null) return;
+        const token = page.tokens.start + relative;
+        scrollDrivenToken.current = token;
+        if (token === scrub.token) return;
+        if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+        scrollFrame.current = requestAnimationFrame(() => {
+          scrollFrame.current = null;
+          const latest = scrollDrivenToken.current;
+          if (latest !== null) setScrub({ doc: page.doc, token: latest });
+        });
+      }}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') return;
         event.preventDefault();
@@ -304,7 +363,7 @@ export function FooterPassage({
         style={{
           width: Math.max(
             containerWidth,
-            2 * containerWidth + (tokenGeometry?.textWidth ?? 0),
+            tokenGeometry?.textWidth ?? 0,
           ),
         }}
       >
