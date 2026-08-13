@@ -203,10 +203,25 @@ drag shuttle restore centered passage alignment.
 Concordance is the canonical context surface. It presents every enabled-term
 occurrence in corpus order as one continuous logical grid while keeping only a
 bounded window of fixed-height rows in the DOM. Its centered node column and
-right-aligned left context retain stable scan geometry; the complete context
-remains available to assistive technology. The final source-position field
-shows `book · token / total` for multi-book corpora and `token / total` when
-only one book is present.
+right-aligned left context retain stable scan geometry. Every bounded worker
+window carries a fixed reserve of 24 word-like tokens on each side; the grid
+renders those complete strings once and clips them only for presentation, so
+resizing never issues analysis work and the delivered context remains available
+to assistive technology. Token position always has its own final column. The
+book column is absent for a one-book corpus; with multiple books it begins as a
+narrow numbered key such as `(1)` immediately before `token / total`, and
+expanding it reveals `(1) Book title`.
+
+The left-context, node, right-context, and multi-book title columns are
+session-local character widths, initially `40 / 18 / 40 / 4` and bounded to
+`1–100 / 1–48 / 1–100 / 3–48`.
+The fixed header control unlocks their trailing-edge separators; locked is the
+default whenever the surface mounts. A separator changes only the column before
+it, so the grid's intrinsic width and named horizontal scroll port absorb the
+change rather than silently stealing space from an adjacent column. Left context
+preserves its tail, right context preserves its beginning, and a node stays
+centered while it fits but clips at its end when narrow, preserving its first
+character even at width one. Reset restores the defaults and recenters the node.
 
 The grid's midpoint rule is shared with the reading cursor. Scrolling moves the
 cursor in the footer and Trends, while scrubbing either shared axis moves the
@@ -320,6 +335,12 @@ grid with `aria-activedescendant`; its off-screen row buttons stay outside the
 Tab order. Moving beyond the resident window requests bounded rows around the
 new rank, Enter opens the active occurrence in Reader, and Reader Back restores
 focus to the stable grid. Escape leaves row navigation by blurring the grid.
+While column adjustment is unlocked, each vertical separator is an additional
+local keyboard widget: Left/Right change one character, Shift+Left/Right change
+eight, Home/End use the column limits, Enter resets that column, and Escape
+cancels an active drag or locks the widths. These local events never bubble into
+row navigation. Mouse, pen, and touch share pointer capture on the separators;
+cancelled or lost capture restores the committed width.
 
 ## Responsive, accessibility, and history contracts
 
