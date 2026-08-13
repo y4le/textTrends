@@ -19,7 +19,10 @@
  */
 
 import {
+  buildConcordanceAxis,
   buildResolver,
+  concordanceAxisPayloadBytes,
+  copyConcordanceAxis,
   documentTermCounts,
   DISPERSION_EXACT_MAX,
   packDensityTrack,
@@ -27,6 +30,7 @@ import {
   planDispersionGeometry,
   planReaderPage,
   materializeReaderPage,
+  materializeConcordanceWindow,
   selectionSlotMap,
   type DispersionResultV1,
   type DispersionTrackV1,
@@ -36,10 +40,15 @@ import {
   modeKey,
   occurrences,
   occurrenceStep,
+  planConcordanceWindow,
   validateOccurrenceOrder,
   occurrencePayloadBytes,
   trend,
   type CorpusSnapshotV1,
+  type ConcordanceAxisArraysV1,
+  type ConcordanceAxisV1,
+  type ConcordanceWindowRequestV1,
+  type ConcordanceWindowV1,
   type DocumentIndexV1,
   type KwicRequest,
   type KwicRow,
@@ -80,11 +89,26 @@ export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
  * OCCURRENCE_LIMITS_V1; the byte ceiling keeps cache retention below that
  * explicit worker budget even when CSR provenance is unusually wide. */
 export const MAX_OCCURRENCE_CACHE_BYTES = 48 * 1024 * 1024;
+/** Sparse axes are at most about 61 KiB each at the one-million-row cap. */
+export const MAX_CONCORDANCE_AXIS_CACHE_ENTRIES = MAX_KWIC_TRACKS;
+export const MAX_CONCORDANCE_AXIS_CACHE_BYTES = 512 * 1024;
 
 /** [SnapshotId, SelectionHash, termGroupIdentity] — the tuple that fully
  *  determines one raw `NumericOccurrences` (see the cache contract below). */
 const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelection, group: TermGroupSpec): string =>
   JSON.stringify([snapshot.id, selection.hash, termGroupIdentity(group)]);
+
+/** Ordered matching identities determine the numeric rank axis; presentation
+ * ids are deliberately excluded. */
+const concordanceAxisCacheKey = (
+  snapshot: CorpusSnapshotV1,
+  selection: ResolvedSelection,
+  tracks: readonly { readonly group: TermGroupSpec }[],
+): string => JSON.stringify([
+  snapshot.id,
+  selection.hash,
+  tracks.map((track) => termGroupIdentity(track.group)),
+]);
 
 /** [SnapshotId, DocId, canonical per-doc range key]. `snapshot.id`
  * transitively pins the document's IndexArtifactHash; `rangeKey` comes only
@@ -117,6 +141,10 @@ export interface OccurrenceCachePolicy {
   readonly maxEntries: number;
   readonly maxBytes: number;
 }
+export interface ConcordanceAxisCachePolicy {
+  readonly maxEntries: number;
+  readonly maxBytes: number;
+}
 const DEFAULT_OCCURRENCE_CACHE_POLICY: OccurrenceCachePolicy = {
   maxEntries: MAX_OCCURRENCE_CACHE_ENTRIES,
   maxBytes: MAX_OCCURRENCE_CACHE_BYTES,
@@ -124,6 +152,10 @@ const DEFAULT_OCCURRENCE_CACHE_POLICY: OccurrenceCachePolicy = {
 const DEFAULT_TERM_COUNT_CACHE_POLICY: TermCountCachePolicy = {
   maxEntries: TERM_COUNT_CACHE_MAX_ENTRIES,
   maxBytes: TERM_COUNT_CACHE_MAX_BYTES,
+};
+const DEFAULT_CONCORDANCE_AXIS_CACHE_POLICY: ConcordanceAxisCachePolicy = {
+  maxEntries: MAX_CONCORDANCE_AXIS_CACHE_ENTRIES,
+  maxBytes: MAX_CONCORDANCE_AXIS_CACHE_BYTES,
 };
 
 interface TermCountCacheEntry {
@@ -136,6 +168,12 @@ interface OccurrenceCacheEntry {
   readonly snapshot: CorpusSnapshotV1['id'];
   readonly bytes: number;
   readonly value: NumericOccurrences;
+}
+
+interface ConcordanceAxisCacheEntry {
+  readonly snapshot: CorpusSnapshotV1['id'];
+  readonly bytes: number;
+  readonly value: ConcordanceAxisV1;
 }
 
 export class QueryExecutor {
@@ -156,6 +194,10 @@ export class QueryExecutor {
    *  synchronous: cancellation can still wait for one capped computation. */
   private readonly occurrenceCache = new Map<string, OccurrenceCacheEntry>();
   private occurrenceCacheBytes = 0;
+  /** Small sparse rank axes. Entries contain no occurrence-vector references;
+   * the shared occurrence LRU remains the only owner of those large buffers. */
+  private readonly concordanceAxisCache = new Map<string, ConcordanceAxisCacheEntry>();
+  private concordanceAxisCacheBytes = 0;
   /** Sparse per-document selection counts shared by inventory, frequency, and
    * keyness. Insertion order is LRU recency. The entry and byte bounds are
    * simultaneous hard ceilings; output materializers must never transfer or
@@ -169,6 +211,7 @@ export class QueryExecutor {
     private readonly loadResolver: typeof buildResolver = buildResolver,
     private readonly termCountCachePolicy: TermCountCachePolicy = DEFAULT_TERM_COUNT_CACHE_POLICY,
     private readonly occurrenceCachePolicy: OccurrenceCachePolicy = DEFAULT_OCCURRENCE_CACHE_POLICY,
+    private readonly concordanceAxisCachePolicy: ConcordanceAxisCachePolicy = DEFAULT_CONCORDANCE_AXIS_CACHE_POLICY,
   ) {
     if (
       !Number.isSafeInteger(termCountCachePolicy.maxEntries) ||
@@ -190,6 +233,16 @@ export class QueryExecutor {
     ) {
       throw new RangeError('occurrence cache policy may only reduce the exported hard bounds');
     }
+    if (
+      !Number.isSafeInteger(concordanceAxisCachePolicy.maxEntries)
+      || concordanceAxisCachePolicy.maxEntries <= 0
+      || concordanceAxisCachePolicy.maxEntries > MAX_CONCORDANCE_AXIS_CACHE_ENTRIES
+      || !Number.isSafeInteger(concordanceAxisCachePolicy.maxBytes)
+      || concordanceAxisCachePolicy.maxBytes <= 0
+      || concordanceAxisCachePolicy.maxBytes > MAX_CONCORDANCE_AXIS_CACHE_BYTES
+    ) {
+      throw new RangeError('concordance-axis cache policy may only reduce the exported hard bounds');
+    }
   }
 
   /** Adopt a newly published snapshot view. Replaced documents drop their
@@ -202,6 +255,11 @@ export class QueryExecutor {
       if (entry.snapshot === view.snapshot.id) continue;
       this.occurrenceCache.delete(key);
       this.occurrenceCacheBytes -= entry.bytes;
+    }
+    for (const [key, entry] of this.concordanceAxisCache) {
+      if (entry.snapshot === view.snapshot.id) continue;
+      this.concordanceAxisCache.delete(key);
+      this.concordanceAxisCacheBytes -= entry.bytes;
     }
     const replaced = new Set(replacedDocs);
     for (const doc of replaced) this.resolvers.set(doc, new Map());
@@ -271,6 +329,37 @@ export class QueryExecutor {
       if (evicted) this.occurrenceCacheBytes -= evicted.bytes;
     }
     return occ;
+  }
+
+  private concordanceAxisFor(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly group: TermGroupSpec }[],
+    occurrences: readonly NumericOccurrences[],
+  ): ConcordanceAxisV1 {
+    const { snapshot } = this.published();
+    const key = concordanceAxisCacheKey(snapshot, selection, tracks);
+    const hit = this.concordanceAxisCache.get(key);
+    if (hit) {
+      this.concordanceAxisCache.delete(key);
+      this.concordanceAxisCache.set(key, hit);
+      return hit.value;
+    }
+    const value = buildConcordanceAxis(snapshot, selection, occurrences);
+    const bytes = concordanceAxisPayloadBytes(value);
+    this.concordanceAxisCache.set(key, { snapshot: snapshot.id, bytes, value });
+    this.concordanceAxisCacheBytes += bytes;
+    while (
+      this.concordanceAxisCache.size > this.concordanceAxisCachePolicy.maxEntries
+      || this.concordanceAxisCacheBytes > this.concordanceAxisCachePolicy.maxBytes
+    ) {
+      const oldest = this.concordanceAxisCache.entries().next().value as
+        | [string, ConcordanceAxisCacheEntry]
+        | undefined;
+      if (!oldest) break;
+      this.concordanceAxisCache.delete(oldest[0]);
+      this.concordanceAxisCacheBytes -= oldest[1].bytes;
+    }
+    return value;
   }
 
   /** The selected documents' resident shards (DependencyError on a gap). */
@@ -553,6 +642,57 @@ export class QueryExecutor {
     const step = occurrenceStep(snapshot, selection, occ, request);
     await checkpoint();
     return step;
+  }
+
+  /** Full-corpus continuous Concordance over the shared occurrence cache. */
+  async concordanceWindow(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    request: ConcordanceWindowRequestV1,
+    includeAxis: boolean,
+    checkpoint: QueryCheckpoint,
+  ): Promise<{
+    readonly window: ConcordanceWindowV1;
+    readonly axis?: ConcordanceAxisArraysV1;
+  }> {
+    const { snapshot, bound, boundTexts } = this.published();
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+
+    const trackOccurrences: NumericOccurrences[] = [];
+    for (const track of tracks) {
+      trackOccurrences.push(this.occurrencesFor(shards, resolvers, selection, track.group));
+      await checkpoint();
+    }
+    const axis = this.concordanceAxisFor(selection, tracks, trackOccurrences);
+    const numeric = planConcordanceWindow(
+      snapshot,
+      bound,
+      selection,
+      axis,
+      trackOccurrences,
+      request,
+    );
+    await checkpoint();
+    const window = materializeConcordanceWindow(
+      snapshot,
+      numeric,
+      boundTexts,
+      tracks.map((track) => ({ seriesId: track.seriesId, groupId: track.group.id })),
+    );
+    await checkpoint();
+    return includeAxis ? { window, axis: copyConcordanceAxis(axis) } : { window };
   }
 
   /** kwic/2: UNION every track's required match modes per doc (never rebuild

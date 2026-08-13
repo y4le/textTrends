@@ -11,6 +11,9 @@
  */
 
 import type {
+  ConcordanceAnchorV1,
+  ConcordanceAxisArraysV1,
+  ConcordancePositionBracketV1,
   DispersionResultV1,
   ExtractionRecipeProvisional,
   KwicRequest,
@@ -62,11 +65,36 @@ export interface KwicTrack {
   readonly group: TermGroupSpec;
 }
 
+export interface ConcordanceWindowQueryRequestV1 {
+  readonly method: 'concordance-window/1';
+  readonly anchor: ConcordanceAnchorV1;
+  readonly before: number;
+  readonly after: number;
+  readonly contextTokens: number;
+  /** Stateless response shaping: false when the caller retains this axis. */
+  readonly includeAxis: boolean;
+}
+
+export interface ConcordanceWindowResultV1 {
+  readonly method: 'concordance-window/1';
+  readonly total: number;
+  readonly trackCount: number;
+  readonly anchorRank: number | null;
+  readonly firstRank: number;
+  readonly preceding: ConcordancePositionBracketV1 | null;
+  readonly rows: readonly KwicRow[];
+  readonly axis?: ConcordanceAxisArraysV1;
+}
+
 export type QueryOpV4 =
   | { readonly op: 'trend'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: TrendRequest }
   // kwic/2: a merged multi-term concordance (1..MAX_KWIC_TRACKS tracks) that can
   // order by proximity to an axis position (`request.center`).
   | { readonly op: 'kwic'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: KwicRequest }
+  // concordance-window/1 is the full-corpus continuous reading surface. It has
+  // no selection field; the engine constructs canonical full-ready-corpus
+  // coordinates, so a linked analytical brush cannot narrow navigation.
+  | { readonly op: 'concordance-window'; readonly tracks: readonly KwicTrack[]; readonly request: ConcordanceWindowQueryRequestV1 }
   // dispersion/1 (slice-2 ruling): the barcode's bounded numeric result over
   // the shared occurrence primitive — adaptive exact/density per track. The
   // request PINS the fixed resolution policy (the exported core constants);
@@ -184,6 +212,7 @@ export type {
 export type QueryResultDataV4 =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
   | { readonly op: 'kwic'; readonly total: number; readonly rows: readonly KwicRow[] }
+  | { readonly op: 'concordance-window'; readonly window: ConcordanceWindowResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }

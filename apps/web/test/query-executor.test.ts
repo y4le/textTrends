@@ -9,6 +9,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  MAX_CONCORDANCE_AXIS_CACHE_BYTES,
+  MAX_CONCORDANCE_AXIS_CACHE_ENTRIES,
   MAX_OCCURRENCE_CACHE_ENTRIES,
   MAX_OCCURRENCE_CACHE_BYTES,
   QueryExecutor,
@@ -464,6 +466,310 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
   });
 });
 
+describe('concordance-window/1 through the executor and engine', () => {
+  const query = (
+    anchor: { kind: 'position'; doc: string; token: number } | { kind: 'rank'; rank: number },
+    includeAxis: boolean,
+    tracks = [{ seriesId: 's-wolf', group: wolfGroup }],
+  ) => ({
+    op: 'concordance-window' as const,
+    tracks,
+    request: {
+      method: 'concordance-window/1' as const,
+      anchor,
+      before: 10,
+      after: 10,
+      contextTokens: 1,
+      includeAxis,
+    },
+  });
+
+  async function ready() {
+    const h = harness();
+    const spec = await docSpec('a', 'the wolf ran far. a wolf slept.');
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', 'the wolf ran far. a wolf slept.', 10);
+    return { h, snap: h.last('snapshot-published').snapshot };
+  }
+
+  it('returns exact windows, conditionally transfers a fresh axis, and reuses its cache', async () => {
+    const { h, snap } = await ready();
+    await h.send({
+      t: 'query', job: 300, snapshot: snap,
+      query: query({ kind: 'position', doc: 'a', token: 3 }, true),
+    });
+    const first = h.last('result');
+    if (first.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(first.data.window).toMatchObject({
+      method: 'concordance-window/1',
+      total: 2,
+      trackCount: 1,
+      anchorRank: 1,
+      firstRank: 0,
+      preceding: { rank: 0, globalToken: 1 },
+    });
+    expect(first.data.window.rows.map((row) => [row.doc, row.pos, row.nodeText])).toEqual([
+      ['a', 1, 'wolf'],
+      ['a', 5, 'wolf'],
+    ]);
+    expect(Array.from(first.data.window.axis!.ranks)).toEqual([0]);
+    expect(Array.from(first.data.window.axis!.globalTokens)).toEqual([1]);
+    const firstIndex = h.messages.indexOf(first);
+    expect(new Set(h.transferLists[firstIndex] as ArrayBuffer[])).toEqual(new Set([
+      first.data.window.axis!.ranks.buffer,
+      first.data.window.axis!.globalTokens.buffer,
+    ]));
+
+    await h.send({
+      t: 'query', job: 301, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    const second = h.last('result');
+    if (second.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(second.data.window.axis).toBeUndefined();
+    expect(h.transferLists[h.messages.indexOf(second)]).toBeUndefined();
+
+    await h.send({
+      t: 'query', job: 308, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, true),
+    });
+    const third = h.last('result');
+    if (third.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(third.data.window.axis!.ranks.buffer).not.toBe(first.data.window.axis!.ranks.buffer);
+    expect(third.data.window.axis!.globalTokens.buffer).not.toBe(first.data.window.axis!.globalTokens.buffer);
+
+    const executor = (h.engine as unknown as {
+      generation: {
+        executor: {
+          concordanceAxisCache: Map<string, unknown>;
+          concordanceAxisCacheBytes: number;
+        };
+      } | null;
+    }).generation!.executor;
+    expect(executor.concordanceAxisCache.size).toBe(1);
+    expect(executor.concordanceAxisCacheBytes).toBe(8);
+  });
+
+  it('constructs canonical full-corpus selection and rejects caller-owned selection', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'first wolf');
+    const b = await docSpec('b', 'second wolf');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'first wolf', 10);
+    await coldIngest(h, 'g', 'b', 'second wolf', 11);
+    const snap = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query', job: 306, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    const result = h.last('result');
+    if (result.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(result.data.window.rows.map((row) => [row.doc, row.pos])).toEqual([
+      ['a', 1],
+      ['b', 1],
+    ]);
+
+    await h.send({
+      t: 'query', job: 307, snapshot: snap,
+      query: { ...query({ kind: 'rank', rank: 0 }, false), selection: { docs: ['a'] } } as never,
+    });
+    expect(h.last('error')).toMatchObject({ job: 307, code: 'PARSE_FAILED' });
+  });
+
+  it('keys axes by ordered matching identity rather than presentation ids', async () => {
+    const { h, snap } = await ready();
+    await h.send({
+      t: 'query', job: 302, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    await h.send({
+      t: 'query', job: 303, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false, [{
+        seriesId: 'renamed',
+        group: {
+          ...wolfGroup,
+          id: 'renamed-group',
+          members: wolfGroup.members.map((member) => ({ ...member, id: 'renamed-member' })),
+        },
+      }]),
+    });
+    const executor = (h.engine as unknown as {
+      generation: { executor: { concordanceAxisCache: Map<string, unknown> } } | null;
+    }).generation!.executor;
+    expect(executor.concordanceAxisCache.size).toBe(1);
+
+    const ranGroup = {
+      ...wolfGroup,
+      id: 'ran',
+      members: wolfGroup.members.map((member) => ({ ...member, surface: 'ran' })),
+    };
+    await h.send({
+      t: 'query', job: 304, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false, [{ seriesId: 'ran', group: ranGroup }]),
+    });
+    expect(executor.concordanceAxisCache.size).toBe(2);
+  });
+
+  it('binds multiple track ordinals to the right identities and keys their order', async () => {
+    const { h, snap } = await ready();
+    const ranGroup = {
+      ...wolfGroup,
+      id: 'g-ran',
+      members: wolfGroup.members.map((member) => ({ ...member, surface: 'ran' })),
+    };
+    const tracks = [
+      { seriesId: 's-wolf', group: wolfGroup },
+      { seriesId: 's-ran', group: ranGroup },
+    ];
+    await h.send({
+      t: 'query', job: 309, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false, tracks),
+    });
+    const result = h.last('result');
+    if (result.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(result.data.window.trackCount).toBe(2);
+    expect(result.data.window.rows.map((row) => [row.pos, row.seriesId, row.groupId, row.nodeText])).toEqual([
+      [1, 's-wolf', 'g1', 'wolf'],
+      [2, 's-ran', 'g-ran', 'ran'],
+      [5, 's-wolf', 'g1', 'wolf'],
+    ]);
+
+    await h.send({
+      t: 'query', job: 310, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false, [...tracks].reverse()),
+    });
+    const executor = (h.engine as unknown as {
+      generation: { executor: { concordanceAxisCache: Map<string, unknown> } } | null;
+    }).generation!.executor;
+    expect(executor.concordanceAxisCache.size).toBe(2);
+  });
+
+  it('drops sparse axes when incremental publication supersedes the snapshot', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'wolf first');
+    const b = await docSpec('b', 'wolf second');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'wolf first', 10);
+    const firstSnapshot = h.last('snapshot-published').snapshot;
+    await h.send({
+      t: 'query', job: 311, snapshot: firstSnapshot,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    const executor = (h.engine as unknown as {
+      generation: {
+        executor: {
+          concordanceAxisCache: Map<string, unknown>;
+          concordanceAxisCacheBytes: number;
+        };
+      } | null;
+    }).generation!.executor;
+    expect(executor.concordanceAxisCache.size).toBe(1);
+
+    await coldIngest(h, 'g', 'b', 'wolf second', 11);
+    expect(h.last('snapshot-published').snapshot).not.toBe(firstSnapshot);
+    expect(executor.concordanceAxisCache.size).toBe(0);
+    expect(executor.concordanceAxisCacheBytes).toBe(0);
+  });
+
+  it('reuses a cached axis after selection-thrashing evicts and recomputes occurrences', async () => {
+    const { h, snap } = await ready();
+    const occurrenceSpy = vi.mocked(occurrences);
+    occurrenceSpy.mockClear();
+    await h.send({
+      t: 'query', job: 312, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    const first = h.last('result');
+    if (first.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    const firstRows = first.data.window.rows;
+    const executor = (h.engine as unknown as {
+      generation: {
+        executor: {
+          concordanceAxisCache: Map<string, { value: unknown }>;
+          occurrenceCache: Map<string, unknown>;
+        };
+      } | null;
+    }).generation!.executor;
+    const retainedAxis = [...executor.concordanceAxisCache.values()][0]!.value;
+
+    for (const [index, surface] of ['the', 'ran', 'far', 'a', 'slept'].entries()) {
+      const group = {
+        ...wolfGroup,
+        id: `range-${surface}`,
+        members: wolfGroup.members.map((member) => ({ ...member, surface })),
+      };
+      await h.send({
+        t: 'query', job: 330 + index, snapshot: snap,
+        query: {
+          op: 'trend',
+          selection: {
+            docs: ['a'],
+            ranges: [{ doc: 'a', tokens: { start: 0, end: 4 } }],
+          },
+          group,
+          request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+        },
+      });
+    }
+    expect(executor.occurrenceCache.size).toBe(MAX_OCCURRENCE_CACHE_ENTRIES);
+
+    await h.send({
+      t: 'query', job: 313, snapshot: snap,
+      query: query({ kind: 'rank', rank: 0 }, false),
+    });
+    const second = h.last('result');
+    if (second.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    expect(second.data.window.rows).toEqual(firstRows);
+    expect([...executor.concordanceAxisCache.values()][0]!.value).toBe(retainedAxis);
+    expect(occurrenceSpy).toHaveBeenCalledTimes(7);
+  });
+
+  it('bounds the sparse-axis LRU independently from the occurrence cache', async () => {
+    const { h, snap } = await ready();
+    for (const [index, surface] of ['the', 'wolf', 'ran', 'far', 'a', 'slept'].entries()) {
+      const group = {
+        ...wolfGroup,
+        id: `group-${surface}`,
+        members: wolfGroup.members.map((member) => ({ ...member, surface })),
+      };
+      await h.send({
+        t: 'query', job: 320 + index, snapshot: snap,
+        query: query({ kind: 'rank', rank: 0 }, false, [{ seriesId: surface, group }]),
+      });
+    }
+    const executor = (h.engine as unknown as {
+      generation: {
+        executor: {
+          concordanceAxisCache: Map<string, unknown>;
+          concordanceAxisCacheBytes: number;
+        };
+      } | null;
+    }).generation!.executor;
+    expect(executor.concordanceAxisCache.size).toBeLessThanOrEqual(MAX_CONCORDANCE_AXIS_CACHE_ENTRIES);
+    expect(executor.concordanceAxisCacheBytes).toBeLessThanOrEqual(MAX_CONCORDANCE_AXIS_CACHE_BYTES);
+  });
+
+  it('fences cancellation after a track and after materialization', async () => {
+    for (const cancelAtYield of [3, 5]) {
+      const { h, snap } = await ready();
+      h.clear();
+      let yields = 0;
+      h.onYield(async () => {
+        yields++;
+        if (yields === cancelAtYield) await h.send({ t: 'cancel', job: 305 });
+      });
+      await h.send({
+        t: 'query', job: 305, snapshot: snap,
+        query: query({ kind: 'position', doc: 'a', token: 3 }, true),
+      });
+      expect(yields).toBeGreaterThanOrEqual(cancelAtYield);
+      expect(h.all('cancelled').some((message) => message.job === 305)).toBe(true);
+      expect(h.all('result').some((message) => message.job === 305)).toBe(false);
+      expect(h.all('error').some((message) => message.job === 305)).toBe(false);
+      h.onYield(null);
+    }
+  });
+});
 
 describe('Slice-3 document-term-count cache', () => {
   async function publishedTwoDocs(): Promise<{
@@ -545,7 +851,7 @@ describe('Slice-3 document-term-count cache', () => {
     expect(cacheOf(executor).occurrenceCacheBytes).toBe(0);
   });
 
-  it('only permits occurrence-cache policies that reduce the hard bounds', () => {
+  it('only permits occurrence and concordance-axis policies that reduce hard bounds', () => {
     expect(() => new QueryExecutor(
       DEFAULT_INDEX_RECIPE,
       buildResolver,
@@ -557,6 +863,20 @@ describe('Slice-3 document-term-count cache', () => {
       buildResolver,
       { maxEntries: 1, maxBytes: 1 },
       { maxEntries: 1, maxBytes: MAX_OCCURRENCE_CACHE_BYTES + 1 },
+    )).toThrow(RangeError);
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 0, maxBytes: 1 },
+    )).toThrow(RangeError);
+    expect(() => new QueryExecutor(
+      DEFAULT_INDEX_RECIPE,
+      buildResolver,
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 1, maxBytes: 1 },
+      { maxEntries: 1, maxBytes: MAX_CONCORDANCE_AXIS_CACHE_BYTES + 1 },
     )).toThrow(RangeError);
   });
 

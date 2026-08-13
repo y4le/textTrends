@@ -209,6 +209,16 @@ function trendTransferList(t: import('@texttrends/core').NumericTrend): Transfer
   return [...buffers];
 }
 
+function concordanceAxisTransferList(
+  axis: import('@texttrends/core').ConcordanceAxisArraysV1 | undefined,
+): Transferable[] | undefined {
+  if (!axis) return undefined;
+  const transfers: Transferable[] = [];
+  if (axis.ranks.buffer instanceof ArrayBuffer) transfers.push(axis.ranks.buffer);
+  if (axis.globalTokens.buffer instanceof ArrayBuffer) transfers.push(axis.globalTokens.buffer);
+  return transfers;
+}
+
 /** One effective locale per document: a fixed-mode recipe pins every doc; the
  *  document-metadata mode uses the doc's language, falling back when absent. */
 function effectiveLocale(recipe: IndexRecipeProvisional, language: string): string {
@@ -926,6 +936,38 @@ export class WorkerEngineV4 {
     // this engine keeps job ownership, the injected checkpoint (yield + gate),
     // and a FINAL gate immediately before every emit.
     const checkpoint = () => this.queryCheckpoint(job, gen, snapshotId);
+
+    if (q.op === 'concordance-window') {
+      const selection = await resolveSelection(snapshot, {
+        docs: snapshot.docs.map((doc) => doc.doc),
+      });
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const { method: _method, includeAxis, ...request } = q.request;
+      const result = await gen.executor.concordanceWindow(
+        selection,
+        q.tracks,
+        request,
+        includeAxis,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      const { snapshot: _windowSnapshot, ...window } = result.window;
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: {
+          op: 'concordance-window',
+          window: {
+            method: 'concordance-window/1',
+            ...window,
+            ...(result.axis ? { axis: result.axis } : {}),
+          },
+        },
+      }, concordanceAxisTransferList(result.axis));
+      return;
+    }
 
     if (q.op === 'reader-page') {
       // Reader is a context surface rather than an analytical-detail

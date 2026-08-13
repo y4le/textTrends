@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
@@ -176,6 +176,38 @@ export function narrowQueryV4(q: unknown): boolean {
       // that carries the legacy field so a partially-migrated caller cannot hide
       // contradictory semantics under an ignored `group` (ruling §1).
       return q.group === undefined && narrowSelection(q.selection) && narrowTracks(q.tracks, 1) && narrowKwicRequest(q.request);
+    case 'concordance-window': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'tracks', 'request'])
+        || !narrowTracks(q.tracks, 1)
+        || !exactRecord(q.request, [
+          'method',
+          'anchor',
+          'before',
+          'after',
+          'contextTokens',
+          'includeAxis',
+        ])
+        || r.method !== 'concordance-window/1'
+        || !isCount(r.before)
+        || !isCount(r.after)
+        || !isCount(r.contextTokens)
+        || typeof r.includeAxis !== 'boolean'
+        || (r.before as number) + 1 + (r.after as number) > KWIC_MAX_PAGE
+      ) {
+        return false;
+      }
+      const anchor = r.anchor as Record<string, unknown>;
+      if (!isRecord(r.anchor)) return false;
+      if (anchor.kind === 'rank') {
+        return exactRecord(r.anchor, ['kind', 'rank']) && isCount(anchor.rank);
+      }
+      return anchor.kind === 'position'
+        && exactRecord(r.anchor, ['kind', 'doc', 'token'])
+        && isStr(anchor.doc)
+        && isCount(anchor.token);
+    }
     case 'dispersion': {
       // dispersion/1 pins its resolution POLICY on the wire: the request must
       // carry exactly the exported core constants — a drifted or bespoke

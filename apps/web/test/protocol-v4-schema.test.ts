@@ -144,15 +144,48 @@ describe('parseToWorkerV4 envelope', () => {
 describe('narrowQueryV4', () => {
   const kwicReq = { contextTokens: 6, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } };
   const kwicTracks = [{ seriesId: 's1', group: wolfGroup }];
+  const concordanceReq = {
+    method: 'concordance-window/1',
+    anchor: { kind: 'position', doc: 'a', token: 3 },
+    before: 10,
+    after: 10,
+    contextTokens: 6,
+    includeAxis: true,
+  };
 
   it('accepts trend and concordance with complete request fields', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'fixed-tokens', count: 250 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
+    expect(narrowQueryV4({ op: 'concordance-window', tracks: kwicTracks, request: concordanceReq })).toBe(true);
+    expect(narrowQueryV4({
+      op: 'concordance-window',
+      tracks: kwicTracks,
+      request: { ...concordanceReq, anchor: { kind: 'rank', rank: 20 }, includeAxis: false },
+    })).toBe(true);
     // kwic accepts an optional axis center and multiple tracks.
     expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }, { seriesId: 's2', group: wolfGroup }], request: { ...kwicReq, center: { doc: 'a', token: 3 } } })).toBe(true);
     // A valid selection with well-formed ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
+  });
+
+  it('concordance-window/1 is a closed, selection-free, bounded request', () => {
+    const query = (request: unknown, over: Record<string, unknown> = {}) => narrowQueryV4({
+      op: 'concordance-window',
+      tracks: kwicTracks,
+      request,
+      ...over,
+    });
+    expect(query(concordanceReq)).toBe(true);
+    expect(query(concordanceReq, { selection: { docs: ['a'] } })).toBe(false);
+    expect(query({ ...concordanceReq, method: 'concordance-window/2' })).toBe(false);
+    expect(query({ ...concordanceReq, includeAxis: 1 })).toBe(false);
+    expect(query({ ...concordanceReq, before: 250, after: 250 })).toBe(false);
+    expect(query({ ...concordanceReq, anchor: { kind: 'rank', rank: -1 } })).toBe(false);
+    expect(query({ ...concordanceReq, anchor: { kind: 'position', doc: 'a', token: 1, extra: true } })).toBe(false);
+    expect(query({ ...concordanceReq, anchor: { kind: 'sideways', rank: 1 } })).toBe(false);
+    expect(query({ ...concordanceReq, extra: true })).toBe(false);
+    expect(narrowQueryV4({ op: 'concordance-window', tracks: [], request: concordanceReq })).toBe(false);
   });
 
   it('rejects skeletal requests, malformed ranges, and concordance caps', () => {

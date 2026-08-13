@@ -128,6 +128,7 @@ export {
 } from './ops/binding.ts';
 export {
   kwicPage,
+  KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
   type KwicRequest,
