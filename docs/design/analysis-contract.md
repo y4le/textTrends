@@ -75,10 +75,10 @@ document. Analyses use either document-relative or declared-sequence
 coordinates explicitly; they never infer a coordinate from presentation.
 
 A linked selection is transient, snapshot-bound intent made of ordered,
-non-overlapping document token ranges. It may scope trend, legacy `kwic`,
-dispersion, inventory, and frequency work. Continuous `concordance-window`,
+non-overlapping document token ranges. It scopes trend overlays, dispersion
+overlays, inventory, and frequency work. Continuous `concordance-window`,
 Reader paging, and exact occurrence stepping always use canonical full-corpus
-coordinates and are never clipped by that analytical selection.
+coordinates and are never clipped or reissued by that analytical selection.
 
 ## Worker generation
 
@@ -108,7 +108,9 @@ The wire protocol has a closed query union:
 - `trend` — equal-token-bin counts or rates for one term group;
 - `dispersion` — bounded exact positions or honest density buckets for shown
   groups;
-- `kwic` — merged, bounded concordance rows with optional proximity ordering;
+- `kwic` — legacy merged, bounded concordance rows with optional proximity
+  ordering; retained as a protocol operation but no longer used by the main
+  Concordance surface;
 - `concordance-window` — exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
 - `inventory` — corpus and per-document measurements, sentence rhythm, and

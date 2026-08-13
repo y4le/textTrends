@@ -303,7 +303,9 @@ export function TrendPanel() {
       track.seriesId,
       target.doc,
       target.token,
-      target.kind === 'bucket' ? { kind: 'bucket', count: target.bucketCount ?? 0 } : undefined,
+      target.kind === 'bucket'
+        ? { kind: 'bucket', count: target.bucketCount ?? 0 }
+        : { kind: 'occurrence', groupId: track.groupId },
     );
     const readerTarget = openExact ? barcodeReaderActivation(target) : null;
     if (readerTarget && dispersion) {

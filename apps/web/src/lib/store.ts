@@ -33,26 +33,30 @@
  * result commits only while BOTH its lease and its issued matching identity
  * hold.
  *
- * Intent discipline (UI review round 1, extended): trend intent and KWIC
- * intent are SEPARATE latest-wins lanes (operation leases over one runtime
- * scope). Changing the compared terms or the snapshot cancels and reissues
- * both. The concordance is a MERGED multi-term view (kwic/2, concordance
- * amendment): it is INDEPENDENT of `focusedSeries` (which only emphasizes
- * trend lines), and is reissued by a per-term toggle, by a settled scrub
- * re-centre (debounced), and by a term/snapshot change. A result is written
- * only while its lease holds — latest in its lane, scope alive, AND the
- * captured (generation, snapshot) identity guard — so a slow stale query can
- * never relabel itself, even after disposal.
+ * Intent discipline (UI review round 1, extended): trend intent and
+ * concordance-window intent are SEPARATE latest-wins lanes (operation leases
+ * over one runtime scope). Changing the compared terms or the snapshot
+ * cancels and reissues both. The concordance is a merged multi-term,
+ * full-corpus view independent of `focusedSeries` and `linkedSelection`.
+ * `setScrub` publishes only the shared reading cursor; the mounted surface
+ * requests a bounded rank/position window. Exact evidence may additionally
+ * carry a one-shot row identity for duplicate-position disambiguation. A
+ * result is written only while its lease holds — latest in its lane, scope
+ * alive, AND the captured (generation, snapshot) identity guard — so a slow
+ * stale query can never relabel itself, even after disposal.
  */
 
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   canonicalJson,
+  type ConcordanceAnchorV1,
+  type ConcordanceAxisArraysV1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_PREFIX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
+  KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
   TREND_MAX_ROWS,
@@ -70,7 +74,6 @@ import {
 import {
   detailSelection,
   isValidSelection,
-  selectionContains,
   type TokenRangeSelectionV1,
 } from './selection.ts';
 import { fullTokenCountsForDocs } from './doc-tokens.ts';
@@ -109,6 +112,7 @@ import {
   type OperationLease,
 } from './operation-lease.ts';
 import type {
+  ConcordanceWindowResultV1,
   DispersionResultV1,
   QueryOpV4,
   QueryResultDataV4,
@@ -230,26 +234,56 @@ export type SeriesTrendState =
   | { readonly status: 'ready'; readonly trend: NumericTrend }
   | { readonly status: 'error'; readonly message: string };
 
-/** The merged concordance for the ENABLED terms, ordered by proximity to the
- *  served `center` (null = reading order). The center is carried so the panel's
- *  caption describes the result that actually landed, not the live cursor. */
-export interface KwicState {
-  /** Snapshot under which every row/state in this arm was issued. */
+export interface ConcordanceWindowView {
+  readonly total: number;
+  readonly trackCount: number;
+  readonly anchorRank: number | null;
+  readonly firstRank: number;
+  readonly before: number;
+  readonly after: number;
+  readonly preceding: ConcordanceWindowResultV1['preceding'];
+  readonly rows: readonly KwicRowView[];
+  /** Exact activation disambiguation, consumed into this landed window. */
+  readonly revealRank: number | null;
+}
+
+export interface ConcordanceRevealTarget {
   readonly snapshot: string;
-  /** The served center; `origin: 'bucket'` marks a density-bucket midpoint
-   *  target so the caption says "nearest occurrence to this bucket" and can
-   *  report the first row's distance (never implying an exact occurrence). */
-  readonly center: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null;
+  readonly trackKey: string;
+  readonly seriesId: string;
+  readonly groupId?: string;
+  readonly doc: string;
+  readonly token: number;
+  readonly members?: readonly number[];
+}
+
+export type ConcordanceActivationOrigin =
+  | { readonly kind: 'bucket'; readonly count: number }
+  | {
+      readonly kind: 'occurrence';
+      readonly groupId?: string;
+      readonly members?: readonly number[];
+    };
+
+/** The bounded resident window and sparse axis for enabled Concordance terms. */
+export interface KwicState {
+  readonly snapshot: string;
+  readonly trackKey: string;
+  readonly request: {
+    readonly anchor: ConcordanceAnchorV1;
+    readonly before: number;
+    readonly after: number;
+  } | null;
+  readonly axis: ConcordanceAxisArraysV1 | null;
+  /** Retained while a neighboring window is pending, so bounded navigation
+   * never blanks already materialized rows. */
+  readonly resident: ConcordanceWindowView | null;
   readonly state:
     | { readonly status: 'pending' }
-    | { readonly status: 'ready'; readonly total: number; readonly rows: readonly KwicRowView[] }
+    | { readonly status: 'ready' }
     | { readonly status: 'error'; readonly message: string }
     | { readonly status: 'no-terms' }; // no concordance terms enabled
 }
-
-/** How long the axis position must settle before the concordance re-centers,
- *  so pointer motion never issues a query per frame (fake-clock tested). */
-export const KWIC_CENTER_DEBOUNCE_MS = 150;
 
 /** The dispersion barcode result for the CURRENT effective comparison —
  *  issued with the trend burst, same guards (slice-2 commit D). */
@@ -506,7 +540,7 @@ export interface RemovedNotebookGroup {
 }
 
 /** Concordance presentation intent. Reading mode and rendered context are
- * local presentation; occurrence order is always nearest reading position. */
+ * local presentation; corpus order is invariant. */
 export type ConcordanceReadingMode = 'aligned' | 'stacked';
 
 export interface ConcordanceView {
@@ -662,6 +696,8 @@ export interface AppState {
   /** Seeded 'pending' per issued series — panels must not show stale arrays. */
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
+  /** One-shot exact activation intent; consumed by the next matching window. */
+  concordanceReveal: ConcordanceRevealTarget | null;
   /** Which series appear in the merged concordance — ALL on by default, toggled
    *  per term, INDEPENDENT of `focusedSeries`. Preserved across an input edit for
    *  surviving series (by presentation id). */
@@ -755,19 +791,22 @@ export interface AppState {
   setSolo(groupId: string | null): void;
   clearNotebookError(): void;
   setFocus(seriesId: string): void;
-  /** Toggle a term in/out of the merged concordance; reissues ONLY the KWIC
-   *  query, immediately, against the latest axis position. */
+  /** Toggle a term in/out of the merged Concordance window. */
   toggleKwicSeries(seriesId: string): void;
+  requestConcordanceWindow(
+    anchor: ConcordanceAnchorV1,
+    window?: { readonly before: number; readonly after: number },
+  ): void;
   setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
   setConcordanceReading(reading: ConcordanceReadingMode): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
-  /** Center the concordance on an activated barcode occurrence IMMEDIATELY (no
-   *  scrub debounce). Carries the activated series: a deliberate occurrence
+  /** Reveal an activated barcode occurrence immediately. Carries the series: a deliberate occurrence
    *  click must yield a concordance CAPABLE of containing it, so a disabled
    *  concordance chip for that series is visibly re-enabled first (review-D
-   *  HIGH). `origin: 'bucket'` labels a density-midpoint target. */
-  centerKwicAt(seriesId: string, doc: string, token: number, origin?: { readonly kind: 'bucket'; readonly count: number }): void;
+   *  HIGH). Density midpoints publish only the shared cursor, never an exact
+   *  reveal target. */
+  centerKwicAt(seriesId: string, doc: string, token: number, origin?: ConcordanceActivationOrigin): void;
   /** Commit explicit per-document spans from one contiguous reading-order
    *  gesture. Reissues detail consumers; baseline results remain resident.
    *  Null clears. */
@@ -1156,7 +1195,7 @@ export function createAppRuntime(
   // epochs + captured keys expressed.
   const scope = new OperationScope();
   const trendLane = new QueryLane(scope);
-  const kwicLane = new QueryLane(scope);
+  const concordanceLane = new QueryLane(scope);
   // The barcode's dispersion intent — reissued with the trend burst.
   const dispersionLane = new QueryLane(scope);
   // Selected-range overlay lanes — separate latest-wins ownership so a brush
@@ -1183,10 +1222,6 @@ export function createAppRuntime(
   let footerPassagePending: ScrubTarget | null = null;
   let footerPassageActive: { readonly cancel: () => void } | null = null;
   let footerPassageMargin = 0;
-  // The SETTLED axis position the concordance centres on (null = reading order),
-  // and the trailing-edge debounce timer from raw scrub motion to that center.
-  let kwicCenter: (ScrubTarget & { readonly origin?: 'bucket'; readonly bucketCount?: number }) | null = null;
-  let kwicCenterTimer: ReturnType<typeof setTimeout> | null = null;
 
   // The one attached session (retained in the closure, never in Zustand state —
   // it holds Files, promises, and cancel handles). Null until the composition
@@ -1956,111 +1991,236 @@ export function createAppRuntime(
       }
     };
 
-    /** Issue the merged concordance for the ENABLED terms, centred on the
-     *  SETTLED axis position (`kwicCenter`). Independent of `focusedSeries`. */
-    const runKwic = () => {
-      kwicLane.supersede(); // even a no-query outcome supersedes in-flight work
-      const { snapshot, series, kwicEnabledSeries } = get();
-      // No snapshot, or no terms at all (blank input) → no panel (kwic null),
-      // distinct from "terms exist but all toggled off" (the no-terms state).
+    const sameAnchor = (left: ConcordanceAnchorV1, right: ConcordanceAnchorV1): boolean => {
+      if (left.kind !== right.kind) return false;
+      if (left.kind === 'rank') return right.kind === 'rank' && left.rank === right.rank;
+      return right.kind === 'position'
+        && left.doc === right.doc
+        && left.token === right.token;
+    };
+
+    const compareCorpusPosition = (
+      left: { readonly doc: string; readonly token: number },
+      right: { readonly doc: string; readonly token: number },
+      readyDocs: readonly string[],
+    ): number => {
+      const leftDoc = readyDocs.indexOf(left.doc);
+      const rightDoc = readyDocs.indexOf(right.doc);
+      return leftDoc === rightDoc ? left.token - right.token : leftDoc - rightDoc;
+    };
+
+    const residentCoversAnchor = (
+      resident: ConcordanceWindowView,
+      anchor: ConcordanceAnchorV1,
+      readyDocs: readonly string[],
+    ): boolean => {
+      if (resident.total === 0) return true;
+      if (anchor.kind === 'rank') {
+        return anchor.rank >= resident.firstRank
+          && anchor.rank < resident.firstRank + resident.rows.length;
+      }
+      const first = resident.rows[0];
+      const last = resident.rows.at(-1);
+      if (!first || !last) return false;
+      const target = { doc: anchor.doc, token: anchor.token };
+      const fromFirst = compareCorpusPosition(
+        target,
+        { doc: first.doc, token: first.pos },
+        readyDocs,
+      );
+      const fromLast = compareCorpusPosition(
+        target,
+        { doc: last.doc, token: last.pos },
+        readyDocs,
+      );
+      return (fromFirst >= 0 && fromLast <= 0)
+        || (resident.firstRank === 0 && fromFirst <= 0)
+        || (resident.firstRank + resident.rows.length === resident.total && fromLast >= 0);
+    };
+
+    /** Latest-wins bounded window request. Sparse axes survive neighboring
+     * windows under the same snapshot + ordered matching identity. */
+    const runConcordanceWindow = (
+      requestedAnchor?: ConcordanceAnchorV1,
+      window = { before: 24, after: 25 },
+      force = false,
+    ) => {
+      const { snapshot, series, kwicEnabledSeries, scrub } = get();
       if (!snapshot || series.length === 0) {
-        set({ kwic: null });
+        concordanceLane.supersede();
+        set({ kwic: null, concordanceReveal: null });
         return;
       }
-      // The center must name a ready doc at issue time; a stale center (its doc
-      // departed on a new snapshot) degrades to reading order, never a clamp.
-      const center = kwicCenter
-        && snapshot.readyDocs.includes(kwicCenter.doc)
-        ? kwicCenter
-        : null;
-      const enabled = series.filter((s) => kwicEnabledSeries.has(s.id));
+      const enabled = series.filter((item) => kwicEnabledSeries.has(item.id));
       if (enabled.length === 0) {
-        // Zero enabled terms: clear rows, issue no query, keep the panel + chips.
-        set({ kwic: { snapshot: snapshot.snapshot, center, state: { status: 'no-terms' } } });
+        concordanceLane.supersede();
+        set({
+          kwic: {
+            snapshot: snapshot.snapshot,
+            trackKey: '',
+            request: null,
+            axis: null,
+            resident: null,
+            state: { status: 'no-terms' },
+          },
+          concordanceReveal: null,
+        });
         return;
       }
       const tracks = trackSpecs(enabled);
-      if (tracks === null) { set({ kwic: null }); return; }
+      if (tracks === null) {
+        concordanceLane.supersede();
+        set({ kwic: null, concordanceReveal: null });
+        return;
+      }
+      const anchor = requestedAnchor ?? (scrub && snapshot.readyDocs.includes(scrub.doc)
+        ? { kind: 'position' as const, doc: scrub.doc, token: scrub.token }
+        : { kind: 'rank' as const, rank: 0 });
+      const invalidAnchor = anchor.kind === 'rank'
+        ? !Number.isSafeInteger(anchor.rank) || anchor.rank < 0
+        : !snapshot.readyDocs.includes(anchor.doc)
+          || !Number.isSafeInteger(anchor.token)
+          || anchor.token < 0;
+      if (
+        invalidAnchor
+        || !Number.isSafeInteger(window.before)
+        || window.before < 0
+        || !Number.isSafeInteger(window.after)
+        || window.after < 0
+        || window.before + 1 + window.after > KWIC_MAX_PAGE
+      ) return;
+      const trackKey = JSON.stringify(tracks.identities);
+      const held = get().kwic;
+      if (
+        !force
+        && held?.snapshot === snapshot.snapshot
+        && held.trackKey === trackKey
+        && held.request !== null
+        && sameAnchor(held.request.anchor, anchor)
+        && held.request.before === window.before
+        && held.request.after === window.after
+        && (held.state.status === 'pending' || held.state.status === 'ready')
+      ) return;
+
+      if (
+        !force
+        && held?.snapshot === snapshot.snapshot
+        && held.trackKey === trackKey
+        && held.resident !== null
+        && held.resident.before === window.before
+        && held.resident.after === window.after
+        && residentCoversAnchor(held.resident, anchor, snapshot.readyDocs)
+      ) {
+        // A reversal can return to resident evidence while an obsolete
+        // outside-window request is pending. Retire it before restoring the
+        // resident view, or its late result would pull the surface away again.
+        concordanceLane.supersede();
+        set({
+          kwic: {
+            ...held,
+            request: { anchor, before: window.before, after: window.after },
+            state: { status: 'ready' },
+          },
+        });
+        return;
+      }
+
+      concordanceLane.supersede();
       const issuedKey = snapKey(snapshot);
-      // The concordance is a DETAIL consumer: an active linked range scopes
-      // it to exactly that range via the ONE selection builder (ruling §2 —
-      // the [doc] is load-bearing; every row and total is inside the range).
-      const issuedSelection = get().linkedSelection;
-      const lease = kwicLane.ops.begin(
+      const retainHeld = held?.snapshot === snapshot.snapshot && held.trackKey === trackKey;
+      const retainedAxis = retainHeld ? held.axis : null;
+      const retainedWindow = retainHeld ? held.resident : null;
+      const request = { anchor, before: window.before, after: window.after };
+      const lease = concordanceLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => identitiesCurrent(tracks.identities),
-        () => get().linkedSelection === issuedSelection,
       );
-      set({ kwic: { snapshot: snapshot.snapshot, center, state: { status: 'pending' } } });
+      set({
+        kwic: {
+          snapshot: snapshot.snapshot,
+          trackKey,
+          request,
+          axis: retainedAxis,
+          resident: retainedWindow,
+          state: { status: 'pending' },
+        },
+      });
       issueOn(
-        kwicLane,
+        concordanceLane,
         snapshot.snapshot,
         {
-          op: 'kwic',
-          selection: detailSelection(snapshot.readyDocs, issuedSelection),
+          op: 'concordance-window',
           tracks: tracks.wire,
           request: {
+            method: 'concordance-window/1',
+            anchor,
+            before: window.before,
+            after: window.after,
             contextTokens: 6,
-            ...(center ? { center: { doc: center.doc, token: center.token } } : {}),
-            sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-            page: { offset: 0, limit: 50 },
+            includeAxis: retainedAxis === null,
           },
         },
         lease,
         (data) => {
-          if (data.op === 'kwic') {
-            set({
-              kwic: {
-                snapshot: snapshot.snapshot,
-                center,
-                state: { status: 'ready', total: data.total, rows: data.rows },
-              },
-            });
+          if (data.op !== 'concordance-window') return;
+          const live = get().kwic;
+          const axis = data.window.axis
+            ?? (live?.snapshot === snapshot.snapshot && live.trackKey === trackKey ? live.axis : null);
+          const reveal = get().concordanceReveal;
+          let revealRank: number | null = null;
+          let consumeReveal = false;
+          if (
+            reveal?.snapshot === snapshot.snapshot
+            && reveal.trackKey === trackKey
+          ) {
+            consumeReveal = true;
+            const index = data.window.rows.findIndex((row) =>
+              row.seriesId === reveal.seriesId
+              && (reveal.groupId === undefined || row.groupId === reveal.groupId)
+              && row.doc === reveal.doc
+              && row.pos === reveal.token
+              && (reveal.members === undefined
+                || (row.members.length === reveal.members.length
+                  && row.members.every((member, memberIndex) => member === reveal.members?.[memberIndex]))));
+            if (index >= 0) revealRank = data.window.firstRank + index;
           }
+          set({
+            kwic: {
+              snapshot: snapshot.snapshot,
+              trackKey,
+              request,
+              axis,
+              resident: {
+                total: data.window.total,
+                trackCount: data.window.trackCount,
+                anchorRank: data.window.anchorRank,
+                firstRank: data.window.firstRank,
+                before: window.before,
+                after: window.after,
+                preceding: data.window.preceding,
+                rows: data.window.rows,
+                revealRank,
+              },
+              state: { status: 'ready' },
+            },
+            ...(consumeReveal ? { concordanceReveal: null } : {}),
+          });
         },
-        (message) => set({
+        (message) => set((state) => ({
           kwic: {
             snapshot: snapshot.snapshot,
-            center,
+            trackKey,
+            request,
+            axis: state.kwic?.snapshot === snapshot.snapshot && state.kwic.trackKey === trackKey
+              ? state.kwic.axis
+              : retainedAxis,
+            resident: state.kwic?.snapshot === snapshot.snapshot && state.kwic.trackKey === trackKey
+              ? state.kwic.resident
+              : retainedWindow,
             state: { status: 'error', message },
           },
-        }),
+        })),
       );
-    };
-
-    /** Forget the settled axis position — used wherever the public scrub is
-     *  cleared, so an invisible center can never resurrect under a later query. */
-    const resetKwicCenter = () => {
-      if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
-      kwicCenter = null;
-    };
-
-    /** Trailing-edge debounce from raw scrub motion to the KWIC center. Each
-     *  scrub INVALIDATES the prior result immediately (a late result must never
-     *  land under a newer axis) but only replaces the one pending center. */
-    const scheduleKwicCenter = (target: ScrubTarget) => {
-      // With every term toggled off the panel MUST keep its explicit no-terms
-      // state — scrubbing must not flip it to "finding examples…". The next
-      // toggle adopts the live scrub, so nothing is lost.
-      const { series, kwicEnabledSeries } = get();
-      if (!series.some((s) => kwicEnabledSeries.has(s.id))) return;
-      kwicLane.supersede(); // any in-flight KWIC result was under the old center — drop it
-      const held = get().kwic;
-      if (held && held.state.status !== 'pending') {
-        set({
-          kwic: {
-            snapshot: held.snapshot,
-            center: held.center,
-            state: { status: 'pending' },
-          },
-        });
-      }
-      if (kwicCenterTimer !== null) clearTimeout(kwicCenterTimer);
-      kwicCenterTimer = setTimeout(() => {
-        kwicCenterTimer = null;
-        kwicCenter = target;
-        runKwic();
-      }, KWIC_CENTER_DEBOUNCE_MS);
     };
 
     /** Guard a synchronous session command: forward to the attached session,
@@ -2241,6 +2401,7 @@ export function createAppRuntime(
       focusedSeries: null,
       trends: new Map(),
       kwic: null,
+      concordanceReveal: null,
       // Every term appears in the concordance by default.
       kwicEnabledSeries: new Set<string>(),
       concordanceView: {
@@ -2583,13 +2744,12 @@ export function createAppRuntime(
         const next = new Set(get().kwicEnabledSeries);
         if (next.has(seriesId)) next.delete(seriesId);
         else next.add(seriesId);
-        set({ kwicEnabledSeries: next });
-        // Reissue ONLY the concordance, immediately, against the latest axis:
-        // adopt the current scrub (superseding any pending debounce) as the center.
-        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
-        const scrub = get().scrub;
-        if (scrub && get().snapshot?.readyDocs.includes(scrub.doc)) kwicCenter = scrub;
-        runKwic();
+        set({ kwicEnabledSeries: next, concordanceReveal: null });
+        runConcordanceWindow();
+      },
+
+      requestConcordanceWindow(anchor, window) {
+        runConcordanceWindow(anchor, window);
       },
 
       setConcordanceContext(contextChars) {
@@ -2665,31 +2825,18 @@ export function createAppRuntime(
         const previous = get().scrub;
         const changed =
           previous?.doc !== target.doc || previous.token !== target.token;
-        const alreadySettled =
-          kwicCenter?.doc === target.doc
-          && kwicCenter.token === target.token
-          && kwicCenter.origin === undefined;
-        if (!changed && alreadySettled) {
-          // Footer residency is independent of the settled KWIC center. A
-          // missing/error page may retry without invalidating concordance.
-          scheduleFooterPassage(target);
-          return;
-        }
         if (changed) {
           occurrenceLane.supersede();
-          set({ scrub: target, occurrenceNavigation: null });
+          set({ scrub: target, occurrenceNavigation: null, concordanceReveal: null });
         }
         scheduleFooterPassage(target);
-        scheduleKwicCenter(target); // debounced concordance re-centre on the axis
       },
 
       clearScrub() {
         occurrenceLane.supersede();
-        set({ scrub: null, occurrenceNavigation: null });
+        set({ scrub: null, occurrenceNavigation: null, concordanceReveal: null });
         resetFooterPassage();
-        // The concordance falls back to reading order immediately.
-        resetKwicCenter();
-        runKwic();
+        runConcordanceWindow({ kind: 'rank', rank: 0 });
       },
 
       stepOccurrence(direction) {
@@ -2852,7 +2999,13 @@ export function createAppRuntime(
               return;
             }
             get().setScrub({ doc: hit.doc, token: hit.token });
-            get().centerKwicAt(focused.id, hit.doc, hit.token);
+            // Occurrence stepping deliberately collapses a same-start cluster
+            // into one stop; its members are cluster-level provenance, so the
+            // Concordance applies the documented first-row rule.
+            get().centerKwicAt(focused.id, hit.doc, hit.token, {
+              kind: 'occurrence',
+              groupId: group.id,
+            });
             if (issuedReader !== null) {
               get().openReader({
                 snapshot: snapshot.snapshot,
@@ -3153,7 +3306,7 @@ export function createAppRuntime(
       runQueries() {
         const { snapshot, series, trendBins } = get();
         occurrenceLane.supersede();
-        set({ occurrenceNavigation: null });
+        set({ occurrenceNavigation: null, concordanceReveal: null });
         // Reader highlights use the CURRENT semantic active-track projection;
         // rename-only notebook edits do not call runQueries and remain
         // presentation-only, while active/member/overlap changes reissue here.
@@ -3164,10 +3317,6 @@ export function createAppRuntime(
         // pending, and invalidate the epoch — even when the new intent runs
         // no query.
         trendLane.supersede(); // even a no-query outcome supersedes in-flight work
-        // A pending scrub-settle belongs to the old series/snapshot; drop it so
-        // it cannot fire a stale center after this reissue. runKwic below uses
-        // the last settled center (degrading to reading order if its doc departed).
-        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
         dispersionLane.supersede();
         // A published snapshot replacement invalidates the (snapshot-bound)
         // linked range; runSelected below clears the overlays with it.
@@ -3188,9 +3337,9 @@ export function createAppRuntime(
             dispersion: null,
             selectedTrends: new Map(),
             selectedDispersion: null,
+            concordanceReveal: null,
           });
-          resetKwicCenter(); // the axis is gone — no stale center may resurrect
-          runKwic(); // clears or re-targets the concordance consistently
+          runConcordanceWindow();
           return;
         }
 
@@ -3288,7 +3437,7 @@ export function createAppRuntime(
         // The selected overlays follow the same burst (a snapshot change or
         // comparison change either revalidates or clears them).
         runSelected();
-        runKwic();
+        runConcordanceWindow();
       },
 
       runInventory() {
@@ -3775,7 +3924,6 @@ export function createAppRuntime(
         // Detail consumers reissue; the resident BASELINE trends/dispersion
         // are untouched (clearing a brush must not recompute them).
         runSelected();
-        runKwic();
         get().runInventory();
         get().runFrequency();
       },
@@ -3783,14 +3931,6 @@ export function createAppRuntime(
       centerKwicAt(seriesId, doc, token, origin) {
         const state = get();
         if (!state.snapshot?.readyDocs.includes(doc)) return;
-        // A DELIBERATE click outside the active range clears the range first
-        // (visibly — the shading and overlays drop) so the clicked occurrence
-        // can appear in the range-scoped concordance (ruling §2).
-        const sel = state.linkedSelection;
-        if (sel !== null && !selectionContains(sel, doc, token)) {
-          set({ linkedSelection: null });
-          runSelected();
-        }
         // The activated track must be able to appear in the result: a
         // disabled chip is re-enabled (visible state change, not a silent
         // override) before the reissue (review-D HIGH).
@@ -3799,11 +3939,27 @@ export function createAppRuntime(
           next.add(seriesId);
           set({ kwicEnabledSeries: next });
         }
-        // IMMEDIATE navigation: cancel any pending debounce and adopt the
-        // position as the concordance center (like the chip toggle path).
-        if (kwicCenterTimer !== null) { clearTimeout(kwicCenterTimer); kwicCenterTimer = null; }
-        kwicCenter = origin ? { doc, token, origin: 'bucket', bucketCount: origin.count } : { doc, token };
-        runKwic();
+        // All navigation publishes the ONE shared cursor. Exact evidence also
+        // carries a one-shot row disambiguator; density midpoints never do.
+        get().setScrub({ doc, token });
+        const live = get();
+        const enabled = live.series.filter((item) => live.kwicEnabledSeries.has(item.id));
+        const tracks = trackSpecs(enabled);
+        const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
+        set({
+          concordanceReveal: origin?.kind !== 'bucket'
+            ? {
+                snapshot: state.snapshot.snapshot,
+                trackKey,
+                seriesId,
+                doc,
+                token,
+                ...(origin?.groupId === undefined ? {} : { groupId: origin.groupId }),
+                ...(origin?.members === undefined ? {} : { members: [...origin.members] }),
+              }
+            : null,
+        });
+        runConcordanceWindow({ kind: 'position', doc, token }, undefined, true);
       },
 
       // ── Session command wrappers ──────────────────────────────────────────
@@ -4180,12 +4336,11 @@ export function createAppRuntime(
       disposed = true;
       // Close the ownership scope FIRST: every outstanding lease goes dead, so
       // a late settlement (even one whose cancel is never acknowledged) can no
-      // longer write to the store. Then best-effort transport cleanup: cancel
-      // every in-flight query and stop the debounce timer so it cannot mint a
-      // query after disposal.
+      // longer write to the store. Then best-effort transport cleanup cancels
+      // every in-flight query.
       scope.close();
       trendLane.supersede();
-      kwicLane.supersede();
+      concordanceLane.supersede();
       dispersionLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
@@ -4219,10 +4374,6 @@ export function createAppRuntime(
           readerVisibleRange: null,
           readerNavigation: null,
         });
-      }
-      if (kwicCenterTimer !== null) {
-        clearTimeout(kwicCenterTimer);
-        kwicCenterTimer = null;
       }
       clearWorkspaceTimer();
       workspaceSaveToken += 1;

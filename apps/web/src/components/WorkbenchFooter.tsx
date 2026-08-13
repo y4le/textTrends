@@ -691,7 +691,10 @@ function FooterInteractive({
         ) {
           // Supersede the two constituent click activations: the Reader and
           // Concordance should settle on the same honest raw corpus point.
-          centerKwicAt(resolution.track.seriesId, target.doc, target.token);
+          centerKwicAt(resolution.track.seriesId, target.doc, target.token, {
+            kind: 'bucket',
+            count: resolution.activation.bucketCount ?? 0,
+          });
         }
         openReader({
           snapshot: snapshot.snapshot,
@@ -901,7 +904,7 @@ function FooterInteractive({
               activation.token,
               activation.kind === 'bucket'
                 ? { kind: 'bucket', count: activation.bucketCount ?? 0 }
-                : undefined,
+                : { kind: 'occurrence', groupId: track.groupId },
             );
             return;
           }

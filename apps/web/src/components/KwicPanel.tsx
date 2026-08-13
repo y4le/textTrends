@@ -6,12 +6,12 @@
 
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
-import { kwicCaptionText } from '../lib/barcode-view.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import {
   concordanceRows,
@@ -34,11 +34,12 @@ export function KwicPanel({
   const inventory = useApp((state) => state.inventory);
   const trends = useApp((state) => state.trends);
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
-  const selection = useApp((state) => state.linkedSelection);
+  const scrub = useApp((state) => state.scrub);
   const series = useApp((state) => state.series);
   const enabled = useApp((state) => state.kwicEnabledSeries);
   const view = useApp((state) => state.concordanceView);
   const toggle = useApp((state) => state.toggleKwicSeries);
+  const requestWindow = useApp((state) => state.requestConcordanceWindow);
   const setContext = useApp((state) => state.setConcordanceContext);
   const setReading = useApp((state) => state.setConcordanceReading);
   const openReader = useApp((state) => state.openReader);
@@ -68,7 +69,12 @@ export function KwicPanel({
     [titleByDoc],
   );
 
-  const readyRows = kwic?.state.status === 'ready' ? kwic.state.rows : [];
+  useEffect(() => {
+    if (!scrub) return;
+    requestWindow({ kind: 'position', doc: scrub.doc, token: scrub.token });
+  }, [requestWindow, scrub]);
+
+  const readyRows = kwic?.resident?.rows ?? [];
   const rows = useMemo(
     () => concordanceRows(readyRows, view.contextChars, labelOf, styleOf, titleOf),
     [readyRows, view.contextChars, labelOf, styleOf, titleOf],
@@ -93,16 +99,7 @@ export function KwicPanel({
     recenter();
   }, [recenter, rowIdentity, view.contextChars]);
 
-  const caption = kwicCaptionText(
-    kwic?.center ?? null,
-    rows[0]?.pos ?? null,
-    titleOf,
-  );
-  const scope = selection
-    ? selection.ranges.length === 1
-      ? `selected range in ${titleOf(selection.ranges[0]!.doc)}`
-      : `selected range across ${selection.ranges.length} books`
-    : `${snapshot?.readyDocs.length ?? 0} ready book${snapshot?.readyDocs.length === 1 ? '' : 's'}`;
+  const scope = `${snapshot?.readyDocs.length ?? 0} ready book${snapshot?.readyDocs.length === 1 ? '' : 's'}`;
   const multipleBooks = (snapshot?.readyDocs.length ?? 0) > 1;
   const tokenCountsByDoc = new Map(
     (snapshot?.readyDocs ?? []).map((doc) => [
@@ -135,10 +132,10 @@ export function KwicPanel({
     );
   };
 
-  const resultBar = kwic?.state.status === 'ready' && rows.length > 0 ? (
+  const resultBar = kwic?.resident && rows.length > 0 ? (
     <div className="kwic-result-bar">
       <p role="status">
-        <strong className="selectable-stat">{rows.length} of {kwic.state.total.toLocaleString()}</strong>
+        <strong className="selectable-stat">{rows.length} of {kwic.resident.total.toLocaleString()}</strong>
         {' '}occurrences · {scope}
       </p>
     </div>
@@ -154,7 +151,7 @@ export function KwicPanel({
     >
       <table aria-label="Concordance" className="kwic-table">
         <caption className="kwic-caption">
-          Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
+          Concordance: {rows.length} of {total.toLocaleString()} occurrences in {scope}
         </caption>
         <colgroup>
           <col className="kwic-col-left" />
@@ -223,7 +220,7 @@ export function KwicPanel({
     >
       <p role="note">Alignment is off in reading mode.</p>
       <p className="kwic-caption">
-        Concordance ({caption}): {rows.length} of {total.toLocaleString()} occurrences in {scope}
+        Concordance: {rows.length} of {total.toLocaleString()} occurrences in {scope}
       </p>
       {rows.map((row) => (
         <div
@@ -330,14 +327,14 @@ export function KwicPanel({
   } else if (status === 'error') {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p className="kwic-message kwic-error">concordance failed: {message}</p>;
-  } else if (status === 'pending') {
+  } else if (status === 'pending' && !kwic?.resident) {
     body = skeleton;
-  } else if (kwic?.state.status === 'ready' && rows.length === 0) {
+  } else if (kwic?.resident && rows.length === 0) {
     body = <p className="kwic-message">No occurrences of the enabled terms.</p>;
-  } else if (kwic?.state.status === 'ready') {
+  } else if (kwic?.resident) {
     body = view.reading === 'aligned'
-      ? alignedTable(kwic.state.total)
-      : stackedRows(kwic.state.total);
+      ? alignedTable(kwic.resident.total)
+      : stackedRows(kwic.resident.total);
   }
 
   return (

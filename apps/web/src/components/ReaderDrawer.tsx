@@ -120,11 +120,19 @@ function ReaderProse({
               clippedStart ? 'continues from previous page' : '',
               clippedEnd ? 'continues on next page' : '',
             ].filter(Boolean).join(' · ')}
-            onClick={() => centerKwicAt(mark.seriesId, page.doc, mark.tokens.start)}
+            onClick={() => centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
+              kind: 'occurrence',
+              groupId: mark.groupId,
+              members: mark.members,
+            })}
             onKeyDown={(event) => {
               if (event.key !== 'Enter' && event.key !== ' ') return;
               event.preventDefault();
-              centerKwicAt(mark.seriesId, page.doc, mark.tokens.start);
+              centerKwicAt(mark.seriesId, page.doc, mark.tokens.start, {
+                kind: 'occurrence',
+                groupId: mark.groupId,
+                members: mark.members,
+              });
             }}
             data-reader-mark={mark.seriesId}
             data-reader-selection={inSelection || undefined}

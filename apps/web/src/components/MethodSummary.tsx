@@ -58,9 +58,9 @@ export function MethodSummary({ place }: { readonly place: Place }) {
       }) : [],
       trendMeasure,
       concordance: {
-        resident: kwic?.state.status === 'ready',
+        resident: kwic?.resident !== null && kwic?.resident !== undefined,
         enabledTracks: kwicEnabledSeries.size,
-        total: kwic?.state.status === 'ready' ? kwic.state.total : null,
+        total: kwic?.resident?.total ?? null,
       },
       frequency: {
         view: frequencyView,
