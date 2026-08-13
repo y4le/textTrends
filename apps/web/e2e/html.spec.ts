@@ -51,8 +51,9 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  const rows = await page.getByRole('table', { name: 'Concordance' }).locator('tbody tr').count();
+  const concordance = page.getByRole('grid', { name: 'Concordance' });
+  await expect(concordance).toBeVisible({ timeout: 30_000 });
+  const rows = await concordance.locator('[role="row"][aria-rowindex]').count();
   expect(rows).toBeGreaterThanOrEqual(2); // "barnowl" appears in body + migration list
 
   // The <script> content never became analyzable text (inert extraction). Wait

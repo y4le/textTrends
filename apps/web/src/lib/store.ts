@@ -2042,7 +2042,7 @@ export function createAppRuntime(
      * windows under the same snapshot + ordered matching identity. */
     const runConcordanceWindow = (
       requestedAnchor?: ConcordanceAnchorV1,
-      window = { before: 24, after: 25 },
+      window = { before: 24, after: 24 },
       force = false,
     ) => {
       const { snapshot, series, kwicEnabledSeries, scrub } = get();

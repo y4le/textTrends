@@ -207,7 +207,7 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page
-    .getByRole('table', { name: 'Concordance' })
+    .getByRole('grid', { name: 'Concordance' })
     .getByRole('button', { name: 'wolf', exact: true })
     .click();
   await awaitFreshReader(page, mark);
@@ -218,9 +218,9 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await page.goBack();
   await expect(drawer).toHaveCount(0);
   const row = page
-    .getByRole('table', { name: 'Concordance' })
+    .getByRole('grid', { name: 'Concordance' })
     .getByRole('button', { name: 'wolf', exact: true });
-  await expect(row).toBeFocused();
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeFocused();
   await expect(
     page.getByRole('navigation', { name: 'Analysis lenses' }),
   ).toBeVisible();
@@ -229,12 +229,12 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await expect(drawer).toBeVisible();
   await drawer.press('Escape');
   await expect(drawer).toHaveCount(0);
-  await expect(row).toBeFocused();
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeFocused();
 });
 
-test('KWIC opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
+test('Concordance opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
   await gotoPlace(page, 'concordance');
-  const table = page.getByRole('table', { name: 'Concordance' });
+  const table = page.getByRole('grid', { name: 'Concordance' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   const kwicOpen = table.getByRole('button', { name: 'wolf', exact: true });
   await kwicOpen.click();
@@ -290,7 +290,7 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 
   await drawer.getByRole('button', { name: 'back', exact: true }).click();
   await expect(drawer).toHaveCount(0);
-  await expect(kwicOpen).toBeFocused();
+  await expect(table).toBeFocused();
   await gotoPlace(page, 'trends');
 
   // Return to Trends to make a semantic edit, then reopen from the refreshed
@@ -304,7 +304,7 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
   await expect(editor).toHaveCount(0);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  const refreshedOpen = page.getByRole('table', { name: 'Concordance' })
+  const refreshedOpen = page.getByRole('grid', { name: 'Concordance' })
     .getByRole('button', { name: 'w0100', exact: true }).first();
   const readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await refreshedOpen.click();
@@ -322,7 +322,7 @@ test('KWIC opens the lazy reader; navigation and edited highlights stay correct'
 
 test('an exact barcode occurrence opens the reader', async ({ page }) => {
   // Exact barcode tick at wolf@450 opens directly (density aggregates instead
-  // centre KWIC, whose nearest real row supplies its reader link).
+  // center Concordance, whose active exact row supplies its reader link).
   const canvas = page.getByRole('slider', { name: /reading position/i })
     .locator('canvas')
     .first();

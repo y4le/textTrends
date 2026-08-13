@@ -1240,6 +1240,7 @@ canvas {
 
 .kwic-panel {
   min-inline-size: 0;
+  min-block-size: 0;
   margin-block-start: var(--space-3);
 }
 
@@ -1532,6 +1533,116 @@ canvas {
 
 .kwic-error {
   color: var(--accent-text);
+}
+
+.kwic-grid-shell {
+  position: relative;
+  min-block-size: 10rem;
+  overflow: hidden;
+  border-block-end: 1px solid var(--rule);
+}
+
+.kwic-virtual-grid {
+  --kwic-book-column: 14ch;
+  position: relative;
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scroll-padding-inline: 1rem;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.kwic-virtual-grid[data-multiple-books='true'] {
+  --kwic-book-column: 30ch;
+}
+
+.kwic-grid-header,
+.kwic-virtual-row {
+  display: grid;
+  grid-template-columns: 40ch 18ch 40ch var(--kwic-book-column);
+  inline-size: max-content;
+  min-inline-size: 100%;
+  white-space: pre;
+}
+
+.kwic-grid-header {
+  position: sticky;
+  z-index: 3;
+  inset-block-start: 0;
+  block-size: 32px;
+  margin-block-end: -32px;
+  border-block-end: 1px solid var(--rule-strong);
+  background: var(--bg);
+  color: var(--fg-muted);
+}
+
+.kwic-grid-header > [role='columnheader'],
+.kwic-virtual-row > [role='gridcell'] {
+  min-inline-size: 0;
+  overflow: hidden;
+  padding-inline: 0.75ch;
+  text-overflow: ellipsis;
+}
+
+.kwic-grid-header > [role='columnheader'] {
+  align-content: center;
+  font-weight: 400;
+  text-align: start;
+}
+
+.kwic-grid-header .kwic-node-heading {
+  text-align: center;
+}
+
+.kwic-grid-header .kwic-left-heading {
+  text-align: end;
+}
+
+.kwic-scroll-plane {
+  position: relative;
+  inline-size: max-content;
+  min-inline-size: 100%;
+}
+
+.kwic-virtual-row {
+  position: absolute;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  block-size: 32px;
+  border-block-start: 1px solid var(--rule);
+  will-change: transform;
+}
+
+.kwic-virtual-row[aria-selected='true'] {
+  background: color-mix(in srgb, var(--accent) 9%, var(--bg));
+}
+
+.kwic-virtual-row[data-linked-selection='true'] {
+  box-shadow: inset 3px 0 0 var(--accent-text);
+  background: color-mix(in srgb, var(--accent) 7%, var(--bg));
+}
+
+.kwic-virtual-row[aria-selected='true'][data-linked-selection='true'] {
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg));
+}
+
+.kwic-virtual-row > [role='gridcell'] {
+  align-content: center;
+}
+
+.kwic-now-line {
+  position: absolute;
+  z-index: 4;
+  inset-inline: 0;
+  border-block-start: 1px solid color-mix(in srgb, var(--accent-text) 70%, transparent);
+  pointer-events: none;
+}
+
+.kwic-virtual-grid:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
 }
 
 @media (max-width: 599.98px) {
@@ -3102,6 +3213,32 @@ canvas {
 .app-shell[data-place='concordance'] {
   --terms-rail-block-size: 0px;
   --dock-block-size: var(--reading-lane-block-size);
+  display: flex;
+  block-size: calc(100vh - var(--keyboard-inset));
+  block-size: calc(100dvh - var(--keyboard-inset));
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-shell[data-place='concordance'] .workbench,
+.app-shell[data-place='concordance'] .place-region,
+.app-shell[data-place='concordance'] .place-surface,
+.app-shell[data-place='concordance'] .kwic-panel,
+.app-shell[data-place='concordance'] .kwic-grid-shell {
+  min-block-size: 0;
+}
+
+.app-shell[data-place='concordance'] .workbench,
+.app-shell[data-place='concordance'] .place-region,
+.app-shell[data-place='concordance'] .place-surface,
+.app-shell[data-place='concordance'] .kwic-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+}
+
+.app-shell[data-place='concordance'] .kwic-grid-shell {
+  flex: 1 1 auto;
 }
 
 .workbench-dock {

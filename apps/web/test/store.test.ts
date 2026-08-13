@@ -1530,7 +1530,7 @@ describe('store query intent discipline', () => {
       method: 'concordance-window/1',
       anchor: { kind: 'rank', rank: 0 },
       before: 24,
-      after: 25,
+      after: 24,
       contextTokens: 6,
       includeAxis: true,
     });

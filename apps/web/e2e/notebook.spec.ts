@@ -33,12 +33,12 @@ async function importCorpus(page: Page): Promise<void> {
 }
 
 async function rowNodes(page: Page): Promise<{ term: string; node: string }[]> {
-  const trs = page.getByRole('table', { name: 'Concordance' }).locator('tbody tr');
+  const trs = page.getByRole('grid', { name: 'Concordance' }).locator('[role="row"][aria-rowindex]');
   const n = await trs.count();
   const out: { term: string; node: string }[] = [];
   for (let i = 0; i < n; i++) {
     const row = trs.nth(i);
-    const tds = row.locator('td');
+    const tds = row.locator('[role="gridcell"]');
     out.push({
       term: (await row.getAttribute('data-series-label')) ?? '',
       node: (await tds.nth(1).innerText()).trim(),
@@ -67,13 +67,13 @@ async function awaitFreshAnswered(page: Page, mark: number): Promise<{ op: strin
   return fresh;
 }
 
-/** Wait for a fresh (post-mark) kwic query to deliver its result. */
+/** Wait for a fresh (post-mark) Concordance window to deliver its result. */
 async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
   await expect
     .poll(async () => {
       const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'kwic');
-      if (q.length === 0) return 'no fresh kwic query';
+      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
+      if (q.length === 0) return 'no fresh concordance query';
       const res = t.events.filter((e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'no result';
     }, { timeout: 30_000 })

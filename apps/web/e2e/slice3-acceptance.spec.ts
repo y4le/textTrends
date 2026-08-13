@@ -91,9 +91,9 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await page.getByRole('region', { name: 'Vocabulary detail: wolf' })
     .getByRole('button', { name: 'concordance' })
     .click();
-  await awaitOps(page, mark, ['trend', 'dispersion', 'kwic']);
+  await awaitOps(page, mark, ['trend', 'dispersion', 'concordance-window']);
   await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
 
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });

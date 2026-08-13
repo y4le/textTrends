@@ -12,7 +12,7 @@ import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, 
 // 12 tokens; wolf at 1, 6, and 9.
 const CORPUS = 'alpha wolf beta gamma fox delta wolf eta theta wolf iota omega\n';
 const REPLACEMENT = 'a replacement document with no matching animal\n';
-const DETAIL_OPS = new Set(['trend', 'dispersion', 'kwic']);
+const DETAIL_OPS = new Set(['trend', 'dispersion']);
 
 async function importCorpus(
   page: Page,
@@ -90,7 +90,7 @@ async function installDetailResultGate(worker: Worker): Promise<void> {
     scope.postMessage = (message: unknown, transfer?: Transferable[]) => {
       const candidate = message as { t?: string; data?: { op?: string } };
       const detail = candidate.t === 'result'
-        && ['trend', 'dispersion', 'kwic'].includes(candidate.data?.op ?? '');
+        && ['trend', 'dispersion'].includes(candidate.data?.op ?? '');
       if (gate.armed && detail && gate.held.length < gate.expected) {
         gate.held.push({ message, ...(transfer ? { transfer } : {}) });
         if (gate.held.length === gate.expected) gate.armed = false;
@@ -101,7 +101,7 @@ async function installDetailResultGate(worker: Worker): Promise<void> {
   });
 }
 
-const gateArm = (worker: Worker, expected = 3) =>
+const gateArm = (worker: Worker, expected = 2) =>
   worker.evaluate((n) => {
     const gate = (globalThis as unknown as {
       __ttSelectionGate?: { arm(expected: number): void };
@@ -151,35 +151,13 @@ async function awaitDetailBurst(page: Page, mark: number): Promise<void> {
           && jobs.has(event.job),
       );
       const ops = new Set(queries.map((event) => event.op));
-      return queries.length >= 3
+      return queries.length >= 2
         && results.length === jobs.size
-        && ['trend', 'dispersion', 'kwic'].every((op) => ops.has(op))
+        && ['trend', 'dispersion'].every((op) => ops.has(op))
         ? 'complete detail results'
         : `${queries.length} queries / ${results.length} results`;
     }, { timeout: 30_000 })
     .toBe('complete detail results');
-}
-
-async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
-  await expect
-    .poll(async () => {
-      const snapshot = await trace(page);
-      const queries = snapshot.events.filter(
-        (event) =>
-          event.seq > mark
-          && event.direction === 'to-worker'
-          && event.t === 'query'
-          && event.op === 'kwic',
-      );
-      return snapshot.events.some(
-        (event) =>
-          event.seq > mark
-          && event.direction === 'from-worker'
-          && event.t === 'result'
-          && queries.some((query) => query.job === event.job),
-      );
-    }, { timeout: 30_000 })
-    .toBe(true);
 }
 
 test('pointer and keyboard selections share detail results and stale results cannot resurrect', async ({ page }) => {
@@ -201,7 +179,12 @@ test('pointer and keyboard selections share detail results and stale results can
   // pointer-up, the preview is local and no selected query is posted.
   const hoverMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.mouse.move(box.x + plotWidth * (5.5 / 12), box.y + 80);
-  await awaitFreshKwic(page, hoverMark);
+  await page.waitForTimeout(100);
+  expect((await trace(page)).events.filter((event) =>
+    event.seq > hoverMark
+    && event.direction === 'to-worker'
+    && event.t === 'query'
+    && event.op === 'concordance-window')).toEqual([]);
   await gateArm(worker);
   const beforeDrag = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.mouse.down();
@@ -219,10 +202,10 @@ test('pointer and keyboard selections share detail results and stale results can
   await page.mouse.up();
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
-  await expect.poll(() => gateHeld(worker)).toBe(3);
+  await expect.poll(() => gateHeld(worker)).toBe(2);
 
   // Keyboard selection B: reset the reading cursor, announce selection mode,
-  // extend twice, and commit [0,3). Its three jobs flow while A remains held.
+  // extend twice, and commit [0,3). Its two overlay jobs flow while A remains held.
   await scrubber.focus();
   await scrubber.press('Home');
   await expect(scrubber).toHaveAttribute('aria-valuenow', '0');
@@ -236,7 +219,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await awaitDetailBurst(page, bMark);
 
   // Every selected consumer serves B: one wolf inside [0,3), versus three in
-  // the corpus. The concordance contains no occurrence outside that range.
+  // the corpus. Concordance remains full-corpus and highlights the one row.
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   let termTotal = page.getByRole('list', { name: 'Term totals' })
@@ -246,7 +229,9 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
+  const concordance = page.getByRole('grid', { name: 'Concordance' });
+  await expect(concordance.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
+  await expect(concordance.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'by book' }).click();
   await expect(page.getByTestId('linked-selection')).toBeVisible();
@@ -263,7 +248,8 @@ test('pointer and keyboard selections share detail results and stale results can
     .locator('[data-term-occurrence-count]');
   await expect(termTotal).toHaveText('1');
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' }).locator('tbody tr')).toHaveCount(1);
+  await expect(concordance.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
+  await expect(concordance.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
   await gotoPlace(page, 'trends');
 
   // Clear while C is pending. Baseline evidence remains, the selection layers
@@ -274,13 +260,11 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('s');
   for (let i = 0; i < 4; i += 1) await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
-  await expect.poll(() => gateHeld(worker)).toBe(3);
-  const clearMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await expect.poll(() => gateHeld(worker)).toBe(2);
   await page.getByRole('button', { name: 'clear selection' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await gateRelease(worker);
-  await awaitFreshKwic(page, clearMark);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   termTotal = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' })

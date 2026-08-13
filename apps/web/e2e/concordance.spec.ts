@@ -1,27 +1,24 @@
 /**
- * Commit B acceptance (planner ruling §6.3): the nearest-to-axis, all-terms
- * concordance in the real browser. A tiny deterministic imported corpus + the
- * KEYBOARD scrubber (no fragile pointer pixels): move the axis to the end, wait
- * for the centred KWIC result, assert both terms are tagged and the nearest hit
- * leads; then toggle one term off and assert only that track disappears.
+ * Continuous corpus-order Concordance acceptance in the real browser. A tiny
+ * deterministic corpus proves merged order, shared-cursor synchronization,
+ * and enabled-track filtering without a proximity sort.
  */
 
 import { expect, test, type Page } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, trace, gotoPlace, submitAndAwaitFreshResults } from './helpers.ts';
 
-// wolf@1,@7 · fox@4,@10 (12 tokens). Nearest to the last token (11): fox@10,
-// wolf@7, fox@4, wolf@1.
+// wolf@1,@7 · fox@4,@10 (12 tokens), merged in declared corpus order.
 const CORPUS = 'the wolf ran. a fox hid. the wolf slept. a fox fled.\n';
 
-/** Wait for a KWIC query posted after `mark` to deliver its result. */
-async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
+/** Wait for a Concordance window posted after `mark` to deliver its result. */
+async function awaitFreshConcordance(page: Page, mark: number): Promise<void> {
   await expect
     .poll(async () => {
       const t = await trace(page);
       if (t.dropped !== 0) return 'trace dropped events';
-      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'kwic');
-      if (q.length === 0) return 'no fresh kwic query';
-      const res = t.events.filter((e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && e.op === 'kwic' && q.some((p) => p.job === e.job));
+      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
+      if (q.length === 0) return 'no fresh concordance query';
+      const res = t.events.filter((e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && e.op === 'concordance-window' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'no result';
     }, { timeout: 30_000, message: 'the concordance did not deliver a fresh result' })
     .toBe('answered');
@@ -29,13 +26,13 @@ async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
 
 /** The node text of each concordance row, top to bottom. */
 async function rowTerms(page: Page): Promise<string[]> {
-  return page.getByRole('table', { name: 'Concordance' }).locator('tbody tr .kwic-node').allInnerTexts();
+  return page.getByRole('grid', { name: 'Concordance' }).locator('[role="row"][aria-rowindex] .kwic-node').allInnerTexts();
 }
 
 /** Each concordance row's node + right-context — enough to
  *  distinguish two occurrences of the SAME term (fox@10's right is 'fled'). */
 async function rowDetails(page: Page): Promise<{ term: string; right: string }[]> {
-  const trs = page.getByRole('table', { name: 'Concordance' }).locator('tbody tr');
+  const trs = page.getByRole('grid', { name: 'Concordance' }).locator('[role="row"][aria-rowindex]');
   const n = await trs.count();
   const out: { term: string; right: string }[] = [];
   for (let i = 0; i < n; i++) {
@@ -48,7 +45,7 @@ async function rowDetails(page: Page): Promise<{ term: string; right: string }[]
   return out;
 }
 
-test('the concordance merges all terms nearest the axis and toggles a term off', async ({ page }) => {
+test('the concordance merges all terms in corpus order and toggles a term off', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'catalog');
@@ -60,46 +57,50 @@ test('the concordance merges all terms nearest the axis and toggles a term off',
   await gotoPlace(page, 'trends');
   const mark0 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await submitAndAwaitFreshResults(page, 'wolf, fox');
-  await awaitFreshKwic(page, mark0);
+  await awaitFreshConcordance(page, mark0);
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  const grid = page.getByRole('grid', { name: 'Concordance' });
+  await expect(grid).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
   // A single-book corpus keeps only token progress in the rightmost column.
-  await expect(page.getByRole('table', { name: 'Concordance' })
+  await expect(grid
     .getByRole('columnheader', { name: 'token', exact: true })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Concordance' })
-    .locator('tbody .kwic-book').first()).toHaveText(/^\d+ \/ \d+$/);
+  await expect(grid.locator('[role="row"][aria-rowindex] .kwic-book').first()).toHaveText(/^\d+ \/ \d+$/);
   // Catalog labels the book by reading-order ordinal + title alongside exact totals.
   await gotoPlace(page, 'catalog');
   await expect(page.getByRole('table', { name: 'Book analysis' }).getByText('1 · beasts')).toBeVisible();
 
-  // Move the axis to the END via the KEYBOARD scrubber (token 12 of 12). The
-  // concordance re-centres: the nearest hit is the LAST fox (fox@10, right
-  // context 'fled'), then wolf@7, fox@4, wolf@1 — proving the End-key center and
-  // the merged proximity order, not merely "a fox is first".
+  // Move the shared cursor to the END via the keyboard scrubber. The logical
+  // surface stays in corpus order and selects its last row without requerying:
+  // the four-row result is already wholly resident.
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await scrubber.focus();
   const mark1 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('End');
-  await awaitFreshKwic(page, mark1);
-  // The served End token, captioned with the metadata title (not the doc id).
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to beasts · token 12\b/)).toBeVisible();
+  await expect(grid).toHaveAttribute('aria-activedescendant', 'concordance-row-3');
+  await page.waitForTimeout(200);
+  expect((await trace(page)).events.filter((event) =>
+    event.seq > mark1
+    && event.direction === 'to-worker'
+    && event.t === 'query'
+    && event.op === 'concordance-window')).toEqual([]);
   // The scrubber's accessible position text uses the same metadata title.
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('slider', { name: /reading position/i }))
     .toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
   await gotoPlace(page, 'concordance');
   await expect
-    .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged proximity order' })
-    .toEqual(['fox', 'wolf', 'fox', 'wolf']);
-  expect((await rowDetails(page))[0]!.right).toContain('fled'); // fox@10, NOT fox@4
+    .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged corpus order' })
+    .toEqual(['wolf', 'fox', 'wolf', 'fox']);
+  await expect(grid.locator('[role="row"][aria-selected="true"] .kwic-right-context'))
+    .toContainText('fled');
 
   // Toggle 'fox' OFF: a fresh concordance drops that track, keeps wolf.
   const mark2 = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('group', { name: 'Concordance terms' }).getByRole('button', { name: /fox/ }).click();
-  await awaitFreshKwic(page, mark2);
+  await awaitFreshConcordance(page, mark2);
   await expect.poll(async () => new Set(await rowTerms(page)), { message: 'fox track did not disappear' }).toEqual(new Set(['wolf']));
 });

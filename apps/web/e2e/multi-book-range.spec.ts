@@ -49,5 +49,8 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   }
 
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/occurrences · selected range across 2 books/i)).toBeVisible();
+  const concordance = page.getByRole('grid', { name: 'Concordance' });
+  await expect(concordance).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByText(/80 occurrences · 2 ready books/i)).toBeVisible();
+  await expect(concordance.locator('[data-linked-selection="true"]').first()).toBeVisible();
 });

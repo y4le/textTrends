@@ -95,8 +95,9 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
-  const rows = await page.getByRole('table', { name: 'Concordance' }).locator('tbody tr').count();
+  const concordance = page.getByRole('grid', { name: 'Concordance' });
+  await expect(concordance).toBeVisible({ timeout: 30_000 });
+  const rows = await concordance.locator('[role="row"][aria-rowindex]').count();
   expect(rows).toBeGreaterThanOrEqual(2); // both body documents mention it
 });
 
@@ -125,7 +126,7 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
 });
 
 test('a library EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
@@ -166,5 +167,5 @@ test('a library EPUB rebuilds its index when only extracted text survives', asyn
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
 });

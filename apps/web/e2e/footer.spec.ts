@@ -342,7 +342,9 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
 
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByRole('grid', { name: 'Concordance' })
+    .locator('[role="row"][aria-selected="true"] .kwic-token-position'))
+    .toHaveText('2 / 9', { timeout: 15_000 });
 });
 
 test('status and sparkline double-clicks open Reader at their raw corpus points', async ({ page }) => {

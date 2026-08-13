@@ -118,11 +118,11 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     });
   }
 
-  // Query latency samples through the real UI (trend + kwic per input).
+  // Query latency samples through the real UI (trend + Concordance window per input).
   const queryLatencies: number[] = [];
   for (const terms of ['watson', 'moriarty', 'adler', 'lestrade', 'baskerville']) {
     // Fresh single-term comparison per sample (append-only notebook): the
-    // measured burst must stay one trend + one KWIC, comparable across runs.
+    // measured burst must stay one trend + one Concordance window, comparable across runs.
     await clearNotebook(page);
     const before = ((await trace(page)).events.at(-1)?.seq ?? -1);
     const input = await openQuickAdd(page);

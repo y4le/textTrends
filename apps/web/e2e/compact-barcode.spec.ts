@@ -18,7 +18,7 @@ async function awaitFreshKwic(
         event.seq > mark
         && event.direction === 'to-worker'
         && event.t === 'query'
-        && event.op === 'kwic',
+        && event.op === 'concordance-window',
     );
     if (!query) return 'waiting for query';
     return snapshot.events.some(
@@ -100,7 +100,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
     (event) => event.seq > mark
       && event.direction === 'to-worker'
       && event.t === 'query'
-      && event.op === 'kwic',
+      && event.op === 'concordance-window',
   )).toBe(true);
 
   await page

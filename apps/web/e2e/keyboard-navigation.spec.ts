@@ -121,21 +121,20 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await expect(catalogPort).toBeFocused();
 
   await gotoPlace(page, 'concordance');
-  const concordancePort = page.getByRole('region', { name: 'Scrollable concordance table' });
-  const occurrences = page
-    .getByRole('table', { name: 'Concordance' })
-    .locator('tbody .kwic-node > button');
+  const concordancePort = page.getByRole('grid', { name: 'Concordance' });
+  const occurrences = concordancePort.locator('[role="row"][aria-rowindex] .kwic-node > button');
   await expect(occurrences.first()).toBeVisible();
   expect(await occurrences.evaluateAll((buttons) =>
-    buttons.every((button) => !button.hasAttribute('tabindex')))).toBe(true);
-  await occurrences.first().focus();
-  await occurrences.first().press('ArrowDown');
-  await expect(occurrences.first()).toBeFocused();
-  await expect(concordancePort.locator('[data-active]')).toHaveCount(0);
-  await occurrences.first().press('Enter');
+    buttons.every((button) => button.getAttribute('tabindex') === '-1'))).toBe(true);
+  await concordancePort.focus();
+  const activeBefore = await concordancePort.getAttribute('aria-activedescendant');
+  await concordancePort.press('ArrowDown');
+  await expect.poll(() => concordancePort.getAttribute('aria-activedescendant'))
+    .not.toBe(activeBefore);
+  await concordancePort.press('Enter');
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(occurrences.first()).toBeFocused();
+  await expect(concordancePort).toBeFocused();
 
   await gotoPlace(page, 'vocabulary');
   const vocabularyPort = page.locator('.frequency-table-port');

@@ -3,7 +3,7 @@
 *Current product-design authority for the textTrends shell and cross-device
 presentation.*
 
-**STATUS: IMPLEMENTED (updated 2026-08-07).**
+**STATUS: IMPLEMENTED (updated 2026-08-12).**
 
 ## Product principle
 
@@ -34,7 +34,7 @@ There are five stable places:
 |---|---|---|
 | Catalog | What texts make up this study? | local library, active order, book measurements, exact totals |
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
-| Concordance | What contexts contain the terms? | merged KWIC table, term membership, context, occurrence navigation |
+| Concordance | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
 | Compare | What distinguishes explicit A and B? | keyness controls, effect and G² rankings, exact counts, row detail |
 
@@ -200,10 +200,27 @@ drag shuttle restore centered passage alignment.
 
 ## Concordance and direct reading
 
-Concordance is the canonical context surface. Its aligned table centers the
-node column and right-aligns left context; its wrapped view keeps complete
-contexts readable. The final source-position field shows `book · token / total`
-for multi-book corpora and `token / total` when only one book is present.
+Concordance is the canonical context surface. It presents every enabled-term
+occurrence in corpus order as one continuous logical grid while keeping only a
+bounded window of fixed-height rows in the DOM. Its centered node column and
+right-aligned left context retain stable scan geometry; the complete context
+remains available to assistive technology. The final source-position field
+shows `book · token / total` for multi-book corpora and `token / total` when
+only one book is present.
+
+The grid's midpoint rule is shared with the reading cursor. Scrolling moves the
+cursor in the footer and Trends, while scrubbing either shared axis moves the
+Concordance scroll position. The visible “now” line remains halfway through the
+actual grid viewport, excluding the page header, fixed dock, safe area, and
+on-screen keyboard. The physical scroll plane is capped for browser stability;
+sparse corpus-order landmarks and the resident exact rows map that plane onto
+the full logical result. Corpus endpoints are sentinels, so the first and last
+occurrence centers remain half a row pitch inside the scroll range rather than
+standing in for the beginning or end of the corpus.
+
+Linked analytical ranges never filter or reorder Concordance and never cause a
+Concordance query. Rows inside the range receive a secondary highlight while
+the grid continues to represent the complete enabled-term result.
 
 Activating a concordance node opens Reader directly. Exact barcode occurrence
 controls in Trends open Reader. The footer's barcode centers Concordance in
@@ -297,6 +314,12 @@ visible row count, and Home/End clamp to the first and last row. Enter keeps the
 control's native open/toggle behavior. Escape closes an open row detail first;
 from a closed row it returns focus to the table port. Focus movement never
 changes analysis scope or issues work.
+
+The virtual Concordance uses the same movement keys through one focusable ARIA
+grid with `aria-activedescendant`; its off-screen row buttons stay outside the
+Tab order. Moving beyond the resident window requests bounded rows around the
+new rank, Enter opens the active occurrence in Reader, and Reader Back restores
+focus to the stable grid. Escape leaves row navigation by blurring the grid.
 
 ## Responsive, accessibility, and history contracts
 

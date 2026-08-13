@@ -31,10 +31,17 @@ test('double-click clears the linked range without selecting chart text', async 
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
   await gotoPlace(page, 'concordance');
-  const sourceText = page.getByRole('table', { name: 'Concordance' }).locator('.source-text').first();
+  const sourceText = page.getByRole('grid', { name: 'Concordance' }).locator('.source-text').first();
   const stat = page.locator('.selectable-stat').first();
   await expect(sourceText).toBeVisible();
   await expect(stat).toBeVisible();
   expect(await sourceText.evaluate(userSelect)).toBe('text');
   expect(await stat.evaluate(userSelect)).toBe('text');
+  const readableContext = page.getByRole('grid', { name: 'Concordance' })
+    .locator('.kwic-right-context')
+    .filter({ hasText: /\S/ })
+    .first();
+  await readableContext.dblclick();
+  await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''))
+    .not.toBe('');
 });

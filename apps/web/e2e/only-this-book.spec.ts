@@ -48,7 +48,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await expect(rows).toHaveCount(1);
   await expect(rows.first().getByRole('rowheader').getByRole('button')).toHaveText(declaredTitle);
 
-  const requiredScopeOps = ['trend', 'dispersion', 'kwic', 'inventory', 'freq-list'];
+  const requiredScopeOps = ['trend', 'dispersion', 'inventory', 'freq-list'];
   await expect.poll(async () => {
     const operations = new Set(
       (await trace(page)).events
@@ -73,7 +73,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
   await expect(page.getByText(/rates use .* selected class tokens/)).toBeVisible();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('table', { name: 'Concordance' })).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
 
   // The range-scoped inventory row retains its selection-independent
   // fullTokens. Even with no trend series left as a fallback, the named

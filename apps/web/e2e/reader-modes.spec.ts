@@ -9,13 +9,13 @@ async function openReader(page: Page) {
   await awaitAllReady(page);
   await page.getByRole('navigation', { name: 'Analysis lenses' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
-  const read = page.getByRole('table', { name: 'Concordance' })
-    .getByRole('button').first();
+  const grid = page.getByRole('grid', { name: 'Concordance' });
+  const read = grid.getByRole('button').first();
   await expect(read).toBeVisible();
   await read.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
-  return { read, reader };
+  return { grid, read, reader };
 }
 
 function workerQueriesAfter(
@@ -113,7 +113,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   await awaitAllReady(page);
   await page.getByRole('navigation', { name: 'Analysis lenses' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
-  await page.getByRole('table', { name: 'Concordance' })
+  await page.getByRole('grid', { name: 'Concordance' })
     .getByRole('button').first().click();
   const fallback = page.getByRole('main', { name: /Reader:/ });
   await expect(fallback.getByRole('status', { name: 'Reader keyboard status' })).toHaveCount(1);
@@ -125,7 +125,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
 });
 
 test('Reader has one full-viewport presentation without mode or background work', async ({ page }) => {
-  const { read, reader } = await openReader(page);
+  const { grid, reader } = await openReader(page);
 
   await expect(reader).not.toHaveAttribute('role', 'dialog');
   await expect(reader.getByRole('group', { name: 'Reader width' })).toHaveCount(0);
@@ -138,7 +138,7 @@ test('Reader has one full-viewport presentation without mode or background work'
 
   await page.goBack();
   await expect(reader).toHaveCount(0);
-  await expect(read).toBeFocused();
+  await expect(grid).toBeFocused();
   await expect(page.locator('html')).not.toHaveClass(/reader-open/);
   await page.goForward();
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();

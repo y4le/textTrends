@@ -38,6 +38,11 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
   await awaitAllReady(page);
   await expect(page.getByRole('link', { name: 'Concordance', exact: true }))
     .toHaveAttribute('aria-current', 'page');
+  // A direct Concordance reload may still be materializing its first bounded
+  // row window after the general analysis barrier. Set the navigation mark
+  // only once that governed surface is resident.
+  await expect(page.getByRole('grid', { name: 'Concordance' }))
+    .toBeVisible({ timeout: 30_000 });
   const reloadMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   const scope = page.getByRole('region', { name: 'Scope' });

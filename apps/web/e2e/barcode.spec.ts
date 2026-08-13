@@ -81,21 +81,22 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   expect(sampleBox && labelBox ? sampleBox.x : Number.POSITIVE_INFINITY)
     .toBeLessThan(labelBox?.x ?? Number.NEGATIVE_INFINITY);
 
-  // Next-occurrence: a fresh job-correlated KWIC centered at wolf@1.
+  // Next-occurrence: a fresh bounded Concordance window centered at wolf@1.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Next wolf occurrence' }).click();
   await expect
     .poll(async () => {
       const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'kwic');
-      if (q.length === 0) return 'no fresh kwic';
+      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
+      if (q.length === 0) return 'no fresh concordance';
       const res = t.events.filter((e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'no result';
     }, { timeout: 30_000 })
     .toBe('answered');
-  // The caption reports the exact served center (wolf@1 → 1-based token 2).
+  // The exact occurrence is the active virtual row (wolf@1 → 1-based token 2).
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })
+    .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('2 / 9');
 
   // Stepping again advances to wolf@7 — relative to the current center.
   await gotoPlace(page, 'trends');
@@ -104,13 +105,14 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await expect
     .poll(async () => {
       const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > mark2 && e.direction === 'to-worker' && e.t === 'query' && e.op === 'kwic');
+      const q = t.events.filter((e) => e.seq > mark2 && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
       const res = t.events.filter((e) => e.seq > mark2 && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'waiting';
     }, { timeout: 30_000 })
     .toBe('answered');
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to .* token 8\b/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })
+    .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('8 / 9');
 
   // CANVAS CLICK: click the strip at wolf@7's x position — the inversion +
   // authoritative resolver center the concordance on that exact occurrence.
@@ -118,7 +120,8 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Previous wolf occurrence' }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to .* token 2\b/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })
+    .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('2 / 9');
   await gotoPlace(page, 'trends');
   const canvas = page.getByRole('slider', { name: /reading position/i })
     .locator('canvas')
@@ -132,7 +135,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await expect
     .poll(async () => {
       const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > mark3 && e.direction === 'to-worker' && e.t === 'query' && e.op === 'kwic');
+      const q = t.events.filter((e) => e.seq > mark3 && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
       const res = t.events.filter((e) => e.seq > mark3 && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'waiting';
     }, { timeout: 30_000 })
@@ -141,7 +144,8 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
     .getByRole('button', { name: 'back', exact: true })
     .click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByText(/nearest to .* token 8\b/)).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })
+    .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('8 / 9');
 
   // RESIZE: the strip redraws from the resident result — zero worker queries.
   await gotoPlace(page, 'trends');

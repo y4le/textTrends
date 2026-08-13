@@ -196,7 +196,8 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
+  await expect(page.getByRole('group', { name: 'Query terms' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Concordance terms' })).toBeVisible();
 });
 
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
@@ -313,7 +314,7 @@ test('scrollable analytical tables expose named regions', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
   await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('region', { name: 'Scrollable concordance table' })).toBeVisible();
+  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
   await gotoPlace(page, 'catalog');
   await expect(page.getByRole('region', { name: 'Scrollable book analysis table' })).toBeVisible();
 });
@@ -338,7 +339,7 @@ test('coarse input sizing does not inflate dense concordance rows', async ({ bro
     .getByRole('button', { name: 'Done', exact: true }).click();
 
   await gotoPlace(page, 'concordance');
-  const node = page.getByRole('table', { name: 'Concordance' }).getByRole('button').first();
+  const node = page.getByRole('grid', { name: 'Concordance' }).getByRole('button').first();
   const nodeBox = await node.boundingBox();
   expect(nodeBox?.height).toBeLessThan(44);
   await context.close();

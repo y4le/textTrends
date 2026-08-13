@@ -52,11 +52,9 @@ test('Scope states resident corpus truth and follows the committed range', async
     .filter((event) => event.op !== 'reader-page')
     .map((event) => event.op);
   expect(clearOps.length).toBeGreaterThan(0);
-  expect(new Set(clearOps)).toEqual(new Set(['kwic', 'inventory', 'freq-list']));
+  expect(new Set(clearOps)).toEqual(new Set(['inventory', 'freq-list']));
 
-  // A direct evidence activation outside a committed range clears the live
-  // range without reissuing inventory today. Scope must reject that resident,
-  // range-issued inventory rather than durably calling 3 tokens "all".
+  // Full-corpus occurrence navigation is independent of the analytical range.
   await scrubber.focus();
   await scrubber.press('Home');
   await scrubber.press('s');
@@ -65,8 +63,7 @@ test('Scope states resident corpus truth and follows the committed range', async
   await scrubber.press('Enter');
   await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
   await page.getByRole('button', { name: 'Next Holmes occurrence' }).click();
-  await expect(scope.getByRole('button', { name: 'Clear linked range' })).toHaveCount(0);
-  await expect(scope.getByText('all 6 books', { exact: true })).toBeVisible();
-  await expect(scope.getByText('3 tokens', { exact: true })).toHaveCount(0);
-  await expect(scope.getByRole('status')).not.toContainText('tokens 1–3');
+  await expect(scope.getByRole('button', { name: 'Clear linked range' })).toBeVisible();
+  await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
+  await expect(scope.getByRole('status')).toContainText('tokens 1–3');
 });
