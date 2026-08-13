@@ -1,16 +1,10 @@
-import {
-  DEFAULT_PLACE,
-  PLACES,
-  type Place,
-} from './places.ts';
+import { PLACES, type Place } from './places.ts';
 
 export interface RouteV1 {
-  readonly place: Place;
+  /** Null means the URL does not choose a place. The store resolves the
+   * corpus-aware boot default only after the workspace is attached. */
+  readonly place: Place | null;
 }
-
-export const DEFAULT_ROUTE: RouteV1 = Object.freeze({
-  place: DEFAULT_PLACE,
-});
 
 const placeSet = new Set<string>(PLACES);
 
@@ -41,19 +35,24 @@ function isPlace(value: unknown): value is Place {
   return typeof value === 'string' && placeSet.has(value);
 }
 
+function parsedPlace(value: unknown): Place | null {
+  if (value === 'catalog') return 'inputs'; // legacy shared links
+  return isPlace(value) ? value : null;
+}
+
 /**
  * Total route parsing for hand-edited and stale links. Duplicate owned keys
  * follow URLSearchParams' first-value rule; malformed encodings and unknown
- * enum values quietly fall back to the canonical defaults.
+ * enum values leave the place unresolved for the corpus-aware boot policy.
  */
 export function parseRoute(search: string): RouteV1 {
-  let place: Place = DEFAULT_PLACE;
+  let place: Place | null = null;
   let sawPlace = false;
   for (const segment of segments(search)) {
     const item = entry(segment);
     if (item.key === 'p' && !sawPlace) {
       sawPlace = true;
-      if (isPlace(item.value)) place = item.value;
+      place = parsedPlace(item.value);
     }
   }
   return { place };
@@ -65,11 +64,11 @@ export function parseRoute(search: string): RouteV1 {
  * stable canonical order.
  */
 export function routeSearch(search: string, next: RouteV1): string {
-  const place = isPlace(next.place) ? next.place : DEFAULT_PLACE;
+  const place = isPlace(next.place) ? next.place : null;
   const foreign = segments(search).filter((segment) => {
     const key = entry(segment).key;
     return key !== 'p';
   });
-  const canonical = [...foreign, `p=${place}`];
-  return `?${canonical.join('&')}`;
+  const canonical = place === null ? foreign : [...foreign, `p=${place}`];
+  return canonical.length === 0 ? '' : `?${canonical.join('&')}`;
 }

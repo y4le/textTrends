@@ -36,7 +36,7 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
   });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const words = Array.from(
     { length: 1_200 },
     (_, index) => `holmes watson moriarty marker${index}`,

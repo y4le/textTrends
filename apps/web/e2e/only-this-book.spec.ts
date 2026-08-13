@@ -4,9 +4,9 @@ import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
 test('book focus preserves scope while only this book explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
-  const scope = page.getByRole('region', { name: 'Scope' });
+  const scope = page.getByRole('region', { name: 'Corpus status' });
   const documents = page.getByRole('table', { name: 'Book analysis' });
   const rows = documents.locator(':scope > tbody > tr[data-catalog-book]');
   await expect(rows).toHaveCount(6);
@@ -81,7 +81,7 @@ test('book focus preserves scope while only this book explicitly rescopes linked
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const rowEscape = documents.getByRole('button', { name: 'all books' });
   await expect(rowEscape).toBeVisible();
   await expect(rowEscape).not.toHaveAttribute('aria-disabled');

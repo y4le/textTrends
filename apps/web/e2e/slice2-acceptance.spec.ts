@@ -61,7 +61,7 @@ async function awaitOps(
 test('slice 2: exact occurrences → linked range → gap-free reader → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'slice-two.txt',
     mimeType: 'text/plain',

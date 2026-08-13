@@ -81,7 +81,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   // UI completion through accessible semantics: the trend surface and the
   // Catalog book table with all three default series.
   await expect(page.locator('svg').first()).toBeVisible();
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const bookAnalysis = page.getByRole('table', { name: 'Book analysis' });
   await expect(bookAnalysis).toBeVisible();
   await expect(bookAnalysis.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();

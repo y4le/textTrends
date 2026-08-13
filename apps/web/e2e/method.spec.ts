@@ -50,7 +50,7 @@ test('Trend settings separate result geometry from resident presentation', async
   expect(displayQueries).toEqual([]);
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
   await expect(pane).toHaveCount(0);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByRole('table', { name: /Book analysis · full corpus/ })
     .getByRole('columnheader', { name: /\/10,000/ }).first()).toBeVisible();
 });

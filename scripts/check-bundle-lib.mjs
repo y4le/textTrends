@@ -26,7 +26,7 @@ const FACADE_SENTINELS = ['ttE2E', 'ttHarness'];
 /** Canonical workbench places are route-level lazy boundaries. Keep this list
  * in lockstep with apps/web/src/lib/places.ts. */
 const PLACE_CHUNKS = [
-  ['Catalog', /^assets\/CatalogPlace-[^/]+\.js$/],
+  ['Inputs', /^assets\/InputsPlace-[^/]+\.js$/],
   ['Trends', /^assets\/TrendsPlace-[^/]+\.js$/],
   ['Concordance', /^assets\/ConcordancePlace-[^/]+\.js$/],
   ['Vocabulary', /^assets\/VocabularyPlace-[^/]+\.js$/],
@@ -197,20 +197,20 @@ export function checkBundle(files, catalogSource) {
     }
   }
 
-  // ---- Standard Ebooks archive stays behind the Catalog place ------------
-  const catalogPlacePath = placePaths.get('Catalog');
-  if (entryPath && catalogPlacePath && archivePath) {
+  // ---- Standard Ebooks archive stays behind the Inputs place ------------
+  const inputsPlacePath = placePaths.get('Inputs');
+  if (entryPath && inputsPlacePath && archivePath) {
     const entryText = files.get(entryPath).toString('utf8');
-    const catalogPlaceText = files.get(catalogPlacePath).toString('utf8');
-    const catalogPlaceStatic = staticImports(catalogPlaceText);
+    const inputsPlaceText = files.get(inputsPlacePath).toString('utf8');
+    const inputsPlaceStatic = staticImports(inputsPlaceText);
     const archiveName = archivePath.replace('assets/', '');
     if (references(entryText, archiveName)) {
-      failures.push(`${entryPath}: references ${archiveName} — the archive client must load only through the Catalog place`);
+      failures.push(`${entryPath}: references ${archiveName} — the archive client must load only through the Inputs place`);
     }
-    if (catalogPlaceStatic.has(archiveName)) {
-      failures.push(`${catalogPlacePath}: statically imports ${archiveName} — the archive client must stay lazy`);
-    } else if (!references(catalogPlaceText, archiveName)) {
-      failures.push(`${catalogPlacePath}: no reference to ${archiveName} — the lazy archive edge is gone`);
+    if (inputsPlaceStatic.has(archiveName)) {
+      failures.push(`${inputsPlacePath}: statically imports ${archiveName} — the archive client must stay lazy`);
+    } else if (!references(inputsPlaceText, archiveName)) {
+      failures.push(`${inputsPlacePath}: no reference to ${archiveName} — the lazy archive edge is gone`);
     }
   }
 

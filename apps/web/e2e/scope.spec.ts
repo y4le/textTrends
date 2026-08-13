@@ -4,9 +4,9 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 test('Scope states resident corpus truth and follows the committed range', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
-  const scope = page.getByRole('region', { name: 'Scope' });
+  const scope = page.getByRole('region', { name: 'Corpus status' });
   await expect(scope.getByText('Sherlock Holmes', { exact: true })).toBeVisible();
   await expect(scope.getByText('6/6 books ready', { exact: true })).toBeVisible();
 

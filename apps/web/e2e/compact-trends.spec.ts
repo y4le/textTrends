@@ -25,7 +25,7 @@ for (const viewport of [
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });
     const dock = page.locator('.workbench-dock');
-    const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+    const lens = page.getByRole('navigation', { name: 'Workbench sections' });
     await expect(footer).toBeVisible();
     expect(await footer.locator('.footer-sparkline path').count()).toBeGreaterThanOrEqual(2);
     const footerBox = await footer.boundingBox();

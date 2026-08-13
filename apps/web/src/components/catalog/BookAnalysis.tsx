@@ -105,7 +105,7 @@ export function BookAnalysis() {
   useEffect(() => {
     if (bookTarget === null || bookTargetValid || stalePopRequested.current) return;
     stalePopRequested.current = true;
-    document.getElementById('place-catalog-heading')?.focus({ preventScroll: true });
+    document.getElementById('place-inputs-heading')?.focus({ preventScroll: true });
     popLayer();
   }, [bookTarget, bookTargetValid, popLayer]);
 

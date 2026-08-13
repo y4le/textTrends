@@ -9,12 +9,13 @@ async function expectOnlyCanonicalPlace(page: Page, active: Place): Promise<void
   }
 }
 
-test('Scope and Lens round-trip canonical places without issuing analysis', async ({ page }) => {
+test('workbench tabs round-trip canonical places without issuing analysis', async ({ page }) => {
   await page.goto('./?foreign=%2f&p=compare');
   await awaitAllReady(page);
 
-  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   await expect(lens.getByRole('link')).toHaveText([
+    'Inputs',
     'Trends',
     'Concordance',
     'Vocabulary',
@@ -45,15 +46,15 @@ test('Scope and Lens round-trip canonical places without issuing analysis', asyn
     .toBeVisible({ timeout: 30_000 });
   const reloadMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
-  const scope = page.getByRole('region', { name: 'Scope' });
-  await scope.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=catalog$/);
-  await expectOnlyCanonicalPlace(page, 'catalog');
-  await page.getByRole('navigation', { name: 'Analysis lenses' })
+  const status = page.getByRole('region', { name: 'Corpus status' });
+  await status.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
+  await expect(page).toHaveURL(/\?foreign=%2f&p=inputs$/);
+  await expectOnlyCanonicalPlace(page, 'inputs');
+  await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Compare', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
   await page.goBack();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=catalog$/);
+  await expect(page).toHaveURL(/\?foreign=%2f&p=inputs$/);
   await page.goForward();
   await expect(page).toHaveURL(/\?foreign=%2f&p=compare$/);
 
@@ -73,7 +74,7 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page
-    .getByRole('navigation', { name: 'Analysis lenses' })
+    .getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Compare', exact: true })
     .click();
   await expectOnlyCanonicalPlace(page, 'compare');
@@ -89,18 +90,18 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
   expect(queryOps).toEqual([]);
 });
 
-test('unknown places normalize quietly to Trends', async ({ page }) => {
+test('unknown places use the loaded-corpus Trends default', async ({ page }) => {
   await page.goto('./?foreign=kept&p=obsolete');
   await expect(page).toHaveURL(/\?foreign=kept&p=trends$/);
   await expect(page.getByRole('link', { name: 'Trends', exact: true }))
     .toHaveAttribute('aria-current', 'page');
 });
 
-test('compact Lens keeps four complete destinations in portrait and landscape', async ({ page }) => {
+test('compact tabs keep five complete destinations in portrait and landscape', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
-  await expect(lens.getByRole('link')).toHaveCount(4);
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
+  await expect(lens.getByRole('link')).toHaveCount(5);
   await expect(lens).toHaveCSS('position', 'fixed');
   const portrait = await lens.boundingBox();
   expect(portrait).not.toBeNull();
@@ -108,6 +109,7 @@ test('compact Lens keeps four complete destinations in portrait and landscape', 
 
   await page.setViewportSize({ width: 568, height: 320 });
   await expect(lens.getByRole('link')).toHaveText([
+    'Inputs',
     'Trends',
     'Concordance',
     'Vocabulary',

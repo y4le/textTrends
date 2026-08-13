@@ -1,5 +1,5 @@
 import { useState, type MouseEvent } from 'react';
-import { LENS_PLACES, PLACE_HEADING, type Place } from '../lib/places.ts';
+import { PLACE_HEADING, PLACES, type Place } from '../lib/places.ts';
 import { routeSearch } from '../lib/route.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
@@ -9,15 +9,16 @@ function hrefFor(place: Place): string {
   return `${routeSearch(location.search, { place })}${location.hash}`;
 }
 
-export function LensOrgan() {
+export function WorkbenchTabs() {
   const place = useApp((state) => state.place);
+  const routeStatus = useApp((state) => state.routeStatus);
   const setPlace = useApp((state) => state.setPlace);
   const [keyboardStatus, setKeyboardStatus] = useState('');
 
   return (
     <nav
       className="lens-organ"
-      aria-label="Analysis lenses"
+      aria-label="Workbench sections"
       onKeyDown={(event) => {
         const direction = shortcutMatches(event, 'focus-horizontal-previous')
           ? -1
@@ -25,8 +26,8 @@ export function LensOrgan() {
             ? 1
             : null;
         if (direction === null) return;
-        const links = [...event.currentTarget.querySelectorAll<HTMLAnchorElement>('[data-lens]')];
-        const current = links.indexOf((event.target as Element).closest<HTMLAnchorElement>('[data-lens]')!);
+        const links = [...event.currentTarget.querySelectorAll<HTMLAnchorElement>('[data-workbench-tab]')];
+        const current = links.indexOf((event.target as Element).closest<HTMLAnchorElement>('[data-workbench-tab]')!);
         if (current < 0 || links.length === 0) return;
         event.preventDefault();
         const next = Math.max(0, Math.min(links.length - 1, current + direction));
@@ -34,17 +35,17 @@ export function LensOrgan() {
         link.focus({ preventScroll: true });
         setKeyboardStatus(
           next === current
-            ? `${direction === 1 ? 'last' : 'first'} analysis lens · ${link.textContent ?? ''}`
-            : `${link.textContent ?? ''} · analysis lens ${next + 1} of ${links.length}`,
+            ? `${direction === 1 ? 'last' : 'first'} workbench section · ${link.textContent ?? ''}`
+            : `${link.textContent ?? ''} · workbench section ${next + 1} of ${links.length}`,
         );
       }}
     >
-      {LENS_PLACES.map((lens) => (
+      {PLACES.map((tab) => (
         <a
-          key={lens}
-          data-lens={lens}
-          href={hrefFor(lens)}
-          aria-current={place === lens ? 'page' : undefined}
+          key={tab}
+          data-workbench-tab={tab}
+          href={hrefFor(tab)}
+          aria-current={routeStatus === 'resolved' && place === tab ? 'page' : undefined}
           aria-keyshortcuts={shortcutAria(['focus-horizontal-previous', 'focus-horizontal-next'])}
           onClick={(event: MouseEvent<HTMLAnchorElement>) => {
             if (
@@ -55,10 +56,10 @@ export function LensOrgan() {
               || event.altKey
             ) return;
             event.preventDefault();
-            setPlace(lens);
+            setPlace(tab);
           }}
         >
-          {PLACE_HEADING[lens]}
+          {PLACE_HEADING[tab]}
         </a>
       ))}
       <span className="visually-hidden" role="status" aria-live="polite">

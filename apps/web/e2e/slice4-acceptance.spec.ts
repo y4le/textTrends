@@ -56,7 +56,7 @@ async function awaitOps(
 test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },

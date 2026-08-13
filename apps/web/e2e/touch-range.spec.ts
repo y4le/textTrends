@@ -20,7 +20,7 @@ const CORPUS = Array.from(
 test('single touch reads and scrolls while two touches commit one range', async ({ page, context }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'touch-range.txt',
     mimeType: 'text/plain',

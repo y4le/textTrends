@@ -27,7 +27,7 @@ async function importCorpus(
   text: string,
   expectedReady: number,
 ): Promise<void> {
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -202,7 +202,7 @@ test.beforeEach(async ({ page }) => {
 test('compact Reader is a Back/Escape layer and restores its invoking row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await gotoPlace(page, 'concordance');
-  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   await expect(lens).toBeVisible();
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -222,7 +222,7 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
     .getByRole('button', { name: 'wolf', exact: true });
   await expect(page.getByRole('grid', { name: 'Concordance' })).toBeFocused();
   await expect(
-    page.getByRole('navigation', { name: 'Analysis lenses' }),
+    page.getByRole('navigation', { name: 'Workbench sections' }),
   ).toBeVisible();
 
   await row.click();

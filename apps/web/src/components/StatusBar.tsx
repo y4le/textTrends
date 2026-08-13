@@ -4,7 +4,7 @@ import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
 
-export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }) {
+export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void }) {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
@@ -64,7 +64,7 @@ export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }
   return (
     <section
       className="scope-organ"
-      aria-label="Scope"
+      aria-label="Corpus status"
     >
       <span
         className="visually-hidden"
@@ -77,7 +77,7 @@ export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }
       <div
         className="scope-organ-content"
         role="group"
-        aria-label="Scope details"
+        aria-label="Corpus and analysis status"
         tabIndex={0}
         onKeyDown={(event) => {
           // A focusable overflow region is not consistently keyboard-scrollable
@@ -111,16 +111,6 @@ export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }
           event.preventDefault();
         }}
       >
-        <strong
-          style={{
-            color: 'var(--fg)',
-            fontFamily: 'var(--font-ui)',
-            fontSize: 'var(--text-sm)',
-            fontWeight: 600,
-          }}
-        >
-          Scope
-        </strong>
         {vm.segments.map((segment, index) => (
           <span key={`${index}:${segment}`} style={{ display: 'inline-flex', gap: '0.5ch' }}>
             {index > 0 && <span aria-hidden="true">·</span>}
@@ -129,7 +119,7 @@ export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }
                   <button
                     className="scope-organ-link coarse-target"
                     type="button"
-                    onClick={() => setPlace('catalog')}
+                    onClick={() => setPlace('inputs')}
                   >
                     {segment}
                   </button>

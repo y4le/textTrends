@@ -51,7 +51,7 @@ test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready b
 
   // The rehydrated corpus answers in both Trends and Catalog.
   await expect(page.locator('svg').first()).toBeVisible();
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByRole('table', { name: 'Book analysis' })).toBeVisible();
 
   // A NEW query against the rehydrated index — awaited by its own fresh

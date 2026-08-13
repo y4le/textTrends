@@ -6,7 +6,7 @@ test('the private built-in picker switches among TXT corpora with useful starter
   const requests = trackCorpusRequests(page);
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   const picker = page.getByLabel('Demo corpus');
   await expect(picker).toHaveValue('builtin/sherlock');
@@ -14,7 +14,7 @@ test('the private built-in picker switches among TXT corpora with useful starter
   const beforeAsoif = requests.length;
   await picker.selectOption('builtin/asoif');
   await awaitReadyCount(page, ASOIF.length);
-  await expect(page.getByRole('region', { name: 'Scope' })).toContainText('A Song of Ice and Fire');
+  await expect(page.getByRole('region', { name: 'Corpus status' })).toContainText('A Song of Ice and Fire');
   await expect(page.getByRole('button', { name: 'A Game of Thrones', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Jon' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Tyrion' })).toBeVisible();
@@ -29,7 +29,7 @@ test('the private built-in picker switches among TXT corpora with useful starter
   const beforeLotr = requests.length;
   await picker.selectOption('builtin/lotr');
   await awaitReadyCount(page, LOTR.length);
-  await expect(page.getByRole('region', { name: 'Scope' })).toContainText('The Lord of the Rings');
+  await expect(page.getByRole('region', { name: 'Corpus status' })).toContainText('The Lord of the Rings');
   await expect(page.getByRole('button', { name: 'The Fellowship of the Ring', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Frodo' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Gandalf' })).toBeVisible();

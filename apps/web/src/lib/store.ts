@@ -136,6 +136,7 @@ import {
 import {
   SessionCommandError,
   type AnalysisPhase,
+  type ProjectView,
   type SessionState,
 } from './project-session.ts';
 import type { LocalLibraryFile } from './local-library.ts';
@@ -148,11 +149,7 @@ import {
   type Layer,
   type LayerKind,
 } from './layers.ts';
-import {
-  DEFAULT_ROUTE,
-  parseRoute,
-  routeSearch,
-} from './route.ts';
+import { parseRoute, routeSearch, type RouteV1 } from './route.ts';
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
 import { builtinCorpusOption, type BuiltinCorpusId } from './project.ts';
@@ -646,6 +643,9 @@ export interface AppState {
 
   // ── Route/layer state: session presentation, never research data. ──
   place: Place;
+  /** A p-less URL waits for the attached corpus before choosing Inputs or
+   * Trends. Explicit links are resolved immediately and always win. */
+  routeStatus: 'pending' | 'resolved';
   layers: readonly Layer[];
   setPlace(place: Place): void;
   pushLayer(
@@ -1129,17 +1129,17 @@ class QueryLane {
   }
 }
 
-function routeFromUrl(url: string): { readonly place: Place } {
+function routeFromUrl(url: string): RouteV1 {
   try {
     return parseRoute(new URL(url, 'https://texttrends.invalid/').search);
   } catch {
-    return DEFAULT_ROUTE;
+    return { place: null };
   }
 }
 
 function urlWithRoute(
   url: string,
-  route: { readonly place: Place },
+  route: RouteV1,
 ): string {
   let parsed: URL;
   try {
@@ -1157,6 +1157,10 @@ function relativeHistoryUrl(url: string): string {
   } catch {
     return '/';
   }
+}
+
+function defaultPlaceFor(project: ProjectView | null | undefined): Place {
+  return (project?.data.order.length ?? 0) === 0 ? 'inputs' : 'trends';
 }
 
 function restoreFocusTo(id: string): void {
@@ -1263,7 +1267,7 @@ export function createAppRuntime(
     return layer;
   };
   const bootRoute = historyPort === null
-    ? DEFAULT_ROUTE
+    ? { place: null }
     : routeFromUrl(historyPort.url);
   let initialLayers: readonly Layer[] = [];
   if (historyPort !== null) {
@@ -1291,12 +1295,18 @@ export function createAppRuntime(
       mode: 'push' | 'replace',
       place: Place,
       layers: readonly Layer[],
-      options: { readonly preserveReaderNavigation?: boolean } = {},
+      options: {
+        readonly preserveReaderNavigation?: boolean;
+        readonly resolveRoute?: boolean;
+      } = {},
     ): void => {
       if (historyPort !== null) {
+        const routePlace = options.resolveRoute === true || get().routeStatus === 'resolved'
+          ? place
+          : null;
         historyPort[mode](
           historyStateFor(layers),
-          urlWithRoute(historyPort.url, { place }),
+          urlWithRoute(historyPort.url, { place: routePlace }),
         );
       }
       const current = get();
@@ -1305,6 +1315,7 @@ export function createAppRuntime(
       if (readerChanged) readerLane.supersede();
       set((state) => ({
         place,
+        routeStatus: options.resolveRoute === true ? 'resolved' : state.routeStatus,
         layers,
         notebookError: place === state.place ? state.notebookError : null,
         readerPlace,
@@ -2319,10 +2330,14 @@ export function createAppRuntime(
       loadError: null,
       commandError: null,
       workspacePersistence: { phase: 'idle' },
-      place: bootRoute.place,
+      place: bootRoute.place ?? 'inputs',
+      routeStatus: bootRoute.place === null ? 'pending' : 'resolved',
       layers: initialLayers,
       setPlace(place) {
-        if (!PLACES.includes(place) || place === get().place) return;
+        if (
+          !PLACES.includes(place)
+          || (place === get().place && get().routeStatus === 'resolved')
+        ) return;
         const next: Layer = {
           kind: 'place',
           id: newLayerId(),
@@ -2331,7 +2346,7 @@ export function createAppRuntime(
         };
         const layers = pushLayerStack(get().layers, next);
         rememberLayer(next, layers);
-        writeNavigation('push', place, layers);
+        writeNavigation('push', place, layers, { resolveRoute: true });
       },
       pushLayer(kind, target, returnFocusTo) {
         const next = freshLayer(kind, target, returnFocusTo);
@@ -4024,6 +4039,7 @@ export function createAppRuntime(
     historyTraversalPending = false;
     const previous = store.getState();
     const route = routeFromUrl(historyPort.url);
+    const routePlace = route.place ?? defaultPlaceFor(previous.projectSession?.project);
     const parsed = parseLayerHistory(historyPort.state);
     const reconciled = reconcileLayerRefs(parsed.refs, resolveLayer);
     let layers = reconciled.layers;
@@ -4045,15 +4061,16 @@ export function createAppRuntime(
     const readerChanged = !sameReaderPlace(previous.readerPlace, readerPlace);
     if (readerChanged) readerLane.supersede();
     store.setState((state) => ({
-      place: route.place,
+      place: routePlace,
+      routeStatus: 'resolved',
       layers,
-      notebookError: route.place === state.place ? state.notebookError : null,
+      notebookError: routePlace === state.place ? state.notebookError : null,
       readerPlace,
       readerPage: readerChanged ? null : state.readerPage,
       readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
       readerNavigation: readerChanged ? null : state.readerNavigation,
     }));
-    const normalizedUrl = urlWithRoute(historyPort.url, { place: route.place });
+    const normalizedUrl = urlWithRoute(historyPort.url, { place: routePlace });
     if (
       !parsed.valid
       || reconciled.truncated
@@ -4259,6 +4276,16 @@ export function createAppRuntime(
       unsubscribe = next.subscribe(acceptSessionState);
       acceptSessionState(next.getState());
       if (workspace !== undefined) store.getState().restoreWorkspace(workspace);
+      if (store.getState().routeStatus === 'pending') {
+        const place = defaultPlaceFor(next.getState().project);
+        if (historyPort !== null) {
+          historyPort.replace(
+            historyStateFor(store.getState().layers),
+            urlWithRoute(historyPort.url, { place }),
+          );
+        }
+        store.setState({ place, routeStatus: 'resolved' });
+      }
       if (workspaceStore !== null) {
         workspaceHydrated = true;
         workspaceLastKey = workspaceSemanticKey(store.getState());
@@ -4267,7 +4294,17 @@ export function createAppRuntime(
     },
     failBootstrap(error: unknown) {
       if (disposed) return; // a torn-down runtime reports nothing
-      store.setState({ bootstrap: { phase: 'error', message: msg(error) } });
+      const pending = store.getState().routeStatus === 'pending';
+      if (pending && historyPort !== null) {
+        historyPort.replace(
+          historyStateFor(store.getState().layers),
+          urlWithRoute(historyPort.url, { place: 'inputs' }),
+        );
+      }
+      store.setState({
+        bootstrap: { phase: 'error', message: msg(error) },
+        ...(pending ? { place: 'inputs' as const, routeStatus: 'resolved' as const } : {}),
+      });
     },
     reportNotice(message: string) {
       if (!disposed) store.setState({ commandError: message });

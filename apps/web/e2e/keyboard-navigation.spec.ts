@@ -84,7 +84,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await chord(page.locator('body'), 'g', 'f');
   await expect(page.getByRole('slider', { name: 'Corpus footer position' })).toBeFocused();
 
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await filter.fill('');
@@ -97,7 +97,7 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await page.goto('./');
   await awaitAllReady(page);
 
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const catalogPort = page.getByRole('region', { name: 'Scrollable book analysis table' });
   const books = page.locator('[data-catalog-book] .catalog-book-title > button');
   await expect(books).toHaveCount(6);

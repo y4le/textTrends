@@ -67,7 +67,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   const dock = page.locator('.workbench-dock');
   const terms = page.getByRole('complementary', { name: 'Terms' });
   const footer = page.getByRole('complementary', { name: 'Reading position' });
-  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   const port = terms.getByRole('group', { name: 'Query terms' });
   const [dockBox, termsBox, footerBox, lensBox] = await Promise.all([
     dock.boundingBox(),

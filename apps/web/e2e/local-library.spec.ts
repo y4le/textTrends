@@ -4,7 +4,7 @@ import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
 test('local files persist, drag into the active corpus, reorder, and delete independently', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   const localPanel = page.getByRole('region', { name: 'On this device' });
   const activePanel = page.getByRole('region', { name: 'Active files' });
@@ -57,7 +57,7 @@ test('local files persist, drag into the active corpus, reorder, and delete inde
   // The library is durable across a new app session.
   await page.reload();
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const reopened = page.getByRole('list', { name: 'Files on this device' });
   await expect(reopened.getByRole('listitem')).toHaveCount(2);
 

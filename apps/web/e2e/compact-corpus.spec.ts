@@ -23,7 +23,7 @@ for (const viewport of [
     await page.setViewportSize(viewport);
     await page.goto('./');
     await awaitAllReady(page);
-    await gotoPlace(page, 'catalog');
+    await gotoPlace(page, 'inputs');
 
     const table = page.getByRole('table', { name: 'Book analysis' });
     const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
@@ -76,7 +76,7 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   const table = page.getByRole('table', { name: 'Book analysis' });
   const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');

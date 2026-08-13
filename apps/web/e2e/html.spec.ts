@@ -33,7 +33,7 @@ const MESSY_HTML = `<!DOCTYPE html>
 test('a non-well-formed HTML file imports, extracts body text, and analyzes it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'owls.html',

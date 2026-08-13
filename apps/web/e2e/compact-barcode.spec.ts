@@ -123,7 +123,7 @@ test('a mouse on a coarse iPad-style device hovers and snaps both barcodes witho
   try {
     await page.goto('./');
     await awaitAllReady(page);
-    await gotoPlace(page, 'catalog');
+    await gotoPlace(page, 'inputs');
     await page.getByLabel('Create project from files').setInputFiles({
       name: 'hybrid-pointer.txt',
       mimeType: 'text/plain',

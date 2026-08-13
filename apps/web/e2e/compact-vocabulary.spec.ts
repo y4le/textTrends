@@ -220,7 +220,7 @@ test('a large Vocabulary result stays inside a compact page', async ({ page }) =
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const prose = Array.from(
     { length: 90 },
     (_, index) => `word${index} repeats repeats.`,

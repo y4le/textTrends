@@ -72,7 +72,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
 
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   // Browsing is purely the baked snapshot: open the catalog and see a series
   // render complete and position-ordered with NO external catalog traffic
@@ -132,7 +132,7 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await page
     .getByRole('list', { name: 'Sherlock Holmes series' })
@@ -237,7 +237,7 @@ test('the catalog asset loads on demand, and a failed fetch shows a genuinely re
   });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   expect(aborted, 'no catalog asset request before the panel opens').toBe(0);
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await expect(page.getByText(/Could not load the Standard Ebooks library/)).toBeVisible();

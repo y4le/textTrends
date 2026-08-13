@@ -48,7 +48,7 @@ async function rowDetails(page: Page): Promise<{ term: string; right: string }[]
 test('the concordance merges all terms in corpus order and toggles a term off', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
@@ -73,7 +73,7 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
   await expect(grid.locator('[role="row"][aria-rowindex] .kwic-token').first())
     .toHaveText(/^\d+ \/ \d+$/);
   // Catalog labels the book by reading-order ordinal + title alongside exact totals.
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByRole('table', { name: 'Book analysis' }).getByText('1 · beasts')).toBeVisible();
 
   // Move the shared cursor to the END via the keyboard scrubber. The logical

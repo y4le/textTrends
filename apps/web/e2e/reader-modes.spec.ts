@@ -7,7 +7,7 @@ async function openReader(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page);
-  await page.getByRole('navigation', { name: 'Analysis lenses' })
+  await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
   const grid = page.getByRole('grid', { name: 'Concordance' });
   const read = grid.getByRole('button').first();
@@ -111,7 +111,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   }));
   await page.goto('./');
   await awaitAllReady(page);
-  await page.getByRole('navigation', { name: 'Analysis lenses' })
+  await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
   await page.getByRole('grid', { name: 'Concordance' })
     .getByRole('button').first().click();
@@ -131,7 +131,7 @@ test('Reader has one full-viewport presentation without mode or background work'
   await expect(reader.getByRole('group', { name: 'Reader width' })).toHaveCount(0);
   await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
   await expect(page.locator('.workbench-dock')).toHaveCount(0);
-  await expect(page.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(0);
+  await expect(page.getByRole('navigation', { name: 'Workbench sections' })).toHaveCount(0);
   await expect(page.locator('.app-header')).toHaveCount(0);
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();
   await expectReaderFillsViewport(page, reader, 1440, 900);
@@ -203,7 +203,7 @@ test('Reader stays viewport-bound and locks outer scrolling at iPad and phone wi
   await expectReaderFillsViewport(page, reader, 768, 1024);
 
   await expectReaderFillsViewport(page, reader, 390, 844);
-  await expect(page.getByRole('region', { name: 'Scope' })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Corpus status' })).toHaveCount(0);
   await expect(page.locator('.utility-pane')).toHaveCount(0);
   await expect(page.locator('[inert]')).toHaveCount(0);
   expect(await page.locator('main button, main a, main input, main select, main textarea')

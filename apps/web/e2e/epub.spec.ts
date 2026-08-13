@@ -76,7 +76,7 @@ function fixtureEpub(): Buffer {
 test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub',
@@ -104,7 +104,7 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
 test('a library EPUB reopens after the artifact cache is cleared', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
@@ -132,7 +132,7 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
 test('a library EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });

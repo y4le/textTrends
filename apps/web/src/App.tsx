@@ -9,9 +9,9 @@ import {
   type ReactNode,
 } from 'react';
 import { useApp } from './lib/store-instance.ts';
-import { ScopeBar } from './components/ScopeBar.tsx';
+import { StatusBar } from './components/StatusBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
-import { LensOrgan } from './components/LensOrgan.tsx';
+import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
@@ -31,8 +31,8 @@ import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
 );
-const CatalogPlace = lazy(() =>
-  import('./places/CatalogPlace.tsx').then(({ CatalogPlace: placeBody }) => ({ default: placeBody })),
+const InputsPlace = lazy(() =>
+  import('./places/InputsPlace.tsx').then(({ InputsPlace: placeBody }) => ({ default: placeBody })),
 );
 const VocabularyPlace = lazy(() =>
   import('./places/VocabularyPlace.tsx').then(({ VocabularyPlace: placeBody }) => ({ default: placeBody })),
@@ -114,7 +114,7 @@ function PlaceSurface({
 
 function ActivePlace({ place }: { readonly place: Place }) {
   switch (place) {
-    case 'catalog': return <CatalogPlace />;
+    case 'inputs': return <InputsPlace />;
     case 'trends': return <TrendsPlace />;
     case 'concordance': return <ConcordancePlace />;
     case 'vocabulary': return <VocabularyPlace />;
@@ -145,6 +145,7 @@ export function App() {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
+  const routeStatus = useApp((s) => s.routeStatus);
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
@@ -198,7 +199,7 @@ export function App() {
       setKeyboardNavigationStatus(`${PLACE_HEADING[destination]}`);
     };
     switch (id) {
-      case 'go-catalog': go('catalog'); return true;
+      case 'go-inputs': go('inputs'); return true;
       case 'go-trends': go('trends'); return true;
       case 'go-concordance': go('concordance'); return true;
       case 'go-vocabulary': go('vocabulary'); return true;
@@ -580,8 +581,8 @@ export function App() {
             shortcuts
           </button>
         </div>
-        <ScopeBar onOpenMethod={openMethod} />
-        <LensOrgan />
+        <StatusBar onOpenMethod={openMethod} />
+        <WorkbenchTabs />
       </header>
       <ResumeStatus />
       {notebookError && (
@@ -634,9 +635,13 @@ export function App() {
       </div>
       <div className="workbench">
         <div className="place-region">
-          <PlaceSurface place={place}>
-            <ActivePlace place={place} />
-          </PlaceSurface>
+          {routeStatus === 'pending'
+            ? <p className="region-placeholder" role="status">preparing your workspace…</p>
+            : (
+                <PlaceSurface place={place}>
+                  <ActivePlace place={place} />
+                </PlaceSurface>
+              )}
         </div>
       </div>
       <WorkbenchDock globalShortcuts={place === 'trends'} />

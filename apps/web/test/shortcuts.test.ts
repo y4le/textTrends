@@ -80,7 +80,7 @@ describe('shortcut registry', () => {
     expect(workbench.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
     expect(workbench.find((section) => section.title === 'Navigation')?.entries
-      .map((entry) => entry.id)).toContain('go-catalog');
+      .map((entry) => entry.id)).toContain('go-inputs');
     expect(workbench.find((section) => section.title === 'Terms')?.entries
       .map((entry) => entry.id)).toContain('go-terms');
     const readerIds = shortcutHelpSections('reader')
@@ -96,9 +96,9 @@ describe('shortcut registry', () => {
       state: { prefix: 'g', expiresAt: 1_000 },
     });
     if (prefix.kind !== 'pending') throw new Error('expected a pending sequence');
-    expect(advanceShortcutSequence(prefix.state, key('c'), 'workbench', 200))
-      .toEqual({ kind: 'matched', id: 'go-catalog' });
-    expect(advanceShortcutSequence(prefix.state, key('c'), 'workbench', 1_001))
+    expect(advanceShortcutSequence(prefix.state, key('i'), 'workbench', 200))
+      .toEqual({ kind: 'matched', id: 'go-inputs' });
+    expect(advanceShortcutSequence(prefix.state, key('i'), 'workbench', 1_001))
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('x'), 'workbench', 200))
       .toEqual({ kind: 'none' });

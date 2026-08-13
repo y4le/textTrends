@@ -77,8 +77,8 @@ test('compact header reflows the publisher mark without starving single-line Sco
   await page.keyboard.press('Tab');
   await expect(publisher).toBeFocused();
   await expect(publisher).not.toHaveCSS('outline-style', 'none');
-  await expect(header.getByRole('region', { name: 'Scope' })).toHaveCount(1);
-  await expect(header.getByRole('navigation', { name: 'Analysis lenses' })).toHaveCount(1);
+  await expect(header.getByRole('region', { name: 'Corpus status' })).toHaveCount(1);
+  await expect(header.getByRole('navigation', { name: 'Workbench sections' })).toHaveCount(1);
 
   const geometry = await header.evaluate((node) => {
     const box = node.getBoundingClientRect();
@@ -113,7 +113,7 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
 
   const dock = page.locator('.workbench-dock');
   const terms = page.getByRole('complementary', { name: 'Terms' });
-  const lens = page.getByRole('navigation', { name: 'Analysis lenses' });
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   const [dockBox, termsBox, lensBox] = await Promise.all([
     dock.boundingBox(),
     terms.boundingBox(),

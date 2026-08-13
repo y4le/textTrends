@@ -47,7 +47,7 @@ async function savedWorkspaceOrder(page: import('@playwright/test').Page): Promi
 test('catalog import restores from the library and active deletion cascades', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
 
   const importMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel('Create project from files').setInputFiles(fileInput());
@@ -61,7 +61,7 @@ test('catalog import restores from the library and active deletion cascades', as
   await page.reload();
   await awaitReadyCount(page, 1);
   await assertTransferred(page, -1);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: `Delete ${DOC_NAME} from this device` }).click();

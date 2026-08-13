@@ -315,7 +315,7 @@ test('scrollable analytical tables expose named regions', async ({ page }) => {
   await awaitAllReady(page);
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByRole('region', { name: 'Scrollable book analysis table' })).toBeVisible();
 });
 
@@ -378,11 +378,11 @@ test('structural rules and safe viewport contract are active', async ({ page }) 
   }
 });
 
-test('the horizontally overflowing Scope details are keyboard-scrollable', async ({ page }) => {
+test('the horizontally overflowing Corpus and analysis status are keyboard-scrollable', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('./');
   await awaitAllReady(page);
-  const details = page.getByRole('group', { name: 'Scope details' });
+  const details = page.getByRole('group', { name: 'Corpus and analysis status' });
   await expect(details).toHaveAttribute('tabindex', '0');
   expect(await details.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
   await details.focus();

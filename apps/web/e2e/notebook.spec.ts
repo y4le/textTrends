@@ -21,7 +21,7 @@ const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf sp
 async function importCorpus(page: Page): Promise<void> {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'wolves.txt',
     mimeType: 'text/plain',

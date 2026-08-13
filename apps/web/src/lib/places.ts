@@ -1,7 +1,7 @@
-/** Canonical workbench destinations. Routing lands later; this module is the
- * pure vocabulary shared by Scope, Method, and the future shell. */
+/** Canonical workbench destinations shared by the tab bar, routing, and
+ * method surfaces. Inputs is composition; the remaining places analyze it. */
 export const PLACES = [
-  'catalog',
+  'inputs',
   'trends',
   'concordance',
   'vocabulary',
@@ -10,17 +10,10 @@ export const PLACES = [
 
 export type Place = (typeof PLACES)[number];
 
-export const LENS_PLACES = [
-  'trends',
-  'concordance',
-  'vocabulary',
-  'compare',
-] as const satisfies readonly Place[];
-
 export const DEFAULT_PLACE: Place = 'trends';
 
 export const PLACE_HEADING: Readonly<Record<Place, string>> = Object.freeze({
-  catalog: 'Catalog',
+  inputs: 'Inputs',
   trends: 'Trends',
   concordance: 'Concordance',
   vocabulary: 'Vocabulary',

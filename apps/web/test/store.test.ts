@@ -456,6 +456,133 @@ function harness(initial?: SessionState, opts?: { seed?: boolean; workspace?: Fa
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('workbench route and history authority', () => {
+  it('resolves a p-less boot exactly once from the attached corpus without pushing history', () => {
+    const emptyHistory = new FakeHistoryPort('/textTrends/?foreign=kept');
+    const emptyRuntime = createAppRuntime(fakeQueryClient().client, { history: emptyHistory });
+    expect(emptyRuntime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'pending',
+    });
+    expect(emptyHistory.url).toBe('/textTrends/?foreign=kept');
+    emptyRuntime.attachSession(new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: [] } },
+    })));
+    expect(emptyRuntime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'resolved',
+    });
+    expect(emptyHistory.url).toBe('/textTrends/?foreign=kept&p=inputs');
+    expect(emptyHistory.pushes).toBe(0);
+    expect(emptyHistory.entries).toHaveLength(1);
+    emptyRuntime.dispose();
+
+    const loadedHistory = new FakeHistoryPort('/textTrends/');
+    const loadedRuntime = createAppRuntime(fakeQueryClient().client, { history: loadedHistory });
+    loadedRuntime.attachSession(new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+    })));
+    expect(loadedRuntime.useApp.getState()).toMatchObject({
+      place: 'trends',
+      routeStatus: 'resolved',
+    });
+    expect(loadedHistory.url).toBe('/textTrends/?p=trends');
+    expect(loadedHistory.pushes).toBe(0);
+    loadedRuntime.dispose();
+  });
+
+  it('never lets corpus defaults override an explicit place', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=vocabulary');
+    const runtime = createAppRuntime(fakeQueryClient().client, { history });
+    runtime.attachSession(new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: [] } },
+    })));
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'vocabulary',
+      routeStatus: 'resolved',
+    });
+    expect(history.url).toBe('/textTrends/?p=vocabulary');
+    runtime.dispose();
+  });
+
+  it('keeps non-place layers from choosing the provisional place during bootstrap', () => {
+    const history = new FakeHistoryPort('/textTrends/?foreign=kept');
+    const runtime = createAppRuntime(fakeQueryClient().client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    runtime.useApp.getState().pushLayer('row-detail', { surface: 'term-manager' }, 'terms');
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'pending',
+    });
+    expect(history.url).toBe('/textTrends/?foreign=kept');
+
+    runtime.attachSession(new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+    })));
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'trends',
+      routeStatus: 'resolved',
+    });
+    expect(history.url).toBe('/textTrends/?foreign=kept&p=trends');
+    runtime.dispose();
+  });
+
+  it('lets an explicit tab click win while the corpus-aware default is pending', () => {
+    const history = new FakeHistoryPort('/textTrends/');
+    const runtime = createAppRuntime(fakeQueryClient().client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    runtime.useApp.getState().setPlace('inputs');
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'resolved',
+    });
+    expect(history.url).toBe('/textTrends/?p=inputs');
+    runtime.attachSession(new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['a'] } },
+    })));
+    expect(runtime.useApp.getState().place).toBe('inputs');
+    runtime.dispose();
+  });
+
+  it('resolves a failed p-less bootstrap to a usable Inputs route', () => {
+    const history = new FakeHistoryPort('/textTrends/?foreign=kept');
+    const runtime = createAppRuntime(fakeQueryClient().client, { history });
+    runtime.failBootstrap(new Error('database unavailable'));
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'resolved',
+      bootstrap: { phase: 'error', message: 'database unavailable' },
+    });
+    expect(history.url).toBe('/textTrends/?foreign=kept&p=inputs');
+    runtime.dispose();
+  });
+
+  it('normalizes a p-less popstate with the same corpus-aware default', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=compare');
+    const runtime = createAppRuntime(fakeQueryClient().client, { history });
+    history.restore({ tt: { v: 1, layers: [] } }, '/textTrends/?foreign=kept');
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'resolved',
+    });
+    expect(history.url).toBe('/textTrends/?foreign=kept&p=inputs');
+    runtime.dispose();
+  });
+
+  it('canonicalizes a legacy Catalog link to Inputs immediately', () => {
+    const history = new FakeHistoryPort('/textTrends/?foreign=kept&p=catalog');
+    const runtime = createAppRuntime(fakeQueryClient().client, { history });
+    expect(runtime.useApp.getState()).toMatchObject({
+      place: 'inputs',
+      routeStatus: 'resolved',
+    });
+    expect(history.url).toBe('/textTrends/?foreign=kept&p=inputs');
+    runtime.dispose();
+  });
+
   it('clears transient notebook refusals on direct and history place changes', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');
@@ -466,9 +593,9 @@ describe('workbench route and history authority', () => {
     const store = runtime.useApp;
 
     store.setState({ notebookError: 'first refusal' });
-    store.getState().setPlace('catalog');
+    store.getState().setPlace('inputs');
     expect(store.getState()).toMatchObject({
-      place: 'catalog',
+      place: 'inputs',
       notebookError: null,
     });
 
@@ -571,7 +698,7 @@ describe('workbench route and history authority', () => {
       expect(store.getState().workspacePersistence.phase).toBe('idle');
     };
 
-    store.getState().setPlace('catalog');
+    store.getState().setPlace('inputs');
     assertFenced();
     store.getState().pushLayer(
       'row-detail',
@@ -587,7 +714,7 @@ describe('workbench route and history authority', () => {
     assertFenced();
 
     expect(history.pushes).toBe(2);
-    expect(history.url).toBe('/textTrends/?foreign=%2f&p=catalog');
+    expect(history.url).toBe('/textTrends/?foreign=%2f&p=inputs');
     expect(JSON.stringify(history.state)).not.toMatch(
       /Holmes|Moriarty|private|token|vocabulary-row|local-scroll/,
     );
@@ -595,7 +722,7 @@ describe('workbench route and history authority', () => {
     store.getState().popLayer();
     expect(store.getState().layers.at(-1)?.kind).toBe('place');
     expect(store.getState()).toMatchObject({
-      place: 'catalog',
+      place: 'inputs',
       layers: [{ kind: 'place' }],
     });
     assertFenced();
@@ -618,7 +745,7 @@ describe('workbench route and history authority', () => {
       newLayerId: layerIds(),
     });
     const store = runtime.useApp;
-    store.getState().setPlace('catalog');
+    store.getState().setPlace('inputs');
     const live = store.getState().layers;
     history.restore({
       tt: {
@@ -631,10 +758,10 @@ describe('workbench route and history authority', () => {
     }, '/textTrends/?p=catalog');
 
     expect(store.getState()).toMatchObject({
-      place: 'catalog',
+      place: 'inputs',
       layers: live,
     });
-    expect(history.url).toBe('/textTrends/?p=catalog');
+    expect(history.url).toBe('/textTrends/?p=inputs');
     expect(history.state).toEqual({
       tt: {
         v: 1,
@@ -656,7 +783,7 @@ describe('workbench route and history authority', () => {
       readonly tt: { readonly v: 1; readonly layers: readonly unknown[] };
     };
     for (let index = 0; index < 200; index += 1) {
-      store.getState().setPlace(index % 2 === 0 ? 'catalog' : 'trends');
+      store.getState().setPlace(index % 2 === 0 ? 'inputs' : 'trends');
     }
 
     history.restore(oldest, '/textTrends/?p=trends');
@@ -3138,9 +3265,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       layers: [{ kind: 'reader' }],
     });
 
-    store.getState().setPlace('catalog');
+    store.getState().setPlace('inputs');
     expect(store.getState()).toMatchObject({
-      place: 'catalog',
+      place: 'inputs',
       readerPlace: null,
       layers: [{ kind: 'place' }],
     });

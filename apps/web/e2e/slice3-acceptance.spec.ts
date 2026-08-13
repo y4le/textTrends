@@ -55,7 +55,7 @@ async function awaitOps(
 test('slice 3: corpus → focus → vocabulary → concordance → linked range → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
@@ -105,7 +105,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scrubber.press('Enter');
   await awaitOps(page, mark, ['inventory', 'freq-list']);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(page.getByText(/across the active range/)).toBeVisible();
   await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText(baselineTokens);
 
@@ -113,7 +113,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'clear selection' }).click();
   await awaitOps(page, mark, ['inventory', 'freq-list']);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).toHaveText(baselineTokens);
   await expect(page.getByText(/across the active range/)).toHaveCount(0);
 });

@@ -20,22 +20,14 @@ export const DB_NAME = ARTIFACT_DB_NAME;
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
 
 /**
- * Change place through the rendered workbench organs, preserving the running
- * worker/session. Catalog lives in Scope; the analyses live in Lens.
+ * Change place through the rendered workbench tabs, preserving the running
+ * worker/session.
  */
 export async function gotoPlace(page: Page, place: Place): Promise<void> {
-  if (place === 'catalog') {
-    await page
-      .getByRole('region', { name: 'Scope' })
-      .getByRole('button')
-      .first()
-      .click();
-  } else {
-    await page
-      .getByRole('navigation', { name: 'Analysis lenses' })
-      .getByRole('link', { name: PLACE_HEADING[place], exact: true })
-      .click();
-  }
+  await page
+    .getByRole('navigation', { name: 'Workbench sections' })
+    .getByRole('link', { name: PLACE_HEADING[place], exact: true })
+    .click();
   await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
 }
 

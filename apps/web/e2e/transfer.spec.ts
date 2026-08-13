@@ -64,7 +64,7 @@ test('trend results transfer their buffers; the resident index survives', async 
   // token denominator, which is itself multi-digit and must not satisfy
   // this assertion — review round 3): exact known value for the bundled
   // corpus under the default recipe, computed via the same fold semantics.
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   const corpusRow = page.getByRole('row', { name: /^corpus/ });
   await expect(corpusRow).toBeVisible();
   await expect(corpusRow.getByRole('cell').nth(1).locator('.selectable-stat')).toHaveText(/^551 ·/);

@@ -16,7 +16,7 @@ test('a live color-scheme change repaints canvas evidence without reloading', as
   await page.emulateMedia({ colorScheme: 'dark' });
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'theme.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8'),
   });
@@ -60,7 +60,7 @@ test('a live color-scheme change repaints canvas evidence without reloading', as
 test('the barcode summarizes exact occurrences, steps into the concordance, and never queries on resize', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles({
     name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8'),
   });
@@ -159,7 +159,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
 test('embedded barcode hover snaps exact evidence in series and by-book views without activating it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
-  await gotoPlace(page, 'catalog');
+  await gotoPlace(page, 'inputs');
   await page.getByLabel('Create project from files').setInputFiles([
     { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('wolf alpha beta gamma delta', 'utf-8') },
     { name: 'b.txt', mimeType: 'text/plain', buffer: Buffer.from('alpha beta gamma wolf delta', 'utf-8') },
