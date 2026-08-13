@@ -16,7 +16,6 @@ import type {
   ConcordancePositionBracketV1,
   DispersionResultV1,
   ExtractionRecipeProvisional,
-  KwicRequest,
   KwicRow,
   NumericTrend,
   SourceFormat,
@@ -88,9 +87,6 @@ export interface ConcordanceWindowResultV1 {
 
 export type QueryOpV4 =
   | { readonly op: 'trend'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: TrendRequest }
-  // kwic/2: a merged multi-term concordance (1..MAX_KWIC_TRACKS tracks) that can
-  // order by proximity to an axis position (`request.center`).
-  | { readonly op: 'kwic'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: KwicRequest }
   // concordance-window/1 is the full-corpus continuous reading surface. It has
   // no selection field; the engine constructs canonical full-ready-corpus
   // coordinates, so a linked analytical brush cannot narrow navigation.
@@ -131,7 +127,7 @@ export interface ReaderPageRequestV1 {
 }
 
 /** A reader mark on the wire, bound to the request's series/group identity
- *  by the core materializer (the KWIC precedent). */
+ *  by the core materializer (the bounded-Concordance precedent). */
 export interface ReaderPageMarkV1 {
   readonly seriesId: string;
   readonly groupId: string;
@@ -211,7 +207,6 @@ export type {
 
 export type QueryResultDataV4 =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
-  | { readonly op: 'kwic'; readonly total: number; readonly rows: readonly KwicRow[] }
   | { readonly op: 'concordance-window'; readonly window: ConcordanceWindowResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }

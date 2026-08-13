@@ -449,24 +449,3 @@ export function orderTracks(
   };
   return [...tracks].sort((a, b) => pos(a.seriesId) - pos(b.seriesId));
 }
-
-/** The concordance caption for a served center — PURE so the announced text
- *  is unit-pinned. A bucket center names its honest hit count and, when the
- *  first served row is off the midpoint, the distance (the occurrence for the
- *  indicated position is never silently swapped). */
-export function kwicCaptionText(
-  center: { readonly doc: string; readonly token: number; readonly origin?: 'bucket'; readonly bucketCount?: number } | null,
-  firstRowPos: number | null,
-  titleOf: (doc: string) => string,
-): string {
-  if (center === null) return 'reading order';
-  const at = `${titleOf(center.doc)} · token ${(center.token + 1).toLocaleString()}`;
-  if (center.origin !== 'bucket') return `nearest to ${at}`;
-  const hits = center.bucketCount !== undefined
-    ? ` (${center.bucketCount.toLocaleString()} hit${center.bucketCount === 1 ? '' : 's'} in this bucket)`
-    : '';
-  const distance = firstRowPos !== null && Math.abs(firstRowPos - center.token) > 0
-    ? ` · first hit ${Math.abs(firstRowPos - center.token).toLocaleString()} tokens away`
-    : '';
-  return `nearest occurrence to this bucket${hits} · ${at}${distance}`;
-}

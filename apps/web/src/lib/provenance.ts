@@ -181,17 +181,17 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
 
 function concordanceMethod(input: ProvenanceInput): ProvenanceMethod {
   return {
-    method: 'kwic/2',
+    method: 'concordance-window/1',
     parameters: [
       parameter('enabled tracks', String(input.concordance.enabledTracks)),
       parameter('resident occurrences', input.concordance.total === null
         ? 'not available'
         : String(input.concordance.total)),
-      parameter('ordering', 'reading order, or proximity when centred'),
+      parameter('ordering', 'continuous full-corpus reading order'),
       parameter('token classes', 'the active notebook groups’ authored match recipes'),
     ],
     limitations: [
-      'The resident table is bounded; its total reports the complete match count.',
+      'The resident window is bounded; its total reports the complete match count.',
       'Context is a reading aid and does not replace the source text.',
     ],
   };

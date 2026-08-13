@@ -153,7 +153,8 @@ describe('provenanceFor', () => {
 
   it('describes corpus, concordance, vocabulary, and compare methods', () => {
     expect(formatProvenanceText(provenanceFor(input(), 'catalog'))).toContain('MATTR window: 500');
-    expect(formatProvenanceText(provenanceFor(input(), 'concordance'))).toContain('Method: kwic/2');
+    expect(formatProvenanceText(provenanceFor(input(), 'concordance')))
+      .toContain('Method: concordance-window/1');
     const vocabulary = formatProvenanceText(provenanceFor(input(), 'vocabulary'));
     expect(vocabulary).toContain('Method: inventory/1');
     expect(vocabulary).toContain('Method: freq-list/1');

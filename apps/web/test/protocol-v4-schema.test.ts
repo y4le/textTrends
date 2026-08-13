@@ -142,7 +142,6 @@ describe('parseToWorkerV4 envelope', () => {
 });
 
 describe('narrowQueryV4', () => {
-  const kwicReq = { contextTokens: 6, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } };
   const kwicTracks = [{ seriesId: 's1', group: wolfGroup }];
   const concordanceReq = {
     method: 'concordance-window/1',
@@ -156,15 +155,12 @@ describe('narrowQueryV4', () => {
   it('accepts trend and concordance with complete request fields', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'fixed-tokens', count: 250 } } })).toBe(true);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: kwicReq })).toBe(true);
     expect(narrowQueryV4({ op: 'concordance-window', tracks: kwicTracks, request: concordanceReq })).toBe(true);
     expect(narrowQueryV4({
       op: 'concordance-window',
       tracks: kwicTracks,
       request: { ...concordanceReq, anchor: { kind: 'rank', rank: 20 }, includeAxis: false },
     })).toBe(true);
-    // kwic accepts an optional axis center and multiple tracks.
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's1', group: wolfGroup }, { seriesId: 's2', group: wolfGroup }], request: { ...kwicReq, center: { doc: 'a', token: 3 } } })).toBe(true);
     // A valid selection with well-formed ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: 0, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(true);
   });
@@ -186,22 +182,23 @@ describe('narrowQueryV4', () => {
     expect(query({ ...concordanceReq, anchor: { kind: 'sideways', rank: 1 } })).toBe(false);
     expect(query({ ...concordanceReq, extra: true })).toBe(false);
     expect(narrowQueryV4({ op: 'concordance-window', tracks: [], request: concordanceReq })).toBe(false);
+    const sixTracks = Array.from({ length: 6 }, (_, index) => ({
+      seriesId: `s${index}`,
+      group: wolfGroup,
+    }));
+    expect(narrowQueryV4({ op: 'concordance-window', tracks: sixTracks, request: concordanceReq })).toBe(false);
+    expect(narrowQueryV4({
+      op: 'concordance-window',
+      tracks: [{ seriesId: 'duplicate', group: wolfGroup }, { seriesId: 'duplicate', group: wolfGroup }],
+      request: concordanceReq,
+    })).toBe(false);
   });
 
   it('rejects skeletal requests, malformed ranges, and concordance caps', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: null, request: { coordinate: 'x', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
-    // A skeletal concordance request is not valid.
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: {} })).toBe(false);
+    expect(narrowQueryV4({ op: 'kwic' })).toBe(false); // retired proximity operation
     // Malformed selection ranges.
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: 7 }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
-    const sixTracks = Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup }));
-    // kwic: 0 tracks, over the shared cap, duplicate seriesId, and a malformed center.
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [], request: kwicReq })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: sixTracks, request: kwicReq })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: wolfGroup }], request: kwicReq })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: 'x' } } })).toBe(false);
-    // The forbidden dual shape: a valid `tracks` alongside a contradictory legacy `group`.
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, group: wolfGroup, request: kwicReq })).toBe(false);
     expect(narrowQueryV4({ op: 'bogus' })).toBe(false);
     // Exact match-mode enums (a bogus value must not silently mean sensitive).
     const badMatch = { ...wolfGroup, members: [{ id: 'm', kind: 'token', surface: 'w', match: { case: 'x', diacritics: 'folded' } }] };
@@ -246,7 +243,7 @@ describe('narrowQueryV4', () => {
     }))).toBe(true);
   });
 
-  it('rejects sparse selection, range, track, and sort arrays', () => {
+  it('rejects sparse selection, range, and track arrays', () => {
     const docs = ['a'];
     docs.length = 2;
     expect(narrowQueryV4({
@@ -268,19 +265,9 @@ describe('narrowQueryV4', () => {
     const tracks = [...kwicTracks];
     tracks.length = 2;
     expect(narrowQueryV4({
-      op: 'kwic',
-      selection: { docs: ['a'] },
+      op: 'concordance-window',
       tracks,
-      request: kwicReq,
-    })).toBe(false);
-
-    const sort = [{ at: 'pos', dir: 1 }] as { at: string; dir: number }[];
-    sort.length = 2;
-    expect(narrowQueryV4({
-      op: 'kwic',
-      selection: { docs: ['a'] },
-      tracks: kwicTracks,
-      request: { ...kwicReq, sort },
+      request: concordanceReq,
     })).toBe(false);
   });
 
@@ -292,7 +279,7 @@ describe('narrowQueryV4', () => {
     expect(disp({ exactMax: DISPERSION_EXACT_MAX + 1 })).toBe(false);
     expect(disp({ bucketBudget: 1024 })).toBe(false);
     expect(disp({ method: 'dispersion/2' })).toBe(false);
-    // Track discipline is the shared kwic/passage authority.
+    // Track discipline is shared across Concordance, dispersion, and Reader.
     expect(disp({}, [])).toBe(false);
     expect(disp({}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
     expect(disp({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
@@ -489,11 +476,9 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('rejects unsupported closed-literal coordinate and sort-key/dir values', () => {
+  it('rejects unsupported closed-literal trend coordinates', () => {
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'bogus', bins: { mode: 'per-doc', count: 4 } } })).toBe(false);
     expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'bogus', count: 4 } } })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'bogus', dir: 1 }] } })).toBe(false);
-    expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, sort: [{ at: 'pos', dir: 0 }] } })).toBe(false);
   });
 
   it('rejects non-finite/negative/fractional/unsafe numeric quantities across every query op', () => {
@@ -501,9 +486,21 @@ describe('narrowQueryV4', () => {
       const why = String(n);
       expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: n } } }), why).toBe(false);
       expect(narrowQueryV4({ op: 'trend', selection: { docs: ['a'], ranges: [{ doc: 'a', tokens: { start: n, end: 5 } }] }, group: wolfGroup, request: { coordinate: 'declared-sequence', bins: { mode: 'per-doc', count: 4 } } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, contextTokens: n } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, page: { offset: n, limit: 10 } } }), why).toBe(false);
-      expect(narrowQueryV4({ op: 'kwic', selection: { docs: ['a'] }, tracks: kwicTracks, request: { ...kwicReq, center: { doc: 'a', token: n } } }), why).toBe(false);
+      expect(narrowQueryV4({
+        op: 'concordance-window',
+        tracks: kwicTracks,
+        request: { ...concordanceReq, before: n },
+      }), why).toBe(false);
+      expect(narrowQueryV4({
+        op: 'concordance-window',
+        tracks: kwicTracks,
+        request: { ...concordanceReq, contextTokens: n },
+      }), why).toBe(false);
+      expect(narrowQueryV4({
+        op: 'concordance-window',
+        tracks: kwicTracks,
+        request: { ...concordanceReq, anchor: { kind: 'rank', rank: n } },
+      }), why).toBe(false);
       expect(narrowQueryV4({
         op: 'inventory',
         selection: { docs: ['a'] },

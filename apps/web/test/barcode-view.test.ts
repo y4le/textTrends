@@ -13,7 +13,6 @@ import {
   bucketActivationAt,
   buildBarcodeSnapIndexes,
   captureBarcodePointerTarget,
-  kwicCaptionText,
   orderTracks,
   resolveCapturedBarcodeTarget,
   snapBarcodeIndex,
@@ -245,16 +244,6 @@ describe('bucket-count provenance and announced text (review-D round 2)', () => 
     const [track] = barcodeTracks(densityResult(), ['a']);
     expect(bucketActivationAt(track!, 'a', 60)).toEqual({ kind: 'bucket', doc: 'a', token: 62, bucketCount: 30 });
     expect(stepTarget(track!, null, 1)).toEqual({ kind: 'bucket', doc: 'a', token: 12, bucketCount: 10 });
-  });
-
-  it('kwicCaptionText announces the bucket count and the first-hit distance', () => {
-    const titleOf = (d: string) => `book-${d}`;
-    expect(kwicCaptionText(null, null, titleOf)).toBe('reading order');
-    expect(kwicCaptionText({ doc: 'a', token: 41 }, 41, titleOf)).toBe('nearest to book-a · token 42');
-    expect(kwicCaptionText({ doc: 'a', token: 61, origin: 'bucket', bucketCount: 30 }, 61, titleOf))
-      .toBe('nearest occurrence to this bucket (30 hits in this bucket) · book-a · token 62');
-    expect(kwicCaptionText({ doc: 'a', token: 61, origin: 'bucket', bucketCount: 1 }, 75, titleOf))
-      .toBe('nearest occurrence to this bucket (1 hit in this bucket) · book-a · token 62 · first hit 14 tokens away');
   });
 
 });

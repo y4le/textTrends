@@ -1301,16 +1301,11 @@ canvas {
   gap: var(--space-1);
 }
 
-.kwic-controls select,
-.kwic-controls button,
-.kwic-table button {
+.kwic-controls select {
   min-block-size: 40px;
 }
 
-.kwic-controls select,
-.kwic-controls button,
-.kwic-table button,
-.kwic-reading-row button {
+.kwic-controls select {
   border: 1px solid var(--rule-strong);
   background: var(--bg);
   color: var(--fg);
@@ -1321,29 +1316,6 @@ canvas {
 
 .kwic-controls select {
   padding-inline: var(--space-1);
-}
-
-.kwic-controls fieldset {
-  display: inline-flex;
-  min-inline-size: 0;
-  margin: 0;
-  padding: 0;
-  border: 0;
-}
-
-.kwic-controls legend {
-  float: inline-start;
-  margin-inline-end: var(--space-1);
-  line-height: 40px;
-}
-
-.kwic-controls button {
-  padding-inline: var(--space-2);
-}
-
-.kwic-controls button[aria-pressed='true'] {
-  border-block-end-color: var(--accent-text);
-  color: var(--fg);
 }
 
 .kwic-result-bar {
@@ -1364,76 +1336,6 @@ canvas {
 .kwic-result-bar strong {
   color: var(--fg);
   font-weight: 600;
-}
-
-.kwic-aligned-port {
-  inline-size: 100%;
-  border-block-end: 1px solid var(--rule);
-  scroll-padding-inline: 1rem;
-}
-
-.kwic-table {
-  inline-size: max-content;
-  table-layout: fixed;
-  border-collapse: collapse;
-  white-space: pre;
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-}
-
-.kwic-caption {
-  margin-block: var(--space-1);
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-xs);
-  text-align: start;
-}
-
-.kwic-col-book {
-  inline-size: 14ch;
-}
-
-.kwic-col-book-multiple {
-  inline-size: 30ch;
-}
-
-.kwic-col-left,
-.kwic-col-right {
-  inline-size: 40ch;
-}
-
-.kwic-col-node {
-  inline-size: 18ch;
-}
-
-.kwic-table th,
-.kwic-table td {
-  position: relative;
-  overflow: hidden;
-  padding-inline: 0.75ch;
-  border-block-start: 1px solid var(--rule);
-  text-overflow: ellipsis;
-}
-
-.kwic-table thead th {
-  block-size: 32px;
-  border-block-start: 0;
-  color: var(--fg-muted);
-  font-weight: 400;
-  text-align: start;
-}
-
-.kwic-table thead .kwic-node-heading {
-  text-align: center;
-}
-
-.kwic-table thead .kwic-left-heading {
-  text-align: right;
-}
-
-.kwic-table tbody th {
-  font-weight: 400;
-  text-align: start;
 }
 
 .kwic-left-context {
@@ -1472,48 +1374,13 @@ canvas {
   text-align: center;
 }
 
-.kwic-node button,
-.kwic-reading-context button {
+.kwic-node button {
   min-block-size: 0;
   padding-inline: var(--space-1);
   border: 0;
   background: none;
   font: inherit;
   font-weight: 600;
-}
-
-.kwic-reading > [role='note'] {
-  margin-block: var(--space-2);
-  color: var(--fg-muted);
-  font-size: var(--text-sm);
-}
-
-.kwic-reading-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-1) var(--space-2);
-  padding-block: var(--space-2);
-  border-block-start: 1px solid var(--rule);
-}
-
-.kwic-reading-source,
-.kwic-reading-context {
-  margin: 0;
-}
-
-.kwic-reading-source {
-  grid-column: 1;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-}
-
-.kwic-reading-context {
-  grid-column: 1;
-  max-inline-size: 72ch;
-  overflow-wrap: anywhere;
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
 }
 
 .kwic-skeleton {
@@ -2172,21 +2039,14 @@ canvas {
   }
 
   .kwic-term-chips button,
-  .kwic-controls select,
-  .kwic-controls button {
+  .kwic-controls select {
     min-block-size: 44px;
     font-size: var(--text-sm);
   }
 
   .kwic-term-chips > span,
-  .kwic-controls label,
-  .kwic-controls legend,
-  .kwic-table {
+  .kwic-controls label {
     font-size: var(--text-sm);
-  }
-
-  .kwic-controls legend {
-    line-height: 44px;
   }
 
   .form-layer {

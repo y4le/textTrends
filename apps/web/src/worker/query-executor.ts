@@ -34,9 +34,7 @@ import {
   selectionSlotMap,
   type DispersionResultV1,
   type DispersionTrackV1,
-  kwicPage,
   MAX_KWIC_TRACKS,
-  materializeKwicPage,
   modeKey,
   occurrences,
   occurrenceStep,
@@ -50,8 +48,6 @@ import {
   type ConcordanceWindowRequestV1,
   type ConcordanceWindowV1,
   type DocumentIndexV1,
-  type KwicRequest,
-  type KwicRow,
   type MatchMode,
   type NumericOccurrences,
   type OccurrenceStepRequestV1,
@@ -181,7 +177,7 @@ export class QueryExecutor {
    *  shard resets that document's map (`publish`); `resolverFor` additionally
    *  verifies the cached resolver still points at the resident shard. */
   private readonly resolvers = new Map<string, Map<string, Resolver>>();
-  /** Ephemeral occurrence cache SHARED by the trend and kwic branches
+  /** Ephemeral occurrence cache SHARED by trend and Concordance
    *  (Phase E, moved verbatim): keyed by [SnapshotId, SelectionHash,
    *  termGroupIdentity] — the canonical MATCHING identity, never the
    *  caller-owned group.id. Insertion order is LRU recency; every miss
@@ -527,7 +523,7 @@ export class QueryExecutor {
   }
 
   /** dispersion/1 (slice-2 ruling §C): adaptive exact/density per track over
-   *  the SAME cached occurrence primitive as trend/kwic — this method never
+   *  the SAME cached occurrence primitive as trend/Concordance — this method never
    *  resolves members or interprets overlap semantics itself. Geometry is
    *  planned once, lazily, only when some track crosses the exact threshold.
    *  All output arrays are FRESH (packers copy) — transferring them can
@@ -559,7 +555,7 @@ export class QueryExecutor {
     const out: DispersionTrackV1[] = [];
     for (const track of tracks) {
       const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
-      await checkpoint(); // per-track gate, as in kwic
+      await checkpoint(); // per-track gate, as in Concordance
       const total = occ.pos.length;
       if (total <= DISPERSION_EXACT_MAX) {
         out.push({ seriesId: track.seriesId, groupId: track.group.id, total, data: packExactTrack(occ, slotMap, selection.spec.docs.length) });
@@ -695,47 +691,4 @@ export class QueryExecutor {
     return includeAxis ? { window, axis: copyConcordanceAxis(axis) } : { window };
   }
 
-  /** kwic/2: UNION every track's required match modes per doc (never rebuild
-   *  a duplicate resolver), then compute occurrences PER track and merge in
-   *  the numeric kernel. Checkpoint after resolver prep, after EACH track
-   *  (a cancel raised while a track resolved must stop before the next track
-   *  computes — see the phase-tied cancel tests), after numeric planning,
-   *  and after materialization is the CALLER's final gate. */
-  async kwic(
-    selection: ResolvedSelection,
-    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
-    request: KwicRequest,
-    checkpoint: QueryCheckpoint,
-  ): Promise<{ total: number; rows: readonly KwicRow[] }> {
-    const { snapshot, bound, boundTexts } = this.published();
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
-
-    // Re-centering reissues with the same snapshot/selection/tracks and only
-    // a new `center`; each track is served from the shared occurrence cache
-    // (also warmed by trend queries over the same tuple), so a re-center pays
-    // only for the top-K ordering + text slicing below.
-    const trackOccs: NumericOccurrences[] = [];
-    for (const track of tracks) {
-      trackOccs.push(this.occurrencesFor(shards, resolvers, selection, track.group));
-      await checkpoint();
-    }
-    const page = kwicPage(snapshot, bound, selection, trackOccs, request);
-    await checkpoint();
-    const trackTable = tracks.map((t) => ({ seriesId: t.seriesId, groupId: t.group.id }));
-    const rows = materializeKwicPage(snapshot, page, boundTexts, trackTable);
-    await checkpoint(); // final kernel checkpoint (race parity, as in trend)
-    return { total: page.total, rows };
-  }
 }

@@ -416,6 +416,18 @@ review before commit.
    Removes remaining proximity-only core/app paths, records the final product
    decision, and lands final large-result performance and accessibility gates.
 
+## Final product decision
+
+Accepted 2026-08-13: Concordance has one continuous, full-corpus, corpus-order
+surface. The former proximity-sorted `kwic` operation and aligned/wrapped
+presentation split are removed rather than retained as hidden compatibility
+paths. Exact barcode activation selects its occurrence rank; density activation
+publishes only the shared corpus cursor. Neither changes the ordering model.
+
+The shipped contract is therefore `concordance-window/1` plus its sparse axis,
+bounded resident rows, fixed-pitch virtual grid, and bidirectional shared-cursor
+mapping. Linked analytical selection remains an overlay only.
+
 Each implementation commit must pass its targeted unit tests, repository
 typecheck, and the relevant browser slice before staging. Review findings are
 fixed in the same candidate and the exact staged tree is reviewed again when a

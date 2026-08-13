@@ -539,13 +539,8 @@ export interface RemovedNotebookGroup {
   readonly solo: boolean;
 }
 
-/** Concordance presentation intent. Reading mode and rendered context are
- * local presentation; corpus order is invariant. */
-export type ConcordanceReadingMode = 'aligned' | 'stacked';
-
 export interface ConcordanceView {
   readonly contextChars: 12 | 24 | 38 | 60;
-  readonly reading: ConcordanceReadingMode;
 }
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -798,7 +793,6 @@ export interface AppState {
     window?: { readonly before: number; readonly after: number },
   ): void;
   setConcordanceContext(contextChars: ConcordanceView['contextChars']): void;
-  setConcordanceReading(reading: ConcordanceReadingMode): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
   /** Reveal an activated barcode occurrence immediately. Carries the series: a deliberate occurrence
@@ -2406,7 +2400,6 @@ export function createAppRuntime(
       kwicEnabledSeries: new Set<string>(),
       concordanceView: {
         contextChars: 38,
-        reading: 'aligned',
       },
       dispersion: null,
       linkedSelection: null,
@@ -2757,13 +2750,6 @@ export function createAppRuntime(
         const view = get().concordanceView;
         if (view.contextChars === contextChars) return;
         set({ concordanceView: { ...view, contextChars } });
-      },
-
-      setConcordanceReading(reading) {
-        if (!(['aligned', 'stacked'] as const).includes(reading)) return;
-        const view = get().concordanceView;
-        if (view.reading === reading) return;
-        set({ concordanceView: { ...view, reading } });
       },
 
       setTrendView(view) {

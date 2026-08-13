@@ -108,9 +108,6 @@ The wire protocol has a closed query union:
 - `trend` — equal-token-bin counts or rates for one term group;
 - `dispersion` — bounded exact positions or honest density buckets for shown
   groups;
-- `kwic` — legacy merged, bounded concordance rows with optional proximity
-  ordering; retained as a protocol operation but no longer used by the main
-  Concordance surface;
 - `concordance-window` — exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
 - `inventory` — corpus and per-document measurements, sentence rhythm, and

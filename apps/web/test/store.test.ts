@@ -1500,17 +1500,15 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().removedGroups).toHaveLength(0);
   });
 
-  it('keeps Concordance reading and context local while corpus ordering stays invariant', () => {
+  it('keeps Concordance context local while corpus ordering stays invariant', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes');
     const before = workspaceSemanticKey(f.store.getState());
     const issued = f.issued.length;
 
-    f.store.getState().setConcordanceReading('stacked');
     f.store.getState().setConcordanceContext(24);
     expect(f.store.getState().concordanceView).toMatchObject({
-      reading: 'stacked',
       contextChars: 24,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);

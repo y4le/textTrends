@@ -17,7 +17,6 @@ const MATCH = new Set(['sensitive', 'folded']);
 // Closed literal unions the kernels accept — a wire caller must not smuggle
 // an unsupported coordinate/sort key through as a "trusted" request.
 const COORDINATES = new Set(['document-relative', 'declared-sequence']);
-const SORT_KEYS = new Set(['L3', 'L2', 'L1', 'R1', 'R2', 'R3', 'doc', 'pos']);
 const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
 const FREQUENCY_SORT_KEYS = new Set(['count', 'docFreq', 'dp', 'dpNorm', 'key']);
 const KEYNESS_SORT_KEYS = new Set(['logRatio', 'g2', 'countA', 'countB']);
@@ -149,20 +148,6 @@ function narrowTracks(tracks: unknown, min: number): boolean {
   return true;
 }
 
-function narrowKwicRequest(r: unknown): boolean {
-  if (!isRecord(r) || !isCount(r.contextTokens) || !isRecord(r.page)) return false;
-  // sort.at is a CLOSED key set; dir is exactly 1 or -1.
-  if (!denseArray(
-    r.sort,
-    (x) => isRecord(x) && SORT_KEYS.has(x.at as string) && (x.dir === 1 || x.dir === -1),
-  )) return false;
-  // Optional axis center — a well-formed {doc, token} or absent.
-  if (r.center !== undefined) {
-    if (!isRecord(r.center) || !isStr((r.center as Record<string, unknown>).doc) || !isCount((r.center as Record<string, unknown>).token)) return false;
-  }
-  return isCount(r.page.offset) && isCount(r.page.limit);
-}
-
 /** Every required request field is checked before dispatch. */
 export function narrowQueryV4(q: unknown): boolean {
   if (!isRecord(q) || !isStr(q.op)) return false;
@@ -171,11 +156,6 @@ export function narrowQueryV4(q: unknown): boolean {
       return narrowSelection(q.selection) && narrowGroup(q.group) &&
         exactRecord(q.request, ['coordinate', 'bins']) &&
         COORDINATES.has(q.request.coordinate as string) && narrowTrendBins(q.request.bins);
-    case 'kwic':
-      // kwic/2 is a BREAKING replacement: `group` was removed. Reject a payload
-      // that carries the legacy field so a partially-migrated caller cannot hide
-      // contradictory semantics under an ignored `group` (ruling §1).
-      return q.group === undefined && narrowSelection(q.selection) && narrowTracks(q.tracks, 1) && narrowKwicRequest(q.request);
     case 'concordance-window': {
       const r = q.request as Record<string, unknown>;
       if (

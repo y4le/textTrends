@@ -16,7 +16,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace, clearNotebook, openQuickAdd } from './helpers.ts';
+import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, trace, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 import type { ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 test.describe.configure({ mode: 'serial' });
@@ -37,7 +37,11 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   await awaitCacheSettled(page);
   await page.reload();
   await awaitAllReady(page);
-  const warm = await trace(page);
+  let warm = await trace(page);
+  await expect.poll(async () => {
+    warm = await trace(page);
+    return events(warm, { direction: 'from-worker', t: 'generation-ready' }).length;
+  }).toBeGreaterThan(0);
   const warmBeginAt = events(warm, { direction: 'to-worker', t: 'begin-generation' })[0]!.at;
   const warmBarrierAt = events(warm, { direction: 'from-worker', t: 'generation-ready' })[0]!.at;
   const warmReopenMs = warmBarrierAt - warmBeginAt;
@@ -147,6 +151,29 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     queryLatencies.push(result!.at - post!.at);
   }
 
+  // Record continuous-Concordance publication and residency shape. These are
+  // descriptive clocks until enough baselines exist; bounded DOM remains a
+  // semantic gate here and in the large-result functional spec.
+  await gotoPlace(page, 'concordance');
+  const concordance = page.getByRole('grid', { name: 'Concordance' });
+  await expect(concordance).toBeVisible({ timeout: 30_000 });
+  const concordanceRows = Number(await concordance.getAttribute('aria-rowcount')) - 1;
+  const concordanceMountedRows = await concordance.locator('.kwic-virtual-row').count();
+  const concordanceScrollPublishMs: number[] = [];
+  const corpusPosition = page.getByRole('slider', { name: 'Corpus footer position' });
+  for (const ratio of [0.11, 0.53, 0.89]) {
+    const previous = await corpusPosition.getAttribute('aria-valuenow');
+    const startedAt = await page.evaluate(() => performance.now());
+    await concordance.evaluate((node, targetRatio) => {
+      const port = node as HTMLElement;
+      port.scrollTop = (port.scrollHeight - port.clientHeight) * targetRatio;
+    }, ratio);
+    await expect(corpusPosition).not.toHaveAttribute('aria-valuenow', previous ?? '');
+    concordanceScrollPublishMs.push(
+      await page.evaluate((start) => performance.now() - start, startedAt),
+    );
+  }
+
   // Cancel-ack p95 over >= 20 real acknowledgements (harness page).
   await page.goto('./e2e-harness.html');
   await page.waitForFunction(() => window.__ttHarness?.ready === true);
@@ -162,6 +189,11 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     warmReopenMs,
     footerPassageSamples,
     queryLatencies,
+    concordance: {
+      logicalRows: concordanceRows,
+      mountedRows: concordanceMountedRows,
+      scrollToCursorMs: concordanceScrollPublishMs,
+    },
     cancelAckMs: acks,
     cancelAckP95Ms: p95,
     cancelCompletedInstead: cancels.completedInstead,
@@ -186,4 +218,7 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   expect(p95).toBeLessThan(250);
   expect(footerPassageSamples.every((sample) => Object.values(sample).every(Number.isFinite)))
     .toBe(true);
+  expect(concordanceRows).toBeGreaterThan(0);
+  expect(concordanceMountedRows).toBeLessThan(120);
+  expect(concordanceScrollPublishMs.every(Number.isFinite)).toBe(true);
 });

@@ -1143,9 +1143,8 @@ export class WorkerEngineV4 {
       return;
     }
 
-    const { total, rows } = await gen.executor.kwic(selection, q.tracks, q.request, checkpoint);
-    this.queryGate(job, gen, snapshotId);
-    this.emit({ v: PROTOCOL_VERSION_V4, t: 'result', job, snapshot: snapshot.id, data: { op: 'kwic', total, rows } });
+    const exhaustive: never = q;
+    throw new Error(`unhandled query operation ${String(exhaustive)}`);
   }
 
   // -------------------------------------------------------------------------

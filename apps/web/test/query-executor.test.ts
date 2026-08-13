@@ -1,5 +1,5 @@
 /**
- * Query SEMANTICS — trend/kwic/passage execution, resolver reuse, and the
+ * Query SEMANTICS — trend/Concordance/passage execution, resolver reuse, and the
  * shared occurrence-cache discipline, moved from engine-v4.test.ts with the
  * QueryExecutor extraction (slice-2 ruling §B). Driven through the same
  * engine harness (the executor is generation-bound and engine-fed), so these
@@ -43,7 +43,6 @@ vi.mock('@texttrends/core', async (importOriginal) => {
   };
 });
 
-
 /** A spec-LITE builder (no expected hashes) for cold-path queries — the doc
  *  is admitted by ingest, not warm claims. */
 import { defaultExtractionRecipes, hashExtractionRecipe } from '@texttrends/core';
@@ -57,7 +56,7 @@ async function freshTxtSpec(doc: string, byteLength: number): Promise<Generation
   };
 }
 
-describe('query semantics (trend/kwic/passage via the generation-bound executor)', () => {
+describe('query semantics through the generation-bound executor', () => {
   async function ready(text = 'the wolf ran far. a wolf slept.') {
     const h = harness();
     const spec = await docSpec('a', text);
@@ -66,20 +65,12 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     return { h, snap: h.last('snapshot-published').snapshot };
   }
 
-  it('answers trend and KWIC against the published snapshot', async () => {
+  it('answers trend against the published snapshot', async () => {
     const { h, snap } = await ready();
     await h.send({ t: 'query', job: 20, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     const trend = h.last('result');
     expect(trend.data.op).toBe('trend');
     if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 0, 1, 0]);
-    await h.send({ t: 'query', job: 21, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
-    const kwic = h.last('result');
-    expect(kwic.data.op).toBe('kwic');
-    if (kwic.data.op === 'kwic') {
-      expect(kwic.data.total).toBe(2);
-      expect(kwic.data.rows[0]!.nodeText).toBe('wolf');
-      expect(kwic.data.rows[0]!.seriesId).toBe('s'); // rows are track-tagged
-    }
   });
 
   it('maps an occurrence construction cap to recoverable CAP_EXCEEDED', async () => {
@@ -140,224 +131,10 @@ describe('query semantics (trend/kwic/passage via the generation-bound executor)
     expect(occSpy).toHaveBeenCalledTimes(2);
   });
 
-  it('kwic/2 merges two tracks and orders by proximity to an axis center', async () => {
-    const { h, snap } = await ready();
-    // The default corpus doc 'a' is 'the wolf runs and the wolf sleeps' (wolf@1, wolf@5).
-    // Two tracks over the same term produce two independently-tagged rows per hit;
-    // a center near the end orders the later hit first.
-    await h.send({ t: 'query', job: 22, snapshot: snap, query: { op: 'kwic', selection: { docs: ['a'] }, tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }], request: { contextTokens: 1, center: { doc: 'a', token: 5 }, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } } });
-    const kwic = h.last('result');
-    expect(kwic.data.op).toBe('kwic');
-    if (kwic.data.op === 'kwic') {
-      expect(kwic.data.total).toBe(4); // 2 hits × 2 tracks
-      // Nearest to token 5 first (pos 5 before pos 1); both tracks tagged.
-      expect(kwic.data.rows.map((r) => [r.pos, r.seriesId])).toEqual([[5, 'A'], [5, 'B'], [1, 'A'], [1, 'B']]);
-    }
-  });
-
-  // The kwic/2 dispatch adds checkpoints the trend cancellation tests never
-  // reach. These tests tie the cancel to the actual PHASE (not a fragile yield
-  // ordinal) so deleting the per-track gate or moving the final gate before
-  // materialization makes them fail.
-  const twoTrackKwic = {
-    op: 'kwic' as const,
-    selection: { docs: ['a'] },
-    tracks: [{ seriesId: 'A', group: wolfGroup }, { seriesId: 'B', group: { ...wolfGroup, id: 'gB' } }],
-    request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-  };
-
-  it('the per-track gate stops BEFORE the next track computes (a cancel raised DURING track A)', async () => {
-    const { h, snap } = await ready();
-    h.clear();
-    // Track A resolves a UNIQUE surface absent from the corpus; track B passes
-    // the wire schema (narrowGroup does not check member-id uniqueness) but
-    // THROWS inside `occurrences`. The cancel is raised from inside track A's own
-    // `resolveToken` fold (String.toLocaleLowerCase on that unique surface — a
-    // call the resolver-prep vocab folding never makes). So the gate that must
-    // catch it is the one AFTER track A: move it before the loop (or delete it)
-    // and track B computes and throws instead of cancelling cleanly.
-    const MARKER = 'zzsentinelalpha';
-    const trackA = { seriesId: 'A', group: { id: 'gA', countOverlaps: false, members: [{ id: 'a', kind: 'token', surface: MARKER, match: { case: 'folded', diacritics: 'sensitive' } }] } };
-    const throwingB = { seriesId: 'B', group: { id: 'gThrow', countOverlaps: false, members: [
-      { id: 'p', kind: 'token', surface: 'x', match: { case: 'folded', diacritics: 'sensitive' } },
-      { id: 'p', kind: 'token', surface: 'y', match: { case: 'folded', diacritics: 'sensitive' } },
-    ] } };
-    const query = { op: 'kwic', selection: { docs: ['a'] }, tracks: [trackA, throwingB], request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } } };
-    const origLower = String.prototype.toLocaleLowerCase;
-    let firedDuringA = false;
-    String.prototype.toLocaleLowerCase = function (this: string, ...args: [(string | string[])?]) {
-      if (!firedDuringA && String(this) === MARKER) { firedDuringA = true; void h.send({ t: 'cancel', job: 52 }); }
-      return origLower.apply(this, args) as string;
-    } as typeof String.prototype.toLocaleLowerCase;
-    try {
-      await h.send({ t: 'query', job: 52, snapshot: snap, query });
-    } finally {
-      String.prototype.toLocaleLowerCase = origLower;
-    }
-    expect(firedDuringA).toBe(true); // track A's surface was resolved (A computed) before the cancel
-    expect(h.all('cancelled').some((m) => m.job === 52)).toBe(true);
-    expect(h.all('result').some((m) => m.job === 52)).toBe(false);
-    expect(h.all('error').some((m) => m.job === 52)).toBe(false); // track B never computed → never threw
-  });
-
-  it('the FINAL gate catches a cancel raised DURING materialization', async () => {
-    const { h, snap } = await ready(); // doc 'a' text contains 'the wolf ran far'
-    h.clear();
-    // Fire the cancel the first time the doc text is sliced — i.e. INSIDE
-    // materializeKwicPage, after numeric planning + its checkpoint. Only a gate
-    // AFTER materialization can catch it; a gate moved before it would already
-    // have passed and the result would emit.
-    const origSlice = String.prototype.slice;
-    let sliced = false;
-    String.prototype.slice = function (this: string, ...args: [number?, number?]) {
-      if (!sliced && this.includes('the wolf ran far')) { sliced = true; void h.send({ t: 'cancel', job: 51 }); }
-      return origSlice.apply(this, args) as string;
-    } as typeof String.prototype.slice;
-    try {
-      await h.send({ t: 'query', job: 51, snapshot: snap, query: twoTrackKwic });
-    } finally {
-      String.prototype.slice = origSlice;
-    }
-    expect(sliced).toBe(true); // materialization was actually reached (not vacuous)
-    expect(h.all('cancelled').some((m) => m.job === 51)).toBe(true);
-    expect(h.all('result').some((m) => m.job === 51)).toBe(false);
-  });
-
-  it('re-querying with a REUSED group.id but different members returns FRESH rows (cache keys on matching identity)', async () => {
-    // group.id is caller-owned provenance. A memo keyed on it would serve the
-    // first query's occurrences for the second — the exact stale-row bug.
-    const { h, snap } = await ready(); // 'the wolf ran far. a wolf slept.'
-    const occSpy = vi.mocked(occurrences);
-    occSpy.mockClear();
-    const kwic = (surface: string, job: number) => h.send({
-      t: 'query', job, snapshot: snap, query: {
-        op: 'kwic', selection: { docs: ['a'] },
-        // SAME group.id 'REUSED' both times; only the member surface changes.
-        tracks: [{ seriesId: 's', group: { id: 'REUSED', countOverlaps: false, members: [{ id: 'm', kind: 'token', surface, match: FOLD }] } }],
-        request: { contextTokens: 1, sort: [{ at: 'pos', dir: 1 }], page: { offset: 0, limit: 10 } },
-      },
-    });
-    await kwic('wolf', 60);
-    const first = h.last('result');
-    expect(first.data.op === 'kwic' && first.data.rows.map((r) => r.nodeText)).toEqual(['wolf', 'wolf']);
-    await kwic('ran', 61);
-    const second = h.last('result');
-    expect(second.data.op === 'kwic' && second.data.rows.map((r) => r.nodeText)).toEqual(['ran']);
-    // Both queries were cache MISSES: the differing member surface changes the
-    // matching identity, so the reused id never aliases an occurrence entry.
-    expect(occSpy).toHaveBeenCalledTimes(2);
-  });
-
-  it('bounds the occurrence cache at MAX_OCCURRENCE_CACHE_ENTRIES under overlapping, interleaving trend AND kwic jobs', async () => {
-    const { h, snap } = await ready('the wolf ran far. a wolf slept. i saw the fox and the owl.');
-    const cache = () => (h.engine as unknown as { generation: { executor: { occurrenceCache: Map<string, unknown> } } | null }).generation!.executor.occurrenceCache;
-    const group = (surface: string, i: number) => ({ id: `g${i}`, countOverlaps: false, members: [{ id: 'm', kind: 'token' as const, surface, match: FOLD }] });
-    const kwicQuery = (surfaces: string[]) => ({
-      op: 'kwic' as const, selection: { docs: ['a'] },
-      tracks: surfaces.map((surface, i) => ({ seriesId: `s${i}`, group: group(surface, i) })),
-      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-    });
-    const trendQuery = (surface: string) => ({
-      op: 'trend' as const, selection: { docs: ['a'] }, group: group(surface, 9),
-      request: { coordinate: 'document-relative' as const, bins: { mode: 'per-doc', count: 4 } },
-    });
-    // Two DISTINCT 4-track KWIC jobs plus two distinct trend jobs (10 unique
-    // identities > MAX_OCCURRENCE_CACHE_ENTRIES=5) — BOTH consumers write the
-    // shared cache. In manual yield mode each checkpoint parks; releasing them
-    // round-robin interleaves all four jobs so a prune outside occurrencesFor
-    // would let the map grow past the cap. Drive them to completion and assert
-    // the hard bound held throughout AND that every job's local results stayed
-    // correct despite its own entries being evicted mid-flight.
-    h.manual();
-    const pA = h.send({ t: 'query', job: 80, snapshot: snap, query: kwicQuery(['the', 'wolf', 'ran', 'far']) });
-    const pB = h.send({ t: 'query', job: 81, snapshot: snap, query: kwicQuery(['a', 'i', 'saw', 'fox']) });
-    const pC = h.send({ t: 'query', job: 82, snapshot: snap, query: trendQuery('owl') });
-    const pD = h.send({ t: 'query', job: 83, snapshot: snap, query: trendQuery('slept') });
-    const jobs = [80, 81, 82, 83];
-    let guard = 0;
-    while (guard++ < 400) {
-      expect(cache().size).toBeLessThanOrEqual(MAX_OCCURRENCE_CACHE_ENTRIES);
-      h.releaseYield();
-      // eslint-disable-next-line no-await-in-loop
-      await h.flush();
-      const done = h.all('result').filter((m) => jobs.includes(m.job)).length;
-      if (done >= 4) break;
-    }
-    await Promise.all([pA, pB, pC, pD]);
-    expect(cache().size).toBeLessThanOrEqual(MAX_OCCURRENCE_CACHE_ENTRIES);
-    // In-flight local results survived eviction: each job holds its own
-    // occurrence references, so evicted cache entries never corrupt output.
-    const result = (job: number) => h.all('result').find((m) => m.job === job)!;
-    const kwicA = result(80).data;
-    expect(kwicA.op === 'kwic' && kwicA.total).toBe(7); // the×3 + wolf×2 + ran + far
-    const kwicB = result(81).data;
-    expect(kwicB.op === 'kwic' && kwicB.total).toBe(4); // a + i + saw + fox
-    const trendC = result(82).data;
-    expect(trendC.op === 'trend' && Array.from(trendC.trend.count).reduce((s, n) => s + n, 0)).toBe(1); // owl
-    const trendD = result(83).data;
-    expect(trendD.op === 'trend' && Array.from(trendD.trend.count).reduce((s, n) => s + n, 0)).toBe(1); // slept
-  });
-
-  // Phase E: the trend and kwic branches share ONE generation-owned occurrence
-  // cache. The pass-through `occurrences` spy counts exactly how many times the
-  // engine pays for a full per-doc match.
-  describe('trend/kwic occurrence-cache sharing (Phase E)', () => {
-    const trendQ = { op: 'trend' as const, selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative' as const, bins: { mode: 'per-doc', count: 4 } } };
-    const kwicQ = {
-      op: 'kwic' as const, selection: { docs: ['a'] }, tracks: [{ seriesId: 's', group: wolfGroup }],
-      request: { contextTokens: 1, sort: [{ at: 'pos' as const, dir: 1 as const }], page: { offset: 0, limit: 10 } },
-    };
+  describe('trend occurrence-cache discipline', () => {
+    const trendQ = { op: 'trend' as const, selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative' as const, bins: { mode: 'per-doc' as const, count: 4 } } };
     const occSpy = () => vi.mocked(occurrences);
     const cacheOf = (h: Harness) => (h.engine as unknown as { generation: { executor: { occurrenceCache: Map<string, unknown> } } | null }).generation!.executor.occurrenceCache;
-
-    it('the identical (snapshot, selection, identity) tuple computes occurrences EXACTLY once — trend-then-kwic AND kwic-then-trend', async () => {
-      // trend first: kwic consumes the entry trend wrote.
-      const a = await ready();
-      occSpy().mockClear();
-      await a.h.send({ t: 'query', job: 70, snapshot: a.snap, query: trendQ });
-      await a.h.send({ t: 'query', job: 71, snapshot: a.snap, query: kwicQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1);
-      // kwic first: trend consumes the entry kwic wrote.
-      const b = await ready();
-      occSpy().mockClear();
-      await b.h.send({ t: 'query', job: 72, snapshot: b.snap, query: kwicQ });
-      await b.h.send({ t: 'query', job: 73, snapshot: b.snap, query: trendQ });
-      expect(occSpy()).toHaveBeenCalledTimes(1);
-      expect([...a.h.all('error'), ...b.h.all('error')]).toEqual([]);
-    });
-
-    it('cache hits are result-equivalent for BOTH consumers (trend rows and kwic pages equal a no-cache reference)', async () => {
-      // Harness A computes trend fresh (its kwic is the hit); harness B
-      // computes kwic fresh (its trend is the hit). Cross-comparing proves a
-      // hit-served result equals a freshly computed one for each consumer.
-      const a = await ready();
-      await a.h.send({ t: 'query', job: 70, snapshot: a.snap, query: trendQ });
-      await a.h.send({ t: 'query', job: 71, snapshot: a.snap, query: kwicQ });
-      const b = await ready();
-      await b.h.send({ t: 'query', job: 72, snapshot: b.snap, query: kwicQ });
-      await b.h.send({ t: 'query', job: 73, snapshot: b.snap, query: trendQ });
-      const dataOf = (h: Harness, job: number) => h.all('result').find((m) => m.job === job)!.data;
-      const tFresh = dataOf(a.h, 70);
-      const tHit = dataOf(b.h, 73);
-      expect(tFresh.op).toBe('trend');
-      expect(tHit.op).toBe('trend');
-      if (tFresh.op === 'trend' && tHit.op === 'trend') {
-        expect(Array.from(tHit.trend.docOrdinal)).toEqual(Array.from(tFresh.trend.docOrdinal));
-        expect(Array.from(tHit.trend.binIndex)).toEqual(Array.from(tFresh.trend.binIndex));
-        expect(Array.from(tHit.trend.binStartToken)).toEqual(Array.from(tFresh.trend.binStartToken));
-        expect(Array.from(tHit.trend.binTokens)).toEqual(Array.from(tFresh.trend.binTokens));
-        expect(Array.from(tHit.trend.count)).toEqual(Array.from(tFresh.trend.count));
-        expect(Array.from(tHit.trend.ratePer10k)).toEqual(Array.from(tFresh.trend.ratePer10k));
-      }
-      const kFresh = dataOf(b.h, 72);
-      const kHit = dataOf(a.h, 71);
-      expect(kFresh.op).toBe('kwic');
-      expect(kHit.op).toBe('kwic');
-      if (kFresh.op === 'kwic' && kHit.op === 'kwic') {
-        expect(kHit.total).toBe(kFresh.total);
-        expect(kHit.rows).toEqual(kFresh.rows);
-      }
-    });
 
     it('a different snapshot, a different selection, and a different matching identity each MISS', async () => {
       const h = harness();
@@ -749,25 +526,53 @@ describe('concordance-window/1 through the executor and engine', () => {
     expect(executor.concordanceAxisCacheBytes).toBeLessThanOrEqual(MAX_CONCORDANCE_AXIS_CACHE_BYTES);
   });
 
-  it('fences cancellation after a track and after materialization', async () => {
-    for (const cancelAtYield of [3, 5]) {
-      const { h, snap } = await ready();
-      h.clear();
-      let yields = 0;
-      h.onYield(async () => {
-        yields++;
-        if (yields === cancelAtYield) await h.send({ t: 'cancel', job: 305 });
-      });
-      await h.send({
-        t: 'query', job: 305, snapshot: snap,
-        query: query({ kind: 'position', doc: 'a', token: 3 }, true),
-      });
-      expect(yields).toBeGreaterThanOrEqual(cancelAtYield);
-      expect(h.all('cancelled').some((message) => message.job === 305)).toBe(true);
-      expect(h.all('result').some((message) => message.job === 305)).toBe(false);
-      expect(h.all('error').some((message) => message.job === 305)).toBe(false);
-      h.onYield(null);
-    }
+  it('fences cancellation after one track before the next track computes', async () => {
+    const { h, snap } = await ready();
+    const occurrenceSpy = vi.mocked(occurrences);
+    occurrenceSpy.mockClear();
+    const ranGroup = {
+      ...wolfGroup,
+      id: 'ran',
+      members: wolfGroup.members.map((member) => ({ ...member, surface: 'ran' })),
+    };
+    h.clear();
+    let yields = 0;
+    h.onYield(async () => {
+      yields++;
+      if (yields === 3) await h.send({ t: 'cancel', job: 305 });
+    });
+    await h.send({
+      t: 'query', job: 305, snapshot: snap,
+      query: query(
+        { kind: 'position', doc: 'a', token: 3 },
+        true,
+        [{ seriesId: 'wolf', group: wolfGroup }, { seriesId: 'ran', group: ranGroup }],
+      ),
+    });
+    expect(occurrenceSpy).toHaveBeenCalledTimes(1);
+    expect(h.all('cancelled').some((message) => message.job === 305)).toBe(true);
+    expect(h.all('result').some((message) => message.job === 305)).toBe(false);
+    expect(h.all('error').some((message) => message.job === 305)).toBe(false);
+    h.onYield(null);
+  });
+
+  it('fences cancellation after materialization', async () => {
+    const { h, snap } = await ready();
+    h.clear();
+    let yields = 0;
+    h.onYield(async () => {
+      yields++;
+      if (yields === 5) await h.send({ t: 'cancel', job: 306 });
+    });
+    await h.send({
+      t: 'query', job: 306, snapshot: snap,
+      query: query({ kind: 'position', doc: 'a', token: 3 }, true),
+    });
+    expect(yields).toBeGreaterThanOrEqual(5);
+    expect(h.all('cancelled').some((message) => message.job === 306)).toBe(true);
+    expect(h.all('result').some((message) => message.job === 306)).toBe(false);
+    expect(h.all('error').some((message) => message.job === 306)).toBe(false);
+    h.onYield(null);
   });
 });
 
@@ -1278,7 +1083,7 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
     if (t2.data.kind === 'exact') expect([...t2.data.starts]).toEqual([1, 5]);
   });
 
-  it('SHARES the occurrence cache with trend/kwic — a dispersion after trend recomputes nothing', async () => {
+  it('SHARES the occurrence cache with trend/Concordance — a dispersion after trend recomputes nothing', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far. a wolf slept.');
     await begin(h, [spec]);

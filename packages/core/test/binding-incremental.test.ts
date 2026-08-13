@@ -27,7 +27,11 @@ import {
   type BoundShards,
   type BoundTexts,
 } from '../src/ops/binding.ts';
-import { kwicPage, materializeKwicPage } from '../src/ops/kwic.ts';
+import {
+  buildConcordanceAxis,
+  materializeConcordanceWindow,
+  planConcordanceWindow,
+} from '../src/ops/concordance.ts';
 import { occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { trend } from '../src/ops/trend.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
@@ -55,7 +59,6 @@ declare const structuredClone: <T>(v: T) => T;
 const R = DEFAULT_INDEX_RECIPE;
 const GEN = 'g' as BuildGeneration;
 const FOLD: MatchMode = { case: 'folded', diacritics: 'sensitive' };
-const SORT_POS = [{ at: 'pos', dir: 1 }] as const;
 const wolfGroup: TermGroupSpec = {
   id: 'g1',
   members: [{ id: 'm1', kind: 'token', surface: 'wolf', match: FOLD }],
@@ -105,24 +108,39 @@ function armor(s: DocumentIndexV1) {
   };
 }
 
-/** A full query pipeline against the RESIDENT (owned) shard of one document:
- *  occurrences + kwic page + materialized rows. */
+/** A full query pipeline against the resident owned corpus: occurrences,
+ * bounded Concordance planning, and authenticated row materialization. */
 async function wolfRows(
   snapshot: CorpusSnapshotV1,
   bound: BoundShards,
   texts: BoundTexts,
-  doc: string,
 ): Promise<unknown> {
-  const resident = internalShardOf(bound, doc);
-  const byMode = new Map<string, Resolver>([[modeKey(FOLD), await buildResolver(resident, R, FOLD)]]);
-  const sel = await resolveSelection(snapshot, { docs: [doc] as ProjectDocId[] });
-  const occ = occurrences(snapshot, new Map([[doc, resident]]), new Map([[doc, byMode]]), sel, wolfGroup);
-  const page = kwicPage(snapshot, bound, sel, [occ], {
-    contextTokens: 1,
-    sort: SORT_POS,
-    page: { offset: 0, limit: 10 },
+  const shards = new Map<string, DocumentIndexV1>();
+  const resolvers = new Map<string, Map<string, Resolver>>();
+  for (const ref of snapshot.docs) {
+    const resident = internalShardOf(bound, ref.doc);
+    shards.set(ref.doc, resident);
+    resolvers.set(ref.doc, new Map([
+      [modeKey(FOLD), await buildResolver(resident, R, FOLD)],
+    ]));
+  }
+  const sel = await resolveSelection(snapshot, {
+    docs: snapshot.docs.map((ref) => ref.doc),
   });
-  return materializeKwicPage(snapshot, page, texts, [{ seriesId: 's', groupId: 'g1' }]);
+  const occ = occurrences(snapshot, shards, resolvers, sel, wolfGroup);
+  const axis = buildConcordanceAxis(snapshot, sel, [occ]);
+  const window = planConcordanceWindow(snapshot, bound, sel, axis, [occ], {
+    anchor: { kind: 'rank', rank: 0 },
+    before: 0,
+    after: Math.max(0, axis.total - 1),
+    contextTokens: 1,
+  });
+  return materializeConcordanceWindow(
+    snapshot,
+    window,
+    texts,
+    [{ seriesId: 's', groupId: 'g1' }],
+  );
 }
 
 describe('session authentication (risk 5: forged session)', () => {
@@ -205,7 +223,7 @@ describe('caller aliasing (risk 2)', () => {
     const session = createBindingSession();
     const bound1 = await bindShardsIncremental(session, snapshot, new Map([['a', source]]));
     const texts1 = await bindTexts(snapshot, bound1, textsOf([a]));
-    const baselineRows = await wolfRows(snapshot, bound1, texts1, 'a');
+    const baselineRows = await wolfRows(snapshot, bound1, texts1);
     const baselineArmor = armor(internalShardOf(bound1, 'a'));
     const base = validations();
 
@@ -231,7 +249,7 @@ describe('caller aliasing (risk 2)', () => {
     expect(resident).toBe(internalShardOf(bound1, 'a'));
     expect(armor(resident)).toEqual(baselineArmor);
     const texts2 = await bindTexts(snapshot, bound2, textsOf([a]));
-    const rows = await wolfRows(snapshot, bound2, texts2, 'a');
+    const rows = await wolfRows(snapshot, bound2, texts2);
     expect(rows).toEqual(baselineRows);
   });
 });
@@ -310,7 +328,7 @@ describe('snapshot lifetime (risk 7)', () => {
     const s1 = await snapshotOf([a, b], [a]); // b still missing
     const bound1 = await bindShardsIncremental(session, s1, shardsOf([a]));
     const texts1 = await bindTexts(s1, bound1, textsOf([a]));
-    const rows1Before = await wolfRows(s1, bound1, texts1, 'a');
+    const rows1Before = await wolfRows(s1, bound1, texts1);
 
     const s2 = await snapshotOf([a, b]);
     const bound2 = await bindShardsIncremental(session, s2, shardsOf([a, b]));
@@ -324,16 +342,16 @@ describe('snapshot lifetime (risk 7)', () => {
     expect(internalShardOf(bound2, 'a')).toBe(internalShardOf(bound1, 'a'));
 
     // BOTH remain fully queryable after the newer publication.
-    expect(await wolfRows(s1, bound1, texts1, 'a')).toEqual(rows1Before);
+    expect(await wolfRows(s1, bound1, texts1)).toEqual(rows1Before);
     expect(bound1.docs()).toEqual(['a']);
     expect(bound2.docs()).toEqual(['a', 'b']);
-    const rows2 = (await wolfRows(s2, bound2, texts2, 'b')) as { rows?: unknown[] } | unknown[];
+    const rows2 = (await wolfRows(s2, bound2, texts2)) as { rows?: unknown[] } | unknown[];
     expect(rows2).toBeDefined();
   });
 });
 
 describe('kernel purity (risk 8)', () => {
-  it('occurrences, trend, and kwic leave the owned artifact byte-identical', async () => {
+  it('occurrences, trend, and Concordance leave the owned artifact byte-identical', async () => {
     const a = await docOf('a', 'the wolf ran and the wolf slept in the den');
     const snapshot = await snapshotOf([a]);
     const session = createBindingSession();
@@ -347,12 +365,19 @@ describe('kernel purity (risk 8)', () => {
     const occ = occurrences(snapshot, new Map([['a', resident]]), new Map([['a', byMode]]), sel, wolfGroup);
     expect(occ.pos.length).toBe(2);
     trend(snapshot, sel, occ, { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } });
-    const page = kwicPage(snapshot, bound, sel, [occ], {
+    const axis = buildConcordanceAxis(snapshot, sel, [occ]);
+    const window = planConcordanceWindow(snapshot, bound, sel, axis, [occ], {
+      anchor: { kind: 'rank', rank: 0 },
+      before: 0,
+      after: axis.total - 1,
       contextTokens: 2,
-      sort: SORT_POS,
-      page: { offset: 0, limit: 10 },
     });
-    materializeKwicPage(snapshot, page, texts, [{ seriesId: 's', groupId: 'g1' }]);
+    materializeConcordanceWindow(
+      snapshot,
+      window,
+      texts,
+      [{ seriesId: 's', groupId: 'g1' }],
+    );
     // Reuse across snapshots makes kernel purity an explicit contract: every
     // resident byte (and the descriptor) must be exactly as bound.
     expect(armor(resident)).toEqual(before);

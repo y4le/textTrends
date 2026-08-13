@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
 import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
-import { createDocumentIndex, type DocumentIndexV1 } from '../src/index/build.ts';
+import { createDocumentIndex, tokenCharLength, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, type BoundShards, type BoundTexts } from '../src/ops/binding.ts';
 import {
   buildConcordanceAxis,
@@ -10,23 +10,32 @@ import {
   materializeConcordanceWindow,
   planConcordanceWindow,
 } from '../src/ops/concordance.ts';
-import { kwicPage } from '../src/ops/kwic.ts';
-import type { NumericOccurrences } from '../src/ops/occurrences.ts';
+import { occurrences, type NumericOccurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
 import { resolveSelection, type ResolvedSelection } from '../src/snapshot/selection.ts';
 
 const GEN = 'concordance-test' as BuildGeneration;
+const FOLD: MatchMode = { case: 'folded', diacritics: 'sensitive' };
+const WOLF_GROUP: TermGroupSpec = {
+  id: 'wolf',
+  members: [{ id: 'wolf', kind: 'token', surface: 'wolf', match: FOLD }],
+  countOverlaps: false,
+};
 
 interface World {
   readonly snapshot: CorpusSnapshotV1;
   readonly selection: ResolvedSelection;
+  readonly shards: ReadonlyMap<string, DocumentIndexV1>;
+  readonly resolvers: ReadonlyMap<string, ReadonlyMap<string, Resolver>>;
   readonly bound: BoundShards;
   readonly texts: BoundTexts;
 }
 
 async function world(source: Record<string, string>): Promise<World> {
   const shards = new Map<string, DocumentIndexV1>();
+  const resolvers = new Map<string, Map<string, Resolver>>();
   const texts = new Map<string, string>();
   const ready = new Map();
   const docs = Object.keys(source) as ProjectDocId[];
@@ -34,6 +43,9 @@ async function world(source: Record<string, string>): Promise<World> {
     const text = source[doc] as string;
     const shard = await createDocumentIndex(text, await segment(text, 'en'), DEFAULT_INDEX_RECIPE);
     shards.set(doc, shard);
+    resolvers.set(doc, new Map([
+      [modeKey(FOLD), await buildResolver(shard, DEFAULT_INDEX_RECIPE, FOLD)],
+    ]));
     texts.set(doc, text);
     ready.set(doc, await makeReadyDocument(doc, shard));
   }
@@ -41,7 +53,7 @@ async function world(source: Record<string, string>): Promise<World> {
   const bound = await bindShards(snapshot, shards);
   const verifiedTexts = await bindTexts(snapshot, bound, texts);
   const selection = await resolveSelection(snapshot, { docs });
-  return { snapshot, selection, bound, texts: verifiedTexts };
+  return { snapshot, selection, shards, resolvers, bound, texts: verifiedTexts };
 }
 
 interface Entry {
@@ -69,12 +81,69 @@ function occurrence(selection: ResolvedSelection, entries: readonly Entry[]): Nu
   };
 }
 
+function referenceRows(tracks: readonly NumericOccurrences[]) {
+  const rows = tracks.flatMap((track, trackOrdinal) => Array.from(
+    { length: track.pos.length },
+    (_, index) => {
+      const memberStart = track.memberOffsets[index] as number;
+      const memberEnd = track.memberOffsets[index + 1] as number;
+      return {
+        trackOrdinal,
+        docOrdinal: track.docOrdinal[index] as number,
+        pos: track.pos[index] as number,
+        spanTokens: track.spanTokens[index] as number,
+        members: Array.from(track.memberOrdinals.subarray(memberStart, memberEnd)),
+      };
+    },
+  ));
+  return rows.sort((left, right) => {
+    const scalar = left.docOrdinal - right.docOrdinal
+      || left.pos - right.pos
+      || left.spanTokens - right.spanTokens
+      || left.trackOrdinal - right.trackOrdinal;
+    if (scalar !== 0) return scalar;
+    const length = Math.min(left.members.length, right.members.length);
+    for (let index = 0; index < length; index++) {
+      const member = (left.members[index] as number) - (right.members[index] as number);
+      if (member !== 0) return member;
+    }
+    return left.members.length - right.members.length;
+  });
+}
+
 const rankRequest = (rank: number, before: number, after: number) => ({
   anchor: { kind: 'rank', rank } as const,
   before,
   after,
   contextTokens: 1,
 });
+
+function materializedRows(
+  w: World,
+  track: NumericOccurrences,
+  contextTokens: number,
+) {
+  const axis = buildConcordanceAxis(w.snapshot, w.selection, [track]);
+  const numeric = planConcordanceWindow(
+    w.snapshot,
+    w.bound,
+    w.selection,
+    axis,
+    [track],
+    {
+      anchor: { kind: 'rank', rank: 0 },
+      before: 0,
+      after: Math.max(0, axis.total - 1),
+      contextTokens,
+    },
+  );
+  return materializeConcordanceWindow(
+    w.snapshot,
+    numeric,
+    w.texts,
+    [{ seriesId: 'series', groupId: 'group' }],
+  ).rows;
+}
 
 describe('continuous concordance axis', () => {
   it('samples rank zero and only duplicate-run boundaries after the stride', async () => {
@@ -105,13 +174,10 @@ describe('continuous concordance axis', () => {
         [occurrence(w.selection, entries)],
         rankRequest(rank, 1, 1),
       );
-      const oracle = kwicPage(w.snapshot, w.bound, w.selection, [occurrence(w.selection, entries)], {
-        contextTokens: 1,
-        sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-        page: { offset: window.firstRank, limit: window.rows.length },
-      });
+      const oracle = referenceRows([occurrence(w.selection, entries)])
+        .slice(window.firstRank, window.firstRank + window.rows.length);
       expect(window.rows.map((row) => [row.pos, row.spanTokens, row.members])).toEqual(
-        oracle.rows.map((row) => [row.pos, row.spanTokens, row.members]),
+        oracle.map((row) => [row.pos, row.spanTokens, row.members]),
       );
     }
   });
@@ -144,13 +210,9 @@ describe('continuous concordance axis', () => {
       tracks,
       rankRequest(200, 2, 2),
     );
-    const oracle = kwicPage(w.snapshot, w.bound, w.selection, tracks, {
-      contextTokens: 1,
-      sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-      page: { offset: 198, limit: 5 },
-    });
+    const oracle = referenceRows(tracks).slice(198, 203);
     expect(window.rows.map((row) => [row.trackOrdinal, row.pos, row.members])).toEqual(
-      oracle.rows.map((row) => [row.trackOrdinal, row.pos, row.members]),
+      oracle.map((row) => [row.trackOrdinal, row.pos, row.members]),
     );
   });
 
@@ -194,11 +256,7 @@ describe('continuous concordance windows', () => {
       tracks,
       rankRequest(0, 0, axis.total - 1),
     );
-    const oracle = kwicPage(w.snapshot, w.bound, w.selection, tracks, {
-      contextTokens: 1,
-      sort: [{ at: 'doc', dir: 1 }, { at: 'pos', dir: 1 }],
-      page: { offset: 0, limit: axis.total },
-    });
+    const oracle = referenceRows(tracks);
 
     const identity = (row: typeof actual.rows[number]) => ({
       track: row.trackOrdinal,
@@ -206,12 +264,14 @@ describe('continuous concordance windows', () => {
       pos: row.pos,
       span: row.spanTokens,
       members: row.members,
-      left: row.leftCharStart,
-      nodeStart: row.nodeCharStart,
-      nodeEnd: row.nodeCharEnd,
-      right: row.rightCharEnd,
     });
-    expect(actual.rows.map(identity)).toEqual(oracle.rows.map(identity));
+    expect(actual.rows.map(identity)).toEqual(oracle.map((row) => ({
+      track: row.trackOrdinal,
+      doc: row.docOrdinal,
+      pos: row.pos,
+      span: row.spanTokens,
+      members: row.members,
+    })));
     expect(actual.rows.map((row) => [row.pos, row.spanTokens, row.trackOrdinal])).toEqual([
       [2, 1, 0],
       [2, 1, 1],
@@ -330,6 +390,46 @@ describe('continuous concordance windows', () => {
     }]);
     expect(() => materializeConcordanceWindow(w.snapshot, numeric, w.texts, []))
       .toThrow(/requires 1 track identities/);
+  });
+
+  it('materializes raw source text rather than normalized vocabulary keys', async () => {
+    const w = await world({ a: 'he said isn’t twice' });
+    const group: TermGroupSpec = {
+      id: 'apostrophe',
+      members: [{ id: 'apostrophe', kind: 'token', surface: "isn't", match: FOLD }],
+      countOverlaps: false,
+    };
+    const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, group);
+    expect(materializedRows(w, track, 0)[0]!.nodeText).toBe('isn’t');
+  });
+
+  it('keeps UTF-16 spans valid through astral context characters', async () => {
+    const w = await world({ a: 'I 😀 saw the wolf 😀 again' });
+    const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, WOLF_GROUP);
+    const row = materializedRows(w, track, 2)[0]!;
+    expect(row.nodeText).toBe('wolf');
+    expect(row.left).toContain('saw');
+    expect(row.right).toContain('again');
+  });
+
+  it('clamps context at document edges and spans overflow tokens completely', async () => {
+    const long = 'a'.repeat(300);
+    const w = await world({ a: `wolf ${long} wolf` });
+    const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, WOLF_GROUP);
+    const rows = materializedRows(w, track, 2);
+    expect(rows[0]!.left).toBe('');
+    expect(rows[0]!.right).toContain(long);
+    expect(rows[1]!.left).toContain(long);
+    expect(rows[1]!.right).toBe('');
+  });
+
+  it('guards token character-length positions before span materialization', async () => {
+    const w = await world({ a: 'one two' });
+    const shard = w.shards.get('a')!;
+    expect(tokenCharLength(shard, 0)).toBe(3);
+    expect(() => tokenCharLength(shard, -1)).toThrow(RangeError);
+    expect(() => tokenCharLength(shard, 0.5)).toThrow(RangeError);
+    expect(() => tokenCharLength(shard, 2)).toThrow(RangeError);
   });
 
   it('enforces admitted occurrence shapes, track counts, and duplicate-run bounds', async () => {
