@@ -536,6 +536,7 @@ export function App() {
     <>
     <main
       className="app-shell"
+      data-place={place}
       data-shortcut-context="workbench"
       onKeyDown={(event) => handleRootShortcut(event, 'workbench')}
     >
@@ -638,7 +639,10 @@ export function App() {
           </PlaceSurface>
         </div>
       </div>
-      <WorkbenchDock globalShortcuts={place === 'trends'} />
+      <WorkbenchDock
+        globalShortcuts={place === 'trends'}
+        showTerms={place !== 'concordance'}
+      />
     </main>
     {utilityPaneSurface}
     </>

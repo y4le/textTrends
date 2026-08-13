@@ -88,25 +88,20 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await expect(footerSlider).toBeFocused();
 
   const captions = [await scrubber.getAttribute('aria-valuetext')];
-  await gotoPlace(page, 'concordance');
-  let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByLabel('Concordance order').selectOption('L1');
-  await awaitFreshKwic(page, mark);
-  await gotoPlace(page, 'trends');
-  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   for (let index = 0; index < 2; index++) {
     await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
     await expect(scrubber).not.toHaveAttribute('aria-valuetext', captions.at(-1)! ?? '');
     captions.push(await scrubber.getAttribute('aria-valuetext'));
   }
   expect(new Set(captions).size).toBe(3);
-  expect((await trace(page)).events.filter(
-    (event) =>
-      event.seq > mark
+  await awaitFreshKwic(page, mark);
+  expect((await trace(page)).events.some(
+    (event) => event.seq > mark
       && event.direction === 'to-worker'
       && event.t === 'query'
       && event.op === 'kwic',
-  )).toEqual([]);
+  )).toBe(true);
 
   await page
     .getByRole('group', { name: 'Query terms' })

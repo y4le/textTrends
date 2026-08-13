@@ -24,8 +24,10 @@ function TermsRailFallback() {
  * this wrapper owns only viewport placement and the pre-mount reservation. */
 export function WorkbenchDock({
   globalShortcuts,
+  showTerms = true,
 }: {
   readonly globalShortcuts: boolean;
+  readonly showTerms?: boolean;
 }) {
   const presentation = usePresentation();
   const seriesCount = useApp((state) => state.series.length);
@@ -50,10 +52,12 @@ export function WorkbenchDock({
   }, [readingReserve]);
 
   return (
-    <div className="workbench-dock">
-      <Suspense fallback={<TermsRailFallback />}>
-        <QuerySurface />
-      </Suspense>
+    <div className="workbench-dock" data-terms={showTerms}>
+      {showTerms && (
+        <Suspense fallback={<TermsRailFallback />}>
+          <QuerySurface />
+        </Suspense>
+      )}
       <Suspense fallback={null}>
         <WorkbenchFooter globalShortcuts={globalShortcuts} />
       </Suspense>

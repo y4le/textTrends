@@ -1249,8 +1249,7 @@ canvas {
 }
 
 .kwic-term-chips,
-.kwic-controls,
-.kwic-result-actions {
+.kwic-controls {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -1263,8 +1262,7 @@ canvas {
 
 .kwic-term-chips > span,
 .kwic-controls label,
-.kwic-controls legend,
-.kwic-method {
+.kwic-controls legend {
   color: var(--fg-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
@@ -1304,14 +1302,12 @@ canvas {
 
 .kwic-controls select,
 .kwic-controls button,
-.kwic-result-actions button,
 .kwic-table button {
   min-block-size: 40px;
 }
 
 .kwic-controls select,
 .kwic-controls button,
-.kwic-result-actions button,
 .kwic-table button,
 .kwic-reading-row button {
   border: 1px solid var(--rule-strong);
@@ -1340,8 +1336,7 @@ canvas {
   line-height: 40px;
 }
 
-.kwic-controls button,
-.kwic-result-actions button {
+.kwic-controls button {
   padding-inline: var(--space-2);
 }
 
@@ -1350,18 +1345,10 @@ canvas {
   color: var(--fg);
 }
 
-.kwic-method {
-  margin-block: var(--space-2);
-}
-
 .kwic-result-bar {
   position: sticky;
   z-index: 2;
   inset-block-start: 0;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: var(--space-2);
   padding-block: var(--space-1);
   border-block-end: 1px solid var(--rule-strong);
   background: var(--bg);
@@ -1376,19 +1363,6 @@ canvas {
 .kwic-result-bar strong {
   color: var(--fg);
   font-weight: 600;
-}
-
-.kwic-result-actions output {
-  min-inline-size: 5ch;
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-  font-size: var(--text-sm);
-  text-align: center;
-}
-
-.kwic-result-actions button:disabled {
-  cursor: default;
-  opacity: 0.45;
 }
 
 .kwic-aligned-port {
@@ -1505,11 +1479,6 @@ canvas {
   background: none;
   font: inherit;
   font-weight: 600;
-}
-
-.kwic-table tbody tr[data-active='true'],
-.kwic-reading-row[data-active='true'] {
-  background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
 .kwic-reading > [role='note'] {
@@ -2093,8 +2062,7 @@ canvas {
 
   .kwic-term-chips button,
   .kwic-controls select,
-  .kwic-controls button,
-  .kwic-result-actions button {
+  .kwic-controls button {
     min-block-size: 44px;
     font-size: var(--text-sm);
   }
@@ -2102,26 +2070,12 @@ canvas {
   .kwic-term-chips > span,
   .kwic-controls label,
   .kwic-controls legend,
-  .kwic-method,
   .kwic-table {
     font-size: var(--text-sm);
   }
 
   .kwic-controls legend {
     line-height: 44px;
-  }
-
-  .kwic-result-bar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .kwic-result-actions {
-    inline-size: 100%;
-  }
-
-  .kwic-result-actions button:last-child {
-    margin-inline-start: auto;
   }
 
   .form-layer {
@@ -3145,6 +3099,11 @@ canvas {
     calc(var(--space-4) + var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
 }
 
+.app-shell[data-place='concordance'] {
+  --terms-rail-block-size: 0px;
+  --dock-block-size: var(--reading-lane-block-size);
+}
+
 .workbench-dock {
   position: fixed;
   z-index: 30;
@@ -3159,6 +3118,10 @@ canvas {
   min-inline-size: 0;
   overflow: visible;
   background: var(--bg);
+}
+
+.workbench-dock[data-terms='false'] {
+  grid-template-rows: minmax(0, 1fr);
 }
 
 .workbench-footer {

@@ -167,14 +167,16 @@ export function ScopeBar({ onOpenMethod }: { readonly onOpenMethod: () => void }
             )}
           </span>
         ))}
-        <button
-          id="global-method-open"
-          className="scope-organ-link coarse-target scope-method-link"
-          type="button"
-          onClick={onOpenMethod}
-        >
-          {methodLabel}
-        </button>
+        {place !== 'concordance' && (
+          <button
+            id="global-method-open"
+            className="scope-organ-link coarse-target scope-method-link"
+            type="button"
+            onClick={onOpenMethod}
+          >
+            {methodLabel}
+          </button>
+        )}
       </div>
     </section>
   );

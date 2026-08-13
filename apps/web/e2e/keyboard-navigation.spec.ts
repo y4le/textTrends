@@ -93,7 +93,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(page.getByRole('region', { name: 'Catalog', exact: true })).toBeVisible();
 });
 
-test('result tables share roving Vim and conventional row navigation', async ({ page }) => {
+test('result tables retain their intended keyboard behavior', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page);
 
@@ -126,22 +126,16 @@ test('result tables share roving Vim and conventional row navigation', async ({ 
     .getByRole('table', { name: 'Concordance' })
     .locator('tbody .kwic-node > button');
   await expect(occurrences.first()).toBeVisible();
-  await expect(page.locator('.kwic-node > button[tabindex="0"]')).toHaveCount(1);
+  expect(await occurrences.evaluateAll((buttons) =>
+    buttons.every((button) => !button.hasAttribute('tabindex')))).toBe(true);
   await occurrences.first().focus();
   await occurrences.first().press('ArrowDown');
-  await expect(occurrences.nth(1)).toBeFocused();
-  await occurrences.nth(1).press('k');
   await expect(occurrences.first()).toBeFocused();
-  await occurrences.first().press('End');
-  await expect(occurrences.last()).toBeFocused();
-  await occurrences.last().press('Home');
-  await expect(occurrences.first()).toBeFocused();
+  await expect(concordancePort.locator('[data-active]')).toHaveCount(0);
   await occurrences.first().press('Enter');
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
   await page.keyboard.press('Escape');
   await expect(occurrences.first()).toBeFocused();
-  await occurrences.first().press('Escape');
-  await expect(concordancePort).toBeFocused();
 
   await gotoPlace(page, 'vocabulary');
   const vocabularyPort = page.locator('.frequency-table-port');
