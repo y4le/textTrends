@@ -178,7 +178,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await gotoPlace(page, 'trends');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'clear selection' }).click();
-  await awaitOps(page, mark, ['inventory', 'freq-list']);
+  await awaitOps(page, mark, ['freq-list']);
   const clearQueries = (await trace(page)).events.filter(
     (event) =>
       event.seq > mark
@@ -187,6 +187,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   );
   expect(clearQueries.filter((event) => event.op === 'trend' || event.op === 'dispersion'))
     .toHaveLength(0);
+  expect(clearQueries.filter((event) => event.op === 'inventory')).toHaveLength(0);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
   await expect(trendScrubber.locator('canvas[data-selected-layer]')).toHaveCount(0);

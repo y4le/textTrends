@@ -52,7 +52,10 @@ test('Scope states resident corpus truth and follows the committed range', async
     .filter((event) => event.op !== 'reader-page')
     .map((event) => event.op);
   expect(clearOps.length).toBeGreaterThan(0);
-  expect(new Set(clearOps)).toEqual(new Set(['inventory', 'freq-list']));
+  expect(new Set(clearOps)).toEqual(new Set(['freq-list']));
+  // Inputs reuses its authenticated full-corpus inventory; clearing a range
+  // must not issue another identical inventory request.
+  expect(clearOps).not.toContain('inventory');
 
   // Full-corpus occurrence navigation is independent of the analytical range.
   await scrubber.focus();

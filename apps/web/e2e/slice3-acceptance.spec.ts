@@ -70,6 +70,9 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
 
   const betaRow = documents.getByRole('row', { name: /beta/ });
   const baselineTokens = await betaRow.locator('.catalog-book-tokens .selectable-stat').innerText();
+  const summary = page.locator('.catalog-summary');
+  const summaryValues = summary.getByRole('definition');
+  const baselineSummary = await summaryValues.allTextContents();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
   await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
 
@@ -107,14 +110,19 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await scrubber.press('Enter');
   await awaitOps(page, mark, ['inventory', 'freq-list']);
   await gotoPlace(page, 'inputs');
-  await expect(page.getByText(/across the active range/)).toBeVisible();
-  await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText(baselineTokens);
+  await expect(summaryValues).toHaveText(baselineSummary);
+  await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).toHaveText(baselineTokens);
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'clear selection' }).click();
-  await awaitOps(page, mark, ['inventory', 'freq-list']);
+  await awaitOps(page, mark, ['freq-list']);
+  const clearQueries = (await trace(page)).events.filter((event) =>
+    event.seq > mark
+    && event.direction === 'to-worker'
+    && event.t === 'query');
+  expect(clearQueries.filter((event) => event.op === 'inventory')).toHaveLength(0);
   await gotoPlace(page, 'inputs');
+  await expect(summaryValues).toHaveText(baselineSummary);
   await expect(betaRow.locator('.catalog-book-tokens .selectable-stat')).toHaveText(baselineTokens);
-  await expect(page.getByText(/across the active range/)).toHaveCount(0);
 });
