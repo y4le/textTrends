@@ -505,6 +505,26 @@ describe('workbench route and history authority', () => {
     runtime.dispose();
   });
 
+  it('replaces an unavailable place so Back reaches the preceding entry', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(fakeQueryClient().client, {
+      history,
+      newLayerId: layerIds(),
+    });
+    const store = runtime.useApp;
+    store.getState().setPlace('compare');
+    expect(history.pushes).toBe(1);
+    expect(history.url).toBe('/textTrends/?p=compare');
+
+    store.getState().replacePlace('inputs');
+    expect(history.pushes).toBe(1);
+    expect(history.url).toBe('/textTrends/?p=inputs');
+    history.back();
+    expect(store.getState().place).toBe('trends');
+    expect(history.url).toBe('/textTrends/?p=trends');
+    runtime.dispose();
+  });
+
   it('keeps non-place layers from choosing the provisional place during bootstrap', () => {
     const history = new FakeHistoryPort('/textTrends/?foreign=kept');
     const runtime = createAppRuntime(fakeQueryClient().client, {
@@ -893,7 +913,9 @@ describe('the session bridge', () => {
   it('restores a workspace notebook from active state, ignoring the deprecated Concordance filter', async () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
-    const port = new FakeSessionPort();
+    const port = new FakeSessionPort(sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['a', 'b'] } },
+    }));
     const durable = {
         ...workspaceState(BUILTIN_SHERLOCK_ID),
         notebook: {
@@ -1576,13 +1598,109 @@ describe('store query intent discipline', () => {
   });
 
   it('view toggle is presentation-only: no query is issued', () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
+    const project = (order: readonly string[]) => ({
+      data: { ...BUILTIN_PROJECT.data, order },
+    });
+    const f = harness(sessionState(snap('g1', 's1', ['a', 'b']), {
+      project: project(['a', 'b']),
+    }));
     const count = f.issued.length;
     f.store.getState().setTrendView('by-book');
-    f.store.getState().setTrendView('series');
+    expect(f.store.getState().trendView).toBe('by-book');
     expect(f.issued.length).toBe(count);
+
+    f.port.emit(sessionState(snap('g2', 's2', ['a']), {
+      project: project(['a']),
+    }));
     expect(f.store.getState().trendView).toBe('series');
+    const afterCorpusChange = f.issued.length;
+    f.store.getState().setTrendView('by-book');
+    expect(f.store.getState().trendView).toBe('series');
+    expect(f.issued.length).toBe(afterCorpusChange);
+
+    const restored = workspaceState(BUILTIN_SHERLOCK_ID);
+    f.store.getState().restoreWorkspace({
+      ...restored,
+      views: {
+        ...restored.views,
+        trend: { ...restored.views.trend, mode: 'by-book' },
+      },
+    });
+    expect(f.store.getState().trendView).toBe('series');
+
+    f.runtime.dispose();
+  });
+
+  it('preserves a restored separate view while a multi-text import settles', () => {
+    const project = (order: readonly string[]) => ({
+      kind: 'library' as const,
+      id: 'library',
+      data: { ...BUILTIN_PROJECT.data, id: 'library', order },
+    });
+    const migration = harness(sessionState(null, { project: project([]) }));
+    const empty = emptyLibraryWorkspace();
+    migration.store.getState().restoreWorkspace({
+      ...empty,
+      views: {
+        ...empty.views,
+        trend: { ...empty.views.trend, mode: 'by-book' },
+      },
+    });
+    expect(migration.store.getState().trendView).toBe('by-book');
+
+    // Starting analysis publishes the still-empty library before migration
+    // stages any source files; the restored preference must survive that gap.
+    migration.port.emit(sessionState(null, { project: project([]) }));
+    expect(migration.store.getState().trendView).toBe('by-book');
+
+    migration.port.emit({
+      ...sessionState(snap('g1', 's1', ['a']), { project: project(['a']) }),
+      imports: [{
+        doc: 'b',
+        sourceName: 'b.txt',
+        library: `txt:${'b'.repeat(64)}`,
+        status: 'extracting',
+        published: false,
+      }],
+    });
+    expect(migration.store.getState().trendView).toBe('by-book');
+
+    migration.port.emit(sessionState(snap('g2', 's2', ['a', 'b']), {
+      project: project(['a', 'b']),
+    }));
+    expect(migration.store.getState().trendView).toBe('by-book');
+    migration.runtime.dispose();
+  });
+
+  it('normalizes a restored separate view when an import fails with one active text', () => {
+    const project = {
+      kind: 'library' as const,
+      id: 'library',
+      data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['a'] },
+    };
+    const migration = harness(sessionState(null, {
+      project: { ...project, data: { ...project.data, order: [] } },
+    }));
+    const empty = emptyLibraryWorkspace();
+    migration.store.getState().restoreWorkspace({
+      ...empty,
+      views: {
+        ...empty.views,
+        trend: { ...empty.views.trend, mode: 'by-book' },
+      },
+    });
+    migration.port.emit({
+      ...sessionState(snap('g1', 's1', ['a']), { project }),
+      imports: [{
+        doc: 'b',
+        sourceName: 'b.txt',
+        library: `txt:${'b'.repeat(64)}`,
+        status: 'failed',
+        published: false,
+      }],
+    });
+    expect(migration.store.getState().trendView).toBe('series');
+    migration.runtime.dispose();
   });
 
   it('keeps display settings resident-only and reissues only trend lanes for bin changes', () => {

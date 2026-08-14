@@ -174,9 +174,13 @@ export function App() {
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
   const setPlace = useApp((s) => s.setPlace);
+  const replacePlace = useApp((s) => s.replacePlace);
   const routeStatus = useApp((s) => s.routeStatus);
+  const activeTextCount = useApp(
+    (s) => s.projectSession?.project.data.order.length ?? 0,
+  );
   const hasNoInputs = project !== null
-    && project.data.order.length === 0
+    && activeTextCount === 0
     && pendingInputCount === 0;
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
@@ -187,6 +191,20 @@ export function App() {
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
+
+  useEffect(() => {
+    if (
+      routeStatus !== 'resolved'
+      || project === null
+      || place !== 'compare'
+      || activeTextCount > 1
+    ) return;
+    const fallbackPlace = activeTextCount === 0 ? 'inputs' : 'trends';
+    setKeyboardNavigationStatus(
+      `Compare requires at least two active texts. Opening ${PLACE_HEADING[fallbackPlace]}.`,
+    );
+    replacePlace(fallbackPlace);
+  }, [activeTextCount, place, project, replacePlace, routeStatus]);
 
   const clearShortcutSequence = () => {
     shortcutSequence.current = null;
@@ -235,7 +253,15 @@ export function App() {
       case 'go-trends': go('trends'); return true;
       case 'go-concordance': go('concordance'); return true;
       case 'go-vocabulary': go('vocabulary'); return true;
-      case 'go-compare': go('compare'); return true;
+      case 'go-compare': {
+        const textCount = state.projectSession?.project.data.order.length ?? 0;
+        if (textCount < 2) {
+          setKeyboardNavigationStatus('Compare requires at least two active texts');
+          return true;
+        }
+        go('compare');
+        return true;
+      }
       case 'go-footer': {
         const footer = document.getElementById('corpus-footer-position');
         if (!footer) {
@@ -584,7 +610,7 @@ export function App() {
       <p
         className="visually-hidden"
         role="status"
-        aria-label="Keyboard navigation status"
+        aria-label="Navigation status"
         aria-live="polite"
         aria-atomic="true"
       >

@@ -345,7 +345,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'trend-toggle-view',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'Toggle series / by-book view',
+    label: 'Toggle combined / separate view',
     strokes: [{ key: 'v' }],
   },
   {

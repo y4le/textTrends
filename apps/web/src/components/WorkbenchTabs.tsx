@@ -13,7 +13,13 @@ export function WorkbenchTabs() {
   const place = useApp((state) => state.place);
   const routeStatus = useApp((state) => state.routeStatus);
   const setPlace = useApp((state) => state.setPlace);
+  const activeTextCount = useApp(
+    (state) => state.projectSession?.project.data.order.length ?? 0,
+  );
   const [keyboardStatus, setKeyboardStatus] = useState('');
+  const visiblePlaces = PLACES.filter(
+    (tab) => tab !== 'compare' || activeTextCount > 1,
+  );
 
   return (
     <nav
@@ -40,7 +46,7 @@ export function WorkbenchTabs() {
         );
       }}
     >
-      {PLACES.map((tab) => (
+      {visiblePlaces.map((tab) => (
         <a
           key={tab}
           data-workbench-tab={tab}

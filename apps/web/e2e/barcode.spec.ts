@@ -205,7 +205,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   await assertHoverOnly();
   expect(await commits('series')).toBe(seriesCommits);
 
-  await page.getByRole('button', { name: 'by book' }).click();
+  await page.getByRole('button', { name: 'separate' }).click();
   const bookBands = scrubber.locator('canvas[data-barcode-band="by-book"]');
   await expect(bookBands).toHaveCount(2);
   const bookBandPixels = await bookBands.evaluateAll((nodes) => nodes.map((node) => {

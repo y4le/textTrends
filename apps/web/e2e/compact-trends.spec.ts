@@ -91,7 +91,7 @@ for (const viewport of [
       && event.direction === 'to-worker'
       && event.t === 'query')).toEqual([]);
 
-    await page.getByRole('button', { name: 'by book', exact: true }).click();
+    await page.getByRole('button', { name: 'separate', exact: true }).click();
     const byBook = page.locator('svg[data-trend-view="by-book"]');
     await expect(byBook).toBeVisible();
     const firstRow = await byBook.locator('[data-trend-hit-row="0"]').first().boundingBox();

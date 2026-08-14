@@ -83,6 +83,8 @@ describe('shortcut registry', () => {
       .map((entry) => entry.id)).toContain('go-inputs');
     expect(workbench.find((section) => section.title === 'Terms')?.entries
       .map((entry) => entry.id)).toContain('go-terms');
+    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'trend-toggle-view')?.label).toBe('Toggle combined / separate view');
     const readerIds = shortcutHelpSections('reader')
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');

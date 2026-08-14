@@ -43,9 +43,10 @@ and document ranges. No confidence intervals are available; the interface says
 so rather than implying precision the analysis contract does not provide.
 
 Inputs, Trends, Concordance, Vocabulary, and Compare form one ordered
-**Workbench sections** tab list, with Inputs first. Compact portrait
-bottom-docks all five destinations; compact landscape uses a left rail. There
-is no hamburger or analytically ambiguous “More” menu.
+**Workbench sections** tab list, with Inputs first. Compare is available only
+when at least two texts are active. Compact portrait bottom-docks every
+available destination; compact landscape uses a left rail. There is no
+hamburger or analytically ambiguous “More” menu.
 
 The query string owns one presentation key:
 
@@ -54,6 +55,8 @@ The query string owns one presentation key:
 | Place | `?p=` | `inputs`, `trends`, `concordance`, `vocabulary`, `compare` |
 
 Terms, source text, and workspace data never enter the query string.
+When fewer than two texts are active, a `compare` route is rewritten in place
+to Inputs for an empty corpus or Trends for a single text.
 
 ## Governing composition
 
@@ -306,15 +309,17 @@ state; closing it with Escape or its visible control restores the invoking
 focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
-`gi`, `gt`, `gk`, `gv`, and `gd` go to Inputs, Trends, Concordance,
-Vocabulary, and Compare; `gf` focuses the reading footer and `gq` focuses the
+`gi`, `gt`, `gk`, and `gv` go to Inputs, Trends, Concordance, and Vocabulary;
+`gd` goes to Compare when at least two texts are active and otherwise announces
+why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 current active term in the fixed rail without scrolling the workbench.
 `[t`/`]t` and `[b`/`]b` clamp through active terms and
 ready books, with a polite boundary announcement. Within the Terms and
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
-activate a destination until the link is invoked. On the Trends scrubber, `v`
-switches series/by-book presentation without issuing analysis, alongside its
-existing Arrow, Page, Home/End, and range-selection keys.
+activate a destination until the link is invoked. With at least two active
+texts, `v` on the Trends scrubber switches the visible combined/separate
+presentation without issuing analysis, alongside its existing Arrow, Page,
+Home/End, and range-selection keys.
 
 On Trends, reading-footer shortcuts are also page fallbacks; the user does not
 need to focus the footer before reading. A focused local control still wins:

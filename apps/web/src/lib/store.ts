@@ -645,6 +645,8 @@ export interface AppState {
   routeStatus: 'pending' | 'resolved';
   layers: readonly Layer[];
   setPlace(place: Place): void;
+  /** Correct an unavailable place without adding a history entry. */
+  replacePlace(place: Place): void;
   pushLayer(
     kind: Exclude<LayerKind, 'place'>,
     target: unknown,
@@ -2375,6 +2377,21 @@ export function createAppRuntime(
         rememberLayer(next, layers);
         writeNavigation('push', place, layers, { resolveRoute: true });
       },
+      replacePlace(place) {
+        if (
+          !PLACES.includes(place)
+          || (place === get().place && get().routeStatus === 'resolved')
+        ) return;
+        const next: Layer = {
+          kind: 'place',
+          id: newLayerId(),
+          target: Object.freeze({ place }),
+          returnFocusTo: `place-${get().place}-heading`,
+        };
+        const layers = replaceTopLayer(get().layers, next);
+        rememberLayer(next, layers);
+        writeNavigation('replace', place, layers, { resolveRoute: true });
+      },
       pushLayer(kind, target, returnFocusTo) {
         const next = freshLayer(kind, target, returnFocusTo);
         const layers = pushLayerStack(get().layers, next);
@@ -2800,7 +2817,8 @@ export function createAppRuntime(
       },
 
       setTrendView(view) {
-        set({ trendView: view }); // presentation-only: no query is reissued
+        const textCount = get().projectSession?.project.data.order.length ?? 0;
+        set({ trendView: textCount > 1 ? view : 'series' }); // presentation-only: no query is reissued
       },
 
       applyTrendSettings(input) {
@@ -4155,7 +4173,10 @@ export function createAppRuntime(
           || restoredTrendBins.count !== workspace.views.trend.bins.count;
         const compare = workspace.views.compare;
         set({
-          trendView: workspace.views.trend.mode,
+          trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
+            || (workspace.corpus.kind === 'library' && workspace.corpus.order.length === 0)
+            ? workspace.views.trend.mode
+            : 'series',
           trendBins: restoredTrendBins,
           trendMeasure: workspace.views.trend.measure,
           trendSettingsNotice: fittedRestoredTrendBins === null
@@ -4386,6 +4407,10 @@ export function createAppRuntime(
       removedGroups: store.getState().projectSession?.project.id !== next.project.id
         ? []
         : store.getState().removedGroups,
+      trendView: next.project.data.order.length === 1
+        && !next.imports.some((pendingImport) => pendingImport.status !== 'failed')
+        ? 'series'
+        : store.getState().trendView,
     });
     if (prevKey !== nextKey) {
       readerLane.supersede();

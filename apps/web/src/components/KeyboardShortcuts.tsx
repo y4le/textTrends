@@ -4,6 +4,7 @@ import {
   shortcutHelpSections,
   shortcutMatches,
 } from '../lib/shortcuts.ts';
+import { useApp } from '../lib/store-instance.ts';
 import { UtilityPane } from './UtilityPane.tsx';
 
 export function KeyboardShortcuts({
@@ -13,7 +14,15 @@ export function KeyboardShortcuts({
   readonly context: ShortcutHelpContext;
   readonly onClose: () => void;
 }) {
-  const sections = shortcutHelpSections(context);
+  const activeTextCount = useApp(
+    (state) => state.projectSession?.project.data.order.length ?? 0,
+  );
+  const sections = shortcutHelpSections(context).map((section) => ({
+    ...section,
+    entries: section.entries.filter((entry) =>
+      activeTextCount > 1
+      || (entry.id !== 'go-compare' && entry.id !== 'trend-toggle-view')),
+  })).filter((section) => section.entries.length > 0);
   const gestures = context === 'reader'
     ? new Map([['Reader', [
         ['Touch', 'Tap a page edge to turn; drag vertically to scroll or select text.'],

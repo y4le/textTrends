@@ -10,11 +10,14 @@ export function TrendsPlace() {
   const series = useApp((state) => state.series);
   const trendView = useApp((state) => state.trendView);
   const setTrendView = useApp((state) => state.setTrendView);
+  const activeTextCount = useApp(
+    (state) => state.projectSession?.project.data.order.length ?? 0,
+  );
   const presentation = usePresentation();
 
   return (
     <>
-      {series.length > 0 && (
+      {series.length > 0 && activeTextCount > 1 && (
         <div
           role="group"
           aria-label="Trend view"
@@ -47,7 +50,7 @@ export function TrendsPlace() {
                 padding: 'var(--space-1) var(--space-2)',
               }}
             >
-              {view === 'series' ? 'series' : 'by book'}
+              {view === 'series' ? 'combined' : 'separate'}
             </button>
           ))}
         </div>

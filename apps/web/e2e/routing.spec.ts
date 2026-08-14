@@ -1,5 +1,12 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, trace, trackCorpusRequests } from './helpers.ts';
+import {
+  awaitAllReady,
+  awaitReadyCount,
+  gotoPlace,
+  submitAndAwaitFreshResults,
+  trace,
+  trackCorpusRequests,
+} from './helpers.ts';
 import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 
@@ -11,7 +18,7 @@ async function expectOnlyCanonicalPlace(page: Page, active: Place): Promise<void
 }
 
 test('workbench tabs round-trip canonical places without issuing analysis', async ({ page }) => {
-  await page.goto('./?foreign=%2f&p=compare');
+  await page.goto('./?foreign=%2f&p=trends');
   await awaitAllReady(page, { loadDemo: true });
 
   const lens = page.getByRole('navigation', { name: 'Workbench sections' });
@@ -22,6 +29,9 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
     'Vocabulary',
     'Compare',
   ]);
+  await expect(lens.getByRole('link', { name: 'Trends', exact: true }))
+    .toHaveAttribute('aria-current', 'page');
+  await lens.getByRole('link', { name: 'Compare', exact: true }).click();
   await expect(lens.getByRole('link', { name: 'Compare', exact: true }))
     .toHaveAttribute('aria-current', 'page');
 
@@ -126,11 +136,74 @@ test('a fresh p-less workspace opens Inputs without loading a demo implicitly', 
   }, LOCAL_LIBRARY_DB_NAME)).toEqual({ kind: 'library', order: [], docs: [] });
 });
 
-test('compact tabs keep five complete destinations in portrait and landscape', async ({ page }) => {
+test('multi-text controls appear only when at least two inputs are active', async ({ page }) => {
+  await page.goto('./?fresh=1&p=compare');
+  await expect(page).toHaveURL(/\?fresh=1&p=inputs$/);
+  await expect(page.getByRole('status', { name: 'Navigation status' }))
+    .toHaveText('Compare requires at least two active texts. Opening Inputs.');
+  const lens = page.getByRole('navigation', { name: 'Workbench sections' });
+  const compare = lens.getByRole('link', { name: 'Compare', exact: true });
+  await expect(compare).toHaveCount(0);
+
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'one.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('one reference'),
+  });
+  await awaitReadyCount(page, 1);
+  await expect(compare).toHaveCount(0);
+  const oneTextInputsUrl = page.url();
+  await page.evaluate(() => {
+    const url = new URL(location.href);
+    url.searchParams.set('p', 'compare');
+    history.pushState(history.state, '', url);
+    dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
+  });
+  await expect(page).toHaveURL(/\?fresh=1&p=trends$/);
+  await page.goBack();
+  await expect(page).toHaveURL(oneTextInputsUrl);
+  await submitAndAwaitFreshResults(page, 'reference');
+  await gotoPlace(page, 'trends');
+  await expect(page.getByRole('group', { name: 'Trend view' })).toHaveCount(0);
+  const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
+  await expect(scrubber).not.toHaveAttribute('aria-keyshortcuts', /(?:^| )v(?: |$)/);
+  await scrubber.focus();
+  await scrubber.press('v');
+  await expect(page.locator('svg[data-trend-view="by-book"]')).toHaveCount(0);
+  await page.locator('body').press('g');
+  await page.locator('body').press('d');
+  await expect(page).toHaveURL(/\?fresh=1&p=trends$/);
+  await expect(page.getByRole('status', { name: 'Navigation status' }))
+    .toHaveText('Compare requires at least two active texts');
+
+  await page.getByRole('button', { name: 'shortcuts', exact: true }).click();
+  const shortcuts = page.getByRole('dialog', { name: 'Keys & gestures' });
+  await expect(shortcuts.getByText('Go to Trends', { exact: true })).toBeVisible();
+  await expect(shortcuts.getByText('Go to Compare', { exact: true })).toHaveCount(0);
+  await expect(shortcuts.getByText('Toggle combined / separate view', { exact: true }))
+    .toHaveCount(0);
+  await shortcuts.getByRole('button', { name: 'close', exact: true }).click();
+
+  await gotoPlace(page, 'inputs');
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'two.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('two references'),
+  });
+  await awaitReadyCount(page, 2);
+  await expect(compare).toBeVisible();
+  await gotoPlace(page, 'trends');
+  const view = page.getByRole('group', { name: 'Trend view' });
+  await expect(view.getByRole('button')).toHaveText(['combined', 'separate']);
+  await expect(view.getByRole('button', { name: 'combined' }))
+    .toHaveAttribute('aria-pressed', 'true');
+});
+
+test('compact tabs keep every available destination complete in portrait and landscape', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   const lens = page.getByRole('navigation', { name: 'Workbench sections' });
-  await expect(lens.getByRole('link')).toHaveCount(5);
+  await expect(lens.getByRole('link')).toHaveCount(4);
   await expect(lens).toHaveCSS('position', 'fixed');
   const portrait = await lens.boundingBox();
   expect(portrait).not.toBeNull();
@@ -142,7 +215,6 @@ test('compact tabs keep five complete destinations in portrait and landscape', a
     'Trends',
     'Concordance',
     'Vocabulary',
-    'Compare',
   ]);
   const landscape = await lens.boundingBox();
   expect(landscape).not.toBeNull();

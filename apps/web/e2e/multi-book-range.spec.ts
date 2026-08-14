@@ -35,7 +35,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]'))
     .toBeVisible({ timeout: 30_000 });
 
-  await page.getByRole('button', { name: 'by book', exact: true }).click();
+  await page.getByRole('button', { name: 'separate', exact: true }).click();
   await expect(page.locator('[data-range-selection-segment="true"]')).toHaveCount(2);
 
   await gotoPlace(page, 'inputs');

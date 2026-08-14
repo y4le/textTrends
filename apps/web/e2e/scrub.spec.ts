@@ -65,7 +65,7 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   expect(await commits(page, 'series')).toBe(seriesBaseline);
 
   // Probe liveness 1: switching views really commits the other chart.
-  await page.getByRole('button', { name: 'by book' }).click();
+  await page.getByRole('button', { name: 'separate' }).click();
   await expect.poll(() => commits(page, 'by-book')).toBeGreaterThan(0);
   await expect(page.locator('svg[data-trend-view="by-book"] text')).toHaveCount(0);
   const byBookBaseline = await commits(page, 'by-book');

@@ -234,10 +234,9 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect(concordance.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
   await expect(concordance.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'by book' }).click();
+  await expect(page.getByRole('group', { name: 'Trend view' })).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
-  await page.getByRole('button', { name: 'series' }).click();
 
   // Release A after B is fully rendered. A's results now physically arrive,
   // but identity guards keep B's range and all B-scoped evidence unchanged.

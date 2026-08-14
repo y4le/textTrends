@@ -510,6 +510,9 @@ function ScrubSurface({
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
   const setTrendView = useApp((s) => s.setTrendView);
+  const activeTextCount = useApp(
+    (s) => s.projectSession?.project.data.order.length ?? 0,
+  );
   const [preview, setPreview] = useState<RangePreview | null>(null);
   const [rangeAnnouncement, setRangeAnnouncement] = useState('');
   const sliderRef = useRef<HTMLDivElement | null>(null);
@@ -717,8 +720,11 @@ function ScrubSurface({
       applyTouchRangeEffect(reset.effect);
       return;
     }
+    // Keep the hidden shortcut inert below two texts so an in-flight import
+    // cannot collapse a separate-view preference held for the completed corpus.
     if (
       shortcutMatches(e, 'trend-toggle-view')
+      && activeTextCount > 1
       && preview === null
     ) {
       e.preventDefault();
@@ -966,7 +972,7 @@ function ScrubSurface({
           'trend-selection-start',
           'trend-selection-commit',
           'trend-selection-cancel',
-          'trend-toggle-view',
+          ...(activeTextCount > 1 ? ['trend-toggle-view' as const] : []),
         ])}
         aria-valuemin={0}
         aria-valuemax={Math.max(0, layout.totalTokens - 1)}
