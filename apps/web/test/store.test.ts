@@ -3258,8 +3258,31 @@ describe('exact focused-term occurrence navigation', () => {
     });
     expect(occurrenceNavigationText(
       f.store.getState().occurrenceNavigation,
-      f.store.getState().series,
-    )).toBe('no previous holmes occurrence');
+    )).toBe('no previous reference for focused term');
+  });
+
+  it('describes every reference-navigation state without leaking a term label', () => {
+    const base = {
+      snapshot: 's1',
+      seriesId: 'holmes',
+      direction: 1 as const,
+    };
+    expect(occurrenceNavigationText({ ...base, state: { status: 'pending' } }))
+      .toBe('finding next reference for focused term');
+    expect(occurrenceNavigationText({
+      ...base,
+      state: {
+        status: 'ready',
+        hit: { doc: 'a', token: 7, spanTokens: 1, members: [0] },
+      },
+    })).toBe('next reference for focused term');
+    expect(occurrenceNavigationText({ ...base, state: { status: 'edge' } }))
+      .toBe('no next reference for focused term');
+    expect(occurrenceNavigationText({
+      ...base,
+      state: { status: 'error', message: 'worker unavailable' },
+    })).toBe('reference navigation failed: worker unavailable');
+    expect(occurrenceNavigationText(null)).toBe('');
   });
 
   it('replaces an open Reader around the exact hit without stacking another layer', async () => {
@@ -3344,7 +3367,7 @@ describe('exact focused-term occurrence navigation', () => {
     }));
     await flush();
     expect(f.store.getState().occurrenceNavigation?.state).toMatchObject({
-      status: 'error', message: 'worker returned an invalid occurrence',
+      status: 'error', message: 'worker returned an invalid reference',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
   });

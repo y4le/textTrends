@@ -52,10 +52,10 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   await expect(canvas).toBeVisible();
   expect(await canvas.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('none');
 
-  const stepper = page.getByRole('group', { name: 'Barcode occurrence navigation' });
+  const stepper = page.getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ });
   await expect(stepper).toBeVisible();
   await expect(stepper.getByRole('button')).toHaveCount(2);
-  await expect(stepper.getByRole('button', { name: 'Previous Holmes occurrence' })).toBeVisible();
+  await expect(stepper.getByRole('button', { name: 'Previous reference' })).toBeVisible();
   const buttons = await stepper.getByRole('button').all();
   for (const button of buttons) {
     const box = await button.boundingBox();
@@ -63,7 +63,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
     expect(box?.width).toBeGreaterThanOrEqual(48);
   }
 
-  await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
+  await stepper.getByRole('button', { name: 'Next reference' }).click();
   await expect(scrubber).toHaveAttribute('aria-valuetext', /token \d+ of/);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 
@@ -95,7 +95,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   const captions = [await scrubber.getAttribute('aria-valuetext')];
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   for (let index = 0; index < 2; index++) {
-    await stepper.getByRole('button', { name: 'Next Holmes occurrence' }).click();
+    await stepper.getByRole('button', { name: 'Next reference' }).click();
     await expect(scrubber).not.toHaveAttribute('aria-valuetext', captions.at(-1)! ?? '');
     captions.push(await scrubber.getAttribute('aria-valuetext'));
   }
@@ -112,8 +112,11 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
     .getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: /^Moriarty \d+$/ })
     .click();
-  await expect(stepper.getByRole('button', { name: 'Next Moriarty occurrence' })).toBeVisible();
-  await expect(stepper.getByRole('button', { name: 'Next Holmes occurrence' })).toHaveCount(0);
+  const termRow = (term: string) => page.locator('[data-term-occurrences]').filter({ hasText: term });
+  await expect(termRow('Moriarty').getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ }))
+    .toBeVisible();
+  await expect(termRow('Holmes').getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ }))
+    .toHaveCount(0);
 
   await context.close();
 });
@@ -167,7 +170,7 @@ test('a mouse on a coarse iPad-style device hovers and snaps both barcodes witho
     await expect(footerSlider).toHaveAttribute('aria-valuenow', '1');
 
     // Seeing a mouse must not collapse the persistent touch affordances.
-    const stepper = page.getByRole('group', { name: 'Barcode occurrence navigation' });
+    const stepper = page.getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ });
     await expect(stepper).toBeVisible();
     for (const button of await stepper.getByRole('button').all()) {
       const box = await button.boundingBox();

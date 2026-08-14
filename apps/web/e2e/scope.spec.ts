@@ -65,7 +65,8 @@ test('Scope states resident corpus truth and follows the committed range', async
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
   await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
-  await page.getByRole('button', { name: 'Next Holmes occurrence' }).click();
+  await page.locator('[data-term-occurrences]').filter({ hasText: 'Holmes' })
+    .getByRole('button', { name: 'Next Holmes reference' }).click();
   await expect(scope.getByRole('button', { name: 'Clear linked range' })).toBeVisible();
   await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
   await expect(scope.getByRole('status')).toContainText('tokens 1–3');

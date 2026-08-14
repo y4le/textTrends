@@ -566,17 +566,14 @@ export interface OccurrenceNavigationState {
 
 export function occurrenceNavigationText(
   navigation: OccurrenceNavigationState | null,
-  series: readonly SeriesIntent[],
 ): string {
   if (navigation === null) return '';
-  const label = series.find((item) => item.id === navigation.seriesId)?.label
-    ?? 'focused term';
   const way = navigation.direction === 1 ? 'next' : 'previous';
   switch (navigation.state.status) {
-    case 'pending': return `finding ${way} ${label} occurrence`;
-    case 'ready': return `${way} ${label} occurrence`;
-    case 'edge': return `no ${way} ${label} occurrence`;
-    case 'error': return `${label} navigation failed: ${navigation.state.message}`;
+    case 'pending': return `finding ${way} reference for focused term`;
+    case 'ready': return `${way} reference for focused term`;
+    case 'edge': return `no ${way} reference for focused term`;
+    case 'error': return `reference navigation failed: ${navigation.state.message}`;
     default: {
       const exhaustive: never = navigation.state;
       return exhaustive;
@@ -2995,7 +2992,7 @@ export function createAppRuntime(
                   snapshot: snapshot.snapshot,
                   seriesId: focused.id,
                   direction,
-                  state: { status: 'error', message: 'worker returned an invalid occurrence step' },
+                  state: { status: 'error', message: 'worker returned an invalid reference step' },
                 },
               });
               return;
@@ -3029,7 +3026,7 @@ export function createAppRuntime(
                   snapshot: snapshot.snapshot,
                   seriesId: focused.id,
                   direction,
-                  state: { status: 'error', message: 'worker returned an invalid occurrence' },
+                  state: { status: 'error', message: 'worker returned an invalid reference' },
                 },
               });
               return;

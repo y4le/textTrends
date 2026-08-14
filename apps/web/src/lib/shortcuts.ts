@@ -380,14 +380,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'footer-occurrence-previous',
     group: 'Reading footer',
     helpContexts: ['workbench'],
-    label: 'Previous exact focused-term occurrence',
+    label: 'Previous reference for focused term',
     strokes: [{ key: 'W', shift: true }],
   },
   {
     id: 'footer-occurrence-next',
     group: 'Reading footer',
     helpContexts: ['workbench'],
-    label: 'Next exact focused-term occurrence',
+    label: 'Next reference for focused term',
     strokes: [{ key: 'w' }],
   },
   {
@@ -429,14 +429,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'reader-occurrence-previous',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Previous exact focused-term occurrence',
+    label: 'Previous reference for focused term',
     strokes: [{ key: 'W', shift: true }],
   },
   {
     id: 'reader-occurrence-next',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Next exact focused-term occurrence',
+    label: 'Next reference for focused term',
     strokes: [{ key: 'w' }],
   },
   {

@@ -166,7 +166,6 @@ export function App() {
   const readerNavigation = useApp((s) => s.readerNavigation);
   const readerVisibleRange = useApp((s) => s.readerVisibleRange);
   const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
-  const series = useApp((s) => s.series);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
@@ -187,7 +186,7 @@ export function App() {
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
-  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
+  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
 
   const clearShortcutSequence = () => {
     shortcutSequence.current = null;

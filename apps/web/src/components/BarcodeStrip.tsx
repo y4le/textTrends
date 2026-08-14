@@ -299,18 +299,18 @@ export function BarcodeLegend({
             </span>
             {!coarse && track.total > 0 && (
               <>
-                <button type="button" style={navBtn} aria-label={`Previous ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'occurrence' : 'bucket'}`} onClick={() => step(track, -1)}>‹</button>
-                <button type="button" style={navBtn} aria-label={`Next ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'occurrence' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
+                <button type="button" style={navBtn} aria-label={`Previous ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'reference' : 'bucket'}`} onClick={() => step(track, -1)}>‹</button>
+                <button type="button" style={navBtn} aria-label={`Next ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'reference' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
               </>
             )}
             {coarse && stepper.track?.seriesId === track.seriesId && (
               <span
                 role="group"
-                aria-label="Barcode occurrence navigation"
+                aria-label={`Barcode ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'} navigation`}
                 style={{ display: 'inline-flex', gap: 'var(--space-2)' }}
               >
-                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Previous ${labelOf(track.seriesId)} ${stepper.unit}`} onClick={() => step(track, -1)}>‹</button>
-                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Next ${labelOf(track.seriesId)} ${stepper.unit}`} onClick={() => step(track, 1)}>›</button>
+                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Previous ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'}`} onClick={() => step(track, -1)}>‹</button>
+                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Next ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
               </span>
             )}
           </li>

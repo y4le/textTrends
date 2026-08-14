@@ -85,7 +85,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
 
   // Next-occurrence: a fresh bounded Concordance window centered at wolf@1.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'Next wolf occurrence' }).click();
+  await page.getByRole('button', { name: 'Next wolf reference' }).click();
   await expect
     .poll(async () => {
       const t = await trace(page);
@@ -103,7 +103,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   // Stepping again advances to wolf@7 — relative to the current center.
   await gotoPlace(page, 'trends');
   const mark2 = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'Next wolf occurrence' }).click();
+  await page.getByRole('button', { name: 'Next wolf reference' }).click();
   await expect
     .poll(async () => {
       const t = await trace(page);
@@ -120,7 +120,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   // authoritative resolver center the concordance on that exact occurrence.
   // (First move the center elsewhere so the assertion cannot pass stale.)
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'Previous wolf occurrence' }).click();
+  await page.getByRole('button', { name: 'Previous wolf reference' }).click();
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('grid', { name: 'Concordance' })
     .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('2 / 9');

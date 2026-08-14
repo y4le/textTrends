@@ -114,9 +114,9 @@ function ReaderProse({
             key={index}
             role="button"
             tabIndex={0}
-            aria-label={`Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} occurrence in concordance`}
+            aria-label={`Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Concordance`}
             title={[
-              'Show this full occurrence in the concordance',
+              'Show this full reference in Concordance',
               clippedStart ? 'continues from previous page' : '',
               clippedEnd ? 'continues on next page' : '',
             ].filter(Boolean).join(' · ')}
@@ -486,10 +486,10 @@ export function ReaderDrawer({
           aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
           disabled={!focused || occurrencePending}
           onClick={() => stepOccurrence(-1)}
-          title={focused ? `Previous exact ${focused.label} occurrence` : 'No active term'}
+          title={focused ? 'Previous exact reference for focused term' : 'No active term'}
           style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
         >
-          previous {focused?.label ?? 'term'} occurrence
+          previous reference
         </button>
         <button
           className="reader-page-previous"
@@ -517,10 +517,10 @@ export function ReaderDrawer({
           aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
           disabled={!focused || occurrencePending}
           onClick={() => stepOccurrence(1)}
-          title={focused ? `Next exact ${focused.label} occurrence` : 'No active term'}
+          title={focused ? 'Next exact reference for focused term' : 'No active term'}
           style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
         >
-          next {focused?.label ?? 'term'} occurrence
+          next reference
         </button>
       </nav>
     </>

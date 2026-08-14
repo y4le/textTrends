@@ -226,7 +226,6 @@ function FooterInteractive({
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const openReader = useApp((state) => state.openReader);
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
-  const series = useApp((state) => state.series);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const sliderRef = useRef<HTMLDivElement | null>(null);
   const keyHandlerRef = useRef<(event: FooterKeyboardEvent) => void>(() => undefined);
@@ -262,7 +261,7 @@ function FooterInteractive({
   const passageWindow = useRef<PassageWindowV1 | null>(null);
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
-  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation, series);
+  const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
   const footerTouch = useRef(beginFooterTouchGesture());
   const [touchScrubbing, setTouchScrubbing] = useState(false);
   const pointerTap = useRef<{
