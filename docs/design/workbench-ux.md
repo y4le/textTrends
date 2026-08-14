@@ -3,7 +3,7 @@
 *Current product-design authority for the textTrends shell and cross-device
 presentation.*
 
-**STATUS: IMPLEMENTED (updated 2026-08-12).**
+**STATUS: IMPLEMENTED (updated 2026-08-13).**
 
 ## Product principle
 
@@ -32,7 +32,7 @@ There are five stable places:
 
 | Place | Governing question | Contents |
 |---|---|---|
-| Catalog | What texts make up this study? | local library, active order, book measurements, exact totals |
+| Inputs | What texts make up this study? | active order, local library, acquisition, full-text measurements and term counts |
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
 | Concordance | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
@@ -42,16 +42,16 @@ Compare reports log-ratio effect alongside signed G² and the underlying counts
 and document ranges. No confidence intervals are available; the interface says
 so rather than implying precision the analysis contract does not provide.
 
-Catalog is reached through the **Scope** organ. Trends, Concordance, Vocabulary,
-and Compare form the **Lens** organ. Compact portrait bottom-docks the four Lens
-destinations; compact landscape uses a left rail. There is no hamburger or
-analytically ambiguous “More” menu.
+Inputs, Trends, Concordance, Vocabulary, and Compare form one ordered
+**Workbench sections** tab list, with Inputs first. Compact portrait
+bottom-docks all five destinations; compact landscape uses a left rail. There
+is no hamburger or analytically ambiguous “More” menu.
 
 The query string owns one presentation key:
 
 | State | Carrier | Values |
 |---|---|---|
-| Place | `?p=` | `catalog`, `trends`, `concordance`, `vocabulary`, `compare` |
+| Place | `?p=` | `inputs`, `trends`, `concordance`, `vocabulary`, `compare` |
 
 Terms, source text, and workspace data never enter the query string.
 
@@ -60,7 +60,7 @@ Terms, source text, and workspace data never enter the query string.
 At every width the workbench is one column beneath a unified page header:
 
 ```text
-yalethom.as/textTrends + Scope + Lens
+yalethom.as/textTrends + Scope status + Workbench sections
 Active analytical place, full available width
 ── fixed dock ──────────────────────────────
 Terms bucket rail
@@ -68,13 +68,14 @@ Corpus-reading footer
 ```
 
 The publisher signature is the first header item and links to
-`https://yalethom.as/` in the current context. The brand, Scope, and Lens share
-one header row. The selected Scope or Lens control supplies the active place
-name; the analytical surface does not repeat it as an interior title. Scope is
+`https://yalethom.as/` in the current context. The brand, Scope status, and
+Workbench sections share one header row. The selected workbench tab supplies
+the active place name; the analytical surface does not repeat it as an interior
+title. Scope is
 a single-line local horizontal scroll port when its facts do not fit. Compact
 portrait wraps the publisher signature once, after its slash, to preserve that
-Scope port. Compact portrait and landscape move the Lens links to their
-governed bottom or side dock without duplicating the navigation DOM.
+Scope port. Compact portrait and landscape move the Workbench section links to
+their governed bottom or side dock without duplicating the navigation DOM.
 
 Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
@@ -85,7 +86,7 @@ governed row details remain separate history layers.
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
-completeness. Its corpus label opens Catalog. **Method & settings** on Trends,
+completeness. Its corpus label opens Inputs. **Method & settings** on Trends,
 and **Method** elsewhere, opens the same contextual pane.
 
 ### Terms rail
@@ -151,7 +152,7 @@ The fixed reading footer is the lower lane of the dock in all five workbench
 places and is absent in Reader. Its one corpus-order axis aligns a clipped
 current passage, thin all-book sparkline for every shown query, corpus progress,
 document boundaries, and the resident multi-track dispersion barcode. The
-complete dock sits above the compact portrait Lens dock and to the right of the
+complete dock sits above the compact portrait Workbench sections dock and to the right of the
 compact-landscape rail. The source line is a transient `reader-page/1` window.
 Pointer samples are frame-coalesced;
 its independent single-flight lane issues the newest unserved position
@@ -305,12 +306,12 @@ state; closing it with Escape or its visible control restores the invoking
 focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
-`gc`, `gt`, `gk`, `gv`, and `gd` go to Catalog, Trends, Concordance,
+`gi`, `gt`, `gk`, `gv`, and `gd` go to Inputs, Trends, Concordance,
 Vocabulary, and Compare; `gf` focuses the reading footer and `gq` focuses the
 current active term in the fixed rail without scrolling the workbench.
 `[t`/`]t` and `[b`/`]b` clamp through active terms and
-ready books, with a polite boundary announcement. Within the Terms and Lens
-organs, `h`/`l` and Left/Right move horizontal focus; Lens focus does not
+ready books, with a polite boundary announcement. Within the Terms and
+Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
 activate a destination until the link is invoked. On the Trends scrubber, `v`
 switches series/by-book presentation without issuing analysis, alongside its
 existing Arrow, Page, Home/End, and range-selection keys.

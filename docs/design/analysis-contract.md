@@ -75,9 +75,12 @@ document. Analyses use either document-relative or declared-sequence
 coordinates explicitly; they never infer a coordinate from presentation.
 
 A linked selection is transient, snapshot-bound intent made of ordered,
-non-overlapping document token ranges. It scopes trend overlays, dispersion
-overlays, inventory, and frequency work. Continuous `concordance-window`,
-Reader paging, and exact occurrence stepping always use canonical full-corpus
+non-overlapping document token ranges. It scopes selected trend and dispersion
+overlays plus the selection-following inventory and frequency work used by
+Vocabulary and contextual Method surfaces. A separate full-corpus inventory
+resident supplies stable text facts and Inputs provenance; a linked selection
+never cancels or relabels that baseline. Continuous `concordance-window`, Reader
+paging, and exact occurrence stepping always use canonical full-corpus
 coordinates and are never clipped or reissued by that analytical selection.
 
 ## Worker generation

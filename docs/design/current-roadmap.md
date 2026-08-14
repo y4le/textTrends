@@ -1,6 +1,6 @@
 # Current roadmap
 
-This is the reconciliation index for the current tree as of 2026-08-09. The
+This is the reconciliation index for the current tree as of 2026-08-13. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
 the other retained design documents record current product decisions,
 measurement gates, and method contracts.
@@ -11,10 +11,15 @@ measurement gates, and method contracts.
   extraction feed one versioned snapshot/index engine (`packages/core`,
   `packages/extractors`, and `apps/web/src/worker`). One content-addressed local
   library and one last-write-wins workspace own durable browser state.
-- **Five reachable workbench places:** Catalog, Trends, Concordance,
+- **Five reachable workbench places:** Inputs, Trends, Concordance,
   Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
   active-corpus management, term groups, linked selections, frequency,
   keyness, workspace restore, and method surfaces.
+- **Inputs as a first-class composition surface:** empty workspaces open Inputs;
+  non-empty workspaces open Trends. Four acquisition cards share one local
+  library ownership lane, demos become ordinary local texts, and stable
+  full-corpus text details report every active term. See the
+  [Inputs workspace proposal and decision record](inputs-workspace.md).
 - **Direct reading paths:** all workbench places share a transient corpus-order
   footer with current source, all-book trends, progress, and adaptive
   dispersion. It shares token geometry with KWIC and the full-page Reader.
