@@ -26,7 +26,8 @@ The acquisition area contains four bounded cards:
 1. **Active inputs** — the ordered analysis corpus. OS-file drops and saved
    texts can be added here. Pointer drag and keyboard-accessible up/down actions
    use the same ordering command. Removing a text does not delete its saved
-   bytes from the local library.
+   bytes from the local library. A confirmed **Clear all** action resets every
+   active text and term together while retaining those saved bytes.
 2. **Local library** — content-addressed browser-local storage. Files can be
    saved without activation, activated later, or deleted independently.
 3. **Load from Standard Ebooks** — public-domain acquisition through the

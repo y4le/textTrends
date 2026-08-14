@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace, openQuickAdd } from './helpers.ts';
 
 test('local files persist, join active inputs, reorder accessibly, and delete independently', async ({ page }) => {
   await page.goto('./');
@@ -138,4 +138,81 @@ test('removing the last input settles the corpus and gives analysis places a foc
   await emptyPlace.getByRole('button', { name: 'Open Inputs' }).click();
   await expect(page.locator('#place-inputs-heading')).toBeFocused();
   await expect(page).toHaveURL(/[?&]p=inputs(?:&|#|$)/);
+});
+
+test('Clear all confirms one reset, keeps saved texts, and leaves demos additive', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  const order = active.getByRole('list', { name: 'Active input order' }).getByRole('listitem');
+  const clear = active.getByRole('button', { name: 'Clear all active inputs and terms' });
+  const local = page.getByRole('region', { name: 'Local library' });
+  const saved = local.getByRole('list', { name: 'Saved texts' }).getByRole('listitem');
+  await expect(order).toHaveCount(DOC_COUNT);
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(3);
+  await expect(saved).toHaveCount(DOC_COUNT);
+
+  let dismissedMessage = '';
+  page.once('dialog', async (dialog) => {
+    dismissedMessage = dialog.message();
+    await dialog.dismiss();
+  });
+  await clear.click();
+  expect(dismissedMessage).toBe(`Clear ${DOC_COUNT} active texts and 3 terms?\n\nSaved texts will remain in the local library.`);
+  await expect(clear).toBeFocused();
+  await expect(order).toHaveCount(DOC_COUNT);
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(3);
+
+  page.once('dialog', (dialog) => dialog.accept());
+  await clear.click();
+  await expect(active.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(0);
+  await expect(saved).toHaveCount(DOC_COUNT);
+  await expect(clear).toHaveAttribute('aria-disabled', 'true');
+  await expect(clear).toBeFocused();
+  await expect(active.getByRole('status')).toHaveText(
+    `${DOC_COUNT} active texts and 3 terms cleared. Saved texts remain in the local library.`,
+  );
+
+  await expect.poll(() => page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<{ texts: number; terms: number }>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => {
+          const workspace = request.result as {
+            corpus?: { order?: readonly string[] };
+            notebook?: { groups?: readonly unknown[] };
+          } | undefined;
+          resolve({
+            texts: workspace?.corpus?.order?.length ?? -1,
+            terms: workspace?.notebook?.groups?.length ?? -1,
+          });
+        };
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+  }, LOCAL_LIBRARY_DB_NAME), { timeout: 10_000 }).toEqual({ texts: 0, terms: 0 });
+
+  await page.reload();
+  await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
+  await expect(page.locator('.term-bar .term-bucket')).toHaveCount(0);
+  await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(DOC_COUNT);
+
+  const authored = await openQuickAdd(page);
+  await authored.fill('Reader term');
+  await authored.press('Enter');
+  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
+  await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
+  await awaitReadyCount(page, DOC_COUNT);
+  await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Edit term: Holmes' })).toBeVisible();
 });

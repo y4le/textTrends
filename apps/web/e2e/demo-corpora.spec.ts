@@ -59,6 +59,10 @@ test('demo acquisition owns the library lane from fetch through activation', asy
     await route.continue();
   });
   await page.goto('./');
+  const term = await openQuickAdd(page);
+  await term.fill('Reader term');
+  await term.press('Enter');
+  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   const local = page.getByRole('region', { name: 'Local library' });
   await local.evaluate((target) => {
     const transfer = new DataTransfer();
@@ -69,6 +73,14 @@ test('demo acquisition owns the library lane from fetch through activation', asy
 
   await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
   await expect(page.getByText('Loading Sherlock Holmes demo…', { exact: true })).toBeVisible();
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  const clear = active.getByRole('button', { name: 'Clear all terms' });
+  await expect(clear).toHaveAttribute('aria-disabled', 'true');
+  // A stale queued activation can reach the handler after the lease changes;
+  // exercise that defensive guard without overriding the user's inert control.
+  await clear.evaluate((button) => (button as HTMLButtonElement).click());
+  await expect(active.getByRole('status')).toContainText('Another input is being saved');
+  await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
   await expect(local.getByRole('button', { name: 'Delete all' })).toBeDisabled();
   await expect(page.getByLabel('Add files')).toBeDisabled();
   await local.evaluate((target) => {

@@ -1115,6 +1115,115 @@ describe('the session bridge', () => {
     ]);
   });
 
+  it('clears finalized and pending inputs once with the complete notebook and its undo state', () => {
+    const active: SessionState = {
+      ...sessionState(null, {
+        project: {
+          kind: 'library',
+          id: 'library',
+          data: {
+            ...BUILTIN_PROJECT.data,
+            id: 'library',
+            order: ['finalized', 'pending'],
+          },
+        },
+      }),
+      imports: [{
+        doc: 'pending',
+        sourceName: 'pending.txt',
+        library: `txt:${'p'.repeat(64)}`,
+        status: 'planned',
+        published: false,
+      }],
+    };
+    const { store, port } = harness(active, { seed: true });
+    const [kept, removed] = store.getState().notebook.groups;
+    store.getState().setSolo(kept!.id);
+    store.getState().removeGroup(removed!.id);
+    expect(store.getState().removedGroups).toHaveLength(1);
+
+    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 2, terms: 1 });
+    expect(port.calls.filter((call) => call.method === 'removeDocuments')).toEqual([{
+      method: 'removeDocuments',
+      args: [['finalized', 'pending']],
+    }]);
+    expect(store.getState()).toMatchObject({
+      notebook: { groups: [] },
+      activeGroupIds: new Set(),
+      soloGroupId: null,
+      styles: new Map(),
+      series: [],
+      focusedSeries: null,
+      removedGroups: [],
+      inputError: null,
+    });
+  });
+
+  it('refuses an unavailable or read-only corpus without partially clearing terms', () => {
+    const runtime = createAppRuntime(fakeQueryClient().client);
+    runtime.useApp.getState().quickAdd('Watson');
+    expect(runtime.useApp.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
+    expect(runtime.useApp.getState().notebook.groups.map(groupTitle)).toEqual(['Watson']);
+    expect(runtime.useApp.getState().commandError).toBe('the project is still initializing');
+    runtime.dispose();
+
+    const readonly = sessionState(null, {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['bundled'] } },
+    });
+    const { store, port } = harness(readonly, { seed: true });
+    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
+    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes', 'Moriarty']);
+    expect(store.getState().commandError).toMatch(/requires a library corpus/);
+    expect(port.calls).toHaveLength(0);
+  });
+
+  it('keeps the notebook intact when the session refuses the batch removal', () => {
+    const active = sessionState(null, {
+      project: {
+        kind: 'library',
+        id: 'library',
+        data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
+      },
+    });
+    const { store, port } = harness(active, { seed: true });
+    const removed = store.getState().notebook.groups[1]!;
+    store.getState().removeGroup(removed.id);
+    expect(store.getState().removedGroups).toHaveLength(1);
+    port.errors.removeDocuments = new SessionCommandError('batch removal refused');
+
+    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
+    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes']);
+    expect(store.getState().activeGroupIds.size).toBe(1);
+    expect(store.getState().removedGroups).toHaveLength(1);
+    expect(store.getState().commandError).toBe('batch removal refused');
+    expect(port.calls.filter((call) => call.method === 'removeDocuments')).toHaveLength(1);
+  });
+
+  it('keeps unrelated term undo history when only texts are cleared', () => {
+    const active = sessionState(null, {
+      project: {
+        kind: 'library',
+        id: 'library',
+        data: { ...BUILTIN_PROJECT.data, id: 'library', order: ['active'] },
+      },
+    });
+    const { store } = harness(active);
+    store.getState().quickAdd('Holmes');
+    store.getState().removeGroup(store.getState().notebook.groups[0]!.id);
+    expect(store.getState().notebook.groups).toHaveLength(0);
+    expect(store.getState().removedGroups).toHaveLength(1);
+
+    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 1, terms: 0 });
+    expect(store.getState().removedGroups).toHaveLength(1);
+  });
+
+  it('treats an already-empty local workspace as a command-free no-op', () => {
+    const empty = sessionState(null, { project: { kind: 'library', id: 'library' } });
+    const { store, port } = harness(empty);
+    expect(store.getState().clearActiveInputsAndTerms()).toEqual({ texts: 0, terms: 0 });
+    expect(port.calls).toHaveLength(0);
+  });
+
   it('merges starter terms additively and activates only those that fit', () => {
     const { store } = harness(undefined, { seed: true });
     expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes', 'Moriarty']);

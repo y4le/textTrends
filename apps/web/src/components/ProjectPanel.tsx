@@ -16,6 +16,7 @@ import {
 import { BUILTIN_CORPORA, builtinCorpusOption, SOURCE_FILE_ACCEPT, type BuiltinCorpusId } from '../lib/project.ts';
 import type { SourceStatus } from '../lib/project-session.ts';
 import { libraryOperation } from '../lib/library-operation.ts';
+import { inputResetCopy } from '../lib/input-reset-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
@@ -59,6 +60,8 @@ export function ProjectPanel({
   const removeImport = useApp((s) => s.removeImport);
   const removeDocument = useApp((s) => s.removeDocument);
   const removeDocuments = useApp((s) => s.removeDocuments);
+  const clearActiveInputsAndTerms = useApp((s) => s.clearActiveInputsAndTerms);
+  const termCount = useApp((s) => s.notebook.groups.length);
   const reorder = useApp((s) => s.reorder);
   const workspacePersistence = useApp((s) => s.workspacePersistence);
   const retryWorkspaceSave = useApp((s) => s.retryWorkspaceSave);
@@ -373,6 +376,30 @@ export function ProjectPanel({
     setReorderNotice(`${title} moved to position ${to + 1} of ${order.length}.`);
   };
 
+  const clearActive = (): void => {
+    const textCount = finalizedDocs.length + pendingImports.length;
+    if (textCount === 0 && termCount === 0) return;
+    if (libraryOperation.isBusy()) {
+      setActiveNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
+    const copy = inputResetCopy(textCount, termCount);
+    if (!window.confirm(copy.confirmation)) return;
+    const lease = claimLibrary();
+    if (lease === null) {
+      setActiveNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
+    try {
+      const cleared = clearActiveInputsAndTerms();
+      if (cleared.texts + cleared.terms === 0) return;
+      setReorderNotice('');
+      setActiveNotice(inputResetCopy(cleared.texts, cleared.terms).notice);
+    } finally {
+      releaseLibrary(lease);
+    }
+  };
+
   return (
     <section aria-labelledby="project-heading" className="input-workspace">
       <Heading id="project-heading" className="input-workspace-heading">Input workspace</Heading>
@@ -395,6 +422,16 @@ export function ProjectPanel({
           <div className="input-card-heading-row">
             <h4 id="active-inputs-heading">Active inputs</h4>
             <span>{finalizedDocs.length + pendingImports.length} text{finalizedDocs.length + pendingImports.length === 1 ? '' : 's'}</span>
+            <span className="input-card-spacer" />
+            <button
+              type="button"
+              aria-disabled={libraryBusy || (finalizedDocs.length + pendingImports.length === 0 && termCount === 0)}
+              aria-label={inputResetCopy(finalizedDocs.length + pendingImports.length, termCount).accessibleName}
+              onClick={clearActive}
+              style={SMALL_BUTTON_STYLE}
+            >
+              Clear all
+            </button>
           </div>
           <p className="input-card-help">
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.

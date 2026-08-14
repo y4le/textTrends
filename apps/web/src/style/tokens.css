@@ -530,6 +530,11 @@ canvas {
   color: var(--fg-muted);
 }
 
+.input-card-heading-row button[aria-disabled='true'],
+.input-card-heading-row button:disabled {
+  opacity: 0.55;
+}
+
 .input-card-help,
 .input-card-error,
 .input-card-status,

@@ -846,6 +846,9 @@ export interface AppState {
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
   removeDocuments(docs: readonly string[]): void;
+  /** Clear the active corpus and the complete term notebook as one user
+   *  command. Saved library bytes remain independently owned. */
+  clearActiveInputsAndTerms(): { readonly texts: number; readonly terms: number };
   editMeta(doc: string, patch: MetaPatch): void;
   setLanguage(doc: string, language: string): void;
   reorder(order: readonly string[]): void;
@@ -4076,6 +4079,49 @@ export function createAppRuntime(
       },
       removeDocuments(docs) {
         command((s) => s.removeDocuments(docs));
+      },
+      clearActiveInputsAndTerms() {
+        if (session === null) {
+          set({ commandError: 'the project is still initializing' });
+          return { texts: 0, terms: 0 };
+        }
+        const sessionState = session.getState();
+        const documentIds = [...new Set([
+          ...sessionState.project.data.order,
+          ...sessionState.project.data.docs.map((doc) => doc.doc),
+          ...sessionState.imports.map((item) => item.doc),
+        ])];
+        const termCount = get().notebook.groups.length;
+        if (documentIds.length === 0 && termCount === 0) return { texts: 0, terms: 0 };
+        if (documentIds.length > 0 && sessionState.project.kind !== 'library') {
+          set({ commandError: 'clear inputs requires a library corpus (the built-in is read-only)' });
+          return { texts: 0, terms: 0 };
+        }
+
+        // Run the only fallible half first. Once the session accepts the one
+        // batch removal, its synchronous publication invalidates the old
+        // snapshot and generation exactly once; notebook adoption then clears
+        // every derived term invariant without creating per-term undo entries.
+        if (documentIds.length > 0) {
+          let accepted = false;
+          command((s) => {
+            s.removeDocuments(documentIds);
+            accepted = true;
+          });
+          if (!accepted) return { texts: 0, terms: 0 };
+        }
+        if (termCount > 0) {
+          adoptNotebook({
+            notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
+            activeGroupIds: new Set(),
+            soloGroupId: null,
+          }, { reissue: true });
+        }
+        // When terms are part of the confirmed reset, their deletion undo
+        // history is term state too and must not resurrect a cleared term.
+        // A texts-only reset leaves an unrelated term undo available.
+        set({ ...(termCount > 0 ? { removedGroups: [] } : {}), inputError: null });
+        return { texts: documentIds.length, terms: termCount };
       },
       editMeta(doc, patch) {
         command((s) => s.editMeta(doc, patch));
