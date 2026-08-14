@@ -1,6 +1,7 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, trace } from './helpers.ts';
+import { awaitAllReady, trace, trackCorpusRequests } from './helpers.ts';
 import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 
 async function expectOnlyCanonicalPlace(page: Page, active: Place): Promise<void> {
   for (const [place, heading] of Object.entries(PLACE_HEADING) as [Place, string][]) {
@@ -11,7 +12,7 @@ async function expectOnlyCanonicalPlace(page: Page, active: Place): Promise<void
 
 test('workbench tabs round-trip canonical places without issuing analysis', async ({ page }) => {
   await page.goto('./?foreign=%2f&p=compare');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   await expect(lens.getByRole('link')).toHaveText([
@@ -47,7 +48,7 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
   const reloadMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   const status = page.getByRole('region', { name: 'Corpus status' });
-  await status.getByRole('button', { name: 'Sherlock Holmes', exact: true }).click();
+  await status.getByRole('button', { name: 'Library corpus', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=inputs$/);
   await expectOnlyCanonicalPlace(page, 'inputs');
   await page.getByRole('navigation', { name: 'Workbench sections' })
@@ -67,7 +68,7 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
 
 test('Vocabulary and Compare each mount as a closed canonical place', async ({ page }) => {
   await page.goto('./?p=vocabulary');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await expectOnlyCanonicalPlace(page, 'vocabulary');
   await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
   await expect(page.getByRole('table', { name: 'Book analysis' })).toHaveCount(0);
@@ -90,11 +91,39 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
   expect(queryOps).toEqual([]);
 });
 
-test('unknown places use the loaded-corpus Trends default', async ({ page }) => {
+test('unknown places use the empty-corpus Inputs default', async ({ page }) => {
   await page.goto('./?foreign=kept&p=obsolete');
-  await expect(page).toHaveURL(/\?foreign=kept&p=trends$/);
-  await expect(page.getByRole('link', { name: 'Trends', exact: true }))
+  await expect(page).toHaveURL(/\?foreign=kept&p=inputs$/);
+  await expect(page.getByRole('link', { name: 'Inputs', exact: true }))
     .toHaveAttribute('aria-current', 'page');
+});
+
+test('a fresh p-less workspace opens Inputs without loading a demo implicitly', async ({ page }) => {
+  const requests = trackCorpusRequests(page);
+  await page.goto('./?fresh=1');
+  await expect(page).toHaveURL(/\?fresh=1&p=inputs$/);
+  await expect(page.getByRole('link', { name: 'Inputs', exact: true }))
+    .toHaveAttribute('aria-current', 'page');
+  await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Load Sherlock Holmes demo' })).toBeVisible();
+  expect(requests).toEqual([]);
+  await expect.poll(() => page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const workspace = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return (workspace as { corpus?: { kind?: string; order?: readonly string[] } } | undefined)?.corpus;
+    } finally {
+      database.close();
+    }
+  }, LOCAL_LIBRARY_DB_NAME)).toEqual({ kind: 'library', order: [], docs: [] });
 });
 
 test('compact tabs keep five complete destinations in portrait and landscape', async ({ page }) => {

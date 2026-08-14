@@ -9,6 +9,7 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   gotoPlace,
   submitAndAwaitFreshResults,
   trace,
@@ -60,9 +61,10 @@ async function awaitOps(
 
 test('slice 2: exact occurrences → linked range → gap-free reader → baseline', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'slice-two.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(CORPUS, 'utf-8'),

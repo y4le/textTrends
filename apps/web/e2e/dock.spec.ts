@@ -15,12 +15,13 @@ test('the fixed dock reserves Terms and Reading before results arrive', async ({
   const terms = page.getByRole('complementary', { name: 'Terms' });
   const termButtons = terms.locator('[data-term-focus]:not(:disabled)');
   await expect(terms).toBeVisible();
-  await expect(termButtons).toHaveCount(3);
+  await expect(termButtons).toHaveCount(0);
   await expect.poll(() => rootMetric(page, '--reading-reserve-block-size'))
     .toBeGreaterThan(0);
   const railTopBefore = (await terms.boundingBox())?.y;
 
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
+  await expect(termButtons).toHaveCount(3);
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   await expect(footer).toBeVisible();
   const [dockBox, termsBox, footerBox] = await Promise.all([
@@ -62,7 +63,7 @@ test('the fixed dock reserves Terms and Reading before results arrive', async ({
 test('the compact dock stays one row, pins its actions, and opens Undo upward', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const dock = page.locator('.workbench-dock');
   const terms = page.getByRole('complementary', { name: 'Terms' });
@@ -125,7 +126,7 @@ test('the coarse regular-width rail keeps every visible action at target size', 
   test.skip(testInfo.project.name !== 'webkit-compact', 'requires a coarse-pointer project');
   await page.setViewportSize({ width: 834, height: 1112 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const terms = page.getByRole('complementary', { name: 'Terms' });
   const edit = terms.getByRole('button', { name: /^Edit term:/ }).first();

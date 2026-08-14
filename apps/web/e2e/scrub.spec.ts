@@ -20,7 +20,7 @@ const commits = (page: import('@playwright/test').Page, view: 'series' | 'by-boo
 
 test('scrubbing moves the cursor without re-committing the chart', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'holmes');
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });

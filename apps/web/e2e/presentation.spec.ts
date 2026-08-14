@@ -17,7 +17,7 @@ for (const viewport of viewports) {
   test(`${viewport.name} keeps the page inside its visual viewport`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
 
     const geometry = await page.evaluate(() => ({
       clientWidth: document.documentElement.clientWidth,
@@ -61,7 +61,7 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
 
     const geometry = await page.locator('.app-header').evaluate((header) => {
       const box = header.getBoundingClientRect();
@@ -101,7 +101,7 @@ test('workbench regions use the governed layout at regular and wide widths', asy
   ]) {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     const layout = await page.locator('.workbench').evaluate((node) => {
       const grid = getComputedStyle(node);
       const place = getComputedStyle(
@@ -122,7 +122,7 @@ test('workbench regions use the governed layout at regular and wide widths', asy
 test('a compact exact-term editor stays inside the page', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   await manager
@@ -154,7 +154,7 @@ test('a compact exact-term editor stays inside the page', async ({ page }) => {
 test('compact query editing expands in place inside one Back-governed manager', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   const edit = page
@@ -180,7 +180,7 @@ test('compact query editing expands in place inside one Back-governed manager', 
 test('the Terms bar remains a first-class editor across places', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
 
   await gotoPlace(page, 'vocabulary');
@@ -203,7 +203,7 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   for (const control of [
     page.locator('.term-bucket-focus').first(),
@@ -219,7 +219,7 @@ test('compact query controls meet the 44px touch-target floor', async ({ page })
 test('responsive query composition never reissues analysis', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -239,7 +239,7 @@ test('responsive query composition never reissues analysis', async ({ page }) =>
 test('an open new-term row keeps one modal draft across width classes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
@@ -277,7 +277,7 @@ test('an open new-term row keeps one modal draft across width classes', async ({
 test('an expanded term row keeps its draft and focus across width classes', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
@@ -312,7 +312,7 @@ test('an expanded term row keeps its draft and focus across width classes', asyn
 test('scrollable analytical tables expose named regions', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
   await gotoPlace(page, 'inputs');
@@ -327,7 +327,7 @@ test('coarse input sizing does not inflate dense concordance rows', async ({ bro
   });
   const page = await context.newPage();
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
@@ -381,7 +381,7 @@ test('structural rules and safe viewport contract are active', async ({ page }) 
 test('the horizontally overflowing Corpus and analysis status are keyboard-scrollable', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const details = page.getByRole('group', { name: 'Corpus and analysis status' });
   await expect(details).toHaveAttribute('tabindex', '0');
   expect(await details.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);

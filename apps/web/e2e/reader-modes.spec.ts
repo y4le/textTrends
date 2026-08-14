@@ -6,7 +6,7 @@ import { awaitAllReady, SHERLOCK, trace } from './helpers.ts';
 async function openReader(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
   const grid = page.getByRole('grid', { name: 'Concordance' });
@@ -110,7 +110,7 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
     };
   }));
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('navigation', { name: 'Workbench sections' })
     .getByRole('link', { name: 'Concordance', exact: true }).click();
   await page.getByRole('grid', { name: 'Concordance' })

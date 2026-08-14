@@ -3,7 +3,7 @@ import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
 
 test('book focus preserves scope while only this book explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
 
   const scope = page.getByRole('region', { name: 'Corpus status' });

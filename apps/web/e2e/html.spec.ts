@@ -7,7 +7,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 
 const MESSY_HTML = `<!DOCTYPE html>
 <html>
@@ -32,10 +32,11 @@ const MESSY_HTML = `<!DOCTYPE html>
 
 test('a non-well-formed HTML file imports, extracts body text, and analyzes it', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
 
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'owls.html',
     mimeType: 'text/html',
     buffer: Buffer.from(MESSY_HTML, 'utf-8'),

@@ -152,7 +152,6 @@ import {
 import { parseRoute, routeSearch, type RouteV1 } from './route.ts';
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
-import { builtinCorpusOption, type BuiltinCorpusId } from './project.ts';
 
 /** Source budgets are call-site intent, not the worker's protocol ceiling.
  * The footer is latency-sensitive and only renders one clipped passage; the
@@ -615,7 +614,6 @@ export interface SessionPort {
   subscribe(listener: (state: SessionState) => void): () => void;
   dispose(): void;
   start(): void;
-  openBuiltinProject(id: string): void;
   createLibraryCorpus(files: readonly LocalLibraryFile[]): void;
   appendFiles(files: readonly LocalLibraryFile[]): void;
   removeImport(doc: string): void;
@@ -639,6 +637,8 @@ export interface AppState {
    *  command the UI should have prevented). Async policy failures stay in
    *  `projectSession`. */
   commandError: string | null;
+  /** Place-independent informational notice (startup reconciliation, etc.). */
+  appNotice: string | null;
   workspacePersistence: WorkspacePersistenceState;
 
   // ── Route/layer state: session presentation, never research data. ──
@@ -692,6 +692,9 @@ export interface AppState {
    *  the stored projection every panel and query lane consumes. */
   series: readonly SeriesIntent[];
   inputError: string | null;
+  /** Add demo suggestions without replacing authored terms. Valid new terms
+   *  enter the notebook; as many as fit also become active. */
+  mergeStarterTerms(input: string): { readonly added: number; readonly activated: number; readonly skipped: number };
   focusedSeries: string | null;
   /** Seeded 'pending' per issued series — panels must not show stale arrays. */
   trends: ReadonlyMap<string, SeriesTrendState>;
@@ -834,10 +837,9 @@ export interface AppState {
   runQueries(): void;
 
   // ── Session command wrappers (forward to the one attached session). ──
-  /** Import files: create a library corpus from a built-in, or append to the
-   *  active library corpus. */
-  openBuiltinCorpus(id: BuiltinCorpusId): void;
-  importFiles(files: readonly LocalLibraryFile[]): void;
+  /** True when the session accepted the batch; false when a command boundary
+   *  refused it and published `commandError`. */
+  importFiles(files: readonly LocalLibraryFile[]): boolean;
   removeImport(doc: string): void;
   removeDocument(doc: string): void;
   removeDocuments(docs: readonly string[]): void;
@@ -847,6 +849,7 @@ export interface AppState {
   /** Reopen analysis on the SAME lifetime session (post-error retry). */
   retryAnalysis(): void;
   clearCommandError(): void;
+  clearAppNotice(): void;
   retryWorkspaceSave(): void;
   /** Restore preferences after the composition root has selected the corpus. */
   restoreWorkspace(workspace: WorkspaceV1): void;
@@ -936,6 +939,8 @@ export interface AppRuntime {
   failBootstrap(error: unknown): void;
   /** Surface a recoverable startup reconciliation to the user. */
   reportNotice(message: string): void;
+  /** Surface a non-fatal startup durability failure through the normal retry UI. */
+  reportWorkspaceFailure(error: unknown): void;
   /** Fence the bridge and dispose the session. */
   dispose(): void;
 }
@@ -1090,6 +1095,44 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         classes: state.keynessView.classes,
         sort: state.keynessView.sort,
         pageSize: state.keynessView.pageLimit,
+      },
+    },
+  };
+}
+
+/** A fresh install is a durable, fully valid local workspace with no inputs.
+ *  Demo content is an explicit acquisition, never implicit project state. */
+export function emptyLibraryWorkspace(): WorkspaceV1 {
+  return {
+    schema: 'texttrends/workspace/1',
+    corpus: { kind: 'library', order: [], docs: [] },
+    notebook: { schema: 'texttrends/query-notebook/3', groups: [] },
+    active: [],
+    kwicEnabled: [],
+    views: {
+      trend: {
+        mode: 'series',
+        focusedDoc: null,
+        bins: DEFAULT_TREND_BINS,
+        measure: DEFAULT_TREND_MEASURE,
+      },
+      frequency: {
+        minCount: 1,
+        minDocFreq: 1,
+        classes: ['lexical'],
+        sort: { by: 'count', dir: -1 },
+        pageSize: 100,
+      },
+      compare: {
+        mode: DEFAULT_KEYNESS_VIEW.mode,
+        documentA: null,
+        documentB: null,
+        restOn: DEFAULT_KEYNESS_VIEW.restOn,
+        minCountTotal: DEFAULT_KEYNESS_VIEW.minCountTotal,
+        minDocFreqTotal: DEFAULT_KEYNESS_VIEW.minDocFreqTotal,
+        classes: DEFAULT_KEYNESS_VIEW.classes,
+        sort: DEFAULT_KEYNESS_VIEW.sort,
+        pageSize: DEFAULT_KEYNESS_VIEW.pageLimit,
       },
     },
   };
@@ -2294,29 +2337,6 @@ export function createAppRuntime(
       }
     };
 
-    /** Replace the comparison notebook in one publication when a demo corpus
-     *  changes. A later durable research load for that corpus may supersede
-     *  these starter terms; on a first visit they make the demo immediately
-     *  meaningful instead of carrying another corpus's vocabulary across. */
-    const seedDemoNotebook = (input: string) => {
-      const parsed = parseQuickAdd(input, newId, MAX_SERIES, []);
-      if (parsed.error !== null) throw new Error(`invalid built-in starter terms: ${parsed.error}`);
-      const notebook: QueryNotebookV1 = {
-        schema: 'texttrends/query-notebook/3',
-        groups: parsed.groups,
-      };
-      const ids = new Set(parsed.groups.map((group) => group.id));
-      adoptNotebook(
-        {
-          notebook,
-          activeGroupIds: ids,
-          soloGroupId: null,
-        },
-        { reissue: true },
-      );
-      set({ inputError: null, notebookError: null, removedGroups: [] });
-    };
-
     /** Refuse a notebook action with one bounded message (no state change). */
     const refuseNotebook = (message: string): void => set({ notebookError: message });
 
@@ -2329,6 +2349,7 @@ export function createAppRuntime(
       loadingPhase: null,
       loadError: null,
       commandError: null,
+      appNotice: null,
       workspacePersistence: { phase: 'idle' },
       place: bootRoute.place ?? 'inputs',
       routeStatus: bootRoute.place === null ? 'pending' : 'resolved',
@@ -2437,6 +2458,45 @@ export function createAppRuntime(
         const active = new Set(state.activeGroupIds);
         for (const g of parsed.groups) active.add(g.id); // room was preflighted
         adoptNotebook({ notebook, activeGroupIds: active }, { reissue: true });
+      },
+
+      mergeStarterTerms(input) {
+        const state = get();
+        let groups = [...state.notebook.groups];
+        const active = new Set(state.activeGroupIds);
+        let added = 0;
+        let activated = 0;
+        let skipped = 0;
+        // Deliberately parse one label at a time: unlike authored quick-add,
+        // demo suggestions are best-effort under capacity and one invalid or
+        // duplicate suggestion must not refuse its valid siblings atomically.
+        for (const raw of input.split(',')) {
+          const label = raw.trim();
+          if (label === '') continue;
+          if (groups.length >= NOTEBOOK_LIMITS_V1.maxGroups) {
+            skipped += 1;
+            continue;
+          }
+          const parsed = parseQuickAdd(label, newId, 1, groups);
+          if (parsed.error !== null || parsed.groups.length === 0) {
+            skipped += 1;
+            continue;
+          }
+          const [group] = parsed.groups;
+          groups.push(group!);
+          added += 1;
+          if (active.size < MAX_SERIES) {
+            active.add(group!.id);
+            activated += 1;
+          }
+        }
+        if (added > 0) {
+          adoptNotebook(
+            { notebook: { schema: 'texttrends/query-notebook/3', groups }, activeGroupIds: active },
+            { reissue: true },
+          );
+        }
+        return { added, activated, skipped };
       },
 
       addTerm(input) {
@@ -3919,26 +3979,14 @@ export function createAppRuntime(
       },
 
       // ── Session command wrappers ──────────────────────────────────────────
-      openBuiltinCorpus(id) {
-        const current = get().projectSession?.project;
-        if (current?.id === id) return;
-        const option = builtinCorpusOption(id);
-        if (option === undefined) {
-          set({ commandError: `unknown built-in corpus '${id}'` });
-          return;
-        }
-        let opened = false;
-        command((s) => {
-          s.openBuiltinProject(id);
-          opened = true;
-        });
-        if (opened) seedDemoNotebook(option.defaultTerms);
-      },
       importFiles(files) {
+        let accepted = false;
         command((s) => {
           if (s.getState().project.kind === 'builtin') s.createLibraryCorpus(files);
           else s.appendFiles(files);
+          accepted = true;
         });
+        return accepted;
       },
       removeImport(doc) {
         command((s) => s.removeImport(doc));
@@ -3963,6 +4011,9 @@ export function createAppRuntime(
       },
       clearCommandError() {
         set({ commandError: null });
+      },
+      clearAppNotice() {
+        set({ appNotice: null });
       },
       retryWorkspaceSave() {
         workspacePausedKey = null;
@@ -4307,7 +4358,17 @@ export function createAppRuntime(
       });
     },
     reportNotice(message: string) {
-      if (!disposed) store.setState({ commandError: message });
+      if (!disposed) store.setState({ appNotice: message });
+    },
+    reportWorkspaceFailure(error: unknown) {
+      if (!disposed) {
+        store.setState({
+          workspacePersistence: {
+            phase: 'error',
+            message: `Workspace could not be saved: ${msg(error)}`,
+          },
+        });
+      }
     },
     dispose() {
       disposed = true;

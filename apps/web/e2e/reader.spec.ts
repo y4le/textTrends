@@ -8,6 +8,7 @@ import { expect, test, type Page, type Worker } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   gotoPlace,
   submitAndAwaitFreshResults,
   trace,
@@ -28,6 +29,7 @@ async function importCorpus(
   expectedReady: number,
 ): Promise<void> {
   await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -193,7 +195,7 @@ const gateReleaseNewest = (worker: Worker) =>
 
 test.beforeEach(async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await importCorpus(page, 'reader.txt', CORPUS, 1);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');

@@ -23,11 +23,11 @@ test.describe.configure({ mode: 'serial' });
 
 test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page }, testInfo) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const cold = await trace(page);
-  const beginAt = events(cold, { direction: 'to-worker', t: 'begin-generation' })[0]!.at;
-  const barrierAt = events(cold, { direction: 'from-worker', t: 'generation-ready' })[0]!.at;
+  const beginAt = events(cold, { direction: 'to-worker', t: 'begin-generation' }).at(-1)!.at;
+  const barrierAt = events(cold, { direction: 'from-worker', t: 'generation-ready' }).at(-1)!.at;
   const ingestAt = events(cold, { direction: 'to-worker', t: 'ingest' })[0]!.at;
   const published = events(cold, { direction: 'from-worker', t: 'snapshot-published' });
   const coldBarrierMs = barrierAt - beginAt;

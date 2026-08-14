@@ -16,7 +16,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace } from './helpers.ts';
 
 const BOOK = 'arthur-conan-doyle_a-study-in-scarlet';
 const RAW_BASE = `https://raw.githubusercontent.com/standardebooks/${BOOK}/master/src/epub`;
@@ -71,8 +71,9 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   });
 
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
 
   // Browsing is purely the baked snapshot: open the catalog and see a series
   // render complete and position-ordered with NO external catalog traffic
@@ -95,7 +96,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   // fixtures), repackages it, and ingests it like an uploaded .epub.
   await rows.nth(0).getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
-  await expect(page.getByText('A Study in Scarlet')).toBeVisible();
+  await expect(page.getByText('A Study in Scarlet', { exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Files on this device' })).toContainText(`${BOOK}.epub`);
   expect(apiRequests).toEqual([]);
   expect(rawRequests[0]).toBe(`${RAW_BASE}/content.opf`);
@@ -106,7 +107,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   // Re-acquiring the same deterministic archive neither duplicates the local
   // record nor activates a second copy of the same source.
   await rows.nth(0).getByRole('button', { name: 'add' }).click();
-  await expect(page.getByRole('list', { name: 'Files on this device' }).getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByRole('list', { name: 'Files on this device' }).getByRole('listitem')).toHaveCount(7);
   await expect(page.getByRole('list', { name: 'Documents' }).getByRole('listitem')).toHaveCount(1);
   await expect(page.getByText(/already saved.*already active/)).toBeVisible();
 });
@@ -131,7 +132,7 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
     };
   });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await page
@@ -236,7 +237,7 @@ test('the catalog asset loads on demand, and a failed fetch shows a genuinely re
     return route.abort();
   });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
   expect(aborted, 'no catalog asset request before the panel opens').toBe(0);
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();

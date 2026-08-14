@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   gotoPlace,
   submitAndAwaitFreshResults,
   trace,
@@ -41,7 +42,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   });
   const page = await context.newPage();
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'trends');
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
@@ -122,9 +123,10 @@ test('a mouse on a coarse iPad-style device hovers and snaps both barcodes witho
   const page = await context.newPage();
   try {
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'inputs');
-    await page.getByLabel('Create project from files').setInputFiles({
+    await clearDemoInputs(page);
+    await page.getByLabel('Add files').setInputFiles({
       name: 'hybrid-pointer.txt',
       mimeType: 'text/plain',
       buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),

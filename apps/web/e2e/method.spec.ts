@@ -3,7 +3,7 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 
 test('Trend settings separate result geometry from resident presentation', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
   let pane = page.getByRole('dialog', { name: 'Method & settings' });
   let settings = pane.getByRole('form', { name: 'Trend settings' });

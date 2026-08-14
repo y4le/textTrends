@@ -26,7 +26,7 @@ test('footer touch is direct, axis-locked, multi-touch-safe, and never shuttles'
   page,
 }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -112,7 +112,7 @@ test('passage text pans freely and advances the shared corpus position', async (
 }) => {
   test.skip(browserName !== 'chromium', 'CDP supplies a real momentum-capable touch stream');
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const sliderBox = await slider.boundingBox();
   if (!sliderBox) throw new Error('footer slider has no layout box');
@@ -160,7 +160,7 @@ test('scrolling to resident text edges loads another source window without blank
   page,
 }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const sliderBox = await slider.boundingBox();
   if (!sliderBox) throw new Error('footer slider has no layout box');
@@ -221,7 +221,7 @@ test('vertical touches on the scrub and tag bars do not scroll the page', async 
 }) => {
   test.skip(browserName !== 'chromium', 'CDP supplies the browser-owned scroll proof');
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const tagPort = page.getByRole('group', { name: 'Query terms' });
   const dock = page.locator('.workbench-dock');

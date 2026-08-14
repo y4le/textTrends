@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace } from './helpers.ts';
 
 const book = (prefix: string) => Array.from(
   { length: 40 },
@@ -8,9 +8,10 @@ const book = (prefix: string) => Array.from(
 
 test('a reading-order drag selects across a book boundary', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles([
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles([
     { name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from(book('a'), 'utf-8') },
     { name: 'beta.txt', mimeType: 'text/plain', buffer: Buffer.from(book('b'), 'utf-8') },
   ]);

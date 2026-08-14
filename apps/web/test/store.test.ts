@@ -19,6 +19,7 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
   DEFAULT_KEYNESS_VIEW,
+  emptyLibraryWorkspace,
   MAX_SERIES,
   occurrenceNavigationText,
   workspaceFromApp,
@@ -798,6 +799,16 @@ describe('workbench route and history authority', () => {
 });
 
 describe('the session bridge', () => {
+  it('defines a fresh install as a valid empty library workspace', () => {
+    const workspace = parseWorkspace(emptyLibraryWorkspace());
+    expect(workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
+    expect(workspace.notebook.groups).toEqual([]);
+    expect(workspace.active).toEqual([]);
+    expect(workspace.views.trend.focusedDoc).toBeNull();
+    expect(workspace.views.compare.documentA).toBeNull();
+    expect(workspace.views.compare.documentB).toBeNull();
+  });
+
   it('autosaves workspace changes after 1.5 seconds and excludes transient paging', async () => {
     vi.useFakeTimers();
     try {
@@ -1104,15 +1115,22 @@ describe('the session bridge', () => {
     ]);
   });
 
-  it('switches a built-in demo and replaces cross-corpus starter terms in one notebook update', () => {
-    const { store, port } = harness(undefined, { seed: true });
+  it('merges starter terms additively and activates only those that fit', () => {
+    const { store } = harness(undefined, { seed: true });
     expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Holmes', 'Moriarty']);
-    store.getState().openBuiltinCorpus('builtin/asoif');
-    expect(port.calls.at(-1)).toEqual({ method: 'openBuiltinProject', args: ['builtin/asoif'] });
-    expect(store.getState().notebook.groups.map(groupTitle)).toEqual(['Jon', 'Tyrion', 'Daenerys']);
-    expect(store.getState().activeGroupIds.size).toBe(3);
-    expect(store.getState().series.map((series) => series.id))
-      .toEqual(store.getState().notebook.groups.map((group) => group.id));
+    expect(store.getState().mergeStarterTerms('Holmes, Jon, Tyrion, Daenerys')).toEqual({
+      added: 3,
+      activated: 3,
+      skipped: 1,
+    });
+    expect(store.getState().notebook.groups.map(groupTitle)).toEqual([
+      'Holmes', 'Moriarty', 'Jon', 'Tyrion', 'Daenerys',
+    ]);
+    expect(store.getState().activeGroupIds.size).toBe(5);
+
+    expect(store.getState().mergeStarterTerms('Sauron')).toEqual({ added: 1, activated: 0, skipped: 0 });
+    expect(store.getState().notebook.groups.map(groupTitle).at(-1)).toBe('Sauron');
+    expect(store.getState().activeGroupIds.size).toBe(5);
   });
 
   it('importFiles creates a library corpus from a built-in and then appends', () => {
@@ -1146,6 +1164,25 @@ describe('the session bridge', () => {
     const runtime = createAppRuntime(q.client); // no attachSession
     expect(() => runtime.useApp.getState().removeDocument('d')).not.toThrow();
     expect(runtime.useApp.getState().commandError).toContain('initializing');
+  });
+
+  it('keeps startup notices separate from command errors and reports durability failures as retryable', () => {
+    const q = fakeQueryClient();
+    const runtime = createAppRuntime(q.client);
+    runtime.reportNotice('migration started');
+    expect(runtime.useApp.getState()).toMatchObject({
+      appNotice: 'migration started',
+      commandError: null,
+    });
+    runtime.useApp.getState().clearAppNotice();
+    expect(runtime.useApp.getState().appNotice).toBeNull();
+
+    runtime.reportWorkspaceFailure(new Error('quota'));
+    expect(runtime.useApp.getState().workspacePersistence).toEqual({
+      phase: 'error',
+      message: 'Workspace could not be saved: quota',
+    });
+    runtime.dispose();
   });
 
   it('mirrors analysis loading detail and error into the header fields', () => {

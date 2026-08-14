@@ -11,7 +11,7 @@ import { awaitAllReady, awaitCacheSettled, DOC_COUNT, events, gotoPlace, submitA
 
 test('warm reload: zero fetches, zero re-tokenization, one snapshot, all-ready barrier', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await awaitCacheSettled(page);
 
   const corpusRequests = trackCorpusRequests(page);

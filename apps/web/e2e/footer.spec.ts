@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   DOC_COUNT,
   gotoPlace,
   submitAndAwaitFreshResults,
@@ -45,7 +46,7 @@ async function expectSelectedInsidePassage(page: import('@playwright/test').Page
 
 test('the workbench footer shares one corpus axis and opens the current passage', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -132,7 +133,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
 
 test('footer keyboard reading enters a cold corpus and exposes page, fine, and open actions', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -227,7 +228,7 @@ test('a cold footer source request reports loading and offers a working retry', 
     };
   });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
@@ -244,7 +245,7 @@ test('a cold footer source request reports loading and offers a working retry', 
 
 test('Trends exposes footer reading keys without requiring footer focus', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const trendsSurface = page.getByRole('region', { name: 'Trends', exact: true });
   const footer = page.getByRole('complementary', { name: 'Reading position' });
@@ -283,7 +284,7 @@ test('Trends exposes footer reading keys without requiring footer focus', async 
 
 test('a mouse drag shuttles through source continuously and release pauses', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   const box = await slider.boundingBox();
@@ -322,9 +323,10 @@ test('a mouse drag shuttles through source continuously and release pauses', asy
 
 test('an exact footer barcode tick centers Concordance without opening Reader', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'footer-ticks.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),
@@ -349,9 +351,10 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
 
 test('status and sparkline double-clicks open Reader at their raw corpus points', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'footer-reader.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),
@@ -396,9 +399,10 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
 
 test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'footer-snap.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from('the wolf ran. a fox saw the wolf sleep.\n', 'utf-8'),

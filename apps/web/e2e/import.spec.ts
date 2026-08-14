@@ -4,7 +4,7 @@
 
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, events, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, clearDemoInputs, events, gotoPlace, trace } from './helpers.ts';
 
 const DOC_NAME = 'smoke-doc.txt';
 const DOC_TEXT = 'The quick brown fox jumps over the lazy dog. '.repeat(120);
@@ -46,11 +46,12 @@ async function savedWorkspaceOrder(page: import('@playwright/test').Page): Promi
 
 test('catalog import restores from the library and active deletion cascades', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
 
   const importMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByLabel('Create project from files').setInputFiles(fileInput());
+  await page.getByLabel('Add files').setInputFiles(fileInput());
   await assertTransferred(page, importMark);
   await awaitReadyCount(page, 1);
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();

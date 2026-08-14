@@ -4,7 +4,7 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 test.beforeEach(async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 });
 
 test('Method is a transient full-screen modal outside browser history', async ({ page }) => {

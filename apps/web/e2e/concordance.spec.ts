@@ -5,7 +5,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, trace, gotoPlace, submitAndAwaitFreshResults } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, trace, gotoPlace, submitAndAwaitFreshResults } from './helpers.ts';
 
 // wolf@1,@7 · fox@4,@10 (12 tokens), merged in declared corpus order.
 const CORPUS = 'the wolf ran. a fox hid. the wolf slept. a fox fled.\n';
@@ -47,9 +47,10 @@ async function rowDetails(page: Page): Promise<{ term: string; right: string }[]
 
 test('the concordance merges all terms in corpus order and toggles a term off', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 

@@ -2,6 +2,7 @@ import { expect, test, type Page } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   gotoPlace,
   submitAndAwaitFreshResults,
   trace,
@@ -35,13 +36,14 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
     }).observe({ type: 'longtask', buffered: true });
   });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
   const words = Array.from(
     { length: 1_200 },
     (_, index) => `holmes watson moriarty marker${index}`,
   ).join(' ');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'many-mentions.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(words, 'utf-8'),

@@ -45,7 +45,7 @@ async function expectAboveOccludedBand(
 test('compact header reflows the publisher mark without starving single-line Scope', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const header = page.locator('.app-header');
   await expect(header.locator('h1')).toHaveText('yalethom.as/textTrends');
@@ -108,7 +108,7 @@ test('compact header reflows the publisher mark without starving single-line Sco
 test('compact landscape keeps the one-row dock clear of the Lens rail', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.setViewportSize({ width: 568, height: 320 });
 
   const dock = page.locator('.workbench-dock');
@@ -152,7 +152,7 @@ test('an attached mouse reorders terms with insertion feedback in a touch-capabl
   const page = await context.newPage();
   try {
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     expect(await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches)).toBe(true);
 
     await page.getByRole('button', { name: 'Manage', exact: true }).click();
@@ -199,7 +199,7 @@ test('touch term reordering cancels extra contacts and autoscrolls at modal edge
   const page = await context.newPage();
   try {
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     await page.getByRole('button', { name: 'Manage', exact: true }).click();
     const manager = page.getByRole('dialog', { name: 'Manage terms' });
     const source = manager.getByRole('button', { name: 'Reorder Holmes' });
@@ -315,7 +315,7 @@ test('touch term reordering cancels extra contacts and autoscrolls at modal edge
 test('full-height editors honor resizes-visual geometry without losing draft or issuing work', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const viewport = await page.locator('meta[name="viewport"]').getAttribute('content');
   expect(viewport).toContain('viewport-fit=cover');
@@ -394,7 +394,7 @@ test('Chromium resizes-content uses dvh once and preserves the open draft', asyn
   test.skip(browserName !== 'chromium', 'interactive-widget resizes-content is the Chromium model');
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Manage', exact: true }).click();
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Edit term: Holmes' }).click();

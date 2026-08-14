@@ -9,7 +9,7 @@ const userSelect = (element: Element): string => {
 
 test('double-click clears the linked range without selecting chart text', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'trends');
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });

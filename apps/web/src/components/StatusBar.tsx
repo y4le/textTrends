@@ -35,7 +35,7 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
         linkedSelection,
         titleByDoc,
         loadingPhase: bootstrapPhase === 'initializing'
-          ? 'preparing the built-in project…'
+          ? 'preparing your inputs…'
           : loadingPhase,
       },
       place,

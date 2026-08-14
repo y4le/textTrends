@@ -11,7 +11,7 @@ import { awaitAllReady, awaitCacheSettled, DOC_COUNT, submitAndAwaitFreshResults
 
 test('an uncaught worker error respawns, warm-reopens, and queries keep working', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await awaitCacheSettled(page);
 
   const corpusRequests = trackCorpusRequests(page);

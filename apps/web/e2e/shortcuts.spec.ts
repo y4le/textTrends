@@ -3,7 +3,7 @@ import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 test('shortcut help follows focus and restores its invoking control', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
   await page.keyboard.press('?');

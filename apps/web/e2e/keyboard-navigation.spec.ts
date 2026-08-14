@@ -12,7 +12,7 @@ async function chord(
 
 test('Vim sequences and conventional arrows navigate visible workbench targets', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   await chord(page.locator('body'), 'g', 'c');
   const catalogSurface = page.getByRole('region', { name: 'Catalog', exact: true });
@@ -95,7 +95,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
 
 test('result tables retain their intended keyboard behavior', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   await gotoPlace(page, 'inputs');
   const catalogPort = page.getByRole('region', { name: 'Scrollable book analysis table' });

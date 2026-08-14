@@ -8,14 +8,36 @@
  */
 
 import { expect, test } from '@playwright/test';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import { awaitAllReady, awaitCacheSettled, DB_NAME, DOC_COUNT, events, SHERLOCK, trace, trackCorpusRequests } from './helpers.ts';
 
 const victim = SHERLOCK[2]!; // any single doc
 
 test('a corrupt cached shard warns, rebuilds locally, and the repair persists', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await awaitCacheSettled(page);
+  const victimDoc = await page.evaluate(async ({ databaseName, title }) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const workspace = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      const documents = (workspace as { corpus?: { docs?: readonly { doc: string; meta: { title: string } }[] } })
+        .corpus?.docs ?? [];
+      const document = documents.find((candidate) => candidate.meta.title === title);
+      if (!document) throw new Error(`No active document titled ${title}`);
+      return document.doc;
+    } finally {
+      database.close();
+    }
+  }, { databaseName: LOCAL_LIBRARY_DB_NAME, title: victim.title });
 
   // Tamper: replace tokenTypeIds with a plain array — envelope intact.
   await page.evaluate(
@@ -57,7 +79,7 @@ test('a corrupt cached shard warns, rebuilds locally, and the repair persists', 
   // ONLY the victim re-segments/indexes; the five hits publish first as one
   // snapshot, the rebuilt document adds a second.
   const segmented = events(t, { direction: 'from-worker', t: 'progress', phase: 'segment' });
-  expect(segmented.map((e) => e.doc)).toEqual([victim.doc]);
+  expect(segmented.map((e) => e.doc)).toEqual([victimDoc]);
   // The verified text was still valid — only the shard was corrupt — so the
   // victim must NOT re-decode or re-extract. The rebuild is segment/index only.
   expect(events(t, { direction: 'from-worker', t: 'progress', phase: 'decode' })).toEqual([]);

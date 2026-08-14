@@ -12,7 +12,7 @@ import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './h
 
 test('trend results transfer their buffers; the resident index survives', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   const worker = page.workers()[0]!;
   await worker.evaluate(() => {

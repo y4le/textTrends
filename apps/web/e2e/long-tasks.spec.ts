@@ -24,7 +24,7 @@ test('no main-thread task reaches 100ms during cold analysis and a query burst',
   });
 
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   // Query burst across the loaded corpus — each submission is awaited by
   // ITS OWN fresh job's result, so the analysis window provably contains

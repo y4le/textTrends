@@ -12,7 +12,7 @@ import { awaitAllReady, DB_NAME, events, submitAndAwaitFreshResults, trace } fro
 
 test('a database upgrade elsewhere closes the worker store; queries continue from memory', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
 
   // Raw upgrade open from the app page's main realm — same origin, same
   // BrowserContext, crossing the main/worker IDB connection boundary.

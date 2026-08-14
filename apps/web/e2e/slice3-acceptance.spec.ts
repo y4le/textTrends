@@ -4,7 +4,7 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, trace } from './helpers.ts';
 
 const prose = (terms: readonly string[], repetitions: number) =>
   Array.from({ length: repetitions }, () => `${terms.join(' ')}.`).join(' ');
@@ -54,9 +54,10 @@ async function awaitOps(
 
 test('slice 3: corpus → focus → vocabulary → concordance → linked range → baseline', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles([
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles([
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
   ]);

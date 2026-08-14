@@ -16,13 +16,14 @@
  * and the page exposes a frozen read-only facade for the Playwright suite.
  */
 
-import type { WorkspaceV1 } from '@texttrends/core';
+import { reconcileWorkspaceDocuments, type WorkspaceV1 } from '@texttrends/core';
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
 import type { ProjectSession, BundledByteProvider } from './project-session.ts';
-import { createAppRuntime, type WorkspaceStorePort } from './store.ts';
+import { createAppRuntime, emptyLibraryWorkspace, type WorkspaceStorePort } from './store.ts';
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
+import { libraryOperation } from './library-operation.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
@@ -92,51 +93,81 @@ const bundledBytes: BundledByteProvider = {
  *  a session, register client listeners, or attach after teardown began. */
 let torndown = false;
 let closeLibrary: (() => Promise<void>) | null = null;
+let migrationAbort: AbortController | null = null;
 
 async function bootstrap(): Promise<void> {
   let session: ProjectSession;
   let workspaceStore: WorkspaceStorePort | null = null;
   let restoredWorkspace: WorkspaceV1 | null = null;
   let bootstrapNotice: string | null = null;
-  let defaultTerms = '';
+  let afterAttach: (() => void) | null = null;
   try {
     const [
       { localLibrary },
       {
-        BUILTIN_SHERLOCK_ID,
         builtinCorpusOption,
-        builtinProject,
-        builtinProjectRegistry,
         libraryProject,
         reconcileLibraryWorkspace,
       },
+      { fetchDemoCorpus },
       { ProjectSession },
     ] = await Promise.all([
       import('./local-library.ts'),
       import('./project.ts'),
+      import('./demo-corpora.ts'),
       import('./project-session.ts'),
     ]);
     workspaceStore = localLibrary;
     closeLibrary = () => localLibrary.close();
-    const [builtinProjects, libraryItems, stored] = await Promise.all([
-      builtinProjectRegistry(),
+    const [libraryItems, stored] = await Promise.all([
       localLibrary.list(),
       localLibrary.loadWorkspace(),
     ]);
-    const fallback = builtinProjects.get(BUILTIN_SHERLOCK_ID);
-    if (fallback === undefined) throw new Error('the default Sherlock corpus is not registered');
-    defaultTerms = builtinCorpusOption(BUILTIN_SHERLOCK_ID)!.defaultTerms;
-    let initial = builtinProject(fallback);
+    let workspace = emptyLibraryWorkspace();
     if (stored.kind === 'ready') {
       if (stored.workspace.corpus.kind === 'builtin') {
         const option = builtinCorpusOption(stored.workspace.corpus.id);
-        const data = option === undefined ? undefined : builtinProjects.get(option.id);
-        if (data === undefined) {
-          bootstrapNotice = 'The saved demo corpus is unavailable; Sherlock Holmes was opened instead.';
-          restoredWorkspace = { ...stored.workspace, corpus: { kind: 'builtin', id: BUILTIN_SHERLOCK_ID } };
+        const empty = reconcileWorkspaceDocuments(
+          { ...stored.workspace, corpus: { kind: 'library', order: [], docs: [] } },
+          new Set(),
+        );
+        workspace = empty;
+        restoredWorkspace = empty;
+        if (option === undefined) {
+          bootstrapNotice = 'The saved legacy demo was unavailable. Its terms and view settings were preserved; choose a demo again in Inputs.';
+          afterAttach = () => {
+            void localLibrary.saveWorkspace(empty).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+          };
         } else {
-          initial = builtinProject(data);
-          restoredWorkspace = stored.workspace;
+          afterAttach = () => {
+            const lease = libraryOperation.claim();
+            if (lease === null) {
+              runtime.reportNotice(`The saved ${option.label} demo is ready to migrate. Retry it from Inputs after the current library action finishes.`);
+              return;
+            }
+            const controller = new AbortController();
+            migrationAbort = controller;
+            runtime.reportNotice(`Migrating the saved ${option.label} demo into local texts…`);
+            void (async () => {
+              try {
+                const demo = await fetchDemoCorpus(option.id, controller.signal);
+                const saved = await localLibrary.add(demo.files);
+                const files = await Promise.all(saved.map((result) => localLibrary.file(result.item.id)));
+                if (torndown || controller.signal.aborted) return;
+                if (!runtime.useApp.getState().importFiles(files)) {
+                  throw new Error('the active corpus refused the migrated texts');
+                }
+                runtime.reportNotice(`${option.label} was migrated to local inputs. Its texts can now be reordered, removed, and reused like any others.`);
+              } catch (error) {
+                if (!torndown && !controller.signal.aborted) {
+                  runtime.reportNotice(`The saved ${option.label} demo could not be migrated: ${error instanceof Error ? error.message : String(error)}. Its terms and view settings were preserved; retry from Inputs.`);
+                }
+              } finally {
+                if (migrationAbort === controller) migrationAbort = null;
+                libraryOperation.release(lease);
+              }
+            })();
+          };
         }
       } else {
         const reconciled = reconcileLibraryWorkspace(
@@ -145,24 +176,35 @@ async function bootstrap(): Promise<void> {
         );
         restoredWorkspace = reconciled.workspace;
         if (reconciled.removedDocuments.length > 0) {
-          await localLibrary.saveWorkspace(reconciled.workspace);
+          afterAttach = () => {
+            void localLibrary.saveWorkspace(reconciled.workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+          };
           const count = reconciled.removedDocuments.length;
           bootstrapNotice = `${count} active book${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
         }
-        initial = await libraryProject(
-          reconciled.workspace,
-          new Map(libraryItems.map((item) => [item.id, item])),
-        );
+        workspace = reconciled.workspace;
       }
     } else if (stored.kind === 'corrupt') {
       bootstrapNotice = `The saved workspace was damaged and could not be restored: ${stored.reason}`;
+      restoredWorkspace = workspace;
+      afterAttach = () => {
+        void localLibrary.saveWorkspace(workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+      };
+    } else {
+      restoredWorkspace = workspace;
+      afterAttach = () => {
+        void localLibrary.saveWorkspace(workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
+      };
     }
+    const initial = await libraryProject(
+      workspace,
+      new Map(libraryItems.map((item) => [item.id, item])),
+    );
     if (torndown) return; // HMR replaced this module mid-bootstrap
     session = new ProjectSession(initial, {
       client,
       bundledBytes,
       libraryFiles: { get: (id) => localLibrary.file(id) },
-      builtinProjects,
       newDocId: () => crypto.randomUUID(),
     });
   } catch (error) {
@@ -172,13 +214,8 @@ async function bootstrap(): Promise<void> {
   if (workspaceStore === null) throw new Error('the local library did not initialize');
   runtime.attachSession(session, restoredWorkspace ?? undefined, workspaceStore); // subscribe + seed, exactly once
   if (bootstrapNotice !== null) runtime.reportNotice(bootstrapNotice);
-  // Seed the demo comparison ONCE at bootstrap (the store itself starts with
-  // an empty notebook — demo content is a composition decision, not model
-  // state). Queries issue when the first snapshot publishes.
-  if (restoredWorkspace === null && runtime.useApp.getState().notebook.groups.length === 0) {
-    runtime.useApp.getState().quickAdd(defaultTerms);
-  }
   session.start(); // only after the store is observing
+  afterAttach?.();
 }
 
 void bootstrap();
@@ -192,6 +229,7 @@ void bootstrap();
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
     torndown = true;
+    migrationAbort?.abort(new DOMException('module replaced', 'AbortError'));
     try {
       unsubscribeResumeState();
       resumeMonitor.dispose();

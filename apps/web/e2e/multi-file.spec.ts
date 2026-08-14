@@ -6,7 +6,7 @@
  */
 
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, trace } from './helpers.ts';
 
 /** Three files with DISTINCT byte lengths (padded) and distinct headings. */
 function fixtures() {
@@ -19,15 +19,16 @@ function fixtures() {
 
 test('multi-file import transfers every source and finalizes in selection order', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
 
   const files = fixtures();
   const lengths = files.map((f) => f.len);
   expect(new Set(lengths).size).toBe(files.length); // distinct — multiset is unambiguous
 
+  await clearDemoInputs(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByLabel('Create project from files').setInputFiles(files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: f.buffer })));
+  await page.getByLabel('Add files').setInputFiles(files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: f.buffer })));
 
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, files.length);

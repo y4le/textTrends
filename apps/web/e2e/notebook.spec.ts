@@ -13,16 +13,17 @@
  */
 
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, openQuickAdd, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // Token positions: wolf@1, wolves@4, "dire wolf"@7-8, Wolf@12 (capitalized).
 const CORPUS = 'the wolf ran. the wolves howled. a dire wolf slept. then Wolf spoke.\n';
 
 async function importCorpus(page: Page): Promise<void> {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'wolves.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(CORPUS, 'utf-8'),

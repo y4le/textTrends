@@ -2,9 +2,10 @@
  * active corpus. Acquisitions enter the library first; native drag-and-drop
  * then covers OS files, library-to-corpus activation, and corpus reordering. */
 
-import { useCallback, useEffect, useRef, useState, type DragEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
+import { fetchDemoCorpus } from '../lib/demo-corpora.ts';
 import {
   localFileIdentity,
   localLibrary,
@@ -14,6 +15,7 @@ import {
 } from '../lib/local-library.ts';
 import { BUILTIN_CORPORA, builtinCorpusOption, SOURCE_FILE_ACCEPT, type BuiltinCorpusId } from '../lib/project.ts';
 import type { SourceStatus } from '../lib/project-session.ts';
+import { libraryOperation } from '../lib/library-operation.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
@@ -57,8 +59,7 @@ export function ProjectPanel({
   const docs = useApp((s) => s.projectSession?.project.data.docs ?? null);
   const imports = useApp((s) => s.projectSession?.imports ?? null);
   const sources = useApp((s) => s.projectSession?.sources ?? null);
-  const commandError = useApp((s) => s.commandError);
-  const openBuiltinCorpus = useApp((s) => s.openBuiltinCorpus);
+  const mergeStarterTerms = useApp((s) => s.mergeStarterTerms);
   const importFiles = useApp((s) => s.importFiles);
   const removeImport = useApp((s) => s.removeImport);
   const removeDocument = useApp((s) => s.removeDocument);
@@ -66,7 +67,6 @@ export function ProjectPanel({
   const reorder = useApp((s) => s.reorder);
   const workspacePersistence = useApp((s) => s.workspacePersistence);
   const retryWorkspaceSave = useApp((s) => s.retryWorkspaceSave);
-  const clearCommandError = useApp((s) => s.clearCommandError);
 
   const importRef = useRef<HTMLInputElement>(null);
   const activeIdentityRef = useRef<ReadonlySet<string>>(new Set());
@@ -75,9 +75,18 @@ export function ProjectPanel({
   const [library, setLibrary] = useState<readonly LocalLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
-  const [libraryBusy, setLibraryBusy] = useState(false);
+  const libraryBusy = useSyncExternalStore(
+    libraryOperation.subscribe,
+    libraryOperation.isBusy,
+    libraryOperation.isBusy,
+  );
   const [libraryNotice, setLibraryNotice] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<'library' | 'active' | null>(null);
+  const [demoLoading, setDemoLoading] = useState<BuiltinCorpusId | null>(null);
+  const [demoError, setDemoError] = useState<string | null>(null);
+  const [demoNotice, setDemoNotice] = useState<string | null>(null);
+  const claimLibrary = libraryOperation.claim;
+  const releaseLibrary = libraryOperation.release;
 
   const refreshLibrary = useCallback(async (clearError = true) => {
     try {
@@ -108,6 +117,12 @@ export function ProjectPanel({
     return () => { live = false; };
   }, []);
 
+  // Startup migration mutates the same durable library outside this component.
+  // A project publication is therefore also a prompt to reconcile this view.
+  useEffect(() => {
+    if (docs !== null) void refreshLibrary(false);
+  }, [docs, refreshLibrary]);
+
   if (!project) return null;
   const isBuiltin = project.kind === 'builtin';
   const builtinLabel = builtinCorpusOption(project.id)?.label ?? 'Built-in corpus';
@@ -122,7 +137,10 @@ export function ProjectPanel({
     sawPendingImportsRef.current = false;
   }
 
-  const activateUnique = (files: readonly LocalLibraryFile[], items: readonly LocalLibraryItem[]): number => {
+  const activateUnique = (
+    files: readonly LocalLibraryFile[],
+    items: readonly LocalLibraryItem[],
+  ): { readonly duplicates: number; readonly activated: number; readonly accepted: boolean } => {
     const unique: LocalLibraryFile[] = [];
     const queuedIdentities: string[] = [];
     let duplicates = 0;
@@ -137,13 +155,16 @@ export function ProjectPanel({
       queuedIdentities.push(identity);
       unique.push(files[index]!);
     }
+    let activated = 0;
+    let accepted = true;
     if (unique.length > 0) {
-      importFiles(unique);
+      accepted = importFiles(unique);
+      if (accepted) activated = unique.length;
       if ((useApp.getState().projectSession?.imports.length ?? 0) === 0) {
         for (const identity of queuedIdentities) pendingActivationRef.current.delete(identity);
       }
     }
-    return duplicates;
+    return { duplicates, activated, accepted };
   };
 
   const duplicateNotice = (saved: number, active: number): string | null => {
@@ -153,45 +174,89 @@ export function ProjectPanel({
     return parts.length === 0 ? null : `${parts.join(' · ')} — no duplicate added`;
   };
 
-  const acquire = async (files: readonly LocalFileInput[], activate = true, signal?: AbortSignal) => {
-    if (files.length === 0 || libraryBusy) return;
-    setLibraryBusy(true);
+  const acquire = async (
+    files: readonly LocalFileInput[],
+    activate = true,
+    signal?: AbortSignal,
+    existingLease?: symbol,
+  ): Promise<{ readonly ok: boolean; readonly activated: number }> => {
+    if (files.length === 0) return { ok: false, activated: 0 };
+    const lease = existingLease ?? claimLibrary();
+    if (lease === null || !libraryOperation.owns(lease)) return { ok: false, activated: 0 };
     setLibraryError(null);
     setLibraryNotice(null);
     try {
       const results = await localLibrary.add(files);
       await refreshLibrary();
       const savedDuplicates = results.filter((result) => !result.added).length;
-      const activeDuplicates = activate && signal?.aborted !== true
+      const activation = activate && signal?.aborted !== true
         ? activateUnique(
             await Promise.all(results.map((result) => localLibrary.file(result.item.id))),
             results.map((result) => result.item),
           )
-        : 0;
-      if (signal?.aborted !== true) setLibraryNotice(duplicateNotice(savedDuplicates, activeDuplicates));
+        : { duplicates: 0, activated: 0, accepted: true };
+      if (signal?.aborted !== true) {
+        setLibraryNotice(duplicateNotice(savedDuplicates, activation.duplicates));
+      }
+      return {
+        ok: signal?.aborted !== true && activation.accepted,
+        activated: activation.activated,
+      };
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
       await refreshLibrary(false); // quota failures may have committed earlier files
+      return { ok: false, activated: 0 };
     } finally {
-      setLibraryBusy(false);
+      releaseLibrary(lease);
       if (importRef.current) importRef.current.value = '';
     }
   };
 
+  const loadDemo = async (id: BuiltinCorpusId) => {
+    const lease = claimLibrary();
+    if (lease === null) return;
+    setDemoLoading(id);
+    setDemoError(null);
+    setDemoNotice(null);
+    try {
+      const demo = await fetchDemoCorpus(id);
+      const acquired = await acquire(demo.files, true, undefined, lease);
+      if (!acquired.ok) {
+        setDemoError('The demo texts were saved, but could not be activated. Review the app message, then retry.');
+        return;
+      }
+      const terms = mergeStarterTerms(demo.option.defaultTerms);
+      const termText = terms.added === 0
+        ? 'Starter terms were already present or the notebook is full.'
+        : `${terms.added} starter term${terms.added === 1 ? '' : 's'} added${terms.activated < terms.added ? `; ${terms.activated} activated` : ''}.`;
+      const inputText = acquired.activated === 0
+        ? 'No new texts were activated.'
+        : `${acquired.activated} local text${acquired.activated === 1 ? '' : 's'} activated.`;
+      setDemoNotice(`${demo.option.label}: ${inputText} ${termText}`);
+    } catch (error) {
+      setDemoError(error instanceof Error ? error.message : String(error));
+    } finally {
+      releaseLibrary(lease);
+      setDemoLoading(null);
+    }
+  };
+
   const activateSaved = async (id: string) => {
-    if (libraryBusy) return;
+    const lease = claimLibrary();
+    if (lease === null) return;
     const item = library.find((candidate) => candidate.id === id);
     if (item === undefined) {
       setLibraryError('that saved file no longer exists');
+      releaseLibrary(lease);
       return;
     }
     const identity = localFileIdentity(item.format, item.contentHash);
     if (activeIdentityRef.current.has(identity) || pendingActivationRef.current.has(identity)) {
       setLibraryNotice('1 already active — no duplicate added');
+      releaseLibrary(lease);
       return;
     }
     pendingActivationRef.current.add(identity);
-    setLibraryBusy(true);
     setLibraryError(null);
     setLibraryNotice(null);
     try {
@@ -203,17 +268,17 @@ export function ProjectPanel({
       pendingActivationRef.current.delete(identity);
       setLibraryError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLibraryBusy(false);
+      releaseLibrary(lease);
     }
   };
 
   const removeSaved = async (id: string) => {
-    if (libraryBusy) return;
+    const lease = claimLibrary();
+    if (lease === null) return;
     const liveDocuments = finalizedDocs
       .filter((doc) => doc.library === id)
       .map((doc) => doc.doc)
       .concat(pendingImports.filter((item) => item.library === id).map((item) => item.doc));
-    setLibraryBusy(true);
     try {
       const result = await localLibrary.delete(id);
       const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
@@ -222,20 +287,21 @@ export function ProjectPanel({
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLibraryBusy(false);
+      releaseLibrary(lease);
     }
   };
 
   const clearSaved = async () => {
-    if (libraryBusy || (library.length === 0 && libraryError === null)) return;
+    if (libraryOperation.isBusy() || (library.length === 0 && libraryError === null)) return;
     const prompt = library.length === 0
       ? 'Delete all saved files from this device?'
       : `Delete all ${library.length} saved file${library.length === 1 ? '' : 's'} from this device?`;
     if (!window.confirm(prompt)) return;
+    const lease = claimLibrary();
+    if (lease === null) return;
     const liveDocuments = finalizedDocs
       .flatMap((doc) => doc.library === undefined ? [] : [doc.doc])
       .concat(pendingImports.map((item) => item.doc));
-    setLibraryBusy(true);
     try {
       const result = await localLibrary.clear();
       const removed = [...new Set([...liveDocuments, ...result.removedDocuments])];
@@ -244,7 +310,7 @@ export function ProjectPanel({
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
     } finally {
-      setLibraryBusy(false);
+      releaseLibrary(lease);
     }
   };
 
@@ -285,31 +351,37 @@ export function ProjectPanel({
           {isBuiltin ? `${builtinLabel} · built-in corpus (read-only)` : 'library corpus'}
         </Heading>
         <span style={{ flex: 1 }} />
-        {isBuiltin && (
-          <label>
-            Demo corpus{' '}
-            <select
-              aria-label="Demo corpus"
-              value={project.id}
-              onChange={(event) => openBuiltinCorpus(event.target.value as BuiltinCorpusId)}
-              style={{ font: 'inherit' }}
-            >
-              {BUILTIN_CORPORA.map((corpus) => (
-                <option key={corpus.id} value={corpus.id}>{corpus.label}</option>
-              ))}
-            </select>
-          </label>
-        )}
       </div>
 
-      {commandError && (
-        <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0' }}>
-          {commandError}{' '}
-          <button type="button" onClick={() => clearCommandError()} style={{ ...SMALL_BUTTON_STYLE, padding: '0 0.5ch' }}>
-            dismiss
-          </button>
+      <section aria-labelledby="demo-corpora-heading" style={{ ...panelStyle, marginTop: 'var(--space-2)' }}>
+        <h4 id="demo-corpora-heading" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>Load demo</h4>
+        <p style={{ margin: 'var(--space-1) 0', color: 'var(--fg-muted)' }}>
+          Demo texts are saved to your local library and added to Active inputs. Suggested terms are appended without replacing yours.
         </p>
-      )}
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
+          {BUILTIN_CORPORA.map((corpus) => (
+            <button
+              key={corpus.id}
+              type="button"
+              aria-disabled={demoLoading !== null || libraryBusy}
+              aria-label={`Load ${corpus.label} demo`}
+              aria-busy={demoLoading === corpus.id || undefined}
+              onClick={() => {
+                if (demoLoading === null && !libraryBusy) void loadDemo(corpus.id);
+              }}
+              style={SMALL_BUTTON_STYLE}
+            >
+              Load {corpus.label} demo
+            </button>
+          ))}
+        </div>
+        {demoError && <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>{demoError}</p>}
+        <p role="status" aria-live="polite" aria-atomic="true" style={{ color: 'var(--fg-muted)', margin: demoLoading || demoNotice ? 'var(--space-1) 0 0' : 0 }}>
+          {demoLoading
+            ? `Loading ${builtinCorpusOption(demoLoading)!.label} demo…`
+            : demoNotice ?? ''}
+        </p>
+      </section>
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 30rem), 1fr))', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
         <section
@@ -384,7 +456,7 @@ export function ProjectPanel({
               </li>
             ))}
           </ul>
-          <CatalogPanel onAcquire={(files, signal) => acquire(files, true, signal)} />
+          <CatalogPanel onAcquire={async (files, signal) => { await acquire(files, true, signal); }} />
         </section>
 
         <section

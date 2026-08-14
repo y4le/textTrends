@@ -312,6 +312,11 @@ const FIXTURES: Readonly<Record<BuiltinCorpusId, readonly BuiltinDocFixture[]>> 
   [BUILTIN_LOTR_ID]: LOTR,
 };
 
+/** Integrity manifest for acquiring a demo as local text files. */
+export function demoCorpusFixtures(id: BuiltinCorpusId): readonly BuiltinDocFixture[] {
+  return FIXTURES[id];
+}
+
 const builtinData = new Map<BuiltinCorpusId, Promise<ProjectDataV1>>();
 
 export function builtinProjectData(id: BuiltinCorpusId): Promise<ProjectDataV1> {

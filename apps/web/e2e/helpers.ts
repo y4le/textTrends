@@ -9,6 +9,7 @@ import { expect } from '@playwright/test';
 import { SHERLOCK } from '../src/lib/project.ts';
 import { PLACE_HEADING, type Place } from '../src/lib/places.ts';
 import { ARTIFACT_DB_NAME } from '../src/worker/idb-store.ts';
+import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import type { TraceSnapshot, ProtocolTraceEvent } from '../src/lib/trace.ts';
 
 export { SHERLOCK };
@@ -29,6 +30,21 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
     .getByRole('link', { name: PLACE_HEADING[place], exact: true })
     .click();
   await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
+}
+
+/** Tests that construct a bespoke corpus opt out of the ordinary additive demo
+ * inputs explicitly. Starter terms remain, matching a user who clears texts
+ * without discarding their notebook. */
+export async function clearDemoInputs(page: Page): Promise<void> {
+  const active = page.getByRole('region', { name: 'Active files' });
+  await expect(active).toBeVisible();
+  for (const book of SHERLOCK) {
+    const remove = active
+      .getByRole('button', { name: `Remove ${book.title} from active corpus`, exact: true })
+      .first();
+    if ((await remove.count()) > 0) await remove.click();
+    await expect(remove).toHaveCount(0);
+  }
 }
 
 /** Wait for the header to report `n/n books ready` (a user project's count). */
@@ -136,9 +152,50 @@ export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEve
   );
 }
 
-/** Wait for the app to report every book ready. */
-export async function awaitAllReady(page: Page, timeout = 60_000): Promise<void> {
-  await expect(page.getByText(READY_TEXT, { exact: true })).toBeVisible({ timeout });
+/** Wait for the app to report every Sherlock demo text ready. Demo loading is
+ * explicit at cold-test call sites; the default is a pure wait suitable for
+ * reload, restart, and cache-integrity assertions. */
+export async function awaitAllReady(
+  page: Page,
+  options: { readonly loadDemo?: boolean; readonly timeout?: number } = {},
+): Promise<void> {
+  const timeout = options.timeout ?? 60_000;
+  const ready = page.getByText(READY_TEXT, { exact: true });
+  if (!options.loadDemo) {
+    await expect(ready).toBeVisible({ timeout });
+    return;
+  }
+  if (await ready.isVisible()) return;
+  const navigation = page.getByRole('navigation', { name: 'Workbench sections' });
+  await expect(navigation).toBeVisible({ timeout });
+  const current = navigation.locator('[aria-current="page"]');
+  const original = await current.getAttribute('href');
+  const inputs = navigation.getByRole('link', { name: 'Inputs', exact: true });
+  if (!(await inputs.getAttribute('aria-current'))) await inputs.click();
+  const loadDemo = page.getByRole('button', { name: 'Load Sherlock Holmes demo' });
+  await expect(loadDemo).toBeVisible({ timeout });
+  await loadDemo.click();
+  await expect(ready).toBeVisible({ timeout });
+  await expect.poll(() => page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      const workspace = await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly').objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+      return (workspace as { corpus?: { order?: readonly string[] } } | undefined)?.corpus?.order?.length ?? 0;
+    } finally {
+      database.close();
+    }
+  }, LOCAL_LIBRARY_DB_NAME), { timeout }).toBe(DOC_COUNT);
+  if (original && !original.includes('p=inputs')) {
+    await navigation.locator(`a[href="${original}"]`).click();
+  }
 }
 
 /** Remove every notebook group through the UI (the notebook is append-only;

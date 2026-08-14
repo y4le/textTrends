@@ -8,7 +8,7 @@
 
 import { expect, test } from '@playwright/test';
 import { strToU8, zipSync } from 'fflate';
-import { awaitAllReady, awaitReadyCount, clearArtifactStores, DB_NAME, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearArtifactStores, clearDemoInputs, DB_NAME, clearNotebook, gotoPlace, openQuickAdd } from './helpers.ts';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 
 async function awaitSavedWorkspace(page: import('@playwright/test').Page): Promise<void> {
@@ -75,10 +75,11 @@ function fixtureEpub(): Buffer {
 
 test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
 
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'zephyrwood.epub',
     mimeType: 'application/epub+zip',
     buffer: fixtureEpub(),
@@ -103,9 +104,10 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
 
 test('a library EPUB reopens after the artifact cache is cleared', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
@@ -131,9 +133,10 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
 
 test('a library EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
   await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });

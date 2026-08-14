@@ -4,7 +4,7 @@ import { awaitAllReady, gotoPlace, simulateKeyboard, trace } from './helpers.ts'
 test('compact Concordance keeps the shared terms rail and direct result controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'concordance');
 
   const toolbar = page.getByRole('toolbar', { name: 'Concordance columns' });
@@ -183,7 +183,7 @@ test('compact Concordance keeps the shared terms rail and direct result controls
 test('short landscape Concordance leaves a usable centered results viewport', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 320 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'concordance');
 
   const geometry = await page.locator('.kwic-grid-shell').evaluate((shell) => {

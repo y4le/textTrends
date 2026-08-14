@@ -3,7 +3,7 @@ import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './h
 
 test('an all-zero rate series labels its data maximum rather than its geometry floor', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'absentterm');
   await gotoPlace(page, 'trends');
 
@@ -20,7 +20,7 @@ for (const viewport of [
   test(`compact Trends preserves exact values at ${viewport.width}px`, async ({ page }, testInfo) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'trends');
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });

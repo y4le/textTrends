@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
   awaitReadyCount,
+  clearDemoInputs,
   gotoPlace,
   trace,
 } from './helpers.ts';
@@ -23,7 +24,7 @@ for (const viewport of [
   test(`compact Vocabulary keeps one truthful ranking table at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'vocabulary');
 
     const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
@@ -64,7 +65,7 @@ for (const viewport of [
 test('Vocabulary filter preserves drafts across width classes and applies once', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
   const open = page.getByRole('button', { name: 'sort and filter' });
@@ -157,7 +158,7 @@ test('Vocabulary filter preserves drafts across width classes and applies once',
 test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
   const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
@@ -176,7 +177,7 @@ test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', as
 test('successful exact Concordance routing restores the open Vocabulary detail on Back', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
   const row = page.locator('tr[data-frequency-row]').first();
@@ -194,7 +195,7 @@ test('successful exact Concordance routing restores the open Vocabulary detail o
 test('a ready page that omits an open row stale-pops once to a surviving focus target', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
   await page.getByRole('button', { name: 'sort and filter' }).click();
@@ -219,13 +220,14 @@ test('a ready page that omits an open row stale-pops once to a surviving focus t
 test('a large Vocabulary result stays inside a compact page', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
   const prose = Array.from(
     { length: 90 },
     (_, index) => `word${index} repeats repeats.`,
   ).join(' ');
-  await page.getByLabel('Create project from files').setInputFiles({
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
     name: 'many words.txt',
     mimeType: 'text/plain',
     buffer: Buffer.from(prose, 'utf8'),

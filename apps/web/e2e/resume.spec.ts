@@ -4,7 +4,7 @@ import { PLACE_HEADING, PLACES } from '../src/lib/places.ts';
 
 test('every route exposes one canonical place and no canonical peer', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   for (const place of PLACES) {
     await gotoPlace(page, place);
     const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
@@ -23,7 +23,7 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
 
 test('Vocabulary additions beyond five persist hidden and open in the manager', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'alpha, beta, gamma, delta, epsilon');
 
   await gotoPlace(page, 'vocabulary');
@@ -43,7 +43,7 @@ test('Vocabulary additions beyond five persist hidden and open in the manager', 
 
 test('resume reconciles visible state without claiming background work or issuing queries', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   await page.evaluate(() => {

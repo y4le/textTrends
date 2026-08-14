@@ -22,7 +22,7 @@ for (const viewport of [
   test(`compact Catalog keeps one truthful book analysis at ${viewport.width}px`, async ({ page }) => {
     await page.setViewportSize(viewport);
     await page.goto('./');
-    await awaitAllReady(page);
+    await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'inputs');
 
     const table = page.getByRole('table', { name: 'Book analysis' });
@@ -75,7 +75,7 @@ for (const viewport of [
 test('wide Catalog keeps useful comparison columns and additive detail', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
 
   const table = page.getByRole('table', { name: 'Book analysis' });

@@ -7,7 +7,7 @@
  */
 
 import { expect, test, type Page, type Worker } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
 
 // 12 tokens; wolf at 1, 6, and 9.
 const CORPUS = 'alpha wolf beta gamma fox delta wolf eta theta wolf iota omega\n';
@@ -21,6 +21,7 @@ async function importCorpus(
   expectedReady = 1,
 ): Promise<void> {
   await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel(/Create project from files|Add files/).setInputFiles({
     name,
@@ -162,7 +163,7 @@ async function awaitDetailBurst(page: Page, mark: number): Promise<void> {
 
 test('pointer and keyboard selections share detail results and stale results cannot resurrect', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page);
+  await awaitAllReady(page, { loadDemo: true });
   await importCorpus(page, 'animals.txt', CORPUS);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
