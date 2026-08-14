@@ -2,8 +2,8 @@
  * Standard Ebooks catalog: a BAKED snapshot (standard-ebooks-catalog.json,
  * regenerated ad hoc via `pnpm update:se-catalog`) — browsing makes no
  * external/live-catalog requests; the snapshot is fetched as a hashed
- * same-origin static asset on first open, keeping ~20 kB of JSON out of the
- * entry bundle. Adding a book downloads its source from GitHub
+ * same-origin static asset when Inputs mounts, keeping ~20 kB of JSON out of
+ * the entry bundle. Adding a book downloads its source from GitHub
  * (raw.githubusercontent.com, CORS-clean, by repository name) and repackages
  * it into a `.epub` in the browser, ingested through the same import path as
  * an uploaded file. Series render as ordered groups (showcasing series-based
@@ -26,7 +26,6 @@ export function CatalogPanel({
     lease: symbol,
   ) => Promise<boolean>;
 }) {
-  const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -52,7 +51,7 @@ export function CatalogPanel({
   }, []);
 
   useEffect(() => {
-    if (!open || catalog !== null || loadError !== null) return;
+    if (catalog !== null || loadError !== null) return;
     let cancelled = false;
     loadStandardEbooksCatalog().then(
       (loaded) => {
@@ -65,7 +64,7 @@ export function CatalogPanel({
     return () => {
       cancelled = true;
     };
-  }, [open, catalog, loadError, loadAttempt]);
+  }, [catalog, loadError, loadAttempt]);
 
   const sections = useMemo(() => (catalog === null ? [] : catalogSections(catalog, q)), [catalog, q]);
 
@@ -105,15 +104,6 @@ export function CatalogPanel({
     }
   };
 
-  const toggleOpen = () => {
-    if (open) {
-      addController.current?.abort();
-      addController.current = null;
-      setAdding(null);
-    }
-    setOpen(!open);
-  };
-
   const label = { fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--fg-muted)' } as const;
 
   const row = (book: CatalogSectionBook) => (
@@ -135,17 +125,8 @@ export function CatalogPanel({
   );
 
   return (
-    <div>
-      <button
-        type="button"
-        onClick={toggleOpen}
-        aria-expanded={open}
-        style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', color: 'var(--fg)', background: 'none', border: '1px solid var(--rule)', padding: '2px 0.75ch', cursor: 'pointer' }}
-      >
-        {open ? '▾' : '▸'} Standard Ebooks library
-      </button>
-
-      {open && loadError !== null && (
+    <div className="standard-ebooks-catalog">
+      {loadError !== null && (
         <p style={{ ...label, marginTop: 'var(--space-2)', color: 'var(--accent-text)' }}>
           Could not load the Standard Ebooks library: {loadError}{' '}
           <button
@@ -161,24 +142,24 @@ export function CatalogPanel({
         </p>
       )}
 
-      {open && loadError === null && catalog === null && (
+      {loadError === null && catalog === null && (
         <p style={{ ...label, marginTop: 'var(--space-2)' }}>loading Standard Ebooks library…</p>
       )}
 
-      {open && catalog !== null && (
-        <div style={{ marginTop: 'var(--space-2)' }}>
+      {catalog !== null && (
+        <div className="standard-ebooks-catalog-content">
           <input
+            className="standard-ebooks-filter"
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="filter by title, author, or series"
             aria-label="Filter the Standard Ebooks library"
-            style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', padding: '2px 0.75ch', width: '100%', boxSizing: 'border-box' }}
           />
 
           {error && <p style={{ ...label, color: 'var(--accent-text)' }}>{error}</p>}
 
-          <div style={{ maxHeight: '18em', overflowY: 'auto', marginTop: 'var(--space-2)' }}>
+          <div className="standard-ebooks-results" role="region" aria-label="Standard Ebooks results" tabIndex={0}>
             {sections.map((section) => (
               <div key={section.key}>
                 <h5 style={{ ...label, margin: 'var(--space-2) 0 var(--space-1)' }}>

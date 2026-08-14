@@ -40,7 +40,6 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
     charsUtf16: 0,
   }],
   rhythm: null,
-  growth: null,
   missingDocs: [],
   mattrWindow: 500,
 });

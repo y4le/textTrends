@@ -23,7 +23,6 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(demoButton).toBeFocused();
 
   await gotoPlace(page, 'inputs');
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const catalogFilter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await catalogFilter.fill('sherlock');
   await catalogFilter.press('?');

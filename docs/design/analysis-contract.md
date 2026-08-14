@@ -113,8 +113,7 @@ The wire protocol has a closed query union:
   groups;
 - `concordance-window` — exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
-- `inventory` — corpus and per-document measurements, sentence rhythm, and
-  vocabulary growth;
+- `inventory` — corpus and per-document measurements plus sentence rhythm;
 - `freq-list` — bounded frequency, document-frequency, dispersion, and lexical
   diversity ranking;
 - `keyness` — explicit disjoint A/B comparison using log ratio and G²; and

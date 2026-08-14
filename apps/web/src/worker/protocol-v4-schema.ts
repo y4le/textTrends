@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_GROWTH_POINTS, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, INVENTORY_MIN_GROWTH_POINTS, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
@@ -205,7 +205,6 @@ export function narrowQueryV4(q: unknown): boolean {
         !exactRecord(q.request, [
           'method',
           'rhythmBinsPerDoc',
-          'growthPoints',
           'mattrWindow',
         ])
       ) {
@@ -214,23 +213,14 @@ export function narrowQueryV4(q: unknown): boolean {
       if (
         r.method !== 'inventory/1' ||
         !isCount(r.rhythmBinsPerDoc) ||
-        !isCount(r.growthPoints) ||
         !isCount(r.mattrWindow)
       ) {
         return false;
       }
       const rhythm = r.rhythmBinsPerDoc as number;
-      const growth = r.growthPoints as number;
       const mattrWindow = r.mattrWindow as number;
       return (
         rhythm <= INVENTORY_MAX_RHYTHM_BINS_PER_DOC &&
-        (
-          growth === 0 ||
-          (
-            growth >= INVENTORY_MIN_GROWTH_POINTS &&
-            growth <= INVENTORY_MAX_GROWTH_POINTS
-          )
-        ) &&
         mattrWindow >= 1 &&
         mattrWindow <= INVENTORY_MAX_MATTR_WINDOW
       );

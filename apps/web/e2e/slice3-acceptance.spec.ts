@@ -61,7 +61,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
   ]);
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
 
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
@@ -74,7 +74,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   const summaryValues = summary.getByRole('definition');
   const baselineSummary = await summaryValues.allTextContents();
   await betaRow.getByRole('button', { name: 'beta', exact: true }).click();
-  await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Measurements' })).toBeVisible();
 
   await gotoPlace(page, 'vocabulary');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;

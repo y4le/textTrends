@@ -21,22 +21,15 @@ export function bookDetailRegionId(doc: string): string {
   return `book-detail-${encodedDocId(doc)}`;
 }
 
-export function bookInventoryHeadingId(doc: string): string {
-  return `book-inventory-${encodedDocId(doc)}`;
+export function bookSourceHeadingId(doc: string): string {
+  return `book-source-${encodedDocId(doc)}`;
 }
-
-export function bookGrowthHeadingId(doc: string): string {
-  return `book-growth-${encodedDocId(doc)}`;
-}
-
-export type BookGrowthState = 'scoped' | 'unscoped' | 'absent';
 
 export interface BookDetailVM {
   readonly doc: string;
   readonly title: string;
   readonly stats: InventoryDocumentRowV1;
-  readonly growth: BookGrowthState;
-  readonly vocabularyLabel: string;
+  readonly mattrWindow: number;
 }
 
 /** Total parser for presentation-only book-detail targets. */
@@ -65,38 +58,18 @@ export function isWholeBookSelection(
     && range.tokens.end === fullTokens;
 }
 
-function vocabularyLabel(
-  selection: TokenRangeSelectionV1 | null,
-  wholeBook: boolean,
-): string {
-  if (wholeBook) return 'vocabulary for this text';
-  if (selection !== null) return 'vocabulary for the active range';
-  return 'vocabulary (all texts)';
-}
-
 /** One resident-data projection for every responsive book-detail presentation. */
 export function bookDetailView(input: {
   readonly target: BookSheetTarget;
   readonly title: string;
   readonly result: InventoryResultV1;
-  readonly selection: TokenRangeSelectionV1 | null;
 }): BookDetailVM | null {
   const stats = input.result.documents.find((row) => row.doc === input.target.doc);
   if (!stats) return null;
-  const wholeBook = isWholeBookSelection(
-    input.selection,
-    input.target.doc,
-    stats.fullTokens,
-  );
   return {
     doc: input.target.doc,
     title: input.title,
     stats,
-    growth: input.result.growth === null
-      ? 'absent'
-      : wholeBook
-        ? 'scoped'
-        : 'unscoped',
-    vocabularyLabel: vocabularyLabel(input.selection, wholeBook),
+    mattrWindow: input.result.mattrWindow,
   };
 }

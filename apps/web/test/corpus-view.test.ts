@@ -2,9 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   bookDetailRegionId,
   bookDetailView,
-  bookGrowthHeadingId,
-  bookInventoryHeadingId,
   bookSheetTarget,
+  bookSourceHeadingId,
   bookTitleControlId,
   isWholeBookSelection,
 } from '../src/lib/corpus-view.ts';
@@ -47,11 +46,6 @@ const result: InventoryResultV1 = {
     charsUtf16: 20,
   }],
   rhythm: null,
-  growth: {
-    tokens: Uint32Array.from([10]),
-    types: Uint32Array.from([5]),
-    documentEnds: [10],
-  },
   missingDocs: [],
   mattrWindow: 10,
 };
@@ -76,8 +70,7 @@ describe('corpus view', () => {
     for (const id of [
       bookTitleControlId(doc),
       bookDetailRegionId(doc),
-      bookInventoryHeadingId(doc),
-      bookGrowthHeadingId(doc),
+      bookSourceHeadingId(doc),
     ]) {
       expect(id).not.toMatch(/\s/u);
       expect(id).toContain(encodeURIComponent(doc));
@@ -96,49 +89,22 @@ describe('corpus view', () => {
     }, 'a', 10)).toBe(false);
   });
 
-  it('projects resident detail without inventing per-book growth', () => {
+  it('projects resident detail for the requested text', () => {
     const target = { surface: 'book-sheet', doc: 'a' } as const;
     expect(bookDetailView({
       target,
       title: 'Alpha',
       result,
-      selection: null,
     })).toMatchObject({
       doc: 'a',
       title: 'Alpha',
-      growth: 'unscoped',
-      vocabularyLabel: 'vocabulary (all texts)',
-    });
-    expect(bookDetailView({
-      target,
-      title: 'Alpha',
-      result,
-      selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }] },
-    })).toMatchObject({
-      growth: 'scoped',
-      vocabularyLabel: 'vocabulary for this text',
-    });
-    expect(bookDetailView({
-      target,
-      title: 'Alpha',
-      result,
-      selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }] },
-    })).toMatchObject({
-      growth: 'unscoped',
-      vocabularyLabel: 'vocabulary for the active range',
+      stats: result.documents[0],
+      mattrWindow: 10,
     });
     expect(bookDetailView({
       target: { surface: 'book-sheet', doc: 'missing' },
       title: 'Missing',
       result,
-      selection: null,
     })).toBeNull();
-
-    expect(bookDetailView({
-      target,
-      title: 'Alpha',
-      result: { ...result, growth: null },
-      selection: null,
-    })).toMatchObject({ growth: 'absent' });
   });
 });

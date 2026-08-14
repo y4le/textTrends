@@ -23,14 +23,23 @@ import {
 } from '../../lib/catalog-totals.ts';
 import { fullTokensByDoc } from '../../lib/doc-tokens.ts';
 import { BookDetail } from '../corpus/BookDetail.tsx';
-import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
-import { SourceDetails } from './SourceDetails.tsx';
 import { useRowNavigation } from '../useRowNavigation.ts';
 import { formatRate } from '../../lib/rate-format.ts';
 
 const number = new Intl.NumberFormat('en-US');
 
-function TotalValue({ value }: { readonly value: CatalogTotalValue | undefined }) {
+interface TotalValueWidths {
+  readonly count: number;
+  readonly rate: number;
+}
+
+function TotalValue({
+  value,
+  widths,
+}: {
+  readonly value: CatalogTotalValue | undefined;
+  readonly widths: TotalValueWidths;
+}) {
   if (!value || value.status === 'pending') {
     return <span title="query totals pending">…</span>;
   }
@@ -40,18 +49,23 @@ function TotalValue({ value }: { readonly value: CatalogTotalValue | undefined }
   if (value.status === 'unavailable') {
     return <span title="this text is unavailable in the term result">—</span>;
   }
+  const count = number.format(value.count);
+  const rate = formatRate(value.rate);
   return (
-    <span className="selectable-stat">
-      {number.format(value.count)} <span aria-hidden="true">·</span>{' '}
-      <span className="catalog-term-rate">{formatRate(value.rate)}</span>
+    <span
+      className="catalog-term-value selectable-stat"
+      style={{ gridTemplateColumns: `${widths.count}ch auto ${widths.rate}ch` }}
+      aria-label={`${count}; ${rate} per ${number.format(TREND_RATE_DENOMINATOR)} tokens`}
+    >
+      <span className="catalog-term-count" aria-hidden="true">{count}</span>
+      <span aria-hidden="true">{' · '}</span>
+      <span className="catalog-term-rate" aria-hidden="true">{rate}</span>
     </span>
   );
 }
 
 export function BookAnalysis() {
   const inventory = useApp((s) => s.corpusInventory);
-  const focusedDoc = useApp((s) => s.focusedDoc);
-  const setFocusedDoc = useApp((s) => s.setFocusedDoc);
   const snapshot = useApp((s) => s.snapshot);
   const series = useApp((s) => s.series);
   const trends = useApp((s) => s.trends);
@@ -87,7 +101,6 @@ export function BookAnalysis() {
   }, [bookTarget, bookTargetValid, popLayer]);
 
   const openBook = (doc: string) => {
-    setFocusedDoc(doc);
     if (bookTarget?.doc === doc && bookLayer !== null) {
       const bookIndex = layers.findIndex((layer) => layer.id === bookLayer.id);
       popLayer(bookIndex < 0 ? 1 : layers.length - bookIndex);
@@ -107,8 +120,6 @@ export function BookAnalysis() {
   const rowNavigation = useRowNavigation({
     keys: readyDocs,
     label: 'Input text',
-    preferredKey: focusedDoc,
-    onFocusKey: setFocusedDoc,
     onExit: () => {
       if (bookTarget === null || bookLayer === null) return false;
       const bookIndex = layers.findIndex((layer) => layer.id === bookLayer.id);
@@ -120,11 +131,7 @@ export function BookAnalysis() {
   if (!inventory) return null;
   return (
     <>
-      <section
-        aria-labelledby="catalog-book-analysis-heading"
-        className="catalog-book-analysis"
-      >
-        <h3 id="catalog-book-analysis-heading">Text details</h3>
+      <section className="catalog-book-analysis">
         {inventory.state.status === 'pending' && <p>computing full-text measurements…</p>}
         {inventory.state.status === 'error' && (
           <p style={{ color: 'var(--accent-text)' }}>{inventory.state.message}</p>
@@ -145,7 +152,23 @@ export function BookAnalysis() {
             fullTokens,
             rangeTokens: new Map(),
           });
-          const columnCount = 3 + series.length;
+          const readyValues = series.flatMap((term) => [
+            ...totals.rows.map((row) => row.values.get(term.id)),
+            totals.corpus.values.get(term.id),
+          ]).filter(
+            (candidate): candidate is Extract<CatalogTotalValue, { status: 'ready' }> =>
+              candidate?.status === 'ready',
+          );
+          const valueWidths = {
+            count: Math.max(
+              1,
+              number.format(totals.corpus.tokens).length,
+              ...totals.rows.map((row) => number.format(row.tokens).length),
+              ...readyValues.map((value) => number.format(value.count).length),
+            ),
+            rate: Math.max(1, ...readyValues.map((value) => formatRate(value.rate).length)),
+          };
+          const columnCount = 2 + series.length;
           const summaryEntries: readonly (readonly [string, number])[] = [
             ['texts', totals.rows.length],
             ['tokens', totals.corpus.tokens],
@@ -165,10 +188,6 @@ export function BookAnalysis() {
                   Exact counts omitted for {totals.missingDocs.length} text{totals.missingDocs.length === 1 ? '' : 's'} whose token extent is unavailable.
                 </p>
               )}
-              <p className="catalog-analysis-scope">
-                Full-text statistics stay stable while you explore ranges elsewhere.
-                {' '}Each term cell is exact count <span aria-hidden="true">·</span> rate per {number.format(TREND_RATE_DENOMINATOR)} tokens.
-              </p>
               <dl className="catalog-summary">
                 {summaryEntries.map(([label, count]) => (
                   <div key={label}>
@@ -191,9 +210,6 @@ export function BookAnalysis() {
                   className="catalog-analysis-table"
                   aria-label="Text details · full corpus"
                 >
-                  <caption>
-                    Full-text statistics and exact term counts
-                  </caption>
                   <thead>
                     <tr>
                       <th scope="col">text</th>
@@ -204,7 +220,6 @@ export function BookAnalysis() {
                           <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                         </th>
                       ))}
-                      <th scope="col">scope</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -216,7 +231,6 @@ export function BookAnalysis() {
                             target: bookTarget,
                             title: titleByDoc.get(row.doc) ?? row.doc,
                             result,
-                            selection: null,
                           })
                         : null;
                       const title = titleByDoc.get(row.doc) ?? row.doc;
@@ -225,7 +239,7 @@ export function BookAnalysis() {
                           <tr
                             className="catalog-book-row"
                             data-catalog-book
-                            data-focused={focusedDoc === row.doc ? true : undefined}
+                            data-expanded={expanded || undefined}
                           >
                             <th className="catalog-book-title" scope="row">
                               <button
@@ -234,9 +248,8 @@ export function BookAnalysis() {
                                 type="button"
                                 onClick={() => openBook(row.doc)}
                                 aria-expanded={expanded}
-                                aria-current={focusedDoc === row.doc ? 'true' : undefined}
                                 aria-controls={expanded ? bookDetailRegionId(row.doc) : undefined}
-                                title="Focus this text and show its details without changing analysis scope"
+                                title="Show this text's details without changing analysis scope"
                               >
                                 <span className="catalog-book-ordinal" aria-hidden="true">{readyDocs.indexOf(row.doc) + 1}</span>
                                 <span aria-hidden="true"> · </span>{title}
@@ -244,19 +257,24 @@ export function BookAnalysis() {
                             </th>
                             <td className="catalog-book-tokens">
                               <span className="catalog-cell-label">tokens</span>
-                              <span className="selectable-stat">{number.format(row.tokens)}</span>
+                              <span
+                                className="selectable-stat"
+                                style={{ inlineSize: `${valueWidths.count}ch` }}
+                              >
+                                {number.format(row.tokens)}
+                              </span>
                             </td>
                             {series.map((term) => (
                               <td key={term.id} className="catalog-term-total">
                                 <span className="catalog-cell-label">
                                   {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                                 </span>
-                                <TotalValue value={row.values.get(term.id)} />
+                                <TotalValue
+                                  value={row.values.get(term.id)}
+                                  widths={valueWidths}
+                                />
                               </td>
                             ))}
-                            <td className="catalog-book-scope">
-                              <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />
-                            </td>
                           </tr>
                           {expanded && (
                             <tr data-book-detail>
@@ -265,12 +283,6 @@ export function BookAnalysis() {
                                   ? (
                                       <BookDetail
                                         view={detail}
-                                        measurementScope="full text"
-                                        termCounts={series.map((term) => ({
-                                          id: term.id,
-                                          label: term.label,
-                                          value: row.values.get(term.id),
-                                        }))}
                                         onClose={popLayer}
                                         onScopeMessage={setScopeMessage}
                                       />
@@ -282,13 +294,20 @@ export function BookAnalysis() {
                                         role="region"
                                         aria-label={`Text detail: ${title}`}
                                       >
-                                        <header className="book-detail-header">
-                                          <h3>{title}</h3>
-                                          <button type="button" onClick={() => popLayer()}>close</button>
-                                        </header>
                                         <p>
                                           Full-text measurements are unavailable for this input.
                                         </p>
+                                        <footer className="book-detail-footer">
+                                          <div className="book-detail-actions">
+                                            <button
+                                              type="button"
+                                              aria-label={`Close text detail for ${title}`}
+                                              onClick={() => popLayer()}
+                                            >
+                                              close
+                                            </button>
+                                          </div>
+                                        </footer>
                                       </section>
                                     )}
                               </td>
@@ -299,19 +318,26 @@ export function BookAnalysis() {
                     })}
                     <tr className="catalog-corpus-row">
                       <th scope="row">corpus</th>
-                      <td>
+                      <td className="catalog-corpus-tokens">
                         <span className="catalog-cell-label">tokens</span>
-                        <span className="selectable-stat">{number.format(totals.corpus.tokens)}</span>
+                        <span
+                          className="selectable-stat"
+                          style={{ inlineSize: `${valueWidths.count}ch` }}
+                        >
+                          {number.format(totals.corpus.tokens)}
+                        </span>
                       </td>
                       {series.map((term) => (
                         <td key={term.id} className="catalog-term-total">
                           <span className="catalog-cell-label">
                             {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                           </span>
-                          <TotalValue value={totals.corpus.values.get(term.id)} />
+                          <TotalValue
+                            value={totals.corpus.values.get(term.id)}
+                            widths={valueWidths}
+                          />
                         </td>
                       ))}
-                      <td aria-label="not applicable">—</td>
                     </tr>
                   </tbody>
                 </table>
@@ -323,7 +349,6 @@ export function BookAnalysis() {
           );
         })()}
       </section>
-      {bookTarget === null && <SourceDetails headingAs="h3" />}
     </>
   );
 }

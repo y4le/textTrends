@@ -43,9 +43,9 @@ all acquisition paths share one exclusive library-operation lane and report a
 losing race in the card where it occurred. Reordering pauses while an import is
 in flight, and pending or failed imports remain visible in Active inputs.
 
-## Shipped text details
+## Shipped per-text statistics
 
-Text details sits directly below the four cards. It is intentionally a stable
+A full-corpus statistics table sits directly below the four cards as a stable
 full-corpus reference: a linked range selected in Trends may re-scope
 Vocabulary, Concordance, and other analytical overlays, but it does not rewrite
 the facts shown for an input text.
@@ -67,18 +67,14 @@ Expanding a text adds:
 - types and hapax count;
 - sentence and paragraph counts;
 - sentence mean, median, and p90 length plus paragraph mean;
-- TTR, explicitly labelled length-dependent, and MATTR;
-- the complete active-term count/rate list.
+- TTR with length-dependence guidance, and MATTR;
+- source format and extraction diagnostics.
 
-The focused text's Source details panel separately reports format, byte size,
-detected encoding, replacement characters, and suspicious control-character
-diagnostics.
+Each expanded text's Source details section reports format, byte size, detected
+encoding, replacement characters, and suspicious control-character diagnostics.
 
-Vocabulary growth is not attributed to a text from the resident corpus curve.
-That curve accumulates vocabulary over the whole selection, so the text detail
-states the limitation and relies on types, TTR, and MATTR for text-level lexical
-description. Inputs reports the full-corpus inventory even while another place
-owns a linked range. Trends TSV exports include both a reader-facing title and
+Inputs reports the full-corpus inventory even while another place owns a linked
+range. Trends TSV exports include both a reader-facing title and
 stable `document_id`, since titles are not unique identifiers. Other provenance
 prose currently favors titles; pairing ids with titles in selection and
 Compare-side parameters is a P1 follow-up below.
@@ -140,7 +136,7 @@ The following are proposals, not claims about the shipped worker results.
 - Summarize active-term **document frequency** (text count and percentage with
   at least one occurrence) from the resident per-text term cells. Preserve the
   Vocabulary export's existing name rather than inventing “coverage.”
-- Add a downloadable Text details TSV with one row per text/term and method
+- Add a downloadable per-text statistics TSV with one row per text/term and method
   fields, retaining both title and `document_id`.
 - Pair ids with titles in selection and Compare-side provenance parameters;
   readable prose must not make two same-titled texts indistinguishable.

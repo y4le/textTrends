@@ -116,6 +116,49 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(page.getByText('No saved texts yet.')).toBeVisible();
 });
 
+test('a large local library scrolls and filters filenames with regular expressions', async ({ page }) => {
+  await page.goto('./');
+  const local = page.getByRole('region', { name: 'Local library' });
+  const names = Array.from({ length: 30 }, (_, index) =>
+    `chapter-${index.toString().padStart(2, '0')}.${index % 2 === 0 ? 'txt' : 'md'}`);
+  await local.evaluate((target, filenames) => {
+    const transfer = new DataTransfer();
+    for (const name of filenames) {
+      transfer.items.add(new File([`contents of ${name}`], name, { type: 'text/plain' }));
+    }
+    target.dispatchEvent(new DragEvent('drop', {
+      bubbles: true,
+      cancelable: true,
+      dataTransfer: transfer,
+    }));
+  }, names);
+
+  const saved = local.getByRole('list', { name: 'Saved texts' });
+  await expect(saved.getByRole('listitem')).toHaveCount(30);
+  const results = local.getByRole('region', { name: 'Saved text results' });
+  await expect(results).toHaveCSS('overflow-y', 'auto');
+  expect(await results.evaluate((element) => element.scrollHeight > element.clientHeight)).toBe(true);
+  await results.focus();
+  await expect(results).toBeFocused();
+
+  const filter = local.getByRole('searchbox', { name: 'Filter saved texts by filename' });
+  await filter.fill('^chapter-(0[37]|1[24])\\.(txt|md)$');
+  await expect(saved.getByRole('listitem')).toHaveCount(4);
+  await expect(local.locator('#local-library-filter-status')).toHaveText('4 of 30 saved texts shown.');
+
+  await filter.fill('[');
+  await expect(filter).toHaveAttribute('aria-invalid', 'true');
+  await expect(saved.getByRole('listitem')).toHaveCount(30);
+  await expect(local.locator('#local-library-filter-status'))
+    .toHaveText('Invalid regular expression; showing all 30 saved texts.');
+
+  await filter.fill('^missing-file$');
+  await expect(saved.getByRole('listitem')).toHaveCount(0);
+  await expect(local.getByText('No saved texts match this regular expression.', { exact: true })).toBeVisible();
+  await local.getByRole('button', { name: 'Clear library filter' }).click();
+  await expect(saved.getByRole('listitem')).toHaveCount(30);
+});
+
 test('removing the last input settles the corpus and gives analysis places a focused way back', async ({ page }) => {
   await page.goto('./');
   await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();

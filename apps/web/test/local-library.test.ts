@@ -41,7 +41,6 @@ function workspace(library: string): WorkspaceV1 {
     views: {
       trend: {
         mode: 'series',
-        focusedDoc: 'doc-1',
         bins: { mode: 'per-doc', count: 40 },
         measure: { kind: 'rate', denominator: 10_000, smoothing: 0, showRaw: true },
       },
@@ -191,7 +190,7 @@ describe('BrowserLocalLibrary', () => {
       throw new Error('workspace should remain library-backed');
     }
     expect(loaded.workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
-    expect(loaded.workspace.views.trend.focusedDoc).toBeNull();
+    expect(loaded.workspace.views.trend).not.toHaveProperty('focusedDoc');
     expect(loaded.workspace.views.compare.documentA).toBeNull();
     expect(loaded.workspace.views.compare.documentB).toBeNull();
     await library.close();

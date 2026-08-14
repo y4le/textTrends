@@ -30,7 +30,7 @@ test('multi-file import transfers every source and finalizes in selection order'
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByLabel('Add files').setInputFiles(files.map((f) => ({ name: f.name, mimeType: f.mimeType, buffer: f.buffer })));
 
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, files.length);
 
   // Every source transferred: exactly N ingests since the mark, each detached
@@ -50,5 +50,15 @@ test('multi-file import transfers every source and finalizes in selection order'
     .toBe('all transferred');
 
   // Declared SELECTION order (the order authority), not completion order.
-  await expect(page.getByLabel('Text to inspect').locator('option')).toHaveText(files.map((f) => f.title));
+  const rows = page.getByRole('table', { name: 'Text details' })
+    .locator(':scope > tbody > tr[data-catalog-book]');
+  await expect(rows).toHaveCount(files.length);
+  for (const [index, file] of files.entries()) {
+    await expect(rows.nth(index).getByRole('rowheader')).toContainText(file.title);
+  }
+
+  await rows.nth(1).getByRole('button').click();
+  const source = page.getByRole('region', { name: 'Source details' });
+  await expect(source).toContainText('beta.md');
+  await expect(source).toContainText(`${files[1]!.len} bytes`);
 });

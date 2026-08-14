@@ -51,13 +51,6 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
 
   const firstBook = page.getByRole('button', { name: 'A Study in Scarlet', exact: true });
   await firstBook.focus();
-  await expect(firstBook).toHaveAttribute('aria-current', 'true');
-  await chord(firstBook, ']', 'b');
-  const secondBook = page.getByRole('button', { name: 'The Sign of the Four', exact: true });
-  await expect(secondBook).toBeFocused();
-  await expect(secondBook).toHaveAttribute('aria-current', 'true');
-  await chord(secondBook, '[', 'b');
-  await expect(firstBook).toBeFocused();
 
   await chord(firstBook, 'g', 't');
   const trendsSurface = page.getByRole('region', { name: 'Trends', exact: true });
@@ -85,7 +78,6 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(page.getByRole('slider', { name: 'Corpus footer position' })).toBeFocused();
 
   await gotoPlace(page, 'inputs');
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await filter.fill('');
   await filter.pressSequentially('gt]b');

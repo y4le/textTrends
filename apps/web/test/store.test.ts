@@ -104,6 +104,20 @@ function fakeQueryClient() {
       };
     },
   };
+  const isKeynessInventory = (candidate: Issued): boolean => {
+    if (candidate.op !== 'inventory') return false;
+    const selection = (candidate.query as { selection?: unknown }).selection;
+    return issued.some((entry) => {
+      if (entry.op !== 'keyness') return false;
+      const request = (entry.query as {
+        request?: { a?: unknown; b?: unknown };
+      }).request;
+      return [request?.a, request?.b].some(
+        (side) => side !== undefined
+          && JSON.stringify(side) === JSON.stringify(selection),
+      );
+    });
+  };
   return {
     client,
     issued,
@@ -112,13 +126,9 @@ function fakeQueryClient() {
     readers: () => issued.filter((q) => q.op === 'reader-page'),
     occurrenceSteps: () => issued.filter((q) => q.op === 'occurrence-step'),
     inventories: () => issued.filter(
-      (q) => q.op === 'inventory'
-        && ((q.query as { request?: { growthPoints?: number } }).request?.growthPoints ?? 0) > 0,
+      (q) => q.op === 'inventory' && !isKeynessInventory(q),
     ),
-    keynessInventories: () => issued.filter(
-      (q) => q.op === 'inventory'
-        && (q.query as { request?: { growthPoints?: number } }).request?.growthPoints === 0,
-    ),
+    keynessInventories: () => issued.filter(isKeynessInventory),
     frequencies: () => issued.filter((q) => q.op === 'freq-list'),
     keynesses: () => issued.filter((q) => q.op === 'keyness'),
   };
@@ -399,7 +409,6 @@ function fakeInventoryResult(
         fullTokens: row.fullTokens,
       })),
       rhythm: null,
-      growth: null,
       missingDocs: [],
       mattrWindow: 500,
     },
@@ -824,7 +833,7 @@ describe('the session bridge', () => {
     expect(workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
     expect(workspace.notebook.groups).toEqual([]);
     expect(workspace.active).toEqual([]);
-    expect(workspace.views.trend.focusedDoc).toBeNull();
+    expect(workspace.views.trend).not.toHaveProperty('focusedDoc');
     expect(workspace.views.compare.documentA).toBeNull();
     expect(workspace.views.compare.documentB).toBeNull();
   });
@@ -967,7 +976,7 @@ describe('the session bridge', () => {
     runtime.dispose();
   });
 
-  it('retains restored document selections through pre-snapshot loading publications', () => {
+  it('retains restored Compare selections through pre-snapshot loading publications', () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client);
     const project = {
@@ -980,15 +989,12 @@ describe('the session bridge', () => {
       ...base,
       views: {
         ...base.views,
-        trend: { ...base.views.trend, focusedDoc: 'a' },
         compare: { ...base.views.compare, documentA: 'a' },
       },
     };
     runtime.attachSession(port, durable);
-    expect(runtime.useApp.getState().focusedDoc).toBe('a');
     expect(runtime.useApp.getState().keynessView.documentA).toBe('a');
     port.emit(sessionState(null, { project }));
-    expect(runtime.useApp.getState().focusedDoc).toBe('a');
     expect(runtime.useApp.getState().keynessView.documentA).toBe('a');
     runtime.dispose();
   });
@@ -3997,14 +4003,9 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().frequency?.state.status).toBe('pending');
   });
 
-  it('focus changes do not reissue corpus vocabulary work, and add-exact admits sensitive matching', () => {
+  it('add-exact admits sensitive matching', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    const inventoryCount = f.inventories().length;
-    const frequencyCount = f.frequencies().length;
-    f.store.getState().setFocusedDoc('b');
-    expect(f.inventories()).toHaveLength(inventoryCount);
-    expect(f.frequencies()).toHaveLength(frequencyCount);
 
     f.store.getState().addFrequencyTerm('Holmes');
     const group = f.store.getState().notebook.groups.at(-1)!;

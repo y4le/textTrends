@@ -25,7 +25,6 @@ import {
 } from './lib/shortcuts.ts';
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
-import { bookTitleControlId } from './lib/corpus-view.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 
 const ReaderDrawer = lazy(() =>
@@ -301,29 +300,6 @@ export function App() {
           next === current
             ? `${direction === 1 ? 'last' : 'first'} active term · ${term.label}`
             : `${term.label} · active term ${next + 1} of ${terms.length}`,
-        );
-        return true;
-      }
-      case 'focus-book-previous':
-      case 'focus-book-next': {
-        const direction = id === 'focus-book-next' ? 1 : -1;
-        const docs = state.snapshot?.readyDocs ?? [];
-        if (docs.length === 0) {
-          setKeyboardNavigationStatus('no ready books');
-          return true;
-        }
-        const current = state.focusedDoc === null ? -1 : docs.indexOf(state.focusedDoc);
-        const base = current >= 0 ? current : direction === 1 ? -1 : docs.length;
-        const next = Math.max(0, Math.min(docs.length - 1, base + direction));
-        const doc = docs[next]!;
-        const title = state.projectSession?.project.data.docs.find((item) => item.doc === doc)?.meta.title
-          ?? doc;
-        state.setFocusedDoc(doc);
-        focusAfterRender(bookTitleControlId(doc));
-        setKeyboardNavigationStatus(
-          next === current
-            ? `${direction === 1 ? 'last' : 'first'} ready book · ${title}`
-            : `${title} · ready book ${next + 1} of ${docs.length}`,
         );
         return true;
       }

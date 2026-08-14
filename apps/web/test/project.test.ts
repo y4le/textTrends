@@ -83,7 +83,7 @@ describe('generation specs', () => {
 });
 
 describe('library workspace runtime', () => {
-  it('drops missing library references and clears departed view selections', () => {
+  it('drops missing library references and clears departed Compare selections', () => {
     const workspace = workspaceState({
       corpus: {
         kind: 'library',
@@ -95,14 +95,12 @@ describe('library workspace runtime', () => {
       },
       views: {
         ...workspaceState().views,
-        trend: { ...workspaceState().views.trend, focusedDoc: 'b' },
         compare: { ...workspaceState().views.compare, documentA: 'a', documentB: 'b' },
       },
     });
     const result = reconcileLibraryWorkspace(workspace, new Set([`txt:${'a'.repeat(64)}`]));
     expect(result.removedDocuments).toEqual(['b']);
     expect(result.workspace.corpus).toMatchObject({ kind: 'library', order: ['a'] });
-    expect(result.workspace.views.trend.focusedDoc).toBeNull();
     expect(result.workspace.views.compare).toMatchObject({ documentA: 'a', documentB: null });
   });
 

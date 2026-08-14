@@ -28,7 +28,7 @@ async function importCorpus(
     mimeType: 'text/plain',
     buffer: Buffer.from(text, 'utf-8'),
   });
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await expect
     .poll(async () => {
       const snapshot = await trace(page);

@@ -51,7 +51,7 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
   await gotoPlace(page, 'inputs');
   await clearDemoInputs(page);
   await page.getByLabel('Add files').setInputFiles({ name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8') });
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Compare two terms; the concordance merges BOTH by default (reading order).

@@ -54,7 +54,7 @@ test('catalog import restores from the library and active deletion cascades', as
   await page.getByLabel('Add files').setInputFiles(fileInput());
   await assertTransferred(page, importMark);
   await awaitReadyCount(page, 1);
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible();
   await expect(page.getByLabel('Active input order').getByText('local library', { exact: true })).toBeVisible();
   await expect.poll(() => savedWorkspaceOrder(page), { timeout: 10_000 }).toHaveLength(1);
 
@@ -63,7 +63,7 @@ test('catalog import restores from the library and active deletion cascades', as
   await awaitReadyCount(page, 1);
   await assertTransferred(page, -1);
   await gotoPlace(page, 'inputs');
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible();
 
   await page.getByRole('button', { name: `Delete ${DOC_NAME} from local library` }).click();
   await expect(page.getByLabel('Saved texts').getByText(DOC_NAME)).toHaveCount(0);

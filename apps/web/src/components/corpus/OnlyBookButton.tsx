@@ -44,7 +44,7 @@ export function OnlyBookButton({
             });
       }}
     >
-      {isOnlyThisBook ? 'all texts' : 'only this text'}
+      {isOnlyThisBook ? 'all texts' : 'select this text'}
     </button>
   );
 }

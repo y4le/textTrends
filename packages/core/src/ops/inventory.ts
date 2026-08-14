@@ -17,8 +17,6 @@ import type { DocTermCountsV1 } from './term-counts.ts';
 import { termCountRangeKey } from './term-counts.ts';
 
 export const INVENTORY_MAX_RHYTHM_BINS_PER_DOC = 256;
-export const INVENTORY_MIN_GROWTH_POINTS = 16;
-export const INVENTORY_MAX_GROWTH_POINTS = 1_024;
 export const INVENTORY_MAX_MATTR_WINDOW = 2_000;
 export const INVENTORY_SCAN_CHUNK = 65_536;
 /** One dense Uint32 count table is at most ~8 MiB. */
@@ -27,7 +25,6 @@ export const INVENTORY_MAX_VOCAB_TYPES = MATTR_MAX_TYPES;
 export interface InventoryRequestV1 {
   readonly method: 'inventory/1';
   readonly rhythmBinsPerDoc: number;
-  readonly growthPoints: number;
   readonly mattrWindow: number;
 }
 
@@ -76,13 +73,6 @@ export interface InventoryRhythmV1 {
   readonly sentenceMedian: Float64Array;
 }
 
-export interface InventoryGrowthV1 {
-  readonly tokens: Uint32Array;
-  readonly types: Uint32Array;
-  /** Cumulative selected-token boundary after each document in `order`. */
-  readonly documentEnds: readonly number[];
-}
-
 export interface InventoryDocumentInputV1 {
   readonly ref: CorpusDocRef;
   readonly shard: DocumentIndexV1;
@@ -96,7 +86,6 @@ export interface InventoryResultV1 {
   readonly totals: InventoryTotalsV1;
   readonly documents: readonly InventoryDocumentRowV1[];
   readonly rhythm: InventoryRhythmV1 | null;
-  readonly growth: InventoryGrowthV1 | null;
   readonly missingDocs: readonly string[];
   readonly mattrWindow: number;
 }
@@ -114,18 +103,6 @@ function validateRequest(request: InventoryRequestV1): void {
   ) {
     throw new RangeError(
       `rhythmBinsPerDoc must be 0 or an integer in [1, ${INVENTORY_MAX_RHYTHM_BINS_PER_DOC}]`,
-    );
-  }
-  if (
-    request.growthPoints !== 0 &&
-    (
-      !Number.isSafeInteger(request.growthPoints) ||
-      request.growthPoints < INVENTORY_MIN_GROWTH_POINTS ||
-      request.growthPoints > INVENTORY_MAX_GROWTH_POINTS
-    )
-  ) {
-    throw new RangeError(
-      `growthPoints must be 0 or an integer in [${INVENTORY_MIN_GROWTH_POINTS}, ${INVENTORY_MAX_GROWTH_POINTS}]`,
     );
   }
   if (
@@ -294,73 +271,6 @@ function selectedTokensIn(
   return total;
 }
 
-async function buildGrowth(
-  snapshot: CorpusSnapshotV1,
-  selection: ResolvedSelection,
-  inputs: readonly InventoryDocumentInputV1[],
-  requestedPoints: number,
-  checkpoint: InventoryCheckpoint,
-): Promise<InventoryGrowthV1> {
-  const totalTokens = inputs.reduce((sum, input) => sum + input.counts.tokens, 0);
-  const targets = new Set<number>([0, totalTokens]);
-  for (let i = 1; i <= requestedPoints; i++) {
-    targets.add(Math.ceil(totalTokens * i / requestedPoints));
-  }
-  const documentEnds: number[] = [];
-  let boundary = 0;
-  for (const input of inputs) {
-    boundary += input.counts.tokens;
-    documentEnds.push(boundary);
-    targets.add(boundary);
-  }
-  const orderedTargets = [...targets].sort((a, b) => a - b);
-  const outTokens: number[] = [];
-  const outTypes: number[] = [];
-  const seen = new Uint8Array(snapshot.vocabulary.keys.length);
-  let types = 0;
-  let consumed = 0;
-  let targetCursor = 0;
-  const emitReached = (): void => {
-    while (
-      targetCursor < orderedTargets.length &&
-      (orderedTargets[targetCursor] as number) <= consumed
-    ) {
-      outTokens.push(orderedTargets[targetCursor] as number);
-      outTypes.push(types);
-      targetCursor++;
-    }
-  };
-  emitReached();
-  let sinceCheckpoint = 0;
-  for (const input of inputs) {
-    const runs = runsFor(selection, input.ref);
-    for (const { start, end } of runs) {
-      for (let position = start; position < end; position++) {
-        const local = input.shard.tokenTypeIds[position] as number;
-        const corpus = input.ref.localToCorpusType[local] as number;
-        if (seen[corpus] === 0) {
-          seen[corpus] = 1;
-          types++;
-        }
-        consumed++;
-        emitReached();
-        if (++sinceCheckpoint >= INVENTORY_SCAN_CHUNK) {
-          sinceCheckpoint = 0;
-          await checkpoint();
-        }
-      }
-    }
-  }
-  if (consumed !== totalTokens || targetCursor !== orderedTargets.length) {
-    throw new Error('vocabulary-growth accounting invariant failed');
-  }
-  return {
-    tokens: Uint32Array.from(outTokens),
-    types: Uint32Array.from(outTypes),
-    documentEnds,
-  };
-}
-
 export async function inventory(
   snapshot: CorpusSnapshotV1,
   selection: ResolvedSelection,
@@ -505,11 +415,6 @@ export async function inventory(
     if ((i + 1) % INVENTORY_SCAN_CHUNK === 0) await checkpoint();
   }
 
-  const growth = request.growthPoints === 0
-    ? null
-    : await buildGrowth(snapshot, selection, inputs, request.growthPoints, checkpoint);
-  await checkpoint();
-
   const totals: InventoryTotalsV1 = {
     selectedDocs: inputs.length,
     expectedDocs: snapshot.expectedDocs.length,
@@ -541,7 +446,6 @@ export async function inventory(
           sentenceMean: Float64Array.from(rhythmSentenceMean),
           sentenceMedian: Float64Array.from(rhythmSentenceMedian),
         },
-    growth,
     missingDocs: [...snapshot.missingDocs],
     mattrWindow: request.mattrWindow,
   };
@@ -560,11 +464,6 @@ export function inventoryTransferBuffers(result: InventoryResultV1): ArrayBuffer
       result.rhythm.sentenceMean,
       result.rhythm.sentenceMedian,
     ]) {
-      if (view.buffer instanceof ArrayBuffer) buffers.add(view.buffer);
-    }
-  }
-  if (result.growth) {
-    for (const view of [result.growth.tokens, result.growth.types]) {
       if (view.buffer instanceof ArrayBuffer) buffers.add(view.buffer);
     }
   }

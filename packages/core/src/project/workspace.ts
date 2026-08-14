@@ -74,7 +74,6 @@ export type WorkspaceCorpusV1 =
 
 export interface WorkspaceTrendViewV1 {
   readonly mode: 'series' | 'by-book';
-  readonly focusedDoc: string | null;
   readonly bins: TrendBinsSpecV1;
   readonly measure: WorkspaceTrendMeasureV1;
 }
@@ -249,13 +248,15 @@ function parseCorpus(value: unknown): WorkspaceCorpusV1 {
 }
 
 export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
-  if (!exactRecord(value, ['mode', 'focusedDoc', 'bins', 'measure'])) {
+  const current = exactRecord(value, ['mode', 'bins', 'measure']);
+  const legacy = exactRecord(value, ['mode', 'focusedDoc', 'bins', 'measure']);
+  if (!current && !legacy) {
     throw new RangeError('trend view must be exact');
   }
   if (value.mode !== 'series' && value.mode !== 'by-book') throw new RangeError('trend mode is invalid');
-  const focusedDoc = value.focusedDoc === null
-    ? null
-    : boundedString(value.focusedDoc, WORKSPACE_MAX_ID_UNITS, 'focused document');
+  if (legacy && value.focusedDoc !== null) {
+    boundedString(value.focusedDoc, WORKSPACE_MAX_ID_UNITS, 'focused document');
+  }
   if (
     !exactRecord(value.bins, ['mode', 'count'])
     || !isNonNegSafeInt(value.bins.count)
@@ -288,7 +289,7 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
   } else {
     throw new RangeError('trend measure is invalid');
   }
-  return { mode: value.mode, focusedDoc, bins: value.bins as unknown as TrendBinsSpecV1, measure };
+  return { mode: value.mode, bins: value.bins as unknown as TrendBinsSpecV1, measure };
 }
 
 function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
@@ -394,22 +395,17 @@ export function parseWorkspace(value: unknown): WorkspaceV1 {
   };
 }
 
-/** Remove document selections that are not available in the opened corpus. */
+/** Remove Compare document selections that are not available in the opened corpus. */
 export function reconcileWorkspaceDocuments(
   workspace: WorkspaceV1,
   availableDocuments: ReadonlySet<string>,
 ): WorkspaceV1 {
-  const focusedDoc = workspace.views.trend.focusedDoc;
   const documentA = workspace.views.compare.documentA;
   const documentB = workspace.views.compare.documentB;
   return {
     ...workspace,
     views: {
       ...workspace.views,
-      trend: {
-        ...workspace.views.trend,
-        focusedDoc: focusedDoc !== null && availableDocuments.has(focusedDoc) ? focusedDoc : null,
-      },
       compare: {
         ...workspace.views.compare,
         documentA: documentA !== null && availableDocuments.has(documentA) ? documentA : null,

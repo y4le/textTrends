@@ -314,8 +314,8 @@ Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gd` goes to Compare when at least two texts are active and otherwise announces
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 current active term in the fixed rail without scrolling the workbench.
-`[t`/`]t` and `[b`/`]b` clamp through active terms and
-ready books, with a polite boundary announcement. Within the Terms and
+`[t`/`]t` clamp through active terms with a polite boundary announcement.
+Within the Terms and
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
 activate a destination until the link is invoked. With at least two active
 texts, `v` on the Trends scrubber switches the visible combined/separate

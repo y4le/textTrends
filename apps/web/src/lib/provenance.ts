@@ -141,7 +141,6 @@ function inventoryMethod(result: InventoryResultV1): ProvenanceMethod {
     method: result.method,
     parameters: [
       parameter('MATTR window', String(result.mattrWindow)),
-      parameter('growth points', String(result.growth?.tokens.length ?? 0)),
       parameter('selected documents', String(result.totals.selectedDocs)),
       parameter('selected tokens', String(result.totals.tokens)),
       parameter('token classes', 'lexical and numeral totals reported separately'),

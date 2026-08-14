@@ -84,7 +84,7 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
     mimeType: 'application/epub+zip',
     buffer: fixtureEpub(),
   });
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // A word that appears ONLY in the epub body matter yields a trend line — proof
@@ -110,14 +110,14 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
   await page.getByLabel('Add files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   await awaitSavedWorkspace(page);
 
   await clearArtifactStores(page);
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Re-extracted from the library source: the body term still analyzes.
@@ -139,7 +139,7 @@ test('a library EPUB rebuilds its index when only extracted text survives', asyn
   await page.getByLabel('Add files').setInputFiles({
     name: 'zephyrwood.epub', mimeType: 'application/epub+zip', buffer: fixtureEpub(),
   });
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   await awaitSavedWorkspace(page);
@@ -160,7 +160,7 @@ test('a library EPUB rebuilds its index when only extracted text survives', asyn
   }, DB_NAME);
 
   await page.reload();
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   await gotoPlace(page, 'trends');

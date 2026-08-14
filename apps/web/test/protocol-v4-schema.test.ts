@@ -15,10 +15,8 @@ import {
   TERM_GROUP_LIMITS_V1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
-  INVENTORY_MAX_GROWTH_POINTS,
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-  INVENTORY_MIN_GROWTH_POINTS,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_PREFIX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
@@ -338,7 +336,6 @@ describe('narrowQueryV4', () => {
       request: {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
-        growthPoints: 0,
         mattrWindow: 500,
         ...request,
       },
@@ -346,12 +343,9 @@ describe('narrowQueryV4', () => {
     expect(query({})).toBe(true);
     expect(query({
       rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-      growthPoints: INVENTORY_MAX_GROWTH_POINTS,
       mattrWindow: INVENTORY_MAX_MATTR_WINDOW,
     })).toBe(true);
     expect(query({ rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC + 1 })).toBe(false);
-    expect(query({ growthPoints: INVENTORY_MIN_GROWTH_POINTS - 1 })).toBe(false);
-    expect(query({ growthPoints: INVENTORY_MAX_GROWTH_POINTS + 1 })).toBe(false);
     expect(query({ mattrWindow: 0 })).toBe(false);
     expect(query({ mattrWindow: INVENTORY_MAX_MATTR_WINDOW + 1 })).toBe(false);
     expect(query({ method: 'inventory/2' })).toBe(false);
@@ -362,7 +356,6 @@ describe('narrowQueryV4', () => {
       request: {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
-        growthPoints: 0,
         mattrWindow: 500,
       },
       extra: true,
@@ -507,7 +500,6 @@ describe('narrowQueryV4', () => {
         request: {
           method: 'inventory/1',
           rhythmBinsPerDoc: n,
-          growthPoints: 0,
           mattrWindow: 500,
         },
       }), why).toBe(false);

@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
 
-test('text focus preserves scope while only this text explicitly rescopes linked analyses', async ({ page }) => {
+test('text detail preserves scope while select this text explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -12,10 +12,7 @@ test('text focus preserves scope while only this text explicitly rescopes linked
   await expect(rows).toHaveCount(6);
   const baselineTokens = await scope.locator('span').filter({ hasText: /^[\d,]+ tokens$/ }).first().innerText();
 
-  const targetIndex = await rows.evaluateAll((elements) =>
-    elements.findIndex((element) => !element.hasAttribute('data-focused')));
-  expect(targetIndex).toBeGreaterThanOrEqual(0);
-  const secondRow = rows.nth(targetIndex);
+  const secondRow = rows.nth(1);
   const titleButton = secondRow.getByRole('rowheader').getByRole('button');
   await expect(titleButton).toHaveAttribute('aria-expanded', 'false');
   const declaredTitle = await titleButton.innerText();
@@ -26,9 +23,13 @@ test('text focus preserves scope while only this text explicitly rescopes linked
   const controlledDetail = await titleButton.getAttribute('aria-controls');
   expect(controlledDetail).not.toBeNull();
   expect(controlledDetail).not.toMatch(/\s/u);
-  await expect(page.locator(`[id="${controlledDetail!}"]`)).toBeVisible();
+  const textDetail = page.getByRole('region', { name: `Text detail: ${title}` });
+  await expect(textDetail).toBeVisible();
   await expect(page.getByRole('region', { name: 'Measurements' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
+  await expect(textDetail.getByRole('heading', { name: title, exact: true })).toHaveCount(0);
+  await expect(textDetail.getByRole('heading', { name: 'Measurements' })).toHaveCount(0);
+  await expect(textDetail.getByText(/^These measurements describe/)).toHaveCount(0);
+  await expect(textDetail.getByRole('region', { name: 'Term counts' })).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Sentence rhythm' })).toHaveCount(0);
   const termCountsBefore = await secondRow.locator('.catalog-term-total').allInnerTexts();
   await expect(scope).toContainText(baselineTokens);
@@ -41,14 +42,13 @@ test('text focus preserves scope while only this text explicitly rescopes linked
   expect(focusOps).toEqual([]);
 
   const beforeScope = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await secondRow.getByRole('button', { name: 'only this text' }).click();
+  await textDetail.getByRole('button', { name: 'select this text' }).click();
   await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
   await expect(scope).toContainText(title);
   await expect(scope).toContainText(/tokens 1–/);
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
   await expect(rows).toHaveCount(6);
   await expect(secondRow.getByRole('rowheader').getByRole('button')).toHaveText(declaredTitle);
-  await expect(page.getByRole('region', { name: 'Measurements' })).toContainText('full text');
   expect(await secondRow.locator('.catalog-term-total').allInnerTexts()).toEqual(termCountsBefore);
 
   const requiredScopeOps = ['trend', 'dispersion', 'inventory', 'freq-list'];
@@ -72,13 +72,6 @@ test('text focus preserves scope while only this text explicitly rescopes linked
     .map((event) => event.op);
   expect(new Set(scopeOps)).toEqual(new Set(requiredScopeOps));
 
-  await expect(page.getByRole('region', { name: 'Vocabulary growth' }))
-    .toContainText('not attributed to an individual text');
-  const vocabularyDestination = page.getByRole('button', { name: 'Open Vocabulary', exact: true });
-  await expect(vocabularyDestination).toBeVisible();
-  await vocabularyDestination.click();
-  await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
-  await expect(page.getByText(/rates use .* selected class tokens/)).toBeVisible();
   await gotoPlace(page, 'concordance');
   await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
 
@@ -89,9 +82,11 @@ test('text focus preserves scope while only this text explicitly rescopes linked
   await clearNotebook(page);
   await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
   await gotoPlace(page, 'inputs');
-  const rowEscape = documents.getByRole('button', { name: 'all texts' });
-  await expect(rowEscape).toBeVisible();
-  await expect(rowEscape).not.toHaveAttribute('aria-disabled');
+  await titleButton.click();
+  await expect(textDetail).toBeVisible();
+  const detailEscape = textDetail.getByRole('button', { name: 'all texts' });
+  await expect(detailEscape).toBeVisible();
+  await expect(detailEscape).not.toHaveAttribute('aria-disabled');
   await expect(secondRow.getByRole('rowheader')).toHaveAccessibleName(title);
 
   await scope.getByRole('button', { name: 'All books' }).click();

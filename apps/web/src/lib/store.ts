@@ -210,7 +210,6 @@ export const DEFAULT_TREND_MEASURE: WorkspaceTrendMeasureV1 = Object.freeze({
   smoothing: 0,
   showRaw: false,
 });
-export const INVENTORY_GROWTH_POINTS = 128;
 export const INVENTORY_MATTR_WINDOW = 500;
 
 /** (generation, snapshot) identity — a query result is written only if the live
@@ -737,8 +736,6 @@ export interface AppState {
   /** Resident explanation for automatic geometry normalization or a corpus
    * that cannot satisfy the bounded trend protocol. */
   trendSettingsNotice: string | null;
-  /** The document currently selected by book-level views. */
-  focusedDoc: string | null;
   scrub: ScrubTarget | null;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
@@ -820,7 +817,6 @@ export interface AppState {
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
   setKeynessDirection(side: 'a' | 'b'): void;
   setKeynessPage(side: 'a' | 'b', offset: number): void;
-  setFocusedDoc(doc: string): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   stepOccurrence(direction: 1 | -1): void;
@@ -988,20 +984,6 @@ function retainTrendTokenCounts(
   return next;
 }
 
-/** The focused doc for the incoming session state: preserve the current focus
- *  while it remains a ready member of the snapshot, otherwise pick the first
- *  ready doc in DECLARED project order (never analysis-completion order). While
- *  a generation has no snapshot, retain a saved focus that belongs to the
- *  declared corpus so boot and restart do not discard it. */
-function resolveFocusedDoc(prev: string | null, next: SessionState): string | null {
-  const snapshot = next.snapshot;
-  if (!snapshot) return prev !== null && next.project.data.order.includes(prev) ? prev : null;
-  const ready = new Set(snapshot.readyDocs);
-  if (prev !== null && ready.has(prev)) return prev;
-  for (const doc of next.project.data.order) if (ready.has(doc)) return doc;
-  return snapshot.readyDocs[0] ?? null;
-}
-
 function adjacentReaderDocument(
   state: Pick<AppState, 'corpusTokenCounts' | 'projectSession' | 'snapshot'>,
   doc: string,
@@ -1077,7 +1059,6 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
     views: {
       trend: {
         mode: state.trendView,
-        focusedDoc: state.focusedDoc,
         bins: state.trendBins,
         measure: state.trendMeasure,
       },
@@ -1116,7 +1097,6 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
     views: {
       trend: {
         mode: 'series',
-        focusedDoc: null,
         bins: DEFAULT_TREND_BINS,
         measure: DEFAULT_TREND_MEASURE,
       },
@@ -1616,7 +1596,6 @@ export function createAppRuntime(
           request: {
             method: 'inventory/1',
             rhythmBinsPerDoc: 0,
-            growthPoints: 0,
             mattrWindow: INVENTORY_MATTR_WINDOW,
           },
         },
@@ -2449,7 +2428,6 @@ export function createAppRuntime(
       trendBins: DEFAULT_TREND_BINS,
       trendMeasure: DEFAULT_TREND_MEASURE,
       trendSettingsNotice: null,
-      focusedDoc: null,
       scrub: null,
       footerPassage: null,
       occurrenceNavigation: null,
@@ -2826,7 +2804,6 @@ export function createAppRuntime(
         try {
           admitted = parseWorkspaceTrendView({
             mode: state.trendView,
-            focusedDoc: state.focusedDoc,
             bins: input.bins,
             measure: input.measure,
           });
@@ -2854,12 +2831,6 @@ export function createAppRuntime(
             });
         if (binsChanged) runTrendLanesOnly();
         return 'applied';
-      },
-
-      setFocusedDoc(doc) {
-        if (get().focusedDoc === doc) return;
-        if (!get().snapshot?.readyDocs.includes(doc)) return; // only a ready doc
-        set({ focusedDoc: doc });
       },
 
       setScrub(target) {
@@ -3531,7 +3502,6 @@ export function createAppRuntime(
               request: {
                 method: 'inventory/1',
                 rhythmBinsPerDoc: 0,
-                growthPoints: INVENTORY_GROWTH_POINTS,
                 mattrWindow: INVENTORY_MATTR_WINDOW,
               },
             },
@@ -3608,7 +3578,6 @@ export function createAppRuntime(
             request: {
               method: 'inventory/1',
               rhythmBinsPerDoc: 0,
-              growthPoints: INVENTORY_GROWTH_POINTS,
               mattrWindow: INVENTORY_MATTR_WINDOW,
             },
           },
@@ -4183,7 +4152,6 @@ export function createAppRuntime(
             : restoredTrendBinsChanged
               ? trendGeometryNotice(workspace.views.trend.bins, restoredTrendBins)
               : null,
-          focusedDoc: workspace.views.trend.focusedDoc,
           frequencyView: {
             schema: 'texttrends/frequency-view/1',
             minCount: workspace.views.frequency.minCount,
@@ -4376,12 +4344,6 @@ export function createAppRuntime(
   const acceptSessionState = (next: SessionState) => {
     const prevKey = snapKey(store.getState().snapshot);
     const nextKey = snapKey(next.snapshot);
-    // Resolve the focused doc against the incoming snapshot: keep the current
-    // one while it stays ready, else the first ready doc in declared order.
-    // Snapshot ids are unique per publication, so an unchanged key means the
-    // ready set (and thus the focus) is stable — the detail view never churns on an
-    // unrelated (sources/save) publication.
-    const focusedDoc = resolveFocusedDoc(store.getState().focusedDoc, next);
     const keynessView = reconcileKeynessView(
       store.getState().keynessView,
       next.snapshot?.readyDocs ?? next.project.data.order,
@@ -4392,7 +4354,6 @@ export function createAppRuntime(
       snapshot: next.snapshot,
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
-      focusedDoc,
       keynessView,
       corpusTokenCounts: prevKey !== nextKey
         ? new Map()

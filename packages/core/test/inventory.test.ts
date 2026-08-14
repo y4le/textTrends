@@ -5,10 +5,8 @@ import { createDocumentIndex, tokenEndChar } from '../src/index/build.ts';
 import {
   inventory,
   inventoryTransferBuffers,
-  INVENTORY_MAX_GROWTH_POINTS,
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
-  INVENTORY_MIN_GROWTH_POINTS,
   type InventoryDocumentInputV1,
   type InventoryRequestV1,
 } from '../src/ops/inventory.ts';
@@ -22,7 +20,6 @@ const GEN = 'inventory' as BuildGeneration;
 const REQUEST: InventoryRequestV1 = {
   method: 'inventory/1',
   rhythmBinsPerDoc: 2,
-  growthPoints: 16,
   mattrWindow: 3,
 };
 
@@ -223,43 +220,13 @@ describe('inventory/1', () => {
       {
         method: 'inventory/1',
         rhythmBinsPerDoc: 0,
-        growthPoints: 0,
         mattrWindow: 3,
       },
       async () => {},
     );
     expect(result.rhythm).toBeNull();
-    expect(result.growth).toBeNull();
     expect(result.documents[0]!.mattr).toBe(0.75); // (1×2 + 0.5×2) / 4
     expect(result.documents[0]!.mattrIsPlainTtr).toBe(true);
-  });
-
-  it('returns monotone bounded growth ending at the exact totals and doc boundaries', async () => {
-    const world = await fixture([
-      ['a', 'a b a c'],
-      ['b', 'c d e'],
-    ]);
-    const selection = await resolveSelection(world.snapshot, {
-      docs: ['a', 'b'] as ProjectDocId[],
-    });
-    const result = await inventory(
-      world.snapshot,
-      selection,
-      inputsFor(world, selection),
-      REQUEST,
-      async () => {},
-    );
-    const growth = result.growth!;
-    expect(growth.documentEnds).toEqual([4, 7]);
-    expect(growth.tokens.at(-1)).toBe(result.totals.tokens);
-    expect(growth.types.at(-1)).toBe(result.totals.types);
-    for (let i = 1; i < growth.tokens.length; i++) {
-      expect(growth.tokens[i]).toBeGreaterThanOrEqual(growth.tokens[i - 1] as number);
-      expect(growth.types[i]).toBeGreaterThanOrEqual(growth.types[i - 1] as number);
-    }
-    expect(growth.tokens.length).toBeLessThanOrEqual(
-      REQUEST.growthPoints + result.order.length + 1,
-    );
   });
 
   it('checkpoints, rejects every request cap, and transfers only fresh result buffers', async () => {
@@ -285,8 +252,6 @@ describe('inventory/1', () => {
     const invalid = [
       { ...REQUEST, rhythmBinsPerDoc: INVENTORY_MAX_RHYTHM_BINS_PER_DOC + 1 },
       { ...REQUEST, rhythmBinsPerDoc: -1 },
-      { ...REQUEST, growthPoints: INVENTORY_MIN_GROWTH_POINTS - 1 },
-      { ...REQUEST, growthPoints: INVENTORY_MAX_GROWTH_POINTS + 1 },
       { ...REQUEST, mattrWindow: 0 },
       { ...REQUEST, mattrWindow: INVENTORY_MAX_MATTR_WINDOW + 1 },
     ];

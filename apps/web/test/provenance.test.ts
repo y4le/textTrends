@@ -33,11 +33,6 @@ const inventory: InventoryResultV1 = {
   },
   documents: [],
   rhythm: null,
-  growth: {
-    tokens: new Uint32Array([100, 200]),
-    types: new Uint32Array([50, 80]),
-    documentEnds: [100, 200],
-  },
   missingDocs: [],
   mattrWindow: 500,
 };

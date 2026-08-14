@@ -10,7 +10,6 @@ export function workspaceState(input: string | Partial<WorkspaceV1> = 'builtin/s
     views: {
       trend: {
         mode: 'series',
-        focusedDoc: null,
         bins: { mode: 'per-doc', count: 40 },
         measure: {
           kind: 'rate',

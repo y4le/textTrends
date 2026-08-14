@@ -2,7 +2,7 @@
  * active input set. Acquisitions enter the library first; native drag-and-drop
  * then covers OS files, library activation, and input reordering. */
 
-import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { fetchDemoCorpus } from '../lib/demo-corpora.ts';
@@ -46,11 +46,7 @@ const dropListStyle = {
   gap: '3px',
 } as const;
 
-export function ProjectPanel({
-  headingAs: Heading = 'h2',
-}: {
-  readonly headingAs?: 'h2' | 'h3';
-}) {
+export function ProjectPanel() {
   const project = useApp((s) => s.projectSession?.project ?? null);
   const docs = useApp((s) => s.projectSession?.project.data.docs ?? null);
   const imports = useApp((s) => s.projectSession?.imports ?? null);
@@ -73,6 +69,19 @@ export function ProjectPanel({
   const [library, setLibrary] = useState<readonly LocalLibraryItem[]>([]);
   const [libraryLoading, setLibraryLoading] = useState(true);
   const [libraryError, setLibraryError] = useState<string | null>(null);
+  const [libraryFilter, setLibraryFilter] = useState('');
+  const filteredLibrary = useMemo(() => {
+    if (libraryFilter === '') return { items: library, invalid: false };
+    try {
+      const expression = new RegExp(libraryFilter, 'iu');
+      return {
+        items: library.filter((item) => expression.test(item.name)),
+        invalid: false,
+      };
+    } catch {
+      return { items: library, invalid: true };
+    }
+  }, [library, libraryFilter]);
   const libraryBusy = useSyncExternalStore(
     libraryOperation.subscribe,
     libraryOperation.isBusy,
@@ -401,9 +410,7 @@ export function ProjectPanel({
   };
 
   return (
-    <section aria-labelledby="project-heading" className="input-workspace">
-      <Heading id="project-heading" className="input-workspace-heading">Input workspace</Heading>
-
+    <section className="input-workspace">
       <div className="input-card-grid">
         <section
           className="input-card input-card-active"
@@ -553,37 +560,84 @@ export function ProjectPanel({
               Delete all
             </button>
           </div>
-          <p className="input-card-help">Drop files here to save them without activating them. Add any saved text when you need it.</p>
+          <p className="input-card-help">
+            Drop files here to save them without activating them. Filter filenames with a case-insensitive regular expression.
+          </p>
           {libraryError && <p role="alert" className="input-card-error">{libraryError}</p>}
           <p role="status" aria-live="polite" className="input-card-status">{libraryNotice ?? (libraryLoading ? 'loading saved texts…' : '')}</p>
           {!libraryLoading && library.length === 0 && <p className="input-card-empty">No saved texts yet.</p>}
-          <ul aria-label="Saved texts" style={dropListStyle}>
-            {library.map((file) => (
-              <li
-                key={file.id}
-                draggable={!libraryBusy}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = 'copy';
-                  event.dataTransfer.setData(LIBRARY_DRAG, file.id);
-                  event.dataTransfer.setData('text/plain', file.name);
-                }}
-                className="local-library-row"
-                style={{ cursor: libraryBusy ? 'default' : 'grab' }}
-              >
-                <span className="local-library-name" title={file.name}>{file.name}</span>
-                <span className="local-library-size">{fileSize(file.size)}</span>
-                <button type="button" disabled={libraryBusy} onClick={() => void activateSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Add ${file.name} to active inputs`}>
-                  add
-                </button>
-                <button type="button" disabled={libraryBusy} onClick={() => void removeSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Delete ${file.name} from local library`}>
-                  delete
-                </button>
-              </li>
-            ))}
-          </ul>
+          <div className="local-library-filter-row">
+            <label htmlFor="local-library-filter">filter (regex)</label>
+            <input
+              id="local-library-filter"
+              type="search"
+              value={libraryFilter}
+              disabled={libraryLoading || library.length === 0}
+              aria-invalid={filteredLibrary.invalid || undefined}
+              aria-describedby="local-library-filter-status"
+              aria-label="Filter saved texts by filename"
+              placeholder="filename pattern"
+              spellCheck={false}
+              onChange={(event) => setLibraryFilter(event.target.value)}
+            />
+            <button
+              type="button"
+              disabled={libraryFilter === ''}
+              onClick={() => setLibraryFilter('')}
+              style={SMALL_BUTTON_STYLE}
+              aria-label="Clear library filter"
+            >
+              clear
+            </button>
+          </div>
+          <p
+            id="local-library-filter-status"
+            className={`local-library-filter-status${filteredLibrary.invalid ? ' local-library-filter-status-invalid' : ''}`}
+            aria-live="polite"
+          >
+            {filteredLibrary.invalid
+              ? `Invalid regular expression; showing all ${library.length} saved text${library.length === 1 ? '' : 's'}.`
+              : `${filteredLibrary.items.length} of ${library.length} saved text${library.length === 1 ? '' : 's'} shown.`}
+          </p>
+          {!libraryLoading
+            && library.length > 0
+            && !filteredLibrary.invalid
+            && filteredLibrary.items.length === 0
+            && <p className="input-card-empty">No saved texts match this regular expression.</p>}
+          <div
+            className="local-library-list-port"
+            role="region"
+            aria-label="Saved text results"
+            tabIndex={filteredLibrary.items.length > 0 ? 0 : undefined}
+          >
+            <ul aria-label="Saved texts" className="local-library-list">
+              {filteredLibrary.items.map((file) => (
+                <li
+                  key={file.id}
+                  draggable={!libraryBusy}
+                  onDragStart={(event) => {
+                    event.dataTransfer.effectAllowed = 'copy';
+                    event.dataTransfer.setData(LIBRARY_DRAG, file.id);
+                    event.dataTransfer.setData('text/plain', file.name);
+                  }}
+                  className="local-library-row"
+                  style={{ cursor: libraryBusy ? 'default' : 'grab' }}
+                >
+                  <span className="local-library-name" title={file.name}>{file.name}</span>
+                  <span className="local-library-size">{fileSize(file.size)}</span>
+                  <button type="button" disabled={libraryBusy} onClick={() => void activateSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Add ${file.name} to active inputs`}>
+                    add
+                  </button>
+                  <button type="button" disabled={libraryBusy} onClick={() => void removeSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Delete ${file.name} from local library`}>
+                    delete
+                  </button>
+                </li>
+              ))}
+            </ul>
+          </div>
         </section>
 
-        <section className="input-card" aria-labelledby="standard-ebooks-heading">
+        <section className="input-card input-card-standard-ebooks" aria-labelledby="standard-ebooks-heading">
           <h4 id="standard-ebooks-heading">Load from Standard Ebooks</h4>
           <p className="input-card-help">Browse a built-in catalog of carefully produced public-domain ebooks. Added books are saved locally and activated.</p>
           <CatalogPanel onAcquire={async (files, signal, lease) => (await acquire(files, true, signal, lease)).ok} />

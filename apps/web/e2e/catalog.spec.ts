@@ -1,7 +1,7 @@
 /**
  * The baked Standard Ebooks library in the real browser: browsing makes NO
  * external network requests (no api.github.com, no standardebooks.org — the
- * snapshot is fetched as a hashed same-origin JSON asset on first open), a
+ * snapshot is fetched as a hashed same-origin JSON asset when Inputs mounts), a
  * complete series renders in position order from the checked-in snapshot,
  * and adding a book downloads its source ONLY from raw.githubusercontent.com
  * — fulfilled here from fixtures, so the whole proof runs offline — and
@@ -9,8 +9,7 @@
  * tests prove payload separation (the snapshot bytes live outside every
  * script) and code separation (the archive assembly is one lazy chunk; the
  * library's root client ships in no chunk at all); the retry test proves
- * on-demand timing (zero asset requests before the panel opens, exactly one
- * after).
+ * mount timing (the request begins when Inputs appears).
  */
 
 import { readdirSync, readFileSync } from 'node:fs';
@@ -75,12 +74,11 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   await gotoPlace(page, 'inputs');
   await clearDemoInputs(page);
 
-  // Browsing is purely the baked snapshot: open the catalog and see a series
+  // Browsing is purely the baked snapshot: the catalog is already open and a series
   // render complete and position-ordered with NO external catalog traffic
   // (the snapshot itself is a same-origin JSON asset, invisible to these
   // external-route interceptors; its on-demand timing is asserted in the
   // retry test and its payload separation in the build-shape test).
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
   await expect(series).toBeVisible();
   const rows = series.getByRole('listitem');
@@ -134,7 +132,6 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await page
     .getByRole('list', { name: 'Sherlock Holmes series' })
     .getByRole('listitem')
@@ -149,7 +146,7 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __ttCatalogDownload?: { aborted: number } }
   ).__ttCatalogDownload?.aborted ?? 0)).toBe(1);
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toHaveCount(0);
   await expect(page.getByText(/Could not add/)).toHaveCount(0);
 });
 
@@ -159,8 +156,8 @@ test('build shape: the catalog snapshot bytes live outside every script', () => 
   // output is on disk. The marker is a catalog-only string: a series
   // sourceUrl prefix that appears nowhere in application code. This proves
   // the ~20 kB snapshot is not embedded in any script or the HTML — the
-  // ON-DEMAND TIMING half (nothing fetches the asset until the panel opens)
-  // is a runtime property, asserted in the retry test below.
+  // MOUNT TIMING half (Inputs fetches the asset when its always-open catalog
+  // appears) is a runtime property, asserted in the retry test below.
   const dist = fileURLToPath(new URL('../dist/', import.meta.url));
   const marker = 'standardebooks.org/collections/';
   expect(readFileSync(`${dist}index.html`, 'utf8').includes(marker)).toBe(false);
@@ -223,13 +220,13 @@ test('build shape: the archive assembly is one lazy chunk and the root client sh
   }
 });
 
-test('the catalog asset loads on demand, and a failed fetch shows a genuinely retryable error', async ({ page }) => {
+test('the catalog asset loads with Inputs, and a failed fetch shows a genuinely retryable error', async ({ page }) => {
   // The review-a3-catalog finding: a dynamic import() cannot retry (the
   // module map memoizes the failure), which is why the snapshot is a plain
   // fetch. This proves BOTH halves of the on-demand contract and the
-  // recovery path: zero catalog asset requests after boot, exactly one on
-  // first open (here: failed), the error UI offers retry, and retry issues
-  // a REAL second request that succeeds.
+  // recovery path: the Inputs mount issues exactly one request (here: failed),
+  // the error UI offers retry, and retry issues a REAL second request that
+  // succeeds.
   const catalogAsset = '**/assets/standard-ebooks-catalog-*.json';
   let aborted = 0;
   await page.route(catalogAsset, (route) => {
@@ -237,10 +234,6 @@ test('the catalog asset loads on demand, and a failed fetch shows a genuinely re
     return route.abort();
   });
   await page.goto('./');
-  await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'inputs');
-  expect(aborted, 'no catalog asset request before the panel opens').toBe(0);
-  await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   await expect(page.getByText(/Could not load the Standard Ebooks library/)).toBeVisible();
   expect(aborted).toBe(1);
 

@@ -62,7 +62,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
     { name: 'alpha.md', mimeType: 'text/markdown', buffer: Buffer.from(ALPHA, 'utf-8') },
     { name: 'beta.md', mimeType: 'text/markdown', buffer: Buffer.from(BETA, 'utf-8') },
   ]);
-  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'compare');
   await expect(page.getByRole('region', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });

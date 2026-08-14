@@ -5,7 +5,7 @@ import { ProjectPanel } from '../components/ProjectPanel.tsx';
 export function InputsPlace() {
   return (
     <>
-      <ProjectPanel headingAs="h3" />
+      <ProjectPanel />
       <BookAnalysis />
     </>
   );

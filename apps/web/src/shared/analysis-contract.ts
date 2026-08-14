@@ -166,7 +166,6 @@ export type {
   OccurrenceStepResultV1,
 } from '@texttrends/core';
 export type {
-  InventoryGrowthV1,
   InventoryRequestV1,
   InventoryResultV1,
   InventoryRhythmV1,

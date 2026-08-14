@@ -776,7 +776,6 @@ describe('inventory/1 through the executor and engine', () => {
   const request = {
     method: 'inventory/1' as const,
     rhythmBinsPerDoc: 2,
-    growthPoints: 16,
     mattrWindow: 3,
   };
 
@@ -888,7 +887,6 @@ describe('frequency through the executor and engine', () => {
         request: {
           method: 'inventory/1',
           rhythmBinsPerDoc: 0,
-          growthPoints: 0,
           mattrWindow: 3,
         },
       },

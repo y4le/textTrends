@@ -28,7 +28,6 @@ function validWorkspace(): WorkspaceV1 {
     views: {
       trend: {
         mode: 'by-book',
-        focusedDoc: 'one',
         bins: { mode: 'per-doc', count: 40 },
         measure: { kind: 'count' },
       },
@@ -196,6 +195,7 @@ describe('workspace admission', () => {
   it('validates the live trend settings contract directly', () => {
     const trend = validWorkspace().views.trend;
     expect(parseWorkspaceTrendView(trend)).toEqual(trend);
+    expect(parseWorkspaceTrendView({ ...trend, focusedDoc: 'one' })).toEqual(trend);
     expect(() => parseWorkspaceTrendView({
       ...trend,
       bins: { mode: 'per-doc', count: 3 },
@@ -222,7 +222,6 @@ describe('workspace admission', () => {
 
   it('reconciles presentation references against the opened corpus', () => {
     const reconciled = reconcileWorkspaceDocuments(validWorkspace(), new Set(['one']));
-    expect(reconciled.views.trend.focusedDoc).toBe('one');
     expect(reconciled.views.compare.documentA).toBe('one');
     expect(reconciled.views.compare.documentB).toBeNull();
   });
