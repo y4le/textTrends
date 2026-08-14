@@ -3535,10 +3535,54 @@ canvas {
   block-size: var(--footer-local-block-size);
   min-inline-size: 0;
   padding-block: var(--footer-pad-block);
-  overflow: hidden;
+  overflow: visible;
   border-block-start: 1px solid var(--rule-strong);
   background: color-mix(in srgb, var(--bg) 96%, transparent);
   color: var(--fg);
+}
+
+.footer-interactive {
+  block-size: 100%;
+  overflow: hidden;
+}
+
+.footer-resize-handle {
+  position: absolute;
+  z-index: 8;
+  inset-block-start: -8px;
+  inset-inline: 0;
+  display: flex;
+  block-size: 16px;
+  align-items: center;
+  justify-content: center;
+  outline: none;
+  cursor: ns-resize;
+  touch-action: none;
+}
+
+.footer-resize-handle span {
+  inline-size: 36px;
+  block-size: 3px;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+}
+
+.footer-resize-handle:hover span,
+.footer-resize-handle:focus-visible span,
+.footer-resize-handle[data-resizing='true'] span {
+  border-color: var(--fg);
+  background: var(--rule-strong);
+}
+
+.footer-resize-handle:focus-visible span {
+  outline: 1px solid var(--bg);
+  outline-offset: 1px;
+}
+
+html[data-footer-resizing='true'],
+html[data-footer-resizing='true'] * {
+  cursor: ns-resize !important;
+  user-select: none !important;
 }
 
 .footer-passage {
@@ -3862,6 +3906,11 @@ canvas {
   .footer-passage-retry {
     min-inline-size: 44px;
     min-block-size: 44px;
+  }
+
+  .footer-resize-handle {
+    inset-block-start: -12px;
+    block-size: 24px;
   }
 }
 

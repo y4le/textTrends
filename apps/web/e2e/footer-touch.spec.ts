@@ -105,6 +105,44 @@ test('footer touch is direct, axis-locked, multi-touch-safe, and never shuttles'
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
+test('the footer resize handle accepts a direct touch drag', async ({
+  page,
+  context,
+  browserName,
+}) => {
+  test.skip(browserName !== 'chromium', 'CDP supplies a real touch stream');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  await expect(handle).toHaveCSS('touch-action', 'none');
+  const [before, handleBox] = await Promise.all([
+    footer.boundingBox(),
+    handle.boundingBox(),
+  ]);
+  if (!before || !handleBox) throw new Error('touch resize geometry is unavailable');
+  const point = {
+    x: Math.round(handleBox.x + handleBox.width / 2),
+    y: Math.round(handleBox.y + handleBox.height / 2),
+  };
+  const pageY = await page.evaluate(() => window.scrollY);
+  const cdp = await context.newCDPSession(page);
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchStart',
+    touchPoints: [point],
+  });
+  await cdp.send('Input.dispatchTouchEvent', {
+    type: 'touchMove',
+    touchPoints: [{ ...point, y: point.y - 48 }],
+  });
+  await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+
+  await expect.poll(async () => (await footer.boundingBox())?.height)
+    .toBe(before.height + 48);
+  expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
+});
+
 test('passage text pans freely and advances the shared corpus position', async ({
   page,
   context,

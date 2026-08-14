@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   barcodeBandExtent,
   barcodeBandHeight,
+  expandedFooterGeometry,
+  FOOTER_BARCODE_TRACK_MAX_HEIGHT,
   footerBlockSize,
   footerGeometryFor,
 } from '../src/lib/footer-metrics.ts';
@@ -39,5 +41,24 @@ describe('eager footer metrics', () => {
     expect(footerViewGeometryFor).toBe(footerGeometryFor);
     expect(trendBarcodeBandHeight).toBe(barcodeBandHeight);
     expect(trendBarcodeBandExtent).toBe(barcodeBandExtent);
+  });
+
+  it('shares expansion between barcode rows and graph until barcode rows cap', () => {
+    const base = footerGeometryFor('regular');
+    const minimum = footerBlockSize(base, 3);
+    const shared = expandedFooterGeometry(base, 3, 30);
+    expect(shared.barcodeTrackHeight).toBe(base.barcodeTrackHeight + 5);
+    expect(shared.seriesHeight).toBe(base.seriesHeight + 15);
+    expect(footerBlockSize(shared, 3)).toBe(minimum + 30);
+
+    const capped = expandedFooterGeometry(base, 3, 300);
+    expect(capped.barcodeTrackHeight).toBe(FOOTER_BARCODE_TRACK_MAX_HEIGHT);
+    expect(capped.seriesHeight).toBe(base.seriesHeight + 270);
+    expect(footerBlockSize(capped, 3)).toBe(minimum + 300);
+
+    const graphOnly = expandedFooterGeometry(base, 0, 48);
+    expect(graphOnly.barcodeTrackHeight).toBe(base.barcodeTrackHeight);
+    expect(graphOnly.seriesHeight).toBe(base.seriesHeight + 48);
+    expect(footerBlockSize(graphOnly, 0)).toBe(footerBlockSize(base, 0) + 48);
   });
 });

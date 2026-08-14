@@ -24,6 +24,11 @@ export interface FooterGeometry extends TrendGeometry {
   readonly stripMinHeight: number;
 }
 
+/** Expanded footer barcode rows stay readable without becoming the dominant
+ * visualization. Once each row reaches this height, every further resize
+ * pixel belongs to the trend graph. */
+export const FOOTER_BARCODE_TRACK_MAX_HEIGHT = 16;
+
 const COMPACT_FINE: FooterGeometry = Object.freeze({
   passageHeight: 20,
   statusHeight: 14,
@@ -86,6 +91,44 @@ const STANDARD_COARSE = coarseGeometry(STANDARD_FINE);
 export function footerGeometryFor(width: WidthClass, coarse = false): FooterGeometry {
   if (width === 'compact') return coarse ? COMPACT_COARSE : COMPACT_FINE;
   return coarse ? STANDARD_COARSE : STANDARD_FINE;
+}
+
+/** Spend half of user-requested growth on barcode rows until they reach their
+ * cap, with the graph receiving the other half and all growth thereafter.
+ * `stripMinHeight` grows in lockstep so the returned geometry always occupies
+ * exactly the requested additional block size, including coarse layouts whose
+ * minimum strip is slightly taller than its initial marks. */
+export function expandedFooterGeometry(
+  geometry: FooterGeometry,
+  trackCount: number,
+  extraBlockSize: number,
+): FooterGeometry {
+  const tracks = Number.isFinite(trackCount)
+    ? Math.max(0, Math.floor(trackCount))
+    : 0;
+  const extra = Number.isFinite(extraBlockSize)
+    ? Math.max(0, extraBlockSize)
+    : 0;
+  if (extra === 0) return geometry;
+  const barcodeGrowthCapacity = tracks
+    * Math.max(0, FOOTER_BARCODE_TRACK_MAX_HEIGHT - geometry.barcodeTrackHeight);
+  const barcodeGrowth = Math.min(extra / 2, barcodeGrowthCapacity);
+  const graphGrowth = extra - barcodeGrowth;
+  const barcodeHeight = barcodeBandHeight(
+    tracks,
+    geometry.barcodeTrackHeight,
+    geometry.barcodeTrackGap,
+  );
+  const initialVisualHeight = geometry.seriesHeight
+    + barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
+  return Object.freeze({
+    ...geometry,
+    seriesHeight: geometry.seriesHeight + graphGrowth,
+    barcodeTrackHeight: tracks > 0
+      ? geometry.barcodeTrackHeight + barcodeGrowth / tracks
+      : geometry.barcodeTrackHeight,
+    stripMinHeight: Math.max(geometry.stripMinHeight, initialVisualHeight) + extra,
+  });
 }
 
 export function footerBlockSize(

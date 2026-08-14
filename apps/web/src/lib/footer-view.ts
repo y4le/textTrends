@@ -3,6 +3,7 @@ import type { CapturedTrack } from './track-legend.ts';
 import type { SequenceLayout } from './trend-geometry.ts';
 
 export {
+  expandedFooterGeometry,
   footerBlockSize,
   footerGeometryFor,
   type FooterGeometry,

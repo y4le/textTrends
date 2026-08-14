@@ -169,6 +169,34 @@ test('a mouse on a coarse iPad-style device hovers and snaps both barcodes witho
     await page.mouse.move(footerBox.x + footerBox.width * (1 / 9) - 4, footerBox.y + 3);
     await expect(footerSlider).toHaveAttribute('aria-valuenow', '1');
 
+    // Expansion turns the footer barcode into a comfortable direct-touch
+    // mention scrubber. Exact ticks snap the reading position without
+    // adopting desktop click activation.
+    const resizeHandle = page.getByRole('separator', { name: 'Resize reading footer' });
+    await resizeHandle.focus();
+    await resizeHandle.press('PageUp');
+    const expandedFooterBox = await footerBand.boundingBox();
+    if (!expandedFooterBox) throw new Error('expanded footer barcode has no layout box');
+    expect(expandedFooterBox.height).toBeGreaterThan(footerBox.height);
+    const touchPoint = (pointerId: number, x: number, buttons: number) => ({
+      pointerId,
+      pointerType: 'touch',
+      isPrimary: true,
+      button: 0,
+      buttons,
+      clientX: x,
+      clientY: expandedFooterBox.y + expandedFooterBox.height / 2,
+    });
+    const firstMentionX = expandedFooterBox.x + expandedFooterBox.width * (1 / 9) - 4;
+    const secondMentionX = expandedFooterBox.x + expandedFooterBox.width * (7 / 9) - 4;
+    await footerSlider.dispatchEvent('pointerdown', touchPoint(31, firstMentionX, 1));
+    await footerSlider.dispatchEvent('pointermove', touchPoint(31, secondMentionX, 1));
+    await expect(footerSlider).toHaveAttribute('data-touch-scrubbing', 'true');
+    await expect(footerSlider).toHaveAttribute('aria-valuenow', '7');
+    await footerSlider.dispatchEvent('pointerup', touchPoint(31, secondMentionX, 0));
+    await expect(footerSlider).not.toHaveAttribute('data-touch-scrubbing', 'true');
+    await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+
     // Seeing a mouse must not collapse the persistent touch affordances.
     const stepper = page.getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ });
     await expect(stepper).toBeVisible();

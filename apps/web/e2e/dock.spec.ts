@@ -62,6 +62,78 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
 });
 
+test('the reading footer resizes from its current minimum and caps barcode growth', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 900, height: 1000 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const dock = page.locator('.workbench-dock');
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  const graph = footer.locator('.footer-sparkline');
+  const barcode = footer.locator('canvas[data-barcode-band="series"]');
+  const before = {
+    dock: await dock.boundingBox(),
+    footer: await footer.boundingBox(),
+    graph: await graph.boundingBox(),
+    barcode: await barcode.boundingBox(),
+  };
+  if (!before.dock || !before.footer || !before.graph || !before.barcode) {
+    throw new Error('resizable footer geometry is unavailable');
+  }
+  await expect(handle).toHaveAttribute('aria-valuemin', String(before.footer.height));
+
+  const drag = async (upward: number) => {
+    const box = await handle.boundingBox();
+    if (!box) throw new Error('footer resize handle has no layout box');
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+    await page.mouse.down();
+    await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2 - upward);
+    await page.mouse.up();
+  };
+
+  await drag(120);
+  const grown = {
+    dock: await dock.boundingBox(),
+    footer: await footer.boundingBox(),
+    graph: await graph.boundingBox(),
+    barcode: await barcode.boundingBox(),
+  };
+  if (!grown.dock || !grown.footer || !grown.graph || !grown.barcode) {
+    throw new Error('grown footer geometry is unavailable');
+  }
+  expect(grown.footer.height).toBe(before.footer.height + 120);
+  expect(grown.graph.height).toBeGreaterThan(before.graph.height);
+  expect(grown.barcode.height).toBeGreaterThan(before.barcode.height);
+  expect(grown.dock.y).toBe(before.dock.y - 120);
+  expect(grown.dock.y + grown.dock.height).toBe(before.dock.y + before.dock.height);
+  await expect(handle).toHaveAttribute('aria-valuenow', String(grown.footer.height));
+
+  await drag(80);
+  const cappedBarcodeHeight = (await barcode.boundingBox())?.height;
+  const tallerGraphHeight = (await graph.boundingBox())?.height;
+  expect(cappedBarcodeHeight).toBe(grown.barcode.height);
+  expect(tallerGraphHeight).toBe(grown.graph.height + 80);
+
+  await handle.focus();
+  await handle.press('Home');
+  expect((await footer.boundingBox())?.height).toBe(before.footer.height);
+  await handle.press('ArrowUp');
+  expect((await footer.boundingBox())?.height).toBe(before.footer.height + 16);
+  await handle.press('ArrowDown');
+  expect((await footer.boundingBox())?.height).toBe(before.footer.height);
+  await handle.press('End');
+  const [maximizedDock, header] = await Promise.all([
+    dock.boundingBox(),
+    page.locator('.app-header').boundingBox(),
+  ]);
+  if (!maximizedDock || !header) throw new Error('maximum footer geometry is unavailable');
+  expect(Math.abs(maximizedDock.y - (header.y + header.height))).toBeLessThanOrEqual(1);
+  await handle.press('Home');
+});
+
 test('the compact dock stays one row, pins its actions, and opens Undo upward', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
