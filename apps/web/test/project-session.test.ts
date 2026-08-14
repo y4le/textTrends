@@ -224,6 +224,38 @@ describe('project session boundaries', () => {
 });
 
 describe('generation and source resolution', () => {
+  it('settles an emptied library generation without waiting for a snapshot event', async () => {
+    const file = libraryFile('a.txt', 10, 'a');
+    const { session, client, states } = makeSession(builtin(), [file]);
+    const { docs } = await finalizeImport(session, client, [file]);
+    session.removeDocuments(docs);
+    const open = client.lastOpen();
+    expect(open.docs).toEqual([]);
+    open.resolve({ generation: open.generation, snapshot: null, readyDocs: [], missingDocs: [] });
+    await settle();
+
+    expect(session.getState().snapshot).toBeNull();
+    expect(session.getState().analysis).toEqual({ phase: 'ready' });
+    expect(states.at(-1)?.analysis).toEqual({ phase: 'ready' });
+  });
+
+  it('does not publish empty-ready while a new import is still staging', async () => {
+    const files = [libraryFile('a.txt', 10, 'a'), libraryFile('b.txt', 11, 'b')];
+    const { session, client, states } = makeSession(builtin(), files);
+    const { docs } = await finalizeImport(session, client, [files[0]!]);
+    session.removeDocuments(docs);
+    const emptyOpen = client.lastOpen();
+    const stateMark = states.length;
+
+    session.appendFiles([files[1]!]);
+    emptyOpen.resolve({ generation: emptyOpen.generation, snapshot: null, readyDocs: [], missingDocs: [] });
+    await settle();
+
+    expect(states.slice(stateMark).some((state) => state.analysis.phase === 'ready')).toBe(false);
+    expect(session.getState().imports).toHaveLength(1);
+    expect(session.getState().analysis.phase).toBe('loading');
+  });
+
   it('uses the shared project spec builder and fetches a bundled byte miss', async () => {
     const { session, client, bundledGets } = makeSession(builtin([bundledDoc('book', 7)]));
     session.start();

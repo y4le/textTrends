@@ -523,6 +523,19 @@ export class ProjectSession {
       .then((ready) => {
         if (this.disposed || attempt !== this.genAttempt) return;
         this.activeOpenCancel = null;
+        // An empty generation has no worker snapshot event to wait for. The
+        // open acknowledgement is therefore the terminal fact: zero sources
+        // are missing and there is intentionally no snapshot to query.
+        if (
+          ready.snapshot === null
+          && ready.missingDocs.length === 0
+          && specs.length === 0
+          && this.pending.size === 0
+        ) {
+          this.analysis = { phase: 'ready' };
+          this.publish();
+          return;
+        }
         for (const doc of ready.missingDocs) void this.resolveMiss(generation, attempt, doc);
       })
       .catch((e: unknown) => {

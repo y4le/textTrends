@@ -68,3 +68,28 @@ test('local files persist, drag into the active corpus, reorder, and delete inde
   await expect(reopened.getByRole('listitem')).toHaveCount(0);
   await expect(page.getByText('No saved files yet.')).toBeVisible();
 });
+
+test('removing the last input settles the corpus and gives analysis places a focused way back', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page);
+  await gotoPlace(page, 'inputs');
+
+  const activePanel = page.getByRole('region', { name: 'Active files' });
+  await activePanel.evaluate((target) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['one small text'], 'only.txt', { type: 'text/plain' }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await awaitReadyCount(page, 1);
+
+  await activePanel.getByRole('button', { name: 'Remove only from active corpus' }).click();
+  await expect(page.getByText('nothing is being analyzed', { exact: true })).toBeVisible();
+  await expect(activePanel.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
+
+  await gotoPlace(page, 'trends');
+  const emptyPlace = page.getByRole('region', { name: 'No active inputs' });
+  await expect(emptyPlace).toContainText('Nothing is being analyzed.');
+  await emptyPlace.getByRole('button', { name: 'Open Inputs' }).click();
+  await expect(page.locator('#place-inputs-heading')).toBeFocused();
+  await expect(page).toHaveURL(/[?&]p=inputs(?:&|#|$)/);
+});

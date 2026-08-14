@@ -126,6 +126,30 @@ function ActivePlace({ place }: { readonly place: Place }) {
   }
 }
 
+function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) {
+  return (
+    <section
+      aria-labelledby="no-inputs-heading"
+      style={{
+        maxWidth: '44rem',
+        margin: 'var(--space-4) auto',
+        padding: 'var(--space-4)',
+        border: '1px solid var(--rule)',
+      }}
+    >
+      <h2 id="no-inputs-heading" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
+        No active inputs
+      </h2>
+      <p style={{ color: 'var(--fg-muted)' }}>
+        Nothing is being analyzed. Add a local text, choose a standard ebook, or load a demo from Inputs.
+      </p>
+      <button type="button" className="coarse-target" onClick={onOpenInputs}>
+        Open Inputs
+      </button>
+    </section>
+  );
+}
+
 export function App() {
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
@@ -143,9 +167,14 @@ export function App() {
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
   const project = useApp((s) => s.projectSession?.project ?? null);
+  const pendingInputCount = useApp((s) => s.projectSession?.imports.length ?? 0);
   const bootstrap = useApp((s) => s.bootstrap);
   const place = useApp((s) => s.place);
+  const setPlace = useApp((s) => s.setPlace);
   const routeStatus = useApp((s) => s.routeStatus);
+  const hasNoInputs = project !== null
+    && project.data.order.length === 0
+    && pendingInputCount === 0;
   const readerOpen = readerPlace !== null;
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
@@ -639,7 +668,14 @@ export function App() {
             ? <p className="region-placeholder" role="status">preparing your workspace…</p>
             : (
                 <PlaceSurface place={place}>
-                  <ActivePlace place={place} />
+                  {hasNoInputs && place !== 'inputs'
+                    ? (
+                        <NoInputsPlace onOpenInputs={() => {
+                          setPlace('inputs');
+                          focusAfterRender('place-inputs-heading');
+                        }} />
+                      )
+                    : <ActivePlace place={place} />}
                 </PlaceSurface>
               )}
         </div>

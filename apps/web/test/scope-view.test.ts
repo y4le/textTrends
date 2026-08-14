@@ -44,6 +44,7 @@ const readyInventory = (
 
 const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
   project: { kind: 'builtin', id: 'builtin/sherlock', docCount: 6 },
+  pendingInputCount: 0,
   snapshot: {
     snapshot: 'snapshot-1',
     readyDocs: ['a', 'b', 'c', 'd', 'e', 'f'],
@@ -77,6 +78,36 @@ describe('scopeView', () => {
     }), 'trends');
     expect(pending.tokensInScope).toBeNull();
     expect(pending.segments).not.toContain('461,992 tokens');
+  });
+
+  it('treats an empty corpus as settled rather than loading', () => {
+    const empty = scopeView(input({
+      project: { kind: 'library', id: 'library', docCount: 0 },
+      snapshot: null,
+      inventory: null,
+      loadingPhase: null,
+    }), 'inputs');
+
+    expect(empty.corpusName).toBe('Library corpus');
+    expect(empty.readyText).toBe('nothing is being analyzed');
+    expect(empty.segments).toEqual(['No active inputs', 'nothing is being analyzed']);
+    expect(empty.announcement).toBe('No active inputs · nothing is being analyzed');
+  });
+
+  it('reports progress while the first input is still pending finalization', () => {
+    const importing = scopeView(input({
+      project: { kind: 'library', id: 'library', docCount: 0 },
+      pendingInputCount: 1,
+      snapshot: null,
+      inventory: null,
+      loadingPhase: 'extract: first.epub',
+    }), 'inputs');
+
+    expect(importing.corpusName).toBe('Library corpus');
+    expect(importing.segments).toContain('Library corpus');
+    expect(importing.readyText).toBe('extract: first.epub');
+    expect(importing.announcement).toContain('extract: first.epub');
+    expect(importing.announcement).not.toContain('nothing is being analyzed');
   });
 
   it('omits unknown document totals while a range inventory is pending', () => {
@@ -236,6 +267,7 @@ describe('corpusName', () => {
     expect(corpusName({ kind: 'builtin', id: 'builtin/asoif', docCount: 5 })).toBe('A Song of Ice and Fire');
     expect(corpusName({ kind: 'builtin', id: 'builtin/lotr', docCount: 3 })).toBe('The Lord of the Rings');
     expect(corpusName({ kind: 'library', id: 'library', docCount: 2 })).toBe('Library corpus');
+    expect(corpusName({ kind: 'library', id: 'library', docCount: 0 })).toBe('Library corpus');
     expect(corpusName(null)).toBe('Preparing corpus');
   });
 });

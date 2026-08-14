@@ -13,6 +13,8 @@ export interface ScopeProject {
 
 export interface ScopeInput {
   readonly project: ScopeProject | null;
+  /** Imports already chosen by the user but not identity-complete yet. */
+  readonly pendingInputCount: number;
   readonly snapshot: {
     readonly snapshot: string;
     readonly readyDocs: readonly string[];
@@ -59,12 +61,15 @@ export function corpusName(project: ScopeProject | null): string {
 
 export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   const corpus = corpusName(input.project);
+  const empty = input.project?.docCount === 0 && input.pendingInputCount === 0;
   const ready = input.snapshot?.readyDocs.length ?? 0;
   const missing = input.snapshot?.missingDocs ?? [];
   const declared = ready + missing.length || input.project?.docCount || 0;
-  const readyText = input.snapshot
-    ? `${ready}/${declared} books ready`
-    : input.loadingPhase ?? 'loading…';
+  const readyText = empty
+    ? 'nothing is being analyzed'
+    : input.snapshot
+      ? `${ready}/${declared} books ready`
+      : input.loadingPhase ?? 'loading…';
   const inventoryMatchesScope = input.inventory !== null
     && input.snapshot !== null
     && input.inventory.snapshot === input.snapshot.snapshot
@@ -104,7 +109,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
     ? 'Compare uses declared sides A and B · the active trend range does not apply'
     : null;
 
-  const segments: string[] = [corpus];
+  const segments: string[] = [empty ? 'No active inputs' : corpus];
   // Whole-corpus readiness is an honest fallback only when no range is
   // active. During a range query, "6 books in scope" would contradict the
   // linked range while its issued inventory is still pending.

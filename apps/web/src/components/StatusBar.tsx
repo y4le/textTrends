@@ -29,6 +29,7 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
         project: project
           ? { kind: project.kind, id: project.id, docCount: project.data.order.length }
           : null,
+        pendingInputCount: projectSession?.imports.length ?? 0,
         snapshot,
         inventory,
         linkedSelection,
@@ -46,6 +47,7 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
       loadingPhase,
       place,
       project,
+      projectSession?.imports.length,
       snapshot,
       titleByDoc,
     ],

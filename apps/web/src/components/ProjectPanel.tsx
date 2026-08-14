@@ -408,6 +408,11 @@ export function ProjectPanel({
           <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
             Drop saved or new files here. Drag active files to reorder them.
           </p>
+          {finalizedDocs.length === 0 && pendingImports.length === 0 && (
+            <p style={{ color: 'var(--fg-muted)', margin: 'var(--space-2) 0 0' }}>
+              No active inputs. Nothing is being analyzed.
+            </p>
+          )}
           <ol aria-label="Documents" style={{ ...dropListStyle, counterReset: 'active-document' }}>
             {finalizedDocs.map((doc, index) => {
               const status = sources?.[doc.doc];
