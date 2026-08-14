@@ -30,13 +30,15 @@ test('double-click clears the linked range without selecting chart text', async 
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
+  await gotoPlace(page, 'inputs');
+  const stat = page.locator('.selectable-stat').first();
+  await expect(stat).toBeVisible();
+  expect(await stat.evaluate(userSelect)).toBe('text');
+
   await gotoPlace(page, 'concordance');
   const sourceText = page.getByRole('grid', { name: 'Concordance' }).locator('.source-text').first();
-  const stat = page.locator('.selectable-stat').first();
   await expect(sourceText).toBeVisible();
-  await expect(stat).toBeVisible();
   expect(await sourceText.evaluate(userSelect)).toBe('text');
-  expect(await stat.evaluate(userSelect)).toBe('text');
   const readableContext = page.getByRole('grid', { name: 'Concordance' })
     .locator('.kwic-right-context')
     .filter({ hasText: /\S/ })

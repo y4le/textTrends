@@ -43,11 +43,11 @@ test('demos load as additive local texts and merge useful starter terms', async 
     .sort();
   expect(lotrFiles).toEqual(LOTR.map(({ doc }) => `${doc}.txt`).sort());
 
-  const active = page.getByRole('region', { name: 'Active files' });
-  await expect(active.getByRole('list', { name: 'Documents' }).getByRole('listitem'))
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  await expect(active.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
     .toHaveCount(ASOIF.length + LOTR.length);
-  const local = page.getByRole('region', { name: 'On this device' });
-  await expect(local.getByRole('list', { name: 'Files on this device' }).getByRole('listitem'))
+  const local = page.getByRole('region', { name: 'Local library' });
+  await expect(local.getByRole('list', { name: 'Saved texts' }).getByRole('listitem'))
     .toHaveCount(ASOIF.length + LOTR.length);
 });
 
@@ -59,7 +59,7 @@ test('demo acquisition owns the library lane from fetch through activation', asy
     await route.continue();
   });
   await page.goto('./');
-  const local = page.getByRole('region', { name: 'On this device' });
+  const local = page.getByRole('region', { name: 'Local library' });
   await local.evaluate((target) => {
     const transfer = new DataTransfer();
     transfer.items.add(new File(['saved only'], 'saved.txt', { type: 'text/plain' }));
@@ -71,6 +71,13 @@ test('demo acquisition owns the library lane from fetch through activation', asy
   await expect(page.getByText('Loading Sherlock Holmes demo…', { exact: true })).toBeVisible();
   await expect(local.getByRole('button', { name: 'Delete all' })).toBeDisabled();
   await expect(page.getByLabel('Add files')).toBeDisabled();
+  await local.evaluate((target) => {
+    const transfer = new DataTransfer();
+    transfer.items.add(new File(['raced'], 'raced.txt', { type: 'text/plain' }));
+    target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+  });
+  await expect(local.getByRole('status')).toContainText('Another input is being saved');
+  await expect(local.getByRole('listitem')).toHaveCount(1);
   release();
 
   await awaitReadyCount(page, SHERLOCK.length);

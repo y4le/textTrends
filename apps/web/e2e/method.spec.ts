@@ -57,7 +57,7 @@ test('Trend settings separate result geometry from resident presentation', async
 
 test('Method exposes visible, copyable provenance and result text', async ({ page }) => {
   await page.goto('./');
-  await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
   const pane = page.getByRole('dialog', { name: 'Method & settings' });
   const method = pane.locator('.method-summary');
@@ -81,7 +81,7 @@ test('Method exposes visible, copyable provenance and result text', async ({ pag
 
 test('Method range provenance and TSV use the selected overlay, never the retained baseline', async ({ page }) => {
   await page.goto('./');
-  await expect(page.getByText('6/6 books ready', { exact: true })).toBeVisible();
+  await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
   let pane = page.getByRole('dialog', { name: 'Method & settings' });
   let method = pane.locator('.method-summary');
@@ -125,7 +125,7 @@ test('Method range provenance and TSV use the selected overlay, never the retain
     .filter((line) => line !== '' && !line.startsWith('#') && !line.startsWith('series\t'))
     .map((line) => line.split('\t'));
   expect(new Set(dataRows.map((row) => row[1]))).toEqual(new Set([
-    '1 - A Study in Scarlet - Arthur Conan Doyle',
+    'A Study in Scarlet',
   ]));
   expect(Math.max(...dataRows.map((row) => Number(row[4])))).toBeLessThanOrEqual(3);
 });

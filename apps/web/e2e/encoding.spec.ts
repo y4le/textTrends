@@ -21,7 +21,7 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
   const bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(text, 'utf16le')]);
   await page.getByLabel('Add files').setInputFiles({ name: 'utf16.md', mimeType: 'text/markdown', buffer: bytes });
 
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   // The durable descriptor reports the BOM-detected encoding, not utf-8.
   await expect(page.getByText(/encoding: utf-16le/)).toBeVisible();
@@ -45,7 +45,7 @@ test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a
   ]);
   await page.getByLabel('Add files').setInputFiles({ name: 'legacy.txt', mimeType: 'text/plain', buffer: bytes });
 
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   // The inferred-encoding badge, exact wording.
   await expect(page.getByText('Windows-1252 (inferred — no BOM/UTF-8)')).toBeVisible({ timeout: 30_000 });

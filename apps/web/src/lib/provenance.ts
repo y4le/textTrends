@@ -45,6 +45,9 @@ export interface ProvenanceTrend {
 }
 
 export interface ProvenanceInput {
+  /** Stable wire document id → reader-facing title. Unknown ids fall back to
+   * themselves so partial/corrupt results remain diagnosable. */
+  readonly documentTitles: ReadonlyMap<string, string>;
   readonly snapshot: {
     readonly snapshot: string;
     readonly readyDocs: readonly string[];
@@ -82,15 +85,24 @@ const list = (values: readonly string[]): string => values.length === 0
   ? 'none'
   : values.join(', ');
 
-function selectionText(selection: TokenRangeSelectionV1 | null): string {
+function documentTitle(input: ProvenanceInput, doc: string): string {
+  return input.documentTitles.get(doc) ?? doc;
+}
+
+function documentTitles(input: ProvenanceInput, docs: readonly string[]): string[] {
+  return docs.map((doc) => documentTitle(input, doc));
+}
+
+function selectionText(input: ProvenanceInput): string {
+  const selection = input.linkedSelection;
   if (selection === null) return 'all ready documents';
   if (selection.ranges.length === 1) {
     const range = selection.ranges[0]!;
-    return `${range.doc} tokens ${range.tokens.start + 1}–${range.tokens.end} (1-based inclusive)`;
+    return `${documentTitle(input, range.doc)} tokens ${range.tokens.start + 1}–${range.tokens.end} (1-based inclusive)`;
   }
   const first = selection.ranges[0]!;
   const last = selection.ranges.at(-1)!;
-  return `${first.doc} token ${first.tokens.start + 1} through ${last.doc} token ${last.tokens.end} (${selectionTokenCount(selection)} tokens across ${selection.ranges.length} documents)`;
+  return `${documentTitle(input, first.doc)} token ${first.tokens.start + 1} through ${documentTitle(input, last.doc)} token ${last.tokens.end} (${selectionTokenCount(selection)} tokens across ${selection.ranges.length} documents)`;
 }
 
 function completeness(
@@ -110,14 +122,14 @@ function completeness(
   if (missing.size > 0) {
     return {
       status: 'partial',
-      statement: `${missing.size} declared ${missing.size === 1 ? 'document is' : 'documents are'} unavailable: ${list([...missing])}.`,
+      statement: `${missing.size} declared ${missing.size === 1 ? 'document is' : 'documents are'} unavailable: ${list(documentTitles(input, [...missing]))}.`,
     };
   }
   if (input.linkedSelection !== null) {
     return {
       status: 'complete',
       statement: input.linkedSelection.ranges.length === 1
-        ? `The selected range in ${input.linkedSelection.ranges[0]!.doc} is represented.`
+        ? `The selected range in ${documentTitle(input, input.linkedSelection.ranges[0]!.doc)} is represented.`
         : `The selected range across ${input.linkedSelection.ranges.length} documents is represented.`,
     };
   }
@@ -228,8 +240,8 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
     method: resultA?.method ?? resultB?.method ?? 'keyness-g2-2x2/1',
     parameters: [
       parameter('effect', resultA?.effect ?? resultB?.effect ?? 'log-ratio-halves/1'),
-      parameter('side A', list(sideA)),
-      parameter('side B', list(sideB)),
+      parameter('side A', list(documentTitles(input, sideA))),
+      parameter('side B', list(documentTitles(input, sideB))),
       parameter('minimum combined count', String(view.minCountTotal)),
       parameter('minimum combined document range', String(view.minDocFreqTotal)),
       parameter('token classes', view.classes.join(', ')),
@@ -280,9 +292,9 @@ export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV
     place,
     content: {
       snapshot: input.snapshot?.snapshot ?? null,
-      selection: selectionText(input.linkedSelection),
-      readyDocuments: input.snapshot?.readyDocs ?? [],
-      missingDocuments: input.snapshot?.missingDocs ?? [],
+      selection: selectionText(input),
+      readyDocuments: documentTitles(input, input.snapshot?.readyDocs ?? []),
+      missingDocuments: documentTitles(input, input.snapshot?.missingDocs ?? []),
     },
     methods,
     completeness: completeness(input, resident),
@@ -340,10 +352,10 @@ export function resultTableFor(
     const rows: (readonly (string | number | null)[])[] = [];
     for (const trend of input.trends) {
       for (let index = 0; index < trend.result.count.length; index += 1) {
-        const doc = trend.result.order[trend.result.docOrdinal[index] as number] ?? '';
+        const docId = trend.result.order[trend.result.docOrdinal[index] as number] ?? '';
         rows.push([
           trend.label,
-          doc,
+          documentTitle(input, docId),
           (trend.result.binIndex[index] as number) + 1,
           trend.result.binStartToken[index] as number,
           trend.result.binTokens[index] as number,

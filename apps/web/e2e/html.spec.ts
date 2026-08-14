@@ -41,7 +41,7 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
     mimeType: 'text/html',
     buffer: Buffer.from(MESSY_HTML, 'utf-8'),
   });
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
 
   // Body text is analyzable (parse5 recovered the unclosed <p> structure).

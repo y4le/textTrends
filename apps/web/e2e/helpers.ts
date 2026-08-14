@@ -25,10 +25,10 @@ export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
  * worker/session.
  */
 export async function gotoPlace(page: Page, place: Place): Promise<void> {
-  await page
+  const link = page
     .getByRole('navigation', { name: 'Workbench sections' })
-    .getByRole('link', { name: PLACE_HEADING[place], exact: true })
-    .click();
+    .getByRole('link', { name: PLACE_HEADING[place], exact: true });
+  if ((await link.getAttribute('aria-current')) !== 'page') await link.click();
   await expect(page).toHaveURL(new RegExp(`[?&]p=${place}(?:&|#|$)`));
 }
 
@@ -36,11 +36,11 @@ export async function gotoPlace(page: Page, place: Place): Promise<void> {
  * inputs explicitly. Starter terms remain, matching a user who clears texts
  * without discarding their notebook. */
 export async function clearDemoInputs(page: Page): Promise<void> {
-  const active = page.getByRole('region', { name: 'Active files' });
+  const active = page.getByRole('region', { name: 'Active inputs' });
   await expect(active).toBeVisible();
   for (const book of SHERLOCK) {
     const remove = active
-      .getByRole('button', { name: `Remove ${book.title} from active corpus`, exact: true })
+      .getByRole('button', { name: `Remove ${book.title} from active inputs`, exact: true })
       .first();
     if ((await remove.count()) > 0) await remove.click();
     await expect(remove).toHaveCount(0);
@@ -153,11 +153,13 @@ export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEve
 }
 
 /** Wait for the app to report every Sherlock demo text ready. Demo loading is
- * explicit at cold-test call sites; the default is a pure wait suitable for
- * reload, restart, and cache-integrity assertions. */
+ * explicit at cold-test call sites; after that fixture action, an initially
+ * empty Inputs workspace moves to Trends by default so analysis specs start
+ * from the same place as a warm nonempty workspace. Reload/restart calls omit
+ * `loadDemo` and remain pure waits. */
 export async function awaitAllReady(
   page: Page,
-  options: { readonly loadDemo?: boolean; readonly timeout?: number } = {},
+  options: { readonly loadDemo?: boolean; readonly timeout?: number; readonly placeAfterLoad?: Place } = {},
 ): Promise<void> {
   const timeout = options.timeout ?? 60_000;
   const ready = page.getByText(READY_TEXT, { exact: true });
@@ -193,9 +195,10 @@ export async function awaitAllReady(
       database.close();
     }
   }, LOCAL_LIBRARY_DB_NAME), { timeout }).toBe(DOC_COUNT);
-  if (original && !original.includes('p=inputs')) {
-    await navigation.locator(`a[href="${original}"]`).click();
-  }
+  const destination = original && !original.includes('p=inputs')
+    ? navigation.locator(`a[href="${original}"]`)
+    : navigation.getByRole('link', { name: PLACE_HEADING[options.placeAfterLoad ?? 'trends'], exact: true });
+  if ((await destination.getAttribute('aria-current')) !== 'page') await destination.click();
 }
 
 /** Remove every notebook group through the UI (the notebook is append-only;

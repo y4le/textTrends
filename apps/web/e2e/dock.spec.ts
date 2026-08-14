@@ -7,7 +7,7 @@ async function rootMetric(page: Page, name: string): Promise<number> {
   ), name);
 }
 
-test('the fixed dock reserves Terms and Reading before results arrive', async ({ page }) => {
+test('the fixed dock adds Reading only when active inputs exist', async ({ page }) => {
   await page.setViewportSize({ width: 768, height: 1024 });
   await page.goto('./');
 
@@ -16,12 +16,14 @@ test('the fixed dock reserves Terms and Reading before results arrive', async ({
   const termButtons = terms.locator('[data-term-focus]:not(:disabled)');
   await expect(terms).toBeVisible();
   await expect(termButtons).toHaveCount(0);
+  await expect.poll(() => rootMetric(page, '--reading-reserve-block-size')).toBe(0);
+
+  await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
+  await expect(termButtons).toHaveCount(3);
   await expect.poll(() => rootMetric(page, '--reading-reserve-block-size'))
     .toBeGreaterThan(0);
   const railTopBefore = (await terms.boundingBox())?.y;
-
-  await awaitAllReady(page, { loadDemo: true });
-  await expect(termButtons).toHaveCount(3);
+  await awaitAllReady(page);
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   await expect(footer).toBeVisible();
   const [dockBox, termsBox, footerBox] = await Promise.all([

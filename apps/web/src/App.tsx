@@ -618,18 +618,25 @@ export function App() {
         <WorkbenchTabs />
       </header>
       <ResumeStatus />
-      {appNotice && (
-        <p role="status" style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>
-          {appNotice}{' '}
-          <button
-            type="button"
-            onClick={clearAppNotice}
-            style={{ font: 'inherit', color: 'inherit', background: 'none', border: '1px solid var(--rule-strong)', cursor: 'pointer', padding: '0 0.5ch' }}
-          >
-            dismiss
-          </button>
-        </p>
-      )}
+      <p
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+        style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)', margin: appNotice ? undefined : 0 }}
+      >
+        {appNotice && (
+          <>
+            {appNotice}{' '}
+            <button
+              type="button"
+              onClick={clearAppNotice}
+              style={{ font: 'inherit', color: 'inherit', background: 'none', border: '1px solid var(--rule-strong)', cursor: 'pointer', padding: '0 0.5ch' }}
+            >
+              dismiss
+            </button>
+          </>
+        )}
+      </p>
       {commandError && (
         <p role="alert" style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
           {commandError}{' '}

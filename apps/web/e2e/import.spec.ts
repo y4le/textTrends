@@ -54,8 +54,8 @@ test('catalog import restores from the library and active deletion cascades', as
   await page.getByLabel('Add files').setInputFiles(fileInput());
   await assertTransferred(page, importMark);
   await awaitReadyCount(page, 1);
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();
-  await expect(page.getByLabel('Documents').getByText('on this device', { exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible();
+  await expect(page.getByLabel('Active input order').getByText('local library', { exact: true })).toBeVisible();
   await expect.poll(() => savedWorkspaceOrder(page), { timeout: 10_000 }).toHaveLength(1);
 
   await clearArtifactStores(page);
@@ -63,10 +63,10 @@ test('catalog import restores from the library and active deletion cascades', as
   await awaitReadyCount(page, 1);
   await assertTransferred(page, -1);
   await gotoPlace(page, 'inputs');
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible();
 
-  await page.getByRole('button', { name: `Delete ${DOC_NAME} from this device` }).click();
-  await expect(page.getByLabel('Files on this device').getByText(DOC_NAME)).toHaveCount(0);
-  await expect(page.getByLabel('Documents').getByText('smoke-doc')).toHaveCount(0);
+  await page.getByRole('button', { name: `Delete ${DOC_NAME} from local library` }).click();
+  await expect(page.getByLabel('Saved texts').getByText(DOC_NAME)).toHaveCount(0);
+  await expect(page.getByLabel('Active input order').getByText('smoke-doc')).toHaveCount(0);
   await expect.poll(() => savedWorkspaceOrder(page), { timeout: 10_000 }).toEqual([]);
 });

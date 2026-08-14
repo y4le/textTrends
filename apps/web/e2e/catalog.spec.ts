@@ -97,7 +97,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   await rows.nth(0).getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
   await expect(page.getByText('A Study in Scarlet', { exact: true })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Files on this device' })).toContainText(`${BOOK}.epub`);
+  await expect(page.getByRole('list', { name: 'Saved texts' })).toContainText(`${BOOK}.epub`);
   expect(apiRequests).toEqual([]);
   expect(rawRequests[0]).toBe(`${RAW_BASE}/content.opf`);
   expect(new Set(rawRequests.slice(1))).toEqual(
@@ -107,8 +107,8 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   // Re-acquiring the same deterministic archive neither duplicates the local
   // record nor activates a second copy of the same source.
   await rows.nth(0).getByRole('button', { name: 'add' }).click();
-  await expect(page.getByRole('list', { name: 'Files on this device' }).getByRole('listitem')).toHaveCount(7);
-  await expect(page.getByRole('list', { name: 'Documents' }).getByRole('listitem')).toHaveCount(1);
+  await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(7);
+  await expect(page.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(1);
   await expect(page.getByText(/already saved.*already active/)).toBeVisible();
 });
 
@@ -149,7 +149,7 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await expect.poll(() => page.evaluate(() => (
     window as unknown as { __ttCatalogDownload?: { aborted: number } }
   ).__ttCatalogDownload?.aborted ?? 0)).toBe(1);
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toHaveCount(0);
   await expect(page.getByText(/Could not add/)).toHaveCount(0);
 });
 

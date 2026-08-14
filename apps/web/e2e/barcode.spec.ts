@@ -66,7 +66,7 @@ test('the barcode summarizes exact occurrences, steps into the concordance, and 
   await page.getByLabel('Add files').setInputFiles({
     name: 'beasts.txt', mimeType: 'text/plain', buffer: Buffer.from(CORPUS, 'utf-8'),
   });
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
@@ -167,7 +167,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
     { name: 'a.txt', mimeType: 'text/plain', buffer: Buffer.from('wolf alpha beta gamma delta', 'utf-8') },
     { name: 'b.txt', mimeType: 'text/plain', buffer: Buffer.from('alpha beta gamma wolf delta', 'utf-8') },
   ]);
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');

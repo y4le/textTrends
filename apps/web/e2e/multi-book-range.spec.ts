@@ -15,7 +15,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
     { name: 'alpha.txt', mimeType: 'text/plain', buffer: Buffer.from(book('a'), 'utf-8') },
     { name: 'beta.txt', mimeType: 'text/plain', buffer: Buffer.from(book('b'), 'utf-8') },
   ]);
-  await expect(page.getByRole('heading', { name: 'library corpus', exact: true })).toBeVisible({ timeout: 30_000 });
+  await expect(page.getByRole('heading', { name: 'Input workspace', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 2);
 
   await gotoPlace(page, 'trends');

@@ -1,6 +1,6 @@
-/** The Scope composition surface: a durable local library beside one ordered
- * active corpus. Acquisitions enter the library first; native drag-and-drop
- * then covers OS files, library-to-corpus activation, and corpus reordering. */
+/** The Inputs composition surface: a durable local library beside one ordered
+ * active input set. Acquisitions enter the library first; native drag-and-drop
+ * then covers OS files, library activation, and input reordering. */
 
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { CatalogPanel } from './CatalogPanel.tsx';
@@ -20,11 +20,12 @@ import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
 const ACTIVE_DRAG = 'application/x-texttrends-active-document';
+const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when it finishes.';
 
 function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
     case 'bundled': return 'bundled';
-    case 'library': return 'on this device';
+    case 'library': return 'local library';
     case 'error': return status.message;
     default: return '—';
   }
@@ -35,12 +36,6 @@ function fileSize(bytes: number): string {
   if (bytes < 1_000_000) return `${(bytes / 1_000).toFixed(bytes < 10_000 ? 1 : 0)} KB`;
   return `${(bytes / 1_000_000).toFixed(bytes < 10_000_000 ? 1 : 0)} MB`;
 }
-
-const panelStyle = {
-  border: '1px solid var(--rule)',
-  padding: 'var(--space-2)',
-  minWidth: 0,
-} as const;
 
 const dropListStyle = {
   listStyle: 'none',
@@ -85,6 +80,8 @@ export function ProjectPanel({
   const [demoLoading, setDemoLoading] = useState<BuiltinCorpusId | null>(null);
   const [demoError, setDemoError] = useState<string | null>(null);
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
+  const [activeNotice, setActiveNotice] = useState<string | null>(null);
+  const [reorderNotice, setReorderNotice] = useState('');
   const claimLibrary = libraryOperation.claim;
   const releaseLibrary = libraryOperation.release;
 
@@ -124,12 +121,10 @@ export function ProjectPanel({
   }, [docs, refreshLibrary]);
 
   if (!project) return null;
-  const isBuiltin = project.kind === 'builtin';
-  const builtinLabel = builtinCorpusOption(project.id)?.label ?? 'Built-in corpus';
-  const importLabel = isBuiltin ? 'Create project from files' : 'Add files';
+  const importLabel = 'Add files';
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
-  const canReorder = !isBuiltin && pendingImports.length === 0 && finalizedDocs.length > 1;
+  const canReorder = pendingImports.length === 0 && finalizedDocs.length > 1;
   activeIdentityRef.current = new Set(finalizedDocs.flatMap((doc) => doc.library === undefined ? [] : [doc.library]));
   if (pendingImports.length > 0) sawPendingImportsRef.current = true;
   else if (sawPendingImportsRef.current) {
@@ -179,12 +174,17 @@ export function ProjectPanel({
     activate = true,
     signal?: AbortSignal,
     existingLease?: symbol,
+    setNotice: (message: string | null) => void = setLibraryNotice,
   ): Promise<{ readonly ok: boolean; readonly activated: number }> => {
     if (files.length === 0) return { ok: false, activated: 0 };
+    const claimedHere = existingLease === undefined;
     const lease = existingLease ?? claimLibrary();
-    if (lease === null || !libraryOperation.owns(lease)) return { ok: false, activated: 0 };
+    if (lease === null || !libraryOperation.owns(lease)) {
+      setNotice(LIBRARY_BUSY_NOTICE);
+      return { ok: false, activated: 0 };
+    }
     setLibraryError(null);
-    setLibraryNotice(null);
+    setNotice(null);
     try {
       const results = await localLibrary.add(files);
       await refreshLibrary();
@@ -196,7 +196,7 @@ export function ProjectPanel({
           )
         : { duplicates: 0, activated: 0, accepted: true };
       if (signal?.aborted !== true) {
-        setLibraryNotice(duplicateNotice(savedDuplicates, activation.duplicates));
+        setNotice(duplicateNotice(savedDuplicates, activation.duplicates));
       }
       return {
         ok: signal?.aborted !== true && activation.accepted,
@@ -207,20 +207,23 @@ export function ProjectPanel({
       await refreshLibrary(false); // quota failures may have committed earlier files
       return { ok: false, activated: 0 };
     } finally {
-      releaseLibrary(lease);
+      if (claimedHere) releaseLibrary(lease);
       if (importRef.current) importRef.current.value = '';
     }
   };
 
   const loadDemo = async (id: BuiltinCorpusId) => {
     const lease = claimLibrary();
-    if (lease === null) return;
+    if (lease === null) {
+      setDemoNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
     setDemoLoading(id);
     setDemoError(null);
     setDemoNotice(null);
     try {
       const demo = await fetchDemoCorpus(id);
-      const acquired = await acquire(demo.files, true, undefined, lease);
+      const acquired = await acquire(demo.files, true, undefined, lease, setDemoNotice);
       if (!acquired.ok) {
         setDemoError('The demo texts were saved, but could not be activated. Review the app message, then retry.');
         return;
@@ -243,7 +246,10 @@ export function ProjectPanel({
 
   const activateSaved = async (id: string) => {
     const lease = claimLibrary();
-    if (lease === null) return;
+    if (lease === null) {
+      setLibraryNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
     const item = library.find((candidate) => candidate.id === id);
     if (item === undefined) {
       setLibraryError('that saved file no longer exists');
@@ -274,7 +280,10 @@ export function ProjectPanel({
 
   const removeSaved = async (id: string) => {
     const lease = claimLibrary();
-    if (lease === null) return;
+    if (lease === null) {
+      setLibraryNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
     const liveDocuments = finalizedDocs
       .filter((doc) => doc.library === id)
       .map((doc) => doc.doc)
@@ -292,13 +301,20 @@ export function ProjectPanel({
   };
 
   const clearSaved = async () => {
-    if (libraryOperation.isBusy() || (library.length === 0 && libraryError === null)) return;
+    if (libraryOperation.isBusy()) {
+      setLibraryNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
+    if (library.length === 0 && libraryError === null) return;
     const prompt = library.length === 0
-      ? 'Delete all saved files from this device?'
-      : `Delete all ${library.length} saved file${library.length === 1 ? '' : 's'} from this device?`;
+      ? 'Delete all saved texts from the local library?'
+      : `Delete all ${library.length} saved text${library.length === 1 ? '' : 's'} from the local library?`;
     if (!window.confirm(prompt)) return;
     const lease = claimLibrary();
-    if (lease === null) return;
+    if (lease === null) {
+      setLibraryNotice(LIBRARY_BUSY_NOTICE);
+      return;
+    }
     const liveDocuments = finalizedDocs
       .flatMap((doc) => doc.library === undefined ? [] : [doc.doc])
       .concat(pendingImports.map((item) => item.doc));
@@ -319,7 +335,7 @@ export function ProjectPanel({
     event.stopPropagation();
     setDropTarget(null);
     if (event.dataTransfer.files.length > 0) {
-      void acquire([...event.dataTransfer.files]);
+      void acquire([...event.dataTransfer.files], true, undefined, undefined, setActiveNotice);
       return;
     }
     const savedId = event.dataTransfer.getData(LIBRARY_DRAG);
@@ -334,133 +350,35 @@ export function ProjectPanel({
     const target = before === null ? order.length : order.indexOf(before);
     order.splice(target < 0 ? order.length : target, 0, moved);
     reorder(order);
+    const index = order.indexOf(moved);
+    const title = finalizedDocs.find((document) => document.doc === moved)?.meta.title ?? 'Text';
+    setReorderNotice(`${title} moved to position ${index + 1} of ${order.length}.`);
+  };
+
+  const moveDocument = (doc: string, direction: -1 | 1): void => {
+    if (!canReorder) return;
+    const order = finalizedDocs.map((document) => document.doc);
+    const from = order.indexOf(doc);
+    const to = from + direction;
+    if (from < 0) return;
+    const title = finalizedDocs[from]!.meta.title;
+    if (to < 0 || to >= order.length) {
+      setReorderNotice(`${title} is already ${direction < 0 ? 'first' : 'last'}.`);
+      return;
+    }
+    [order[from], order[to]] = [order[to]!, order[from]!];
+    reorder(order);
+    setReorderNotice(`${title} moved to position ${to + 1} of ${order.length}.`);
   };
 
   return (
-    <section
-      aria-labelledby="project-heading"
-      style={{
-        marginTop: 'var(--space-3)',
-        fontFamily: 'var(--font-mono)',
-        fontSize: 'var(--text-xs)',
-        color: 'var(--fg)',
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-        <Heading id="project-heading" style={{ fontSize: 'var(--text-sm)', margin: 0 }}>
-          {isBuiltin ? `${builtinLabel} · built-in corpus (read-only)` : 'library corpus'}
-        </Heading>
-        <span style={{ flex: 1 }} />
-      </div>
+    <section aria-labelledby="project-heading" className="input-workspace">
+      <Heading id="project-heading" className="input-workspace-heading">Input workspace</Heading>
 
-      <section aria-labelledby="demo-corpora-heading" style={{ ...panelStyle, marginTop: 'var(--space-2)' }}>
-        <h4 id="demo-corpora-heading" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>Load demo</h4>
-        <p style={{ margin: 'var(--space-1) 0', color: 'var(--fg-muted)' }}>
-          Demo texts are saved to your local library and added to Active inputs. Suggested terms are appended without replacing yours.
-        </p>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-1)' }}>
-          {BUILTIN_CORPORA.map((corpus) => (
-            <button
-              key={corpus.id}
-              type="button"
-              aria-disabled={demoLoading !== null || libraryBusy}
-              aria-label={`Load ${corpus.label} demo`}
-              aria-busy={demoLoading === corpus.id || undefined}
-              onClick={() => {
-                if (demoLoading === null && !libraryBusy) void loadDemo(corpus.id);
-              }}
-              style={SMALL_BUTTON_STYLE}
-            >
-              Load {corpus.label} demo
-            </button>
-          ))}
-        </div>
-        {demoError && <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>{demoError}</p>}
-        <p role="status" aria-live="polite" aria-atomic="true" style={{ color: 'var(--fg-muted)', margin: demoLoading || demoNotice ? 'var(--space-1) 0 0' : 0 }}>
-          {demoLoading
-            ? `Loading ${builtinCorpusOption(demoLoading)!.label} demo…`
-            : demoNotice ?? ''}
-        </p>
-      </section>
-
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(min(100%, 30rem), 1fr))', gap: 'var(--space-2)', marginTop: 'var(--space-2)' }}>
+      <div className="input-card-grid">
         <section
-          aria-labelledby="local-library-heading"
-          onDragEnter={() => setDropTarget('library')}
-          onDragOver={(event) => {
-            if (event.dataTransfer.types.includes('Files')) event.preventDefault();
-          }}
-          onDragLeave={(event) => {
-            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
-          }}
-          onDrop={(event) => {
-            event.preventDefault();
-            setDropTarget(null);
-            if (event.dataTransfer.files.length > 0) void acquire([...event.dataTransfer.files], false);
-          }}
-          style={{ ...panelStyle, outline: dropTarget === 'library' ? '2px solid var(--accent)' : undefined, outlineOffset: '-2px' }}
-        >
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            <h4 id="local-library-heading" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>On this device</h4>
-            <span style={{ color: 'var(--fg-muted)' }}>{library.length} file{library.length === 1 ? '' : 's'}</span>
-            <span style={{ flex: 1 }} />
-            <label style={{ cursor: libraryBusy ? 'default' : 'pointer', opacity: libraryBusy ? 0.6 : 1 }}>
-              {importLabel}
-              <input
-                ref={importRef}
-                type="file"
-                multiple
-                accept={SOURCE_FILE_ACCEPT}
-                aria-label={importLabel}
-                disabled={libraryBusy}
-                onChange={(event) => {
-                  if (event.target.files) void acquire([...event.target.files]);
-                }}
-                style={{ display: 'none' }}
-              />
-            </label>
-            <button type="button" disabled={libraryBusy || (library.length === 0 && libraryError === null)} onClick={() => void clearSaved()} style={SMALL_BUTTON_STYLE}>
-              Delete all
-            </button>
-          </div>
-          <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
-            Drop files here to save them. Drag a saved file to the active corpus to use it.
-          </p>
-          {libraryError && <p role="alert" style={{ color: 'var(--accent-text)', margin: 'var(--space-1) 0 0' }}>{libraryError}</p>}
-          {libraryNotice && <p role="status" style={{ color: 'var(--fg-muted)', margin: 'var(--space-1) 0 0' }}>{libraryNotice}</p>}
-          {libraryLoading && <p role="status" style={{ color: 'var(--fg-muted)' }}>loading saved files…</p>}
-          {!libraryLoading && library.length === 0 && (
-            <p style={{ color: 'var(--fg-muted)', margin: 'var(--space-2) 0 0' }}>No saved files yet.</p>
-          )}
-          <ul aria-label="Files on this device" style={dropListStyle}>
-            {library.map((file) => (
-              <li
-                key={file.id}
-                draggable={!libraryBusy}
-                onDragStart={(event) => {
-                  event.dataTransfer.effectAllowed = 'copy';
-                  event.dataTransfer.setData(LIBRARY_DRAG, file.id);
-                  event.dataTransfer.setData('text/plain', file.name);
-                }}
-                style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', padding: '3px 0.5ch', borderTop: '1px solid var(--rule)', cursor: libraryBusy ? 'default' : 'grab' }}
-              >
-                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }} title={file.name}>{file.name}</span>
-                <span style={{ color: 'var(--fg-muted)', whiteSpace: 'nowrap' }}>{fileSize(file.size)}</span>
-                <span style={{ flex: 1 }} />
-                <button type="button" disabled={libraryBusy} onClick={() => void activateSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Add ${file.name} to active corpus`}>
-                  add
-                </button>
-                <button type="button" disabled={libraryBusy} onClick={() => void removeSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Delete ${file.name} from this device`}>
-                  delete
-                </button>
-              </li>
-            ))}
-          </ul>
-          <CatalogPanel onAcquire={async (files, signal) => { await acquire(files, true, signal); }} />
-        </section>
-
-        <section
-          aria-labelledby="active-files-heading"
+          className="input-card input-card-active"
+          aria-labelledby="active-inputs-heading"
           onDragEnter={() => setDropTarget('active')}
           onDragOver={(event) => {
             event.preventDefault();
@@ -470,22 +388,23 @@ export function ProjectPanel({
             if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
           }}
           onDrop={(event) => dropOnActive(event, null)}
-          style={{ ...panelStyle, outline: dropTarget === 'active' ? '2px solid var(--accent)' : undefined, outlineOffset: '-2px' }}
+          style={{ outline: dropTarget === 'active' ? '2px solid var(--accent)' : undefined, outlineOffset: '-2px' }}
         >
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-            <h4 id="active-files-heading" style={{ margin: 0, fontSize: 'var(--text-sm)' }}>Active files</h4>
-            <span style={{ color: 'var(--fg-muted)' }}>{finalizedDocs.length + pendingImports.length} file{finalizedDocs.length + pendingImports.length === 1 ? '' : 's'}</span>
-            <span style={{ flex: 1 }} />
+          <div className="input-card-heading-row">
+            <h4 id="active-inputs-heading">Active inputs</h4>
+            <span>{finalizedDocs.length + pendingImports.length} text{finalizedDocs.length + pendingImports.length === 1 ? '' : 's'}</span>
           </div>
-          <p style={{ margin: 'var(--space-1) 0 0', color: 'var(--fg-muted)' }}>
-            Drop saved or new files here. Drag active files to reorder them.
+          <p className="input-card-help">
+            These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
           {finalizedDocs.length === 0 && pendingImports.length === 0 && (
-            <p style={{ color: 'var(--fg-muted)', margin: 'var(--space-2) 0 0' }}>
-              No active inputs. Nothing is being analyzed.
-            </p>
+            <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
           )}
-          <ol aria-label="Documents" style={{ ...dropListStyle, counterReset: 'active-document' }}>
+          {activeNotice && (
+            <p role="status" aria-live="polite" className="input-card-status">{activeNotice}</p>
+          )}
+          <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{reorderNotice}</p>
+          <ol aria-label="Active input order" style={dropListStyle}>
             {finalizedDocs.map((doc, index) => {
               const status = sources?.[doc.doc];
               const sourceError = status?.phase === 'error';
@@ -501,32 +420,156 @@ export function ProjectPanel({
                   }}
                   onDragOver={(event) => event.preventDefault()}
                   onDrop={(event) => dropOnActive(event, doc.doc)}
-                  style={{ display: 'grid', gridTemplateColumns: '3ch minmax(12ch, 1fr) auto', alignItems: 'baseline', gap: 'var(--space-2)', padding: '3px 0.5ch', borderTop: '1px solid var(--rule)', cursor: canReorder ? 'grab' : 'default' }}
+                  className="active-input-row"
+                  style={{ cursor: canReorder ? 'grab' : 'default' }}
                 >
-                  <span style={{ color: 'var(--fg-muted)', textAlign: 'right' }}>{index + 1}</span>
-                  <span style={{ minWidth: 0, overflowWrap: 'anywhere' }}>
+                  <span className="active-input-position">{index + 1}</span>
+                  <span className="active-input-title">
                     <span>{doc.meta.title}</span>{' '}
                     <span style={{ color: sourceError ? 'var(--accent-text)' : 'var(--fg-muted)' }}>{sourceLabel(status)}</span>
                   </span>
-                  <span style={{ display: 'flex', gap: 'var(--space-1)', alignItems: 'baseline' }}>
-                    {!isBuiltin && (
-                      <button type="button" onClick={() => removeDocument(doc.doc)} style={SMALL_BUTTON_STYLE} aria-label={`Remove ${doc.meta.title} from active corpus`}>
-                        remove
-                      </button>
-                    )}
+                  <span className="active-input-actions">
+                    <button
+                      type="button"
+                      disabled={!canReorder}
+                      aria-disabled={index === 0}
+                      onClick={() => moveDocument(doc.doc, -1)}
+                      style={SMALL_BUTTON_STYLE}
+                      aria-label={`Move ${doc.meta.title} up`}
+                    >
+                      up
+                    </button>
+                    <button
+                      type="button"
+                      disabled={!canReorder}
+                      aria-disabled={index === finalizedDocs.length - 1}
+                      onClick={() => moveDocument(doc.doc, 1)}
+                      style={SMALL_BUTTON_STYLE}
+                      aria-label={`Move ${doc.meta.title} down`}
+                    >
+                      down
+                    </button>
+                    <button type="button" onClick={() => removeDocument(doc.doc)} style={SMALL_BUTTON_STYLE} aria-label={`Remove ${doc.meta.title} from active inputs`}>
+                      remove
+                    </button>
                   </span>
                 </li>
               );
             })}
-            {pendingImports.map((item) => (
-              <li key={item.doc} style={{ display: 'flex', gap: 'var(--space-2)', padding: '3px 0.5ch', borderTop: '1px solid var(--rule)', color: 'var(--fg-muted)' }}>
-                <span style={{ minWidth: '3ch', textAlign: 'right' }}>{finalizedDocs.length + pendingImports.indexOf(item) + 1}</span>
-                <span>{item.sourceName}</span>
+            {pendingImports.map((item, index) => (
+              <li key={item.doc} className="active-input-row active-input-row-pending">
+                <span className="active-input-position">{finalizedDocs.length + index + 1}</span>
+                <span className="active-input-title">{item.sourceName}</span>
                 <span>{item.status === 'failed' ? 'import failed' : item.published ? 'analyzing…' : 'importing…'}</span>
-                {item.status === 'failed' && <button type="button" onClick={() => removeImport(item.doc)} style={SMALL_BUTTON_STYLE}>remove</button>}
+                {item.status === 'failed' && (
+                  <button type="button" onClick={() => removeImport(item.doc)} style={SMALL_BUTTON_STYLE} aria-label={`Remove failed import ${item.sourceName}`}>
+                    remove
+                  </button>
+                )}
               </li>
             ))}
           </ol>
+        </section>
+
+        <section
+          className="input-card"
+          aria-labelledby="local-library-heading"
+          onDragEnter={() => setDropTarget('library')}
+          onDragOver={(event) => {
+            if (event.dataTransfer.types.includes('Files')) event.preventDefault();
+          }}
+          onDragLeave={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropTarget(null);
+          }}
+          onDrop={(event) => {
+            event.preventDefault();
+            setDropTarget(null);
+            if (event.dataTransfer.files.length > 0) void acquire([...event.dataTransfer.files], false);
+          }}
+          style={{ outline: dropTarget === 'library' ? '2px solid var(--accent)' : undefined, outlineOffset: '-2px' }}
+        >
+          <div className="input-card-heading-row">
+            <h4 id="local-library-heading">Local library</h4>
+            <span>{library.length} text{library.length === 1 ? '' : 's'}</span>
+            <span className="input-card-spacer" />
+            <label className="input-file-label" data-disabled={libraryBusy || undefined}>
+              {importLabel}
+              <input
+                ref={importRef}
+                type="file"
+                multiple
+                accept={SOURCE_FILE_ACCEPT}
+                aria-label={importLabel}
+                disabled={libraryBusy}
+                onChange={(event) => {
+                  if (event.target.files) void acquire([...event.target.files]);
+                }}
+              />
+            </label>
+            <button type="button" disabled={libraryBusy || (library.length === 0 && libraryError === null)} onClick={() => void clearSaved()} style={SMALL_BUTTON_STYLE}>
+              Delete all
+            </button>
+          </div>
+          <p className="input-card-help">Drop files here to save them without activating them. Add any saved text when you need it.</p>
+          {libraryError && <p role="alert" className="input-card-error">{libraryError}</p>}
+          <p role="status" aria-live="polite" className="input-card-status">{libraryNotice ?? (libraryLoading ? 'loading saved texts…' : '')}</p>
+          {!libraryLoading && library.length === 0 && <p className="input-card-empty">No saved texts yet.</p>}
+          <ul aria-label="Saved texts" style={dropListStyle}>
+            {library.map((file) => (
+              <li
+                key={file.id}
+                draggable={!libraryBusy}
+                onDragStart={(event) => {
+                  event.dataTransfer.effectAllowed = 'copy';
+                  event.dataTransfer.setData(LIBRARY_DRAG, file.id);
+                  event.dataTransfer.setData('text/plain', file.name);
+                }}
+                className="local-library-row"
+                style={{ cursor: libraryBusy ? 'default' : 'grab' }}
+              >
+                <span className="local-library-name" title={file.name}>{file.name}</span>
+                <span className="local-library-size">{fileSize(file.size)}</span>
+                <button type="button" disabled={libraryBusy} onClick={() => void activateSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Add ${file.name} to active inputs`}>
+                  add
+                </button>
+                <button type="button" disabled={libraryBusy} onClick={() => void removeSaved(file.id)} style={SMALL_BUTTON_STYLE} aria-label={`Delete ${file.name} from local library`}>
+                  delete
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+
+        <section className="input-card" aria-labelledby="standard-ebooks-heading">
+          <h4 id="standard-ebooks-heading">Load from Standard Ebooks</h4>
+          <p className="input-card-help">Browse a built-in catalog of carefully produced public-domain ebooks. Added books are saved locally and activated.</p>
+          <CatalogPanel onAcquire={async (files, signal, lease) => (await acquire(files, true, signal, lease)).ok} />
+        </section>
+
+        <section className="input-card" aria-labelledby="demo-corpora-heading">
+          <h4 id="demo-corpora-heading">Load demo</h4>
+          <p className="input-card-help">Add a prepared corpus to your local library. Suggested terms are appended without replacing yours.</p>
+          <div className="demo-actions">
+            {BUILTIN_CORPORA.map((corpus) => (
+              <button
+                key={corpus.id}
+                type="button"
+                aria-disabled={demoLoading !== null || libraryBusy}
+                aria-label={`Load ${corpus.label} demo`}
+                aria-busy={demoLoading === corpus.id || undefined}
+                onClick={() => {
+                  if (demoLoading === null && !libraryBusy) void loadDemo(corpus.id);
+                }}
+                style={SMALL_BUTTON_STYLE}
+              >
+                Load {corpus.label} demo
+              </button>
+            ))}
+          </div>
+          {demoError && <p role="alert" className="input-card-error">{demoError}</p>}
+          <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status">
+            {demoLoading ? `Loading ${builtinCorpusOption(demoLoading)!.label} demo…` : demoNotice ?? ''}
+          </p>
         </section>
       </div>
 

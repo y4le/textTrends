@@ -74,6 +74,10 @@ test('compact header reflows the publisher mark without starving single-line Sco
   expect(publisherType.weight).toBe('500');
   expect(publisherType.lineHeight).toBeGreaterThanOrEqual(publisherType.size * 1.25 - 0.1);
   expect(publisherBox.height).toBeLessThanOrEqual(publisherType.lineHeight * 2 + 1);
+  await page.evaluate(() => {
+    document.body.tabIndex = -1;
+    document.body.focus();
+  });
   await page.keyboard.press('Tab');
   await expect(publisher).toBeFocused();
   await expect(publisher).not.toHaveCSS('outline-style', 'none');

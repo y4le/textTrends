@@ -10,8 +10,9 @@
  * analysis); the popular list follows, minus books already shown in a series.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
 import { catalogSections, type CatalogSectionBook } from '../lib/catalog-view.ts';
+import { libraryOperation } from '../lib/library-operation.ts';
 import type { LocalFileInput } from '../lib/local-library.ts';
 import { loadStandardEbooksCatalog, type StandardEbooksCatalog } from '../lib/standard-ebooks-catalog.ts';
 import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
@@ -19,7 +20,11 @@ import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
 export function CatalogPanel({
   onAcquire,
 }: {
-  readonly onAcquire: (files: readonly LocalFileInput[], signal: AbortSignal) => Promise<void>;
+  readonly onAcquire: (
+    files: readonly LocalFileInput[],
+    signal: AbortSignal,
+    lease: symbol,
+  ) => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
@@ -31,6 +36,11 @@ export function CatalogPanel({
   const [loadAttempt, setLoadAttempt] = useState(0);
   const addController = useRef<AbortController | null>(null);
   const mounted = useRef(true);
+  const libraryBusy = useSyncExternalStore(
+    libraryOperation.subscribe,
+    libraryOperation.isBusy,
+    libraryOperation.isBusy,
+  );
 
   useEffect(() => {
     mounted.current = true;
@@ -60,6 +70,11 @@ export function CatalogPanel({
   const sections = useMemo(() => (catalog === null ? [] : catalogSections(catalog, q)), [catalog, q]);
 
   const add = async (book: CatalogSectionBook) => {
+    const lease = libraryOperation.claim();
+    if (lease === null) {
+      setError('Another input is being saved. Try this ebook again when it finishes.');
+      return;
+    }
     addController.current?.abort();
     const controller = new AbortController();
     addController.current = controller;
@@ -70,11 +85,14 @@ export function CatalogPanel({
       if (controller.signal.aborted || !mounted.current) return;
       // The local library and ingest pipeline both read this source. Hand each
       // read a fresh buffer because worker ingestion transfers its copy.
-      await onAcquire([{
+      const accepted = await onAcquire([{
         name: `${book.name}.epub`,
         size: bytes.byteLength,
         arrayBuffer: async () => bytes.slice().buffer,
-      }], controller.signal);
+      }], controller.signal, lease);
+      if (!accepted && !controller.signal.aborted) {
+        throw new Error('the ebook could not be saved and activated');
+      }
     } catch (e) {
       if (controller.signal.aborted || !mounted.current) return;
       setError(`Could not add “${book.title}”: ${e instanceof Error ? e.message : String(e)}`);
@@ -83,6 +101,7 @@ export function CatalogPanel({
         addController.current = null;
         setAdding(null);
       }
+      libraryOperation.release(lease);
     }
   };
 
@@ -107,7 +126,7 @@ export function CatalogPanel({
       <button
         type="button"
         onClick={() => void add(book)}
-        disabled={adding !== null}
+        disabled={adding !== null || libraryBusy}
         style={{ font: 'inherit', fontFamily: 'var(--font-mono)', fontSize: 'var(--text-xs)', cursor: adding ? 'default' : 'pointer', whiteSpace: 'nowrap' }}
       >
         {adding === book.name ? 'saving…' : 'add'}
@@ -116,7 +135,7 @@ export function CatalogPanel({
   );
 
   return (
-    <section style={{ marginTop: 'var(--space-3)' }}>
+    <div>
       <button
         type="button"
         onClick={toggleOpen}
@@ -162,9 +181,9 @@ export function CatalogPanel({
           <div style={{ maxHeight: '18em', overflowY: 'auto', marginTop: 'var(--space-2)' }}>
             {sections.map((section) => (
               <div key={section.key}>
-                <h4 style={{ ...label, margin: 'var(--space-2) 0 var(--space-1)' }}>
+                <h5 style={{ ...label, margin: 'var(--space-2) 0 var(--space-1)' }}>
                   {section.title === null ? 'Popular' : `${section.title} (series)`}
-                </h4>
+                </h5>
                 <ul
                   aria-label={section.title === null ? 'Popular Standard Ebooks' : `${section.title} series`}
                   style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}
@@ -185,6 +204,6 @@ export function CatalogPanel({
           </p>
         </div>
       )}
-    </section>
+    </div>
   );
 }

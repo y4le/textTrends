@@ -100,6 +100,7 @@ const keyness: KeynessResultV1 = {
 
 function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
   return {
+    documentTitles: new Map([['a', 'a'], ['b', 'b']]),
     snapshot: {
       snapshot: 'snapshot-1',
       readyDocs: ['a', 'b'],
@@ -198,6 +199,22 @@ describe('provenanceFor', () => {
     }), 'trends');
     expect(value.content.selection).toBe('a tokens 1–3 (1-based inclusive)');
     expect(value.completeness.statement).toBe('The selected range in a is represented.');
+  });
+
+  it('uses reader-facing titles in prose, comparison sides, and result exports', () => {
+    const titled = input({
+      documentTitles: new Map([['a', 'Alpha'], ['b', 'Beta']]),
+      linkedSelection: {
+        snapshot: 'snapshot-1',
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 3 } }],
+      },
+    });
+    const text = formatProvenanceText(provenanceFor(titled, 'trends'));
+    expect(text).toContain('Selection: Alpha tokens 1–3');
+    expect(text).toContain('Ready documents: Alpha, Beta');
+    expect(formatProvenanceText(provenanceFor(titled, 'compare'))).toContain('side A: Alpha');
+    expect(formatResultTsv(resultTableFor(titled, 'trends')!, provenanceFor(titled, 'trends')))
+      .toContain('Holmes\tAlpha\t1');
   });
 
   it('describes every endpoint and total for a cross-document linked range', () => {

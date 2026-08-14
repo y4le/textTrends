@@ -3,10 +3,11 @@ import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 test('shortcut help follows focus and restores its invoking control', async ({ page }) => {
   await page.goto('./');
-  await awaitAllReady(page, { loadDemo: true });
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'inputs' });
 
-  await expect.poll(() => page.evaluate(() => document.activeElement?.tagName)).toBe('BODY');
-  await page.keyboard.press('?');
+  const demoButton = page.getByRole('button', { name: 'Load Sherlock Holmes demo' });
+  await expect(demoButton).toBeFocused();
+  await demoButton.press('?');
   let dialog = page.getByRole('dialog', { name: 'Keys & gestures' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Terms' })).toBeVisible();
@@ -19,6 +20,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
     .toHaveAttribute('aria-keyshortcuts', 'Escape ?');
   await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
+  await expect(demoButton).toBeFocused();
 
   await gotoPlace(page, 'inputs');
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();

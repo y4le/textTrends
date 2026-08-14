@@ -14,10 +14,10 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
-  await chord(page.locator('body'), 'g', 'c');
-  const catalogSurface = page.getByRole('region', { name: 'Catalog', exact: true });
-  await expect(catalogSurface).toBeVisible();
-  await expect(catalogSurface).toBeFocused();
+  await chord(page.locator('body'), 'g', 'i');
+  const inputsSurface = page.getByRole('region', { name: 'Inputs', exact: true });
+  await expect(inputsSurface).toBeVisible();
+  await expect(inputsSurface).toBeFocused();
 
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   const scrollBeforeTerms = await page.evaluate(() => window.scrollY);
@@ -37,7 +37,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await termButtons.nth(1).press('g');
   await page.keyboard.press('l');
   await page.keyboard.press('t');
-  await expect(catalogSurface).toBeVisible();
+  await expect(inputsSurface).toBeVisible();
   await expect(termButtons.nth(2)).toBeFocused();
   await termButtons.nth(2).press('h');
   await expect(termButtons.nth(1)).toBeFocused();
@@ -88,9 +88,9 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await page.getByRole('button', { name: /Standard Ebooks library/ }).click();
   const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await filter.fill('');
-  await filter.pressSequentially('gc]t');
-  await expect(filter).toHaveValue('gc]t');
-  await expect(page.getByRole('region', { name: 'Catalog', exact: true })).toBeVisible();
+  await filter.pressSequentially('gt]b');
+  await expect(filter).toHaveValue('gt]b');
+  await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible();
 });
 
 test('result tables retain their intended keyboard behavior', async ({ page }) => {

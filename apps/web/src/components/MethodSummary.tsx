@@ -7,8 +7,11 @@ import {
   resultTableFor,
   type ProvenanceInput,
 } from '../lib/provenance.ts';
+import type { ProjectDocV1 } from '../lib/project.ts';
 import { keynessSelections } from '../lib/store.ts';
 import { useApp } from '../lib/store-instance.ts';
+
+const NO_DOCUMENTS: readonly ProjectDocV1[] = [];
 
 async function copyText(text: string): Promise<'copied' | 'unavailable'> {
   if (!navigator.clipboard?.writeText) return 'unavailable';
@@ -30,6 +33,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const keynessView = useApp((state) => state.keynessView);
   const keynessA = useApp((state) => state.keynessA);
   const keynessB = useApp((state) => state.keynessB);
+  const documents = useApp((state) => state.projectSession?.project.data.docs ?? NO_DOCUMENTS);
   const [prepared, setPrepared] = useState<'provenance' | 'result' | null>(null);
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
@@ -41,6 +45,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     const allTrendsReady = series.length > 0
       && series.every((item) => trendLane.get(item.id)?.status === 'ready');
     return {
+      documentTitles: new Map(documents.map((document) => [document.doc, document.meta.title])),
       snapshot,
       linkedSelection,
       inventory: inventory?.state.status === 'ready' ? inventory.state.result : null,
@@ -76,6 +81,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   }, [
     frequency,
     frequencyView,
+    documents,
     inventory,
     keynessA,
     keynessB,
