@@ -716,6 +716,9 @@ export interface AppState {
   selectedDispersion: DispersionState | null;
   /** Vocabulary-wide analytics are notebook-independent. */
   inventory: InventoryState | null;
+  /** Canonical full-corpus measurements for Inputs. Unlike `inventory`, this
+   * lane is never replaced or cancelled by a linked Trends range. */
+  corpusInventory: InventoryState | null;
   /** Snapshot-bound full-document extents survive a range-scoped inventory
    * replacing the visible corpus inventory. Cleared on snapshot identity. */
   corpusTokenCounts: ReadonlyMap<string, number>;
@@ -1244,6 +1247,9 @@ export function createAppRuntime(
   const selectedDispersionLane = new QueryLane(scope);
   // Vocabulary-wide analytics are independent of notebook query lanes.
   const inventoryLane = new QueryLane(scope);
+  // Inputs presents stable, full-text facts. Its baseline query must be able
+  // to land even when a rapid range gesture supersedes the vocabulary lane.
+  const corpusInventoryLane = new QueryLane(scope);
   const frequencyLane = new QueryLane(scope);
   // Each visible keyness table and comparison-header inventory owns its lane:
   // paging A cannot supersede B, and neither depends on the global brush.
@@ -2407,6 +2413,7 @@ export function createAppRuntime(
       selectedTrends: new Map(),
       selectedDispersion: null,
       inventory: null,
+      corpusInventory: null,
       corpusTokenCounts: new Map(),
       frequencyView: {
         schema: 'texttrends/frequency-view/1',
@@ -3468,13 +3475,102 @@ export function createAppRuntime(
 
       runInventory() {
         inventoryLane.supersede();
-        const { snapshot, linkedSelection } = get();
+        const { snapshot, linkedSelection, corpusInventory } = get();
         if (!snapshot) {
-          set({ inventory: null });
+          corpusInventoryLane.supersede();
+          set({ inventory: null, corpusInventory: null });
           return;
         }
         const issuedKey = snapKey(snapshot);
         const issuedSelection = linkedSelection;
+
+        // Full-corpus inventory is a separate resident lane. Clearing a range
+        // can reveal the authenticated baseline immediately, and creating a
+        // range never cancels a baseline that is still landing.
+        if (issuedSelection === null) {
+          if (
+            corpusInventory?.snapshot === snapshot.snapshot
+            && corpusInventory.state.status !== 'error'
+          ) {
+            set({ inventory: corpusInventory });
+            return;
+          }
+          corpusInventoryLane.supersede();
+          const pending: InventoryState = {
+            snapshot: snapshot.snapshot,
+            selection: null,
+            state: { status: 'pending' },
+          };
+          const lease = corpusInventoryLane.ops.begin(
+            () => snapKey(get().snapshot) === issuedKey,
+          );
+          set({ inventory: pending, corpusInventory: pending });
+          issueOn(
+            corpusInventoryLane,
+            snapshot.snapshot,
+            {
+              op: 'inventory',
+              selection: { docs: [...snapshot.readyDocs] },
+              request: {
+                method: 'inventory/1',
+                rhythmBinsPerDoc: INVENTORY_RHYTHM_BINS,
+                growthPoints: INVENTORY_GROWTH_POINTS,
+                mattrWindow: INVENTORY_MATTR_WINDOW,
+              },
+            },
+            lease,
+            (data) => {
+              if (data.op !== 'inventory') return;
+              const ready: InventoryState = {
+                snapshot: snapshot.snapshot,
+                selection: null,
+                state: { status: 'ready', result: data.inventory },
+              };
+              set((state) => {
+                const corpusTokenCounts = new Map(state.corpusTokenCounts);
+                for (const row of data.inventory.documents) {
+                  if (Number.isSafeInteger(row.fullTokens) && row.fullTokens >= 0) {
+                    corpusTokenCounts.set(row.doc, row.fullTokens);
+                  }
+                }
+                return {
+                  corpusInventory: ready,
+                  inventory: state.linkedSelection === null ? ready : state.inventory,
+                  corpusTokenCounts,
+                };
+              });
+              const current = get();
+              const fitted = fitTrendBinsToCorpus(current, current.trendBins, true);
+              if (fitted === null) {
+                set({
+                  trendSettingsNotice: `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`,
+                });
+              } else if (
+                fitted.mode !== current.trendBins.mode
+                || fitted.count !== current.trendBins.count
+              ) {
+                set({
+                  trendBins: fitted,
+                  trendSettingsNotice: trendGeometryNotice(current.trendBins, fitted),
+                });
+                runTrendLanesOnly();
+              }
+            },
+            (message) => {
+              const error: InventoryState = {
+                snapshot: snapshot.snapshot,
+                selection: null,
+                state: { status: 'error', message },
+              };
+              set((state) => ({
+                corpusInventory: error,
+                inventory: state.linkedSelection === null ? error : state.inventory,
+              }));
+            },
+          );
+          return;
+        }
+
         const lease = inventoryLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
           () => get().linkedSelection === issuedSelection,
@@ -3518,22 +3614,6 @@ export function createAppRuntime(
                 corpusTokenCounts,
               };
             });
-            const current = get();
-            const fitted = fitTrendBinsToCorpus(current, current.trendBins, true);
-            if (fitted === null) {
-              set({
-                trendSettingsNotice: `No trend bin mode can represent this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`,
-              });
-            } else if (
-              fitted.mode !== current.trendBins.mode
-              || fitted.count !== current.trendBins.count
-            ) {
-              set({
-                trendBins: fitted,
-                trendSettingsNotice: trendGeometryNotice(current.trendBins, fitted),
-              });
-              runTrendLanesOnly();
-            }
           },
           (message) => set({
             inventory: {
@@ -4254,6 +4334,9 @@ export function createAppRuntime(
       corpusTokenCounts: prevKey !== nextKey
         ? new Map()
         : store.getState().corpusTokenCounts,
+      corpusInventory: prevKey !== nextKey
+        ? null
+        : store.getState().corpusInventory,
       trendSettingsNotice: prevKey !== nextKey
         ? null
         : store.getState().trendSettingsNotice,
@@ -4383,6 +4466,7 @@ export function createAppRuntime(
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
       inventoryLane.supersede();
+      corpusInventoryLane.supersede();
       frequencyLane.supersede();
       keynessALane.supersede();
       keynessBLane.supersede();

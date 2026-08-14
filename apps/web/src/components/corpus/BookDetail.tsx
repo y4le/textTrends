@@ -5,15 +5,24 @@ import {
   bookRhythmHeadingId,
   type BookDetailVM,
 } from '../../lib/corpus-view.ts';
+import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
+import type { CatalogTotalValue } from '../../lib/catalog-totals.ts';
 import { rhythmDescription } from '../../lib/corpus-dashboard-view.ts';
+import { formatRate } from '../../lib/rate-format.ts';
 import { useApp } from '../../lib/store-instance.ts';
-import { GrowthCurve } from './GrowthCurve.tsx';
 import { OnlyBookButton } from './OnlyBookButton.tsx';
 
 const number = new Intl.NumberFormat('en-US');
 const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
 const value = (input: number | null) =>
   input === null || !Number.isFinite(input) ? '—' : decimal.format(input);
+
+function termCountValue(result: CatalogTotalValue | undefined): string {
+  if (!result || result.status === 'pending') return 'pending';
+  if (result.status === 'error') return `error — ${result.message}`;
+  if (result.status === 'unavailable') return 'unavailable';
+  return `${number.format(result.count)} · ${formatRate(result.rate)} per ${number.format(TREND_RATE_DENOMINATOR)} tokens`;
+}
 
 function RhythmDetailMark({ view }: { readonly view: BookDetailVM }) {
   if (view.rhythm.length === 0) return <>—</>;
@@ -43,14 +52,18 @@ function RhythmDetailMark({ view }: { readonly view: BookDetailVM }) {
 
 export function BookDetail({
   view,
-  growth,
   measurementScope,
+  termCounts,
   onClose,
   onScopeMessage,
 }: {
   readonly view: BookDetailVM;
-  readonly growth: Parameters<typeof GrowthCurve>[0]['growth'] | null;
-  readonly measurementScope: 'full book' | 'active range';
+  readonly measurementScope: 'full text' | 'active range';
+  readonly termCounts: readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly value: CatalogTotalValue | undefined;
+  }[];
   readonly onClose: () => void;
   readonly onScopeMessage: (message: string | null) => void;
 }) {
@@ -64,14 +77,14 @@ export function BookDetail({
       id={bookDetailRegionId(view.doc)}
       className="book-detail"
       role="region"
-      aria-label={`Book detail: ${view.title}`}
+      aria-label={`Text detail: ${view.title}`}
     >
       <header className="book-detail-header">
         <h3>{view.title}</h3>
         <OnlyBookButton doc={view.doc} onMessage={onScopeMessage} />
         <button
           type="button"
-          aria-label={`Close book detail for ${view.title}`}
+          aria-label={`Close text detail for ${view.title}`}
           onClick={onClose}
         >
           close
@@ -102,18 +115,29 @@ export function BookDetail({
         </dl>
       </section>
 
+      <section aria-labelledby={`${inventoryHeadingId}-terms`}>
+        <h4 id={`${inventoryHeadingId}-terms`}>Term counts</h4>
+        {termCounts.length === 0
+          ? <p>No active terms. Add a term to compare exact counts in this text.</p>
+          : (
+              <dl className="book-detail-stats">
+                {termCounts.map((term) => (
+                  <div key={term.id}>
+                    <dt>{term.label}</dt>
+                    <dd className="selectable-stat">{termCountValue(term.value)}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+      </section>
+
 
       <section aria-labelledby={growthHeadingId}>
         <h4 id={growthHeadingId}>Vocabulary growth</h4>
-        {view.growth === 'scoped' && growth
-          ? <GrowthCurve growth={growth} />
-          : view.growth === 'absent'
-            ? <p>Vocabulary growth is unavailable for this result.</p>
-            : (
-                <p>
-                  Use the scope action above to compute vocabulary growth for this book.
-                </p>
-              )}
+        <p>
+          Vocabulary growth is a corpus-level curve and is not attributed to an individual text.
+          Text-level types, TTR, and MATTR are reported above.
+        </p>
       </section>
 
       <section aria-labelledby={rhythmHeadingId}>
@@ -141,7 +165,7 @@ export function BookDetail({
 
       <nav aria-label={`Vocabulary destination for ${view.title}`}>
         <button type="button" onClick={() => setPlace('vocabulary')}>
-          Open {view.vocabularyLabel}
+          Open Vocabulary
         </button>
       </nav>
     </section>

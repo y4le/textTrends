@@ -350,6 +350,7 @@ export function ProjectPanel({
     const target = before === null ? order.length : order.indexOf(before);
     order.splice(target < 0 ? order.length : target, 0, moved);
     reorder(order);
+    setActiveNotice(null);
     const index = order.indexOf(moved);
     const title = finalizedDocs.find((document) => document.doc === moved)?.meta.title ?? 'Text';
     setReorderNotice(`${title} moved to position ${index + 1} of ${order.length}.`);
@@ -368,6 +369,7 @@ export function ProjectPanel({
     }
     [order[from], order[to]] = [order[to]!, order[from]!];
     reorder(order);
+    setActiveNotice(null);
     setReorderNotice(`${title} moved to position ${to + 1} of ${order.length}.`);
   };
 
@@ -400,10 +402,14 @@ export function ProjectPanel({
           {finalizedDocs.length === 0 && pendingImports.length === 0 && (
             <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
           )}
-          {activeNotice && (
-            <p role="status" aria-live="polite" className="input-card-status">{activeNotice}</p>
-          )}
-          <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">{reorderNotice}</p>
+          <p
+            className={activeNotice ? 'input-card-status' : 'visually-hidden'}
+            role="status"
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            {activeNotice ?? reorderNotice}
+          </p>
           <ol aria-label="Active input order" style={dropListStyle}>
             {finalizedDocs.map((doc, index) => {
               const status = sources?.[doc.doc];
@@ -432,7 +438,7 @@ export function ProjectPanel({
                     <button
                       type="button"
                       disabled={!canReorder}
-                      aria-disabled={index === 0}
+                      aria-disabled={!canReorder || index === 0}
                       onClick={() => moveDocument(doc.doc, -1)}
                       style={SMALL_BUTTON_STYLE}
                       aria-label={`Move ${doc.meta.title} up`}
@@ -442,7 +448,7 @@ export function ProjectPanel({
                     <button
                       type="button"
                       disabled={!canReorder}
-                      aria-disabled={index === finalizedDocs.length - 1}
+                      aria-disabled={!canReorder || index === finalizedDocs.length - 1}
                       onClick={() => moveDocument(doc.doc, 1)}
                       style={SMALL_BUTTON_STYLE}
                       aria-label={`Move ${doc.meta.title} down`}

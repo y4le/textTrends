@@ -23,6 +23,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const snapshot = useApp((state) => state.snapshot);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const inventory = useApp((state) => state.inventory);
+  const corpusInventory = useApp((state) => state.corpusInventory);
   const series = useApp((state) => state.series);
   const trends = useApp((state) => state.trends);
   const trendMeasure = useApp((state) => state.trendMeasure);
@@ -38,6 +39,8 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   const [copyStatus, setCopyStatus] = useState<string | null>(null);
 
   const input = useMemo<ProvenanceInput>(() => {
+    const visibleSelection = place === 'inputs' ? null : linkedSelection;
+    const visibleInventory = place === 'inputs' ? corpusInventory : inventory;
     const sides = snapshot === null
       ? null
       : keynessSelections(keynessView, snapshot.readyDocs);
@@ -47,8 +50,8 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     return {
       documentTitles: new Map(documents.map((document) => [document.doc, document.meta.title])),
       snapshot,
-      linkedSelection,
-      inventory: inventory?.state.status === 'ready' ? inventory.state.result : null,
+      linkedSelection: visibleSelection,
+      inventory: visibleInventory?.state.status === 'ready' ? visibleInventory.state.result : null,
       trends: allTrendsReady ? series.flatMap((item) => {
         // Baseline and selected trends are deliberately separate store lanes.
         // A committed range must never relabel the retained baseline as if its
@@ -81,6 +84,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
   }, [
     frequency,
     frequencyView,
+    corpusInventory,
     documents,
     inventory,
     keynessA,
@@ -88,6 +92,7 @@ export function MethodSummary({ place }: { readonly place: Place }) {
     keynessView,
     kwic,
     linkedSelection,
+    place,
     series,
     selectedTrends,
     snapshot,

@@ -78,9 +78,9 @@ function vocabularyLabel(
   selection: TokenRangeSelectionV1 | null,
   wholeBook: boolean,
 ): string {
-  if (wholeBook) return 'vocabulary for this book';
+  if (wholeBook) return 'vocabulary for this text';
   if (selection !== null) return 'vocabulary for the active range';
-  return 'vocabulary (all books)';
+  return 'vocabulary (all texts)';
 }
 
 /** One resident-data projection for every responsive book-detail presentation. */

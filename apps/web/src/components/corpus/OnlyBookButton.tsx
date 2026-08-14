@@ -10,11 +10,12 @@ export function OnlyBookButton({
   readonly onMessage: (message: string | null) => void;
 }) {
   const inventory = useApp((s) => s.inventory);
+  const corpusTokenCounts = useApp((s) => s.corpusTokenCounts);
   const trends = useApp((s) => s.trends);
   const snapshot = useApp((s) => s.snapshot);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const setLinkedSelection = useApp((s) => s.setLinkedSelection);
-  const fullTokens = fullTokensByDoc(doc, { inventory, trends });
+  const fullTokens = fullTokensByDoc(doc, { corpusTokenCounts, inventory, trends });
   const unavailable = fullTokens === null || snapshot === null;
   const isOnlyThisBook = fullTokens !== null
     && isWholeBookSelection(linkedSelection, doc, fullTokens);
@@ -27,8 +28,8 @@ export function OnlyBookButton({
       title={unavailable
         ? 'The full token extent is not available yet.'
         : isOnlyThisBook
-          ? 'Restore analysis scope to all ready books.'
-          : 'Use this whole book as the linked analysis scope.'}
+          ? 'Restore analysis scope to all ready texts.'
+          : 'Use this whole text as the linked analysis scope.'}
       onClick={() => {
         if (snapshot === null || fullTokens === null) {
           onMessage('The full token extent is not available yet.');
@@ -43,7 +44,7 @@ export function OnlyBookButton({
             });
       }}
     >
-      {isOnlyThisBook ? 'all books' : 'only this book'}
+      {isOnlyThisBook ? 'all texts' : 'only this text'}
     </button>
   );
 }

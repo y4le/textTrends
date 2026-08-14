@@ -119,7 +119,7 @@ describe('corpus view', () => {
       doc: 'a',
       title: 'Alpha',
       growth: 'unscoped',
-      vocabularyLabel: 'vocabulary (all books)',
+      vocabularyLabel: 'vocabulary (all texts)',
       rhythm: [{ mean: 5, tokens: 10, sentences: 2 }],
     });
     expect(bookDetailView({
@@ -130,7 +130,7 @@ describe('corpus view', () => {
       selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }] },
     })).toMatchObject({
       growth: 'scoped',
-      vocabularyLabel: 'vocabulary for this book',
+      vocabularyLabel: 'vocabulary for this text',
     });
     expect(bookDetailView({
       target,

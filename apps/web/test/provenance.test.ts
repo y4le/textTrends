@@ -214,7 +214,7 @@ describe('provenanceFor', () => {
     expect(text).toContain('Ready documents: Alpha, Beta');
     expect(formatProvenanceText(provenanceFor(titled, 'compare'))).toContain('side A: Alpha');
     expect(formatResultTsv(resultTableFor(titled, 'trends')!, provenanceFor(titled, 'trends')))
-      .toContain('Holmes\tAlpha\t1');
+      .toContain('Holmes\tAlpha\ta\t1');
   });
 
   it('describes every endpoint and total for a cross-document linked range', () => {
@@ -249,7 +249,7 @@ describe('result exports', () => {
       resultTableFor(input(), 'trends')!,
       provenanceFor(input(), 'trends'),
     );
-    expect(trends).toContain('Holmes\ta\t1\t0\t50\t2\t400');
+    expect(trends).toContain('Holmes\ta\ta\t1\t0\t50\t2\t400');
     const compare = formatResultTsv(
       resultTableFor(input(), 'compare')!,
       provenanceFor(input(), 'compare'),
@@ -281,7 +281,7 @@ describe('result exports', () => {
       provenanceFor(selectedInput, 'trends'),
     );
     expect(result).toContain('# Selection: a tokens 1–3 (1-based inclusive)');
-    expect(result).toContain('Holmes\ta\t1\t0\t3\t1\t3333.333');
+    expect(result).toContain('Holmes\ta\ta\t1\t0\t3\t1\t3333.333');
     expect(result).not.toContain('\t50\t2\t400');
   });
 

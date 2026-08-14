@@ -50,5 +50,5 @@ test('multi-file import transfers every source and finalizes in selection order'
     .toBe('all transferred');
 
   // Declared SELECTION order (the order authority), not completion order.
-  await expect(page.getByLabel('Document to preview').locator('option')).toHaveText(files.map((f) => f.title));
+  await expect(page.getByLabel('Text to inspect').locator('option')).toHaveText(files.map((f) => f.title));
 });

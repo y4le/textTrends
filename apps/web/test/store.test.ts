@@ -1629,10 +1629,57 @@ describe('store query intent discipline', () => {
       ['a', 1_000_000],
       ['b', 1_000_000],
     ]));
+    expect(f.store.getState().corpusInventory?.state).toMatchObject({
+      status: 'ready',
+      result: { selection: 'selection-2000000' },
+    });
+    expect(f.store.getState().inventory?.state).toMatchObject({
+      status: 'ready',
+      result: { selection: 'selection-10' },
+    });
     expect(f.store.getState().applyTrendSettings({
       bins: { mode: 'fixed-tokens', count: 250 },
       measure: { kind: 'count' },
     })).toBe('rejected');
+  });
+
+  it('lets the full-text inventory land after a range supersedes the visible lane', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const baseline = f.inventories().at(-1)!;
+
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
+    });
+    const ranged = f.inventories().at(-1)!;
+    expect(baseline.cancelled).toBe(false);
+
+    ranged.resolve(fakeInventoryResult(10, [{ doc: 'a', fullTokens: 1_000 }]));
+    await flush();
+    expect(f.store.getState().inventory?.state).toMatchObject({
+      status: 'ready',
+      result: { selection: 'selection-10' },
+    });
+    expect(f.store.getState().corpusInventory?.state.status).toBe('pending');
+
+    baseline.resolve(fakeInventoryResult(2_000, [
+      { doc: 'a', fullTokens: 1_000 },
+      { doc: 'b', fullTokens: 1_000 },
+    ]));
+    await flush();
+    expect(f.store.getState().corpusInventory?.state).toMatchObject({
+      status: 'ready',
+      result: { selection: 'selection-2000' },
+    });
+    expect(f.store.getState().inventory?.state).toMatchObject({
+      status: 'ready',
+      result: { selection: 'selection-10' },
+    });
+
+    f.store.getState().setLinkedSelection(null);
+    expect(f.inventories().at(-1)).toBe(ranged);
+    expect(f.store.getState().inventory).toBe(f.store.getState().corpusInventory);
   });
 
   it('switches to the viable bin mode when the persisted mode cannot fit', async () => {

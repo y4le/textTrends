@@ -98,7 +98,7 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await awaitAllReady(page, { loadDemo: true });
 
   await gotoPlace(page, 'inputs');
-  const catalogPort = page.getByRole('region', { name: 'Scrollable book analysis table' });
+  const catalogPort = page.getByRole('region', { name: 'Scrollable text details table' });
   const books = page.locator('[data-catalog-book] .catalog-book-title > button');
   await expect(books).toHaveCount(6);
   await expect(page.locator('[data-catalog-book] .catalog-book-title > button[tabindex="0"]'))

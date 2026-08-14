@@ -71,7 +71,7 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
   await awaitAllReady(page, { loadDemo: true });
   await expectOnlyCanonicalPlace(page, 'vocabulary');
   await expect(page.getByRole('table', { name: 'Vocabulary frequency list' })).toBeVisible();
-  await expect(page.getByRole('table', { name: 'Book analysis' })).toHaveCount(0);
+  await expect(page.getByRole('table', { name: 'Text details' })).toHaveCount(0);
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page

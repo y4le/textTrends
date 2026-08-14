@@ -65,7 +65,7 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await awaitReadyCount(page, 2);
 
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
-  const documents = page.getByRole('table', { name: 'Book analysis' });
+  const documents = page.getByRole('table', { name: 'Text details' });
   await expect(documents.locator(':scope > tbody > tr[data-catalog-book]')).toHaveCount(2);
 
   const betaRow = documents.getByRole('row', { name: /beta/ });

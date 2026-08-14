@@ -356,6 +356,7 @@ export function resultTableFor(
         rows.push([
           trend.label,
           documentTitle(input, docId),
+          docId,
           (trend.result.binIndex[index] as number) + 1,
           trend.result.binStartToken[index] as number,
           trend.result.binTokens[index] as number,
@@ -371,6 +372,7 @@ export function resultTableFor(
       columns: [
         'series',
         'document',
+        'document_id',
         'bin',
         'bin_start_token_0_based',
         'selected_tokens',

@@ -24,6 +24,7 @@ import { createAppRuntime, emptyLibraryWorkspace, type WorkspaceStorePort } from
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 import { libraryOperation } from './library-operation.ts';
+import { pendingAnalysisCount } from './pending-analyses.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
@@ -37,26 +38,24 @@ export const useApp = runtime.useApp;
 
 function pendingAnalyses(): number {
   const state = runtime.useApp.getState();
-  const direct = [
-    state.kwic?.state,
-    state.dispersion?.state,
-    state.selectedDispersion?.state,
-    state.inventory?.state,
-    state.frequency?.state,
-    state.keynessA?.state,
-    state.keynessB?.state,
-    state.keynessInventoryA?.state,
-    state.keynessInventoryB?.state,
-    state.footerPassage?.state,
-    state.readerPage?.state,
-    state.occurrenceNavigation?.state,
-  ];
-  const maps = [
-    ...state.trends.values(),
-    ...state.selectedTrends.values(),
-  ];
-  return direct.filter((item) => item?.status === 'pending').length
-    + maps.filter((item) => item.status === 'pending').length;
+  return pendingAnalysisCount({
+    inventory: state.inventory?.state,
+    corpusInventory: state.corpusInventory?.state,
+    other: [
+      state.kwic?.state,
+      state.dispersion?.state,
+      state.selectedDispersion?.state,
+      state.frequency?.state,
+      state.keynessA?.state,
+      state.keynessB?.state,
+      state.keynessInventoryA?.state,
+      state.keynessInventoryB?.state,
+      state.footerPassage?.state,
+      state.readerPage?.state,
+      state.occurrenceNavigation?.state,
+    ],
+    maps: [state.trends, state.selectedTrends],
+  });
 }
 
 export const resumeMonitor = createResumeMonitor(window, () => {

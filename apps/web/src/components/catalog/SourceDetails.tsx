@@ -2,7 +2,7 @@ import { useApp } from '../../lib/store-instance.ts';
 
 const number = new Intl.NumberFormat('en-US');
 
-/** Format-neutral source provenance for the focused ready book. */
+/** Format-neutral source provenance for the focused ready text. */
 export function SourceDetails({
   headingAs: Heading = 'h3',
 }: {
@@ -41,9 +41,9 @@ export function SourceDetails({
           Source details
         </Heading>
         <label style={{ color: 'var(--fg-muted)' }}>
-          document{' '}
+          text{' '}
           <select
-            aria-label="Document to preview"
+            aria-label="Text to inspect"
             value={focusedDoc}
             onChange={(event) => setFocusedDoc(event.target.value)}
             style={{ font: 'inherit', background: 'transparent', color: 'var(--fg)', border: '1px solid var(--rule-strong)' }}

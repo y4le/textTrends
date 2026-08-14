@@ -102,7 +102,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   // Inputs text table with all three additive starter series.
   await expect(page.locator('svg').first()).toBeVisible();
   await gotoPlace(page, 'inputs');
-  const bookAnalysis = page.getByRole('table', { name: 'Book analysis' });
+  const bookAnalysis = page.getByRole('table', { name: 'Text details' });
   await expect(bookAnalysis).toBeVisible();
   await expect(bookAnalysis.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
   await expect(bookAnalysis.getByRole('columnheader', { name: /Watson/ })).toBeVisible();

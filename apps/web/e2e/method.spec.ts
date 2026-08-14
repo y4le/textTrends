@@ -51,7 +51,7 @@ test('Trend settings separate result geometry from resident presentation', async
   await expect(page.locator('[data-raw-series-path]')).not.toHaveCount(0);
   await expect(pane).toHaveCount(0);
   await gotoPlace(page, 'inputs');
-  await expect(page.getByRole('table', { name: /Book analysis · full corpus/ })
+  await expect(page.getByRole('table', { name: /Text details · full corpus/ })
     .getByRole('columnheader', { name: /\/10,000/ }).first()).toBeVisible();
 });
 
@@ -75,7 +75,7 @@ test('Method exposes visible, copyable provenance and result text', async ({ pag
 
   await method.getByRole('button', { name: 'copy result as TSV' }).click();
   await expect(prepared).toContainText('# Result: Trends');
-  await expect(prepared).toContainText('series\tdocument\tbin');
+  await expect(prepared).toContainText('series\tdocument\tdocument_id\tbin');
   await expect(prepared).toContainText('# Method: trend');
 });
 
@@ -92,7 +92,7 @@ test('Method range provenance and TSV use the selected overlay, never the retain
     .split('\n')
     .filter((line) => line !== '' && !line.startsWith('#') && !line.startsWith('series\t'))
     .map((line) => line.split('\t'));
-  expect(Math.max(...baselineRows.map((row) => Number(row[4])))).toBeGreaterThan(3);
+  expect(Math.max(...baselineRows.map((row) => Number(row[5])))).toBeGreaterThan(3);
   await pane.getByRole('button', { name: 'close', exact: true }).click();
   await expect(pane).toHaveCount(0);
 
@@ -127,5 +127,5 @@ test('Method range provenance and TSV use the selected overlay, never the retain
   expect(new Set(dataRows.map((row) => row[1]))).toEqual(new Set([
     'A Study in Scarlet',
   ]));
-  expect(Math.max(...dataRows.map((row) => Number(row[4])))).toBeLessThanOrEqual(3);
+  expect(Math.max(...dataRows.map((row) => Number(row[5])))).toBeLessThanOrEqual(3);
 });

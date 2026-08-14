@@ -19,12 +19,9 @@ import {
 } from '../../lib/row-detail.ts';
 import {
   catalogTotals,
-  type CatalogTotalsScope,
   type CatalogTotalValue,
 } from '../../lib/catalog-totals.ts';
 import { fullTokensByDoc } from '../../lib/doc-tokens.ts';
-import { SMALL_BUTTON_STYLE } from '../chrome.tsx';
-import { usePresentation } from '../PresentationProvider.tsx';
 import { BookDetail } from '../corpus/BookDetail.tsx';
 import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
 import { RhythmMark } from '../corpus/RhythmMark.tsx';
@@ -42,7 +39,7 @@ function TotalValue({ value }: { readonly value: CatalogTotalValue | undefined }
     return <span title={value.message} style={{ color: 'var(--accent-text)' }}>error</span>;
   }
   if (value.status === 'unavailable') {
-    return <span title="this book is unavailable in the query result">—</span>;
+    return <span title="this text is unavailable in the term result">—</span>;
   }
   return (
     <span className="selectable-stat">
@@ -53,37 +50,18 @@ function TotalValue({ value }: { readonly value: CatalogTotalValue | undefined }
 }
 
 export function BookAnalysis() {
-  const inventory = useApp((s) => s.inventory);
+  const inventory = useApp((s) => s.corpusInventory);
   const focusedDoc = useApp((s) => s.focusedDoc);
   const setFocusedDoc = useApp((s) => s.setFocusedDoc);
   const snapshot = useApp((s) => s.snapshot);
-  const linkedSelection = useApp((s) => s.linkedSelection);
-  const setLinkedSelection = useApp((s) => s.setLinkedSelection);
   const series = useApp((s) => s.series);
-  const focusedSeries = useApp((s) => s.focusedSeries);
   const trends = useApp((s) => s.trends);
-  const selectedTrends = useApp((s) => s.selectedTrends);
   const corpusTokenCounts = useApp((s) => s.corpusTokenCounts);
   const layers = useApp((s) => s.layers);
   const pushLayer = useApp((s) => s.pushLayer);
   const replaceLayer = useApp((s) => s.replaceLayer);
   const popLayer = useApp((s) => s.popLayer);
-  const presentation = usePresentation();
   const [scopeMessage, setScopeMessage] = useState<string | null>(null);
-  const [scopeChoice, setScopeChoice] = useState<{
-    readonly selection: typeof linkedSelection;
-    readonly scope: CatalogTotalsScope;
-  }>(() => ({
-    selection: linkedSelection,
-    scope: linkedSelection === null ? 'full' : 'range',
-  }));
-  const [showAllTotals, setShowAllTotals] = useState(false);
-  const hasRange = linkedSelection !== null;
-  const totalsScope: CatalogTotalsScope = linkedSelection === null
-    ? 'full'
-    : scopeChoice.selection === linkedSelection
-      ? scopeChoice.scope
-      : 'range';
   const readyDocs = snapshot?.readyDocs ?? [];
   const project = useApp((s) => s.projectSession?.project ?? null);
   const titleByDoc = useMemo(
@@ -129,7 +107,7 @@ export function BookAnalysis() {
   };
   const rowNavigation = useRowNavigation({
     keys: readyDocs,
-    label: 'Catalog book',
+    label: 'Input text',
     preferredKey: focusedDoc,
     onFocusKey: setFocusedDoc,
     onExit: () => {
@@ -147,8 +125,8 @@ export function BookAnalysis() {
         aria-labelledby="catalog-book-analysis-heading"
         className="catalog-book-analysis"
       >
-        <h3 id="catalog-book-analysis-heading">Book analysis</h3>
-        {inventory.state.status === 'pending' && <p>computing book measurements…</p>}
+        <h3 id="catalog-book-analysis-heading">Text details</h3>
+        {inventory.state.status === 'pending' && <p>computing full-text measurements…</p>}
         {inventory.state.status === 'error' && (
           <p style={{ color: 'var(--accent-text)' }}>{inventory.state.message}</p>
         )}
@@ -159,52 +137,38 @@ export function BookAnalysis() {
             const tokens = fullTokensByDoc(doc, { corpusTokenCounts, inventory, trends });
             if (tokens !== null) fullTokens.set(doc, tokens);
           }
-          const rangeTokens = new Map(
-            result.documents.map((row) => [row.doc, row.selectedTokens] as const),
-          );
           const totals = catalogTotals({
-            scope: totalsScope,
+            scope: 'full',
             docs: readyDocs,
             series,
             baseline: trends,
-            ranged: selectedTrends,
+            ranged: new Map(),
             fullTokens,
-            rangeTokens,
+            rangeTokens: new Map(),
           });
-          const compact = presentation.width === 'compact';
-          const focusedTerm = series.find((term) => term.id === focusedSeries) ?? series[0] ?? null;
-          const visibleSeries = compact && !showAllTotals && focusedTerm
-            ? [focusedTerm]
-            : series;
-          const columnCount = 4 + visibleSeries.length;
-          const inventoryMatchesTotals = totalsScope === (hasRange ? 'range' : 'full');
-          const scopeLabel = totalsScope === 'range' ? 'active range' : 'full corpus';
+          const columnCount = 4 + series.length;
           const summaryEntries: readonly (readonly [string, number])[] = [
-            ['books', totals.rows.length],
+            ['texts', totals.rows.length],
             ['tokens', totals.corpus.tokens],
-            ...(inventoryMatchesTotals
-              ? [
-                  ['types', result.totals.types] as const,
-                  ['sentences', result.totals.sentences] as const,
-                  ['paragraphs', result.totals.paragraphs] as const,
-                ]
-              : []),
+            ['types', result.totals.types],
+            ['sentences', result.totals.sentences],
+            ['paragraphs', result.totals.paragraphs],
           ];
           return (
             <>
               {result.missingDocs.length > 0 && (
                 <p style={{ color: 'var(--accent-text)' }}>
-                  Partial catalog: {result.missingDocs.length} expected book{result.missingDocs.length === 1 ? '' : 's'} unavailable.
+                  Partial details: {result.missingDocs.length} expected text{result.missingDocs.length === 1 ? '' : 's'} unavailable.
                 </p>
               )}
               {totals.missingDocs.length > 0 && (
                 <p style={{ color: 'var(--accent-text)' }}>
-                  Exact totals omitted for {totals.missingDocs.length} book{totals.missingDocs.length === 1 ? '' : 's'} whose token extent is unavailable.
+                  Exact counts omitted for {totals.missingDocs.length} text{totals.missingDocs.length === 1 ? '' : 's'} whose token extent is unavailable.
                 </p>
               )}
               <p className="catalog-analysis-scope">
-                Comparing {number.format(totals.rows.length)} book{totals.rows.length === 1 ? '' : 's'} across the {scopeLabel}.
-                {' '}Term cells are exact count <span aria-hidden="true">·</span> rate per {number.format(TREND_RATE_DENOMINATOR)} tokens.
+                Full-text statistics stay stable while you explore ranges elsewhere.
+                {' '}Each term cell is exact count <span aria-hidden="true">·</span> rate per {number.format(TREND_RATE_DENOMINATOR)} tokens.
               </p>
               <dl className="catalog-summary">
                 {summaryEntries.map(([label, count]) => (
@@ -214,37 +178,6 @@ export function BookAnalysis() {
                   </div>
                 ))}
               </dl>
-              {hasRange && (
-                <div className="catalog-analysis-controls" role="group" aria-label="Book totals scope">
-                  <span>totals:</span>
-                  {(['range', 'full'] as const).map((scope) => (
-                    <button
-                      key={scope}
-                      type="button"
-                      aria-pressed={totalsScope === scope}
-                      onClick={() => setScopeChoice({ selection: linkedSelection, scope })}
-                      style={SMALL_BUTTON_STYLE}
-                    >
-                      {scope === 'range' ? 'active range' : 'full corpus'}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {compact && series.length > 1 && (
-                <div className="catalog-analysis-controls" role="group" aria-label="Book totals terms">
-                  <span>
-                    {showAllTotals ? `${series.length} query terms` : `${focusedTerm?.label ?? ''} totals`}
-                  </span>
-                  <button
-                    type="button"
-                    aria-pressed={showAllTotals}
-                    onClick={() => setShowAllTotals((current) => !current)}
-                    style={SMALL_BUTTON_STYLE}
-                  >
-                    {showAllTotals ? 'show focused query totals' : 'show all query totals'}
-                  </button>
-                </div>
-              )}
               {scopeMessage && (
                 <p role="status" className="catalog-analysis-note">{scopeMessage}</p>
               )}
@@ -253,20 +186,20 @@ export function BookAnalysis() {
                 className="catalog-analysis-port horizontal-data-port"
                 role="region"
                 tabIndex={0}
-                aria-label="Scrollable book analysis table"
+                aria-label="Scrollable text details table"
               >
                 <table
                   className="catalog-analysis-table"
-                  aria-label={`Book analysis · ${scopeLabel}`}
+                  aria-label="Text details · full corpus"
                 >
                   <caption>
-                    Exact totals by book · {scopeLabel}
+                    Full-text statistics and exact term counts
                   </caption>
                   <thead>
                     <tr>
-                      <th scope="col">book</th>
+                      <th scope="col">text</th>
                       <th scope="col">tokens</th>
-                      {visibleSeries.map((term) => (
+                      {series.map((term) => (
                         <th key={term.id} scope="col">
                           <span>{term.label}</span>
                           <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
@@ -286,7 +219,7 @@ export function BookAnalysis() {
                             title: titleByDoc.get(row.doc) ?? row.doc,
                             result,
                             snapshotDocOrdinal: readyDocs.indexOf(row.doc),
-                            selection: linkedSelection,
+                            selection: null,
                           })
                         : null;
                       const title = titleByDoc.get(row.doc) ?? row.doc;
@@ -306,7 +239,7 @@ export function BookAnalysis() {
                                 aria-expanded={expanded}
                                 aria-current={focusedDoc === row.doc ? 'true' : undefined}
                                 aria-controls={expanded ? bookDetailRegionId(row.doc) : undefined}
-                                title="Focus this book and show its detail without changing analysis scope"
+                                title="Focus this text and show its details without changing analysis scope"
                               >
                                 <span className="catalog-book-ordinal" aria-hidden="true">{readyDocs.indexOf(row.doc) + 1}</span>
                                 <span aria-hidden="true"> · </span>{title}
@@ -316,7 +249,7 @@ export function BookAnalysis() {
                               <span className="catalog-cell-label">tokens</span>
                               <span className="selectable-stat">{number.format(row.tokens)}</span>
                             </td>
-                            {visibleSeries.map((term) => (
+                            {series.map((term) => (
                               <td key={term.id} className="catalog-term-total">
                                 <span className="catalog-cell-label">
                                   {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
@@ -326,9 +259,9 @@ export function BookAnalysis() {
                             ))}
                             <td className="catalog-book-rhythm">
                               <span className="catalog-cell-label">rhythm</span>
-                              {inventoryMatchesTotals && inventoryRow
+                              {inventoryRow
                                 ? <RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} />
-                                : <span title="rhythm follows the active range">—</span>}
+                                : <span title="sentence rhythm is unavailable for this text">—</span>}
                             </td>
                             <td className="catalog-book-scope">
                               <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />
@@ -341,8 +274,12 @@ export function BookAnalysis() {
                                   ? (
                                       <BookDetail
                                         view={detail}
-                                        growth={result.growth}
-                                        measurementScope={hasRange ? 'active range' : 'full book'}
+                                        measurementScope="full text"
+                                        termCounts={series.map((term) => ({
+                                          id: term.id,
+                                          label: term.label,
+                                          value: row.values.get(term.id),
+                                        }))}
                                         onClose={popLayer}
                                         onScopeMessage={setScopeMessage}
                                       />
@@ -352,18 +289,15 @@ export function BookAnalysis() {
                                         id={bookDetailRegionId(row.doc)}
                                         className="book-detail"
                                         role="region"
-                                        aria-label={`Book detail: ${title}`}
+                                        aria-label={`Text detail: ${title}`}
                                       >
                                         <header className="book-detail-header">
                                           <h3>{title}</h3>
                                           <button type="button" onClick={() => popLayer()}>close</button>
                                         </header>
                                         <p>
-                                          This book’s measurements are not resident while the linked range excludes it.
+                                          Full-text measurements are unavailable for this input.
                                         </p>
-                                        <button type="button" onClick={() => setLinkedSelection(null)}>
-                                          clear range and inspect this book
-                                        </button>
                                       </section>
                                     )}
                               </td>
@@ -378,7 +312,7 @@ export function BookAnalysis() {
                         <span className="catalog-cell-label">tokens</span>
                         <span className="selectable-stat">{number.format(totals.corpus.tokens)}</span>
                       </td>
-                      {visibleSeries.map((term) => (
+                      {series.map((term) => (
                         <td key={term.id} className="catalog-term-total">
                           <span className="catalog-cell-label">
                             {term.label} <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>

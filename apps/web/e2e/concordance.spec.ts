@@ -75,7 +75,7 @@ test('the concordance merges all terms in corpus order and toggles a term off', 
     .toHaveText(/^\d+ \/ \d+$/);
   // Catalog labels the book by reading-order ordinal + title alongside exact totals.
   await gotoPlace(page, 'inputs');
-  await expect(page.getByRole('table', { name: 'Book analysis' }).getByText('1 · beasts')).toBeVisible();
+  await expect(page.getByRole('table', { name: 'Text details' }).getByText('1 · beasts')).toBeVisible();
 
   // Move the shared cursor to the END via the keyboard scrubber. The logical
   // surface stays in corpus order and selects its last row without requerying:
