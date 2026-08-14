@@ -2,12 +2,10 @@ import {
   bookDetailRegionId,
   bookGrowthHeadingId,
   bookInventoryHeadingId,
-  bookRhythmHeadingId,
   type BookDetailVM,
 } from '../../lib/corpus-view.ts';
 import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
 import type { CatalogTotalValue } from '../../lib/catalog-totals.ts';
-import { rhythmDescription } from '../../lib/corpus-dashboard-view.ts';
 import { formatRate } from '../../lib/rate-format.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { OnlyBookButton } from './OnlyBookButton.tsx';
@@ -22,32 +20,6 @@ function termCountValue(result: CatalogTotalValue | undefined): string {
   if (result.status === 'error') return `error — ${result.message}`;
   if (result.status === 'unavailable') return 'unavailable';
   return `${number.format(result.count)} · ${formatRate(result.rate)} per ${number.format(TREND_RATE_DENOMINATOR)} tokens`;
-}
-
-function RhythmDetailMark({ view }: { readonly view: BookDetailVM }) {
-  if (view.rhythm.length === 0) return <>—</>;
-  const max = Math.max(
-    1,
-    ...view.rhythm.map((bin) => Number.isFinite(bin.mean) ? bin.mean : 0),
-  );
-  return (
-    <span
-      className="book-rhythm-mark"
-      role="img"
-      aria-label={rhythmDescription(view.rhythm, value)}
-    >
-      {view.rhythm.map((bin, index) => (
-        <span
-          key={index}
-          title={`bin ${index + 1}: mean ${value(bin.mean)} tokens`}
-          style={{
-            height: Number.isFinite(bin.mean) ? Math.max(1, bin.mean / max * 48) : 1,
-            opacity: bin.tokens === 0 ? 0.4 : 0.75,
-          }}
-        />
-      ))}
-    </span>
-  );
 }
 
 export function BookDetail({
@@ -71,7 +43,6 @@ export function BookDetail({
   const stats = view.stats;
   const inventoryHeadingId = bookInventoryHeadingId(view.doc);
   const growthHeadingId = bookGrowthHeadingId(view.doc);
-  const rhythmHeadingId = bookRhythmHeadingId(view.doc);
   return (
     <section
       id={bookDetailRegionId(view.doc)}
@@ -138,29 +109,6 @@ export function BookDetail({
           Vocabulary growth is a corpus-level curve and is not attributed to an individual text.
           Text-level types, TTR, and MATTR are reported above.
         </p>
-      </section>
-
-      <section aria-labelledby={rhythmHeadingId}>
-        <h4 id={rhythmHeadingId}>Sentence rhythm</h4>
-        <RhythmDetailMark view={view} />
-        {view.rhythm.length > 0 && (
-          <details>
-            <summary>exact rhythm values</summary>
-            <table aria-label={`Sentence rhythm for ${view.title}`}>
-              <thead><tr><th scope="col">bin</th><th scope="col">sentences</th><th scope="col">mean</th><th scope="col">selected tokens</th></tr></thead>
-              <tbody>
-                {view.rhythm.map((bin, index) => (
-                  <tr key={index}>
-                    <th className="selectable-stat" scope="row">{index + 1}</th>
-                    <td className="selectable-stat">{number.format(bin.sentences)}</td>
-                    <td className="selectable-stat">{value(bin.mean)}</td>
-                    <td className="selectable-stat">{number.format(bin.tokens)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </details>
-        )}
       </section>
 
       <nav aria-label={`Vocabulary destination for ${view.title}`}>

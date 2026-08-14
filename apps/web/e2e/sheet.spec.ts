@@ -35,7 +35,7 @@ test('Method is a transient full-screen modal outside browser history', async ({
 });
 
 test('Method keeps the context in which it was opened while Back navigates beneath it', async ({ page }) => {
-  await gotoPlace(page, 'inputs');
+  await gotoPlace(page, 'vocabulary');
   await page.getByRole('button', { name: 'Method', exact: true }).click();
   const pane = page.getByRole('dialog', { name: 'Method', exact: true });
 

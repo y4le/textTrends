@@ -115,7 +115,6 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
       smoothing: 0,
       showRaw: false,
     },
-    concordance: { resident: true, enabledTracks: 2, total: 42 },
     frequency: {
       view: {
         schema: 'texttrends/frequency-view/1',
@@ -152,12 +151,10 @@ describe('provenanceFor', () => {
     expect(value).toContain('Snapshot: snapshot-1');
   });
 
-  it('describes corpus, concordance, vocabulary, and compare methods', () => {
-    expect(formatProvenanceText(provenanceFor(input(), 'inputs'))).toContain('MATTR window: 500');
-    expect(formatProvenanceText(provenanceFor(input(), 'concordance')))
-      .toContain('Method: concordance-window/1');
+  it('describes vocabulary and compare methods', () => {
     const vocabulary = formatProvenanceText(provenanceFor(input(), 'vocabulary'));
     expect(vocabulary).toContain('Method: inventory/1');
+    expect(vocabulary).toContain('MATTR window: 500');
     expect(vocabulary).toContain('Method: freq-list/1');
     expect(vocabulary).toContain('token classes: lexical');
     const compare = formatProvenanceText(provenanceFor(input(), 'compare'));

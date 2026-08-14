@@ -113,11 +113,11 @@ function fakeQueryClient() {
     occurrenceSteps: () => issued.filter((q) => q.op === 'occurrence-step'),
     inventories: () => issued.filter(
       (q) => q.op === 'inventory'
-        && ((q.query as { request?: { rhythmBinsPerDoc?: number } }).request?.rhythmBinsPerDoc ?? 0) > 0,
+        && ((q.query as { request?: { growthPoints?: number } }).request?.growthPoints ?? 0) > 0,
     ),
     keynessInventories: () => issued.filter(
       (q) => q.op === 'inventory'
-        && (q.query as { request?: { rhythmBinsPerDoc?: number } }).request?.rhythmBinsPerDoc === 0,
+        && (q.query as { request?: { growthPoints?: number } }).request?.growthPoints === 0,
     ),
     frequencies: () => issued.filter((q) => q.op === 'freq-list'),
     keynesses: () => issued.filter((q) => q.op === 'keyness'),

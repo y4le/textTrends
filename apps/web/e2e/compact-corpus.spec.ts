@@ -1,6 +1,7 @@
 import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
+  clearNotebook,
   gotoPlace,
   trace,
 } from './helpers.ts';
@@ -28,7 +29,7 @@ for (const viewport of [
     const table = page.getByRole('table', { name: 'Text details' });
     const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
     await expect(table).toBeVisible();
-    await expect(table.getByRole('columnheader')).toHaveCount(7);
+    await expect(table.getByRole('columnheader')).toHaveCount(6);
     await expect(documentRows).toHaveCount(6);
     await expect(table.getByRole('rowheader')).toHaveCount(7);
     await expect(table.getByRole('columnheader', { name: 'text' })).toBeVisible();
@@ -66,6 +67,20 @@ for (const viewport of [
   });
 }
 
+test('compact corpus total remains visible without active terms', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearNotebook(page);
+
+  const table = page.getByRole('table', { name: 'Text details' });
+  await expect(table.getByRole('columnheader')).toHaveCount(3);
+  const corpus = table.locator('.catalog-corpus-row');
+  await expect(corpus).toContainText('tokens');
+  await expect(corpus.locator('.selectable-stat')).toBeVisible();
+});
+
 test('wide Catalog keeps useful comparison columns and additive detail', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
@@ -74,7 +89,7 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
 
   const table = page.getByRole('table', { name: 'Text details' });
   const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
-  await expect(table.getByRole('columnheader')).toHaveCount(7);
+  await expect(table.getByRole('columnheader')).toHaveCount(6);
   await expect(documentRows).toHaveCount(6);
   await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Watson/ })).toBeVisible();

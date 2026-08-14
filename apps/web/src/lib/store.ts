@@ -210,7 +210,6 @@ export const DEFAULT_TREND_MEASURE: WorkspaceTrendMeasureV1 = Object.freeze({
   smoothing: 0,
   showRaw: false,
 });
-export const INVENTORY_RHYTHM_BINS = 24;
 export const INVENTORY_GROWTH_POINTS = 128;
 export const INVENTORY_MATTR_WINDOW = 500;
 
@@ -3531,7 +3530,7 @@ export function createAppRuntime(
               selection: { docs: [...snapshot.readyDocs] },
               request: {
                 method: 'inventory/1',
-                rhythmBinsPerDoc: INVENTORY_RHYTHM_BINS,
+                rhythmBinsPerDoc: 0,
                 growthPoints: INVENTORY_GROWTH_POINTS,
                 mattrWindow: INVENTORY_MATTR_WINDOW,
               },
@@ -3608,7 +3607,7 @@ export function createAppRuntime(
             selection: detailSelection(snapshot.readyDocs, issuedSelection),
             request: {
               method: 'inventory/1',
-              rhythmBinsPerDoc: INVENTORY_RHYTHM_BINS,
+              rhythmBinsPerDoc: 0,
               growthPoints: INVENTORY_GROWTH_POINTS,
               mattrWindow: INVENTORY_MATTR_WINDOW,
             },

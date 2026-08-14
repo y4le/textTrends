@@ -24,7 +24,6 @@ import {
 import { fullTokensByDoc } from '../../lib/doc-tokens.ts';
 import { BookDetail } from '../corpus/BookDetail.tsx';
 import { OnlyBookButton } from '../corpus/OnlyBookButton.tsx';
-import { RhythmMark } from '../corpus/RhythmMark.tsx';
 import { SourceDetails } from './SourceDetails.tsx';
 import { useRowNavigation } from '../useRowNavigation.ts';
 import { formatRate } from '../../lib/rate-format.ts';
@@ -146,7 +145,7 @@ export function BookAnalysis() {
             fullTokens,
             rangeTokens: new Map(),
           });
-          const columnCount = 4 + series.length;
+          const columnCount = 3 + series.length;
           const summaryEntries: readonly (readonly [string, number])[] = [
             ['texts', totals.rows.length],
             ['tokens', totals.corpus.tokens],
@@ -205,7 +204,6 @@ export function BookAnalysis() {
                           <span className="catalog-term-unit">n · /{number.format(TREND_RATE_DENOMINATOR)}</span>
                         </th>
                       ))}
-                      <th scope="col">rhythm</th>
                       <th scope="col">scope</th>
                     </tr>
                   </thead>
@@ -218,7 +216,6 @@ export function BookAnalysis() {
                             target: bookTarget,
                             title: titleByDoc.get(row.doc) ?? row.doc,
                             result,
-                            snapshotDocOrdinal: readyDocs.indexOf(row.doc),
                             selection: null,
                           })
                         : null;
@@ -257,12 +254,6 @@ export function BookAnalysis() {
                                 <TotalValue value={row.values.get(term.id)} />
                               </td>
                             ))}
-                            <td className="catalog-book-rhythm">
-                              <span className="catalog-cell-label">rhythm</span>
-                              {inventoryRow
-                                ? <RhythmMark rhythm={result.rhythm} docOrdinal={readyDocs.indexOf(row.doc)} />
-                                : <span title="sentence rhythm is unavailable for this text">—</span>}
-                            </td>
                             <td className="catalog-book-scope">
                               <OnlyBookButton doc={row.doc} onMessage={setScopeMessage} />
                             </td>
@@ -320,7 +311,6 @@ export function BookAnalysis() {
                           <TotalValue value={totals.corpus.values.get(term.id)} />
                         </td>
                       ))}
-                      <td aria-label="not applicable">—</td>
                       <td aria-label="not applicable">—</td>
                     </tr>
                   </tbody>

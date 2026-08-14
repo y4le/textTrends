@@ -29,7 +29,7 @@ test('text focus preserves scope while only this text explicitly rescopes linked
   await expect(page.locator(`[id="${controlledDetail!}"]`)).toBeVisible();
   await expect(page.getByRole('region', { name: 'Measurements' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Vocabulary growth' })).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Sentence rhythm' })).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Sentence rhythm' })).toHaveCount(0);
   const termCountsBefore = await secondRow.locator('.catalog-term-total').allInnerTexts();
   await expect(scope).toContainText(baselineTokens);
   const focusOps = (await trace(page)).events

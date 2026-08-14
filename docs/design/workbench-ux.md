@@ -90,7 +90,8 @@ governed row details remain separate history layers.
 
 Scope states the corpus, included documents or linked range, token count, and
 completeness. Its corpus label opens Inputs. **Method & settings** on Trends,
-and **Method** elsewhere, opens the same contextual pane.
+and **Method** on supported analytical places, opens the same contextual pane;
+Inputs and Concordance omit it.
 
 ### Terms rail
 

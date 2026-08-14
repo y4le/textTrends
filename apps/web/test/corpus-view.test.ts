@@ -4,7 +4,6 @@ import {
   bookDetailView,
   bookGrowthHeadingId,
   bookInventoryHeadingId,
-  bookRhythmHeadingId,
   bookSheetTarget,
   bookTitleControlId,
   isWholeBookSelection,
@@ -47,16 +46,7 @@ const result: InventoryResultV1 = {
     mattrIsPlainTtr: true,
     charsUtf16: 20,
   }],
-  rhythm: {
-    binsPerDoc: 4,
-    docOrdinal: Uint32Array.from([0]),
-    binIndex: Uint32Array.from([0]),
-    binStartToken: Uint32Array.from([0]),
-    binTokens: Uint32Array.from([10]),
-    sentences: Uint32Array.from([2]),
-    sentenceMean: Float64Array.from([5]),
-    sentenceMedian: Float64Array.from([5]),
-  },
+  rhythm: null,
   growth: {
     tokens: Uint32Array.from([10]),
     types: Uint32Array.from([5]),
@@ -88,7 +78,6 @@ describe('corpus view', () => {
       bookDetailRegionId(doc),
       bookInventoryHeadingId(doc),
       bookGrowthHeadingId(doc),
-      bookRhythmHeadingId(doc),
     ]) {
       expect(id).not.toMatch(/\s/u);
       expect(id).toContain(encodeURIComponent(doc));
@@ -113,20 +102,17 @@ describe('corpus view', () => {
       target,
       title: 'Alpha',
       result,
-      snapshotDocOrdinal: 0,
       selection: null,
     })).toMatchObject({
       doc: 'a',
       title: 'Alpha',
       growth: 'unscoped',
       vocabularyLabel: 'vocabulary (all texts)',
-      rhythm: [{ mean: 5, tokens: 10, sentences: 2 }],
     });
     expect(bookDetailView({
       target,
       title: 'Alpha',
       result,
-      snapshotDocOrdinal: 0,
       selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }] },
     })).toMatchObject({
       growth: 'scoped',
@@ -136,7 +122,6 @@ describe('corpus view', () => {
       target,
       title: 'Alpha',
       result,
-      snapshotDocOrdinal: 0,
       selection: { snapshot: 's', ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }] },
     })).toMatchObject({
       growth: 'unscoped',
@@ -146,7 +131,6 @@ describe('corpus view', () => {
       target: { surface: 'book-sheet', doc: 'missing' },
       title: 'Missing',
       result,
-      snapshotDocOrdinal: -1,
       selection: null,
     })).toBeNull();
 
@@ -154,7 +138,6 @@ describe('corpus view', () => {
       target,
       title: 'Alpha',
       result: { ...result, growth: null },
-      snapshotDocOrdinal: 0,
       selection: null,
     })).toMatchObject({ growth: 'absent' });
   });

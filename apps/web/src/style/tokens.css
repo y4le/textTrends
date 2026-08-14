@@ -1418,19 +1418,6 @@ canvas {
   font-family: var(--font-mono);
 }
 
-.book-rhythm-mark {
-  display: inline-flex;
-  block-size: 48px;
-  align-items: end;
-  gap: 2px;
-}
-
-.book-rhythm-mark > span {
-  display: inline-block;
-  inline-size: 5px;
-  background: var(--accent-text);
-}
-
 .horizontal-data-port:focus-visible {
   outline-offset: 1px;
 }
@@ -2238,12 +2225,8 @@ canvas {
     display: inline;
   }
 
-  .catalog-book-rhythm {
-    grid-column: 1;
-  }
-
   .catalog-book-scope {
-    grid-column: 2;
+    grid-column: 1 / -1;
   }
 
   .catalog-book-scope > button {
@@ -2278,7 +2261,7 @@ canvas {
     grid-column: 1;
   }
 
-  .catalog-corpus-row > td:nth-last-child(-n + 2) {
+  .catalog-corpus-row > td:last-child {
     display: none;
   }
 

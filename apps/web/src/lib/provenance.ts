@@ -57,11 +57,6 @@ export interface ProvenanceInput {
   readonly inventory: InventoryResultV1 | null;
   readonly trends: readonly ProvenanceTrend[];
   readonly trendMeasure: WorkspaceTrendMeasureV1;
-  readonly concordance: {
-    readonly resident: boolean;
-    readonly enabledTracks: number;
-    readonly total: number | null;
-  };
   readonly frequency: {
     readonly view: FrequencyViewV1;
     readonly result: FrequencyListResultV1 | null;
@@ -191,24 +186,6 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
   };
 }
 
-function concordanceMethod(input: ProvenanceInput): ProvenanceMethod {
-  return {
-    method: 'concordance-window/1',
-    parameters: [
-      parameter('enabled tracks', String(input.concordance.enabledTracks)),
-      parameter('resident occurrences', input.concordance.total === null
-        ? 'not available'
-        : String(input.concordance.total)),
-      parameter('ordering', 'continuous full-corpus reading order'),
-      parameter('token classes', 'the active notebook groups’ authored match recipes'),
-    ],
-    limitations: [
-      'The resident window is bounded; its total reports the complete match count.',
-      'Context is a reading aid and does not replace the source text.',
-    ],
-  };
-}
-
 function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, result } = input.frequency;
   return {
@@ -264,14 +241,8 @@ export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV
   let methods: readonly ProvenanceMethod[] = [];
   let resident = false;
 
-  if (place === 'inputs' && input.inventory) {
-    methods = [inventoryMethod(input.inventory)];
-    resident = true;
-  } else if (place === 'trends' && input.trends.length > 0) {
+  if (place === 'trends' && input.trends.length > 0) {
     methods = [trendMethod(input)];
-    resident = true;
-  } else if (place === 'concordance' && input.concordance.resident) {
-    methods = [concordanceMethod(input)];
     resident = true;
   } else if (place === 'vocabulary' && input.frequency.result) {
     methods = [

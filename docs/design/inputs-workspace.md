@@ -54,7 +54,6 @@ The summary exposes, for every active text:
 
 - full token count;
 - exact count and rate per 10,000 tokens for every active term;
-- a sentence-rhythm mark;
 - a deliberate action for using the whole text as the linked analysis scope.
 
 The corpus row totals the same token and term measures. The header summarizes
@@ -69,8 +68,7 @@ Expanding a text adds:
 - sentence and paragraph counts;
 - sentence mean, median, and p90 length plus paragraph mean;
 - TTR, explicitly labelled length-dependent, and MATTR;
-- the complete active-term count/rate list;
-- exact sentence-rhythm bins.
+- the complete active-term count/rate list.
 
 The focused text's Source details panel separately reports format, byte size,
 detected encoding, replacement characters, and suspicious control-character
@@ -79,12 +77,11 @@ diagnostics.
 Vocabulary growth is not attributed to a text from the resident corpus curve.
 That curve accumulates vocabulary over the whole selection, so the text detail
 states the limitation and relies on types, TTR, and MATTR for text-level lexical
-description. Method provenance follows the same truth: Inputs reports the
-full-corpus inventory even while another place owns a linked range. Trends TSV
-exports include both a reader-facing title and stable `document_id`, since
-titles are not unique identifiers. Other provenance prose currently favors
-titles; pairing ids with titles in selection and Compare-side parameters is a
-P1 follow-up below.
+description. Inputs reports the full-corpus inventory even while another place
+owns a linked range. Trends TSV exports include both a reader-facing title and
+stable `document_id`, since titles are not unique identifiers. Other provenance
+prose currently favors titles; pairing ids with titles in selection and
+Compare-side parameters is a P1 follow-up below.
 
 ## Architecture rulings
 
@@ -143,8 +140,6 @@ The following are proposals, not claims about the shipped worker results.
 - Summarize active-term **document frequency** (text count and percentage with
   at least one occurrence) from the resident per-text term cells. Preserve the
   Vocabulary export's existing name rather than inventing “coverage.”
-- Expose the already-resident per-bin sentence median beside the rhythm mean,
-  so the rhythm detail does not rely on a lone average.
 - Add a downloadable Text details TSV with one row per text/term and method
   fields, retaining both title and `document_id`.
 - Pair ids with titles in selection and Compare-side provenance parameters;

@@ -2,10 +2,6 @@ import type {
   InventoryDocumentRowV1,
   InventoryResultV1,
 } from '@texttrends/core';
-import {
-  rhythmBinsForDocument,
-  type RhythmBinView,
-} from './corpus-dashboard-view.ts';
 import { selectionRangeForDoc, type TokenRangeSelectionV1 } from './selection.ts';
 
 export interface BookSheetTarget {
@@ -33,17 +29,12 @@ export function bookGrowthHeadingId(doc: string): string {
   return `book-growth-${encodedDocId(doc)}`;
 }
 
-export function bookRhythmHeadingId(doc: string): string {
-  return `book-rhythm-${encodedDocId(doc)}`;
-}
-
 export type BookGrowthState = 'scoped' | 'unscoped' | 'absent';
 
 export interface BookDetailVM {
   readonly doc: string;
   readonly title: string;
   readonly stats: InventoryDocumentRowV1;
-  readonly rhythm: readonly RhythmBinView[];
   readonly growth: BookGrowthState;
   readonly vocabularyLabel: string;
 }
@@ -88,7 +79,6 @@ export function bookDetailView(input: {
   readonly target: BookSheetTarget;
   readonly title: string;
   readonly result: InventoryResultV1;
-  readonly snapshotDocOrdinal: number;
   readonly selection: TokenRangeSelectionV1 | null;
 }): BookDetailVM | null {
   const stats = input.result.documents.find((row) => row.doc === input.target.doc);
@@ -102,9 +92,6 @@ export function bookDetailView(input: {
     doc: input.target.doc,
     title: input.title,
     stats,
-    rhythm: input.result.rhythm
-      ? rhythmBinsForDocument(input.result.rhythm, input.snapshotDocOrdinal)
-      : [],
     growth: input.result.growth === null
       ? 'absent'
       : wholeBook
