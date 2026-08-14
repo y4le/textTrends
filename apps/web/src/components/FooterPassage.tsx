@@ -18,6 +18,14 @@ import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import type { WidthClass } from '../lib/presentation.ts';
 
 let textMeasureContext: CanvasRenderingContext2D | null = null;
+const NATIVE_SCROLL_KEYS = new Set([
+  'ArrowLeft',
+  'ArrowRight',
+  'Home',
+  'End',
+  'PageUp',
+  'PageDown',
+]);
 
 function measuredTextWidth(text: string, font: string): number {
   if (typeof document === 'undefined' || font === '') return 0;
@@ -80,6 +88,12 @@ export function FooterPassage({
   const scrollDrivenToken = useRef<number | null>(null);
   const programmaticScrollLeft = useRef<number | null>(null);
   const suppressOpenUntil = useRef(0);
+  const nativeScrollIntentUntil = useRef(0);
+  const scrollPointerStart = useRef<{
+    readonly id: number;
+    readonly x: number;
+    readonly y: number;
+  } | null>(null);
   const residentPageKey = useRef('');
   const [canvasFont, setCanvasFont] = useState('');
   const [containerWidth, setContainerWidth] = useState(0);
@@ -195,8 +209,10 @@ export function FooterPassage({
     const element = passageRef.current;
     if (element === null || coarseScrollLeft === null) return;
     const sameResidentPage = residentPageKey.current === pageKey;
+    const followsNativeScroll = scrollDrivenToken.current === viewToken;
     residentPageKey.current = pageKey;
-    if (sameResidentPage && scrollDrivenToken.current === viewToken) return;
+    if (sameResidentPage && followsNativeScroll) return;
+    if (!followsNativeScroll) nativeScrollIntentUntil.current = 0;
     scrollDrivenToken.current = null;
     // Coarse passage text lives in a real horizontal scrollport. Recenter
     // when the reading target changes, then leave subsequent touch panning
@@ -259,14 +275,19 @@ export function FooterPassage({
   const after = segments.filter((segment) => segment.start >= centerEnd);
   const centerContent = center.map((segment, index) => styled(segment, `c:${index}`));
 
-  const openCurrent = () => {
-    if (Date.now() < suppressOpenUntil.current) return;
+  const openCurrent = (honorScrollSuppression: boolean) => {
+    if (honorScrollSuppression && Date.now() < suppressOpenUntil.current) return;
     openReader({
       snapshot,
       doc: scrub.doc,
       token: scrub.token,
       from: 'footer',
     }, 'footer-passage-node');
+  };
+  const markNativeScrollIntent = () => {
+    // Cover the browser-owned momentum tail; each subsequent wheel/pointer
+    // gesture refreshes the window.
+    nativeScrollIntentUntil.current = Date.now() + 2_000;
   };
   const line = (
     <span
@@ -289,7 +310,7 @@ export function FooterPassage({
           type="button"
           className="footer-passage-node"
           aria-label={`Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`}
-          onClick={openCurrent}
+          onClick={() => { openCurrent(true); }}
         >
           {centerContent}
         </button>
@@ -326,16 +347,51 @@ export function FooterPassage({
       role="button"
       tabIndex={0}
       aria-label={`Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`}
-      onClick={openCurrent}
+      onClick={() => { openCurrent(true); }}
+      onPointerDown={(event) => {
+        if (!event.isPrimary) return;
+        scrollPointerStart.current = {
+          id: event.pointerId,
+          x: event.clientX,
+          y: event.clientY,
+        };
+      }}
+      onPointerMove={(event) => {
+        const start = scrollPointerStart.current;
+        if (
+          event.buttons !== 0
+          && start?.id === event.pointerId
+          && (Math.abs(event.clientX - start.x) > 4 || Math.abs(event.clientY - start.y) > 4)
+        ) {
+          markNativeScrollIntent();
+        }
+      }}
+      onPointerUp={(event) => {
+        if (scrollPointerStart.current?.id === event.pointerId) {
+          scrollPointerStart.current = null;
+        }
+      }}
+      onPointerCancel={(event) => {
+        if (scrollPointerStart.current?.id === event.pointerId) {
+          scrollPointerStart.current = null;
+          markNativeScrollIntent();
+        }
+      }}
+      onWheel={markNativeScrollIntent}
       onScroll={(event) => {
         const element = event.currentTarget;
         const programmed = programmaticScrollLeft.current;
         if (programmed !== null && Math.abs(element.scrollLeft - programmed) <= 0.75) {
-          programmaticScrollLeft.current = null;
+          // WebKit may emit more than one scroll event for the same assignment.
+          // Keep the target authenticated until a genuinely divergent native
+          // scroll arrives; clearing after the first event misclassifies the
+          // second and suppresses an immediate, intentional Reader tap.
           return;
         }
         programmaticScrollLeft.current = null;
-        suppressOpenUntil.current = Date.now() + 350;
+        if (Date.now() < nativeScrollIntentUntil.current) {
+          suppressOpenUntil.current = Date.now() + 350;
+        }
         if (!tokenGeometry || !page || crosshairX === null) return;
         const relative = passageTokenAtTextOffset(
           tokenGeometry,
@@ -353,9 +409,14 @@ export function FooterPassage({
         });
       }}
       onKeyDown={(event) => {
-        if (event.key !== 'Enter' && event.key !== ' ') return;
+        if (event.key !== 'Enter' && event.key !== ' ') {
+          if (NATIVE_SCROLL_KEYS.has(event.key)) {
+            markNativeScrollIntent();
+          }
+          return;
+        }
         event.preventDefault();
-        openCurrent();
+        openCurrent(false);
       }}
     >
       <span
