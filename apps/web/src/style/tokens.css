@@ -3580,24 +3580,28 @@ canvas {
   pointer-events: none;
 }
 
-.footer-passage-coarse {
+.footer-passage-scrollable {
   display: block;
   inline-size: 100%;
-  padding: 0;
   overflow-x: auto;
   overflow-y: hidden;
-  overscroll-behavior: none;
+  overscroll-behavior-x: none;
+  scrollbar-width: none;
+}
+
+.footer-passage-scrollable::-webkit-scrollbar {
+  display: none;
+}
+
+.footer-passage-coarse {
+  padding: 0;
   border: 0;
   color: inherit;
   background: transparent;
   text-align: start;
   cursor: pointer;
-  scrollbar-width: none;
+  overscroll-behavior: none;
   touch-action: pan-x pinch-zoom;
-}
-
-.footer-passage-coarse::-webkit-scrollbar {
-  display: none;
 }
 
 .footer-passage-scroll-content {

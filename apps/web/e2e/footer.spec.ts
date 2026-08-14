@@ -322,6 +322,39 @@ test('a mouse drag shuttles through source continuously and release pauses', asy
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
+test('passage text scrolls horizontally with a precise pointer', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const sliderBox = await slider.boundingBox();
+  if (!sliderBox) throw new Error('footer slider has no layout box');
+  await page.mouse.move(sliderBox.x + sliderBox.width * 0.4, sliderBox.y + 5);
+
+  const passage = page.locator('.footer-passage-scrollable[data-passage-for]');
+  await expect(passage).toBeVisible({ timeout: 15_000 });
+  await expect(passage).toHaveCSS('overflow-x', 'auto');
+  const passageBox = await passage.boundingBox();
+  if (!passageBox) throw new Error('footer passage has no layout box');
+  const metrics = await passage.evaluate((node) => ({
+    before: node.scrollLeft,
+    max: node.scrollWidth - node.clientWidth,
+  }));
+  expect(metrics.max).toBeGreaterThan(metrics.before);
+  const corpusPosition = Number(await slider.getAttribute('aria-valuenow'));
+
+  await page.mouse.move(
+    passageBox.x + passageBox.width / 2,
+    passageBox.y + passageBox.height / 2,
+  );
+  await page.mouse.wheel(120, 0);
+  await expect.poll(() => passage.evaluate((node) => node.scrollLeft))
+    .toBeGreaterThan(metrics.before);
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(corpusPosition);
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+});
+
 test('an exact footer barcode tick centers Concordance without opening Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });

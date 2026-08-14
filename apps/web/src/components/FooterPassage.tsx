@@ -142,15 +142,10 @@ export function FooterPassage({
   const passageMargin = useMemo(() => tokenGeometry
     ? passageMarginTokens(tokenGeometry, containerWidth)
     : 0, [containerWidth, tokenGeometry]);
-  // Native coarse scrolling may legitimately enter the prefetch margin while
-  // a replacement page is in flight. Keep that authenticated resident source
+  // Native scrolling may legitimately enter the prefetch margin while a
+  // replacement page is in flight. Keep that authenticated resident source
   // interactive; the store still uses the measured margin to request early.
-  const view = footerPassageDisplay(
-    passage,
-    scrub,
-    snapshot,
-    coarse ? 0 : passageMargin,
-  );
+  const view = footerPassageDisplay(passage, scrub, snapshot);
   const stale = view?.stale ?? false;
   const crosshairX = view
     ? crosshairXForToken(view.page.doc, view.token)
@@ -198,7 +193,7 @@ export function FooterPassage({
     display.slice(centerStart, centerEnd),
     canvasFont,
   ) / 2, [canvasFont, centerEnd, centerStart, display]);
-  const coarseScrollLeft = coarse && crosshairX !== null
+  const nativeScrollLeft = !stale && crosshairX !== null
     ? (measuredLayout?.shiftPx ?? centerOffset) - crosshairX
     : null;
   const pageKey = page
@@ -207,21 +202,21 @@ export function FooterPassage({
 
   useLayoutEffect(() => {
     const element = passageRef.current;
-    if (element === null || coarseScrollLeft === null) return;
+    if (element === null || nativeScrollLeft === null) return;
     const sameResidentPage = residentPageKey.current === pageKey;
     const followsNativeScroll = scrollDrivenToken.current === viewToken;
     residentPageKey.current = pageKey;
     if (sameResidentPage && followsNativeScroll) return;
     if (!followsNativeScroll) nativeScrollIntentUntil.current = 0;
     scrollDrivenToken.current = null;
-    // Coarse passage text lives in a real horizontal scrollport. Recenter
-    // when the reading target changes, then leave subsequent touch panning
-    // entirely to the browser (including momentum).
+    // Passage text lives in a real horizontal scrollport for both touch and
+    // precise pointers. Recenter when the reading target changes, then leave
+    // subsequent touch, wheel, and trackpad panning entirely to the browser.
     const maximum = Math.max(0, element.scrollWidth - element.clientWidth);
-    const next = Math.max(0, Math.min(maximum, coarseScrollLeft));
+    const next = Math.max(0, Math.min(maximum, nativeScrollLeft));
     programmaticScrollLeft.current = next;
     element.scrollLeft = next;
-  }, [coarseScrollLeft, pageKey, viewToken]);
+  }, [nativeScrollLeft, pageKey, viewToken]);
 
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
@@ -293,10 +288,10 @@ export function FooterPassage({
     <span
       className="footer-passage-text"
       style={{
-        left: coarse ? 0 : crosshairX,
-        transform: coarse
-          ? undefined
-          : `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`,
+        left: stale ? crosshairX : 0,
+        transform: stale
+          ? `translateX(${(-(measuredLayout?.shiftPx ?? centerOffset)).toFixed(1)}px)`
+          : undefined,
       }}
     >
       <span ref={beforeRef}>
@@ -338,16 +333,20 @@ export function FooterPassage({
     'data-passage-for': windowData.forToken,
   } : {};
 
-  return coarse && !stale ? (
+  return !stale ? (
     <div
       {...windowAttributes}
       ref={(element) => { passageRef.current = element; }}
-      id="footer-passage-node"
-      className="footer-passage footer-passage-coarse source-text"
-      role="button"
-      tabIndex={0}
-      aria-label={`Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`}
-      onClick={() => { openCurrent(true); }}
+      id={coarse ? 'footer-passage-node' : undefined}
+      className={`footer-passage footer-passage-scrollable source-text${
+        coarse ? ' footer-passage-coarse' : ''
+      }`}
+      role={coarse ? 'button' : undefined}
+      tabIndex={coarse ? 0 : undefined}
+      aria-label={coarse
+        ? `Open reader at ${title} token ${(scrub.token + 1).toLocaleString()}`
+        : undefined}
+      onClick={coarse ? () => { openCurrent(true); } : undefined}
       onPointerDown={(event) => {
         if (!event.isPrimary) return;
         scrollPointerStart.current = {
