@@ -1,9 +1,8 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import {
   bookDetailRegionId,
   type BookDetailVM,
 } from '../../lib/corpus-view.ts';
+import { InfoTooltip } from '../InfoTooltip.tsx';
 import { OnlyBookButton } from './OnlyBookButton.tsx';
 import { SourceDetails } from './SourceDetails.tsx';
 
@@ -17,126 +16,6 @@ interface Measurement {
   readonly label: string;
   readonly exact: string;
   readonly explanation: string;
-}
-
-function MeasurementInfo({
-  id,
-  label,
-  explanation,
-}: {
-  readonly id: string;
-  readonly label: string;
-  readonly explanation: string;
-}) {
-  const [hovered, setHovered] = useState(false);
-  const [focused, setFocused] = useState(false);
-  const [pinned, setPinned] = useState(false);
-  const [position, setPosition] = useState({ left: 0, top: 0, ready: false });
-  const root = useRef<HTMLSpanElement>(null);
-  const button = useRef<HTMLButtonElement>(null);
-  const tooltip = useRef<HTMLSpanElement>(null);
-  const open = hovered || focused || pinned;
-
-  useEffect(() => {
-    if (!open) return;
-    const close = () => {
-      setHovered(false);
-      setFocused(false);
-      setPinned(false);
-    };
-    const closeOutside = (event: PointerEvent) => {
-      if (!root.current?.contains(event.target as Node)) close();
-    };
-    const closeWithEscape = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') close();
-    };
-    document.addEventListener('pointerdown', closeOutside);
-    document.addEventListener('keydown', closeWithEscape);
-    return () => {
-      document.removeEventListener('pointerdown', closeOutside);
-      document.removeEventListener('keydown', closeWithEscape);
-    };
-  }, [open]);
-
-  useLayoutEffect(() => {
-    if (!open) return;
-    const place = () => {
-      const triggerBox = button.current?.getBoundingClientRect();
-      const tooltipBox = tooltip.current?.getBoundingClientRect();
-      if (!triggerBox || !tooltipBox) return;
-      const padding = 8;
-      const gap = 4;
-      const centered = triggerBox.left + (triggerBox.width - tooltipBox.width) / 2;
-      const left = Math.min(
-        Math.max(padding, centered),
-        Math.max(padding, window.innerWidth - tooltipBox.width - padding),
-      );
-      const below = triggerBox.bottom + gap;
-      const above = triggerBox.top - tooltipBox.height - gap;
-      const top = below + tooltipBox.height <= window.innerHeight - padding || above < padding
-        ? below
-        : above;
-      setPosition({ left, top: Math.max(padding, top), ready: true });
-    };
-    place();
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    return () => {
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
-    };
-  }, [open]);
-
-  return (
-    <>
-      <span
-        ref={root}
-        className="measurement-info"
-        data-open={open || undefined}
-        onPointerEnter={(event) => {
-          if (event.pointerType !== 'touch') setHovered(true);
-        }}
-        onPointerLeave={(event) => {
-          if (event.pointerType !== 'touch') setHovered(false);
-        }}
-      >
-        <button
-          ref={button}
-          type="button"
-          className="measurement-info-button"
-          aria-label={`About ${label}`}
-          aria-describedby={id}
-          aria-controls={id}
-          onClick={() => setPinned((current) => !current)}
-          onFocus={() => setFocused(true)}
-          onBlur={() => {
-            setFocused(false);
-            setPinned(false);
-          }}
-        >
-          <span aria-hidden="true">ⓘ</span>
-        </button>
-      </span>
-      {createPortal(
-        <span
-          ref={tooltip}
-          id={id}
-          role="tooltip"
-          className="measurement-info-tooltip"
-          data-open={open || undefined}
-          style={{
-            display: open ? 'block' : 'none',
-            left: position.left,
-            top: position.top,
-            visibility: open && position.ready ? 'visible' : 'hidden',
-          }}
-        >
-          {explanation}
-        </span>,
-        document.body,
-      )}
-    </>
-  );
 }
 
 export function BookDetail({
@@ -225,7 +104,7 @@ export function BookDetail({
             <div key={measurement.key}>
               <dt className="book-detail-measurement-label">
                 <span>{measurement.label}</span>
-                <MeasurementInfo
+                <InfoTooltip
                   id={`${measurementIdBase}-${measurement.key}-help`}
                   label={measurement.label}
                   explanation={measurement.explanation}

@@ -132,8 +132,8 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await expect(nodeWidth).toHaveAttribute('aria-valuenow', '1');
 
   const firstLeft = grid.locator('[role="row"][aria-rowindex]').first().locator('.kwic-left-context');
-  await expect(firstLeft.locator('span')).toHaveCount(1);
-  await expect(firstLeft.locator('span')).not.toHaveText('');
+  await expect(firstLeft.locator(':scope > span')).toHaveCount(1);
+  await expect(firstLeft.locator(':scope > span')).not.toHaveText('');
   const contextGeometry = await firstLeft.evaluate((cell) => {
     const bounds = cell.getBoundingClientRect();
     const text = cell.querySelector('span')!.getBoundingClientRect();

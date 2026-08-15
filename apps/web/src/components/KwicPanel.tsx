@@ -61,6 +61,12 @@ import { selectionContains } from '../lib/selection.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { widthClassFor } from '../lib/presentation.ts';
 import { usePresentation } from './PresentationProvider.tsx';
+import {
+  ColumnResizeHandle,
+  DataGridColumnToolbar,
+  DataGridHeader,
+  type DataGridColumn,
+} from './data-grid/DataGridHeader.tsx';
 
 const SCROLL_TOLERANCE_PX = 0.75;
 const ANNOUNCEMENT_INTERVAL_MS = 250;
@@ -800,24 +806,21 @@ export function KwicPanel({
     const limits = context ? { min: 1, max: 99 } : MATCHES_COLUMN_LIMITS[column];
     const automatic = !context && view.columns[column] === 'auto';
     return (
-      <div
-        className="kwic-column-resizer"
-        role="separator"
-        aria-label={`${label} width`}
-        aria-orientation="vertical"
-        aria-valuemin={limits.min}
-        aria-valuemax={limits.max}
-        aria-valuenow={width}
-        aria-valuetext={context
+      <ColumnResizeHandle
+        label={label}
+        valueMin={limits.min}
+        valueMax={limits.max}
+        valueNow={width}
+        valueText={context
           ? `${width}% of context space`
           : `${width} characters${automatic ? ', automatic' : ''}`}
-        tabIndex={columnsAdjustable ? 0 : -1}
+        adjustable={columnsAdjustable}
+        className="kwic-column-resizer"
         onKeyDown={(event) => onColumnKeyDown(event, column)}
         onPointerDown={(event) => beginColumnDrag(event, column)}
         onPointerMove={moveColumnDrag}
         onPointerUp={endColumnDrag}
         onPointerCancel={cancelColumnDrag}
-        onLostPointerCapture={cancelColumnDrag}
       />
     );
   };
@@ -844,6 +847,32 @@ export function KwicPanel({
   useEffect(() => () => {
     cancelActiveColumnDrag();
   }, [cancelActiveColumnDrag]);
+
+  type MatchesHeaderColumn = MatchesColumn | 'token';
+  const headerColumns: readonly DataGridColumn<MatchesHeaderColumn>[] = [
+    {
+      key: 'left',
+      label: 'left context',
+      className: 'kwic-left-heading',
+      headingRef: leftHeadingRef,
+    },
+    {
+      key: 'node',
+      label: 'node',
+      className: 'kwic-node-heading',
+      headingRef: nodeHeadingRef,
+    },
+    {
+      key: 'right',
+      label: 'right context',
+      className: 'kwic-right-heading',
+      headingRef: rightHeadingRef,
+    },
+    ...(multipleBooks
+      ? [{ key: 'book' as const, label: 'book', className: 'kwic-book-heading' }]
+      : []),
+    { key: 'token', label: 'token', className: 'kwic-token-heading' },
+  ];
 
   const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
     if (shortcutMatches(event, 'row-open')) {
@@ -913,33 +942,16 @@ export function KwicPanel({
           onScroll={onScroll}
           onKeyDown={onGridKeyDown}
         >
-          <div className="kwic-grid-header" role="row">
-            <div ref={leftHeadingRef} className="kwic-left-heading" role="columnheader" aria-colindex={1}>
-              <span className="kwic-column-heading-label">left context</span>
-              {resizeHandle('left', 'Left context')}
-            </div>
-            <div ref={nodeHeadingRef} className="kwic-node-heading" role="columnheader" aria-colindex={2}>
-              <span className="kwic-column-heading-label">node</span>
-              {resizeHandle('node', 'Node')}
-            </div>
-            <div ref={rightHeadingRef} className="kwic-right-heading" role="columnheader" aria-colindex={3}>
-              <span className="kwic-column-heading-label">right context</span>
-              {resizeHandle('right', 'Right context')}
-            </div>
-            {multipleBooks && (
-              <div className="kwic-book-heading" role="columnheader" aria-colindex={4}>
-                <span className="kwic-column-heading-label">book</span>
-                {resizeHandle('book', 'Book')}
-              </div>
-            )}
-            <div
-              className="kwic-token-heading"
-              role="columnheader"
-              aria-colindex={4 + Number(multipleBooks)}
-            >
-              <span className="kwic-column-heading-label">token</span>
-            </div>
-          </div>
+          <DataGridHeader
+            columns={headerColumns}
+            kind="grid"
+            className="kwic-grid-header"
+            tooltipIdBase="matches-column"
+            tooltipsDisabled={columnsAdjustable}
+            renderResizeHandle={(column) => column.key === 'token'
+              ? null
+              : resizeHandle(column.key, column.label)}
+          />
           <div
             className="kwic-scroll-plane"
             role="rowgroup"
@@ -1030,37 +1042,16 @@ export function KwicPanel({
             })}
           </div>
         </div>
-        <div className="kwic-column-toolbar" role="toolbar" aria-label="Match columns">
-          {columnsAdjustable && (
-            <button
-              key="reset-columns"
-              type="button"
-              aria-label="Reset column widths"
-              title="Reset column widths"
-              disabled={columnsAtDefault}
-              onClick={resetColumnWidths}
-            >
-              <svg viewBox="0 0 20 20" aria-hidden="true">
-                <path d="M16 7a7 7 0 1 0 1 6M16 3v4h-4" />
-              </svg>
-            </button>
-          )}
-          <button
-            key="toggle-columns"
-            ref={adjustButtonRef}
-            type="button"
-            aria-controls="matches-grid"
-            aria-label={columnsAdjustable ? 'Lock column widths' : 'Adjust column widths'}
-            aria-pressed={columnsAdjustable}
-            title={columnsAdjustable ? 'Lock column widths' : 'Adjust column widths'}
-            onClick={toggleColumnsAdjustable}
-          >
-            <svg viewBox="0 0 20 20" aria-hidden="true">
-              <path d="M3 3v14M8 3v14M13 3v14M18 3v14" />
-              <path d={columnsAdjustable ? 'M1 6h4M6 13h4M11 8h4M16 11h3' : 'M1 9h4M6 6h4M11 11h4M16 7h3'} />
-            </svg>
-          </button>
-        </div>
+        <DataGridColumnToolbar
+          label="Match"
+          controls="matches-grid"
+          adjustable={columnsAdjustable}
+          toggleButtonRef={adjustButtonRef}
+          onToggle={toggleColumnsAdjustable}
+          atDefault={columnsAtDefault}
+          onReset={resetColumnWidths}
+          className="kwic-column-toolbar"
+        />
         <div
           className="kwic-now-line"
           aria-hidden="true"

@@ -1540,6 +1540,11 @@ canvas {
   color: var(--fg);
 }
 
+.measurement-info-button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
 .measurement-info-tooltip {
   position: fixed;
   z-index: 30;
@@ -1580,6 +1585,145 @@ canvas {
 
 .horizontal-data-port:focus-visible {
   outline-offset: 1px;
+}
+
+.data-grid-heading-content {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  justify-content: inherit;
+  gap: 0.25ch;
+}
+
+.data-grid-heading-label {
+  min-inline-size: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.data-grid-sort-button {
+  display: flex;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  align-items: center;
+  justify-content: inherit;
+  gap: 0.5ch;
+  padding: 0;
+  border: 0;
+  color: inherit;
+  background: none;
+  cursor: pointer;
+  font: inherit;
+}
+
+.data-grid-sort-button:hover,
+.data-grid-sort-button:focus-visible {
+  color: var(--fg);
+}
+
+.data-grid-header > [aria-sort='ascending'] .data-grid-sort-button,
+.data-grid-header > [aria-sort='descending'] .data-grid-sort-button {
+  color: var(--fg);
+  font-weight: 700;
+}
+
+.data-grid-sort-indicator {
+  flex: 0 0 auto;
+  color: var(--accent-text);
+}
+
+.data-grid-header-info .measurement-info-button {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  font-size: var(--text-xs);
+}
+
+.data-grid-column-resizer {
+  position: absolute;
+  z-index: 2;
+  inset-block-start: 0;
+  inset-inline-end: -6px;
+  inline-size: 12px;
+  block-size: var(--data-grid-header-height, var(--kwic-header-height));
+  outline: none;
+  cursor: col-resize;
+  opacity: 1;
+  pointer-events: none;
+  touch-action: none;
+}
+
+.data-grid-column-resizer::after {
+  position: absolute;
+  inset-block: 5px;
+  inset-inline-start: calc(50% - 0.5px);
+  border-inline-start: 1px solid var(--rule);
+  content: '';
+}
+
+[data-columns-adjustable='true'] .data-grid-column-resizer {
+  opacity: 0.72;
+  pointer-events: auto;
+}
+
+[data-columns-adjustable='true'] .data-grid-column-resizer::after {
+  border-inline-start-color: var(--accent-text);
+}
+
+.data-grid-column-resizer:hover,
+.data-grid-column-resizer:focus-visible {
+  opacity: 1 !important;
+}
+
+.data-grid-column-resizer:focus-visible::after {
+  inset-inline-start: calc(50% - 1px);
+  border-inline-start-width: 2px;
+}
+
+.data-grid-column-toolbar {
+  position: absolute;
+  z-index: 5;
+  inset-block-start: 0;
+  inset-inline-end: 0;
+  display: flex;
+  block-size: var(--data-grid-header-height, var(--kwic-header-height));
+  align-items: stretch;
+  border-inline-start: 1px solid var(--rule-strong);
+  background: var(--bg);
+}
+
+.data-grid-column-toolbar button {
+  display: grid;
+  inline-size: var(--data-grid-header-height, var(--kwic-header-height));
+  min-inline-size: var(--data-grid-header-height, var(--kwic-header-height));
+  min-block-size: var(--data-grid-header-height, var(--kwic-header-height));
+  place-items: center;
+  padding: 0;
+  border: 0;
+  border-inline-end: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--fg-muted);
+  cursor: pointer;
+}
+
+.data-grid-column-toolbar button:hover,
+.data-grid-column-toolbar button:focus-visible,
+.data-grid-column-toolbar button[aria-pressed='true'] {
+  color: var(--accent-text);
+}
+
+.data-grid-column-toolbar button:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.data-grid-column-toolbar svg {
+  inline-size: 18px;
+  block-size: 18px;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: square;
+  stroke-width: 1.4;
 }
 
 .kwic-panel {
@@ -1726,7 +1870,7 @@ canvas {
   text-align: start;
 }
 
-.kwic-column-heading-label {
+.kwic-grid-header .data-grid-heading-label {
   display: block;
   min-inline-size: 0;
   overflow: hidden;
@@ -1737,8 +1881,16 @@ canvas {
   text-align: center;
 }
 
+.kwic-grid-header .kwic-node-heading .data-grid-heading-content {
+  justify-content: center;
+}
+
 .kwic-grid-header .kwic-left-heading {
   text-align: end;
+}
+
+.kwic-grid-header .kwic-left-heading .data-grid-heading-content {
+  justify-content: flex-end;
 }
 
 .kwic-column-resizer {
@@ -1833,7 +1985,8 @@ canvas {
     --kwic-header-height: 44px;
   }
 
-  .kwic-column-resizer {
+  .kwic-column-resizer,
+  .frequency-column-resizer {
     inset-inline-end: -12px;
     inline-size: 24px;
   }
