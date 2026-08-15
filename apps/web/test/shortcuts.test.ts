@@ -38,6 +38,9 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('?'), 'show-help')).toBe(true);
     expect(shortcutMatches(key('?', { shiftKey: true }), 'show-help')).toBe(true);
     expect(shortcutMatches(key('w', { ctrlKey: true }), 'reader-occurrence-next')).toBe(false);
+    expect(shortcutMatches(key('u', { ctrlKey: true }), 'row-half-page-previous')).toBe(true);
+    expect(shortcutMatches(key('d', { ctrlKey: true }), 'row-half-page-next')).toBe(true);
+    expect(shortcutMatches(key('u'), 'row-half-page-previous')).toBe(false);
     expect(shortcutMatches(key('?', { shiftKey: true, metaKey: true }), 'show-help')).toBe(false);
     expect(shortcutMatches(key('l', { isComposing: true }), 'reader-page-next')).toBe(false);
   });

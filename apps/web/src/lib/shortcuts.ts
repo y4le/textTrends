@@ -17,6 +17,8 @@ export type ShortcutId =
   | 'row-next'
   | 'row-page-previous'
   | 'row-page-next'
+  | 'row-half-page-previous'
+  | 'row-half-page-next'
   | 'row-first'
   | 'row-last'
   | 'row-open'
@@ -53,6 +55,7 @@ export type ShortcutId =
 interface ShortcutStroke {
   readonly key: string;
   readonly shift?: true;
+  readonly ctrl?: true;
 }
 
 interface ShortcutDefinition {
@@ -217,6 +220,20 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench'],
     label: 'Next visible page of rows',
     strokes: [{ key: 'PageDown' }],
+  },
+  {
+    id: 'row-half-page-previous',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Previous half page of rows',
+    strokes: [{ key: 'u', ctrl: true }],
+  },
+  {
+    id: 'row-half-page-next',
+    group: 'Rows',
+    helpContexts: ['workbench'],
+    label: 'Next half page of rows',
+    strokes: [{ key: 'd', ctrl: true }],
   },
   {
     id: 'row-first',
@@ -463,13 +480,15 @@ function strokeMatches(event: ShortcutEventLike, stroke: ShortcutStroke): boolea
   // layouts may synthesize the same character without exposing that physical
   // modifier; the resolved character is the stable contract here.
   if (shiftIsImpliedByResolvedKey(stroke)) {
-    return event.key === stroke.key;
+    return event.key === stroke.key && event.ctrlKey === (stroke.ctrl === true);
   }
-  return event.key === stroke.key && event.shiftKey === (stroke.shift === true);
+  return event.key === stroke.key
+    && event.shiftKey === (stroke.shift === true)
+    && event.ctrlKey === (stroke.ctrl === true);
 }
 
 export function shortcutMatches(event: ShortcutEventLike, id: ShortcutId): boolean {
-  if (event.ctrlKey || event.metaKey || event.altKey || event.isComposing) return false;
+  if (event.metaKey || event.altKey || event.isComposing) return false;
   return definition(id).strokes.some((stroke) => strokeMatches(event, stroke));
 }
 
@@ -547,13 +566,17 @@ const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
 
 function displayStroke(stroke: ShortcutStroke): string {
   const key = DISPLAY_KEY[stroke.key] ?? stroke.key;
-  if (!stroke.shift || shiftIsImpliedByResolvedKey(stroke)) return key;
-  return `Shift + ${key}`;
+  const modified = !stroke.shift || shiftIsImpliedByResolvedKey(stroke)
+    ? key
+    : `Shift + ${key}`;
+  return stroke.ctrl ? `Ctrl + ${modified}` : modified;
 }
 
 function ariaStroke(stroke: ShortcutStroke): string {
-  if (!stroke.shift || (shiftIsImpliedByResolvedKey(stroke) && stroke.key === '?')) return stroke.key;
-  return `Shift+${stroke.key}`;
+  const modified = !stroke.shift || (shiftIsImpliedByResolvedKey(stroke) && stroke.key === '?')
+    ? stroke.key
+    : `Shift+${stroke.key}`;
+  return stroke.ctrl ? `Control+${modified}` : modified;
 }
 
 export function shortcutAria(ids: readonly ShortcutId[]): string {

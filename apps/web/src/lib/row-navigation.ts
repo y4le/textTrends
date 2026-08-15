@@ -9,6 +9,8 @@ export type RowNavigationShortcutId =
   | 'row-next'
   | 'row-page-previous'
   | 'row-page-next'
+  | 'row-half-page-previous'
+  | 'row-half-page-next'
   | 'row-first'
   | 'row-last'
   | 'row-exit';
@@ -18,6 +20,8 @@ export const ROW_NAVIGATION_SHORTCUT_IDS: readonly ShortcutId[] = Object.freeze(
   'row-next',
   'row-page-previous',
   'row-page-next',
+  'row-half-page-previous',
+  'row-half-page-next',
   'row-first',
   'row-last',
   'row-open',
@@ -29,6 +33,8 @@ const MOVE_IDS: readonly RowNavigationShortcutId[] = Object.freeze([
   'row-next',
   'row-page-previous',
   'row-page-next',
+  'row-half-page-previous',
+  'row-half-page-next',
   'row-first',
   'row-last',
   'row-exit',
@@ -70,6 +76,10 @@ export function rowNavigationTarget(
       return Math.max(0, boundedCurrent - step);
     case 'row-page-next':
       return Math.min(length - 1, boundedCurrent + step);
+    case 'row-half-page-previous':
+      return Math.max(0, boundedCurrent - Math.max(1, Math.floor(step / 2)));
+    case 'row-half-page-next':
+      return Math.min(length - 1, boundedCurrent + Math.max(1, Math.floor(step / 2)));
     case 'row-first':
       return 0;
     case 'row-last':
