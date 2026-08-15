@@ -89,10 +89,10 @@ test('Vocabulary and Compare each mount as a closed canonical place', async ({ p
     .getByRole('link', { name: 'Compare', exact: true })
     .click();
   await expectOnlyCanonicalPlace(page, 'compare');
-  const signedAxis = page.getByRole('table', { name: 'Compare signed axis' });
-  await expect(signedAxis).toBeVisible();
-  await expect(signedAxis.getByRole('rowgroup', { name: /^Side A ·/ })).toBeVisible();
-  await expect(signedAxis.getByRole('rowgroup', { name: /^Side B ·/ })).toBeVisible();
+  const pyramid = page.getByRole('table', { name: 'Compare population pyramid' });
+  await expect(pyramid).toBeVisible();
+  await expect(pyramid.getByRole('rowgroup', { name: 'Paired distinctive term ranks' }))
+    .toBeVisible();
 
   const queryOps = (await trace(page)).events.filter((event) =>
     event.seq > mark

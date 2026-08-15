@@ -74,22 +74,20 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await settings.getByRole('button', { name: 'apply' }).click();
   await awaitOps(page, mark, ['keyness']);
 
-  const signedAxis = page.getByRole('table', { name: 'Compare signed axis' });
-  await expect(signedAxis).toHaveAttribute('aria-colcount', '3');
-  await expect(signedAxis.getByRole('columnheader')).toHaveCount(3);
-  await expect(signedAxis.locator('caption')).toContainText('page-local log₂-ratio scale');
-  const sideA = signedAxis.getByRole('rowgroup', { name: /^Side A ·/ });
-  const sideB = signedAxis.getByRole('rowgroup', { name: /^Side B ·/ });
-  await expect(sideA).toHaveAttribute('aria-label', /5 projected terms$/);
-  await expect(sideB).toHaveAttribute('aria-label', /5 projected terms$/);
-  const forestA = sideA.getByRole('row', { name: /^forest / });
-  const seaB = sideB.getByRole('row', { name: /^sea / });
+  const pyramid = page.getByRole('table', { name: 'Compare population pyramid' });
+  await expect(pyramid).toHaveAttribute('aria-colcount', '2');
+  await expect(pyramid.getByRole('columnheader')).toHaveCount(2);
+  await expect(pyramid.locator('caption')).toContainText('page-local log₂-ratio scale');
+  const forestA = pyramid.getByRole('button', { name: /^forest,/ });
+  const seaB = pyramid.getByRole('button', { name: /^sea,/ });
   await expect(forestA).toBeVisible();
   await expect(seaB).toBeVisible();
   const positive = Number(
-    (await forestA.locator('.compare-effect-value').innerText()).replace('+', ''),
+    await forestA.locator('.compare-pyramid-value').innerText(),
   );
   expect(positive).toBeGreaterThan(0);
+  await expect(forestA.locator('xpath=..')).toHaveAttribute('data-side', 'a');
+  await expect(seaB.locator('xpath=..')).toHaveAttribute('data-side', 'b');
   await expect(page.getByText(/Small side/)).toHaveCount(2);
   const readingOrder = await page.locator('.compare-panel').evaluate((panel) =>
     [
@@ -101,21 +99,19 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
     ].map((selector) => panel.querySelector(selector)?.getBoundingClientRect().top ?? -1));
   expect(readingOrder).toEqual([...readingOrder].sort((a, b) => a - b));
 
-  await forestA.getByRole('button', { name: /forest/ }).click();
+  await forestA.click();
   const detail = page.getByRole('region', { name: 'Compare detail: forest, side A' });
-  await expect(detail.locator('dt')).toHaveCount(11);
-  await expect(detail).toContainText(`log₂ ratio${(positive >= 0 ? '+' : '')}${positive}`);
+  await expect(detail.locator('dt')).toHaveCount(10);
+  await expect(detail).toContainText('log₂ ratio');
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Swap keyness sides' }).click();
   await awaitOps(page, mark, ['keyness']);
-  const forestB = sideB.getByRole('row', { name: /^forest / });
+  const forestB = pyramid.getByRole('button', { name: /^forest,/ });
   await expect(forestB).toBeVisible();
-  const negative = Number(
-    (await forestB.locator('.compare-effect-value').innerText()).replace('−', '-'),
-  );
-  expect(negative).toBeLessThan(0);
-  expect(negative).toBeCloseTo(-positive, 2);
+  const mirrored = Number(await forestB.locator('.compare-pyramid-value').innerText());
+  expect(mirrored).toBeCloseTo(positive, 2);
+  await expect(forestB.locator('xpath=..')).toHaveAttribute('data-side', 'b');
   await expect(detail).toHaveCount(0);
   await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeFocused();
 
@@ -133,7 +129,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   );
   expect(brushQueries.some((event) => event.op === 'keyness')).toBe(false);
   await gotoPlace(page, 'compare');
-  await expect(forestB).toBeVisible();
+  await expect(pyramid.getByRole('button', { name: /^forest,/ })).toBeVisible();
 
   await page.getByRole('button', { name: 'Method', exact: true }).click();
   const method = page.getByRole('dialog', { name: 'Method' });

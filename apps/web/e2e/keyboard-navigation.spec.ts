@@ -149,13 +149,15 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
 
   await gotoPlace(page, 'compare');
   const comparePort = page.locator('.compare-table-port');
-  const compareRows = page.locator('.compare-axis-row .compare-term > button');
+  const compareRows = page.locator('.compare-pyramid-button');
   await expect(compareRows.first()).toBeVisible();
-  await expect(page.locator('.compare-axis-row .compare-term > button[tabindex="0"]'))
+  await expect(page.locator('.compare-pyramid-button[tabindex="0"]'))
     .toHaveCount(1);
   await compareRows.first().focus();
   await compareRows.first().press('ArrowDown');
   await expect(compareRows.nth(1)).toBeFocused();
+  await expect(compareRows.first().locator('xpath=..')).toHaveAttribute('data-side', 'a');
+  await expect(compareRows.nth(1).locator('xpath=..')).toHaveAttribute('data-side', 'b');
   await compareRows.nth(1).press('k');
   await expect(compareRows.first()).toBeFocused();
   await compareRows.first().press('Enter');
