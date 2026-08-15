@@ -55,7 +55,6 @@ import {
   DISPERSION_EXACT_MAX,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_PREFIX_MAX_UNITS,
-  FREQUENCY_WINDOW_MAX,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
@@ -79,6 +78,7 @@ import {
 } from './selection.ts';
 import { fullTokenCountsForDocs } from './doc-tokens.ts';
 import { trendBinLimits } from './trend-settings.ts';
+import { COMPARE_MAX_RESIDENT_ROWS } from './compare-scroll.ts';
 import type { CapturedTrack } from './track-legend.ts';
 import {
   footerPassageServes,
@@ -404,8 +404,6 @@ export interface KeynessViewV1 {
     readonly dirB: 1 | -1;
   };
   readonly pageLimit: number;
-  readonly offsetA: number;
-  readonly offsetB: number;
 }
 
 export interface KeynessSettingsInputV1 {
@@ -413,13 +411,14 @@ export interface KeynessSettingsInputV1 {
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
   readonly sortBy: KeynessSortFieldV1;
-  readonly pageLimit: number;
 }
 
 export interface KeynessTableState {
   readonly snapshot: string;
   readonly side: 'a' | 'b';
   readonly view: KeynessViewV1;
+  /** Authenticated ranks retained while the next viewport chunk is in flight. */
+  readonly resident: KeynessResultV1 | null;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly result: KeynessResultV1 }
@@ -451,8 +450,6 @@ export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
     dirB: 1 as const,
   }),
   pageLimit: 100,
-  offsetA: 0,
-  offsetB: 0,
 });
 
 export function reconcileKeynessView(
@@ -524,10 +521,7 @@ function keynessTableIntentKey(
     view.minDocFreqTotal,
     view.classes,
     { by: view.sort.by, dir: side === 'a' ? view.sort.dirA : view.sort.dirB },
-    {
-      offset: side === 'a' ? view.offsetA : view.offsetB,
-      limit: view.pageLimit,
-    },
+    view.pageLimit,
     side,
   ]);
 }
@@ -828,6 +822,7 @@ export interface AppState {
   addFrequencyTerm(key: string): void;
   showFrequencyTermInKwic(key: string): void;
   runKeyness(): void;
+  loadMoreKeyness(side: 'a' | 'b'): void;
   setKeynessMode(mode: KeynessViewV1['mode']): void;
   setKeynessDocument(side: 'a' | 'b', doc: string): void;
   /** Set one visible compare selector. Null represents all ready documents
@@ -836,7 +831,7 @@ export interface AppState {
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
   setKeynessDirection(side: 'a' | 'b'): void;
-  setKeynessPage(side: 'a' | 'b', offset: number): void;
+  reverseKeynessDirections(): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   stepOccurrence(direction: 1 | -1): void;
@@ -1511,7 +1506,7 @@ export function createAppRuntime(
         dir: side === 'a' ? issuedView.sort.dirA : issuedView.sort.dirB,
       };
       const page = {
-        offset: side === 'a' ? issuedView.offsetA : issuedView.offsetB,
+        offset: 0,
         limit: issuedView.pageLimit,
       };
       const lease = lane.ops.begin(
@@ -1530,6 +1525,7 @@ export function createAppRuntime(
         snapshot: snapshot.snapshot,
         side,
         view: issuedView,
+        resident: null,
         state: { status: 'pending' },
       });
       issueOn(
@@ -1559,6 +1555,7 @@ export function createAppRuntime(
             snapshot: snapshot.snapshot,
             side,
             view: issuedView,
+            resident: data.keyness,
             state: { status: 'ready', result: data.keyness },
           });
         },
@@ -1566,6 +1563,7 @@ export function createAppRuntime(
           snapshot: snapshot.snapshot,
           side,
           view: issuedView,
+          resident: null,
           state: { status: 'error', message },
         }),
       );
@@ -3865,6 +3863,139 @@ export function createAppRuntime(
         runKeynessInventory('b');
       },
 
+      loadMoreKeyness(side) {
+        if (side !== 'a' && side !== 'b') return;
+        const lane = side === 'a' ? keynessALane : keynessBLane;
+        const state = get();
+        const { snapshot, keynessView } = state;
+        const table = side === 'a' ? state.keynessA : state.keynessB;
+        const resident = table?.resident
+          ?? (table?.state.status === 'ready' ? table.state.result : null);
+        const pair = snapshot
+          ? keynessSelections(keynessView, snapshot.readyDocs)
+          : null;
+        if (
+          !snapshot
+          || !pair
+          || resident === null
+          || (
+            table?.state.status !== 'ready'
+            && table?.state.status !== 'error'
+          )
+          || resident.rows.length >= Math.min(
+            resident.total,
+            COMPARE_MAX_RESIDENT_ROWS,
+          )
+        ) return;
+        const offset = resident.rows.length;
+        const limit = Math.min(
+          keynessView.pageLimit,
+          resident.total - resident.rows.length,
+          COMPARE_MAX_RESIDENT_ROWS - resident.rows.length,
+        );
+        if (
+          limit < 1
+          || !Number.isSafeInteger(offset + limit)
+        ) return;
+        const issuedKey = snapKey(snapshot);
+        const issuedView = keynessView;
+        const issuedIntent = keynessTableIntentKey(
+          issuedView,
+          snapshot.readyDocs,
+          side,
+        );
+        const sort = {
+          by: issuedView.sort.by,
+          dir: side === 'a' ? issuedView.sort.dirA : issuedView.sort.dirB,
+        };
+        lane.supersede();
+        const lease = lane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => {
+            const live = get();
+            return live.snapshot !== null
+              && keynessTableIntentKey(
+                live.keynessView,
+                live.snapshot.readyDocs,
+                side,
+              ) === issuedIntent;
+          },
+        );
+        writeKeynessTable(side, {
+          snapshot: snapshot.snapshot,
+          side,
+          view: issuedView,
+          resident,
+          state: { status: 'pending' },
+        });
+        issueOn(
+          lane,
+          snapshot.snapshot,
+          {
+            op: 'keyness',
+            request: {
+              method: 'keyness-g2-2x2/1',
+              effect: 'log-ratio-halves/1',
+              a: pair.a,
+              b: pair.b,
+              filter: {
+                minCountTotal: issuedView.minCountTotal,
+                minDocFreqTotal: issuedView.minDocFreqTotal,
+                classes: issuedView.classes,
+              },
+              sort,
+              page: { offset, limit },
+              side,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'keyness') return;
+            const next = data.keyness;
+            if (
+              next.method !== resident.method
+              || next.effect !== resident.effect
+              || next.total !== resident.total
+              || next.totalsA.tokens !== resident.totalsA.tokens
+              || next.totalsA.documents !== resident.totalsA.documents
+              || next.totalsB.tokens !== resident.totalsB.tokens
+              || next.totalsB.documents !== resident.totalsB.documents
+              || next.rows.length !== limit
+            ) {
+              writeKeynessTable(side, {
+                snapshot: snapshot.snapshot,
+                side,
+                view: issuedView,
+                resident,
+                state: {
+                  status: 'error',
+                  message: 'Comparison ranks changed while more rows were loading. Refresh the view to continue.',
+                },
+              });
+              return;
+            }
+            const result: KeynessResultV1 = {
+              ...next,
+              rows: [...resident.rows, ...next.rows],
+            };
+            writeKeynessTable(side, {
+              snapshot: snapshot.snapshot,
+              side,
+              view: issuedView,
+              resident: result,
+              state: { status: 'ready', result },
+            });
+          },
+          (message) => writeKeynessTable(side, {
+            snapshot: snapshot.snapshot,
+            side,
+            view: issuedView,
+            resident,
+            state: { status: 'error', message },
+          }),
+        );
+      },
+
       setKeynessMode(mode) {
         if (mode !== 'documents' && mode !== 'document-rest') return;
         const state = get();
@@ -3884,8 +4015,6 @@ export function createAppRuntime(
             documentA,
             documentB,
             restOn: 'b',
-            offsetA: 0,
-            offsetB: 0,
           },
         });
         get().runKeyness();
@@ -3910,8 +4039,6 @@ export function createAppRuntime(
           keynessView: {
             ...view,
             ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
-            offsetA: 0,
-            offsetB: 0,
           },
         });
         get().runKeyness();
@@ -3942,8 +4069,6 @@ export function createAppRuntime(
               restOn: side,
               documentA: side === 'a' ? filler : focus,
               documentB: side === 'b' ? filler : focus,
-              offsetA: 0,
-              offsetB: 0,
             };
           } else {
             const focus = otherDoc && ready.includes(otherDoc)
@@ -3956,8 +4081,6 @@ export function createAppRuntime(
               restOn: side,
               documentA: side === 'a' ? filler : focus,
               documentB: side === 'b' ? filler : focus,
-              offsetA: 0,
-              offsetB: 0,
             };
           }
         } else if (thisIsRest) {
@@ -3966,8 +4089,6 @@ export function createAppRuntime(
             ...view,
             mode: 'documents',
             ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
-            offsetA: 0,
-            offsetB: 0,
           };
         } else if (otherIsRest) {
           const filler = ready.find((candidate) => candidate !== doc) ?? null;
@@ -3977,16 +4098,12 @@ export function createAppRuntime(
             ...(side === 'a'
               ? { documentA: doc, documentB: filler }
               : { documentA: filler, documentB: doc }),
-            offsetA: 0,
-            offsetB: 0,
           };
         } else {
           if (doc === otherDoc || doc === currentDoc) return;
           next = {
             ...view,
             ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
-            offsetA: 0,
-            offsetB: 0,
           };
         }
 
@@ -4003,8 +4120,6 @@ export function createAppRuntime(
             ...view,
             documentA: view.documentB,
             documentB: view.documentA,
-            offsetA: 0,
-            offsetB: 0,
           };
         } else if (view.restOn === 'b') {
           const focus = view.documentA;
@@ -4013,8 +4128,6 @@ export function createAppRuntime(
             restOn: 'a',
             documentB: focus,
             documentA: ready.find((doc) => doc !== focus) ?? null,
-            offsetA: 0,
-            offsetB: 0,
           };
         } else {
           const focus = view.documentB;
@@ -4023,8 +4136,6 @@ export function createAppRuntime(
             restOn: 'b',
             documentA: focus,
             documentB: ready.find((doc) => doc !== focus) ?? null,
-            offsetA: 0,
-            offsetB: 0,
           };
         }
         set({ keynessView: next });
@@ -4044,10 +4155,7 @@ export function createAppRuntime(
           input.classes.some(
             (value) => value !== 'lexical' && value !== 'numeral',
           ) ||
-          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy) ||
-          !Number.isSafeInteger(input.pageLimit) ||
-          input.pageLimit < 1 ||
-          input.pageLimit > FREQUENCY_PAGE_MAX
+          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy)
         ) {
           return;
         }
@@ -4059,9 +4167,6 @@ export function createAppRuntime(
             minDocFreqTotal: input.minDocFreqTotal,
             classes: [...input.classes],
             sort: { ...view.sort, by: input.sortBy },
-            pageLimit: input.pageLimit,
-            offsetA: 0,
-            offsetB: 0,
           },
         });
         runKeynessTable('a');
@@ -4078,7 +4183,6 @@ export function createAppRuntime(
                 ...view.sort,
                 dirA: view.sort.dirA === 1 ? -1 : 1,
               },
-              offsetA: 0,
             }
           : {
               ...view,
@@ -4086,28 +4190,25 @@ export function createAppRuntime(
                 ...view.sort,
                 dirB: view.sort.dirB === 1 ? -1 : 1,
               },
-              offsetB: 0,
             };
         set({ keynessView: next });
         runKeynessTable(side);
       },
 
-      setKeynessPage(side, offset) {
-        if (side !== 'a' && side !== 'b') return;
+      reverseKeynessDirections() {
         const view = get().keynessView;
-        if (
-          !Number.isSafeInteger(offset) ||
-          offset < 0 ||
-          offset + view.pageLimit > FREQUENCY_WINDOW_MAX
-        ) {
-          return;
-        }
         set({
-          keynessView: side === 'a'
-            ? { ...view, offsetA: offset }
-            : { ...view, offsetB: offset },
+          keynessView: {
+            ...view,
+            sort: {
+              ...view.sort,
+              dirA: view.sort.dirA === 1 ? -1 : 1,
+              dirB: view.sort.dirB === 1 ? -1 : 1,
+            },
+          },
         });
-        runKeynessTable(side);
+        runKeynessTable('a');
+        runKeynessTable('b');
       },
 
       setFrequencySort(by) {
@@ -4432,8 +4533,6 @@ export function createAppRuntime(
             classes: compare.classes,
             sort: compare.sort,
             pageLimit: compare.pageSize,
-            offsetA: 0,
-            offsetB: 0,
           },
           removedGroups: [],
         });

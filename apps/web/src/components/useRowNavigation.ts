@@ -23,6 +23,17 @@ interface RowNavigationOptions {
   readonly onExit?: (key: string) => boolean;
   readonly onFocusKey?: (key: string) => void;
   readonly onActivateIndex?: (index: number, key: string) => void;
+  readonly resolveTarget?: (input: {
+    readonly key: string;
+    readonly index: number;
+    readonly shortcut: Exclude<ReturnType<typeof rowNavigationShortcut>, 'row-exit' | null>;
+    readonly pageSize: number;
+  }) => number;
+  readonly formatStatus?: (input: {
+    readonly key: string;
+    readonly index: number;
+    readonly boundary: boolean;
+  }) => string;
 }
 
 export interface RowControlProps {
@@ -44,6 +55,8 @@ export function useRowNavigation({
   onExit,
   onFocusKey,
   onActivateIndex,
+  resolveTarget,
+  formatStatus,
 }: RowNavigationOptions) {
   const internalPortRef = useRef<HTMLDivElement | null>(null);
   const portRef = providedPortRef ?? internalPortRef;
@@ -51,7 +64,6 @@ export function useRowNavigation({
   const pendingFocusKeyRef = useRef<string | null>(null);
   const [activeKey, setActiveKey] = useState<string | null>(null);
   const [status, setStatus] = useState('');
-  const identity = `${keys.length}\u001f${keys[0] ?? ''}\u001f${keys.at(-1) ?? ''}`;
   const resolvedActiveKey = activeKey !== null && keys.includes(activeKey)
     ? activeKey
     : null;
@@ -69,7 +81,7 @@ export function useRowNavigation({
       if (!live.has(key)) controlsRef.current.delete(key);
     }
     setActiveKey((current) => current !== null && live.has(current) ? current : null);
-  }, [identity]);
+  }, [keys]);
 
   const activateIndex = useCallback((index: number, focus = true) => {
     const key = keys[index];
@@ -84,7 +96,7 @@ export function useRowNavigation({
     }
     else if (focus) pendingFocusKeyRef.current = key;
     else onFocusKey?.(key);
-  }, [identity, onActivateIndex, onFocusKey]);
+  }, [keys, onActivateIndex, onFocusKey]);
 
   const controlProps = (key: string): RowControlProps => ({
     ref: (element) => {
@@ -131,13 +143,21 @@ export function useRowNavigation({
         window.innerHeight,
         row?.getBoundingClientRect().height ?? event.currentTarget.getBoundingClientRect().height,
       );
-      const target = rowNavigationTarget(keys.length, current, shortcut, pageSize);
+      const target = resolveTarget?.({
+        key,
+        index: current,
+        shortcut,
+        pageSize,
+      }) ?? rowNavigationTarget(keys.length, current, shortcut, pageSize);
       if (target === current) {
-        setStatus(`${label}: ${current === 0 ? 'first' : 'last'} row`);
+        setStatus(formatStatus?.({ key, index: current, boundary: true })
+          ?? `${label}: ${current === 0 ? 'first' : 'last'} row`);
         return;
       }
       activateIndex(target);
-      setStatus(`${label}: row ${target + 1} of ${keys.length}`);
+      const targetKey = keys[target]!;
+      setStatus(formatStatus?.({ key: targetKey, index: target, boundary: false })
+        ?? `${label}: row ${target + 1} of ${keys.length}`);
     },
     'aria-keyshortcuts': ROW_ARIA_KEYS,
   });
@@ -181,15 +201,22 @@ export function useRowNavigation({
               : 0
             )
           : boundedFallbackIndex)
-        : rowNavigationTarget(
+        : (resolveTarget?.({
+            key: resolvedActiveKey,
+            index: keys.indexOf(resolvedActiveKey),
+            shortcut,
+            pageSize,
+          }) ?? rowNavigationTarget(
             keys.length,
             keys.indexOf(resolvedActiveKey),
             shortcut,
             pageSize,
-          );
+          ));
       if (target < 0) return;
       activateIndex(target);
-      setStatus(`${label}: row ${target + 1} of ${keys.length}`);
+      const targetKey = keys[target]!;
+      setStatus(formatStatus?.({ key: targetKey, index: target, boundary: false })
+        ?? `${label}: row ${target + 1} of ${keys.length}`);
     },
   } as const;
 

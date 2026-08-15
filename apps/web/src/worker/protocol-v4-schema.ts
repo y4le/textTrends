@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
@@ -331,8 +331,7 @@ export function narrowQueryV4(q: unknown): boolean {
         !isCount(page.limit) ||
         (page.limit as number) < 1 ||
         (page.limit as number) > FREQUENCY_PAGE_MAX ||
-        (page.offset as number) + (page.limit as number) >
-          FREQUENCY_WINDOW_MAX ||
+        !Number.isSafeInteger((page.offset as number) + (page.limit as number)) ||
         !KEYNESS_SIDES.has(r.side as string)
       ) {
         return false;

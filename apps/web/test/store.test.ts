@@ -50,6 +50,7 @@ import {
 import { workspaceState } from './support/workspace-fixtures.ts';
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 import { coreGroupOf, groupTitle, type NotebookGroupV1 } from '../src/lib/notebook.ts';
+import { COMPARE_MAX_RESIDENT_ROWS } from '../src/lib/compare-scroll.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -455,19 +456,38 @@ function fakeFrequencyPage(
   } as unknown as QueryResultDataV4;
 }
 
-function fakeKeynessResult(marker: number): QueryResultDataV4 {
+function fakeKeynessPage(
+  total: number,
+  typeIds: readonly number[],
+): QueryResultDataV4 {
   return {
     op: 'keyness',
     keyness: {
       method: 'keyness-g2-2x2/1',
       effect: 'log-ratio-halves/1',
-      selectionA: `a-${marker}` as never,
-      selectionB: `b-${marker}` as never,
-      totalsA: { tokens: marker, documents: 1, positiveParts: 1 },
-      totalsB: { tokens: marker, documents: 1, positiveParts: 1 },
+      selectionA: 'a' as never,
+      selectionB: 'b' as never,
+      totalsA: { tokens: 10, documents: 1, positiveParts: 1 },
+      totalsB: { tokens: 10, documents: 1, positiveParts: 1 },
       divergence: { method: 'jsd-log2/1' as const, bits: 0.5, types: 2 },
-      total: marker,
-      rows: [],
+      total,
+      rows: typeIds.map((typeId) => ({
+        key: `term-${typeId}`,
+        typeId,
+        class: 'lexical' as const,
+        countA: 2,
+        countB: 1,
+        rateAper10k: 2_000,
+        rateBper10k: 1_000,
+        logRatio: 1,
+        logRatioLow: 1 - 1,
+        logRatioHigh: 1 + 1,
+        g2: 1,
+        rangeA: 1,
+        rangeB: 1,
+        dpA: null,
+        dpB: null,
+      })),
     },
   };
 }
@@ -4311,25 +4331,122 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(f.keynessInventories()).toHaveLength(inventoryCount);
   });
 
-  it('pages each table independently and drops a superseded result', async () => {
+  it('appends independently loaded viewport chunks while retaining prior ranks', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const initialA = f.keynesses().find((issued) =>
       (issued.query as { request: { side: string } }).request.side === 'a')!;
     const initialB = f.keynesses().find((issued) =>
       (issued.query as { request: { side: string } }).request.side === 'b')!;
-    f.store.getState().setKeynessPage('a', 100);
+    initialA.resolve(fakeKeynessPage(3, [1]));
+    initialB.resolve(fakeKeynessPage(1, [9]));
+    await flush();
+    f.store.getState().loadMoreKeyness('a');
     expect(initialA.cancelled).toBe(true);
     expect(initialB.cancelled).toBe(false);
     expect(f.keynesses()).toHaveLength(3);
-    initialA.resolve(fakeKeynessResult(99));
-    initialB.resolve(fakeKeynessResult(7));
-    await flush();
-    expect(f.store.getState().keynessA?.state.status).toBe('pending');
-    expect(f.store.getState().keynessB?.state).toMatchObject({
-      status: 'ready',
-      result: { total: 7 },
+    expect((f.keynesses().at(-1)!.query as {
+      request: { side: string; page: { offset: number; limit: number } };
+    }).request).toMatchObject({
+      side: 'a',
+      page: { offset: 1, limit: 2 },
     });
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { rows: [{ typeId: 1 }] },
+      state: { status: 'pending' },
+    });
+    f.keynesses().at(-1)!.resolve(fakeKeynessPage(3, [2, 3]));
+    await flush();
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { rows: [{ typeId: 1 }, { typeId: 2 }, { typeId: 3 }] },
+      state: { status: 'ready' },
+    });
+  });
+
+  it('retains resident ranks when a follow-up chunk changes shape or is empty', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const initialA = f.keynesses().find((issued) =>
+      (issued.query as { request: { side: string } }).request.side === 'a')!;
+    initialA.resolve(fakeKeynessPage(3, [1]));
+    await flush();
+
+    f.store.getState().loadMoreKeyness('a');
+    f.keynesses().at(-1)!.resolve(fakeKeynessPage(4, [2, 3]));
+    await flush();
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { total: 3, rows: [{ typeId: 1 }] },
+      state: { status: 'error', message: expect.stringMatching(/ranks changed/) },
+    });
+
+    f.store.getState().loadMoreKeyness('a');
+    expect((f.keynesses().at(-1)!.query as {
+      request: { page: { offset: number; limit: number } };
+    }).request.page).toEqual({ offset: 1, limit: 2 });
+    f.keynesses().at(-1)!.resolve(fakeKeynessPage(3, []));
+    await flush();
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { total: 3, rows: [{ typeId: 1 }] },
+      state: { status: 'error', message: expect.stringMatching(/ranks changed/) },
+    });
+  });
+
+  it('retries a failed follow-up chunk from the retained offset', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const initialA = f.keynesses().find((issued) =>
+      (issued.query as { request: { side: string } }).request.side === 'a')!;
+    initialA.resolve(fakeKeynessPage(3, [1]));
+    await flush();
+
+    f.store.getState().loadMoreKeyness('a');
+    f.keynesses().at(-1)!.reject(new Error('network unavailable'));
+    await flush();
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { rows: [{ typeId: 1 }] },
+      state: { status: 'error', message: expect.stringMatching(/network unavailable/) },
+    });
+
+    f.store.getState().loadMoreKeyness('a');
+    const retry = f.keynesses().at(-1)!;
+    expect((retry.query as {
+      request: { page: { offset: number; limit: number } };
+    }).request.page).toEqual({ offset: 1, limit: 2 });
+    retry.resolve(fakeKeynessPage(3, [2, 3]));
+    await flush();
+    expect(f.store.getState().keynessA).toMatchObject({
+      resident: { rows: [{ typeId: 1 }, { typeId: 2 }, { typeId: 3 }] },
+      state: { status: 'ready' },
+    });
+  });
+
+  it('trims the final browser chunk and stops at the resident display bound', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const initialA = f.keynesses().find((issued) =>
+      (issued.query as { request: { side: string } }).request.side === 'a')!;
+    const firstCount = COMPARE_MAX_RESIDENT_ROWS - 50;
+    initialA.resolve(fakeKeynessPage(
+      COMPARE_MAX_RESIDENT_ROWS + 1,
+      Array.from({ length: firstCount }, (_, index) => index),
+    ));
+    await flush();
+
+    f.store.getState().loadMoreKeyness('a');
+    const finalChunk = f.keynesses().at(-1)!;
+    expect((finalChunk.query as {
+      request: { page: { offset: number; limit: number } };
+    }).request.page).toEqual({ offset: firstCount, limit: 50 });
+    finalChunk.resolve(fakeKeynessPage(
+      COMPARE_MAX_RESIDENT_ROWS + 1,
+      Array.from({ length: 50 }, (_, index) => firstCount + index),
+    ));
+    await flush();
+    const issued = f.keynesses().length;
+    f.store.getState().loadMoreKeyness('a');
+    expect(f.keynesses()).toHaveLength(issued);
+    expect(f.store.getState().keynessA?.resident?.rows)
+      .toHaveLength(COMPARE_MAX_RESIDENT_ROWS);
   });
 
   it('table-only view changes do not strand inventory headers', async () => {
@@ -4343,7 +4460,6 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 3,
       classes: ['lexical', 'numeral'],
       sortBy: 'countA',
-      pageLimit: 50,
     });
     expect(f.keynesses()).toHaveLength(4);
     expect(f.keynessInventories()).toHaveLength(2);
@@ -4356,9 +4472,7 @@ describe('dueling keyness query intent (slice-4)', () => {
         dirA: before.sort.dirA,
         dirB: before.sort.dirB,
       },
-      pageLimit: 50,
-      offsetA: 0,
-      offsetB: 0,
+      pageLimit: 100,
     });
     expect(workspaceSemanticKey(f.store.getState())).not.toBe(semantic);
     expect(inventories.every((issued) => !issued.cancelled)).toBe(true);
@@ -4396,7 +4510,6 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 1,
       classes: ['lexical'],
       sortBy: 'g2',
-      pageLimit: 100,
     });
     expect(f.keynesses()).toHaveLength(issued + 1);
     expect(f.store.getState().keynessView).toBe(view);
@@ -4406,35 +4519,24 @@ describe('dueling keyness query intent (slice-4)', () => {
         minDocFreqTotal: 1,
         classes: ['lexical', 'lexical'],
         sortBy: 'g2',
-        pageLimit: 100,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: [],
         sortBy: 'g2',
-        pageLimit: 100,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: ['foreign'],
         sortBy: 'g2',
-        pageLimit: 100,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: ['lexical'],
         sortBy: 'foreign',
-        pageLimit: 100,
-      },
-      {
-        minCountTotal: 1,
-        minDocFreqTotal: 1,
-        classes: ['lexical'],
-        sortBy: 'g2',
-        pageLimit: 201,
       },
     ] as const;
     for (const settings of invalidSettings) {
@@ -4444,7 +4546,7 @@ describe('dueling keyness query intent (slice-4)', () => {
     }
   });
 
-  it('keeps paging transient while shared settings round-trip through research', () => {
+  it('round-trips shared settings through research', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     f.store.getState().applyKeynessSettings({
@@ -4452,18 +4554,9 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 4,
       classes: ['numeral'],
       sortBy: 'g2',
-      pageLimit: 50,
     });
     const durable = workspaceSemanticKey(f.store.getState());
     expect(durable).not.toBeNull();
-    f.store.getState().setKeynessPage('a', 50);
-    f.store.getState().setKeynessPage('b', 100);
-    expect(workspaceSemanticKey(f.store.getState())).toBe(durable);
-    expect(f.store.getState().keynessView).toMatchObject({
-      offsetA: 50,
-      offsetB: 100,
-    });
-
     const workspace = JSON.parse(durable!) as WorkspaceV1;
     f.store.getState().restoreWorkspace(workspace);
     expect(f.store.getState().keynessView).toMatchObject({
@@ -4471,9 +4564,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 4,
       classes: ['numeral'],
       sort: { by: 'g2', dirA: -1, dirB: 1 },
-      pageLimit: 50,
-      offsetA: 0,
-      offsetB: 0,
+      pageLimit: 100,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(durable);
   });
@@ -4481,35 +4572,19 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('swaps sides and constructs document-v-rest without overlapping membership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
-    f.store.getState().setKeynessPage('a', 100);
-    f.store.getState().setKeynessPage('b', 200);
     f.store.getState().setKeynessDocument('a', 'c');
     expect(f.store.getState().keynessView).toMatchObject({
       documentA: 'c',
-      offsetA: 0,
-      offsetB: 0,
     });
     f.store.getState().setKeynessDocument('a', 'a');
-    f.store.getState().setKeynessPage('a', 100);
-    f.store.getState().setKeynessPage('b', 200);
     f.store.getState().swapKeynessSides();
-    expect(f.store.getState().keynessView).toMatchObject({
-      offsetA: 0,
-      offsetB: 0,
-    });
     let requests = f.keynesses().slice(-2).map((issued) =>
       (issued.query as {
         request: { a: { docs: string[] }; b: { docs: string[] } };
       }).request);
     expect(requests[0]).toMatchObject({ a: { docs: ['b'] }, b: { docs: ['a'] } });
 
-    f.store.getState().setKeynessPage('a', 100);
-    f.store.getState().setKeynessPage('b', 200);
     f.store.getState().setKeynessMode('document-rest');
-    expect(f.store.getState().keynessView).toMatchObject({
-      offsetA: 0,
-      offsetB: 0,
-    });
     requests = f.keynesses().slice(-2).map((issued) =>
       (issued.query as {
         request: { a: { docs: string[] }; b: { docs: string[] } };

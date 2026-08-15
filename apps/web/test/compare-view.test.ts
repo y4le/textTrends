@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   compareBarPercent,
+  compareDivergence,
   compareRowControlId,
   compareRowForTarget,
   compareScale,
@@ -10,7 +11,6 @@ import {
   compareSideLabel,
   compareTarget,
   compareTargetIsStale,
-  compareViewSummary,
 } from '../src/lib/compare-view.ts';
 import type {
   KeynessTableState,
@@ -28,8 +28,6 @@ const view: KeynessViewV1 = {
   classes: ['lexical'],
   sort: { by: 'logRatio', dirA: -1, dirB: 1 },
   pageLimit: 100,
-  offsetA: 0,
-  offsetB: 100,
 };
 
 const row = {
@@ -58,6 +56,7 @@ const state = (
   snapshot: 's1',
   side,
   view,
+  resident: null,
   state: status === 'pending'
     ? { status }
     : status === 'error'
@@ -154,15 +153,11 @@ describe('Compare view law', () => {
     const inverted = { ...rest, restOn: 'a' as const };
     expect(compareSideLabel('a', inverted, title)).toBe('all books except Beta');
     expect(compareSideLabel('b', inverted, title)).toBe('Beta');
-    expect(compareViewSummary(view)).toBe(
-      'log₂ ratio shared order · A descending · B ascending · count ≥ 5 · documents ≥ 2 · lexical · 100 rows/page',
-    );
     expect(compareSettingsInput(view)).toEqual({
       minCountTotal: 5,
       minDocFreqTotal: 2,
       classes: ['lexical'],
       sortBy: 'logRatio',
-      pageLimit: 100,
     });
   });
 
@@ -177,15 +172,19 @@ describe('Compare view law', () => {
       .toMatch(/token class/);
     expect(compareSettingsError({ ...draft, sortBy: 'foreign' as never }))
       .toMatch(/sort field/);
-    expect(compareSettingsError({ ...draft, pageLimit: 201 }))
-      .toMatch(/Rows per page/);
-
     expect(compareScale(null, null)).toEqual({ maximum: 1, provisional: false });
     expect(compareScale(state('a', 'ready'), state('b', 'pending')))
       .toEqual({ maximum: 3, provisional: true });
     const negative = { ...row, typeId: 8, key: 'Watson', logRatio: -6 };
     expect(compareScale(state('a', 'ready'), state('b', 'ready', [negative])))
       .toEqual({ maximum: 6, provisional: false });
+    const many = Array.from({ length: 150_000 }, (_, typeId) => ({
+      ...row,
+      typeId,
+      logRatio: typeId === 149_999 ? -9 : 1,
+    }));
+    expect(compareScale(state('a', 'ready', many), null))
+      .toEqual({ maximum: 9, provisional: true });
     expect(compareBarPercent(3, 6)).toBe(50);
     expect(compareBarPercent(-9, 6)).toBe(100);
     expect(compareBarPercent(Number.NaN, 6)).toBe(0);
@@ -201,5 +200,22 @@ describe('Compare view law', () => {
     expect(compareRowForTarget(target, state('a', 'ready'), null)).toEqual(row);
     expect(compareRowForTarget(target, state('a', 'pending'), state('b', 'ready')))
       .toBeNull();
+  });
+});
+
+describe('compare divergence', () => {
+  it('reads the pair measurement from whichever side is ready', () => {
+    const expected = { method: 'jsd-log2/1', bits: 0.5, types: 2 };
+    expect(compareDivergence(state('a', 'ready'), null)).toEqual(expected);
+    expect(compareDivergence(null, state('b', 'ready'))).toEqual(expected);
+    // Both sides measure the same two selections before side projection, so
+    // either ready result carries the identical number.
+    expect(compareDivergence(state('a', 'ready'), state('b', 'ready')))
+      .toEqual(expected);
+  });
+
+  it('is null while neither side has a result to read', () => {
+    expect(compareDivergence(null, null)).toBeNull();
+    expect(compareDivergence(state('a', 'pending'), state('b', 'error'))).toBeNull();
   });
 });

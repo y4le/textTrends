@@ -77,7 +77,7 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   const pyramid = page.getByRole('table', { name: 'Compare population pyramid' });
   await expect(pyramid).toHaveAttribute('aria-colcount', '2');
   await expect(pyramid.getByRole('columnheader')).toHaveCount(2);
-  await expect(pyramid.locator('caption')).toContainText('page-local log₂-ratio scale');
+  await expect(pyramid.locator('caption')).toContainText('shared scale over the loaded ranks');
   const forestA = pyramid.getByRole('button', { name: /^forest,/ });
   const seaB = pyramid.getByRole('button', { name: /^sea,/ });
   await expect(forestA).toBeVisible();
@@ -92,7 +92,6 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   const readingOrder = await page.locator('.compare-panel').evaluate((panel) =>
     [
       '.compare-definition',
-      '.compare-side-summaries',
       '.compare-warnings',
       '.compare-view-bar',
       '.compare-axis-section',
@@ -101,8 +100,9 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
 
   await forestA.click();
   const detail = page.getByRole('region', { name: 'Compare detail: forest, side A' });
-  await expect(detail.locator('dt')).toHaveCount(10);
+  await expect(detail.locator('dt')).toHaveCount(9);
   await expect(detail).toContainText('log₂ ratio');
+  await expect(detail).toContainText('95% interval');
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Swap keyness sides' }).click();
@@ -135,5 +135,4 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   const method = page.getByRole('dialog', { name: 'Method' });
   await expect(method.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
   await expect(method.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
-  await expect(page.getByText(/Confidence intervals are not calculated/)).toBeVisible();
 });

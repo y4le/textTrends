@@ -105,9 +105,7 @@ for (const viewport of [
     expect(rightOrder).toEqual([...rightOrder].sort((a, b) => a - b));
     expect((await forest.boundingBox())?.height).toBeGreaterThanOrEqual(44);
 
-    for (const name of ['Side A pagination', 'Side B pagination']) {
-      await expect(page.getByRole('group', { name })).toContainText(/distinctive terms?/);
-    }
+    await expect(page.locator('.compare-pagers, .compare-pagination')).toHaveCount(0);
     await expectNoBodyOverflow(page);
   });
 }
@@ -151,8 +149,14 @@ test('one full-width word detail replaces the other half and explains measuremen
   const forest = page.getByRole('region', { name: 'Compare detail: forest, side A' });
   await expect(forest).toBeVisible();
   await expect(forest.getByRole('heading', { name: 'forest' })).toBeVisible();
-  await expect(forest.locator('dt')).toHaveCount(10);
+  // Nine measurements: counts, rates, log ratio, its 95% interval, G², class,
+  // combined count. Range is absent because each side here IS one text, where
+  // it could only ever read 0 or 1; dispersion is undefined for the same
+  // reason.
+  await expect(forest.locator('dt')).toHaveCount(9);
   await expect(forest.getByRole('button', { name: 'About log₂ ratio' })).toBeVisible();
+  await expect(forest.getByRole('button', { name: 'About 95% interval' })).toBeVisible();
+  await expect(forest.getByText('text range', { exact: false })).toHaveCount(0);
   const detailCell = forest.locator('xpath=ancestor::td');
   await expect(detailCell).toHaveAttribute('colspan', '2');
 
@@ -200,4 +204,68 @@ test('Compare settings preserve a draft through width changes and apply one shar
   );
   expect(queries.filter((event) => event.op === 'keyness')).toHaveLength(2);
   expect(queries.filter((event) => event.op === 'inventory')).toHaveLength(0);
+});
+
+test('Compare publishes a two-sided profile and a divergence headline', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await prepareComparison(page);
+  await applyOneDocumentMinimum(page);
+
+  // Tier 2 — the one number the ranked pyramid cannot give.
+  // The meter renders at a fixed height from the start, showing a placeholder
+  // until a measurement lands, so poll rather than reading it once.
+  const divergence = page.getByRole('meter', { name: /Vocabulary divergence/ });
+  await expect(divergence).toBeVisible();
+  await expect
+    .poll(async () => Number(await divergence.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(0);
+  expect(Number(await divergence.getAttribute('aria-valuenow')))
+    .toBeLessThanOrEqual(1);
+
+  // Tier 1 — the profile strip, with length-controlled rows barred and raw
+  // totals left as context.
+  const profile = page.getByRole('region', { name: 'Text profile' });
+  await expect(profile).toBeVisible();
+  // Closed by default so the ranked pyramid keeps the column; the measurements
+  // are a disclosure the reader opens.
+  await expect(profile.locator('.compare-profile-grid')).toBeHidden();
+  await profile.locator('summary').click();
+  await expect(profile.locator('.compare-profile-grid')).toBeVisible();
+  for (const metric of ['tokens', 'sentences', 'mattr', 'ari']) {
+    await expect(profile.locator(`[data-metric="${metric}"]`)).toBeVisible();
+  }
+  // Length-controlled rows earn a bar...
+  for (const metric of ['mattr', 'hapax', 'sentence-length']) {
+    await expect(
+      profile.locator(`[data-metric="${metric}"] .compare-profile-bar`),
+    ).toHaveCount(2);
+  }
+  // ...and raw totals never do: they measure length, not the texts.
+  for (const metric of ['tokens', 'sentences', 'paragraphs', 'types']) {
+    await expect(
+      profile.locator(`[data-metric="${metric}"] .compare-profile-bar`),
+    ).toHaveCount(0);
+  }
+
+  await expectNoBodyOverflow(page);
+});
+
+test('Compare shows an interval whisker and per-side dispersion', async ({ page }) => {
+  await page.setViewportSize({ width: 900, height: 800 });
+  await prepareComparison(page);
+  await applyOneDocumentMinimum(page);
+
+  // Tier 3 — the whisker rides the same axis as the bar it qualifies.
+  const forest = wordButton(page, 'forest');
+  await expect(forest.locator('.compare-pyramid-interval')).toBeVisible();
+  await expect(forest).toHaveAttribute('aria-label', /95% interval/);
+
+  await forest.click();
+  const detail = page.getByRole('region', { name: /Compare detail: forest/ });
+  await expect(detail).toBeVisible();
+  await expect(detail.getByText('95% interval')).toBeVisible();
+  // Both sides are single documents here, so range would only ever read 0 or 1
+  // and dispersion is undefined — neither may be published as a finding.
+  await expect(detail.getByText(/^text range/)).toHaveCount(0);
+  await expect(detail.getByText(/^dispersion/)).toHaveCount(0);
 });

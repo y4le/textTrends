@@ -36,11 +36,14 @@ There are five stable places:
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
 | Matches | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
-| Compare | What distinguishes explicit A and B? | keyness controls, effect and G² rankings, exact counts, row detail |
+| Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
 
-Compare reports log-ratio effect alongside signed G² and the underlying counts
-and document ranges. Confidence intervals are not calculated; the interface
-says so rather than implying precision the analysis contract does not provide.
+Compare reports whole-distribution vocabulary divergence and a two-sided text
+profile above streamed log-ratio rankings. Each rank carries a 95% effect
+interval alongside signed G², the underlying counts, document ranges, and
+per-side dispersion. A browser view retains at most the first 50,000 ranks;
+the visible progress line says when that display bound is reached so readers
+can refine the filters for deeper ranks.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only

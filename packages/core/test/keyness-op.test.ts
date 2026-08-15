@@ -381,6 +381,30 @@ describe('keyness-g2-2x2/1', () => {
     )).rejects.toThrow(/classes/);
     expect(checkpoint).not.toHaveBeenCalled();
   });
+
+  it('accepts safe offsets beyond the legacy 5,000-row result window', async () => {
+    const world = await fixture([
+      ['a', 'one one'],
+      ['b', 'two two'],
+    ]);
+    const a = await resolveSelection(world.snapshot, {
+      docs: ['a' as ProjectDocId],
+    });
+    const b = await resolveSelection(world.snapshot, {
+      docs: ['b' as ProjectDocId],
+    });
+    const result = await keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      { ...REQUEST, page: { offset: 5_000, limit: 1 } },
+      async () => {},
+    );
+    expect(result.total).toBe(2);
+    expect(result.rows).toEqual([]);
+  });
 });
 
 describe('keyness-g2-2x2/1 divergence and dispersion', () => {

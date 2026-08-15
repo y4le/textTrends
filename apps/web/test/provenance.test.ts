@@ -168,6 +168,7 @@ describe('provenanceFor', () => {
     expect(compare).toContain('fetch chunk size: 100');
     expect(compare).toContain('exactly zero log ratio');
     expect(compare).toContain('shared scale over the currently loaded ranks');
+    expect(compare).toContain('Interval whiskers clamp at the axis edge');
     expect(compare).toContain('interval: 95% Wald on log ratio');
     expect(compare).toContain('no multiple-comparison correction');
     expect(compare).toContain('independent token draws');

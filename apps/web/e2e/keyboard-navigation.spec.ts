@@ -153,12 +153,29 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await expect(compareRows.first()).toBeVisible();
   await expect(page.locator('.compare-pyramid-button[tabindex="0"]'))
     .toHaveCount(1);
-  await compareRows.first().focus();
-  await compareRows.first().press('ArrowDown');
+  await page.locator('#place-compare-heading').focus();
+  await page.locator('#place-compare-heading').press('j');
+  await expect(compareRows.first()).toBeFocused();
+  await compareRows.first().press('l');
   await expect(compareRows.nth(1)).toBeFocused();
-  await expect(compareRows.first().locator('xpath=..')).toHaveAttribute('data-side', 'a');
-  await expect(compareRows.nth(1).locator('xpath=..')).toHaveAttribute('data-side', 'b');
   await compareRows.nth(1).press('k');
+  await expect(compareRows.nth(1)).toBeFocused();
+  await expect(
+    page.locator('.compare-axis-section [role="status"]')
+      .filter({ hasText: 'Compare side B: first row' }),
+  ).toHaveCount(1);
+  await compareRows.nth(1).press('h');
+  await expect(compareRows.first()).toBeFocused();
+  await compareRows.first().press('ArrowDown');
+  await expect(compareRows.nth(2)).toBeFocused();
+  await expect(compareRows.first().locator('xpath=..')).toHaveAttribute('data-side', 'a');
+  await expect(compareRows.nth(2).locator('xpath=..')).toHaveAttribute('data-side', 'a');
+  await compareRows.nth(2).press('l');
+  await expect(compareRows.nth(3)).toBeFocused();
+  await expect(compareRows.nth(3).locator('xpath=..')).toHaveAttribute('data-side', 'b');
+  await compareRows.nth(3).press('h');
+  await expect(compareRows.nth(2)).toBeFocused();
+  await compareRows.nth(2).press('k');
   await expect(compareRows.first()).toBeFocused();
   await compareRows.first().press('Enter');
   await expect(compareRows.first()).toHaveAttribute('aria-expanded', 'true');
@@ -167,4 +184,10 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await expect(compareRows.first()).toBeFocused();
   await compareRows.first().press('Escape');
   await expect(comparePort).toBeFocused();
+
+  // A row must not steal the global g-prefix: all documented g … place
+  // chords remain available from the Compare surface.
+  await compareRows.first().focus();
+  await chord(compareRows.first(), 'g', 't');
+  await expect(page.getByRole('region', { name: 'Trends', exact: true })).toBeFocused();
 });

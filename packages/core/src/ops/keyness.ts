@@ -34,7 +34,6 @@ import { jsdContribution } from '../stats/divergence.ts';
 import { g2Keyness, logRatioInterval } from '../stats/keyness.ts';
 import {
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_WINDOW_MAX,
   type FrequencyTokenClassV1,
 } from './frequency.ts';
 import {
@@ -168,7 +167,7 @@ function validateRequest(request: KeynessTableRequestV1): void {
     !Number.isSafeInteger(request.page.limit) ||
     request.page.limit < 1 ||
     request.page.limit > FREQUENCY_PAGE_MAX ||
-    request.page.offset + request.page.limit > FREQUENCY_WINDOW_MAX
+    !Number.isSafeInteger(request.page.offset + request.page.limit)
   ) {
     throw new RangeError('invalid keyness page');
   }

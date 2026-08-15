@@ -1203,8 +1203,6 @@ canvas {
   outline-offset: -2px;
 }
 
-.compare-scope-note,
-.compare-view-bar p,
 .compare-settings-note,
 .compare-settings-message,
 .compare-row-note,
@@ -1257,29 +1255,6 @@ canvas {
   font-size: var(--text-lg);
 }
 
-.compare-side-summaries {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: var(--space-3);
-  margin-block: var(--space-3);
-}
-
-.compare-side-summary {
-  min-inline-size: 0;
-  padding-block: var(--space-2);
-  border-block: 1px solid var(--rule);
-}
-
-.compare-side-summary:first-child {
-  text-align: end;
-}
-
-.compare-side-summary p {
-  margin: var(--space-1) 0 0;
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-}
-
 .compare-warnings {
   margin-block: var(--space-2);
 }
@@ -1293,20 +1268,19 @@ canvas {
 .compare-view-bar {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: var(--space-2);
   margin-block: var(--space-3) var(--space-2);
 }
 
-.compare-view-bar button {
-  flex: 0 0 auto;
-}
-
-.compare-direction-controls {
+.compare-view-actions {
   display: flex;
   gap: var(--space-2);
-  margin-block-end: var(--space-2);
   flex-wrap: wrap;
+}
+
+.compare-view-actions button {
+  flex: 0 0 auto;
 }
 
 .compare-settings-inline {
@@ -1368,40 +1342,50 @@ canvas {
 }
 
 .compare-axis-section {
-  margin-block-start: var(--space-3);
-}
-
-.compare-axis-heading {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-2);
-  margin-block-end: var(--space-1);
+  min-block-size: 10rem;
+  flex: 1 1 auto;
+  flex-direction: column;
+  margin-block-start: var(--space-3);
+  overflow: hidden;
+  border-block-end: 1px solid var(--rule);
 }
 
-.compare-axis-heading h3,
-.compare-axis-heading p {
+.compare-rank-progress {
+  flex: 0 0 auto;
   margin: 0;
-}
-
-.compare-axis-heading h3 {
-  font-size: var(--text-sm);
-}
-
-.compare-axis-heading p {
+  padding: var(--space-1) var(--space-2);
+  border-block-end: 1px solid var(--rule);
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
 .compare-table-port {
+  block-size: 100%;
+  min-block-size: 0;
   max-inline-size: 100%;
-  overflow: hidden;
+  flex: 1 1 auto;
+  overflow: auto;
+  overscroll-behavior: contain;
+  outline: none;
+}
+
+.compare-table-port:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: -2px;
 }
 
 .compare-axis-table {
   inline-size: 100%;
   table-layout: fixed;
   border-collapse: collapse;
+}
+
+.compare-axis-table thead {
+  position: sticky;
+  z-index: 3;
+  inset-block-start: 0;
+  background: var(--bg);
 }
 
 .compare-axis-table th,
@@ -1417,32 +1401,48 @@ canvas {
 }
 
 .compare-axis-table thead th:first-child {
+  padding-inline-end: var(--space-1);
   border-inline-end: 1px solid var(--rule-strong);
   text-align: end;
 }
 
-.compare-axis-table thead th > span,
-.compare-axis-table thead th > strong {
-  display: inline-block;
+.compare-axis-table thead th:last-child {
+  padding-inline-start: var(--space-1);
+}
+
+.compare-pyramid-heading-content {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   min-inline-size: 0;
 }
 
-.compare-axis-table thead th > strong {
-  max-inline-size: calc(100% - 5rem);
+.compare-axis-table thead th:first-child .compare-pyramid-heading-content {
+  justify-content: flex-end;
+}
+
+.compare-axis-table thead th:first-child .compare-pyramid-heading-content > span {
+  order: 1;
+}
+
+.compare-axis-table thead th:first-child .compare-pyramid-heading-content > strong {
+  order: 2;
+}
+
+.compare-axis-table thead th:last-child .compare-pyramid-heading-content {
+  justify-content: flex-start;
+}
+
+.compare-pyramid-heading-content strong {
+  min-inline-size: 0;
   overflow: hidden;
   color: var(--fg);
   text-overflow: ellipsis;
-  vertical-align: bottom;
   white-space: nowrap;
 }
 
-.compare-axis-table thead th:first-child > span,
-.compare-axis-table thead th:last-child > strong {
-  margin-inline-end: var(--space-2);
-}
-
-.compare-axis-table thead th:last-child > span {
-  margin-inline-start: var(--space-2);
+.compare-pyramid-heading-content > span {
+  flex: 0 0 auto;
 }
 
 .compare-pyramid-half {
@@ -1453,6 +1453,24 @@ canvas {
 
 .compare-pyramid-half[data-side='a'] {
   border-inline-end: 1px solid var(--rule-strong);
+}
+
+.compare-virtual-spacer,
+.compare-virtual-spacer > td {
+  padding: 0;
+  border: 0;
+  pointer-events: none;
+}
+
+.compare-load-error {
+  padding: var(--space-2);
+  border-block-end: 1px solid var(--rule);
+  color: var(--danger-text);
+  text-align: center;
+}
+
+.compare-load-error button {
+  margin-inline-start: var(--space-2);
 }
 
 .compare-pyramid-button {
@@ -1521,6 +1539,7 @@ canvas {
 
 .compare-pyramid-plot {
   grid-area: plot;
+  position: relative;
   display: block;
   block-size: 0.65rem;
   background: color-mix(in srgb, var(--rule) 45%, transparent);
@@ -1531,6 +1550,187 @@ canvas {
   block-size: 100%;
   inline-size: var(--compare-bar-width);
   min-inline-size: 1px;
+}
+
+/* The 95% interval, drawn over the bar on the same axis. A whisker reaching
+   the centre line marks an effect consistent with no difference. */
+.compare-pyramid-interval {
+  position: absolute;
+  inset-block: 0;
+  display: block;
+  block-size: 100%;
+  inline-size: var(--compare-interval-width);
+  min-inline-size: 1px;
+  border-inline: 1px solid var(--fg);
+  background: color-mix(in srgb, var(--bg) 55%, transparent);
+  opacity: 0.75;
+  pointer-events: none;
+}
+
+.compare-pyramid-half[data-side='a'] .compare-pyramid-interval {
+  inset-inline-end: var(--compare-interval-start);
+}
+
+.compare-pyramid-half[data-side='b'] .compare-pyramid-interval {
+  inset-inline-start: var(--compare-interval-start);
+}
+
+.compare-pyramid-interval[data-spans-zero] {
+  border-color: var(--danger-text);
+}
+
+.compare-profile {
+  padding: var(--space-3) 0;
+  border-block-end: 1px solid var(--rule);
+}
+
+.compare-profile-disclosure > summary {
+  min-block-size: 44px;
+  display: flex;
+  align-items: center;
+  color: var(--fg-muted);
+  cursor: pointer;
+  font-size: var(--text-xs);
+}
+
+.compare-profile-disclosure > summary:focus-visible {
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
+}
+
+.compare-divergence {
+  margin-block-end: var(--space-3);
+}
+
+.compare-divergence-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.compare-divergence-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-transform: lowercase;
+}
+
+.compare-divergence-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.compare-divergence-unit {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-divergence-track {
+  block-size: 0.4rem;
+  margin-block-start: var(--space-1);
+  background: color-mix(in srgb, var(--rule) 45%, transparent);
+}
+
+.compare-divergence-fill {
+  display: block;
+  block-size: 100%;
+  inline-size: var(--compare-divergence-width);
+  min-inline-size: 1px;
+  background: var(--accent-text);
+}
+
+.compare-divergence-note,
+.compare-profile-note,
+.compare-profile-status {
+  margin: var(--space-1) 0 0;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-profile-status[data-error] {
+  color: var(--danger-text);
+}
+
+.compare-profile-grid {
+  inline-size: 100%;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: var(--text-xs);
+}
+
+.compare-profile-row > td,
+.compare-profile-row > th {
+  padding: var(--space-1) var(--space-1);
+  font-weight: inherit;
+  vertical-align: middle;
+}
+
+.compare-profile-head > th {
+  padding-block-end: var(--space-2);
+  border-block-end: 1px solid var(--rule);
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Percentage widths under `table-layout: fixed` so the strip always fits its
+   container — a rem-based track would overflow the narrowest compact
+   viewport, and this table sits above a pyramid that must not scroll
+   sideways. */
+.compare-profile-value {
+  inline-size: 21%;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+}
+
+.compare-profile-head > .compare-profile-value {
+  font-family: inherit;
+}
+
+.compare-profile-value[data-side='a'] {
+  text-align: start;
+}
+
+.compare-profile-value[data-side='b'] {
+  text-align: end;
+}
+
+.compare-profile-label {
+  inline-size: 30%;
+  color: var(--fg-muted);
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.compare-profile-label > span {
+  margin-inline-end: var(--space-1);
+}
+
+.compare-profile-plot[data-bar] {
+  background-clip: content-box;
+  background-color: color-mix(in srgb, var(--rule) 45%, transparent);
+}
+
+.compare-profile-bar {
+  display: block;
+  block-size: 0.4rem;
+  inline-size: var(--compare-bar-width);
+  min-inline-size: 1px;
+}
+
+.compare-profile-plot[data-side='a'] .compare-profile-bar {
+  margin-inline-start: auto;
+  background: var(--accent-text);
+}
+
+.compare-profile-plot[data-side='b'] .compare-profile-bar {
+  margin-inline-end: auto;
+  background: var(--series-1);
 }
 
 .compare-pyramid-half[data-side='a'] .compare-pyramid-bar {
@@ -1621,9 +1821,7 @@ canvas {
   margin: var(--space-3) 0 0;
 }
 
-.compare-row-actions,
-.compare-pagination,
-.compare-pagers {
+.compare-row-actions {
   display: flex;
   align-items: center;
   gap: var(--space-2);
@@ -1631,27 +1829,6 @@ canvas {
 
 .compare-row-actions {
   margin-block-start: var(--space-2);
-}
-
-.compare-pagers {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  align-items: start;
-  margin-block-start: var(--space-2);
-}
-
-.compare-pagination {
-  min-inline-size: 0;
-  flex-wrap: wrap;
-}
-
-.compare-pagination[data-side='a'] {
-  justify-content: flex-end;
-  text-align: end;
-}
-
-.compare-window-message {
-  flex-basis: 100%;
 }
 
 .comparison-occurrences {
@@ -2465,28 +2642,13 @@ canvas {
     inline-size: 44px;
   }
 
-  .compare-side-summaries {
-    gap: var(--space-2);
-  }
-
   .compare-view-bar {
     align-items: flex-start;
   }
 
-  .compare-view-bar p {
-    min-inline-size: 0;
-  }
-
   .compare-view-bar button,
-  .compare-direction-controls button,
-  .compare-pagination button,
   .compare-row-actions button {
     min-block-size: 44px;
-  }
-
-  .compare-direction-controls {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
   .compare-row-detail {
@@ -2497,26 +2659,35 @@ canvas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .compare-axis-heading {
-    align-items: flex-start;
-    flex-direction: column;
+  .compare-profile-row > td,
+  .compare-profile-row > th {
+    padding-inline: 0;
+  }
+
+  .compare-profile-value {
+    inline-size: 24%;
+  }
+
+  .compare-profile-label {
+    inline-size: 34%;
   }
 
   .compare-axis-table thead th {
     padding-inline: var(--space-1);
   }
 
-  .compare-axis-table thead th > strong {
-    max-inline-size: 100%;
+  .compare-pyramid-heading-content {
+    gap: 0;
+    align-items: stretch;
+    flex-direction: column;
   }
 
-  .compare-axis-table thead th > span {
-    display: none;
+  .compare-axis-table thead th:first-child .compare-pyramid-heading-content {
+    align-items: flex-end;
   }
 
-  .compare-axis-table thead th:first-child > strong,
-  .compare-axis-table thead th:last-child > strong {
-    margin: 0;
+  .compare-axis-table thead th:last-child .compare-pyramid-heading-content {
+    align-items: flex-start;
   }
 
   .compare-pyramid-button {
@@ -2530,27 +2701,6 @@ canvas {
 
   .compare-pyramid-half[data-side='b'] .compare-pyramid-button {
     grid-template-columns: minmax(0.75rem, 0.55fr) minmax(0, 1fr) 3.25rem;
-  }
-
-  .compare-pagers {
-    gap: var(--space-1);
-  }
-
-  .compare-pagination {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
-  }
-
-  .compare-pagination > span,
-  .compare-window-message {
-    grid-column: 1 / -1;
-    grid-row: 2;
-    font-size: var(--text-xs);
-  }
-
-  .compare-pagination[data-side='a'] {
-    text-align: end;
   }
 
   .compare-settings-form {
@@ -3805,7 +3955,8 @@ canvas {
 }
 
 .app-shell[data-place='matches'],
-.app-shell[data-place='vocabulary'] {
+.app-shell[data-place='vocabulary'],
+.app-shell[data-place='compare'] {
   display: flex;
   block-size: calc(100vh - var(--keyboard-inset));
   block-size: calc(100dvh - var(--keyboard-inset));
@@ -3853,6 +4004,24 @@ canvas {
 
 .app-shell[data-place='vocabulary'] .frequency-table-shell {
   flex: 1 1 auto;
+}
+
+.app-shell[data-place='compare'] .workbench,
+.app-shell[data-place='compare'] .place-region,
+.app-shell[data-place='compare'] .place-surface,
+.app-shell[data-place='compare'] .compare-panel,
+.app-shell[data-place='compare'] .compare-axis-section,
+.app-shell[data-place='compare'] .compare-table-port {
+  min-block-size: 0;
+}
+
+.app-shell[data-place='compare'] .workbench,
+.app-shell[data-place='compare'] .place-region,
+.app-shell[data-place='compare'] .place-surface,
+.app-shell[data-place='compare'] .compare-panel {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
 }
 
 .workbench-dock {

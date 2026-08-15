@@ -40,8 +40,8 @@ export function CompareSettings({
     >
       <h3>Sort and filter</h3>
       <p className="compare-settings-note">
-        One field and page size apply to both projections. Each side keeps its
-        own direction and page.
+        One field applies to both projections. Each side keeps its own
+        direction.
       </p>
       <div className="compare-settings-fields">
         <label>
@@ -105,21 +105,6 @@ export function CompareSettings({
           >
             {SORTS.map(({ by, label }) => (
               <option key={by} value={by}>{label}</option>
-            ))}
-          </select>
-        </label>
-        <label>
-          rows/page
-          <select
-            className="exact-input"
-            value={draft.pageLimit}
-            onChange={(event) => onDraft({
-              ...draft,
-              pageLimit: Number(event.currentTarget.value),
-            })}
-          >
-            {[50, 100, 200].map((limit) => (
-              <option key={limit} value={limit}>{limit}</option>
             ))}
           </select>
         </label>

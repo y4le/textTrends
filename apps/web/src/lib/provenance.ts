@@ -242,6 +242,7 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       'Divergence covers the selected token classes only, before the count filter.',
       'Terms with exactly zero log ratio are in neither ranked projection.',
       'Display bars use a shared scale over the currently loaded ranks.',
+      'Interval whiskers clamp at the axis edge when a bound exceeds that scale.',
       'The Wald interval assumes independent token draws; running-text burstiness can make it too narrow.',
       'A linked Trends range does not redefine either comparison side.',
     ],

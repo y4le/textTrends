@@ -8,11 +8,13 @@ import type { KeynessRowV1 } from '@texttrends/core';
 import { FormLayer } from '../FormLayer.tsx';
 import { usePresentation } from '../PresentationProvider.tsx';
 import {
+  compareDivergence,
   compareRowControlId,
   compareScale,
   compareSettingsControlId,
   compareSettingsError,
   compareSettingsInput,
+  compareResidentResult,
   compareSideLabel,
   compareTarget,
   compareTargetIsStale,
@@ -25,68 +27,12 @@ import {
 } from '../../lib/row-detail.ts';
 import {
   keynessSelections,
-  type KeynessInventoryState,
   type KeynessSettingsInputV1,
-  type KeynessTableState,
 } from '../../lib/store.ts';
 import { useApp } from '../../lib/store-instance.ts';
+import { CompareProfile } from './CompareProfile.tsx';
 import { CompareSettings } from './CompareSettings.tsx';
 import { SignedAxis } from './SignedAxis.tsx';
-
-const number = new Intl.NumberFormat('en-US');
-
-function WholeSideSummary({
-  inventory,
-}: {
-  readonly inventory: KeynessInventoryState | null;
-}) {
-  if (!inventory || inventory.state.status === 'pending') {
-    return <span>whole side: summarizing…</span>;
-  }
-  if (inventory.state.status === 'error') {
-    return <span>whole side unavailable: {inventory.state.message}</span>;
-  }
-  return (
-    <span>
-      whole side: {number.format(inventory.state.result.totals.types)} types ·{' '}
-      {number.format(inventory.state.result.totals.sentences)} sentences
-    </span>
-  );
-}
-
-function SideSummary({
-  side,
-  label,
-  table,
-  inventory,
-}: {
-  readonly side: 'a' | 'b';
-  readonly label: string;
-  readonly table: KeynessTableState | null;
-  readonly inventory: KeynessInventoryState | null;
-}) {
-  const totals = table?.state.status === 'ready'
-    ? (side === 'a' ? table.state.result.totalsA : table.state.result.totalsB)
-    : null;
-  const selectedSummary = totals
-    ? (
-        <>
-          selected classes: {number.format(totals.tokens)} tokens ·{' '}
-          {number.format(totals.documents)}{' '}
-          {totals.documents === 1 ? 'document' : 'documents'}
-        </>
-      )
-    : table?.state.status === 'error'
-      ? `selected classes unavailable: ${table.state.message}`
-      : 'selected classes: calculating…';
-  return (
-    <section className="compare-side-summary" aria-label={`Side ${side.toUpperCase()} summary`}>
-      <strong>{label}</strong>
-      <p>{selectedSummary}</p>
-      <p><WholeSideSummary inventory={inventory} /></p>
-    </section>
-  );
-}
 
 export function ComparePanel() {
   const presentation = usePresentation();
@@ -101,8 +47,8 @@ export function ComparePanel() {
   const setSelection = useApp((state) => state.setKeynessSelection);
   const swapSides = useApp((state) => state.swapKeynessSides);
   const applySettings = useApp((state) => state.applyKeynessSettings);
-  const setDirection = useApp((state) => state.setKeynessDirection);
-  const setPage = useApp((state) => state.setKeynessPage);
+  const reverseDirections = useApp((state) => state.reverseKeynessDirections);
+  const loadMore = useApp((state) => state.loadMoreKeyness);
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
   const popLayer = useApp((state) => state.popLayer);
@@ -131,7 +77,6 @@ export function ComparePanel() {
     view.minDocFreqTotal,
     view.classes,
     view.sort.by,
-    view.pageLimit,
   ]);
 
   useEffect(() => {
@@ -282,6 +227,7 @@ export function ComparePanel() {
     );
   };
   const scale = compareScale(stateA, stateB);
+  const divergence = compareDivergence(stateA, stateB);
   const settings = (
     <CompareSettings
       draft={draft}
@@ -321,18 +267,13 @@ export function ComparePanel() {
               </label>
             </div>
 
-            <div className="compare-side-summaries">
-              <SideSummary side="a" label={sideLabelA} table={stateA} inventory={inventoryA} />
-              <SideSummary side="b" label={sideLabelB} table={stateB} inventory={inventoryB} />
-            </div>
             <div className="compare-warnings">
               {(['a', 'b'] as const).map((side) => {
                 const table = side === 'a' ? stateA : stateB;
-                const totals = table?.state.status === 'ready'
-                  ? (side === 'a'
-                      ? table.state.result.totalsA
-                      : table.state.result.totalsB)
-                  : null;
+                const result = compareResidentResult(table);
+                const totals = result === null
+                  ? null
+                  : side === 'a' ? result.totalsA : result.totalsB;
                 return totals && totals.tokens < 10_000
                   ? (
                       <p key={side} role="note">
@@ -342,46 +283,31 @@ export function ComparePanel() {
                     )
                   : null;
               })}
-              <p role="note">
-                Confidence intervals are not calculated; small differences and
-                small samples may be unstable.
-              </p>
             </div>
 
             <div className="compare-view-bar">
-              <p>
-                count ≥ {number.format(view.minCountTotal)} · texts ≥{' '}
-                {number.format(view.minDocFreqTotal)} · {view.classes.join(' + ')}
-              </p>
-              <button
-                id={compareSettingsControlId}
-                type="button"
-                aria-expanded={settingsOpen}
-                aria-haspopup={compact ? 'dialog' : undefined}
-                onClick={() => {
-                  if (settingsOpen) closeSettings(false);
-                  else {
-                    writeTarget(
-                      { surface: 'compare-settings' },
-                      compareSettingsControlId,
-                    );
-                  }
-                }}
-              >
-                sort and filter
-              </button>
-            </div>
-            <div
-              className="compare-direction-controls"
-              role="group"
-              aria-label="Independent projection directions"
-            >
-              <button type="button" onClick={() => setDirection('a')}>
-                reverse left · {view.sort.dirA === 1 ? 'ascending' : 'descending'}
-              </button>
-              <button type="button" onClick={() => setDirection('b')}>
-                reverse right · {view.sort.dirB === 1 ? 'ascending' : 'descending'}
-              </button>
+              <div className="compare-view-actions">
+                <button type="button" onClick={reverseDirections}>
+                  reverse rankings
+                </button>
+                <button
+                  id={compareSettingsControlId}
+                  type="button"
+                  aria-expanded={settingsOpen}
+                  aria-haspopup={compact ? 'dialog' : undefined}
+                  onClick={() => {
+                    if (settingsOpen) closeSettings(false);
+                    else {
+                      writeTarget(
+                        { surface: 'compare-settings' },
+                        compareSettingsControlId,
+                      );
+                    }
+                  }}
+                >
+                  sort and filter
+                </button>
+              </div>
             </div>
             {settingsOpen && !compact && (
               <div
@@ -406,6 +332,14 @@ export function ComparePanel() {
               </FormLayer>
             )}
 
+            <CompareProfile
+              inventoryA={inventoryA}
+              inventoryB={inventoryB}
+              divergence={divergence}
+              sideLabelA={sideLabelA}
+              sideLabelB={sideLabelB}
+            />
+
             <SignedAxis
               stateA={stateA}
               stateB={stateB}
@@ -415,7 +349,7 @@ export function ComparePanel() {
               sideLabelA={sideLabelA}
               sideLabelB={sideLabelB}
               onRow={openRow}
-              onPage={setPage}
+              onLoadMore={loadMore}
               onCloseRow={closeRow}
             />
           </>

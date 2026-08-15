@@ -1,6 +1,6 @@
 import {
-  FREQUENCY_PAGE_MAX,
   type FrequencyTokenClassV1,
+  type KeynessDivergenceV1,
   type KeynessRowV1,
   type KeynessSortFieldV1,
 } from '@texttrends/core';
@@ -59,6 +59,13 @@ const sideState = (
   stateB: KeynessTableState | null,
 ) => side === 'a' ? stateA : stateB;
 
+export function compareResidentResult(
+  state: KeynessTableState | null,
+) {
+  return state?.resident
+    ?? (state?.state.status === 'ready' ? state.state.result : null);
+}
+
 /** Pending/error results cannot prove a row stale. Snapshot or comparison
  * loss invalidates every target; only a ready result can prove row omission. */
 export function compareTargetIsStale(
@@ -71,8 +78,10 @@ export function compareTargetIsStale(
   if (!hasSnapshot || !hasComparison) return true;
   if (target.surface === 'compare-settings') return false;
   const state = sideState(target.side, stateA, stateB);
-  return state?.state.status === 'ready'
-    && !state.state.result.rows.some(
+  const result = compareResidentResult(state);
+  return result !== null
+    && state?.state.status === 'ready'
+    && !result.rows.some(
       (row) => row.typeId === target.typeId && row.key === target.key,
     );
 }
@@ -106,18 +115,6 @@ export const compareSortLabel = (sort: KeynessSortFieldV1): string => {
 const directionLabel = (direction: 1 | -1): string =>
   direction === 1 ? 'ascending' : 'descending';
 
-export function compareViewSummary(view: KeynessViewV1): string {
-  return [
-    `${compareSortLabel(view.sort.by)} shared order`,
-    `A ${directionLabel(view.sort.dirA)}`,
-    `B ${directionLabel(view.sort.dirB)}`,
-    `count ≥ ${view.minCountTotal}`,
-    `documents ≥ ${view.minDocFreqTotal}`,
-    view.classes.join(' + '),
-    `${view.pageLimit} rows/page`,
-  ].join(' · ');
-}
-
 export function compareSettingsInput(
   view: KeynessViewV1,
 ): KeynessSettingsInputV1 {
@@ -126,7 +123,6 @@ export function compareSettingsInput(
     minDocFreqTotal: view.minDocFreqTotal,
     classes: [...view.classes],
     sortBy: view.sort.by,
-    pageLimit: view.pageLimit,
   };
 }
 
@@ -155,13 +151,6 @@ export function compareSettingsError(
   if (!['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy)) {
     return 'Choose an available shared sort field.';
   }
-  if (
-    !Number.isSafeInteger(input.pageLimit)
-    || input.pageLimit < 1
-    || input.pageLimit > FREQUENCY_PAGE_MAX
-  ) {
-    return `Rows per page must be between 1 and ${FREQUENCY_PAGE_MAX}.`;
-  }
   return null;
 }
 
@@ -183,20 +172,33 @@ export function compareScale(
   stateA: KeynessTableState | null,
   stateB: KeynessTableState | null,
 ): CompareScale {
-  const ready = [stateA, stateB].filter(
-    (state): state is KeynessTableState & {
-      readonly state: Extract<KeynessTableState['state'], { readonly status: 'ready' }>;
-    } => state?.state.status === 'ready',
-  );
-  const maximum = Math.max(
-    1,
-    ...ready.flatMap((state) =>
-      state.state.result.rows.map((row) => Math.abs(row.logRatio))),
-  );
+  const ready = [compareResidentResult(stateA), compareResidentResult(stateB)]
+    .filter((result): result is NonNullable<typeof result> => result !== null);
+  let maximum = 1;
+  for (const result of ready) {
+    for (const row of result.rows) {
+      maximum = Math.max(maximum, Math.abs(row.logRatio));
+    }
+  }
   return {
     maximum,
     provisional: ready.length === 1,
   };
+}
+
+/**
+ * The pair's whole-distribution divergence. Both side requests measure the
+ * same two selections, and the divergence is computed before side projection,
+ * filtering, and paging — so either ready result carries the identical number
+ * and the first one available is enough.
+ */
+export function compareDivergence(
+  stateA: KeynessTableState | null,
+  stateB: KeynessTableState | null,
+): KeynessDivergenceV1 | null {
+  return compareResidentResult(stateA)?.divergence
+    ?? compareResidentResult(stateB)?.divergence
+    ?? null;
 }
 
 /** Width within one side of the population pyramid, expressed as 0..100 percent. */
@@ -212,9 +214,9 @@ export function compareRowForTarget(
   stateA: KeynessTableState | null,
   stateB: KeynessTableState | null,
 ): KeynessRowV1 | null {
-  const state = sideState(target.side, stateA, stateB);
-  if (state?.state.status !== 'ready') return null;
-  return state.state.result.rows.find(
+  const result = compareResidentResult(sideState(target.side, stateA, stateB));
+  if (result === null) return null;
+  return result.rows.find(
     (row) => row.typeId === target.typeId && row.key === target.key,
   ) ?? null;
 }

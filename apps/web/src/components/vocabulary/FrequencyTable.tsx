@@ -572,6 +572,10 @@ export function FrequencyTable({
 
   const readyResult = state?.resident
     ?? (state?.state.status === 'ready' ? state.state.result : null);
+  const navigationKeys = useMemo(
+    () => readyResult?.rows.map((row) => String(row.typeId)) ?? [],
+    [readyResult],
+  );
   const loadingMore = readyResult !== null && state?.state.status === 'pending';
   const rowHeight = compact ? FREQUENCY_COMPACT_ROW_HEIGHT : FREQUENCY_ROW_HEIGHT;
   const headerHeight = compact
@@ -693,9 +697,7 @@ export function FrequencyTable({
     updateTableViewport();
   }, [headerHeight, rowHeight, rowTop, updateTableViewport]);
   const rowNavigation = useRowNavigation({
-    keys: readyResult !== null
-      ? readyResult.rows.map((row) => String(row.typeId))
-      : [],
+    keys: navigationKeys,
     label: 'Vocabulary',
     portRef,
     preferredKey: rowTarget === null ? null : String(rowTarget.typeId),

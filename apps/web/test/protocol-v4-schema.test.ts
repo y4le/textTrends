@@ -403,7 +403,7 @@ describe('narrowQueryV4', () => {
     expect(query({ sort: { by: 'dpNorm', dir: -1 }, dispersion: false })).toBe(false);
   });
 
-  it('keyness/1 pins two selections, methods, filters, sort, side, and page window', () => {
+  it('keyness/1 pins two selections, methods, filters, sort, side, and a bounded fetch chunk', () => {
     const request = (over: Record<string, unknown> = {}) => ({
       method: 'keyness-g2-2x2/1',
       effect: 'log-ratio-halves/1',
@@ -459,7 +459,7 @@ describe('narrowQueryV4', () => {
     expect(query({ sort: { by: 'g2', dir: 0 } })).toBe(false);
     expect(query({ side: 'left' })).toBe(false);
     expect(query({
-      page: { offset: FREQUENCY_WINDOW_MAX, limit: 1 },
+      page: { offset: Number.MAX_SAFE_INTEGER, limit: 1 },
     })).toBe(false);
     expect(query({
       filter: {
