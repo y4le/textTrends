@@ -4564,6 +4564,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 4,
       classes: ['numeral'],
       sort: { by: 'g2', dirA: -1, dirB: 1 },
+      showConfidenceIntervals: true,
       pageLimit: 100,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(durable);

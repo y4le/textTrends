@@ -101,6 +101,8 @@ export interface WorkspaceCompareViewV1 {
     readonly dirA: 1 | -1;
     readonly dirB: 1 | -1;
   };
+  /** Presentation preference only; legacy workspaces may omit it. */
+  readonly showConfidenceIntervals: boolean;
   readonly pageSize: number;
 }
 
@@ -329,12 +331,21 @@ function nullableDocument(value: unknown, what: string): string | null {
 }
 
 function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
-  if (!exactRecord(value, [
+  const currentKeys = [
+    'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
+    'minDocFreqTotal', 'classes', 'sort', 'showConfidenceIntervals', 'pageSize',
+  ] as const;
+  const legacyKeys = [
     'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
     'minDocFreqTotal', 'classes', 'sort', 'pageSize',
-  ])) {
+  ] as const;
+  const current = exactRecord(value, currentKeys);
+  if (!current && !exactRecord(value, legacyKeys)) {
     throw new RangeError('compare view must be exact');
   }
+  const showConfidenceIntervals = current
+    ? value.showConfidenceIntervals
+    : true;
   if (
     (value.mode !== 'documents' && value.mode !== 'document-rest')
     || (value.restOn !== 'a' && value.restOn !== 'b')
@@ -344,6 +355,7 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     || !['logRatio', 'g2', 'countA', 'countB'].includes(value.sort.by as string)
     || (value.sort.dirA !== 1 && value.sort.dirA !== -1)
     || (value.sort.dirB !== 1 && value.sort.dirB !== -1)
+    || typeof showConfidenceIntervals !== 'boolean'
     || !isNonNegSafeInt(value.pageSize) || value.pageSize < 1 || value.pageSize > FREQUENCY_PAGE_MAX
   ) {
     throw new RangeError('compare view is invalid');
@@ -357,6 +369,7 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     minDocFreqTotal: value.minDocFreqTotal,
     classes: parseClasses(value.classes, 'compare classes'),
     sort: value.sort as unknown as WorkspaceCompareViewV1['sort'],
+    showConfidenceIntervals,
     pageSize: value.pageSize,
   };
 }

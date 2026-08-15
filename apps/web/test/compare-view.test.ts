@@ -27,6 +27,7 @@ const view: KeynessViewV1 = {
   minDocFreqTotal: 2,
   classes: ['lexical'],
   sort: { by: 'logRatio', dirA: -1, dirB: 1 },
+  showConfidenceIntervals: true,
   pageLimit: 100,
 };
 

@@ -48,6 +48,7 @@ function SideHalf({
   side,
   sideLabel,
   scale,
+  showConfidenceIntervals,
   expanded,
   onOpen,
   navigation,
@@ -56,6 +57,7 @@ function SideHalf({
   readonly side: 'a' | 'b';
   readonly sideLabel: string;
   readonly scale: CompareScale;
+  readonly showConfidenceIntervals: boolean;
   readonly expanded: boolean;
   readonly onOpen: () => void;
   readonly navigation: RowControlProps;
@@ -81,9 +83,11 @@ function SideHalf({
     '--compare-interval-start': `${low}%`,
     '--compare-interval-width': `${Math.max(0, high - low)}%`,
   } as CSSProperties;
-  const intervalNote = `, 95% interval ${decimal.format(row.logRatioLow)} to ${
-    decimal.format(row.logRatioHigh)
-  } log₂${spansZero ? ', consistent with no difference' : ''}`;
+  const intervalNote = showConfidenceIntervals
+    ? `, 95% interval ${decimal.format(row.logRatioLow)} to ${
+        decimal.format(row.logRatioHigh)
+      } log₂${spansZero ? ', consistent with no difference' : ''}`
+    : '';
   return (
     <button
       {...navigation}
@@ -100,11 +104,13 @@ function SideHalf({
       <span className="compare-pyramid-term" title={row.key}>{row.key}</span>
       <span className="compare-pyramid-plot" aria-hidden="true">
         <span className="compare-pyramid-bar" style={barStyle} />
-        <span
-          className="compare-pyramid-interval"
-          style={barStyle}
-          data-spans-zero={spansZero || undefined}
-        />
+        {showConfidenceIntervals && (
+          <span
+            className="compare-pyramid-interval"
+            style={barStyle}
+            data-spans-zero={spansZero || undefined}
+          />
+        )}
       </span>
     </button>
   );
@@ -531,6 +537,7 @@ export function SignedAxis({
                               side="a"
                               sideLabel={sideLabelA}
                               scale={scale}
+                              showConfidenceIntervals={view.showConfidenceIntervals}
                               expanded={expanded && rowTarget?.side === 'a'}
                               onOpen={() => onRow('a', a)}
                               navigation={navigationProps('a', a, index)}
@@ -546,6 +553,7 @@ export function SignedAxis({
                               side="b"
                               sideLabel={sideLabelB}
                               scale={scale}
+                              showConfidenceIntervals={view.showConfidenceIntervals}
                               expanded={expanded && rowTarget?.side === 'b'}
                               onOpen={() => onRow('b', b)}
                               navigation={navigationProps('b', b, index)}

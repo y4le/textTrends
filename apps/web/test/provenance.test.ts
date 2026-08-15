@@ -165,6 +165,7 @@ describe('provenanceFor', () => {
     expect(compare).toContain('shared sort field: logRatio');
     expect(compare).toContain('A direction: descending');
     expect(compare).toContain('B direction: ascending');
+    expect(compare).toContain('ranking interval whiskers: shown');
     expect(compare).toContain('fetch chunk size: 100');
     expect(compare).toContain('exactly zero log ratio');
     expect(compare).toContain('shared scale over the currently loaded ranks');

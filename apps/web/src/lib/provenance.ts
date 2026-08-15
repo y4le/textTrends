@@ -225,6 +225,10 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('shared sort field', view.sort.by),
       parameter('A direction', view.sort.dirA === 1 ? 'ascending' : 'descending'),
       parameter('B direction', view.sort.dirB === 1 ? 'ascending' : 'descending'),
+      parameter(
+        'ranking interval whiskers',
+        view.showConfidenceIntervals ? 'shown' : 'hidden',
+      ),
       parameter('fetch chunk size', String(view.pageLimit)),
       parameter('interval', '95% Wald on log ratio, same 0.5 four-cell correction'),
       ...(divergence
@@ -242,7 +246,9 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       'Divergence covers the selected token classes only, before the count filter.',
       'Terms with exactly zero log ratio are in neither ranked projection.',
       'Display bars use a shared scale over the currently loaded ranks.',
-      'Interval whiskers clamp at the axis edge when a bound exceeds that scale.',
+      ...(view.showConfidenceIntervals
+        ? ['Interval whiskers clamp at the axis edge when a bound exceeds that scale.']
+        : []),
       'The Wald interval assumes independent token draws; running-text burstiness can make it too narrow.',
       'A linked Trends range does not redefine either comparison side.',
     ],

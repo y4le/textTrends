@@ -34,6 +34,7 @@ export function workspaceState(input: string | Partial<WorkspaceV1> = 'builtin/s
         minDocFreqTotal: 1,
         classes: ['lexical', 'numeral'],
         sort: { by: 'logRatio', dirA: -1, dirB: 1 },
+        showConfidenceIntervals: true,
         pageSize: 100,
       },
     },

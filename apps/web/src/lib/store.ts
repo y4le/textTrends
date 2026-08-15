@@ -403,6 +403,7 @@ export interface KeynessViewV1 {
     readonly dirA: 1 | -1;
     readonly dirB: 1 | -1;
   };
+  readonly showConfidenceIntervals: boolean;
   readonly pageLimit: number;
 }
 
@@ -449,6 +450,7 @@ export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
     dirA: -1 as const,
     dirB: 1 as const,
   }),
+  showConfidenceIntervals: true,
   pageLimit: 100,
 });
 
@@ -1094,6 +1096,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         minDocFreqTotal: state.keynessView.minDocFreqTotal,
         classes: state.keynessView.classes,
         sort: state.keynessView.sort,
+        showConfidenceIntervals: state.keynessView.showConfidenceIntervals,
         pageSize: state.keynessView.pageLimit,
       },
     },
@@ -1131,6 +1134,7 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
         minDocFreqTotal: DEFAULT_KEYNESS_VIEW.minDocFreqTotal,
         classes: DEFAULT_KEYNESS_VIEW.classes,
         sort: DEFAULT_KEYNESS_VIEW.sort,
+        showConfidenceIntervals: DEFAULT_KEYNESS_VIEW.showConfidenceIntervals,
         pageSize: DEFAULT_KEYNESS_VIEW.pageLimit,
       },
     },
@@ -4532,6 +4536,7 @@ export function createAppRuntime(
             minDocFreqTotal: compare.minDocFreqTotal,
             classes: compare.classes,
             sort: compare.sort,
+            showConfidenceIntervals: compare.showConfidenceIntervals,
             pageLimit: compare.pageSize,
           },
           removedGroups: [],

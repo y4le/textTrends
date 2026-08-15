@@ -48,6 +48,7 @@ function validWorkspace(): WorkspaceV1 {
         minDocFreqTotal: 1,
         classes: ['lexical'],
         sort: { by: 'g2', dirA: -1, dirB: 1 },
+        showConfidenceIntervals: true,
         pageSize: 50,
       },
     },
@@ -57,6 +58,20 @@ function validWorkspace(): WorkspaceV1 {
 describe('workspace admission', () => {
   it('admits an exact library-backed workspace', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
+  });
+
+  it('upgrades legacy Compare presentation settings without changing its display', () => {
+    const value = validWorkspace();
+    const { showConfidenceIntervals: _legacyMissing, ...legacyCompare } =
+      value.views.compare;
+    const parsed = parseWorkspace({
+      ...value,
+      views: { ...value.views, compare: legacyCompare },
+    });
+    expect(parsed.views.compare).toEqual({
+      ...value.views.compare,
+      showConfidenceIntervals: true,
+    });
   });
 
   it('round-trips a query-notebook/3 workspace with an authored custom color', () => {
