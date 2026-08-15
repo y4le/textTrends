@@ -10,10 +10,10 @@ import {
   type PassageWindowV1,
 } from '../lib/footer-view.ts';
 import {
-  displayReaderText,
-  segmentReaderMarks,
-  type ReaderSegment,
-} from '../lib/reader-marks.ts';
+  displaySourceText,
+  segmentMarks,
+  type MarkSegment,
+} from '../lib/marks-view.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import type { WidthClass } from '../lib/presentation.ts';
 
@@ -36,11 +36,11 @@ function measuredTextWidth(text: string, font: string): number {
 }
 
 function splitAt(
-  segments: readonly ReaderSegment[],
+  segments: readonly MarkSegment<string>[],
   boundaries: readonly number[],
-): ReaderSegment[] {
+): MarkSegment<string>[] {
   const cuts = [...new Set(boundaries)].sort((a, b) => a - b);
-  const output: ReaderSegment[] = [];
+  const output: MarkSegment<string>[] = [];
   for (const segment of segments) {
     let start = segment.start;
     for (const cut of cuts) {
@@ -98,11 +98,11 @@ export function FooterPassage({
   const [canvasFont, setCanvasFont] = useState('');
   const [containerWidth, setContainerWidth] = useState(0);
   const page = passage?.snapshot === snapshot ? passage.page : null;
-  const display = useMemo(() => page ? displayReaderText(page.text) : '', [page]);
-  const baseSegments = useMemo(() => page ? segmentReaderMarks(
+  const display = useMemo(() => page ? displaySourceText(page.text) : '', [page]);
+  const baseSegments = useMemo(() => page ? segmentMarks(
     display.length,
     page.marks.map((mark) => ({
-      seriesId: mark.seriesId,
+      value: mark.seriesId,
       start: mark.charsUtf16.start,
       end: mark.charsUtf16.end,
     })),
@@ -244,11 +244,11 @@ export function FooterPassage({
   }
 
   const styles = new Map(passage?.tracks.map((track) => [track.seriesId, track.style]));
-  const styled = (segment: ReaderSegment, key: string) => {
+  const styled = (segment: MarkSegment<string>, key: string) => {
     const text = display.slice(segment.start, segment.end);
-    if (segment.seriesIds.length === 0) return <span key={key}>{text}</span>;
-    const tintId = segment.seriesIds[0]!;
-    const lineId = segment.seriesIds.includes(focusedSeries ?? '')
+    if (segment.values.length === 0) return <span key={key}>{text}</span>;
+    const tintId = segment.values[0]!;
+    const lineId = segment.values.includes(focusedSeries ?? '')
       ? focusedSeries!
       : tintId;
     return (

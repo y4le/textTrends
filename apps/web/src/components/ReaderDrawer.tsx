@@ -13,7 +13,7 @@ import {
 import { useApp } from '../lib/store-instance.ts';
 import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
-import { segmentReaderMarks, type ReaderSegment } from '../lib/reader-marks.ts';
+import { segmentMarks, type MarkSegment } from '../lib/marks-view.ts';
 import { readerRangeLabel, readerSelectionChars, sliceReaderPage } from '../lib/reader-view.ts';
 import {
   advanceReaderFit,
@@ -45,19 +45,19 @@ function ReaderProse({
     ...(selected ? [selected.start, selected.end] : []),
     ...(page.anchor ? [page.anchor.charsUtf16.start, page.anchor.charsUtf16.end] : []),
   ];
-  const segments = segmentReaderMarks(
+  const segments = segmentMarks(
     page.text.length,
     page.marks.map((mark) => ({
-      seriesId: mark.seriesId,
+      value: mark.seriesId,
       start: mark.charsUtf16.start,
       end: mark.charsUtf16.end,
     })),
     boundaries,
   );
-  const coveringMark = (segment: ReaderSegment): ReaderPageMarkV1 | null =>
+  const coveringMark = (segment: MarkSegment<string>): ReaderPageMarkV1 | null =>
     page.marks.find(
       (mark) =>
-        mark.seriesId === segment.seriesIds[0]
+        mark.seriesId === segment.values[0]
         && mark.charsUtf16.start <= segment.start
         && mark.charsUtf16.end >= segment.end,
     ) ?? null;
