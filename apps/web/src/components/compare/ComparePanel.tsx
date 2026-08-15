@@ -252,6 +252,24 @@ export function ComparePanel() {
         ? <p>Add at least two ready books to compare distinctive terms.</p>
         : (
           <>
+            <div className="compare-warnings">
+              {(['a', 'b'] as const).map((side) => {
+                const table = side === 'a' ? stateA : stateB;
+                const result = compareResidentResult(table);
+                const totals = result === null
+                  ? null
+                  : side === 'a' ? result.totalsA : result.totalsB;
+                return totals && totals.tokens < 10_000
+                  ? (
+                      <p key={side} role="note">
+                        Small side {side.toUpperCase()} (&lt;10,000 selected-class
+                        tokens): ranks may be unstable.
+                      </p>
+                    )
+                  : null;
+              })}
+            </div>
+
             <div className="compare-definition">
               <button
                 className="compare-reverse"
@@ -300,24 +318,6 @@ export function ComparePanel() {
                   <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
                 </svg>
               </button>
-            </div>
-
-            <div className="compare-warnings">
-              {(['a', 'b'] as const).map((side) => {
-                const table = side === 'a' ? stateA : stateB;
-                const result = compareResidentResult(table);
-                const totals = result === null
-                  ? null
-                  : side === 'a' ? result.totalsA : result.totalsB;
-                return totals && totals.tokens < 10_000
-                  ? (
-                      <p key={side} role="note">
-                        Small side {side.toUpperCase()} (&lt;10,000 selected-class
-                        tokens): ranks may be unstable.
-                      </p>
-                    )
-                  : null;
-              })}
             </div>
 
             {settingsOpen && (

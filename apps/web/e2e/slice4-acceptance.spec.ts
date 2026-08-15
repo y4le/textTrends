@@ -91,8 +91,8 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await expect(page.getByText(/Small side/)).toHaveCount(2);
   const readingOrder = await page.locator('.compare-panel').evaluate((panel) =>
     [
-      '.compare-definition',
       '.compare-warnings',
+      '.compare-definition',
       '.compare-axis-section',
     ].map((selector) => panel.querySelector(selector)?.getBoundingClientRect().top ?? -1));
   expect(readingOrder).toEqual([...readingOrder].sort((a, b) => a - b));

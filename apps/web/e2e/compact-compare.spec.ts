@@ -106,6 +106,7 @@ for (const viewport of [
     expect((await forest.boundingBox())?.height).toBeGreaterThanOrEqual(44);
 
     await expect(page.locator('.compare-pagers, .compare-pagination')).toHaveCount(0);
+    await expect(page.locator('.compare-rank-progress')).toHaveCount(0);
     await expectNoBodyOverflow(page);
   });
 }
@@ -240,6 +241,10 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   const triggerSize = await trigger.boundingBox();
   expect(triggerSize?.width).toBe(44);
   expect(triggerSize?.height).toBe(44);
+  const swapSize = await page.getByRole('button', { name: 'Swap keyness sides' })
+    .boundingBox();
+  expect(swapSize?.y).toBeDefined();
+  expect(triggerSize?.y).toBe((swapSize?.y ?? 0) + (swapSize?.height ?? 0));
   const headers = page.getByRole('columnheader');
   const leftTitle = headers.first().locator('strong');
   const rightTitle = headers.last().locator('strong');

@@ -451,13 +451,11 @@ export function SignedAxis({
 
   return (
     <section className="compare-axis-section" aria-label="Comparison rankings">
-      {totalPairCount > 0 && (
+      {displayLimitReached && totalPairCount > 0 && (
         <p className="compare-rank-progress">
-          {displayLimitReached
-            ? `Showing the first ${integer.format(COMPARE_MAX_RESIDENT_ROWS)} of ${integer.format(totalPairCount)} ranks; refine the filters for deeper ranks.`
-            : loadedPairCount < totalPairCount
-              ? `${integer.format(loadedPairCount)} of ${integer.format(totalPairCount)} ranks loaded.`
-              : `${integer.format(totalPairCount)} distinctive ranks.`}
+          Showing the first {integer.format(COMPARE_MAX_RESIDENT_ROWS)} of{' '}
+          {integer.format(totalPairCount)} ranks; refine the filters for deeper
+          ranks.
         </p>
       )}
       <div
