@@ -367,7 +367,7 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('freq-list/1 pins dense classes, NFC prefix, sort, and page-window bounds', () => {
+  it('freq-list/1 pins dense classes, NFC prefix, sort, and chunk bounds', () => {
     const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
       op: 'freq-list',
       selection: { docs: ['a'] },
@@ -381,8 +381,10 @@ describe('narrowQueryV4', () => {
       },
     });
     expect(query()).toBe(true);
-    expect(query({ page: { offset: FREQUENCY_WINDOW_MAX - 1, limit: 1 } })).toBe(true);
-    expect(query({ page: { offset: FREQUENCY_WINDOW_MAX, limit: 1 } })).toBe(false);
+    expect(query({ sort: { by: 'ratePer10k', dir: 1 } })).toBe(true);
+    expect(query({ sort: { by: 'class', dir: 1 } })).toBe(true);
+    expect(query({ page: { offset: 50_000, limit: 1 } })).toBe(true);
+    expect(query({ page: { offset: Number.MAX_SAFE_INTEGER, limit: 1 } })).toBe(false);
     expect(query({ page: { offset: 0, limit: FREQUENCY_PAGE_MAX + 1 } })).toBe(false);
     expect(query({ filter: { minCount: 0, minDocFreq: 1, classes: ['lexical'] } })).toBe(false);
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: [] } })).toBe(false);

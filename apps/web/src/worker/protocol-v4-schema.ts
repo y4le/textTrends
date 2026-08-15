@@ -18,7 +18,15 @@ const MATCH = new Set(['sensitive', 'folded']);
 // an unsupported coordinate/sort key through as a "trusted" request.
 const COORDINATES = new Set(['document-relative', 'declared-sequence']);
 const FREQUENCY_CLASSES = new Set(['lexical', 'numeral']);
-const FREQUENCY_SORT_KEYS = new Set(['count', 'docFreq', 'dp', 'dpNorm', 'key']);
+const FREQUENCY_SORT_KEYS = new Set([
+  'count',
+  'docFreq',
+  'dp',
+  'dpNorm',
+  'ratePer10k',
+  'class',
+  'key',
+]);
 const KEYNESS_SORT_KEYS = new Set(['logRatio', 'g2', 'countA', 'countB']);
 const KEYNESS_SIDES = new Set(['a', 'b', 'both']);
 
@@ -278,7 +286,7 @@ export function narrowQueryV4(q: unknown): boolean {
       return (
         (page.limit as number) >= 1 &&
         (page.limit as number) <= FREQUENCY_PAGE_MAX &&
-        (page.offset as number) + (page.limit as number) <= FREQUENCY_WINDOW_MAX
+        Number.isSafeInteger((page.offset as number) + (page.limit as number))
       );
     }
     case 'keyness': {

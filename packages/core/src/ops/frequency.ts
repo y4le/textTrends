@@ -1,5 +1,5 @@
 /**
- * freq-list/1 — bounded, selection-scoped ranked vocabulary.
+ * freq-list/1 — chunked, selection-scoped ranked vocabulary.
  *
  * Counts come exclusively from the shared sparse per-document vectors.
  * Dispersion uses selected documents as parts without retaining a dense
@@ -22,7 +22,14 @@ export const FREQUENCY_PREFIX_MAX_UNITS = 64;
 export const FREQUENCY_SCAN_CHUNK = 65_536;
 
 export type FrequencyTokenClassV1 = 'lexical' | 'numeral';
-export type FrequencySortFieldV1 = 'count' | 'docFreq' | 'dp' | 'dpNorm' | 'key';
+export type FrequencySortFieldV1 =
+  | 'count'
+  | 'docFreq'
+  | 'dp'
+  | 'dpNorm'
+  | 'ratePer10k'
+  | 'class'
+  | 'key';
 
 export interface FrequencyListRequestV1 {
   readonly method: 'freq-list/1';
@@ -102,7 +109,8 @@ function validateRequest(request: FrequencyListRequestV1): void {
     );
   }
   if (
-    !['count', 'docFreq', 'dp', 'dpNorm', 'key'].includes(request.sort.by) ||
+    !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
+      .includes(request.sort.by) ||
     (request.sort.dir !== 1 && request.sort.dir !== -1) ||
     (
       !request.dispersion &&
@@ -117,10 +125,10 @@ function validateRequest(request: FrequencyListRequestV1): void {
     !Number.isSafeInteger(request.page.limit) ||
     request.page.limit < 1 ||
     request.page.limit > FREQUENCY_PAGE_MAX ||
-    request.page.offset + request.page.limit > FREQUENCY_WINDOW_MAX
+    !Number.isSafeInteger(request.page.offset + request.page.limit)
   ) {
     throw new RangeError(
-      `frequency page must have limit 1..${FREQUENCY_PAGE_MAX} and end <= ${FREQUENCY_WINDOW_MAX}`,
+      `frequency page must have limit 1..${FREQUENCY_PAGE_MAX} and a safe offset`,
     );
   }
   if (typeof request.dispersion !== 'boolean') {
@@ -306,11 +314,20 @@ export async function frequencyList(
       case 'docFreq': return row.docFreq;
       case 'dp': return row.dp ?? Number.NEGATIVE_INFINITY;
       case 'dpNorm': return row.dpNorm ?? Number.NEGATIVE_INFINITY;
-      case 'key': return row.typeId;
+      case 'ratePer10k': return row.ratePer10k;
+      case 'class': return row.class === 'lexical' ? 0 : 1;
+      case 'key': return 0;
     }
   };
   candidates.sort((a, b) => {
-    const primary = (value(a) - value(b)) * request.sort.dir;
+    let primary: number;
+    if (request.sort.by === 'key') {
+      const left = a.key.toLowerCase();
+      const right = b.key.toLowerCase();
+      primary = (left < right ? -1 : left > right ? 1 : 0) * request.sort.dir;
+    } else {
+      primary = (value(a) - value(b)) * request.sort.dir;
+    }
     if (primary !== 0) return primary;
     if (a.count !== b.count) return b.count - a.count;
     return a.typeId - b.typeId;

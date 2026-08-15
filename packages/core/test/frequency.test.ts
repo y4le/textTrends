@@ -6,7 +6,6 @@ import {
   frequencyList,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_PREFIX_MAX_UNITS,
-  FREQUENCY_WINDOW_MAX,
   type FrequencyListRequestV1,
 } from '../src/ops/frequency.ts';
 import { documentTermCounts } from '../src/ops/term-counts.ts';
@@ -149,6 +148,56 @@ describe('freq-list/1', () => {
     expect(result.rows.at(-1)?.key).toBe('root'); // df=2 sorts last ascending
   });
 
+  it('sorts the rate and token-class columns directly', async () => {
+    const world = await fixture([
+      ['a', 'word word 12'],
+      ['b', 'other 34'],
+    ]);
+    const byRate = await run(world, {
+      ...REQUEST,
+      filter: { ...REQUEST.filter, classes: ['lexical', 'numeral'] },
+      sort: { by: 'ratePer10k', dir: 1 },
+    });
+    expect(byRate.rows.at(-1)?.key).toBe('word');
+
+    const byClass = await run(world, {
+      ...REQUEST,
+      filter: { ...REQUEST.filter, classes: ['lexical', 'numeral'] },
+      sort: { by: 'class', dir: 1 },
+    });
+    expect(byClass.rows.map((row) => row.class)).toEqual([
+      'lexical',
+      'lexical',
+      'numeral',
+      'numeral',
+    ]);
+  });
+
+  it('sorts terms case-insensitively in lexicographic order', async () => {
+    const world = await fixture([['a', 'Zulu apple Beta alpha']]);
+    const ascending = await run(world, {
+      ...REQUEST,
+      sort: { by: 'key', dir: 1 },
+    });
+    expect(ascending.rows.map((row) => row.key)).toEqual([
+      'alpha',
+      'apple',
+      'Beta',
+      'Zulu',
+    ]);
+
+    const descending = await run(world, {
+      ...REQUEST,
+      sort: { by: 'key', dir: -1 },
+    });
+    expect(descending.rows.map((row) => row.key)).toEqual([
+      'Zulu',
+      'Beta',
+      'apple',
+      'alpha',
+    ]);
+  });
+
   it('applies a sensitive NFC prefix and reports one-part dispersion honestly', async () => {
     const world = await fixture([['a', 'Alpha Alpine alpha álpha']]);
     const result = await run(world, {
@@ -183,8 +232,12 @@ describe('freq-list/1', () => {
     expect(result.rows[1]!.dpNorm).toBeCloseTo(2 / 3, 12);
   });
 
-  it('rejects all paging/filter/prefix bounds', async () => {
+  it('rejects invalid chunk/filter/prefix bounds without imposing a result window', async () => {
     const world = await fixture([['a', 'one two']]);
+    await expect(run(world, {
+      ...REQUEST,
+      page: { offset: 50_000, limit: 1 },
+    })).resolves.toMatchObject({ rows: [] });
     const invalid: FrequencyListRequestV1[] = [
       { ...REQUEST, filter: { ...REQUEST.filter, minCount: 0 } },
       { ...REQUEST, filter: { ...REQUEST.filter, minDocFreq: 0 } },
@@ -193,7 +246,7 @@ describe('freq-list/1', () => {
       { ...REQUEST, filter: { ...REQUEST.filter, prefixNfc: 'x'.repeat(FREQUENCY_PREFIX_MAX_UNITS + 1) } },
       { ...REQUEST, filter: { ...REQUEST.filter, prefixNfc: 'e\u0301' } },
       { ...REQUEST, page: { offset: 0, limit: FREQUENCY_PAGE_MAX + 1 } },
-      { ...REQUEST, page: { offset: FREQUENCY_WINDOW_MAX, limit: 1 } },
+      { ...REQUEST, page: { offset: Number.MAX_SAFE_INTEGER, limit: 1 } },
       { ...REQUEST, sort: { by: 'dp', dir: -1 }, dispersion: false },
     ];
     for (const request of invalid) {

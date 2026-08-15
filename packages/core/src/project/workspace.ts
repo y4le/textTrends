@@ -301,7 +301,8 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     !isNonNegSafeInt(value.minCount) || value.minCount < 1
     || !isNonNegSafeInt(value.minDocFreq) || value.minDocFreq < 1
     || !exactRecord(value.sort, ['by', 'dir'])
-    || !['count', 'docFreq', 'dp', 'dpNorm', 'key'].includes(value.sort.by as string)
+    || !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
+      .includes(value.sort.by as string)
     || (value.sort.dir !== 1 && value.sort.dir !== -1)
     || !isNonNegSafeInt(value.pageSize) || value.pageSize < 1 || value.pageSize > FREQUENCY_PAGE_MAX
   ) {
