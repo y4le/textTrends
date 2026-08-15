@@ -2760,8 +2760,12 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
       members: [0],
       node: { start: 10, end: 16 },
       left: 'left',
+      leftMarks: [],
+      leftMarksTruncated: false,
       nodeText: 'holmes',
       right: 'right',
+      rightMarks: [],
+      rightMarksTruncated: false,
     }]));
     await flush();
     const count = f.kwics().length;
@@ -2830,8 +2834,12 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
       members: [0],
       node: { start: pos * 2, end: pos * 2 + 6 },
       left: 'left',
+      leftMarks: [],
+      leftMarksTruncated: false,
       nodeText: 'holmes',
       right: 'right',
+      rightMarks: [],
+      rightMarksTruncated: false,
     });
     f.kwics().at(-1)!.resolve({
       op: 'matches-window',
@@ -2900,8 +2908,12 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
             members: [0],
             node: { start: 14, end: 20 },
             left: 'left',
+            leftMarks: [],
+            leftMarksTruncated: false,
             nodeText: 'holmes',
             right: 'right',
+            rightMarks: [],
+            rightMarksTruncated: false,
           },
           {
             seriesId: sid,
@@ -2911,8 +2923,12 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
             members: [1],
             node: { start: 14, end: 20 },
             left: 'left',
+            leftMarks: [],
+            leftMarksTruncated: false,
             nodeText: 'holmes',
             right: 'right',
+            rightMarks: [],
+            rightMarksTruncated: false,
           },
         ],
         axis: { ranks: Uint32Array.of(0), globalTokens: Uint32Array.of(0) },

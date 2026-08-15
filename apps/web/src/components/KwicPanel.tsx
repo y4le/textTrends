@@ -19,6 +19,7 @@ import { useApp } from '../lib/store-instance.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
   matchesRows,
+  type MatchesContextPart,
   type MatchesRowVM,
 } from '../lib/matches-view.ts';
 import {
@@ -190,6 +191,16 @@ export function KwicPanel({
     () => matchesRows(readyRows, labelOf, styleOf, titleOf),
     [readyRows, labelOf, styleOf, titleOf],
   );
+  const contextMentionStyle = useCallback((part: MatchesContextPart): CSSProperties | undefined => {
+    const ordinal = part.trackOrdinals[0];
+    if (!part.marked || ordinal === undefined) return undefined;
+    const color = seriesColor(series[ordinal]?.style ?? DEFAULT_SERIES_STYLE);
+    return {
+      color: 'var(--fg)',
+      background: `color-mix(in srgb, ${color} 20%, transparent)`,
+      borderBottom: `2px solid ${color}`,
+    };
+  }, [series]);
   const rankedRows = useMemo(
     () => rows.map((row, index) => ({ row, rank: (resident?.firstRank ?? 0) + index })),
     [resident?.firstRank, rows],
@@ -957,8 +968,21 @@ export function KwicPanel({
                     moveToRank(rank);
                   }}
                 >
-                  <div className="kwic-left-context source-text" role="gridcell" aria-colindex={1}>
-                    <span>{row.leftFull}</span>
+                  <div
+                    className="kwic-left-context source-text"
+                    role="gridcell"
+                    aria-colindex={1}
+                    data-marks-truncated={row.source.leftMarksTruncated || undefined}
+                  >
+                    <span>{row.leftParts.map((part, index) => (
+                      <span
+                        key={index}
+                        className={part.marked ? 'kwic-context-mention' : undefined}
+                        style={contextMentionStyle(part)}
+                      >
+                        {part.text}
+                      </span>
+                    ))}</span>
                   </div>
                   <div className="kwic-node source-text" role="gridcell" aria-colindex={2}>
                     <button
@@ -972,8 +996,21 @@ export function KwicPanel({
                       {row.nodeText}
                     </button>
                   </div>
-                  <div className="kwic-right-context source-text" role="gridcell" aria-colindex={3}>
-                    <span>{row.rightFull}</span>
+                  <div
+                    className="kwic-right-context source-text"
+                    role="gridcell"
+                    aria-colindex={3}
+                    data-marks-truncated={row.source.rightMarksTruncated || undefined}
+                  >
+                    <span>{row.rightParts.map((part, index) => (
+                      <span
+                        key={index}
+                        className={part.marked ? 'kwic-context-mention' : undefined}
+                        style={contextMentionStyle(part)}
+                      >
+                        {part.text}
+                      </span>
+                    ))}</span>
                   </div>
                   {multipleBooks && (
                     <div className="kwic-book" role="gridcell" aria-colindex={4} title={bookLabel(row)}>

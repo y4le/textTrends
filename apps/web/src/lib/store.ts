@@ -63,6 +63,7 @@ import {
   TREND_RATE_DENOMINATOR,
   termGroupIdentity,
   type GroupMember,
+  type KwicContextMark,
   type NumericTrend,
   type TermGroupSpec,
   type TrendBinsSpecV1,
@@ -173,8 +174,12 @@ export interface KwicRowView {
   readonly doc: string;
   readonly pos: number;
   readonly left: string;
+  readonly leftMarks: readonly KwicContextMark[];
+  readonly leftMarksTruncated: boolean;
   readonly nodeText: string;
   readonly right: string;
+  readonly rightMarks: readonly KwicContextMark[];
+  readonly rightMarksTruncated: boolean;
 }
 
 /** The full occurrence key of a match row — stable and collision-free

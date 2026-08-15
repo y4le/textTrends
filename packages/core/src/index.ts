@@ -127,10 +127,12 @@ export {
   type BoundTexts,
 } from './ops/binding.ts';
 export {
+  KWIC_CONTEXT_MARKS_MAX_PER_SIDE,
   KWIC_CONTEXT_MAX_TOKENS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
+  type KwicContextMark,
   type KwicRow,
 } from './ops/kwic.ts';
 export {

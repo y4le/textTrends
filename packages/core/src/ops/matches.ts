@@ -17,6 +17,7 @@ import {
   internalShardOf,
 } from './binding.ts';
 import {
+  KWIC_CONTEXT_MARKS_MAX_PER_SIDE,
   KWIC_CONTEXT_MAX_TOKENS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
@@ -24,8 +25,10 @@ import {
   type KwicRow,
   type KwicTrackIdentity,
   type NumericKwicPage,
+  type NumericKwicContextMark,
   type NumericKwicRow,
 } from './kwic.ts';
+import { collectTokenWindowMarks, type TokenWindowMark } from './marks.ts';
 import {
   OCCURRENCE_LIMITS_V1,
   TERM_GROUP_LIMITS_V1,
@@ -372,6 +375,65 @@ function sampleAtOrBefore(ranks: Uint32Array, rank: number): number {
   return Math.max(0, low - 1);
 }
 
+interface ContextMarks {
+  readonly marks: readonly NumericKwicContextMark[];
+  readonly truncated: boolean;
+}
+
+/** Intersect projected occurrences with one node-excluding context side,
+ * merge overlapping geometry, then keep the spans nearest the node. */
+function contextMarks(
+  projected: readonly TokenWindowMark[],
+  sideStart: number,
+  sideEnd: number,
+  side: 'left' | 'right',
+): ContextMarks {
+  const merged: Array<{
+    trackOrdinals: number[];
+    charStartUtf16: number;
+    charEndUtf16: number;
+    clippedStart: boolean;
+    clippedEnd: boolean;
+  }> = [];
+  for (const mark of projected) {
+    const start = Math.max(sideStart, mark.charStartUtf16);
+    const end = Math.min(sideEnd, mark.charEndUtf16);
+    if (start >= end) continue;
+    const next = {
+      trackOrdinals: [mark.trackOrdinal],
+      charStartUtf16: start,
+      charEndUtf16: end,
+      clippedStart: mark.clippedStart || mark.charStartUtf16 < sideStart,
+      clippedEnd: mark.clippedEnd || mark.charEndUtf16 > sideEnd,
+    };
+    const previous = merged.at(-1);
+    if (!previous || next.charStartUtf16 >= previous.charEndUtf16) {
+      merged.push(next);
+      continue;
+    }
+    if (!previous.trackOrdinals.includes(mark.trackOrdinal)) {
+      previous.trackOrdinals.push(mark.trackOrdinal);
+      previous.trackOrdinals.sort((left, right) => left - right);
+    }
+    if (next.charStartUtf16 === previous.charStartUtf16) {
+      previous.clippedStart ||= next.clippedStart;
+    }
+    if (next.charEndUtf16 > previous.charEndUtf16) {
+      previous.charEndUtf16 = next.charEndUtf16;
+      previous.clippedEnd = next.clippedEnd;
+    } else if (next.charEndUtf16 === previous.charEndUtf16) {
+      previous.clippedEnd ||= next.clippedEnd;
+    }
+  }
+  const truncated = merged.length > KWIC_CONTEXT_MARKS_MAX_PER_SIDE;
+  const marks = truncated
+    ? side === 'left'
+      ? merged.slice(-KWIC_CONTEXT_MARKS_MAX_PER_SIDE)
+      : merged.slice(0, KWIC_CONTEXT_MARKS_MAX_PER_SIDE)
+    : merged;
+  return { marks, truncated };
+}
+
 function numericRow(
   snapshot: CorpusSnapshotV1,
   bound: BoundShards,
@@ -396,16 +458,33 @@ function numericRow(
   const memberEnd = occurrence.memberOffsets[index + 1] as number;
   const leftToken = Math.max(0, pos - contextTokens);
   const rightToken = Math.min(shard.tokenTypeIds.length - 1, pos + spanTokens - 1 + contextTokens);
+  const leftCharStart = shard.startsUtf16[leftToken] as number;
+  const nodeCharStart = shard.startsUtf16[pos] as number;
+  const nodeCharEnd = tokenEndChar(shard, pos + spanTokens - 1);
+  const rightCharEnd = tokenEndChar(shard, rightToken);
+  const projected = collectTokenWindowMarks(
+    shard,
+    docOrdinal,
+    tracks,
+    leftToken,
+    rightToken + 1,
+  );
+  const left = contextMarks(projected, leftCharStart, nodeCharStart, 'left');
+  const right = contextMarks(projected, nodeCharEnd, rightCharEnd, 'right');
   return {
     trackOrdinal: row.trackOrdinal,
     docOrdinal,
     pos,
     spanTokens,
     members: Array.from(occurrence.memberOrdinals.subarray(memberStart, memberEnd)),
-    leftCharStart: shard.startsUtf16[leftToken] as number,
-    nodeCharStart: shard.startsUtf16[pos] as number,
-    nodeCharEnd: tokenEndChar(shard, pos + spanTokens - 1),
-    rightCharEnd: tokenEndChar(shard, rightToken),
+    leftCharStart,
+    nodeCharStart,
+    nodeCharEnd,
+    rightCharEnd,
+    leftMarks: left.marks,
+    rightMarks: right.marks,
+    leftMarksTruncated: left.truncated,
+    rightMarksTruncated: right.truncated,
   };
 }
 

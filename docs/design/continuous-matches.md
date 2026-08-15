@@ -148,6 +148,16 @@ current snapshot/track identity, so later window responses omit it unless that
 identity changes. The explicit request flag makes that omission stateless; no
 opaque worker handle or second occurrence-vector lifecycle is introduced.
 
+Each row also carries bounded left/right context marks projected from the same
+admitted occurrence tracks used by Reader. Marks use context-relative UTF-16
+spans, retain their contributing track ordinals, clip honestly at context and
+node boundaries, and exclude the row node itself by construction. Overlapping
+geometry is merged before a per-side cap keeps the 32 mentions nearest the
+node; the corresponding truncation flag is also set when bounded UTF-16
+materialization omits a more distant marked span. These small plain records
+are structured-cloned with the row. Only the sparse axis uses
+transferable buffers, avoiding a per-row buffer and detachment lifecycle.
+
 Executor checkpoints follow the existing KWIC discipline: after resolver
 preparation, after each track occurrence lookup, after numeric planning, and
 after materialization. Every output typed array is freshly allocated before it

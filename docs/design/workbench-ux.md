@@ -223,6 +223,16 @@ keep their preferred character widths while the context tracks absorb viewport
 changes. If a viewport is too narrow even for those preferences, fixed tracks
 may shrink rather than creating overflow.
 
+Mentions of any enabled term inside left/right context use the same treatment
+as occurrence marks in Reader: the contributing series colour as a 20% wash
+and a two-pixel bottom rule, with marked text lifted from muted context to the
+normal foreground colour. Overlaps deterministically use the first
+contributing track's colour. The emphasis remains non-interactive and does not
+change context text, row height, selection semantics, or the single-wrapper
+geometry used for right-aligning left context. Phrase and folded-match spans
+come from the shared occurrence projection rather than a second browser-side
+text match.
+
 Reset records explicit automatic sizing for node and book instead of inferring
 it from equality with a magic width. Node fits observed node text. Token fits
 the largest displayed position: below the wide threshold it shows only `xxx`

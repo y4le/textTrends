@@ -12,8 +12,10 @@ import {
 } from '../src/ops/matches.ts';
 import { occurrences, type NumericOccurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import {
+  KWIC_CONTEXT_MARKS_MAX_PER_SIDE,
   KWIC_CONTEXT_MAX_TOKENS,
   KWIC_CONTEXT_MAX_UTF16,
+  type KwicContextMark,
 } from '../src/ops/kwic.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
@@ -147,6 +149,18 @@ function materializedRows(
     w.texts,
     [{ seriesId: 'series', groupId: 'group' }],
   ).rows;
+}
+
+function markedSurfaces(
+  text: string,
+  marks: readonly KwicContextMark[],
+) {
+  return marks.map((mark) => ({
+    text: text.slice(mark.charsUtf16.start, mark.charsUtf16.end),
+    tracks: mark.trackOrdinals,
+    clippedStart: mark.clippedStart,
+    clippedEnd: mark.clippedEnd,
+  }));
 }
 
 describe('continuous matches axis', () => {
@@ -389,8 +403,12 @@ describe('continuous matches windows', () => {
       members: [4],
       node: { start: 9, end: 12 },
       left: 'one ',
+      leftMarks: [],
+      leftMarksTruncated: false,
       nodeText: 'two',
       right: ' three',
+      rightMarks: [],
+      rightMarksTruncated: false,
     }]);
     expect(() => materializeMatchesWindow(w.snapshot, numeric, w.texts, []))
       .toThrow(/requires 1 track identities/);
@@ -405,6 +423,172 @@ describe('continuous matches windows', () => {
     };
     const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, group);
     expect(materializedRows(w, track, 0)[0]!.nodeText).toBe('isn’t');
+  });
+
+  it('projects folded mentions from every enabled track into node-excluding context', async () => {
+    const w = await world({ a: 'Wolf met fox near wolf' });
+    const foxGroup: TermGroupSpec = {
+      id: 'fox',
+      members: [{ id: 'fox', kind: 'token', surface: 'fox', match: FOLD }],
+      countOverlaps: false,
+    };
+    const tracks = [
+      occurrences(w.snapshot, w.shards, w.resolvers, w.selection, WOLF_GROUP),
+      occurrences(w.snapshot, w.shards, w.resolvers, w.selection, foxGroup),
+    ];
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const numeric = planMatchesWindow(
+      w.snapshot,
+      w.bound,
+      w.selection,
+      axis,
+      tracks,
+      {
+        anchor: { kind: 'rank', rank: 0 },
+        before: 0,
+        after: axis.total - 1,
+        contextTokens: 4,
+      },
+    );
+    const rows = materializeMatchesWindow(
+      w.snapshot,
+      numeric,
+      w.texts,
+      [
+        { seriesId: 'wolves', groupId: 'wolf' },
+        { seriesId: 'foxes', groupId: 'fox' },
+      ],
+    ).rows;
+
+    const finalWolf = rows.find((row) => row.seriesId === 'wolves' && row.pos === 4)!;
+    expect(markedSurfaces(finalWolf.left, finalWolf.leftMarks)).toEqual([
+      { text: 'Wolf', tracks: [0], clippedStart: false, clippedEnd: false },
+      { text: 'fox', tracks: [1], clippedStart: false, clippedEnd: false },
+    ]);
+    expect(finalWolf.rightMarks).toEqual([]);
+    expect(finalWolf.leftMarks.every((mark) =>
+      mark.charsUtf16.end <= finalWolf.left.length)).toBe(true);
+  });
+
+  it('finds window straddlers and clips node-overlapping phrases explicitly', async () => {
+    const w = await world({ a: 'alpha sea wolf node omega' });
+    const tracks = [
+      occurrence(w.selection, [{ doc: 0, pos: 3 }]),
+      occurrence(w.selection, [
+        { doc: 0, pos: 1, span: 2 },
+        { doc: 0, pos: 2, span: 2 },
+      ]),
+    ];
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const numeric = planMatchesWindow(
+      w.snapshot,
+      w.bound,
+      w.selection,
+      axis,
+      tracks,
+      {
+        anchor: { kind: 'rank', rank: 2 },
+        before: 0,
+        after: 0,
+        contextTokens: 1,
+      },
+    );
+    const [row] = materializeMatchesWindow(
+      w.snapshot,
+      numeric,
+      w.texts,
+      [
+        { seriesId: 'node', groupId: 'node' },
+        { seriesId: 'phrases', groupId: 'phrases' },
+      ],
+    ).rows;
+
+    expect(row!.nodeText).toBe('node');
+    expect(markedSurfaces(row!.left, row!.leftMarks)).toEqual([{
+      text: 'wolf ',
+      tracks: [1],
+      clippedStart: true,
+      clippedEnd: true,
+    }]);
+    expect(row!.rightMarks).toEqual([]);
+  });
+
+  it('merges overlapping context geometry and unions contributing tracks', async () => {
+    const w = await world({ a: 'alpha sea wolf den node omega' });
+    const tracks = [
+      occurrence(w.selection, [{ doc: 0, pos: 4 }]),
+      occurrence(w.selection, [{ doc: 0, pos: 1, span: 2 }]),
+      occurrence(w.selection, [{ doc: 0, pos: 2, span: 2 }]),
+    ];
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const numeric = planMatchesWindow(
+      w.snapshot,
+      w.bound,
+      w.selection,
+      axis,
+      tracks,
+      {
+        anchor: { kind: 'rank', rank: 2 },
+        before: 0,
+        after: 0,
+        contextTokens: 3,
+      },
+    );
+    const [row] = materializeMatchesWindow(
+      w.snapshot,
+      numeric,
+      w.texts,
+      tracks.map((_, ordinal) => ({ seriesId: `series-${ordinal}`, groupId: `group-${ordinal}` })),
+    ).rows;
+
+    expect(markedSurfaces(row!.left, row!.leftMarks)).toEqual([{
+      text: 'sea wolf den',
+      tracks: [1, 2],
+      clippedStart: false,
+      clippedEnd: false,
+    }]);
+  });
+
+  it('caps context marks nearest the node and reports truncation', async () => {
+    const source = [...Array.from({ length: 40 }, () => 'x'), 'node'].join(' ');
+    const w = await world({ a: source });
+    const tracks = [
+      occurrence(
+        w.selection,
+        Array.from({ length: 40 }, (_, pos) => ({ doc: 0, pos })),
+      ),
+      occurrence(w.selection, [{ doc: 0, pos: 40 }]),
+    ];
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const numeric = planMatchesWindow(
+      w.snapshot,
+      w.bound,
+      w.selection,
+      axis,
+      tracks,
+      {
+        anchor: { kind: 'rank', rank: 40 },
+        before: 0,
+        after: 0,
+        contextTokens: 40,
+      },
+    );
+    const [row] = materializeMatchesWindow(
+      w.snapshot,
+      numeric,
+      w.texts,
+      [
+        { seriesId: 'x', groupId: 'x' },
+        { seriesId: 'node', groupId: 'node' },
+      ],
+    ).rows;
+
+    expect(row!.leftMarks).toHaveLength(KWIC_CONTEXT_MARKS_MAX_PER_SIDE);
+    expect(row!.leftMarksTruncated).toBe(true);
+    expect(markedSurfaces(row!.left, row!.leftMarks).map((mark) => mark.text))
+      .toEqual(Array.from({ length: KWIC_CONTEXT_MARKS_MAX_PER_SIDE }, () => 'x'));
+    expect(row!.leftMarks[0]!.charsUtf16.start).toBeGreaterThan(0);
+    expect(row!.rightMarksTruncated).toBe(false);
   });
 
   it('keeps UTF-16 spans valid through astral context characters', async () => {
@@ -427,6 +611,16 @@ describe('continuous matches windows', () => {
     expect(rows[1]!.right).toBe('');
   });
 
+  it('reports marked spans omitted by the UTF-16 context clamp', async () => {
+    const w = await world({ a: `wolf ${'q'.repeat(3_000)} wolf` });
+    const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, WOLF_GROUP);
+    const rows = materializedRows(w, track, 2);
+    expect(rows[0]!.rightMarks).toEqual([]);
+    expect(rows[0]!.rightMarksTruncated).toBe(true);
+    expect(rows[1]!.leftMarks).toEqual([]);
+    expect(rows[1]!.leftMarksTruncated).toBe(true);
+  });
+
   it('caps materialized context without splitting UTF-16 surrogate pairs', async () => {
     const long = `${'a'.repeat(KWIC_CONTEXT_MAX_UTF16 - 2)}😀${'b'.repeat(100)}`;
     const w = await world({ a: `wolf ${long} wolf` });
@@ -440,6 +634,8 @@ describe('continuous matches windows', () => {
       expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
       expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
     }
+    expect(rows[0]!.rightMarks).toEqual([]);
+    expect(rows[1]!.leftMarks).toEqual([]);
   });
 
   it('guards token character-length positions before span materialization', async () => {

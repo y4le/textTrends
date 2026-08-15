@@ -1,5 +1,12 @@
 import { kwicRowKey, type KwicRowView } from './store.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
+import { collapseTextWithMarks, segmentMarks } from './marks-view.ts';
+
+export interface MatchesContextPart {
+  readonly text: string;
+  readonly marked: boolean;
+  readonly trackOrdinals: readonly number[];
+}
 
 export interface MatchesRowVM {
   readonly key: string;
@@ -10,15 +17,40 @@ export interface MatchesRowVM {
   readonly title: string;
   readonly pos: number;
   readonly leftFull: string;
+  readonly leftParts: readonly MatchesContextPart[];
   readonly nodeText: string;
   readonly rightFull: string;
+  readonly rightParts: readonly MatchesContextPart[];
   readonly source: KwicRowView;
 }
 
 /** Collapse source whitespace for one-line display without changing the
  * underlying result or its complete accessible string. */
 export function oneLine(value: string): string {
-  return value.replace(/\s+/g, ' ').trim();
+  return collapseTextWithMarks(value, []).text;
+}
+
+function contextDisplay(
+  value: string,
+  marks: KwicRowView['leftMarks'],
+): { readonly text: string; readonly parts: readonly MatchesContextPart[] } {
+  const collapsed = collapseTextWithMarks(
+    value,
+    marks.map((mark) => ({
+      value: mark.trackOrdinals,
+      start: mark.charsUtf16.start,
+      end: mark.charsUtf16.end,
+    })),
+  );
+  const parts = segmentMarks(collapsed.text.length, collapsed.marks).map((segment) => {
+    const trackOrdinals = [...new Set(segment.values.flat())].sort((left, right) => left - right);
+    return {
+      text: collapsed.text.slice(segment.start, segment.end),
+      marked: trackOrdinals.length > 0,
+      trackOrdinals,
+    };
+  });
+  return { text: collapsed.text, parts };
 }
 
 export function matchesRows(
@@ -28,8 +60,8 @@ export function matchesRows(
   titleOf: (doc: string) => string,
 ): readonly MatchesRowVM[] {
   return rows.map((source) => {
-    const leftFull = oneLine(source.left);
-    const rightFull = oneLine(source.right);
+    const left = contextDisplay(source.left, source.leftMarks);
+    const right = contextDisplay(source.right, source.rightMarks);
     return {
       key: kwicRowKey(source),
       seriesId: source.seriesId,
@@ -38,9 +70,11 @@ export function matchesRows(
       doc: source.doc,
       title: titleOf(source.doc),
       pos: source.pos,
-      leftFull,
+      leftFull: left.text,
+      leftParts: left.parts,
       nodeText: oneLine(source.nodeText),
-      rightFull,
+      rightFull: right.text,
+      rightParts: right.parts,
       source,
     };
   });

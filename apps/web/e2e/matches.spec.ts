@@ -65,6 +65,37 @@ test('Matches merges all terms in corpus order and toggles a term off', async ({
   await expect(grid).toBeVisible({ timeout: 30_000 });
   expect(new Set(await rowTerms(page))).toEqual(new Set(['wolf', 'fox'])); // both tagged
 
+  // Enabled term mentions in context retain the cell's exact text/layout but
+  // receive a quiet, non-interactive visual emphasis.
+  const mention = grid.locator('.kwic-context-mention').first();
+  await expect(mention).toBeVisible();
+  await expect(mention).toHaveText(/wolf|fox/);
+  const foxNodeColor = await grid.locator('.kwic-node button').filter({ hasText: /^fox$/ })
+    .first().evaluate((element) => getComputedStyle(element).color);
+  const mentionPresentation = await mention.evaluate((element) => {
+    const style = getComputedStyle(element);
+    const cell = element.closest<HTMLElement>('.kwic-left-context, .kwic-right-context')!;
+    const row = element.closest<HTMLElement>('.kwic-virtual-row')!;
+    return {
+      backgroundColor: style.backgroundColor,
+      borderBottomColor: style.borderBottomColor,
+      borderBottomWidth: style.borderBottomWidth,
+      color: style.color,
+      foregroundColor: getComputedStyle(document.body).color,
+      cellText: cell.textContent,
+      wrapperText: cell.firstElementChild?.textContent,
+      wrapperChildren: cell.children.length,
+      rowHeight: row.getBoundingClientRect().height,
+    };
+  });
+  expect(mentionPresentation.backgroundColor).not.toBe('rgba(0, 0, 0, 0)');
+  expect(mentionPresentation.borderBottomColor).toBe(foxNodeColor);
+  expect(mentionPresentation.borderBottomWidth).toBe('2px');
+  expect(mentionPresentation.color).toBe(mentionPresentation.foregroundColor);
+  expect(mentionPresentation.cellText).toBe(mentionPresentation.wrapperText);
+  expect(mentionPresentation.wrapperChildren).toBe(1);
+  expect(mentionPresentation.rowHeight).toBe(32);
+
   // A single-book corpus omits the redundant book column and keeps token
   // progress in its own rightmost column.
   await expect(grid.locator('.kwic-book-heading')).toHaveCount(0);

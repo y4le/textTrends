@@ -410,6 +410,15 @@ describe('matches-window/1 through the executor and engine', () => {
       [2, 's-ran', 'g-ran', 'ran'],
       [5, 's-wolf', 'g1', 'wolf'],
     ]);
+    const [firstWolf, ran] = result.data.window.rows;
+    expect(firstWolf!.rightMarks.map((mark) => ({
+      text: firstWolf!.right.slice(mark.charsUtf16.start, mark.charsUtf16.end),
+      tracks: mark.trackOrdinals,
+    }))).toEqual([{ text: 'ran', tracks: [1] }]);
+    expect(ran!.leftMarks.map((mark) => ({
+      text: ran!.left.slice(mark.charsUtf16.start, mark.charsUtf16.end),
+      tracks: mark.trackOrdinals,
+    }))).toEqual([{ text: 'wolf', tracks: [0] }]);
 
     await h.send({
       t: 'query', job: 310, snapshot: snap,

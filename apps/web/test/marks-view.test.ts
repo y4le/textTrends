@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { displaySourceText, segmentMarks } from '../src/lib/marks-view.ts';
+import {
+  collapseTextWithMarks,
+  displaySourceText,
+  segmentMarks,
+} from '../src/lib/marks-view.ts';
 
 describe('mark presentation', () => {
   it('partitions overlapping marks and caller boundaries deterministically', () => {
@@ -32,5 +36,25 @@ describe('mark presentation', () => {
     const display = displaySourceText(source);
     expect(display).toBe('A  B C D E F 😀');
     expect(display.length).toBe(source.length);
+  });
+
+  it('collapses and trims text while remapping marks through the same pass', () => {
+    const source = '  Wolf\r\n\tmet\u00a0fox  ';
+    const wolf = source.indexOf('Wolf');
+    const fox = source.indexOf('fox');
+    const collapsed = collapseTextWithMarks(source, [
+      { value: 'wolf', start: wolf, end: wolf + 4 },
+      { value: 'fox', start: fox, end: fox + 3 },
+      { value: 'trimmed', start: source.length - 2, end: source.length },
+    ]);
+
+    expect(collapsed.text).toBe('Wolf met fox');
+    expect(collapsed.marks.map((mark) => ({
+      value: mark.value,
+      text: collapsed.text.slice(mark.start, mark.end),
+    }))).toEqual([
+      { value: 'wolf', text: 'Wolf' },
+      { value: 'fox', text: 'fox' },
+    ]);
   });
 });
