@@ -343,8 +343,8 @@ export function ComparePanel() {
                   : null;
               })}
               <p role="note">
-                No confidence intervals are available; inspect exact occurrences
-                before interpreting small differences.
+                Confidence intervals are not calculated; small differences and
+                small samples may be unstable.
               </p>
             </div>
 

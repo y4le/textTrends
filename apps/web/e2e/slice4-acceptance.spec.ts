@@ -135,5 +135,5 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   const method = page.getByRole('dialog', { name: 'Method' });
   await expect(method.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
   await expect(method.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
-  await expect(page.getByText(/No confidence intervals are available/)).toBeVisible();
+  await expect(page.getByText(/Confidence intervals are not calculated/)).toBeVisible();
 });

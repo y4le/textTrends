@@ -39,8 +39,8 @@ There are five stable places:
 | Compare | What distinguishes explicit A and B? | keyness controls, effect and G² rankings, exact counts, row detail |
 
 Compare reports log-ratio effect alongside signed G² and the underlying counts
-and document ranges. No confidence intervals are available; the interface says
-so rather than implying precision the analysis contract does not provide.
+and document ranges. Confidence intervals are not calculated; the interface
+says so rather than implying precision the analysis contract does not provide.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only
