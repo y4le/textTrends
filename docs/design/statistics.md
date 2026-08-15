@@ -3,11 +3,13 @@
 *Phase 0 method spec, implemented incrementally: a method is either **implemented**
 (a pure function in `packages/core/src/stats/` with these worked examples as
 executable fixtures) or **specified-only** (marked below; no export exists yet).
-Nothing is exported without fixtures. Currently implemented: keyness (G², log-ratio),
-logDice, PMI, t-score, DP/DPnorm, MATTR, and MTLD. Specified-only:
-readability, Delta/Cosine Delta, bursts, trend, smoothing overlay. Every fixture is
-hand-computed and numerically verified, so it is inspectable, not trusted from
-memory; these numbers are the product's meaning, and any change is a contract change.
+Nothing is exported without fixtures. Currently implemented: keyness (G², log-ratio,
+and a log-ratio confidence interval), Jensen–Shannon divergence, logDice, PMI,
+t-score, DP/DPnorm, MATTR, MTLD, and the character-based readability indices
+(ARI and Coleman–Liau). Specified-only: Delta/Cosine Delta, bursts, and the
+syllable-based Flesch family. Every fixture is hand-computed and numerically
+verified, so it is inspectable, not trusted from memory; these numbers are the
+product's meaning, and any change is a contract change.
 Each method carries an id + version (e.g. `keyness-g2-2x2/1`) referenced by QueryOps
 and provenance.*
 
@@ -48,6 +50,73 @@ LR = log2( ((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)) )
 
 Display contract: rank by LR (effect), show G² (evidence), raw counts, and range;
 optional Benjamini–Hochberg q-values never drive ranking.
+
+### Log-ratio confidence interval
+
+A Wald interval on the same corrected quantity. The variance is the standard
+log-risk-ratio form carrying the same 0.5/1 correction, so the point estimate and
+interval describe one estimand:
+
+```
+Var(ln ratio) = 1/(a+0.5) − 1/(N1+1) + 1/(b+0.5) − 1/(N2+1)
+CI         = LR ± z · sqrt(Var) / ln(2)          // z = 1.959963984540054 at 95%
+```
+
+Each pair is non-negative because `a ≤ N1` forces `a+0.5 < N1+1`, so the variance
+cannot go negative on a valid table.
+
+**Test vector**: `a=10, N1=1000, b=2, N2=2000` → `CI = (1.0828, 5.0565)` (±1e-3).
+
+**Discrimination vector** (the reason the interval exists — effect size alone
+cannot separate these): `a=3, N1=1000, b=0, N2=1000` → `LR = 2.807`, interval
+`(−1.466, 7.080)` spans zero; `a=3000, N1=100000, b=200, N2=100000` →
+`LR = 3.904`, interval `(3.698, 4.109)`.
+
+Display contract: the interval is a **per-term** precision statement carrying no
+multiplicity correction. It is shown on a term the reader has selected, and it
+never becomes a table-wide filter — keeping only the terms whose intervals
+exclude zero is precisely the selection effect a correction would exist for.
+The Wald model also treats token draws as independent. Running-text burstiness
+violates that assumption and can make the interval too narrow; the per-side DP
+values help expose concentration but do not repair the interval.
+
+### Row dispersion inside `keyness-g2-2x2/1`
+
+Keyness rows carry Gries' DP (see §Dispersion) per side, folded over the same
+sparse per-document vectors in one extra pass — no dense type×document matrix.
+Parts are that side's selected documents.
+
+**Deviation from `dispersion-dp/1`**: where that method publishes `DP = 0` below
+two positive-token parts, a keyness row publishes **null**. A row column showing
+"0" would read as "perfectly even" for a measurement that is undefined — a
+single-document side has no between-document proportions to deviate. Null is
+also published for a term absent from that side. `KeynessSideTotalsV1.positiveParts`
+carries the part count the decision was made on.
+
+## Distributional divergence
+
+### Jensen–Shannon divergence (`jsd-log2/1`)
+
+Over two relative-frequency distributions `p`, `q` on a shared type space, with
+`m = (p+q)/2`:
+
+```
+JSD = 0.5 · ( Σ pᵢ·log2(pᵢ/mᵢ) + Σ qᵢ·log2(qᵢ/mᵢ) )      // 0 ≤ JSD ≤ 1
+// a zero share contributes 0 (the x·log(x/m) limit as x → 0)
+```
+
+Base-2 logs bound it in [0, 1] bits. Unlike KL it is symmetric and stays finite
+when a type is absent from one side, so a two-selection comparison needs neither
+smoothing nor a reference corpus.
+
+**Test vectors**: identical distributions → `0`; disjoint (`[1,0]` vs `[0,1]`) →
+`1` exactly; half-shared (`[0.5,0.5,0]` vs `[0,0.5,0.5]`) → `0.5` exactly;
+`[0.9,0.1]` vs `[0.1,0.9]` → `0.5310` (±1e-4).
+
+Computed inside the keyness merge over **every** merged type, before the count
+filter, before side projection, and before paging — so it describes the two
+distributions and not the visible table. It is published with the type count it
+summed over, because the number is meaningless apart from its domain.
 
 ## Collocation
 
@@ -141,18 +210,47 @@ defined as `N`. Threshold must lie in (0, 1); implementations reject anything el
 Test fixtures: constructed sequences with hand-counted factors — `a b c d` → 4
 (zero-factor rule, both passes); `a a a a` → 2 (two exact factors per pass).
 
-## Readability (English pack only)
+## Readability
+
+### Character-based (`readability-chars/1`, implemented)
+
+```
+ARI          = 4.71·(characters/words) + 0.5·(words/sentences) − 21.43
+Coleman–Liau = 0.0588·L − 0.296·S − 15.8      // L = letters per 100 words,
+                                              // S = sentences per 100 words
+```
+
+This version pins the character conventions rather than inheriting a library's
+ambiguous “character” counter. ARI `characters` are Unicode letters and decimal
+digits; Coleman–Liau `letters` are Unicode letters only. Both are counted as
+Unicode scalar values in normalized emitted token keys, excluding punctuation,
+separators, and UTF-16 encoding width. `inventory/1` publishes the two quantities
+as `readabilityCharacters` and `readabilityLetters`. Its sibling `charsUtf16`
+sums the source-span extent of each contiguous selected run; those spans include
+separators and cannot feed either formula. This convention is part of method
+version `readability-chars/1` because public ARI implementations disagree about
+punctuation.
+
+Both are US grade levels calibrated on expository prose; neither is meaningful on
+a handful of sentences, so callers publish them beside the sentence count.
+ARI requires at least one counted letter or digit per indexed token. Coleman–Liau
+allows fewer letters than tokens because numeral tokens legitimately add words
+without adding letters.
+
+**Test vector**: `characters=500, letters=500, words=100, sentences=10` →
+`ARI = 7.12`, `Coleman–Liau = 10.64` (±1e-6).
+
+### Syllable-based (specified-only, English pack)
 
 ```
 Flesch Reading Ease = 206.835 − 1.015·(words/sentences) − 84.6·(syllables/words)
 Flesch–Kincaid grade = 0.39·(words/sentences) + 11.8·(syllables/words) − 15.59
-ARI                  = 4.71·(chars/words) + 0.5·(words/sentences) − 21.43
 ```
 
-Syllable counts are heuristic; the syllable function's error profile is part of the
-fixture suite (a word list with hand-counted syllables and a tolerated error band).
-ARI/Coleman–Liau (character-based) carry no syllable error and are preferred for
-cross-document comparison.
+Deliberately not implemented. Syllable counts are heuristic and would need a
+language pack plus an error profile in the fixture suite (a word list with
+hand-counted syllables and a tolerated error band). The character-based indices
+above carry no syllable error and are preferred for cross-document comparison.
 
 ## Stylometry
 

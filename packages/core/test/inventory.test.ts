@@ -229,6 +229,32 @@ describe('inventory/1', () => {
     expect(result.documents[0]!.mattrIsPlainTtr).toBe(true);
   });
 
+  it('counts readability characters as Unicode letters and digits, not spans', async () => {
+    const world = await fixture([['a', "Don't 123 café 𐐀."]]);
+    const selection = await resolveSelection(world.snapshot, {
+      docs: ['a'] as ProjectDocId[],
+    });
+    const result = await inventory(
+      world.snapshot,
+      selection,
+      inputsFor(world, selection),
+      REQUEST,
+      async () => {},
+    );
+    // Don't = 4 letters, 123 = 3 digits, café = 4 letters, and the astral
+    // Deseret letter is one Unicode scalar value despite occupying two UTF-16
+    // code units. Apostrophe, spaces, and the full stop are excluded.
+    expect(result.totals.readabilityCharacters).toBe(12);
+    expect(result.totals.readabilityLetters).toBe(9);
+    expect(result.documents[0]).toMatchObject({
+      readabilityCharacters: 12,
+      readabilityLetters: 9,
+    });
+    expect(result.totals.charsUtf16).toBeGreaterThan(
+      result.totals.readabilityCharacters,
+    );
+  });
+
   it('checkpoints, rejects every request cap, and transfers only fresh result buffers', async () => {
     const world = await fixture([['a', 'one two three four']]);
     const selection = await resolveSelection(world.snapshot, {

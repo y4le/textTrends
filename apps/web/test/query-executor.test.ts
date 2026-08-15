@@ -967,8 +967,8 @@ describe('keyness/1 through the executor and engine', () => {
     });
     const ab = h.last('result');
     if (ab.data.op !== 'keyness') throw new Error('expected keyness');
-    expect(ab.data.keyness.totalsA).toEqual({ tokens: 4, documents: 1 });
-    expect(ab.data.keyness.totalsB).toEqual({ tokens: 4, documents: 1 });
+    expect(ab.data.keyness.totalsA).toEqual({ tokens: 4, documents: 1, positiveParts: 1 });
+    expect(ab.data.keyness.totalsB).toEqual({ tokens: 4, documents: 1, positiveParts: 1 });
     expect(ab.data.keyness.rows.map((row) => row.key)).toEqual([
       'apple',
       'common',

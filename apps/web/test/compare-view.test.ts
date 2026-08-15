@@ -41,9 +41,13 @@ const row = {
   rateAper10k: 10,
   rateBper10k: 1,
   logRatio: 3,
+  logRatioLow: 3 - 1,
+  logRatioHigh: 3 + 1,
   g2: 4,
   rangeA: 2,
   rangeB: 1,
+  dpA: null,
+  dpB: null,
 };
 
 const state = (
@@ -65,8 +69,9 @@ const state = (
             effect: 'log-ratio-halves/1',
             selectionA: 'a' as never,
             selectionB: 'b' as never,
-            totalsA: { tokens: 10, documents: 1 },
-            totalsB: { tokens: 10, documents: 1 },
+            totalsA: { tokens: 10, documents: 1, positiveParts: 1 },
+            totalsB: { tokens: 10, documents: 1, positiveParts: 1 },
+            divergence: { method: 'jsd-log2/1' as const, bits: 0.5, types: 2 },
             total: rows.length,
             rows,
           },

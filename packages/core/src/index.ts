@@ -21,9 +21,20 @@
 // docs/design/statistics.md ("implemented ⇒ exported with fixtures"); each
 // method carries a versioned id future QueryOps reference. Deliberately kept
 // exported with zero app consumers (owner decision, simplification plan §2).
-export { g2Keyness, logRatio } from './stats/keyness.ts';
+export {
+  g2Keyness,
+  logRatio,
+  logRatioInterval,
+  LOG_RATIO_Z_95,
+  type LogRatioIntervalV1,
+} from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
+export { jensenShannon, jsdContribution } from './stats/divergence.ts';
+export {
+  automatedReadabilityIndex,
+  colemanLiauIndex,
+} from './stats/readability.ts';
 export { MATTR_MAX_TYPES, mattr, mattrIds, mtld } from './stats/diversity.ts';
 export { CapError } from './contract/brands.ts';
 // The explicit retained brand list (the wildcard export is gone): TextHash is
@@ -241,6 +252,7 @@ export {
   KEYNESS_SCAN_CHUNK,
   type KeynessCheckpoint,
   type KeynessResultV1,
+  type KeynessDivergenceV1,
   type KeynessRowV1,
   type KeynessSideTotalsV1,
   type KeynessSideV1,

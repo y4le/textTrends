@@ -101,8 +101,8 @@ describe('keyness-g2-2x2/1', () => {
     );
     expect(both.selectionA).toBe(a.hash);
     expect(both.selectionB).toBe(b.hash);
-    expect(both.totalsA).toEqual({ tokens: 10, documents: 1 });
-    expect(both.totalsB).toEqual({ tokens: 10, documents: 1 });
+    expect(both.totalsA).toEqual({ tokens: 10, documents: 1, positiveParts: 1 });
+    expect(both.totalsB).toEqual({ tokens: 10, documents: 1, positiveParts: 1 });
     expect(both.rows.map((row) => row.key)).toEqual(['apple', 'common']);
     const apple = both.rows[0]!;
     expect(apple).toMatchObject({
@@ -380,5 +380,177 @@ describe('keyness-g2-2x2/1', () => {
       checkpoint,
     )).rejects.toThrow(/classes/);
     expect(checkpoint).not.toHaveBeenCalled();
+  });
+});
+
+describe('keyness-g2-2x2/1 divergence and dispersion', () => {
+  it('measures whole-distribution divergence independently of filter and paging', async () => {
+    const world = await fixture([
+      ['a', 'alpha alpha alpha alpha'],
+      ['b', 'beta beta beta beta'],
+      ['c', 'alpha alpha beta beta'],
+      ['d', 'alpha alpha beta beta'],
+    ]);
+    const run = async (
+      left: string,
+      right: string,
+      request: KeynessTableRequestV1 = REQUEST,
+    ) => {
+      const a = await resolveSelection(world.snapshot, { docs: [left as ProjectDocId] });
+      const b = await resolveSelection(world.snapshot, { docs: [right as ProjectDocId] });
+      return keyness(
+        world.snapshot,
+        a,
+        b,
+        inputsFor(world, a),
+        inputsFor(world, b),
+        request,
+        async () => {},
+      );
+    };
+
+    const disjoint = await run('a', 'b');
+    expect(disjoint.divergence).toEqual({ method: 'jsd-log2/1', bits: 1, types: 2 });
+
+    const identical = await run('c', 'd');
+    expect(identical.divergence.method).toBe('jsd-log2/1');
+    expect(identical.divergence.bits).toBeCloseTo(0, 12);
+    expect(identical.divergence.types).toBe(2);
+
+    // A filter that hides every row leaves the divergence untouched: it
+    // describes the distributions, not the visible table.
+    const filtered = await run('a', 'b', {
+      ...REQUEST,
+      filter: { ...REQUEST.filter, minCountTotal: 1_000 },
+    });
+    expect(filtered.rows).toEqual([]);
+    expect(filtered.total).toBe(0);
+    expect(filtered.divergence).toEqual(disjoint.divergence);
+
+    // Side projection hides half the rows and likewise cannot move it.
+    const projected = await run('a', 'b', { ...REQUEST, side: 'a' });
+    expect(projected.divergence).toEqual(disjoint.divergence);
+  });
+
+  it('folds Gries DP per side, and reports null where dispersion is undefined', async () => {
+    const world = await fixture([
+      ['a1', 'clump clump clump clump clump spread spread spread spread spread'],
+      ['a2', 'other other other other other spread spread spread spread spread'],
+      ['b', 'clump spread other filler filler filler filler filler filler filler'],
+    ]);
+    const a = await resolveSelection(world.snapshot, {
+      docs: ['a1' as ProjectDocId, 'a2' as ProjectDocId],
+    });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const result = await keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      REQUEST,
+      async () => {},
+    );
+    expect(result.totalsA).toEqual({ tokens: 20, documents: 2, positiveParts: 2 });
+    expect(result.totalsB).toEqual({ tokens: 10, documents: 1, positiveParts: 1 });
+
+    const byKey = new Map(result.rows.map((row) => [row.key, row]));
+    // Equal-sized parts: 'spread' splits 5/5 across them, 'clump' sits wholly
+    // in one. Same side total for 'spread' (10) as 'clump' + 'other' (5 each),
+    // so only dispersion distinguishes them.
+    expect(byKey.get('spread')!.dpA).toBeCloseTo(0, 12);
+    expect(byKey.get('clump')!.dpA).toBeCloseTo(0.5, 12);
+    expect(byKey.get('other')!.dpA).toBeCloseTo(0.5, 12);
+    // A single-document side has no between-document dispersion to report.
+    for (const row of result.rows) expect(row.dpB).toBeNull();
+    // 'filler' never occurs on side A, so its side-A dispersion is undefined.
+    expect(byKey.get('filler')!.dpA).toBeNull();
+  });
+
+  it('distinguishes selected documents from positive class-filtered parts', async () => {
+    const world = await fixture([
+      ['a1', '123 456'],
+      ['a2', 'alpha alpha'],
+      ['b', 'beta beta'],
+    ]);
+    const a = await resolveSelection(world.snapshot, {
+      docs: ['a1' as ProjectDocId, 'a2' as ProjectDocId],
+    });
+    const b = await resolveSelection(world.snapshot, {
+      docs: ['b' as ProjectDocId],
+    });
+    const result = await keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      REQUEST,
+      async () => {},
+    );
+    expect(result.totalsA).toEqual({
+      tokens: 2,
+      documents: 2,
+      positiveParts: 1,
+    });
+    for (const row of result.rows) expect(row.dpA).toBeNull();
+  });
+
+  it('restricts divergence and its type domain to the selected classes', async () => {
+    const world = await fixture([
+      ['a', 'shared shared 111 111'],
+      ['b', 'shared shared 222 222'],
+    ]);
+    const a = await resolveSelection(world.snapshot, {
+      docs: ['a' as ProjectDocId],
+    });
+    const b = await resolveSelection(world.snapshot, {
+      docs: ['b' as ProjectDocId],
+    });
+    const run = (classes: KeynessTableRequestV1['filter']['classes']) => keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      { ...REQUEST, filter: { ...REQUEST.filter, classes } },
+      async () => {},
+    );
+    const lexical = await run(['lexical']);
+    expect(lexical.divergence.bits).toBeCloseTo(0, 12);
+    expect(lexical.divergence.types).toBe(1);
+    const numeral = await run(['numeral']);
+    expect(numeral.divergence).toEqual({
+      method: 'jsd-log2/1',
+      bits: 1,
+      types: 2,
+    });
+  });
+
+  it('carries a 95% interval that brackets every published effect size', async () => {
+    const world = await fixture([
+      ['a', 'apple apple apple apple common common common common common common'],
+      ['b', 'apple common common common common common common common common common'],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const result = await keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      REQUEST,
+      async () => {},
+    );
+    expect(result.rows.length).toBeGreaterThan(0);
+    for (const row of result.rows) {
+      expect(row.logRatioLow).toBeLessThan(row.logRatio);
+      expect(row.logRatioHigh).toBeGreaterThan(row.logRatio);
+      expect(row.logRatio - row.logRatioLow).toBeCloseTo(
+        row.logRatioHigh - row.logRatio,
+        12,
+      );
+    }
   });
 });

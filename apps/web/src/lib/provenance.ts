@@ -212,6 +212,7 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
 
 function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, sideA, sideB, resultA, resultB } = input.keyness;
+  const divergence = resultA?.divergence ?? resultB?.divergence ?? null;
   return {
     method: resultA?.method ?? resultB?.method ?? 'keyness-g2-2x2/1',
     parameters: [
@@ -224,13 +225,24 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('shared sort field', view.sort.by),
       parameter('A direction', view.sort.dirA === 1 ? 'ascending' : 'descending'),
       parameter('B direction', view.sort.dirB === 1 ? 'ascending' : 'descending'),
-      parameter('page size', String(view.pageLimit)),
+      parameter('fetch chunk size', String(view.pageLimit)),
+      parameter('interval', '95% Wald on log ratio, same 0.5 four-cell correction'),
+      ...(divergence
+        ? [
+            parameter('divergence', divergence.method),
+            parameter('divergence types', String(divergence.types)),
+          ]
+        : []),
+      parameter('dispersion', 'dispersion-dp/1 over each side’s documents'),
     ],
     limitations: [
       'Log ratio uses a 0.5 four-cell correction.',
-      'No confidence intervals are calculated; small sides can yield unstable ranks.',
+      'Confidence intervals are per-term and carry no multiple-comparison correction.',
+      'Dispersion is null for a side holding fewer than two documents with tokens.',
+      'Divergence covers the selected token classes only, before the count filter.',
       'Terms with exactly zero log ratio are in neither ranked projection.',
-      'Display bars use a page-local scale over the ready current pages.',
+      'Display bars use a shared scale over the currently loaded ranks.',
+      'The Wald interval assumes independent token draws; running-text burstiness can make it too narrow.',
       'A linked Trends range does not redefine either comparison side.',
     ],
   };

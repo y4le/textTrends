@@ -19,6 +19,8 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
     sentences: 0,
     paragraphs: 0,
     charsUtf16: 0,
+    readabilityCharacters: 0,
+    readabilityLetters: 0,
   },
   documents: [{
     doc,
@@ -38,6 +40,8 @@ const inventoryResult = (doc: string, fullTokens: number): InventoryResultV1 => 
     mattr: null,
     mattrIsPlainTtr: true,
     charsUtf16: 0,
+    readabilityCharacters: 0,
+    readabilityLetters: 0,
   }],
   rhythm: null,
   missingDocs: [],

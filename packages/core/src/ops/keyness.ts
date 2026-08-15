@@ -1,9 +1,26 @@
 /**
  * keyness-g2-2x2/1 — a bounded two-selection comparison.
  *
- * Both sides fold the Slice-3 sparse per-document count vectors exactly once.
- * The two sorted side vectors are then merged linearly; no second counting
- * kernel and no dense type×document matrix is introduced.
+ * Both sides fold the Slice-3 sparse per-document count vectors once for totals
+ * and term ranges, then (when at least two positive parts exist) make one more
+ * linear pass over those same materialized sparse vectors for dispersion. The
+ * two sorted side vectors are merged linearly; no second counting kernel and no
+ * dense type×document matrix is introduced.
+ *
+ * Three measurements ride along with the ranked table because they are exactly
+ * as bounded as it is and answer questions the ranking cannot:
+ *
+ * - `divergence` (`jsd-log2/1`) sums over the SAME linear merge, before the
+ *   filter and before paging, so it describes the two full class-filtered
+ *   distributions rather than the visible page. It is the one number for "how
+ *   far apart are these two selections", which no per-term row provides.
+ * - `dpA`/`dpB` are Gries' deviation of proportions per side, folded in one
+ *   extra pass over the already-materialized sparse vectors — no dense
+ *   type×document matrix, keeping the bound in the paragraph above true. They
+ *   separate a term spread through a side from one clumped in a single
+ *   document, which is the classic keyness false positive.
+ * - `logRatioLow`/`logRatioHigh` bound the effect size, separating a large
+ *   ratio built on thousands of occurrences from one built on three.
  */
 
 import { CapError, type ProjectDocId } from '../contract/brands.ts';
@@ -13,7 +30,8 @@ import type {
   ResolvedSelection,
   TokenRangeSpan,
 } from '../snapshot/selection.ts';
-import { g2Keyness, logRatio } from '../stats/keyness.ts';
+import { jsdContribution } from '../stats/divergence.ts';
+import { g2Keyness, logRatioInterval } from '../stats/keyness.ts';
 import {
   FREQUENCY_PAGE_MAX,
   FREQUENCY_WINDOW_MAX,
@@ -52,6 +70,12 @@ export interface KeynessSideTotalsV1 {
   readonly tokens: number;
   /** Every selected document, including one with zero tokens in the classes. */
   readonly documents: number;
+  /**
+   * Documents holding at least one class-filtered token — the parts Gries' DP
+   * is measured over. Below two, per-term dispersion on this side is `null`
+   * rather than a number, because one part has no proportions to deviate.
+   */
+  readonly positiveParts: number;
 }
 
 export interface KeynessRowV1 {
@@ -63,11 +87,31 @@ export interface KeynessRowV1 {
   readonly rateAper10k: number;
   readonly rateBper10k: number;
   readonly logRatio: number;
+  /** Two-sided 95% Wald bounds on `logRatio`, same log₂ units. */
+  readonly logRatioLow: number;
+  readonly logRatioHigh: number;
   /** Signed in A's direction. */
   readonly g2: number;
   /** Per-side document frequency (“range” in corpus linguistics). */
   readonly rangeA: number;
   readonly rangeB: number;
+  /**
+   * Gries' DP over the side's documents: 0 spread exactly in proportion to
+   * document sizes, →1 confined to one document. Null when the term is absent
+   * from that side, or when the side has fewer than two positive-token parts
+   * (a single-document side, where dispersion between documents is undefined
+   * rather than zero).
+   */
+  readonly dpA: number | null;
+  readonly dpB: number | null;
+}
+
+export interface KeynessDivergenceV1 {
+  readonly method: 'jsd-log2/1';
+  /** Jensen–Shannon divergence in bits, 0 identical … 1 fully disjoint. */
+  readonly bits: number;
+  /** Types summed over — every merged type, before filter and paging. */
+  readonly types: number;
 }
 
 export interface KeynessResultV1 {
@@ -77,6 +121,8 @@ export interface KeynessResultV1 {
   readonly selectionB: ResolvedSelection['hash'];
   readonly totalsA: KeynessSideTotalsV1;
   readonly totalsB: KeynessSideTotalsV1;
+  /** Whole-distribution distance; independent of filter, side, and paging. */
+  readonly divergence: KeynessDivergenceV1;
   /** Passing rows after side projection, before paging. */
   readonly total: number;
   readonly rows: readonly KeynessRowV1[];
@@ -177,6 +223,8 @@ interface SideTerm {
   count: number;
   range: number;
   tokenClass: number;
+  /** Σ|v_i − s_i| across the side's parts; halved to become Gries' DP. */
+  dpSum: number;
 }
 
 interface SideFold {
@@ -184,6 +232,7 @@ interface SideFold {
   readonly ids: readonly number[];
   readonly tokens: number;
   readonly documents: number;
+  readonly positiveParts: number;
 }
 
 function className(value: number): FrequencyTokenClassV1 {
@@ -206,6 +255,7 @@ async function foldSide(
     throw new RangeError('keyness inputs must follow exact selection order');
   }
   const terms = new Map<number, SideTerm>();
+  const partSizes: number[] = [];
   let tokens = 0;
   let scanned = 0;
   for (const input of inputs) {
@@ -227,9 +277,11 @@ async function foldSide(
         await checkpoint();
       }
     }
-    tokens +=
+    const partSize =
       (wanted.has('lexical') ? input.counts.lexicalTokens : 0) +
       (wanted.has('numeral') ? input.counts.numeralTokens : 0);
+    partSizes.push(partSize);
+    tokens += partSize;
     for (let i = 0; i < input.counts.typeIds.length; i++) {
       const typeId = input.counts.typeIds[i] as number;
       const count = input.counts.counts[i] as number;
@@ -247,7 +299,7 @@ async function foldSide(
         current.count += count;
         current.range++;
       } else {
-        terms.set(typeId, { count, range: 1, tokenClass });
+        terms.set(typeId, { count, range: 1, tokenClass, dpSum: 0 });
       }
       if (++scanned >= KEYNESS_SCAN_CHUNK) {
         scanned = 0;
@@ -256,12 +308,50 @@ async function foldSide(
     }
     await checkpoint();
   }
+
+  let positiveParts = 0;
+  for (const size of partSizes) if (size > 0) positiveParts++;
+
+  // Second pass — Gries' DP, now that every term's side total is known. A
+  // term's dpSum starts at Σ s_i = 1, the value it would have if it occurred
+  // in no part at all (each part contributing |0 − s_i|); each part where it
+  // DOES occur then swaps that absent contribution for the real one. Only
+  // present entries are visited, so this stays a walk over the same sparse
+  // vectors rather than a type×document matrix.
+  if (positiveParts >= 2 && tokens > 0) {
+    for (const term of terms.values()) term.dpSum = 1;
+    for (let part = 0; part < inputs.length; part++) {
+      const input = inputs[part]!;
+      const share = (partSizes[part] as number) / tokens;
+      for (let i = 0; i < input.counts.typeIds.length; i++) {
+        const typeId = input.counts.typeIds[i] as number;
+        const term = terms.get(typeId);
+        // Absent means a class this request filtered out, not a missing count.
+        if (term === undefined) continue;
+        const proportion = (input.counts.counts[i] as number) / term.count;
+        term.dpSum += Math.abs(proportion - share) - share;
+        if (++scanned >= KEYNESS_SCAN_CHUNK) {
+          scanned = 0;
+          await checkpoint();
+        }
+      }
+      await checkpoint();
+    }
+  }
+
   return {
     terms,
     ids: [...terms.keys()].sort((x, y) => x - y),
     tokens,
     documents: inputs.length,
+    positiveParts,
   };
+}
+
+/** Halve the folded deviation sum into DP, clamped against rounding drift. */
+function dispersionOf(term: SideTerm | undefined, positiveParts: number): number | null {
+  if (term === undefined || positiveParts < 2) return null;
+  return Math.min(1, Math.max(0, term.dpSum / 2));
 }
 
 function primary(row: KeynessRowV1, by: KeynessSortFieldV1): number {
@@ -309,6 +399,8 @@ export async function keyness(
   let i = 0;
   let j = 0;
   let scanned = 0;
+  let divergenceBits = 0;
+  let divergenceTypes = 0;
   while (i < a.ids.length || j < b.ids.length) {
     const aid = a.ids[i] ?? Number.POSITIVE_INFINITY;
     const bid = b.ids[j] ?? Number.POSITIVE_INFINITY;
@@ -322,11 +414,16 @@ export async function keyness(
     const countB = right?.count ?? 0;
     const rangeA = left?.range ?? 0;
     const rangeB = right?.range ?? 0;
+    // Every merged type, before the filter and before the side projection —
+    // the divergence describes the distributions, not the visible table.
+    divergenceBits += jsdContribution(countA / a.tokens, countB / b.tokens);
+    divergenceTypes++;
     if (
       countA + countB >= request.filter.minCountTotal &&
       rangeA + rangeB >= request.filter.minDocFreqTotal
     ) {
-      const effect = logRatio(countA, a.tokens, countB, b.tokens);
+      const interval = logRatioInterval(countA, a.tokens, countB, b.tokens);
+      const effect = interval.centre;
       const evidence = g2Keyness(countA, a.tokens, countB, b.tokens);
       if (
         request.side === 'both' ||
@@ -342,9 +439,13 @@ export async function keyness(
           rateAper10k: countA / a.tokens * 10_000,
           rateBper10k: countB / b.tokens * 10_000,
           logRatio: effect,
+          logRatioLow: interval.low,
+          logRatioHigh: interval.high,
           g2: evidence,
           rangeA,
           rangeB,
+          dpA: dispersionOf(left, a.positiveParts),
+          dpB: dispersionOf(right, b.positiveParts),
         });
       }
     }
@@ -374,8 +475,21 @@ export async function keyness(
     effect: 'log-ratio-halves/1',
     selectionA: selectionA.hash,
     selectionB: selectionB.hash,
-    totalsA: { tokens: a.tokens, documents: a.documents },
-    totalsB: { tokens: b.tokens, documents: b.documents },
+    totalsA: {
+      tokens: a.tokens,
+      documents: a.documents,
+      positiveParts: a.positiveParts,
+    },
+    totalsB: {
+      tokens: b.tokens,
+      documents: b.documents,
+      positiveParts: b.positiveParts,
+    },
+    divergence: {
+      method: 'jsd-log2/1',
+      bits: Math.min(1, Math.max(0, divergenceBits)),
+      types: divergenceTypes,
+    },
     total: rows.length,
     rows: rows.slice(request.page.offset, request.page.offset + request.page.limit),
   };

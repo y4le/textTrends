@@ -39,7 +39,12 @@ export interface InventoryTotalsV1 {
   readonly hapax: number;
   readonly sentences: number;
   readonly paragraphs: number;
+  /** Sum of each selected run's first-token-to-last-token source extent. */
   readonly charsUtf16: number;
+  /** Unicode letters or decimal digits in normalized selected token keys. */
+  readonly readabilityCharacters: number;
+  /** Unicode letters in normalized selected token keys. */
+  readonly readabilityLetters: number;
 }
 
 export interface InventoryDocumentRowV1 {
@@ -60,6 +65,8 @@ export interface InventoryDocumentRowV1 {
   readonly mattr: number | null;
   readonly mattrIsPlainTtr: boolean;
   readonly charsUtf16: number;
+  readonly readabilityCharacters: number;
+  readonly readabilityLetters: number;
 }
 
 export interface InventoryRhythmV1 {
@@ -211,6 +218,26 @@ function selectedChars(shard: DocumentIndexV1, runs: readonly TokenRangeSpan[]):
   return total;
 }
 
+const READABILITY_LETTER_RE = /\p{L}/u;
+const READABILITY_DECIMAL_RE = /\p{Nd}/u;
+
+function readabilityCounts(value: string): {
+  readonly characters: number;
+  readonly letters: number;
+} {
+  let characters = 0;
+  let letters = 0;
+  for (const point of value) {
+    if (READABILITY_LETTER_RE.test(point)) {
+      characters++;
+      letters++;
+    } else if (READABILITY_DECIMAL_RE.test(point)) {
+      characters++;
+    }
+  }
+  return { characters, letters };
+}
+
 function diversityForRuns(
   shard: DocumentIndexV1,
   runs: readonly TokenRangeSpan[],
@@ -298,6 +325,13 @@ export async function inventory(
   }
 
   const totalCounts = new Uint32Array(snapshot.vocabulary.keys.length);
+  const readabilityCharactersByType = new Uint32Array(
+    snapshot.vocabulary.keys.length,
+  );
+  const readabilityLettersByType = new Uint32Array(
+    snapshot.vocabulary.keys.length,
+  );
+  const readabilityMeasured = new Uint8Array(snapshot.vocabulary.keys.length);
   const documents: InventoryDocumentRowV1[] = [];
   const rhythmBins = request.rhythmBinsPerDoc;
   const rhythmDocOrdinal: number[] = [];
@@ -310,6 +344,8 @@ export async function inventory(
   let totalSentences = 0;
   let totalParagraphs = 0;
   let totalChars = 0;
+  let totalReadabilityCharacters = 0;
+  let totalReadabilityLetters = 0;
   let scannedTypes = 0;
 
   for (let docOrdinal = 0; docOrdinal < inputs.length; docOrdinal++) {
@@ -348,6 +384,8 @@ export async function inventory(
     const charsUtf16 = selectedChars(input.shard, runs);
     const diversity = diversityForRuns(input.shard, runs, request.mattrWindow);
     let hapax = 0;
+    let readabilityCharacters = 0;
+    let readabilityLetters = 0;
     for (let i = 0; i < input.counts.typeIds.length; i++) {
       const typeId = input.counts.typeIds[i] as number;
       const count = input.counts.counts[i] as number;
@@ -357,6 +395,24 @@ export async function inventory(
       const next = (totalCounts[typeId] as number) + count;
       if (next > 0xffff_ffff) throw new CapError('inventory term count exceeds Uint32');
       totalCounts[typeId] = next;
+      if ((readabilityMeasured[typeId] as number) === 0) {
+        const measured = readabilityCounts(
+          snapshot.vocabulary.keys[typeId] as string,
+        );
+        readabilityCharactersByType[typeId] = measured.characters;
+        readabilityLettersByType[typeId] = measured.letters;
+        readabilityMeasured[typeId] = 1;
+      }
+      readabilityCharacters += count
+        * (readabilityCharactersByType[typeId] as number);
+      readabilityLetters += count
+        * (readabilityLettersByType[typeId] as number);
+      if (
+        !Number.isSafeInteger(readabilityCharacters)
+        || !Number.isSafeInteger(readabilityLetters)
+      ) {
+        throw new CapError('inventory readability count exceeds safe integer');
+      }
       if (count === 1) hapax++;
       if (++scannedTypes >= INVENTORY_SCAN_CHUNK) {
         scannedTypes = 0;
@@ -382,10 +438,20 @@ export async function inventory(
       mattr: diversity.value,
       mattrIsPlainTtr: diversity.isPlainTtr,
       charsUtf16,
+      readabilityCharacters,
+      readabilityLetters,
     });
     totalSentences += sentences.count;
     totalParagraphs += paragraphs.count;
     totalChars += charsUtf16;
+    totalReadabilityCharacters += readabilityCharacters;
+    totalReadabilityLetters += readabilityLetters;
+    if (
+      !Number.isSafeInteger(totalReadabilityCharacters)
+      || !Number.isSafeInteger(totalReadabilityLetters)
+    ) {
+      throw new CapError('inventory readability total exceeds safe integer');
+    }
 
     for (let bin = 0; bin < rhythmBins; bin++) {
       const start = width === 0 ? 0 : Math.min(bin * width, input.ref.tokenCount);
@@ -427,6 +493,8 @@ export async function inventory(
     sentences: totalSentences,
     paragraphs: totalParagraphs,
     charsUtf16: totalChars,
+    readabilityCharacters: totalReadabilityCharacters,
+    readabilityLetters: totalReadabilityLetters,
   };
   return {
     method: 'inventory/1',

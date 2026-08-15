@@ -25,6 +25,8 @@ const result: InventoryResultV1 = {
     sentences: 2,
     paragraphs: 1,
     charsUtf16: 20,
+    readabilityCharacters: 20,
+    readabilityLetters: 20,
   },
   documents: [{
     doc: 'a',
@@ -44,6 +46,8 @@ const result: InventoryResultV1 = {
     mattr: 0.5,
     mattrIsPlainTtr: true,
     charsUtf16: 20,
+    readabilityCharacters: 20,
+    readabilityLetters: 20,
   }],
   rhythm: null,
   missingDocs: [],

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { dp, dpNorm, g2Keyness, logDice, logRatio, MATTR_MAX_TYPES, mattr, mattrIds, mtld, pmi, tScore } from '../src/index.ts';
+import { automatedReadabilityIndex, colemanLiauIndex, dp, dpNorm, g2Keyness, jensenShannon, jsdContribution, logDice, logRatio, logRatioInterval, LOG_RATIO_Z_95, MATTR_MAX_TYPES, mattr, mattrIds, mtld, pmi, tScore } from '../src/index.ts';
 
 // Published-value fixtures from docs/design/statistics.md — each vector is
 // hand-computed there and verified numerically; these tests pin the formulas.
@@ -128,5 +128,110 @@ describe('diversity', () => {
     // Forward: factors at positions 2 and 4 => 2 factors exactly, no partial.
     // Backward identical. MTLD = 4/2 = 2.
     expect(mtld(['a', 'a', 'a', 'a'])).toBe(2);
+  });
+});
+
+describe('log-ratio confidence interval', () => {
+  it('brackets the point estimate symmetrically in log₂ units', () => {
+    const interval = logRatioInterval(10, 1000, 2, 2000);
+    const centre = logRatio(10, 1000, 2, 2000);
+    expect(interval.low).toBeCloseTo(1.0828, 3);
+    expect(interval.high).toBeCloseTo(5.0565, 3);
+    expect(interval.centre).toBeCloseTo(centre, 12);
+    expect(centre - interval.low).toBeCloseTo(interval.high - centre, 12);
+    expect(interval.z).toBeCloseTo(LOG_RATIO_Z_95, 12);
+  });
+
+  it('separates a thin effect from a thick one at the same effect size', () => {
+    // Both sit near +2.8..+3.9 log₂, and only the interval tells them apart:
+    // 3-vs-0 cannot exclude "no difference", 3000-vs-200 easily can.
+    const thin = logRatioInterval(3, 1000, 0, 1000);
+    const thick = logRatioInterval(3000, 100_000, 200, 100_000);
+    expect(thin.low).toBeLessThan(0);
+    expect(thin.high).toBeGreaterThan(0);
+    expect(thick.low).toBeCloseTo(3.6977, 3);
+    expect(thick.high).toBeCloseTo(4.1094, 3);
+    expect(thick.high - thick.low).toBeLessThan(thin.high - thin.low);
+  });
+
+  it('rejects a malformed table or quantile before calculating', () => {
+    expect(() => logRatioInterval(11, 10, 1, 10)).toThrow(RangeError);
+    expect(() => logRatioInterval(1, 10, 1, 10, 0)).toThrow(RangeError);
+    expect(() => logRatioInterval(1, 10, 1, 10, Number.NaN)).toThrow(RangeError);
+  });
+
+  it('scales the half-width with a caller-supplied positive quantile', () => {
+    const standard = logRatioInterval(10, 1_000, 2, 2_000);
+    const doubled = logRatioInterval(10, 1_000, 2, 2_000, 2 * LOG_RATIO_Z_95);
+    expect(doubled.high - doubled.centre).toBeCloseTo(
+      2 * (standard.high - standard.centre),
+      12,
+    );
+  });
+});
+
+describe('Jensen–Shannon divergence', () => {
+  it('is 0 for identical distributions and 1 for disjoint ones', () => {
+    expect(jensenShannon([0.5, 0.5], [0.5, 0.5])).toBeCloseTo(0, 12);
+    expect(jensenShannon([1, 0], [0, 1])).toBeCloseTo(1, 12);
+  });
+
+  it('is exactly 0.5 bits when the distributions share exactly half their mass', () => {
+    expect(jensenShannon([0.5, 0.5, 0], [0, 0.5, 0.5])).toBeCloseTo(0.5, 12);
+  });
+
+  it('is symmetric', () => {
+    const p = [0.9, 0.1];
+    const q = [0.1, 0.9];
+    expect(jensenShannon(p, q)).toBeCloseTo(0.5310, 4);
+    expect(jensenShannon(q, p)).toBeCloseTo(jensenShannon(p, q), 12);
+  });
+
+  it('sums the same value from per-type contributions', () => {
+    const p = [0.6, 0.4, 0];
+    const q = [0, 0.5, 0.5];
+    const summed = p.reduce(
+      (total, share, index) => total + jsdContribution(share, q[index] as number),
+      0,
+    );
+    expect(summed).toBeCloseTo(jensenShannon(p, q), 12);
+  });
+
+  it('rejects non-distributions and malformed shares', () => {
+    expect(() => jensenShannon([0.5, 0.4], [0.5, 0.5])).toThrow(RangeError);
+    expect(() => jensenShannon([0.5, 0.5], [0.5])).toThrow(RangeError);
+    expect(() => jsdContribution(-0.1, 0.5)).toThrow(RangeError);
+    expect(() => jsdContribution(Number.NaN, 0.5)).toThrow(RangeError);
+    expect(() => jensenShannon([0.5, 0.5], [0.5, 0.5], -1)).toThrow(RangeError);
+    expect(() => jensenShannon([0.5, 0.5], [0.5, 0.5], Number.NaN))
+      .toThrow(RangeError);
+    expect(jsdContribution(0, 0)).toBe(0);
+  });
+});
+
+describe('readability', () => {
+  it('computes ARI and Coleman–Liau from exact counts', () => {
+    expect(automatedReadabilityIndex(500, 100, 10)).toBeCloseTo(7.12, 6);
+    expect(colemanLiauIndex(500, 100, 10)).toBeCloseTo(10.64, 6);
+  });
+
+  it('rises with longer words and longer sentences', () => {
+    const base = automatedReadabilityIndex(500, 100, 10);
+    expect(automatedReadabilityIndex(700, 100, 10)).toBeGreaterThan(base);
+    expect(automatedReadabilityIndex(500, 100, 5)).toBeGreaterThan(base);
+    const colemanBase = colemanLiauIndex(500, 100, 10);
+    expect(colemanLiauIndex(700, 100, 10)).toBeGreaterThan(colemanBase);
+    expect(colemanLiauIndex(500, 100, 5)).toBeGreaterThan(colemanBase);
+  });
+
+  it('rejects counts that cannot describe real text', () => {
+    expect(() => automatedReadabilityIndex(500, 0, 10)).toThrow(RangeError);
+    expect(() => automatedReadabilityIndex(500, 100, 0)).toThrow(RangeError);
+    expect(() => automatedReadabilityIndex(50, 100, 10)).toThrow(RangeError);
+    expect(() => automatedReadabilityIndex(500, 1, 10)).toThrow(RangeError);
+    expect(() => automatedReadabilityIndex(500.5, 100, 10)).toThrow(RangeError);
+    expect(() => colemanLiauIndex(-1, 100, 10)).toThrow(RangeError);
+    expect(colemanLiauIndex(0, 100, 10)).toBeCloseTo(-18.76, 12);
+    expect(automatedReadabilityIndex(100, 100, 100)).toBeCloseTo(-16.22, 12);
   });
 });

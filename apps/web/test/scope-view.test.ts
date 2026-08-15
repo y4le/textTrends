@@ -24,6 +24,8 @@ const inventoryResult = (
     sentences: 0,
     paragraphs: 0,
     charsUtf16: 0,
+    readabilityCharacters: 0,
+    readabilityLetters: 0,
   },
   documents: [],
   rhythm: null,

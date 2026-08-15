@@ -30,6 +30,8 @@ const inventory: InventoryResultV1 = {
     sentences: 10,
     paragraphs: 5,
     charsUtf16: 900,
+    readabilityCharacters: 900,
+    readabilityLetters: 900,
   },
   documents: [],
   rhythm: null,
@@ -75,8 +77,9 @@ const keyness: KeynessResultV1 = {
   effect: 'log-ratio-halves/1',
   selectionA: 'sha256:a' as KeynessResultV1['selectionA'],
   selectionB: 'sha256:b' as KeynessResultV1['selectionB'],
-  totalsA: { tokens: 100, documents: 1 },
-  totalsB: { tokens: 100, documents: 1 },
+  totalsA: { tokens: 100, documents: 1, positiveParts: 1 },
+  totalsB: { tokens: 100, documents: 1, positiveParts: 1 },
+  divergence: { method: 'jsd-log2/1' as const, bits: 0.5, types: 2 },
   total: 1,
   rows: [{
     key: 'Holmes',
@@ -87,9 +90,13 @@ const keyness: KeynessResultV1 = {
     rateAper10k: 900,
     rateBper10k: 100,
     logRatio: 3,
+    logRatioLow: 3 - 1,
+    logRatioHigh: 3 + 1,
     g2: 5,
     rangeA: 1,
     rangeB: 1,
+    dpA: null,
+    dpB: null,
   }],
 };
 
@@ -158,10 +165,15 @@ describe('provenanceFor', () => {
     expect(compare).toContain('shared sort field: logRatio');
     expect(compare).toContain('A direction: descending');
     expect(compare).toContain('B direction: ascending');
-    expect(compare).toContain('page size: 100');
+    expect(compare).toContain('fetch chunk size: 100');
     expect(compare).toContain('exactly zero log ratio');
-    expect(compare).toContain('page-local scale');
-    expect(compare).toContain('No confidence intervals');
+    expect(compare).toContain('shared scale over the currently loaded ranks');
+    expect(compare).toContain('interval: 95% Wald on log ratio');
+    expect(compare).toContain('no multiple-comparison correction');
+    expect(compare).toContain('independent token draws');
+    expect(compare).toContain('divergence: jsd-log2/1');
+    expect(compare).toContain('divergence types: 2');
+    expect(compare).toContain('dispersion: dispersion-dp/1');
     expect(compare).toContain('linked Trends range');
   });
 
