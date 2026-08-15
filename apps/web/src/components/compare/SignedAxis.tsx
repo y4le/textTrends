@@ -1,10 +1,9 @@
-import { Fragment, type CSSProperties, type ReactNode } from 'react';
+import { Fragment, type CSSProperties } from 'react';
 import type { KeynessRowV1 } from '@texttrends/core';
 import { boundedPageView } from '../../lib/bounded-page-view.ts';
 import {
   compareBarPercent,
   compareRowControlId,
-  compareSortLabel,
   compareSortDescription,
   type CompareRowTarget,
   type CompareScale,
@@ -19,203 +18,79 @@ import {
   type RowControlProps,
 } from '../useRowNavigation.ts';
 
-const signed = new Intl.NumberFormat('en-US', {
-  maximumFractionDigits: 3,
-  signDisplay: 'always',
-});
-const scaleNumber = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
+const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 const integer = new Intl.NumberFormat('en-US');
 const rowNavigationKey = (side: 'a' | 'b', typeId: number) => `${side}:${typeId}`;
 
 function projectedTotal(total: number): string {
-  return `${integer.format(total)} projected ${total === 1 ? 'term' : 'terms'}`;
+  return `${integer.format(total)} distinctive ${total === 1 ? 'term' : 'terms'}`;
 }
 
 function sideOffset(view: KeynessViewV1, side: 'a' | 'b'): number {
   return side === 'a' ? view.offsetA : view.offsetB;
 }
 
-function AxisRow({
+function readyRows(state: KeynessTableState | null): readonly KeynessRowV1[] {
+  return state?.state.status === 'ready' ? state.state.result.rows : [];
+}
+
+function SideHalf({
   row,
   side,
-  view,
+  sideLabel,
   scale,
   expanded,
   onOpen,
-  compact,
   navigation,
 }: {
   readonly row: KeynessRowV1;
   readonly side: 'a' | 'b';
-  readonly view: KeynessViewV1;
+  readonly sideLabel: string;
   readonly scale: CompareScale;
   readonly expanded: boolean;
   readonly onOpen: () => void;
-  readonly compact: boolean;
   readonly navigation: RowControlProps;
 }) {
   const width = compareBarPercent(row.logRatio, scale.maximum);
   const barStyle = { '--compare-bar-width': `${width}%` } as CSSProperties;
   return (
-    <Fragment>
-      <tr className="compare-axis-row" data-side={side} role="row">
-        <th
-          className="compare-term"
-          scope="row"
-          role="rowheader"
-          aria-colindex={1}
-        >
-          <button
-            {...navigation}
-            id={compareRowControlId(side, row.typeId)}
-            type="button"
-            aria-expanded={expanded}
-            onClick={onOpen}
-          >
-            <span>{row.key}</span>
-            <span className="compare-term-cue" aria-hidden="true">▸</span>
-          </button>
-        </th>
-        <td className="compare-effect" role="cell" aria-colindex={2}>
-          {!compact && (
-            <span className="compare-axis-plot" aria-hidden="true">
-              <span className="compare-axis-zero" />
-              <span
-                className="compare-axis-bar"
-                data-side={side}
-                style={barStyle}
-              />
-            </span>
-          )}
-          <span className="compare-effect-value selectable-stat">{signed.format(row.logRatio)}</span>
-        </td>
-        <td className="compare-side" role="cell" aria-colindex={3}>
-          {side.toUpperCase()}
-          <span className="compare-side-cue" aria-hidden="true">▸</span>
-        </td>
-      </tr>
-      {expanded && (
-        <tr className="compare-detail-row" role="row">
-          <td colSpan={3} role="cell" aria-colindex={1}>
-            <CompareRowDetail
-              row={row}
-              side={side}
-              view={view}
-            />
-          </td>
-        </tr>
-      )}
-    </Fragment>
+    <button
+      {...navigation}
+      id={compareRowControlId(side, row.typeId)}
+      className="compare-pyramid-button"
+      type="button"
+      aria-label={`${row.key}, ${decimal.format(Math.abs(row.logRatio))} log₂ lift for ${sideLabel}`}
+      aria-expanded={expanded}
+      onClick={onOpen}
+    >
+      <span className="compare-pyramid-value selectable-stat">
+        {decimal.format(Math.abs(row.logRatio))}
+      </span>
+      <span className="compare-pyramid-term" title={row.key}>{row.key}</span>
+      <span className="compare-pyramid-plot" aria-hidden="true">
+        <span className="compare-pyramid-bar" style={barStyle} />
+      </span>
+    </button>
   );
 }
 
-function SideRows({
-  side,
+function SideStatus({
   state,
-  view,
-  scale,
-  rowTarget,
-  onRow,
-  compact,
-  navigationProps,
+  side,
 }: {
-  readonly side: 'a' | 'b';
   readonly state: KeynessTableState | null;
-  readonly view: KeynessViewV1;
-  readonly scale: CompareScale;
-  readonly rowTarget: CompareRowTarget | null;
-  readonly onRow: (row: KeynessRowV1) => void;
-  readonly compact: boolean;
-  readonly navigationProps: (key: string) => RowControlProps;
+  readonly side: 'a' | 'b';
 }) {
-  const offset = sideOffset(view, side);
-  const page = state?.state.status === 'ready'
-    ? boundedPageView(
-        state.state.result.total,
-        offset,
-        view.pageLimit,
-        state.state.result.rows.length,
-      )
-    : null;
-  const total = state?.state.status === 'ready'
-    ? state.state.result.total
-    : null;
-  const groupLabel = [
-    `Side ${side.toUpperCase()}`,
-    `${compareSortDescription(view, side)}`,
-    page && total !== null
-      ? `${page.label} · ${projectedTotal(total)}`
-      : state?.state.status ?? 'unavailable',
-  ].join(' · ');
-  let rows: ReactNode;
-  if (!state || state.state.status === 'pending') {
-    rows = (
-      <tr className="compare-axis-status" role="row">
-        <td colSpan={3} role="cell" aria-colindex={1}>
-          ranking side {side.toUpperCase()}…
-        </td>
-      </tr>
-    );
-  } else if (state.state.status === 'error') {
-    rows = (
-      <tr className="compare-axis-status" data-error role="row">
-        <td colSpan={3} role="cell" aria-colindex={1}>{state.state.message}</td>
-      </tr>
-    );
-  } else if (state.state.result.rows.length === 0) {
-    rows = (
-      <tr className="compare-axis-status" role="row">
-        <td colSpan={3} role="cell" aria-colindex={1}>
-          No terms meet this side's projection and filters.
-        </td>
-      </tr>
-    );
-  } else {
-    rows = state.state.result.rows.map((row) => {
-      const expanded =
-        rowTarget?.side === side
-        && rowTarget.typeId === row.typeId
-        && rowTarget.key === row.key;
-      return (
-        <AxisRow
-          key={`${side}-${row.typeId}`}
-          row={row}
-          side={side}
-          view={view}
-          scale={scale}
-          expanded={expanded}
-          onOpen={() => onRow(row)}
-          compact={compact}
-          navigation={navigationProps(rowNavigationKey(side, row.typeId))}
-        />
-      );
-    });
-  }
+  const message = !state || state.state.status === 'pending'
+    ? 'ranking…'
+    : state.state.status === 'error'
+      ? state.state.message
+      : 'No terms meet the filters.';
   return (
-    <tbody role="rowgroup" aria-label={groupLabel} data-side={side}>
-      {rows}
-      {rowTarget?.side === side && state?.state.status !== 'ready' && (
-        <tr className="compare-detail-row" role="row">
-          <td colSpan={3} role="cell" aria-colindex={1}>
-            <p className="compare-row-note">
-              {state?.state.status === 'error'
-                ? (
-                    <>
-                      Detail for {rowTarget.key} is retained; side{' '}
-                      {side.toUpperCase()} is unavailable: {state.state.message}
-                    </>
-                  )
-                : (
-                    <>
-                      Detail for {rowTarget.key} is retained while side{' '}
-                      {side.toUpperCase()} refreshes.
-                    </>
-                  )}
-            </p>
-          </td>
-        </tr>
-      )}
-    </tbody>
+    <p className="compare-pyramid-status" data-error={state?.state.status === 'error' || undefined}>
+      <span className="visually-hidden">Side {side.toUpperCase()}: </span>
+      {message}
+    </p>
   );
 }
 
@@ -245,6 +120,7 @@ function SidePagination({
   return (
     <div
       className="compare-pagination"
+      data-side={side}
       role="group"
       aria-label={`Side ${side.toUpperCase()} pagination`}
     >
@@ -279,9 +155,10 @@ export function SignedAxis({
   view,
   scale,
   rowTarget,
+  sideLabelA,
+  sideLabelB,
   onRow,
   onPage,
-  compact,
   onCloseRow,
 }: {
   readonly stateA: KeynessTableState | null;
@@ -289,79 +166,141 @@ export function SignedAxis({
   readonly view: KeynessViewV1;
   readonly scale: CompareScale;
   readonly rowTarget: CompareRowTarget | null;
+  readonly sideLabelA: string;
+  readonly sideLabelB: string;
   readonly onRow: (side: 'a' | 'b', row: KeynessRowV1) => void;
   readonly onPage: (side: 'a' | 'b', offset: number) => void;
-  readonly compact: boolean;
   readonly onCloseRow: () => boolean;
 }) {
-  const caption = [
-    `A and B keep independent ${compareSortLabel(view.sort.by)} rank order.`,
-    `Bars share a page-local log₂-ratio scale from −${scaleNumber.format(scale.maximum)} to +${scaleNumber.format(scale.maximum)}.`,
-    scale.provisional ? 'Scale is provisional until both sides are ready.' : '',
-    'Terms with exactly zero log₂ ratio are in neither projection.',
-  ].filter(Boolean).join(' ');
-  const rowsA = stateA?.state.status === 'ready' ? stateA.state.result.rows : [];
-  const rowsB = stateB?.state.status === 'ready' ? stateB.state.result.rows : [];
+  const rowsA = readyRows(stateA);
+  const rowsB = readyRows(stateB);
+  const pairCount = Math.max(rowsA.length, rowsB.length, 1);
+  const pairs = Array.from({ length: pairCount }, (_, index) => ({
+    a: rowsA[index] ?? null,
+    b: rowsB[index] ?? null,
+  }));
+  const navigationKeys = pairs.flatMap(({ a, b }) => [
+    ...(a ? [rowNavigationKey('a', a.typeId)] : []),
+    ...(b ? [rowNavigationKey('b', b.typeId)] : []),
+  ]);
   const rowNavigation = useRowNavigation({
-    keys: [
-      ...rowsA.map((row) => rowNavigationKey('a', row.typeId)),
-      ...rowsB.map((row) => rowNavigationKey('b', row.typeId)),
-    ],
+    keys: navigationKeys,
     label: 'Compare',
     preferredKey: rowTarget === null
       ? null
       : rowNavigationKey(rowTarget.side, rowTarget.typeId),
     onExit: onCloseRow,
   });
+  const retainedTarget = rowTarget !== null
+    && (rowTarget.side === 'a' ? stateA : stateB)?.state.status !== 'ready';
+
   return (
     <section className="compare-axis-section" aria-labelledby="compare-axis-heading">
-      <h3 id="compare-axis-heading">Distinctive terms</h3>
+      <div className="compare-axis-heading">
+        <h3 id="compare-axis-heading">Distinctive terms</h3>
+        <p>
+          {compareSortDescription(view, 'a')} left · {compareSortDescription(view, 'b')} right
+        </p>
+      </div>
       <div
+        {...rowNavigation.portProps}
         ref={rowNavigation.portRef}
         className="compare-table-port"
-        role={compact ? undefined : 'region'}
-        aria-label={compact ? undefined : 'Scrollable Compare signed axis'}
-        tabIndex={compact ? -1 : 0}
+        role="region"
+        aria-label="Compare population pyramid"
+        tabIndex={0}
       >
         <table
           className="compare-axis-table"
           role="table"
-          aria-label="Compare signed axis"
-          aria-colcount={3}
+          aria-label="Compare population pyramid"
+          aria-colcount={2}
         >
-          <caption>{caption}</caption>
-          <colgroup>
-            <col className="compare-col-term" />
-            <col className="compare-col-effect" />
-            <col className="compare-col-side" />
-          </colgroup>
+          <caption className="visually-hidden">
+            Distinctive vocabulary ranked independently on two sides. Bar length
+            uses a shared page-local log₂-ratio scale; select either half-row for
+            that word's full comparison.
+          </caption>
           <thead role="rowgroup">
             <tr role="row">
-              <th scope="col" role="columnheader" aria-colindex={1}>term</th>
-              <th scope="col" role="columnheader" aria-colindex={2}>log₂ ratio</th>
-              <th scope="col" role="columnheader" aria-colindex={3}>side</th>
+              <th scope="col" role="columnheader" aria-colindex={1}>
+                <span>log₂ lift</span>
+                <strong>{sideLabelA}</strong>
+              </th>
+              <th scope="col" role="columnheader" aria-colindex={2}>
+                <strong>{sideLabelB}</strong>
+                <span>log₂ lift</span>
+              </th>
             </tr>
           </thead>
-          <SideRows
-            side="a"
-            state={stateA}
-            view={view}
-            scale={scale}
-            rowTarget={rowTarget}
-            onRow={(row) => onRow('a', row)}
-            compact={compact}
-            navigationProps={rowNavigation.controlProps}
-          />
-          <SideRows
-            side="b"
-            state={stateB}
-            view={view}
-            scale={scale}
-            rowTarget={rowTarget}
-            onRow={(row) => onRow('b', row)}
-            compact={compact}
-            navigationProps={rowNavigation.controlProps}
-          />
+          <tbody role="rowgroup" aria-label="Paired distinctive term ranks">
+            {pairs.map(({ a, b }, index) => {
+              const targetRow = rowTarget?.side === 'a' ? a : b;
+              const expanded = rowTarget !== null
+                && targetRow?.typeId === rowTarget.typeId
+                && targetRow.key === rowTarget.key;
+              return (
+                <Fragment key={`${a?.typeId ?? 'empty'}:${b?.typeId ?? 'empty'}:${index}`}>
+                  <tr className="compare-pyramid-row" role="row" data-row-navigation-row>
+                    <td className="compare-pyramid-half" data-side="a" role="cell" aria-colindex={1}>
+                      {a
+                        ? (
+                            <SideHalf
+                              row={a}
+                              side="a"
+                              sideLabel={sideLabelA}
+                              scale={scale}
+                              expanded={expanded && rowTarget?.side === 'a'}
+                              onOpen={() => onRow('a', a)}
+                              navigation={rowNavigation.controlProps(rowNavigationKey('a', a.typeId))}
+                            />
+                          )
+                        : index === 0 && <SideStatus state={stateA} side="a" />}
+                    </td>
+                    <td className="compare-pyramid-half" data-side="b" role="cell" aria-colindex={2}>
+                      {b
+                        ? (
+                            <SideHalf
+                              row={b}
+                              side="b"
+                              sideLabel={sideLabelB}
+                              scale={scale}
+                              expanded={expanded && rowTarget?.side === 'b'}
+                              onOpen={() => onRow('b', b)}
+                              navigation={rowNavigation.controlProps(rowNavigationKey('b', b.typeId))}
+                            />
+                          )
+                        : index === 0 && <SideStatus state={stateB} side="b" />}
+                    </td>
+                  </tr>
+                  {expanded && targetRow && rowTarget && (
+                    <tr className="compare-detail-row" role="row">
+                      <td colSpan={2} role="cell" aria-colindex={1}>
+                        <CompareRowDetail
+                          row={targetRow}
+                          side={rowTarget.side}
+                          sideLabelA={sideLabelA}
+                          sideLabelB={sideLabelB}
+                          view={view}
+                          onClose={onCloseRow}
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              );
+            })}
+            {retainedTarget && rowTarget && (
+              <tr className="compare-detail-row" role="row">
+                <td colSpan={2} role="cell" aria-colindex={1}>
+                  <p className="compare-row-note">
+                    Detail for {rowTarget.key} is retained while side{' '}
+                    {rowTarget.side.toUpperCase()} refreshes.
+                  </p>
+                </td>
+              </tr>
+            )}
+          </tbody>
         </table>
       </div>
       <div className="compare-pagers">

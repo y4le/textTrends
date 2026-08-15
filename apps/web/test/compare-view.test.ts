@@ -181,8 +181,8 @@ describe('Compare view law', () => {
     const negative = { ...row, typeId: 8, key: 'Watson', logRatio: -6 };
     expect(compareScale(state('a', 'ready'), state('b', 'ready', [negative])))
       .toEqual({ maximum: 6, provisional: false });
-    expect(compareBarPercent(3, 6)).toBe(25);
-    expect(compareBarPercent(-9, 6)).toBe(50);
+    expect(compareBarPercent(3, 6)).toBe(50);
+    expect(compareBarPercent(-9, 6)).toBe(100);
     expect(compareBarPercent(Number.NaN, 6)).toBe(0);
   });
 

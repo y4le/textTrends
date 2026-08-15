@@ -199,12 +199,12 @@ export function compareScale(
   };
 }
 
-/** Width within one half of the signed axis, expressed as 0..50 percent. */
+/** Width within one side of the population pyramid, expressed as 0..100 percent. */
 export function compareBarPercent(effect: number, maximum: number): number {
   if (!Number.isFinite(effect) || !Number.isFinite(maximum) || maximum <= 0) {
     return 0;
   }
-  return Math.min(50, Math.max(0, Math.abs(effect) / maximum * 50));
+  return Math.min(100, Math.max(0, Math.abs(effect) / maximum * 100));
 }
 
 export function compareRowForTarget(

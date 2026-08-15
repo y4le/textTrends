@@ -16,7 +16,6 @@ import {
   compareSideLabel,
   compareTarget,
   compareTargetIsStale,
-  compareViewSummary,
   type CompareTarget,
 } from '../../lib/compare-view.ts';
 import {
@@ -29,7 +28,6 @@ import {
   type KeynessInventoryState,
   type KeynessSettingsInputV1,
   type KeynessTableState,
-  type KeynessViewV1,
 } from '../../lib/store.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { CompareSettings } from './CompareSettings.tsx';
@@ -58,10 +56,12 @@ function WholeSideSummary({
 
 function SideSummary({
   side,
+  label,
   table,
   inventory,
 }: {
   readonly side: 'a' | 'b';
+  readonly label: string;
   readonly table: KeynessTableState | null;
   readonly inventory: KeynessInventoryState | null;
 }) {
@@ -81,7 +81,7 @@ function SideSummary({
       : 'selected classes: calculating…';
   return (
     <section className="compare-side-summary" aria-label={`Side ${side.toUpperCase()} summary`}>
-      <strong>Side {side.toUpperCase()}</strong>
+      <strong>{label}</strong>
       <p>{selectedSummary}</p>
       <p><WholeSideSummary inventory={inventory} /></p>
     </section>
@@ -98,8 +98,7 @@ export function ComparePanel() {
   const inventoryA = useApp((state) => state.keynessInventoryA);
   const inventoryB = useApp((state) => state.keynessInventoryB);
   const layers = useApp((state) => state.layers);
-  const setMode = useApp((state) => state.setKeynessMode);
-  const setDocument = useApp((state) => state.setKeynessDocument);
+  const setSelection = useApp((state) => state.setKeynessSelection);
   const swapSides = useApp((state) => state.swapKeynessSides);
   const applySettings = useApp((state) => state.applyKeynessSettings);
   const setDirection = useApp((state) => state.setKeynessDirection);
@@ -179,6 +178,8 @@ export function ComparePanel() {
     [project],
   );
   const titleOf = (doc: string) => titleByDoc.get(doc) ?? doc;
+  const sideLabelA = compareSideLabel('a', view, titleOf);
+  const sideLabelB = compareSideLabel('b', view, titleOf);
 
   const writeTarget = (
     next: CompareTarget,
@@ -250,21 +251,29 @@ export function ComparePanel() {
   const sideControl = (side: 'a' | 'b') => {
     const isRest = view.mode === 'document-rest' && view.restOn === side;
     const doc = side === 'a' ? view.documentA : view.documentB;
-    if (isRest) {
-      return <span className="compare-rest-label">{compareSideLabel(side, view, titleOf)}</span>;
-    }
+    const otherIsRest = view.mode === 'document-rest' && view.restOn !== side;
+    const otherDoc = side === 'a' ? view.documentB : view.documentA;
+    const restExcludes = otherIsRest ? doc : otherDoc;
     return (
       <select
         className="exact-input"
-        aria-label={`Side ${side.toUpperCase()} book`}
-        value={doc ?? ''}
-        onChange={(event) => setDocument(side, event.currentTarget.value)}
+        aria-label={`${side === 'a' ? 'Left' : 'Right'} comparison input`}
+        value={isRest ? '__rest__' : doc ?? ''}
+        onChange={(event) => setSelection(
+          side,
+          event.currentTarget.value === '__rest__'
+            ? null
+            : event.currentTarget.value,
+        )}
       >
+        <option value="__rest__">
+          All other texts{restExcludes ? ` (except ${titleOf(restExcludes)})` : ''}
+        </option>
         {readyDocs.map((candidate) => (
           <option
             key={candidate}
             value={candidate}
-            disabled={candidate === (side === 'a' ? view.documentB : view.documentA)}
+            disabled={!otherIsRest && candidate === otherDoc}
           >
             {titleOf(candidate)}
           </option>
@@ -288,43 +297,33 @@ export function ComparePanel() {
 
   return (
     <section className="compare-panel" aria-label="Keyness comparison">
-      <p className="compare-scope-note">
-        Compare uses explicit sides A and B. A linked Trends range does not
-        redefine either side.
-      </p>
       {readyDocs.length < 2
         ? <p>Add at least two ready books to compare distinctive terms.</p>
         : (
           <>
             <div className="compare-definition">
-              <label>
-                comparison
-                <select
-                  className="exact-input"
-                  aria-label="Comparison mode"
-                  value={view.mode}
-                  onChange={(event) =>
-                    setMode(event.currentTarget.value as KeynessViewV1['mode'])}
-                >
-                  <option value="documents">book vs book</option>
-                  <option value="document-rest">book vs rest</option>
-                </select>
+              <label data-side="a">
+                <span>left side</span>
+                {sideControl('a')}
               </label>
-              <label>side A {sideControl('a')}</label>
               <button
                 className="compare-swap"
                 type="button"
                 onClick={swapSides}
                 aria-label="Swap keyness sides"
+                title="Swap comparison sides"
               >
-                ⇄ swap
+                <span aria-hidden="true">⇄</span>
               </button>
-              <label>side B {sideControl('b')}</label>
+              <label data-side="b">
+                <span>right side</span>
+                {sideControl('b')}
+              </label>
             </div>
 
             <div className="compare-side-summaries">
-              <SideSummary side="a" table={stateA} inventory={inventoryA} />
-              <SideSummary side="b" table={stateB} inventory={inventoryB} />
+              <SideSummary side="a" label={sideLabelA} table={stateA} inventory={inventoryA} />
+              <SideSummary side="b" label={sideLabelB} table={stateB} inventory={inventoryB} />
             </div>
             <div className="compare-warnings">
               {(['a', 'b'] as const).map((side) => {
@@ -350,7 +349,10 @@ export function ComparePanel() {
             </div>
 
             <div className="compare-view-bar">
-              <p>{compareViewSummary(view)}</p>
+              <p>
+                count ≥ {number.format(view.minCountTotal)} · texts ≥{' '}
+                {number.format(view.minDocFreqTotal)} · {view.classes.join(' + ')}
+              </p>
               <button
                 id={compareSettingsControlId}
                 type="button"
@@ -375,10 +377,10 @@ export function ComparePanel() {
               aria-label="Independent projection directions"
             >
               <button type="button" onClick={() => setDirection('a')}>
-                reverse side A · {view.sort.dirA === 1 ? 'ascending' : 'descending'}
+                reverse left · {view.sort.dirA === 1 ? 'ascending' : 'descending'}
               </button>
               <button type="button" onClick={() => setDirection('b')}>
-                reverse side B · {view.sort.dirB === 1 ? 'ascending' : 'descending'}
+                reverse right · {view.sort.dirB === 1 ? 'ascending' : 'descending'}
               </button>
             </div>
             {settingsOpen && !compact && (
@@ -410,9 +412,10 @@ export function ComparePanel() {
               view={view}
               scale={scale}
               rowTarget={rowTarget}
+              sideLabelA={sideLabelA}
+              sideLabelB={sideLabelB}
               onRow={openRow}
               onPage={setPage}
-              compact={compact}
               onCloseRow={closeRow}
             />
           </>

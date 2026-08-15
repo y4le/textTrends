@@ -1217,33 +1217,44 @@ canvas {
 }
 
 .compare-definition {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
   align-items: end;
-  gap: var(--space-3);
+  gap: var(--space-2);
   margin-block: var(--space-3);
-  flex-wrap: wrap;
 }
 
 .compare-definition label {
-  display: flex;
+  display: grid;
   min-inline-size: 0;
-  flex-direction: column;
   gap: var(--space-1);
+  inline-size: min(24rem, 100%);
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
-.compare-rest-label {
-  display: flex;
-  min-block-size: 2rem;
-  align-items: center;
-  color: var(--fg);
-  font-size: var(--text-sm);
+.compare-definition label[data-side='a'] {
+  justify-self: end;
+  text-align: end;
+}
+
+.compare-definition label[data-side='b'] {
+  justify-self: start;
+  text-align: start;
+}
+
+.compare-definition select {
+  min-inline-size: 0;
+  inline-size: 100%;
 }
 
 .compare-swap {
-  min-inline-size: 44px;
+  display: inline-grid;
+  inline-size: 44px;
   min-block-size: 44px;
+  place-items: center;
+  padding: 0;
+  font-size: var(--text-lg);
 }
 
 .compare-side-summaries {
@@ -1257,6 +1268,10 @@ canvas {
   min-inline-size: 0;
   padding-block: var(--space-2);
   border-block: 1px solid var(--rule);
+}
+
+.compare-side-summary:first-child {
+  text-align: end;
 }
 
 .compare-side-summary p {
@@ -1356,39 +1371,37 @@ canvas {
   margin-block-start: var(--space-3);
 }
 
-.compare-axis-section h3 {
-  margin-block: 0 var(--space-1);
+.compare-axis-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block-end: var(--space-1);
+}
+
+.compare-axis-heading h3,
+.compare-axis-heading p {
+  margin: 0;
+}
+
+.compare-axis-heading h3 {
   font-size: var(--text-sm);
+}
+
+.compare-axis-heading p {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .compare-table-port {
   max-inline-size: 100%;
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
+  overflow: hidden;
 }
 
 .compare-axis-table {
   inline-size: 100%;
   table-layout: fixed;
-}
-
-.compare-axis-table caption {
-  margin-block-end: var(--space-2);
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  text-align: start;
-}
-
-.compare-col-term {
-  inline-size: min(30%, 28ch);
-}
-
-.compare-col-effect {
-  inline-size: auto;
-}
-
-.compare-col-side {
-  inline-size: 4rem;
+  border-collapse: collapse;
 }
 
 .compare-axis-table th,
@@ -1396,127 +1409,216 @@ canvas {
   vertical-align: middle;
 }
 
-.compare-axis-table tbody + tbody tr:first-child > * {
-  border-block-start: 2px solid var(--rule-strong);
+.compare-axis-table thead th {
+  padding: var(--space-1) var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-weight: 400;
 }
 
-.compare-term {
+.compare-axis-table thead th:first-child {
+  border-inline-end: 1px solid var(--rule-strong);
+  text-align: end;
+}
+
+.compare-axis-table thead th > span,
+.compare-axis-table thead th > strong {
+  display: inline-block;
   min-inline-size: 0;
-  text-align: start;
 }
 
-.compare-term button {
-  display: flex;
+.compare-axis-table thead th > strong {
+  max-inline-size: calc(100% - 5rem);
+  overflow: hidden;
+  color: var(--fg);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
+.compare-axis-table thead th:first-child > span,
+.compare-axis-table thead th:last-child > strong {
+  margin-inline-end: var(--space-2);
+}
+
+.compare-axis-table thead th:last-child > span {
+  margin-inline-start: var(--space-2);
+}
+
+.compare-pyramid-half {
+  min-inline-size: 0;
+  padding: 0;
+  border-block-end: 1px solid var(--rule);
+}
+
+.compare-pyramid-half[data-side='a'] {
+  border-inline-end: 1px solid var(--rule-strong);
+}
+
+.compare-pyramid-button {
+  display: grid;
   inline-size: 100%;
   min-inline-size: 0;
+  min-block-size: 44px;
   align-items: center;
-  justify-content: space-between;
-  gap: var(--space-1);
-  padding: 0;
-  overflow: hidden;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2);
   border: 0;
-  border-block-end: 1px solid var(--rule-strong);
   color: inherit;
-  background: none;
+  background: transparent;
   cursor: pointer;
   font: inherit;
   font-family: var(--font-mono);
+}
+
+.compare-pyramid-half[data-side='a'] .compare-pyramid-button {
+  grid-template-columns: minmax(3.5rem, auto) minmax(0, 10rem) minmax(1.5rem, 1fr);
+  grid-template-areas: 'value term plot';
+}
+
+.compare-pyramid-half[data-side='b'] .compare-pyramid-button {
+  grid-template-columns: minmax(1.5rem, 1fr) minmax(0, 10rem) minmax(3.5rem, auto);
+  grid-template-areas: 'plot term value';
+}
+
+.compare-pyramid-button:hover,
+.compare-pyramid-button:focus-visible,
+.compare-pyramid-button[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--rule) 28%, transparent);
+}
+
+.compare-pyramid-value {
+  grid-area: value;
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.compare-pyramid-half[data-side='a'] .compare-pyramid-value {
   text-align: start;
 }
 
-.compare-term button span:first-child {
+.compare-pyramid-half[data-side='b'] .compare-pyramid-value {
+  text-align: end;
+}
+
+.compare-pyramid-term {
+  grid-area: term;
   min-inline-size: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.compare-effect {
-  display: grid;
-  grid-template-columns: minmax(8rem, 1fr) 7ch;
-  align-items: center;
-  gap: var(--space-2);
+.compare-pyramid-half[data-side='a'] .compare-pyramid-term {
+  text-align: end;
 }
 
-.compare-axis-plot {
-  position: relative;
+.compare-pyramid-half[data-side='b'] .compare-pyramid-term {
+  text-align: start;
+}
+
+.compare-pyramid-plot {
+  grid-area: plot;
   display: block;
-  block-size: 1rem;
+  block-size: 0.65rem;
+  background: color-mix(in srgb, var(--rule) 45%, transparent);
 }
 
-.compare-axis-zero {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-start: calc(50% - 0.5px);
-  inline-size: 1px;
-  background: var(--rule-strong);
-}
-
-.compare-axis-bar {
-  position: absolute;
-  inset-block: 0.28rem;
+.compare-pyramid-bar {
+  display: block;
+  block-size: 100%;
   inline-size: var(--compare-bar-width);
+  min-inline-size: 1px;
+}
+
+.compare-pyramid-half[data-side='a'] .compare-pyramid-bar {
+  margin-inline-start: auto;
   background: var(--accent-text);
 }
 
-.compare-axis-bar[data-side='a'] {
-  inset-inline-start: 50%;
+.compare-pyramid-half[data-side='b'] .compare-pyramid-bar {
+  margin-inline-end: auto;
+  background: var(--series-1);
 }
 
-.compare-axis-bar[data-side='b'] {
-  inset-inline-end: 50%;
-  background: var(--fg-muted);
-}
-
-.compare-effect-value,
-.compare-side {
+.compare-pyramid-status {
+  min-block-size: 44px;
+  margin: 0;
+  padding: var(--space-2);
   color: var(--fg-muted);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  white-space: nowrap;
 }
 
-.compare-side {
-  text-align: center;
+.compare-pyramid-half[data-side='a'] .compare-pyramid-status {
+  text-align: end;
 }
 
-.compare-side-cue {
-  display: none;
-}
-
-.compare-axis-status td {
-  padding-block: var(--space-3);
-  color: var(--fg-muted);
-}
-
-.compare-axis-status[data-error] td {
+.compare-pyramid-status[data-error] {
   color: var(--accent-text);
 }
 
+.compare-detail-row > td {
+  padding: 0;
+  border-block-end: 1px solid var(--rule-strong);
+}
+
 .compare-row-detail {
-  padding: var(--space-2);
-  border-inline-start: 2px solid var(--accent-text);
+  padding: var(--space-3);
+  border-inline-start: 3px solid var(--accent-text);
+  background: var(--bg);
 }
 
-.compare-row-detail dl {
-  display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-2);
-  margin: 0 0 var(--space-2);
+.compare-row-detail-heading {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-block-end: var(--space-3);
 }
 
-.compare-row-detail dl div {
-  min-inline-size: 0;
+.compare-row-detail-heading h4,
+.compare-row-detail-heading p {
+  margin: 0;
 }
 
-.compare-row-detail dt {
+.compare-row-detail-heading p,
+.compare-row-filters {
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
-.compare-row-detail dd {
+.compare-row-stats {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin: 0;
+}
+
+.compare-row-stats div {
+  min-inline-size: 0;
+}
+
+.compare-row-stats dt {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-row-measurement-label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.compare-row-stats dd {
   margin: 0;
   overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+}
+
+.compare-row-filters {
+  margin: var(--space-3) 0 0;
 }
 
 .compare-row-actions,
@@ -1532,14 +1634,20 @@ canvas {
 }
 
 .compare-pagers {
-  align-items: flex-start;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: start;
   margin-block-start: var(--space-2);
 }
 
 .compare-pagination {
   min-inline-size: 0;
-  flex: 1 1 0;
   flex-wrap: wrap;
+}
+
+.compare-pagination[data-side='a'] {
+  justify-content: flex-end;
+  text-align: end;
 }
 
 .compare-window-message {
@@ -2346,7 +2454,6 @@ canvas {
 
   .compare-definition {
     align-items: stretch;
-    flex-direction: column;
   }
 
   .compare-definition select {
@@ -2354,16 +2461,11 @@ canvas {
     min-block-size: 44px;
   }
 
-  .compare-rest-label {
-    min-block-size: 44px;
-  }
-
   .compare-swap {
-    inline-size: 100%;
+    inline-size: 44px;
   }
 
   .compare-side-summaries {
-    grid-template-columns: minmax(0, 1fr);
     gap: var(--space-2);
   }
 
@@ -2387,113 +2489,68 @@ canvas {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .compare-table-port {
-    overflow: visible;
-  }
-
-  .compare-axis-table,
-  .compare-axis-table tbody {
-    display: block;
-    inline-size: 100%;
-  }
-
-  .compare-axis-table thead {
-    position: absolute;
-    inline-size: 1px;
-    block-size: 1px;
-    padding: 0;
-    margin: -1px;
-    overflow: hidden;
-    clip: rect(0 0 0 0);
-    white-space: nowrap;
-    border: 0;
-  }
-
-  .compare-axis-table colgroup {
-    display: none;
-  }
-
-  .compare-axis-row {
-    display: grid;
-    grid-template-columns: minmax(0, 1fr) auto auto;
-    align-items: center;
-    gap: var(--space-2);
-    inline-size: 100%;
-    min-block-size: 48px;
-    padding-block: var(--space-1);
-    border-block-end: 1px solid var(--rule);
-  }
-
-  .compare-axis-table tbody + tbody tr:first-child > * {
-    border-block-start: 0;
-  }
-
-  .compare-axis-table tbody + tbody {
-    display: block;
-    margin-block-start: var(--space-2);
-    border-block-start: 2px solid var(--rule-strong);
-  }
-
-  .compare-term,
-  .compare-effect,
-  .compare-side {
-    display: block;
-    min-inline-size: 0;
-    padding: 0;
-  }
-
-  .compare-term button {
-    min-block-size: 44px;
-  }
-
-  .compare-term-cue {
-    display: none;
-  }
-
-  .compare-effect-value,
-  .compare-side {
-    font-size: var(--text-xs);
-    white-space: nowrap;
-  }
-
-  .compare-side {
-    display: flex;
-    align-items: center;
-    gap: var(--space-1);
-  }
-
-  .compare-side-cue {
-    display: inline;
-  }
-
-  .compare-detail-row,
-  .compare-detail-row > td,
-  .compare-axis-status,
-  .compare-axis-status > td {
-    display: block;
-    inline-size: 100%;
-  }
-
   .compare-row-detail {
-    padding-inline: var(--space-2) 0;
+    padding: var(--space-2);
   }
 
-  .compare-row-detail dl {
+  .compare-row-stats {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .compare-row-actions button {
-    inline-size: 100%;
-  }
-
-  .compare-pagers {
-    align-items: stretch;
+  .compare-axis-heading {
+    align-items: flex-start;
     flex-direction: column;
   }
 
+  .compare-axis-table thead th {
+    padding-inline: var(--space-1);
+  }
+
+  .compare-axis-table thead th > strong {
+    max-inline-size: 100%;
+  }
+
+  .compare-axis-table thead th > span {
+    display: none;
+  }
+
+  .compare-axis-table thead th:first-child > strong,
+  .compare-axis-table thead th:last-child > strong {
+    margin: 0;
+  }
+
+  .compare-pyramid-button {
+    gap: var(--space-1);
+    padding-inline: var(--space-1);
+  }
+
+  .compare-pyramid-half[data-side='a'] .compare-pyramid-button {
+    grid-template-columns: 3.25rem minmax(0, 1fr) minmax(0.75rem, 0.55fr);
+  }
+
+  .compare-pyramid-half[data-side='b'] .compare-pyramid-button {
+    grid-template-columns: minmax(0.75rem, 0.55fr) minmax(0, 1fr) 3.25rem;
+  }
+
+  .compare-pagers {
+    gap: var(--space-1);
+  }
+
   .compare-pagination {
-    inline-size: 100%;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    align-items: stretch;
+  }
+
+  .compare-pagination > span,
+  .compare-window-message {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    font-size: var(--text-xs);
+  }
+
+  .compare-pagination[data-side='a'] {
+    text-align: end;
   }
 
   .compare-settings-form {
