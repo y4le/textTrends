@@ -830,6 +830,9 @@ export interface AppState {
   runKeyness(): void;
   setKeynessMode(mode: KeynessViewV1['mode']): void;
   setKeynessDocument(side: 'a' | 'b', doc: string): void;
+  /** Set one visible compare selector. Null represents all ready documents
+   * except the single document selected on the opposite side. */
+  setKeynessSelection(side: 'a' | 'b', doc: string | null): void;
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
   setKeynessDirection(side: 'a' | 'b'): void;
@@ -3911,6 +3914,83 @@ export function createAppRuntime(
             offsetB: 0,
           },
         });
+        get().runKeyness();
+      },
+
+      setKeynessSelection(side, doc) {
+        if (side !== 'a' && side !== 'b') return;
+        const state = get();
+        const ready = state.snapshot?.readyDocs ?? [];
+        if (ready.length < 2 || (doc !== null && !ready.includes(doc))) return;
+        const view = state.keynessView;
+        const otherSide = side === 'a' ? 'b' : 'a';
+        const currentDoc = side === 'a' ? view.documentA : view.documentB;
+        const otherDoc = side === 'a' ? view.documentB : view.documentA;
+        const thisIsRest = view.mode === 'document-rest' && view.restOn === side;
+        const otherIsRest = view.mode === 'document-rest' && view.restOn === otherSide;
+        let next: KeynessViewV1;
+
+        if (doc === null) {
+          if (thisIsRest) return;
+          if (otherIsRest) {
+            const focus = currentDoc && ready.includes(currentDoc)
+              ? currentDoc
+              : ready[0] ?? null;
+            const filler = ready.find((candidate) => candidate !== focus) ?? null;
+            next = {
+              ...view,
+              restOn: side,
+              documentA: side === 'a' ? filler : focus,
+              documentB: side === 'b' ? filler : focus,
+              offsetA: 0,
+              offsetB: 0,
+            };
+          } else {
+            const focus = otherDoc && ready.includes(otherDoc)
+              ? otherDoc
+              : ready.find((candidate) => candidate !== currentDoc) ?? ready[0] ?? null;
+            const filler = ready.find((candidate) => candidate !== focus) ?? null;
+            next = {
+              ...view,
+              mode: 'document-rest',
+              restOn: side,
+              documentA: side === 'a' ? filler : focus,
+              documentB: side === 'b' ? filler : focus,
+              offsetA: 0,
+              offsetB: 0,
+            };
+          }
+        } else if (thisIsRest) {
+          if (doc === otherDoc) return;
+          next = {
+            ...view,
+            mode: 'documents',
+            ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
+            offsetA: 0,
+            offsetB: 0,
+          };
+        } else if (otherIsRest) {
+          const filler = ready.find((candidate) => candidate !== doc) ?? null;
+          if (doc === currentDoc && otherDoc === filler) return;
+          next = {
+            ...view,
+            ...(side === 'a'
+              ? { documentA: doc, documentB: filler }
+              : { documentA: filler, documentB: doc }),
+            offsetA: 0,
+            offsetB: 0,
+          };
+        } else {
+          if (doc === otherDoc || doc === currentDoc) return;
+          next = {
+            ...view,
+            ...(side === 'a' ? { documentA: doc } : { documentB: doc }),
+            offsetA: 0,
+            offsetB: 0,
+          };
+        }
+
+        set({ keynessView: next });
         get().runKeyness();
       },
 

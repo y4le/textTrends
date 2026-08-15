@@ -4528,6 +4528,61 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
   });
 
+  it('drives both visible side selectors through document and rest comparisons', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+
+    f.store.getState().setKeynessSelection('a', null);
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'document-rest',
+      restOn: 'a',
+      documentB: 'b',
+    });
+    let requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({
+      a: { docs: ['a', 'c'] },
+      b: { docs: ['b'] },
+    });
+
+    f.store.getState().setKeynessSelection('a', 'c');
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'documents',
+      documentA: 'c',
+      documentB: 'b',
+    });
+    f.store.getState().setKeynessSelection('a', 'b');
+    expect(f.store.getState().keynessView).toMatchObject({
+      documentA: 'c',
+      documentB: 'b',
+    });
+
+    f.store.getState().setKeynessSelection('b', null);
+    f.store.getState().setKeynessSelection('a', 'b');
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'document-rest',
+      restOn: 'b',
+      documentA: 'b',
+    });
+    requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({
+      a: { docs: ['b'] },
+      b: { docs: ['a', 'c'] },
+    });
+
+    f.store.getState().setKeynessSelection('a', null);
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'document-rest',
+      restOn: 'a',
+      documentB: 'b',
+    });
+  });
+
   it('reconciles departed documents on the next snapshot', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
