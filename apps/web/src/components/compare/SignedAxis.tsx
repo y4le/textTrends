@@ -6,6 +6,7 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
 } from 'react';
 import type { KeynessRowV1 } from '@texttrends/core';
 import {
@@ -144,6 +145,9 @@ export function SignedAxis({
   rowTarget,
   sideLabelA,
   sideLabelB,
+  profileOpen,
+  profileContent,
+  onToggleProfile,
   onRow,
   onLoadMore,
   onCloseRow,
@@ -155,6 +159,9 @@ export function SignedAxis({
   readonly rowTarget: CompareRowTarget | null;
   readonly sideLabelA: string;
   readonly sideLabelB: string;
+  readonly profileOpen: boolean;
+  readonly profileContent: ReactNode;
+  readonly onToggleProfile: () => void;
   readonly onRow: (side: 'a' | 'b', row: KeynessRowV1) => void;
   readonly onLoadMore: (side: 'a' | 'b') => void;
   readonly onCloseRow: () => boolean;
@@ -463,6 +470,19 @@ export function SignedAxis({
         tabIndex={0}
         onScroll={onScroll}
       >
+        <div className="compare-profile-trigger-layer">
+          <button
+            className="compare-profile-trigger"
+            type="button"
+            aria-label="Text profile"
+            aria-expanded={profileOpen}
+            aria-controls="compare-text-profile"
+            title={`${profileOpen ? 'Hide' : 'Show'} text profile`}
+            onClick={onToggleProfile}
+          >
+            <span aria-hidden="true">Σ</span>
+          </button>
+        </div>
         <table
           className="compare-axis-table"
           role="table"
@@ -478,21 +498,36 @@ export function SignedAxis({
             uses a shared scale over the loaded ranks; select either half-row for
             that word's full comparison.
           </caption>
-          <thead ref={headerRef} role="rowgroup">
+          <thead ref={headerRef} className="compare-axis-head" role="rowgroup">
             <tr role="row">
-              <th scope="col" role="columnheader" aria-colindex={1}>
+              <th
+                scope="col"
+                role="columnheader"
+                aria-colindex={1}
+                aria-label={`${sideLabelA}, ${compareSortDescription(view, 'a')}`}
+              >
                 <span className="compare-pyramid-heading-content">
                   <strong>{sideLabelA}</strong>
                   <span>{compareSortDescription(view, 'a')}</span>
                 </span>
               </th>
-              <th scope="col" role="columnheader" aria-colindex={2}>
+              <th
+                scope="col"
+                role="columnheader"
+                aria-colindex={2}
+                aria-label={`${sideLabelB}, ${compareSortDescription(view, 'b')}`}
+              >
                 <span className="compare-pyramid-heading-content">
                   <strong>{sideLabelB}</strong>
                   <span>{compareSortDescription(view, 'b')}</span>
                 </span>
               </th>
             </tr>
+            {profileOpen && (
+              <tr className="compare-profile-dropdown-row" role="presentation">
+                <td colSpan={2} role="presentation">{profileContent}</td>
+              </tr>
+            )}
           </thead>
           <tbody role="rowgroup" aria-label="Paired distinctive term ranks">
             {topSpacerHeight > 0 && (

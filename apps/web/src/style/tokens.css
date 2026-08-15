@@ -1398,6 +1398,8 @@ canvas {
 }
 
 .compare-table-port {
+  --compare-profile-trigger-width: 44px;
+
   block-size: 100%;
   min-block-size: 0;
   max-inline-size: 100%;
@@ -1418,7 +1420,7 @@ canvas {
   border-collapse: collapse;
 }
 
-.compare-axis-table thead {
+.compare-axis-head {
   position: sticky;
   z-index: 3;
   inset-block-start: 0;
@@ -1430,21 +1432,55 @@ canvas {
   vertical-align: middle;
 }
 
-.compare-axis-table thead th {
+.compare-axis-head > tr:first-child > th {
+  inline-size: 50%;
+  block-size: 44px;
   padding: var(--space-1) var(--space-2);
   color: var(--fg-muted);
   font-size: var(--text-xs);
   font-weight: 400;
 }
 
-.compare-axis-table thead th:first-child {
-  padding-inline-end: var(--space-1);
+.compare-axis-head > tr:first-child > th:first-child {
+  padding-inline-end: calc(var(--compare-profile-trigger-width) / 2 + var(--space-2));
   border-inline-end: 1px solid var(--rule-strong);
   text-align: end;
 }
 
-.compare-axis-table thead th:last-child {
-  padding-inline-start: var(--space-1);
+.compare-axis-head > tr:first-child > th:last-child {
+  padding-inline-start: calc(var(--compare-profile-trigger-width) / 2 + var(--space-2));
+}
+
+.compare-profile-trigger-layer {
+  position: sticky;
+  z-index: 4;
+  inset-block-start: 0;
+  display: flex;
+  block-size: 0;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.compare-profile-trigger {
+  display: inline-flex;
+  inline-size: var(--compare-profile-trigger-width);
+  block-size: 44px;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-color: var(--rule-strong);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--text-lg);
+  font-weight: 600;
+  margin-block-start: 0;
+  pointer-events: auto;
+  white-space: nowrap;
+}
+
+.compare-profile-trigger:hover,
+.compare-profile-trigger[aria-expanded='true'] {
+  background: color-mix(in srgb, var(--rule) 30%, var(--bg));
 }
 
 .compare-pyramid-heading-content {
@@ -1454,19 +1490,19 @@ canvas {
   min-inline-size: 0;
 }
 
-.compare-axis-table thead th:first-child .compare-pyramid-heading-content {
+.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content {
   justify-content: flex-end;
 }
 
-.compare-axis-table thead th:first-child .compare-pyramid-heading-content > span {
+.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content > span {
   order: 1;
 }
 
-.compare-axis-table thead th:first-child .compare-pyramid-heading-content > strong {
+.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content > strong {
   order: 2;
 }
 
-.compare-axis-table thead th:last-child .compare-pyramid-heading-content {
+.compare-axis-head > tr:first-child > th:last-child .compare-pyramid-heading-content {
   justify-content: flex-start;
 }
 
@@ -1474,6 +1510,7 @@ canvas {
   min-inline-size: 0;
   overflow: hidden;
   color: var(--fg);
+  font-size: var(--text-sm);
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -1617,26 +1654,22 @@ canvas {
 }
 
 .compare-profile {
-  padding: var(--space-3) 0;
+  max-block-size: min(55dvh, 30rem);
+  overflow: auto;
+  padding: var(--space-3) var(--space-2);
   border-block-end: 1px solid var(--rule);
+  background: var(--bg);
 }
 
-.compare-profile-disclosure > summary {
-  min-block-size: 44px;
-  display: flex;
-  align-items: center;
-  color: var(--fg-muted);
-  cursor: pointer;
-  font-size: var(--text-xs);
-}
-
-.compare-profile-disclosure > summary:focus-visible {
-  outline: 2px solid var(--accent-text);
-  outline-offset: 2px;
+.compare-profile-dropdown-row > td {
+  padding: 0;
+  border-block-end: 1px solid var(--rule-strong);
 }
 
 .compare-divergence {
   margin-block-end: var(--space-3);
+  padding-block-end: var(--space-3);
+  border-block-end: 1px solid var(--rule);
 }
 
 .compare-divergence-heading {
@@ -2699,8 +2732,16 @@ canvas {
     inline-size: 34%;
   }
 
-  .compare-axis-table thead th {
+  .compare-axis-head > tr:first-child > th {
     padding-inline: var(--space-1);
+  }
+
+  .compare-axis-head > tr:first-child > th:first-child {
+    padding-inline-end: calc(var(--compare-profile-trigger-width) / 2 + var(--space-1));
+  }
+
+  .compare-axis-head > tr:first-child > th:last-child {
+    padding-inline-start: calc(var(--compare-profile-trigger-width) / 2 + var(--space-1));
   }
 
   .compare-pyramid-heading-content {
@@ -2709,11 +2750,11 @@ canvas {
     flex-direction: column;
   }
 
-  .compare-axis-table thead th:first-child .compare-pyramid-heading-content {
+  .compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content {
     align-items: flex-end;
   }
 
-  .compare-axis-table thead th:last-child .compare-pyramid-heading-content {
+  .compare-axis-head > tr:first-child > th:last-child .compare-pyramid-heading-content {
     align-items: flex-start;
   }
 

@@ -52,6 +52,7 @@ export function ComparePanel() {
   const [draft, setDraft] = useState<KeynessSettingsInputV1>(
     () => compareSettingsInput(view),
   );
+  const [profileOpen, setProfileOpen] = useState(false);
   const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const topLayer = layers.at(-1);
   const renderedLayer = useMemo(
@@ -329,14 +330,6 @@ export function ComparePanel() {
               </FormLayer>
             )}
 
-            <CompareProfile
-              inventoryA={inventoryA}
-              inventoryB={inventoryB}
-              divergence={divergence}
-              sideLabelA={sideLabelA}
-              sideLabelB={sideLabelB}
-            />
-
             <SignedAxis
               stateA={stateA}
               stateB={stateB}
@@ -345,6 +338,17 @@ export function ComparePanel() {
               rowTarget={rowTarget}
               sideLabelA={sideLabelA}
               sideLabelB={sideLabelB}
+              profileOpen={profileOpen}
+              profileContent={(
+                <CompareProfile
+                  inventoryA={inventoryA}
+                  inventoryB={inventoryB}
+                  divergence={divergence}
+                  sideLabelA={sideLabelA}
+                  sideLabelB={sideLabelB}
+                />
+              )}
+              onToggleProfile={() => setProfileOpen((open) => !open)}
               onRow={openRow}
               onLoadMore={loadMore}
               onCloseRow={closeRow}

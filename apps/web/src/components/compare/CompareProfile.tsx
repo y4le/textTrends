@@ -35,16 +35,7 @@ function readyResult(state: KeynessInventoryState | null) {
   return state?.state.status === 'ready' ? state.state.result : null;
 }
 
-/**
- * The divergence headline. It is deliberately the first thing in the panel:
- * the ranked pyramid below answers "which words differ" and cannot answer "by
- * how much overall", which is usually the question a reader arrives with.
- *
- * It renders at a fixed height whether or not a measurement has arrived. The
- * pyramid sits directly below, and a block that appears, collapses, or resizes
- * as results land would shove the ranked rows around under the reader's
- * pointer — so an absent measurement shows a placeholder, never nothing.
- */
+/** The one whole-comparison measurement leads the otherwise two-sided profile. */
 function DivergenceHeadline({
   divergence,
   sideLabelA,
@@ -135,12 +126,9 @@ function MetricRow({
  * Two-sided text profile above the keyness pyramid, mirrored on the same axis
  * so the header and the ranked table read as one surface.
  *
- * The measurement table is a disclosure, closed by default, and only the
- * one-line divergence headline is always on screen. The pyramid shares this
- * column with a fixed workbench dock, and a permanently expanded profile
- * pushes the first ranked rows underneath that dock — they render, but they
- * cannot be clicked. The ranking is this place's primary surface; the profile
- * is what a reader opens after it.
+ * The ranking header owns the disclosure button and inserts this bounded panel
+ * directly beneath itself. The ranking remains the place's primary surface;
+ * the profile is what a reader opens after it.
  */
 export function CompareProfile({
   inventoryA,
@@ -168,6 +156,7 @@ export function CompareProfile({
 
   return (
     <section
+      id="compare-text-profile"
       className="compare-profile"
       aria-label="Text profile"
       aria-busy={pending || undefined}
@@ -177,50 +166,47 @@ export function CompareProfile({
         sideLabelA={sideLabelA}
         sideLabelB={sideLabelB}
       />
-      <details className="compare-profile-disclosure">
-        <summary>text profile</summary>
-        {errored && (
-          <p className="compare-profile-status" data-error="">
-            Couldn’t measure the text profile: {errored}
-          </p>
-        )}
-        {resultA === null && resultB === null
-          ? <p className="compare-profile-status">measuring…</p>
-          : (
-              <table className="compare-profile-grid">
-                <caption className="visually-hidden">
-                  Two-sided text measurements. Each row names one measurement
-                  with its value on the left side first and the right side last.
-                </caption>
-                <thead>
-                  <tr className="compare-profile-row compare-profile-head">
-                    <th scope="col" className="compare-profile-value" data-side="a">
-                      {sideLabelA}
-                    </th>
-                    <td aria-hidden="true" />
-                    <td aria-hidden="true" />
-                    <td aria-hidden="true" />
-                    <th scope="col" className="compare-profile-value" data-side="b">
-                      {sideLabelB}
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {metrics.map((metric) => (
-                    <MetricRow
-                      key={metric.key}
-                      metric={metric}
-                    />
-                  ))}
-                </tbody>
-              </table>
-            )}
-        <p className="compare-profile-note">
-          Bars compare the two sides on length-controlled measurements only. Raw
-          totals are printed without a bar because they track how long each text
-          is.
+      {errored && (
+        <p className="compare-profile-status" data-error="">
+          Couldn’t measure the text profile: {errored}
         </p>
-      </details>
+      )}
+      {resultA === null && resultB === null
+        ? <p className="compare-profile-status">measuring…</p>
+        : (
+            <table className="compare-profile-grid">
+              <caption className="visually-hidden">
+                Two-sided text measurements. Each row names one measurement
+                with its value on the left side first and the right side last.
+              </caption>
+              <thead>
+                <tr className="compare-profile-row compare-profile-head">
+                  <th scope="col" className="compare-profile-value" data-side="a">
+                    {sideLabelA}
+                  </th>
+                  <td aria-hidden="true" />
+                  <td aria-hidden="true" />
+                  <td aria-hidden="true" />
+                  <th scope="col" className="compare-profile-value" data-side="b">
+                    {sideLabelB}
+                  </th>
+                </tr>
+              </thead>
+              <tbody>
+                {metrics.map((metric) => (
+                  <MetricRow
+                    key={metric.key}
+                    metric={metric}
+                  />
+                ))}
+              </tbody>
+            </table>
+          )}
+      <p className="compare-profile-note">
+        Bars compare the two sides on length-controlled measurements only. Raw
+        totals are printed without a bar because they track how long each text
+        is.
+      </p>
     </section>
   );
 }

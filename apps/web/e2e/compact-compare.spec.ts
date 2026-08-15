@@ -227,15 +227,40 @@ test('Compare settings preserve a draft through width changes and stage ranking 
   expect(queries.filter((event) => event.op === 'inventory')).toHaveLength(0);
 });
 
-test('Compare publishes a two-sided profile and a divergence headline', async ({ page }) => {
+test('Compare disclosure contains divergence and the two-sided text profile', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await prepareComparison(page);
   await applyOneDocumentMinimum(page);
 
-  // Tier 2 — the one number the ranked pyramid cannot give.
-  // The meter renders at a fixed height from the start, showing a placeholder
-  // until a measurement lands, so poll rather than reading it once.
   const divergence = page.getByRole('meter', { name: /Vocabulary divergence/ });
+  await expect(divergence).toHaveCount(0);
+
+  const trigger = page.getByRole('button', { name: 'Text profile' });
+  await expect(trigger).toHaveText('Σ');
+  const triggerSize = await trigger.boundingBox();
+  expect(triggerSize?.width).toBe(44);
+  expect(triggerSize?.height).toBe(44);
+  const headers = page.getByRole('columnheader');
+  const leftTitle = headers.first().locator('strong');
+  const rightTitle = headers.last().locator('strong');
+  const [leftTitleBox, triggerBox, rightTitleBox] = await Promise.all([
+    leftTitle.boundingBox(),
+    trigger.boundingBox(),
+    rightTitle.boundingBox(),
+  ]);
+  expect((leftTitleBox?.x ?? 0) + (leftTitleBox?.width ?? 0))
+    .toBeLessThanOrEqual(triggerBox?.x ?? 0);
+  expect((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0))
+    .toBeLessThanOrEqual(rightTitleBox?.x ?? 0);
+  expect(await trigger.evaluate((button) =>
+    Number.parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThan(13);
+  expect(await leftTitle.evaluate((title) =>
+    Number.parseFloat(getComputedStyle(title).fontSize))).toBeGreaterThan(11);
+  await expect(trigger).toHaveAttribute('aria-expanded', 'false');
+  await trigger.click();
+  await expect(trigger).toHaveAttribute('aria-expanded', 'true');
+
+  const profile = page.getByRole('region', { name: 'Text profile' });
   await expect(divergence).toBeVisible();
   await expect
     .poll(async () => Number(await divergence.getAttribute('aria-valuenow')))
@@ -243,14 +268,6 @@ test('Compare publishes a two-sided profile and a divergence headline', async ({
   expect(Number(await divergence.getAttribute('aria-valuenow')))
     .toBeLessThanOrEqual(1);
 
-  // Tier 1 — the profile strip, with length-controlled rows barred and raw
-  // totals left as context.
-  const profile = page.getByRole('region', { name: 'Text profile' });
-  await expect(profile).toBeVisible();
-  // Closed by default so the ranked pyramid keeps the column; the measurements
-  // are a disclosure the reader opens.
-  await expect(profile.locator('.compare-profile-grid')).toBeHidden();
-  await profile.locator('summary').click();
   await expect(profile.locator('.compare-profile-grid')).toBeVisible();
   for (const metric of ['tokens', 'sentences', 'mattr', 'ari']) {
     await expect(profile.locator(`[data-metric="${metric}"]`)).toBeVisible();
