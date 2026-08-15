@@ -1,5 +1,5 @@
 /**
- * Continuous Concordance planning over the full ready corpus.
+ * Continuous Matches planning over the full ready corpus.
  *
  * The occurrence vectors remain the shared matching primitive. This module
  * builds a small, cacheable rank axis at duplicate-run boundaries, then
@@ -17,6 +17,7 @@ import {
   internalShardOf,
 } from './binding.ts';
 import {
+  KWIC_CONTEXT_MAX_TOKENS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
@@ -31,21 +32,21 @@ import {
   type NumericOccurrences,
 } from './occurrences.ts';
 
-export const CONCORDANCE_AXIS_STRIDE = 128;
+export const MATCHES_AXIS_STRIDE = 128;
 
-export type ConcordanceAnchorV1 =
+export type MatchesAnchorV1 =
   | { readonly kind: 'position'; readonly doc: string; readonly token: number }
   | { readonly kind: 'rank'; readonly rank: number };
 
-export interface ConcordanceWindowRequestV1 {
-  readonly anchor: ConcordanceAnchorV1;
+export interface MatchesWindowRequestV1 {
+  readonly anchor: MatchesAnchorV1;
   readonly before: number;
   readonly after: number;
   readonly contextTokens: number;
 }
 
 /** Transfer-safe public copy of the sparse axis. */
-export interface ConcordanceAxisArraysV1 {
+export interface MatchesAxisArraysV1 {
   readonly ranks: Uint32Array;
   readonly globalTokens: Uint32Array;
 }
@@ -55,32 +56,32 @@ export interface ConcordanceAxisArraysV1 {
  * never occurrence vectors. Planning requires compatible admitted,
  * order-validated tracks and checks their count, total, and restored frontier.
  */
-export interface ConcordanceAxisV1 {
+export interface MatchesAxisV1 {
   readonly snapshot: CorpusSnapshotV1['id'];
   readonly selection: ResolvedSelection['hash'];
   readonly total: number;
   readonly trackCount: number;
 }
 
-export interface ConcordancePositionBracketV1 {
+export interface MatchesPositionBracketV1 {
   /** At the corpus tail this may equal `anchorRank`; comparing globalToken to
    * the requested cursor distinguishes the last row from the end sentinel. */
   readonly rank: number;
   readonly globalToken: number;
 }
 
-export interface NumericConcordanceWindowV1 {
+export interface NumericMatchesWindowV1 {
   readonly snapshot: CorpusSnapshotV1['id'];
   readonly total: number;
   readonly trackCount: number;
   readonly anchorRank: number | null;
   readonly firstRank: number;
   /** Last occurrence strictly before a position anchor, when one exists. */
-  readonly preceding: ConcordancePositionBracketV1 | null;
+  readonly preceding: MatchesPositionBracketV1 | null;
   readonly rows: readonly NumericKwicRow[];
 }
 
-export interface ConcordanceWindowV1 extends Omit<NumericConcordanceWindowV1, 'rows'> {
+export interface MatchesWindowV1 extends Omit<NumericMatchesWindowV1, 'rows'> {
   readonly rows: readonly KwicRow[];
 }
 
@@ -89,12 +90,12 @@ interface RowRef {
   readonly occurrenceIndex: number;
 }
 
-interface ConcordanceAxisSource {
+interface MatchesAxisSource {
   readonly ranks: Uint32Array;
   readonly globalTokens: Uint32Array;
 }
 
-const axisSources = new WeakMap<ConcordanceAxisV1, ConcordanceAxisSource>();
+const axisSources = new WeakMap<MatchesAxisV1, MatchesAxisSource>();
 
 function assertFullCorpusSelection(
   snapshot: CorpusSnapshotV1,
@@ -108,7 +109,7 @@ function assertFullCorpusSelection(
     || selection.spec.docs.length !== snapshot.docs.length
     || selection.spec.docs.some((doc, index) => doc !== snapshot.docs[index]?.doc)
   ) {
-    throw new RangeError('concordance windows require the full corpus selection');
+    throw new RangeError('matches windows require the full corpus selection');
   }
 }
 
@@ -222,7 +223,7 @@ function advanceRun(
     frontiers[track] = index;
   }
   if (count > tracks.length * TERM_GROUP_LIMITS_V1.maxMembers) {
-    throw new RangeError('a concordance duplicate run exceeds the admitted member bound');
+    throw new RangeError('a match duplicate run exceeds the admitted member bound');
   }
   return count;
 }
@@ -260,7 +261,7 @@ function gatherRun(
     let index = frontiers[trackOrdinal] as number;
     while (index < occurrence.pos.length && globalAt(snapshot, occurrence, index) === token) {
       if (rows.length >= tracks.length * TERM_GROUP_LIMITS_V1.maxMembers) {
-        throw new RangeError('a concordance duplicate run exceeds the admitted member bound');
+        throw new RangeError('a match duplicate run exceeds the admitted member bound');
       }
       rows.push({ trackOrdinal, occurrenceIndex: index });
       index++;
@@ -279,14 +280,14 @@ function gatherRun(
 }
 
 /** Build the cacheable sparse rank axis in one bounded pass over occurrences. */
-export function buildConcordanceAxis(
+export function buildMatchesAxis(
   snapshot: CorpusSnapshotV1,
   selection: ResolvedSelection,
   tracks: readonly NumericOccurrences[],
-): ConcordanceAxisV1 {
+): MatchesAxisV1 {
   assertFullCorpusSelection(snapshot, selection);
   if (tracks.length < 1 || tracks.length > MAX_KWIC_TRACKS) {
-    throw new RangeError(`concordance requires 1..${MAX_KWIC_TRACKS} tracks`);
+    throw new RangeError(`matches requires 1..${MAX_KWIC_TRACKS} tracks`);
   }
   let total = 0;
   for (const track of tracks) {
@@ -298,20 +299,20 @@ export function buildConcordanceAxis(
   const globalTokens: number[] = [];
   const frontiers = new Array<number>(tracks.length).fill(0);
   let rank = 0;
-  let previousSampleRank = -CONCORDANCE_AXIS_STRIDE;
+  let previousSampleRank = -MATCHES_AXIS_STRIDE;
   for (;;) {
     const token = nextToken(snapshot, tracks, frontiers);
     if (token === null) break;
-    if (ranks.length === 0 || rank - previousSampleRank >= CONCORDANCE_AXIS_STRIDE) {
+    if (ranks.length === 0 || rank - previousSampleRank >= MATCHES_AXIS_STRIDE) {
       ranks.push(rank);
       globalTokens.push(token);
       previousSampleRank = rank;
     }
     rank += advanceRun(snapshot, tracks, frontiers, token);
   }
-  if (rank !== total) throw new RangeError('concordance merge did not consume every occurrence');
+  if (rank !== total) throw new RangeError('matches merge did not consume every occurrence');
 
-  const axis: ConcordanceAxisV1 = Object.freeze({
+  const axis: MatchesAxisV1 = Object.freeze({
     snapshot: snapshot.id,
     selection: selection.hash,
     total,
@@ -325,9 +326,9 @@ export function buildConcordanceAxis(
 }
 
 /** Fresh arrays suitable for structured clone or transfer. */
-export function copyConcordanceAxis(axis: ConcordanceAxisV1): ConcordanceAxisArraysV1 {
+export function copyMatchesAxis(axis: MatchesAxisV1): MatchesAxisArraysV1 {
   const source = axisSources.get(axis);
-  if (!source) throw new RangeError('unrecognized concordance axis');
+  if (!source) throw new RangeError('unrecognized matches axis');
   return {
     ranks: source.ranks.slice(),
     globalTokens: source.globalTokens.slice(),
@@ -335,13 +336,13 @@ export function copyConcordanceAxis(axis: ConcordanceAxisV1): ConcordanceAxisArr
 }
 
 /** Resident bytes retained by an axis cache. Occurrence vectors are not pinned. */
-export function concordanceAxisPayloadBytes(axis: ConcordanceAxisV1): number {
+export function matchesAxisPayloadBytes(axis: MatchesAxisV1): number {
   const source = axisSources.get(axis);
-  if (!source) throw new RangeError('unrecognized concordance axis');
+  if (!source) throw new RangeError('unrecognized matches axis');
   return source.ranks.byteLength + source.globalTokens.byteLength;
 }
 
-function validateRequest(request: ConcordanceWindowRequestV1): void {
+function validateRequest(request: MatchesWindowRequestV1): void {
   if (
     !Number.isInteger(request.before)
     || request.before < 0
@@ -349,10 +350,14 @@ function validateRequest(request: ConcordanceWindowRequestV1): void {
     || request.after < 0
     || request.before + 1 + request.after > KWIC_MAX_PAGE
   ) {
-    throw new RangeError(`concordance window must contain 1..${KWIC_MAX_PAGE} rows`);
+    throw new RangeError(`matches window must contain 1..${KWIC_MAX_PAGE} rows`);
   }
-  if (!Number.isInteger(request.contextTokens) || request.contextTokens < 0) {
-    throw new RangeError('contextTokens must be a non-negative integer');
+  if (
+    !Number.isInteger(request.contextTokens)
+    || request.contextTokens < 0
+    || request.contextTokens > KWIC_CONTEXT_MAX_TOKENS
+  ) {
+    throw new RangeError(`contextTokens must be an integer from 0 through ${KWIC_CONTEXT_MAX_TOKENS}`);
   }
 }
 
@@ -410,40 +415,40 @@ function numericRow(
  * that admission once; executors substituting recomputed vectors must preserve
  * the same occurrence-cache admission discipline.
  */
-export function planConcordanceWindow(
+export function planMatchesWindow(
   snapshot: CorpusSnapshotV1,
   bound: BoundShards,
   selection: ResolvedSelection,
-  axis: ConcordanceAxisV1,
+  axis: MatchesAxisV1,
   tracks: readonly NumericOccurrences[],
-  request: ConcordanceWindowRequestV1,
-): NumericConcordanceWindowV1 {
+  request: MatchesWindowRequestV1,
+): NumericMatchesWindowV1 {
   assertBoundShards(bound);
   if (bound.snapshot !== snapshot.id) throw new RangeError('bound shards belong to a different snapshot');
   assertFullCorpusSelection(snapshot, selection);
   validateRequest(request);
   if (axis.snapshot !== snapshot.id || axis.selection !== selection.hash) {
-    throw new RangeError('concordance axis belongs to different coordinates');
+    throw new RangeError('matches axis belongs to different coordinates');
   }
   const source = axisSources.get(axis);
-  if (!source) throw new RangeError('unrecognized concordance axis');
+  if (!source) throw new RangeError('unrecognized matches axis');
   if (tracks.length !== axis.trackCount) {
-    throw new RangeError(`concordance axis requires ${axis.trackCount} tracks`);
+    throw new RangeError(`matches axis requires ${axis.trackCount} tracks`);
   }
   let trackTotal = 0;
   for (const track of tracks) {
     if (track.snapshot !== snapshot.id || track.selection !== selection.hash) {
-      throw new RangeError('concordance tracks belong to different coordinates');
+      throw new RangeError('matches tracks belong to different coordinates');
     }
     trackTotal += track.pos.length;
   }
   if (trackTotal !== axis.total) {
-    throw new RangeError('concordance tracks do not match the axis total');
+    throw new RangeError('matches tracks do not match the axis total');
   }
 
   const anchor = request.anchor;
   let anchorRank: number | null = null;
-  let preceding: ConcordancePositionBracketV1 | null = null;
+  let preceding: MatchesPositionBracketV1 | null = null;
   if (axis.total > 0) {
     if (anchor.kind === 'rank') {
       if (
@@ -451,7 +456,7 @@ export function planConcordanceWindow(
         || anchor.rank < 0
         || anchor.rank >= axis.total
       ) {
-        throw new RangeError(`concordance rank must be in [0, ${axis.total})`);
+        throw new RangeError(`matches rank must be in [0, ${axis.total})`);
       }
       anchorRank = anchor.rank;
     } else {
@@ -464,7 +469,7 @@ export function planConcordanceWindow(
         || anchor.token < 0
         || anchor.token >= ref.tokenCount
       ) {
-        throw new RangeError(`concordance position is outside '${anchor.doc}'`);
+        throw new RangeError(`matches position is outside '${anchor.doc}'`);
       }
       const target = ref.sequenceTokenBase + anchor.token;
       const trackFrontiers = tracks.map((track) => lowerBoundGlobal(snapshot, track, target));
@@ -480,7 +485,7 @@ export function planConcordanceWindow(
       }
     }
   } else if (anchor.kind === 'rank' && anchor.rank !== 0) {
-    throw new RangeError('an empty concordance accepts only rank zero');
+    throw new RangeError('an empty matches accepts only rank zero');
   } else if (anchor.kind === 'position') {
     const ref = snapshot.docs.find((doc) => doc.doc === anchor.doc);
     if (
@@ -489,7 +494,7 @@ export function planConcordanceWindow(
       || anchor.token < 0
       || anchor.token >= ref.tokenCount
     ) {
-      throw new RangeError(`concordance position is outside '${anchor.doc}'`);
+      throw new RangeError(`matches position is outside '${anchor.doc}'`);
     }
   }
 
@@ -511,14 +516,14 @@ export function planConcordanceWindow(
   const sampleToken = source.globalTokens[sampleIndex] as number;
   const frontiers = tracks.map((track) => lowerBoundGlobal(snapshot, track, sampleToken));
   if (frontiers.reduce((sum, frontier) => sum + frontier, 0) !== sampleRank) {
-    throw new RangeError('concordance tracks do not reconstruct the sampled frontier');
+    throw new RangeError('matches tracks do not reconstruct the sampled frontier');
   }
   let rank = sampleRank;
   const rows: NumericKwicRow[] = [];
   const shardCache = new Array<DocumentIndexV1 | undefined>(snapshot.docs.length);
   while (rank < endRank) {
     const token = nextToken(snapshot, tracks, frontiers);
-    if (token === null) throw new RangeError('concordance axis exceeds its occurrence sources');
+    if (token === null) throw new RangeError('matches axis exceeds its occurrence sources');
     const run = gatherRun(snapshot, tracks, frontiers, token);
     for (let index = 0; index < run.length; index++) {
       const rowRank = rank + index;
@@ -540,14 +545,14 @@ export function planConcordanceWindow(
 }
 
 /** Materialize verified text for exactly the bounded planned rows. */
-export function materializeConcordanceWindow(
+export function materializeMatchesWindow(
   snapshot: CorpusSnapshotV1,
-  window: NumericConcordanceWindowV1,
+  window: NumericMatchesWindowV1,
   texts: BoundTexts,
   tracks: readonly KwicTrackIdentity[],
-): ConcordanceWindowV1 {
+): MatchesWindowV1 {
   if (tracks.length !== window.trackCount) {
-    throw new RangeError(`concordance window requires ${window.trackCount} track identities`);
+    throw new RangeError(`matches window requires ${window.trackCount} track identities`);
   }
   const page: NumericKwicPage = {
     snapshot: window.snapshot,

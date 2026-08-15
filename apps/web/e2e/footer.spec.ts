@@ -119,7 +119,7 @@ test('the workbench footer shares one corpus axis and opens the current passage'
     && event.op === 'reader-page');
   expect(footerQueries.length).toBeGreaterThan(0);
 
-  for (const place of ['concordance', 'vocabulary', 'compare', 'inputs'] as const) {
+  for (const place of ['matches', 'vocabulary', 'compare', 'inputs'] as const) {
     await gotoPlace(page, place);
     await expect(footer).toBeVisible();
   }
@@ -355,7 +355,7 @@ test('passage text scrolls horizontally with a precise pointer', async ({ page }
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
-test('an exact footer barcode tick centers Concordance without opening Reader', async ({ page }) => {
+test('an exact footer barcode tick centers Matches without opening Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -377,8 +377,8 @@ test('an exact footer barcode tick centers Concordance without opening Reader', 
   await band.click({ position: { x: box.width * (1 / 9), y: 3 } });
 
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })
     .locator('[role="row"][aria-selected="true"] .kwic-token-position'))
     .toHaveText('2 / 9', { timeout: 15_000 });
 });

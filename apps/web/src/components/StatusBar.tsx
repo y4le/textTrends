@@ -159,7 +159,7 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
             )}
           </span>
         ))}
-        {place !== 'concordance' && place !== 'inputs' && (
+        {place !== 'matches' && place !== 'inputs' && (
           <button
             id="global-method-open"
             className="scope-organ-link coarse-target scope-method-link"

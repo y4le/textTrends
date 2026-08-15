@@ -1,5 +1,5 @@
 /**
- * Query SEMANTICS — trend/Concordance/passage execution, resolver reuse, and the
+ * Query SEMANTICS — trend/Matches/passage execution, resolver reuse, and the
  * shared occurrence-cache discipline, moved from engine-v4.test.ts with the
  * QueryExecutor extraction (slice-2 ruling §B). Driven through the same
  * engine harness (the executor is generation-bound and engine-fed), so these
@@ -9,8 +9,8 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
-  MAX_CONCORDANCE_AXIS_CACHE_BYTES,
-  MAX_CONCORDANCE_AXIS_CACHE_ENTRIES,
+  MAX_MATCHES_AXIS_CACHE_BYTES,
+  MAX_MATCHES_AXIS_CACHE_ENTRIES,
   MAX_OCCURRENCE_CACHE_ENTRIES,
   MAX_OCCURRENCE_CACHE_BYTES,
   QueryExecutor,
@@ -243,16 +243,16 @@ describe('query semantics through the generation-bound executor', () => {
   });
 });
 
-describe('concordance-window/1 through the executor and engine', () => {
+describe('matches-window/1 through the executor and engine', () => {
   const query = (
     anchor: { kind: 'position'; doc: string; token: number } | { kind: 'rank'; rank: number },
     includeAxis: boolean,
     tracks = [{ seriesId: 's-wolf', group: wolfGroup }],
   ) => ({
-    op: 'concordance-window' as const,
+    op: 'matches-window' as const,
     tracks,
     request: {
-      method: 'concordance-window/1' as const,
+      method: 'matches-window/1' as const,
       anchor,
       before: 10,
       after: 10,
@@ -276,9 +276,9 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'position', doc: 'a', token: 3 }, true),
     });
     const first = h.last('result');
-    if (first.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (first.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(first.data.window).toMatchObject({
-      method: 'concordance-window/1',
+      method: 'matches-window/1',
       total: 2,
       trackCount: 1,
       anchorRank: 1,
@@ -302,7 +302,7 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false),
     });
     const second = h.last('result');
-    if (second.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (second.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(second.data.window.axis).toBeUndefined();
     expect(h.transferLists[h.messages.indexOf(second)]).toBeUndefined();
 
@@ -311,20 +311,20 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, true),
     });
     const third = h.last('result');
-    if (third.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (third.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(third.data.window.axis!.ranks.buffer).not.toBe(first.data.window.axis!.ranks.buffer);
     expect(third.data.window.axis!.globalTokens.buffer).not.toBe(first.data.window.axis!.globalTokens.buffer);
 
     const executor = (h.engine as unknown as {
       generation: {
         executor: {
-          concordanceAxisCache: Map<string, unknown>;
-          concordanceAxisCacheBytes: number;
+          matchesAxisCache: Map<string, unknown>;
+          matchesAxisCacheBytes: number;
         };
       } | null;
     }).generation!.executor;
-    expect(executor.concordanceAxisCache.size).toBe(1);
-    expect(executor.concordanceAxisCacheBytes).toBe(8);
+    expect(executor.matchesAxisCache.size).toBe(1);
+    expect(executor.matchesAxisCacheBytes).toBe(8);
   });
 
   it('constructs canonical full-corpus selection and rejects caller-owned selection', async () => {
@@ -340,7 +340,7 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false),
     });
     const result = h.last('result');
-    if (result.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (result.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(result.data.window.rows.map((row) => [row.doc, row.pos])).toEqual([
       ['a', 1],
       ['b', 1],
@@ -371,9 +371,9 @@ describe('concordance-window/1 through the executor and engine', () => {
       }]),
     });
     const executor = (h.engine as unknown as {
-      generation: { executor: { concordanceAxisCache: Map<string, unknown> } } | null;
+      generation: { executor: { matchesAxisCache: Map<string, unknown> } } | null;
     }).generation!.executor;
-    expect(executor.concordanceAxisCache.size).toBe(1);
+    expect(executor.matchesAxisCache.size).toBe(1);
 
     const ranGroup = {
       ...wolfGroup,
@@ -384,7 +384,7 @@ describe('concordance-window/1 through the executor and engine', () => {
       t: 'query', job: 304, snapshot: snap,
       query: query({ kind: 'rank', rank: 0 }, false, [{ seriesId: 'ran', group: ranGroup }]),
     });
-    expect(executor.concordanceAxisCache.size).toBe(2);
+    expect(executor.matchesAxisCache.size).toBe(2);
   });
 
   it('binds multiple track ordinals to the right identities and keys their order', async () => {
@@ -403,7 +403,7 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false, tracks),
     });
     const result = h.last('result');
-    if (result.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (result.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(result.data.window.trackCount).toBe(2);
     expect(result.data.window.rows.map((row) => [row.pos, row.seriesId, row.groupId, row.nodeText])).toEqual([
       [1, 's-wolf', 'g1', 'wolf'],
@@ -416,9 +416,9 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false, [...tracks].reverse()),
     });
     const executor = (h.engine as unknown as {
-      generation: { executor: { concordanceAxisCache: Map<string, unknown> } } | null;
+      generation: { executor: { matchesAxisCache: Map<string, unknown> } } | null;
     }).generation!.executor;
-    expect(executor.concordanceAxisCache.size).toBe(2);
+    expect(executor.matchesAxisCache.size).toBe(2);
   });
 
   it('drops sparse axes when incremental publication supersedes the snapshot', async () => {
@@ -435,17 +435,17 @@ describe('concordance-window/1 through the executor and engine', () => {
     const executor = (h.engine as unknown as {
       generation: {
         executor: {
-          concordanceAxisCache: Map<string, unknown>;
-          concordanceAxisCacheBytes: number;
+          matchesAxisCache: Map<string, unknown>;
+          matchesAxisCacheBytes: number;
         };
       } | null;
     }).generation!.executor;
-    expect(executor.concordanceAxisCache.size).toBe(1);
+    expect(executor.matchesAxisCache.size).toBe(1);
 
     await coldIngest(h, 'g', 'b', 'wolf second', 11);
     expect(h.last('snapshot-published').snapshot).not.toBe(firstSnapshot);
-    expect(executor.concordanceAxisCache.size).toBe(0);
-    expect(executor.concordanceAxisCacheBytes).toBe(0);
+    expect(executor.matchesAxisCache.size).toBe(0);
+    expect(executor.matchesAxisCacheBytes).toBe(0);
   });
 
   it('reuses a cached axis after selection-thrashing evicts and recomputes occurrences', async () => {
@@ -457,17 +457,17 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false),
     });
     const first = h.last('result');
-    if (first.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (first.data.op !== 'matches-window') throw new Error('expected matches-window');
     const firstRows = first.data.window.rows;
     const executor = (h.engine as unknown as {
       generation: {
         executor: {
-          concordanceAxisCache: Map<string, { value: unknown }>;
+          matchesAxisCache: Map<string, { value: unknown }>;
           occurrenceCache: Map<string, unknown>;
         };
       } | null;
     }).generation!.executor;
-    const retainedAxis = [...executor.concordanceAxisCache.values()][0]!.value;
+    const retainedAxis = [...executor.matchesAxisCache.values()][0]!.value;
 
     for (const [index, surface] of ['the', 'ran', 'far', 'a', 'slept'].entries()) {
       const group = {
@@ -495,9 +495,9 @@ describe('concordance-window/1 through the executor and engine', () => {
       query: query({ kind: 'rank', rank: 0 }, false),
     });
     const second = h.last('result');
-    if (second.data.op !== 'concordance-window') throw new Error('expected concordance-window');
+    if (second.data.op !== 'matches-window') throw new Error('expected matches-window');
     expect(second.data.window.rows).toEqual(firstRows);
-    expect([...executor.concordanceAxisCache.values()][0]!.value).toBe(retainedAxis);
+    expect([...executor.matchesAxisCache.values()][0]!.value).toBe(retainedAxis);
     expect(occurrenceSpy).toHaveBeenCalledTimes(7);
   });
 
@@ -517,13 +517,13 @@ describe('concordance-window/1 through the executor and engine', () => {
     const executor = (h.engine as unknown as {
       generation: {
         executor: {
-          concordanceAxisCache: Map<string, unknown>;
-          concordanceAxisCacheBytes: number;
+          matchesAxisCache: Map<string, unknown>;
+          matchesAxisCacheBytes: number;
         };
       } | null;
     }).generation!.executor;
-    expect(executor.concordanceAxisCache.size).toBeLessThanOrEqual(MAX_CONCORDANCE_AXIS_CACHE_ENTRIES);
-    expect(executor.concordanceAxisCacheBytes).toBeLessThanOrEqual(MAX_CONCORDANCE_AXIS_CACHE_BYTES);
+    expect(executor.matchesAxisCache.size).toBeLessThanOrEqual(MAX_MATCHES_AXIS_CACHE_ENTRIES);
+    expect(executor.matchesAxisCacheBytes).toBeLessThanOrEqual(MAX_MATCHES_AXIS_CACHE_BYTES);
   });
 
   it('fences cancellation after one track before the next track computes', async () => {
@@ -656,7 +656,7 @@ describe('Slice-3 document-term-count cache', () => {
     expect(cacheOf(executor).occurrenceCacheBytes).toBe(0);
   });
 
-  it('only permits occurrence and concordance-axis policies that reduce hard bounds', () => {
+  it('only permits occurrence and matches-axis policies that reduce hard bounds', () => {
     expect(() => new QueryExecutor(
       DEFAULT_INDEX_RECIPE,
       buildResolver,
@@ -681,7 +681,7 @@ describe('Slice-3 document-term-count cache', () => {
       buildResolver,
       { maxEntries: 1, maxBytes: 1 },
       { maxEntries: 1, maxBytes: 1 },
-      { maxEntries: 1, maxBytes: MAX_CONCORDANCE_AXIS_CACHE_BYTES + 1 },
+      { maxEntries: 1, maxBytes: MAX_MATCHES_AXIS_CACHE_BYTES + 1 },
     )).toThrow(RangeError);
   });
 
@@ -1081,7 +1081,7 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
     if (t2.data.kind === 'exact') expect([...t2.data.starts]).toEqual([1, 5]);
   });
 
-  it('SHARES the occurrence cache with trend/Concordance — a dispersion after trend recomputes nothing', async () => {
+  it('SHARES the occurrence cache with trend/Matches — a dispersion after trend recomputes nothing', async () => {
     const h = harness();
     const spec = await docSpec('a', 'the wolf ran far. a wolf slept.');
     await begin(h, [spec]);

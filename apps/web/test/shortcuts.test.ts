@@ -100,6 +100,10 @@ describe('shortcut registry', () => {
     if (prefix.kind !== 'pending') throw new Error('expected a pending sequence');
     expect(advanceShortcutSequence(prefix.state, key('i'), 'workbench', 200))
       .toEqual({ kind: 'matched', id: 'go-inputs' });
+    expect(advanceShortcutSequence(prefix.state, key('m'), 'workbench', 200))
+      .toEqual({ kind: 'matched', id: 'go-matches' });
+    expect(advanceShortcutSequence(prefix.state, key('k'), 'workbench', 200))
+      .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('i'), 'workbench', 1_001))
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('x'), 'workbench', 200))

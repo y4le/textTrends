@@ -72,8 +72,8 @@ test('text detail preserves scope while select this text explicitly rescopes lin
     .map((event) => event.op);
   expect(new Set(scopeOps)).toEqual(new Set(requiredScopeOps));
 
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible();
 
   // The range-scoped inventory row retains its selection-independent
   // fullTokens. Even with no trend series left as a fallback, the named

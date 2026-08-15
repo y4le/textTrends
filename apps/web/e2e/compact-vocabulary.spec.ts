@@ -174,7 +174,7 @@ test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', as
   await expect(open).toBeFocused();
 });
 
-test('successful exact Concordance routing restores the open Vocabulary detail on Back', async ({ page }) => {
+test('successful exact Matches routing restores the open Vocabulary detail on Back', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -183,8 +183,8 @@ test('successful exact Concordance routing restores the open Vocabulary detail o
   const row = page.locator('tr[data-frequency-row]').first();
   await row.getByRole('button').click();
   const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
-  await detail.getByRole('button', { name: 'concordance' }).click();
-  await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
+  await detail.getByRole('button', { name: 'matches' }).click();
+  await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
 
   await page.goBack();
   await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);

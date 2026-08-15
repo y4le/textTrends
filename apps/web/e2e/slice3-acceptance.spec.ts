@@ -1,6 +1,6 @@
 /**
  * Slice-3 acceptance journey: bounded corpus inventory, book focus,
- * vocabulary ranking/concordance admission, and linked-range recomputation.
+ * vocabulary ranking/matches admission, and linked-range recomputation.
  */
 
 import { expect, test, type Page } from '@playwright/test';
@@ -52,7 +52,7 @@ async function awaitOps(
   }, { timeout: 30_000 }).toBe('answered');
 }
 
-test('slice 3: corpus → focus → vocabulary → concordance → linked range → baseline', async ({ page }) => {
+test('slice 3: corpus → focus → vocabulary → matches → linked range → baseline', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -93,11 +93,11 @@ test('slice 3: corpus → focus → vocabulary → concordance → linked range 
   await wolfRow.getByRole('button', { name: 'wolf', exact: true }).click();
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('region', { name: 'Vocabulary detail: wolf' })
-    .getByRole('button', { name: 'concordance' })
+    .getByRole('button', { name: 'matches' })
     .click();
-  await awaitOps(page, mark, ['trend', 'dispersion', 'concordance-window']);
-  await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
+  await awaitOps(page, mark, ['trend', 'dispersion', 'matches-window']);
+  await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible();
 
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });

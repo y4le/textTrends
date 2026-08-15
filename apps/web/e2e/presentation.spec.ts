@@ -195,9 +195,9 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await page.getByRole('button', { name: 'Cancel' }).click();
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
   await expect(page.getByRole('group', { name: 'Query terms' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
 });
 
 test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
@@ -313,13 +313,13 @@ test('scrollable analytical tables expose named regions', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible();
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible();
   await gotoPlace(page, 'inputs');
   await expect(page.getByRole('region', { name: 'Scrollable text details table' })).toBeVisible();
 });
 
-test('coarse input sizing does not inflate dense concordance rows', async ({ browser }) => {
+test('coarse input sizing does not inflate dense matches rows', async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
@@ -338,8 +338,8 @@ test('coarse input sizing does not inflate dense concordance rows', async ({ bro
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Done', exact: true }).click();
 
-  await gotoPlace(page, 'concordance');
-  const node = page.getByRole('grid', { name: 'Concordance' }).getByRole('button').first();
+  await gotoPlace(page, 'matches');
+  const node = page.getByRole('grid', { name: 'Matches' }).getByRole('button').first();
   const nodeBox = await node.boundingBox();
   expect(nodeBox?.height).toBeLessThan(44);
   await context.close();

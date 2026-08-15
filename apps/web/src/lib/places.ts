@@ -3,7 +3,7 @@
 export const PLACES = [
   'inputs',
   'trends',
-  'concordance',
+  'matches',
   'vocabulary',
   'compare',
 ] as const;
@@ -15,7 +15,7 @@ export const DEFAULT_PLACE: Place = 'trends';
 export const PLACE_HEADING: Readonly<Record<Place, string>> = Object.freeze({
   inputs: 'Inputs',
   trends: 'Trends',
-  concordance: 'Concordance',
+  matches: 'Matches',
   vocabulary: 'Vocabulary',
   compare: 'Compare',
 });

@@ -688,7 +688,7 @@ function FooterInteractive({
           && resolution.activation.kind === 'bucket'
         ) {
           // Supersede the two constituent click activations: the Reader and
-          // Concordance should settle on the same honest raw corpus point.
+          // Matches should settle on the same honest raw corpus point.
           centerKwicAt(resolution.track.seriesId, target.doc, target.token, {
             kind: 'bucket',
             count: resolution.activation.bucketCount ?? 0,

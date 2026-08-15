@@ -1,5 +1,5 @@
 /**
- * Slice-2 H browser proof: concordance and barcode rows carry snapshot-bound
+ * Slice-2 H browser proof: matches and barcode rows carry snapshot-bound
  * open intents into the lazy canonical reader; rapid navigation delivers stale
  * worker results physically out of order without relabeling the current page.
  */
@@ -203,13 +203,13 @@ test.beforeEach(async ({ page }) => {
 
 test('compact Reader is a Back/Escape layer and restores its invoking row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
   const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   await expect(lens).toBeVisible();
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page
-    .getByRole('grid', { name: 'Concordance' })
+    .getByRole('grid', { name: 'Matches' })
     .getByRole('button', { name: 'wolf', exact: true })
     .click();
   await awaitFreshReader(page, mark);
@@ -220,9 +220,9 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await page.goBack();
   await expect(drawer).toHaveCount(0);
   const row = page
-    .getByRole('grid', { name: 'Concordance' })
+    .getByRole('grid', { name: 'Matches' })
     .getByRole('button', { name: 'wolf', exact: true });
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeFocused();
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeFocused();
   await expect(
     page.getByRole('navigation', { name: 'Workbench sections' }),
   ).toBeVisible();
@@ -231,12 +231,12 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await expect(drawer).toBeVisible();
   await drawer.press('Escape');
   await expect(drawer).toHaveCount(0);
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeFocused();
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeFocused();
 });
 
-test('Concordance opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
-  await gotoPlace(page, 'concordance');
-  const table = page.getByRole('grid', { name: 'Concordance' });
+test('Matches opens the lazy reader; navigation and edited highlights stay correct', async ({ page }) => {
+  await gotoPlace(page, 'matches');
+  const table = page.getByRole('grid', { name: 'Matches' });
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   const kwicOpen = table.getByRole('button', { name: 'wolf', exact: true });
   await kwicOpen.click();
@@ -296,7 +296,7 @@ test('Concordance opens the lazy reader; navigation and edited highlights stay c
   await gotoPlace(page, 'trends');
 
   // Return to Trends to make a semantic edit, then reopen from the refreshed
-  // concordance and verify the Reader's current projection.
+  // matches and verify the Reader's current projection.
   await page.getByRole('button', { name: 'Edit term: wolf' }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   const editor = manager.getByRole('form', { name: 'Edit term: wolf' });
@@ -305,8 +305,8 @@ test('Concordance opens the lazy reader; navigation and edited highlights stay c
   await editor.getByRole('button', { name: 'Save term' }).click();
   await expect(editor).toHaveCount(0);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
-  const refreshedOpen = page.getByRole('grid', { name: 'Concordance' })
+  await gotoPlace(page, 'matches');
+  const refreshedOpen = page.getByRole('grid', { name: 'Matches' })
     .getByRole('button', { name: 'w0100', exact: true }).first();
   const readerMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await refreshedOpen.click();
@@ -318,13 +318,13 @@ test('Concordance opens the lazy reader; navigation and edited highlights stay c
   // a subsequent place departure.
   await trendDrawer.getByRole('button', { name: 'back', exact: true }).click();
   await expect(trendDrawer).toHaveCount(0);
-  await gotoPlace(page, 'concordance');
-  await expect(page).toHaveURL(/[?&]p=concordance(?:&|$)/);
+  await gotoPlace(page, 'matches');
+  await expect(page).toHaveURL(/[?&]p=matches(?:&|$)/);
 });
 
 test('an exact barcode occurrence opens the reader', async ({ page }) => {
   // Exact barcode tick at wolf@450 opens directly (density aggregates instead
-  // center Concordance, whose active exact row supplies its reader link).
+  // center Matches, whose active exact row supplies its reader link).
   const canvas = page.getByRole('slider', { name: /reading position/i })
     .locator('canvas')
     .first();

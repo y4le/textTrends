@@ -56,10 +56,10 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   const trendsSurface = page.getByRole('region', { name: 'Trends', exact: true });
   await expect(trendsSurface).toBeFocused();
   const trendsLink = page.getByRole('link', { name: 'Trends', exact: true });
-  const concordanceLink = page.getByRole('link', { name: 'Concordance', exact: true });
+  const matchesLink = page.getByRole('link', { name: 'Matches', exact: true });
   await trendsLink.focus();
   await trendsLink.press('ArrowRight');
-  await expect(concordanceLink).toBeFocused();
+  await expect(matchesLink).toBeFocused();
   await expect(trendsSurface).toBeVisible();
 
   const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
@@ -68,8 +68,8 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(page.getByRole('button', { name: 'separate', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
 
-  await chord(scrubber, 'g', 'k');
-  await expect(page.getByRole('region', { name: 'Concordance', exact: true })).toBeFocused();
+  await chord(scrubber, 'g', 'm');
+  await expect(page.getByRole('region', { name: 'Matches', exact: true })).toBeFocused();
   await chord(page.locator('body'), 'g', 'v');
   await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
   await chord(page.locator('body'), 'g', 'd');
@@ -112,21 +112,21 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await books.first().press('Escape');
   await expect(catalogPort).toBeFocused();
 
-  await gotoPlace(page, 'concordance');
-  const concordancePort = page.getByRole('grid', { name: 'Concordance' });
-  const occurrences = concordancePort.locator('[role="row"][aria-rowindex] .kwic-node > button');
+  await gotoPlace(page, 'matches');
+  const matchesPort = page.getByRole('grid', { name: 'Matches' });
+  const occurrences = matchesPort.locator('[role="row"][aria-rowindex] .kwic-node > button');
   await expect(occurrences.first()).toBeVisible();
   expect(await occurrences.evaluateAll((buttons) =>
     buttons.every((button) => button.getAttribute('tabindex') === '-1'))).toBe(true);
-  await concordancePort.focus();
-  const activeBefore = await concordancePort.getAttribute('aria-activedescendant');
-  await concordancePort.press('ArrowDown');
-  await expect.poll(() => concordancePort.getAttribute('aria-activedescendant'))
+  await matchesPort.focus();
+  const activeBefore = await matchesPort.getAttribute('aria-activedescendant');
+  await matchesPort.press('ArrowDown');
+  await expect.poll(() => matchesPort.getAttribute('aria-activedescendant'))
     .not.toBe(activeBefore);
-  await concordancePort.press('Enter');
+  await matchesPort.press('Enter');
   await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(concordancePort).toBeFocused();
+  await expect(matchesPort).toBeFocused();
 
   await gotoPlace(page, 'vocabulary');
   const vocabularyPort = page.locator('.frequency-table-port');

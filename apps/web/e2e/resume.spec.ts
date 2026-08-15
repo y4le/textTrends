@@ -9,7 +9,7 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
     await gotoPlace(page, place);
     const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
     await expect(page.getByRole('button', { name: methodLabel, exact: true }))
-      .toHaveCount(place === 'concordance' || place === 'inputs' ? 0 : 1);
+      .toHaveCount(place === 'matches' || place === 'inputs' ? 0 : 1);
     await expect(page.getByRole('complementary', { name: 'Terms' }))
       .toHaveCount(1);
     await expect(page.locator('details.method-summary')).toHaveCount(0);

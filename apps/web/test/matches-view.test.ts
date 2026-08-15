@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
-  concordanceRows,
-  nodeCenterOffset,
+  matchesRows,
   oneLine,
-} from '../src/lib/concordance-view.ts';
+} from '../src/lib/matches-view.ts';
 import type { KwicRowView } from '../src/lib/store.ts';
 
 const ROW: KwicRowView = {
@@ -18,10 +17,10 @@ const ROW: KwicRowView = {
   right: '  context\tafter the node  ',
 };
 
-describe('Concordance presentation', () => {
+describe('Matches presentation', () => {
   it('collapses display whitespace while retaining the complete delivered context', () => {
     expect(oneLine(' a\n\t b ')).toBe('a b');
-    const [row] = concordanceRows(
+    const [row] = matchesRows(
       [ROW],
       () => 'Holmes',
       () => ({ color: 'blue', line: 'dot' }),
@@ -35,11 +34,5 @@ describe('Concordance presentation', () => {
       nodeText: 'Holmes',
       rightFull: 'context after the node',
     });
-  });
-
-  it('centers the shared node column without producing negative scroll', () => {
-    expect(nodeCenterOffset(320, 500, 80)).toBe(380);
-    expect(nodeCenterOffset(800, 120, 80)).toBe(0);
-    expect(nodeCenterOffset(Number.NaN, 120, 80)).toBe(0);
   });
 });

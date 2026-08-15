@@ -122,11 +122,11 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     });
   }
 
-  // Query latency samples through the real UI (trend + Concordance window per input).
+  // Query latency samples through the real UI (trend + Matches window per input).
   const queryLatencies: number[] = [];
   for (const terms of ['watson', 'moriarty', 'adler', 'lestrade', 'baskerville']) {
     // Fresh single-term comparison per sample (append-only notebook): the
-    // measured burst must stay one trend + one Concordance window, comparable across runs.
+    // measured burst must stay one trend + one Matches window, comparable across runs.
     await clearNotebook(page);
     const before = ((await trace(page)).events.at(-1)?.seq ?? -1);
     const input = await openQuickAdd(page);
@@ -151,25 +151,25 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     queryLatencies.push(result!.at - post!.at);
   }
 
-  // Record continuous-Concordance publication and residency shape. These are
+  // Record continuous-Matches publication and residency shape. These are
   // descriptive clocks until enough baselines exist; bounded DOM remains a
   // semantic gate here and in the large-result functional spec.
-  await gotoPlace(page, 'concordance');
-  const concordance = page.getByRole('grid', { name: 'Concordance' });
-  await expect(concordance).toBeVisible({ timeout: 30_000 });
-  const concordanceRows = Number(await concordance.getAttribute('aria-rowcount')) - 1;
-  const concordanceMountedRows = await concordance.locator('.kwic-virtual-row').count();
-  const concordanceScrollPublishMs: number[] = [];
+  await gotoPlace(page, 'matches');
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches).toBeVisible({ timeout: 30_000 });
+  const matchesRows = Number(await matches.getAttribute('aria-rowcount')) - 1;
+  const matchesMountedRows = await matches.locator('.kwic-virtual-row').count();
+  const matchesScrollPublishMs: number[] = [];
   const corpusPosition = page.getByRole('slider', { name: 'Corpus footer position' });
   for (const ratio of [0.11, 0.53, 0.89]) {
     const previous = await corpusPosition.getAttribute('aria-valuenow');
     const startedAt = await page.evaluate(() => performance.now());
-    await concordance.evaluate((node, targetRatio) => {
+    await matches.evaluate((node, targetRatio) => {
       const port = node as HTMLElement;
       port.scrollTop = (port.scrollHeight - port.clientHeight) * targetRatio;
     }, ratio);
     await expect(corpusPosition).not.toHaveAttribute('aria-valuenow', previous ?? '');
-    concordanceScrollPublishMs.push(
+    matchesScrollPublishMs.push(
       await page.evaluate((start) => performance.now() - start, startedAt),
     );
   }
@@ -189,10 +189,10 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     warmReopenMs,
     footerPassageSamples,
     queryLatencies,
-    concordance: {
-      logicalRows: concordanceRows,
-      mountedRows: concordanceMountedRows,
-      scrollToCursorMs: concordanceScrollPublishMs,
+    matches: {
+      logicalRows: matchesRows,
+      mountedRows: matchesMountedRows,
+      scrollToCursorMs: matchesScrollPublishMs,
     },
     cancelAckMs: acks,
     cancelAckP95Ms: p95,
@@ -218,7 +218,7 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
   expect(p95).toBeLessThan(250);
   expect(footerPassageSamples.every((sample) => Object.values(sample).every(Number.isFinite)))
     .toBe(true);
-  expect(concordanceRows).toBeGreaterThan(0);
-  expect(concordanceMountedRows).toBeLessThan(120);
-  expect(concordanceScrollPublishMs.every(Number.isFinite)).toBe(true);
+  expect(matchesRows).toBeGreaterThan(0);
+  expect(matchesMountedRows).toBeLessThan(120);
+  expect(matchesScrollPublishMs.every(Number.isFinite)).toBe(true);
 });

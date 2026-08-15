@@ -34,8 +34,8 @@ export const PROTOCOL_VERSION_V4 = 4;
  *  Re-exported so worker-side modules keep one protocol import. */
 export type {
   BuildPhaseV4,
-  ConcordanceWindowQueryRequestV1,
-  ConcordanceWindowResultV1,
+  MatchesWindowQueryRequestV1,
+  MatchesWindowResultV1,
   GenerationDocSpecV4,
   KeynessRequestV1,
   KwicTrack,

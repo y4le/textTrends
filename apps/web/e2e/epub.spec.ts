@@ -2,7 +2,7 @@
  * EPUB ingest (Phase 2) in the real browser: import a minimal, deterministic
  * EPUB, then prove the worker unzipped it, extracted body-matter text, and made
  * it analyzable — a term that appears ONLY in the epub body produces a trend +
- * concordance. Also proves a library-backed EPUB reopens after disposable
+ * matches. Also proves a library-backed EPUB reopens after disposable
  * artifacts are cleared.
  */
 
@@ -95,10 +95,10 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
   await input.fill('zephyrwood');
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
-  const concordance = page.getByRole('grid', { name: 'Concordance' });
-  await expect(concordance).toBeVisible({ timeout: 30_000 });
-  const rows = await concordance.locator('[role="row"][aria-rowindex]').count();
+  await gotoPlace(page, 'matches');
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches).toBeVisible({ timeout: 30_000 });
+  const rows = await matches.locator('[role="row"][aria-rowindex]').count();
   expect(rows).toBeGreaterThanOrEqual(2); // both body documents mention it
 });
 
@@ -127,8 +127,8 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
   await input.fill('zephyrwood');
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible({ timeout: 30_000 });
 });
 
 test('a library EPUB rebuilds its index when only extracted text survives', async ({ page }) => {
@@ -169,6 +169,6 @@ test('a library EPUB rebuilds its index when only extracted text survives', asyn
   await input.fill('zephyrwood');
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })).toBeVisible({ timeout: 30_000 });
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible({ timeout: 30_000 });
 });

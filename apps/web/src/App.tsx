@@ -42,8 +42,8 @@ const ComparePlace = lazy(() =>
 const TrendsPlace = lazy(() =>
   import('./places/TrendsPlace.tsx').then(({ TrendsPlace: placeBody }) => ({ default: placeBody })),
 );
-const ConcordancePlace = lazy(() =>
-  import('./places/ConcordancePlace.tsx').then(({ ConcordancePlace: placeBody }) => ({ default: placeBody })),
+const MatchesPlace = lazy(() =>
+  import('./places/MatchesPlace.tsx').then(({ MatchesPlace: placeBody }) => ({ default: placeBody })),
 );
 const MethodSurface = lazy(() =>
   import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
@@ -115,7 +115,7 @@ function ActivePlace({ place }: { readonly place: Place }) {
   switch (place) {
     case 'inputs': return <InputsPlace />;
     case 'trends': return <TrendsPlace />;
-    case 'concordance': return <ConcordancePlace />;
+    case 'matches': return <MatchesPlace />;
     case 'vocabulary': return <VocabularyPlace />;
     case 'compare': return <ComparePlace />;
     default: {
@@ -250,7 +250,7 @@ export function App() {
     switch (id) {
       case 'go-inputs': go('inputs'); return true;
       case 'go-trends': go('trends'); return true;
-      case 'go-concordance': go('concordance'); return true;
+      case 'go-matches': go('matches'); return true;
       case 'go-vocabulary': go('vocabulary'); return true;
       case 'go-compare': {
         const textCount = state.projectSession?.project.data.order.length ?? 0;

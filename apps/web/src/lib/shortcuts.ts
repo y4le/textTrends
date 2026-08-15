@@ -8,7 +8,7 @@ export type ShortcutId =
   | 'focus-term-next'
   | 'go-inputs'
   | 'go-trends'
-  | 'go-concordance'
+  | 'go-matches'
   | 'go-vocabulary'
   | 'go-compare'
   | 'go-footer'
@@ -151,12 +151,12 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     sequence: [{ key: 'g' }, { key: 't' }],
   },
   {
-    id: 'go-concordance',
+    id: 'go-matches',
     group: 'Navigation',
     helpContexts: ['workbench'],
-    label: 'Go to Concordance',
+    label: 'Go to Matches',
     strokes: [],
-    sequence: [{ key: 'g' }, { key: 'k' }],
+    sequence: [{ key: 'g' }, { key: 'm' }],
   },
   {
     id: 'go-vocabulary',

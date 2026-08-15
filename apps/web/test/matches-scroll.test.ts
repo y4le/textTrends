@@ -1,16 +1,16 @@
 import { describe, expect, it } from 'vitest';
 import {
-  CONCORDANCE_SAFE_SCROLL_EXTENT,
-  concordanceLogicalAtScroll,
-  concordancePhysicalExtent,
-  concordancePrefetchRank,
-  concordanceScrollTop,
-  concordanceTargetAtLogical,
-  concordanceVisibleRanks,
-  concordanceWindowSize,
+  MATCHES_SAFE_SCROLL_EXTENT,
+  matchesLogicalAtScroll,
+  matchesPhysicalExtent,
+  matchesPrefetchRank,
+  matchesScrollTop,
+  matchesTargetAtLogical,
+  matchesVisibleRanks,
+  matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
-} from '../src/lib/concordance-scroll.ts';
+} from '../src/lib/matches-scroll.ts';
 import type { SequenceLayout } from '../src/lib/trend-geometry.ts';
 
 const docs = ['empty', 'a', 'b'];
@@ -30,14 +30,14 @@ const resident = {
   ],
 };
 
-describe('Concordance scroll geometry', () => {
+describe('Matches scroll geometry', () => {
   it('caps the native plane while preserving invertible logical endpoints', () => {
-    expect(concordancePhysicalExtent(100, 32)).toBe(3_200);
-    expect(concordancePhysicalExtent(1_000_000, 32)).toBe(CONCORDANCE_SAFE_SCROLL_EXTENT);
-    expect(concordanceScrollTop(500_000, 1_000_000, 32)).toBe(CONCORDANCE_SAFE_SCROLL_EXTENT / 2);
-    expect(concordanceLogicalAtScroll(CONCORDANCE_SAFE_SCROLL_EXTENT / 2, 1_000_000, 32)).toBe(500_000);
-    expect(concordanceScrollTop(-1, 20)).toBe(0);
-    expect(concordanceLogicalAtScroll(Number.POSITIVE_INFINITY, 20)).toBe(0);
+    expect(matchesPhysicalExtent(100, 32)).toBe(3_200);
+    expect(matchesPhysicalExtent(1_000_000, 32)).toBe(MATCHES_SAFE_SCROLL_EXTENT);
+    expect(matchesScrollTop(500_000, 1_000_000, 32)).toBe(MATCHES_SAFE_SCROLL_EXTENT / 2);
+    expect(matchesLogicalAtScroll(MATCHES_SAFE_SCROLL_EXTENT / 2, 1_000_000, 32)).toBe(500_000);
+    expect(matchesScrollTop(-1, 20)).toBe(0);
+    expect(matchesLogicalAtScroll(Number.POSITIVE_INFINITY, 20)).toBe(0);
   });
 
   it('chooses the leftmost duplicate row and interpolates compressed source gaps', () => {
@@ -71,11 +71,11 @@ describe('Concordance scroll geometry', () => {
   });
 
   it('bounds visible overscan and the requested worker window', () => {
-    expect(concordanceVisibleRanks(50, 100, 320)).toEqual({ start: 35, end: 65 });
-    expect(concordanceVisibleRanks(0, 100, 320)).toEqual({ start: 0, end: 15 });
-    expect(concordanceVisibleRanks(100, 100, 320)).toEqual({ start: 85, end: 100 });
-    expect(concordanceWindowSize(320)).toEqual({ before: 24, after: 24 });
-    expect(concordanceWindowSize(10_000)).toEqual({ before: 249, after: 249 });
+    expect(matchesVisibleRanks(50, 100, 320)).toEqual({ start: 35, end: 65 });
+    expect(matchesVisibleRanks(0, 100, 320)).toEqual({ start: 0, end: 15 });
+    expect(matchesVisibleRanks(100, 100, 320)).toEqual({ start: 85, end: 100 });
+    expect(matchesWindowSize(320)).toEqual({ before: 24, after: 24 });
+    expect(matchesWindowSize(10_000)).toEqual({ before: 249, after: 249 });
   });
 
   it('prefetches overlapping windows before visible rows reach resident edges', () => {
@@ -84,19 +84,19 @@ describe('Concordance scroll geometry', () => {
       firstRank: 20,
       rows: Array.from({ length: 49 }, () => ({ doc: 'a', pos: 0 })),
     };
-    expect(concordancePrefetchRank(40.5, 100, 320, middle, 0)).toBeNull();
-    expect(concordancePrefetchRank(35.5, 100, 320, middle, -1)).toBe(19);
-    expect(concordancePrefetchRank(35.5, 100, 320, middle, 1)).toBeNull();
-    expect(concordancePrefetchRank(53.5, 100, 320, middle, 1)).toBe(69);
-    expect(concordancePrefetchRank(53.5, 100, 320, middle, -1)).toBeNull();
-    expect(concordancePrefetchRank(90.5, 100, 320, middle, 1)).toBe(90);
+    expect(matchesPrefetchRank(40.5, 100, 320, middle, 0)).toBeNull();
+    expect(matchesPrefetchRank(35.5, 100, 320, middle, -1)).toBe(19);
+    expect(matchesPrefetchRank(35.5, 100, 320, middle, 1)).toBeNull();
+    expect(matchesPrefetchRank(53.5, 100, 320, middle, 1)).toBe(69);
+    expect(matchesPrefetchRank(53.5, 100, 320, middle, -1)).toBeNull();
+    expect(matchesPrefetchRank(90.5, 100, 320, middle, 1)).toBe(90);
 
-    expect(concordancePrefetchRank(0.5, 100, 320, {
+    expect(matchesPrefetchRank(0.5, 100, 320, {
       ...middle,
       firstRank: 0,
       rows: middle.rows.slice(0, 25),
     }, -1)).toBeNull();
-    expect(concordancePrefetchRank(99.5, 100, 320, {
+    expect(matchesPrefetchRank(99.5, 100, 320, {
       ...middle,
       firstRank: 75,
       rows: middle.rows.slice(0, 25),
@@ -104,12 +104,12 @@ describe('Concordance scroll geometry', () => {
   });
 
   it('publishes the nearest resident occurrence instead of an interpolated token', () => {
-    expect(concordanceTargetAtLogical(0, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
-    expect(concordanceTargetAtLogical(0.99, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
-    expect(concordanceTargetAtLogical(1, resident)).toEqual({ rank: 1, doc: 'a', token: 10 });
-    expect(concordanceTargetAtLogical(2.4, resident)).toEqual({ rank: 2, doc: 'a', token: 20 });
-    expect(concordanceTargetAtLogical(4, resident)).toEqual({ rank: 3, doc: 'b', token: 40 });
-    expect(concordanceTargetAtLogical(1.5, {
+    expect(matchesTargetAtLogical(0, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
+    expect(matchesTargetAtLogical(0.99, resident)).toEqual({ rank: 0, doc: 'a', token: 10 });
+    expect(matchesTargetAtLogical(1, resident)).toEqual({ rank: 1, doc: 'a', token: 10 });
+    expect(matchesTargetAtLogical(2.4, resident)).toEqual({ rank: 2, doc: 'a', token: 20 });
+    expect(matchesTargetAtLogical(4, resident)).toEqual({ rank: 3, doc: 'b', token: 40 });
+    expect(matchesTargetAtLogical(1.5, {
       ...resident,
       firstRank: 2,
       rows: resident.rows.slice(2),

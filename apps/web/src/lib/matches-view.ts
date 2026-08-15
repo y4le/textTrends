@@ -1,7 +1,7 @@
 import { kwicRowKey, type KwicRowView } from './store.ts';
 import type { SeriesStyleV1 } from '@texttrends/core';
 
-export interface ConcordanceRowVM {
+export interface MatchesRowVM {
   readonly key: string;
   readonly seriesId: string;
   readonly label: string;
@@ -21,12 +21,12 @@ export function oneLine(value: string): string {
   return value.replace(/\s+/g, ' ').trim();
 }
 
-export function concordanceRows(
+export function matchesRows(
   rows: readonly KwicRowView[],
   labelOf: (seriesId: string) => string,
   styleOf: (seriesId: string) => SeriesStyleV1,
   titleOf: (doc: string) => string,
-): readonly ConcordanceRowVM[] {
+): readonly MatchesRowVM[] {
   return rows.map((source) => {
     const leftFull = oneLine(source.left);
     const rightFull = oneLine(source.right);
@@ -44,14 +44,4 @@ export function concordanceRows(
       source,
     };
   });
-}
-
-/** Scroll offset that puts an aligned node's midpoint at the port midpoint. */
-export function nodeCenterOffset(
-  portWidth: number,
-  nodeLeft: number,
-  nodeWidth: number,
-): number {
-  if (![portWidth, nodeLeft, nodeWidth].every(Number.isFinite)) return 0;
-  return Math.max(0, nodeLeft + nodeWidth / 2 - portWidth / 2);
 }

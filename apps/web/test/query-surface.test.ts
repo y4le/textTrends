@@ -15,9 +15,9 @@ const group: NotebookGroupV1 = {
 };
 
 describe('query surface', () => {
-  it('limits the compact encoding key to Trends and Concordance', () => {
+  it('limits the compact encoding key to Trends and Matches', () => {
     expect(placeUsesQueryEncoding('trends')).toBe(true);
-    expect(placeUsesQueryEncoding('concordance')).toBe(true);
+    expect(placeUsesQueryEncoding('matches')).toBe(true);
     expect(placeUsesQueryEncoding('inputs')).toBe(false);
     expect(placeUsesQueryEncoding('vocabulary')).toBe(false);
     expect(placeUsesQueryEncoding('compare')).toBe(false);

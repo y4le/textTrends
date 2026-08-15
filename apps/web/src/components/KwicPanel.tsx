@@ -1,5 +1,5 @@
 /**
- * Continuous, corpus-order Concordance. The native scrollbar owns one capped
+ * Continuous, corpus-order Matches. The native scrollbar owns one capped
  * physical plane; a bounded fixed-height row overlay stays centered on the
  * shared reading cursor.
  */
@@ -18,31 +18,36 @@ import {
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
-  concordanceRows,
-  nodeCenterOffset,
-  type ConcordanceRowVM,
-} from '../lib/concordance-view.ts';
+  matchesRows,
+  type MatchesRowVM,
+} from '../lib/matches-view.ts';
 import {
-  concordanceColumnWidthFromDrag,
-  concordanceColumnWidthFromKey,
-  CONCORDANCE_COLUMN_DEFAULTS,
-  CONCORDANCE_COLUMN_LIMITS,
-  CONCORDANCE_COLUMN_PADDING_CH,
-  nodeVisibleScrollLeft,
-  type ConcordanceColumn,
-} from '../lib/concordance-columns.ts';
+  matchesColumnWidthFromDrag,
+  matchesColumnWidthFromKey,
+  matchesGridTemplate,
+  matchesTokenLabel,
+  MATCHES_COLUMN_LIMITS,
+  MATCHES_COLUMN_PADDING_CH,
+  MATCHES_CONTEXT_TOKENS,
+  MATCHES_CONTEXT_TOKENS_MAX,
+  isDefaultMatchesColumns,
+  resolvedMatchesColumns,
+  type MatchesColumn,
+  type MatchesColumnSettings,
+} from '../lib/matches-columns.ts';
+import { proportionalPairFromPixels } from '../lib/column-layout.ts';
 import {
-  CONCORDANCE_ROW_HEIGHT,
-  concordanceLogicalAtScroll,
-  concordancePhysicalExtent,
-  concordancePrefetchRank,
-  concordanceScrollTop,
-  concordanceTargetAtLogical,
-  concordanceVisibleRanks,
-  concordanceWindowSize,
+  MATCHES_ROW_HEIGHT,
+  matchesLogicalAtScroll,
+  matchesPhysicalExtent,
+  matchesPrefetchRank,
+  matchesScrollTop,
+  matchesTargetAtLogical,
+  matchesVisibleRanks,
+  matchesWindowSize,
   globalTokenForTarget,
   logicalForGlobalToken,
-} from '../lib/concordance-scroll.ts';
+} from '../lib/matches-scroll.ts';
 import { sequenceLayoutFor } from '../lib/footer-view.ts';
 import {
   ROW_NAVIGATION_SHORTCUT_IDS,
@@ -53,9 +58,12 @@ import {
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { selectionContains } from '../lib/selection.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
+import { widthClassFor } from '../lib/presentation.ts';
+import { usePresentation } from './PresentationProvider.tsx';
 
 const SCROLL_TOLERANCE_PX = 0.75;
 const ANNOUNCEMENT_INTERVAL_MS = 250;
+const CONTEXT_ESCALATION_DELAY_MS = 250;
 const ROW_ARIA_KEYS = shortcutAria(ROW_NAVIGATION_SHORTCUT_IDS);
 
 interface SelfPublishedCursor {
@@ -65,34 +73,30 @@ interface SelfPublishedCursor {
 }
 
 interface ColumnDrag {
-  readonly column: ConcordanceColumn;
+  readonly column: MatchesColumn;
   readonly pointerId: number;
   readonly startClientX: number;
   readonly startWidth: number;
+  readonly restoreSettings: MatchesColumnSettings;
+  readonly startLeftPx: number;
+  readonly startRightPx: number;
   readonly chPx: number;
   readonly handle: HTMLDivElement;
   currentWidth: number;
+  currentSettings: MatchesColumnSettings;
+  moved: boolean;
 }
 
-type ConcordanceGridStyle = CSSProperties & {
-  '--kwic-left-width': string;
-  '--kwic-node-width': string;
-  '--kwic-right-width': string;
-  '--kwic-book-width': string;
+type MatchesGridStyle = CSSProperties & {
+  '--kwic-template': string;
 };
-
-const COLUMN_WIDTH_PROPERTY: Readonly<Record<ConcordanceColumn, string>> = Object.freeze({
-  left: '--kwic-left-width',
-  node: '--kwic-node-width',
-  right: '--kwic-right-width',
-  book: '--kwic-book-width',
-});
 
 export function KwicPanel({
   showHeading = true,
 }: {
   readonly showHeading?: boolean;
 }) {
+  const presentation = usePresentation();
   const kwic = useApp((state) => state.kwic);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const snapshot = useApp((state) => state.snapshot);
@@ -102,15 +106,20 @@ export function KwicPanel({
   const scrub = useApp((state) => state.scrub);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const series = useApp((state) => state.series);
-  const view = useApp((state) => state.concordanceView);
-  const requestWindow = useApp((state) => state.requestConcordanceWindow);
-  const setColumnWidth = useApp((state) => state.setConcordanceColumnWidth);
-  const resetColumns = useApp((state) => state.resetConcordanceColumns);
+  const view = useApp((state) => state.matchesView);
+  const requestWindow = useApp((state) => state.requestMatchesWindow);
+  const setColumnWidth = useApp((state) => state.setMatchesColumnWidth);
+  const setContextWeights = useApp((state) => state.setMatchesContextWeights);
+  const resetColumn = useApp((state) => state.resetMatchesColumn);
+  const resetColumns = useApp((state) => state.resetMatchesColumns);
   const setScrub = useApp((state) => state.setScrub);
   const openReader = useApp((state) => state.openReader);
 
   const portRef = useRef<HTMLDivElement | null>(null);
+  const leftHeadingRef = useRef<HTMLDivElement | null>(null);
   const nodeHeadingRef = useRef<HTMLDivElement | null>(null);
+  const rightHeadingRef = useRef<HTMLDivElement | null>(null);
+  const chRulerRef = useRef<HTMLSpanElement | null>(null);
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
   const columnDragRef = useRef<ColumnDrag | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -122,10 +131,11 @@ export function KwicPanel({
   const pendingRankRef = useRef<number | null>(null);
   const identityRef = useRef('');
   const announcementTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const contextEscalationTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const announcementPendingRef = useRef('');
   const announcementAtRef = useRef(0);
   const lastScrollTopRef = useRef(0);
-  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const [viewport, setViewport] = useState({ width: 0, height: 0, chPx: 0 });
   const [logical, setLogical] = useState(0);
   const [announcement, setAnnouncement] = useState('');
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
@@ -170,11 +180,14 @@ export function KwicPanel({
   );
 
   const resident = kwic?.resident ?? null;
+  const currentContextTokens = kwic?.request?.contextTokens
+    ?? resident?.contextTokens
+    ?? MATCHES_CONTEXT_TOKENS;
   const hasGrid = resident !== null && resident.total > 0;
   const total = resident?.total ?? 0;
   const readyRows = resident?.rows ?? [];
   const rows = useMemo(
-    () => concordanceRows(readyRows, labelOf, styleOf, titleOf),
+    () => matchesRows(readyRows, labelOf, styleOf, titleOf),
     [readyRows, labelOf, styleOf, titleOf],
   );
   const rankedRows = useMemo(
@@ -187,11 +200,16 @@ export function KwicPanel({
   );
 
   const multipleBooks = docs.length > 1;
-  const tokenPosition = useCallback((row: ConcordanceRowVM) => {
+  const layoutWidth = viewport.width > 0 ? widthClassFor(viewport.width) : presentation.width;
+  const tokenPosition = useCallback((row: MatchesRowVM) => {
     const count = tokenCountsByDoc.get(row.doc);
     return `${(row.pos + 1).toLocaleString()} / ${count?.toLocaleString() ?? '—'}`;
   }, [tokenCountsByDoc]);
-  const bookLabel = useCallback((row: ConcordanceRowVM) =>
+  const displayedTokenPosition = useCallback(
+    (row: MatchesRowVM) => matchesTokenLabel(tokenPosition(row), layoutWidth),
+    [layoutWidth, tokenPosition],
+  );
+  const bookLabel = useCallback((row: MatchesRowVM) =>
     `(${bookOrdinalByDoc.get(row.doc) ?? '—'}) ${row.title}`,
   [bookOrdinalByDoc]);
 
@@ -225,7 +243,7 @@ export function KwicPanel({
     if (!moveScroll) return;
     const port = portRef.current;
     if (!port) return;
-    const top = concordanceScrollTop(bounded, total);
+    const top = matchesScrollTop(bounded, total);
     if (Math.abs(port.scrollTop - top) <= SCROLL_TOLERANCE_PX) return;
     programmaticScrollRef.current = top;
     port.scrollTop = top;
@@ -234,8 +252,8 @@ export function KwicPanel({
   const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
-    const size = concordanceWindowSize(viewport.height);
-    const prefetchRank = concordancePrefetchRank(
+    const size = matchesWindowSize(viewport.height);
+    const prefetchRank = matchesPrefetchRank(
       bounded + 0.5,
       total,
       viewport.height,
@@ -249,14 +267,26 @@ export function KwicPanel({
       && request?.anchor.kind === 'rank'
       && request.before === size.before
       && request.after === size.after
+      && request.contextTokens === currentContextTokens
       && prefetchRank >= request.anchor.rank - request.before
       && prefetchRank <= request.anchor.rank + request.after
     ) return;
-    requestWindow({ kind: 'rank', rank: prefetchRank }, size);
-  }, [kwic?.request, kwic?.state.status, requestWindow, resident, total, viewport.height]);
+    requestWindow(
+      { kind: 'rank', rank: prefetchRank },
+      { ...size, contextTokens: currentContextTokens },
+    );
+  }, [
+    currentContextTokens,
+    kwic?.request,
+    kwic?.state.status,
+    requestWindow,
+    resident,
+    total,
+    viewport.height,
+  ]);
 
   const publishLogicalCursor = useCallback((nextLogical: number) => {
-    const target = concordanceTargetAtLogical(nextLogical, resident);
+    const target = matchesTargetAtLogical(nextLogical, resident);
     if (!target) return null;
     const cursor = { doc: target.doc, token: target.token };
     selfPublishedRef.current = { ...cursor, logical: nextLogical };
@@ -281,8 +311,15 @@ export function KwicPanel({
     if (!port || typeof ResizeObserver === 'undefined') return undefined;
     const measure = () => {
       resizeFrameRef.current = null;
-      const next = { width: port.clientWidth, height: port.clientHeight };
-      setViewport((current) => current.width === next.width && current.height === next.height
+      const rulerWidth = chRulerRef.current?.getBoundingClientRect().width ?? 0;
+      const next = {
+        width: port.clientWidth,
+        height: port.clientHeight,
+        chPx: rulerWidth > 0 ? rulerWidth / 10 : 0,
+      };
+      setViewport((current) => current.width === next.width
+        && current.height === next.height
+        && Math.abs(current.chPx - next.chPx) < 0.001
         ? current
         : next);
     };
@@ -290,6 +327,7 @@ export function KwicPanel({
       if (resizeFrameRef.current === null) resizeFrameRef.current = requestAnimationFrame(measure);
     });
     observer.observe(port);
+    if (chRulerRef.current) observer.observe(chRulerRef.current);
     measure();
     return () => {
       observer.disconnect();
@@ -309,7 +347,7 @@ export function KwicPanel({
 
   useEffect(() => {
     if (!layout || total <= 0 || !kwic) return;
-    const size = concordanceWindowSize(viewport.height);
+    const size = matchesWindowSize(viewport.height);
     const pendingRank = pendingRankRef.current;
     if (pendingRank !== null) {
       const row = rowAtRank(pendingRank);
@@ -337,7 +375,10 @@ export function KwicPanel({
       return;
     }
     if (!scrub) {
-      requestWindow({ kind: 'rank', rank: 0 }, size);
+      requestWindow(
+        { kind: 'rank', rank: 0 },
+        { ...size, contextTokens: currentContextTokens },
+      );
       return;
     }
     const selfPublished = selfPublishedRef.current;
@@ -356,10 +397,14 @@ export function KwicPanel({
         })();
     setLogicalPosition(nextLogical, true);
     if (selfPublished?.doc !== scrub.doc || selfPublished.token !== scrub.token) {
-      requestWindow({ kind: 'position', doc: scrub.doc, token: scrub.token }, size);
+      requestWindow(
+        { kind: 'position', doc: scrub.doc, token: scrub.token },
+        { ...size, contextTokens: currentContextTokens },
+      );
     }
   }, [
     announceRank,
+    currentContextTokens,
     docs,
     kwic,
     layout,
@@ -377,6 +422,9 @@ export function KwicPanel({
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
     if (resizeFrameRef.current !== null) cancelAnimationFrame(resizeFrameRef.current);
     if (announcementTimerRef.current !== null) clearTimeout(announcementTimerRef.current);
+    if (contextEscalationTimerRef.current !== null) {
+      clearTimeout(contextEscalationTimerRef.current);
+    }
   }, []);
 
   const onScroll = useCallback(() => {
@@ -396,7 +444,7 @@ export function KwicPanel({
       scrollFrameRef.current = null;
       const livePort = portRef.current;
       if (!livePort || total <= 0) return;
-      const nextLogical = concordanceLogicalAtScroll(livePort.scrollTop, total);
+      const nextLogical = matchesLogicalAtScroll(livePort.scrollTop, total);
       const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
       setLogicalPosition(nextLogical, false);
       const rank = Math.max(0, Math.min(total - 1, Math.floor(nextLogical)));
@@ -410,75 +458,145 @@ export function KwicPanel({
   const activeRank = total > 0
     ? Math.max(0, Math.min(total - 1, Math.floor(logical)))
     : -1;
-  const visible = concordanceVisibleRanks(logical, total, viewport.height);
+  const visible = matchesVisibleRanks(logical, total, viewport.height);
   const renderedRows = rankedRows.filter(({ rank }) =>
     (rank >= visible.start && rank < visible.end) || rank === activeRank);
   const activeRowRendered = renderedRows.some(({ rank }) => rank === activeRank);
-  const physicalTop = concordanceScrollTop(logical, total);
-  const planeHeight = concordancePhysicalExtent(total) + viewport.height;
+  const physicalTop = matchesScrollTop(logical, total);
+  const planeHeight = matchesPhysicalExtent(total) + viewport.height;
 
-  const readerId = (row: ConcordanceRowVM) =>
+  const readerId = (row: MatchesRowVM) =>
     `kwic-reader-${encodeURIComponent(row.key)}`;
-  const rowId = (rank: number) => `concordance-row-${rank}`;
-  const openRowReader = (row: ConcordanceRowVM, rank: number) => {
+  const rowId = (rank: number) => `matches-row-${rank}`;
+  const openRowReader = (row: MatchesRowVM, rank: number) => {
     if (!kwic) return;
     moveToRank(rank);
     openReader(
       { snapshot: kwic.snapshot, doc: row.doc, token: row.pos, from: 'kwic' },
-      'concordance-grid',
+      'matches-grid',
     );
   };
 
-  const recenter = useCallback(() => {
-    const port = portRef.current;
-    const node = nodeHeadingRef.current;
-    if (!port || !node) return;
-    const portRect = port.getBoundingClientRect();
-    const nodeRect = node.getBoundingClientRect();
-    const nodeLeftInContent = nodeRect.left - portRect.left + port.scrollLeft;
-    port.scrollLeft = nodeCenterOffset(port.clientWidth, nodeLeftInContent, nodeRect.width);
-  }, []);
-
-  const ensureNodeVisible = useCallback(() => {
-    const port = portRef.current;
-    const node = nodeHeadingRef.current;
-    if (!port || !node) return;
-    const portRect = port.getBoundingClientRect();
-    const nodeRect = node.getBoundingClientRect();
-    const nodeLeftInContent = nodeRect.left - portRect.left + port.scrollLeft;
-    port.scrollLeft = nodeVisibleScrollLeft(
-      port.clientWidth,
-      port.scrollLeft,
-      port.scrollWidth - port.clientWidth,
-      nodeLeftInContent,
-      nodeRect.width,
-    );
-  }, []);
-
-  useLayoutEffect(() => {
-    recenter();
-  }, [hasGrid, multipleBooks, recenter]);
-
-  const gridStyle: ConcordanceGridStyle = {
-    '--kwic-left-width': `${view.columns.left}ch`,
-    '--kwic-node-width': `${view.columns.node}ch`,
-    '--kwic-right-width': `${view.columns.right}ch`,
-    '--kwic-book-width': `${view.columns.book}ch`,
+  const columnContent = useMemo(() => {
+    const visibleNodes = rows.map((row) => row.nodeText);
+    return {
+      nodes: visibleNodes.length > 0 ? visibleNodes : series.map((item) => item.label),
+      books: docs.map((doc, index) => `(${index + 1}) ${titleByDoc.get(doc) ?? doc}`),
+      tokens: [
+        'token',
+        ...docs.map((doc) => {
+          const count = tokenCountsByDoc.get(doc);
+          if (count === null || count === undefined) return '— / —';
+          return `${count.toLocaleString()} / ${count.toLocaleString()}`;
+        }),
+      ],
+    };
+  }, [docs, rows, series, titleByDoc, tokenCountsByDoc]);
+  const displayedColumns = useMemo(() => resolvedMatchesColumns(
+    view.columns,
+    columnContent,
+    layoutWidth,
+  ), [columnContent, layoutWidth, view.columns]);
+  const layoutOptions = useMemo(
+    () => ({ book: multipleBooks }),
+    [multipleBooks],
+  );
+  const resolveFor = useCallback((settings: MatchesColumnSettings) =>
+    resolvedMatchesColumns(settings, columnContent, layoutWidth),
+  [columnContent, layoutWidth]);
+  const templateFor = useCallback((settings: MatchesColumnSettings): string =>
+    matchesGridTemplate(resolveFor(settings), layoutOptions),
+  [layoutOptions, resolveFor]);
+  const gridStyle: MatchesGridStyle = {
+    '--kwic-template': matchesGridTemplate(displayedColumns, layoutOptions),
   };
-  const columnsAtDefault = (Object.keys(CONCORDANCE_COLUMN_DEFAULTS) as ConcordanceColumn[])
-    .every((column) => view.columns[column] === CONCORDANCE_COLUMN_DEFAULTS[column]);
 
-  const writeColumnWidth = useCallback((column: ConcordanceColumn, width: number) => {
-    portRef.current?.style.setProperty(COLUMN_WIDTH_PROPERTY[column], `${width}ch`);
-  }, []);
+  useEffect(() => {
+    if (contextEscalationTimerRef.current !== null) {
+      clearTimeout(contextEscalationTimerRef.current);
+      contextEscalationTimerRef.current = null;
+    }
+    if (
+      kwic?.state.status !== 'ready'
+      || resident === null
+      || resident.contextTokens !== currentContextTokens
+      || currentContextTokens >= MATCHES_CONTEXT_TOKENS_MAX
+    ) return undefined;
+    if (!(viewport.width > 0) || !(viewport.chPx > 0)) return undefined;
+    const fixed = displayedColumns.node + displayedColumns.token
+      + (multipleBooks ? displayedColumns.book : 0);
+    const fixedCount = 2 + Number(multipleBooks);
+    const contextPoolPx = Math.max(
+      0,
+      viewport.width - (fixed + fixedCount * MATCHES_COLUMN_PADDING_CH) * viewport.chPx,
+    );
+    const totalWeight = displayedColumns.left + displayedColumns.right;
+    const widestContextCells = Math.max(displayedColumns.left, displayedColumns.right)
+      / totalWeight * contextPoolPx / viewport.chPx;
+    const neededContextTokens = Math.ceil(widestContextCells / 2);
+    if (neededContextTokens <= currentContextTokens) return undefined;
+    const nextContextTokens = Math.min(
+      MATCHES_CONTEXT_TOKENS_MAX,
+      Math.max(currentContextTokens * 2, neededContextTokens),
+    );
+    const anchor = kwic.request?.anchor
+      ?? { kind: 'rank' as const, rank: Math.max(0, activeRank) };
+    const size = matchesWindowSize(viewport.height);
+    contextEscalationTimerRef.current = setTimeout(() => {
+      contextEscalationTimerRef.current = null;
+      requestWindow(anchor, {
+        before: kwic.request?.before ?? size.before,
+        after: kwic.request?.after ?? size.after,
+        contextTokens: nextContextTokens,
+      });
+    }, CONTEXT_ESCALATION_DELAY_MS);
+    return () => {
+      if (contextEscalationTimerRef.current !== null) {
+        clearTimeout(contextEscalationTimerRef.current);
+        contextEscalationTimerRef.current = null;
+      }
+    };
+  }, [
+    activeRank,
+    currentContextTokens,
+    displayedColumns,
+    kwic?.request,
+    kwic?.state.status,
+    multipleBooks,
+    requestWindow,
+    resident,
+    viewport.chPx,
+    viewport.height,
+    viewport.width,
+  ]);
+  const columnsAtDefault = isDefaultMatchesColumns(view.columns);
+
+  const writeSettings = useCallback((settings: MatchesColumnSettings) => {
+    portRef.current?.style.setProperty('--kwic-template', templateFor(settings));
+  }, [templateFor]);
 
   const cancelActiveColumnDrag = useCallback(() => {
     const drag = columnDragRef.current;
     if (!drag) return false;
     columnDragRef.current = null;
-    writeColumnWidth(drag.column, drag.startWidth);
-    drag.handle.setAttribute('aria-valuenow', String(drag.startWidth));
-    drag.handle.setAttribute('aria-valuetext', `${drag.startWidth} characters`);
+    writeSettings(drag.restoreSettings);
+    if (drag.column === 'left' || drag.column === 'right') {
+      const pair = proportionalPairFromPixels(
+        drag.restoreSettings.left,
+        drag.restoreSettings.right,
+      );
+      const restored = drag.column === 'left' ? pair.first : pair.second;
+      drag.handle.setAttribute('aria-valuenow', String(restored));
+      drag.handle.setAttribute('aria-valuetext', `${restored}% of context space`);
+    } else {
+      const restored = resolveFor(drag.restoreSettings)[drag.column];
+      const automatic = drag.restoreSettings[drag.column] === 'auto';
+      drag.handle.setAttribute('aria-valuenow', String(restored));
+      drag.handle.setAttribute(
+        'aria-valuetext',
+        `${restored} characters${automatic ? ', automatic' : ''}`,
+      );
+    }
     try {
       if (drag.handle.hasPointerCapture(drag.pointerId)) {
         drag.handle.releasePointerCapture(drag.pointerId);
@@ -487,11 +605,11 @@ export function KwicPanel({
       // Synthetic PointerEvents do not always establish native capture.
     }
     return true;
-  }, [writeColumnWidth]);
+  }, [resolveFor, writeSettings]);
 
   const beginColumnDrag = (
     event: ReactPointerEvent<HTMLDivElement>,
-    column: ConcordanceColumn,
+    column: MatchesColumn,
   ) => {
     if (!columnsAdjustable || !event.isPrimary || event.button !== 0) {
       if (columnDragRef.current && event.pointerId !== columnDragRef.current.pointerId) {
@@ -503,10 +621,15 @@ export function KwicPanel({
     if (columnDragRef.current) return;
     const heading = event.currentTarget.parentElement;
     if (!heading) return;
-    const startWidth = view.columns[column];
-    const trackWidth = heading.getBoundingClientRect().width;
-    const chPx = trackWidth / (startWidth + CONCORDANCE_COLUMN_PADDING_CH);
+    const chPx = viewport.chPx;
     if (!(chPx > 0)) return;
+    const leftPx = leftHeadingRef.current?.getBoundingClientRect().width ?? 0;
+    const rightPx = rightHeadingRef.current?.getBoundingClientRect().width ?? 0;
+    const startWidth = column === 'left'
+      ? Math.max(0, leftPx / chPx - MATCHES_COLUMN_PADDING_CH)
+      : column === 'right'
+        ? Math.max(0, rightPx / chPx - MATCHES_COLUMN_PADDING_CH)
+        : displayedColumns[column];
     event.preventDefault();
     event.stopPropagation();
     event.currentTarget.focus({ preventScroll: true });
@@ -520,9 +643,14 @@ export function KwicPanel({
       pointerId: event.pointerId,
       startClientX: event.clientX,
       startWidth,
+      restoreSettings: view.columns,
+      startLeftPx: leftPx,
+      startRightPx: rightPx,
       chPx,
       handle: event.currentTarget,
       currentWidth: startWidth,
+      currentSettings: view.columns,
+      moved: false,
     };
   };
 
@@ -531,17 +659,38 @@ export function KwicPanel({
     if (!drag || drag.pointerId !== event.pointerId) return;
     event.preventDefault();
     event.stopPropagation();
-    const next = concordanceColumnWidthFromDrag(
-      drag.column,
-      drag.startWidth,
-      event.clientX - drag.startClientX,
-      drag.chPx,
-    );
-    if (next === drag.currentWidth) return;
-    drag.currentWidth = next;
-    writeColumnWidth(drag.column, next);
-    event.currentTarget.setAttribute('aria-valuenow', String(next));
-    event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
+    const delta = event.clientX - drag.startClientX;
+    if (drag.column === 'left' || drag.column === 'right') {
+      const total = drag.startLeftPx + drag.startRightPx;
+      if (!(total > 2)) return;
+      const selected = drag.column === 'left' ? drag.startLeftPx : drag.startRightPx;
+      const target = Math.max(1, Math.min(total - 1, selected + delta));
+      const pair = drag.column === 'left'
+        ? proportionalPairFromPixels(target, total - target)
+        : proportionalPairFromPixels(total - target, target);
+      drag.currentSettings = {
+        ...drag.restoreSettings,
+        left: pair.first,
+        right: pair.second,
+      };
+      drag.currentWidth = drag.column === 'left' ? pair.first : pair.second;
+      event.currentTarget.setAttribute('aria-valuenow', String(drag.currentWidth));
+      event.currentTarget.setAttribute('aria-valuetext', `${drag.currentWidth}% of context space`);
+    } else {
+      const next = matchesColumnWidthFromDrag(
+        drag.column,
+        drag.startWidth,
+        delta,
+        drag.chPx,
+      );
+      if (next === drag.currentWidth) return;
+      drag.currentWidth = next;
+      drag.currentSettings = { ...drag.restoreSettings, [drag.column]: next };
+      event.currentTarget.setAttribute('aria-valuenow', String(next));
+      event.currentTarget.setAttribute('aria-valuetext', `${next} characters`);
+    }
+    drag.moved = true;
+    writeSettings(drag.currentSettings);
   };
 
   const endColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -557,9 +706,14 @@ export function KwicPanel({
     } catch {
       // Synthetic PointerEvents do not always establish native capture.
     }
-    setColumnWidth(drag.column, drag.currentWidth);
-    announce(`${drag.column} column width ${drag.currentWidth} characters`);
-    requestAnimationFrame(ensureNodeVisible);
+    if (!drag.moved) return;
+    if (drag.column === 'left' || drag.column === 'right') {
+      setContextWeights(drag.currentSettings.left, drag.currentSettings.right);
+      announce(`${drag.column} context share ${drag.currentWidth}%`);
+    } else {
+      setColumnWidth(drag.column, drag.currentWidth);
+      announce(`${drag.column} column width ${drag.currentWidth} characters`);
+    }
   };
 
   const cancelColumnDrag = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -573,7 +727,7 @@ export function KwicPanel({
 
   const onColumnKeyDown = (
     event: KeyboardEvent<HTMLDivElement>,
-    column: ConcordanceColumn,
+    column: MatchesColumn,
   ) => {
     if (event.key === 'Escape') {
       event.preventDefault();
@@ -586,9 +740,36 @@ export function KwicPanel({
       }
       return;
     }
-    const next = concordanceColumnWidthFromKey(
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      if (column === 'left' || column === 'right') setContextWeights(1, 1);
+      else resetColumn(column);
+      announce(`${column} column reset`);
+      return;
+    }
+    if (column === 'left' || column === 'right') {
+      const pair = proportionalPairFromPixels(view.columns.left, view.columns.right);
+      const current = column === 'left' ? pair.first : pair.second;
+      const next = matchesColumnWidthFromKey(
+        column,
+        current,
+        event.key,
+        event.shiftKey,
+      );
+      if (next === null) return;
+      event.preventDefault();
+      event.stopPropagation();
+      setContextWeights(
+        column === 'left' ? next : 100 - next,
+        column === 'right' ? next : 100 - next,
+      );
+      announce(`${column} context share ${next}%`);
+      return;
+    }
+    const next = matchesColumnWidthFromKey(
       column,
-      view.columns[column],
+      displayedColumns[column],
       event.key,
       event.shiftKey,
     );
@@ -597,12 +778,16 @@ export function KwicPanel({
     event.stopPropagation();
     setColumnWidth(column, next);
     announce(`${column} column width ${next} characters`);
-    requestAnimationFrame(ensureNodeVisible);
   };
 
-  const resizeHandle = (column: ConcordanceColumn, label: string) => {
-    const limits = CONCORDANCE_COLUMN_LIMITS[column];
-    const width = view.columns[column];
+  const resizeHandle = (column: MatchesColumn, label: string) => {
+    const context = column === 'left' || column === 'right';
+    const pair = proportionalPairFromPixels(view.columns.left, view.columns.right);
+    const width = context
+      ? (column === 'left' ? pair.first : pair.second)
+      : displayedColumns[column];
+    const limits = context ? { min: 1, max: 99 } : MATCHES_COLUMN_LIMITS[column];
+    const automatic = !context && view.columns[column] === 'auto';
     return (
       <div
         className="kwic-column-resizer"
@@ -612,7 +797,9 @@ export function KwicPanel({
         aria-valuemin={limits.min}
         aria-valuemax={limits.max}
         aria-valuenow={width}
-        aria-valuetext={`${width} characters`}
+        aria-valuetext={context
+          ? `${width}% of context space`
+          : `${width} characters${automatic ? ', automatic' : ''}`}
         tabIndex={columnsAdjustable ? 0 : -1}
         onKeyDown={(event) => onColumnKeyDown(event, column)}
         onPointerDown={(event) => beginColumnDrag(event, column)}
@@ -641,7 +828,6 @@ export function KwicPanel({
     cancelActiveColumnDrag();
     resetColumns();
     announce('Column widths reset');
-    requestAnimationFrame(recenter);
   };
 
   useEffect(() => () => {
@@ -662,13 +848,13 @@ export function KwicPanel({
     event.preventDefault();
     if (shortcut === 'row-exit') {
       event.currentTarget.blur();
-      announce('Concordance row navigation paused');
+      announce('Match navigation paused');
       return;
     }
     const pageSize = visibleRowPageSize(
       event.currentTarget.clientHeight,
       window.innerHeight,
-      CONCORDANCE_ROW_HEIGHT,
+      MATCHES_ROW_HEIGHT,
     );
     const target = rowNavigationTarget(total, activeRank, shortcut, pageSize);
     if (target >= 0) moveToRank(target);
@@ -680,7 +866,7 @@ export function KwicPanel({
     body = <p className="kwic-message">No terms shown in analysis.</p>;
   } else if (status === 'error' && resident === null) {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
-    body = <p className="kwic-message kwic-error">concordance failed: {message}</p>;
+    body = <p className="kwic-message kwic-error">matches failed: {message}</p>;
   } else if (status === 'pending' && resident === null) {
     body = (
       <div aria-hidden="true" className="kwic-skeleton">
@@ -697,42 +883,49 @@ export function KwicPanel({
         className="kwic-grid-shell"
         data-columns-adjustable={columnsAdjustable || undefined}
       >
+        <span ref={chRulerRef} className="kwic-ch-ruler" aria-hidden="true">
+          0000000000
+        </span>
         <div
           ref={portRef}
-          id="concordance-grid"
-          className="kwic-virtual-grid horizontal-data-port"
+          id="matches-grid"
+          className="kwic-virtual-grid"
           role="grid"
           tabIndex={0}
-          aria-label="Concordance"
+          aria-label="Matches"
           aria-rowcount={total + 1}
+          aria-colcount={4 + Number(multipleBooks)}
           aria-activedescendant={activeRowRendered ? rowId(activeRank) : undefined}
           aria-keyshortcuts={ROW_ARIA_KEYS}
           data-logical-position={logical.toFixed(3)}
-          data-multiple-books={multipleBooks || undefined}
           style={gridStyle}
           onScroll={onScroll}
           onKeyDown={onGridKeyDown}
         >
           <div className="kwic-grid-header" role="row">
-            <div className="kwic-left-heading" role="columnheader">
+            <div ref={leftHeadingRef} className="kwic-left-heading" role="columnheader" aria-colindex={1}>
               <span className="kwic-column-heading-label">left context</span>
               {resizeHandle('left', 'Left context')}
             </div>
-            <div ref={nodeHeadingRef} className="kwic-node-heading" role="columnheader">
+            <div ref={nodeHeadingRef} className="kwic-node-heading" role="columnheader" aria-colindex={2}>
               <span className="kwic-column-heading-label">node</span>
               {resizeHandle('node', 'Node')}
             </div>
-            <div className="kwic-right-heading" role="columnheader">
+            <div ref={rightHeadingRef} className="kwic-right-heading" role="columnheader" aria-colindex={3}>
               <span className="kwic-column-heading-label">right context</span>
               {resizeHandle('right', 'Right context')}
             </div>
             {multipleBooks && (
-              <div className="kwic-book-heading" role="columnheader">
+              <div className="kwic-book-heading" role="columnheader" aria-colindex={4}>
                 <span className="kwic-column-heading-label">book</span>
                 {resizeHandle('book', 'Book')}
               </div>
             )}
-            <div className="kwic-token-heading" role="columnheader">
+            <div
+              className="kwic-token-heading"
+              role="columnheader"
+              aria-colindex={4 + Number(multipleBooks)}
+            >
               <span className="kwic-column-heading-label">token</span>
             </div>
           </div>
@@ -744,8 +937,8 @@ export function KwicPanel({
             {renderedRows.map(({ row, rank }) => {
               const top = physicalTop
                 + viewport.height / 2
-                + (rank + 0.5 - logical) * CONCORDANCE_ROW_HEIGHT
-                - CONCORDANCE_ROW_HEIGHT / 2;
+                + (rank + 0.5 - logical) * MATCHES_ROW_HEIGHT
+                - MATCHES_ROW_HEIGHT / 2;
               return (
                 <div
                   key={row.key}
@@ -755,7 +948,7 @@ export function KwicPanel({
                   aria-rowindex={rank + 2}
                   aria-selected={rank === activeRank || undefined}
                   data-series-label={row.label}
-                  data-concordance-rank={rank}
+                  data-matches-rank={rank}
                   data-linked-selection={selectionContains(linkedSelection, row.doc, row.pos) || undefined}
                   style={{ transform: `translate3d(0, ${top}px, 0)` }}
                   onPointerDown={(event) => {
@@ -764,10 +957,10 @@ export function KwicPanel({
                     moveToRank(rank);
                   }}
                 >
-                  <div className="kwic-left-context source-text" role="gridcell">
+                  <div className="kwic-left-context source-text" role="gridcell" aria-colindex={1}>
                     <span>{row.leftFull}</span>
                   </div>
-                  <div className="kwic-node source-text" role="gridcell">
+                  <div className="kwic-node source-text" role="gridcell" aria-colindex={2}>
                     <button
                       id={readerId(row)}
                       type="button"
@@ -779,23 +972,28 @@ export function KwicPanel({
                       {row.nodeText}
                     </button>
                   </div>
-                  <div className="kwic-right-context source-text" role="gridcell">
+                  <div className="kwic-right-context source-text" role="gridcell" aria-colindex={3}>
                     <span>{row.rightFull}</span>
                   </div>
                   {multipleBooks && (
-                    <div className="kwic-book" role="gridcell" title={bookLabel(row)}>
+                    <div className="kwic-book" role="gridcell" aria-colindex={4} title={bookLabel(row)}>
                       <span className="kwic-book-content">{bookLabel(row)}</span>
                     </div>
                   )}
-                  <div className="kwic-token" role="gridcell" title={tokenPosition(row)}>
-                    <span className="kwic-token-position">{tokenPosition(row)}</span>
+                  <div
+                    className="kwic-token"
+                    role="gridcell"
+                    aria-colindex={4 + Number(multipleBooks)}
+                    title={tokenPosition(row)}
+                  >
+                    <span className="kwic-token-position">{displayedTokenPosition(row)}</span>
                   </div>
                 </div>
               );
             })}
           </div>
         </div>
-        <div className="kwic-column-toolbar" role="toolbar" aria-label="Concordance columns">
+        <div className="kwic-column-toolbar" role="toolbar" aria-label="Match columns">
           {columnsAdjustable && (
             <button
               key="reset-columns"
@@ -814,7 +1012,7 @@ export function KwicPanel({
             key="toggle-columns"
             ref={adjustButtonRef}
             type="button"
-            aria-controls="concordance-grid"
+            aria-controls="matches-grid"
             aria-label={columnsAdjustable ? 'Lock column widths' : 'Adjust column widths'}
             aria-pressed={columnsAdjustable}
             title={columnsAdjustable ? 'Lock column widths' : 'Adjust column widths'}
@@ -837,11 +1035,11 @@ export function KwicPanel({
 
   return (
     <section
-      aria-labelledby={showHeading ? 'concordance-heading' : undefined}
-      aria-label={showHeading ? undefined : 'Concordance results'}
+      aria-labelledby={showHeading ? 'matches-heading' : undefined}
+      aria-label={showHeading ? undefined : 'Match results'}
       className="kwic-panel"
     >
-      {showHeading && <h2 id="concordance-heading">Concordance</h2>}
+      {showHeading && <h2 id="matches-heading">Matches</h2>}
       {body}
       <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
         {announcement}

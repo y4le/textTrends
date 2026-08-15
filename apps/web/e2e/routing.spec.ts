@@ -25,7 +25,7 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
   await expect(lens.getByRole('link')).toHaveText([
     'Inputs',
     'Trends',
-    'Concordance',
+    'Matches',
     'Vocabulary',
     'Compare',
   ]);
@@ -36,9 +36,9 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
     .toHaveAttribute('aria-current', 'page');
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await lens.getByRole('link', { name: 'Concordance', exact: true }).click();
-  await expect(page).toHaveURL(/\?foreign=%2f&p=concordance$/);
-  await expect(lens.getByRole('link', { name: 'Concordance', exact: true }))
+  await lens.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page).toHaveURL(/\?foreign=%2f&p=matches$/);
+  await expect(lens.getByRole('link', { name: 'Matches', exact: true }))
     .toHaveAttribute('aria-current', 'page');
   const lensQueryOps = (await trace(page)).events.filter((event) =>
     event.seq > mark
@@ -48,12 +48,12 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
 
   await page.reload();
   await awaitAllReady(page);
-  await expect(page.getByRole('link', { name: 'Concordance', exact: true }))
+  await expect(page.getByRole('link', { name: 'Matches', exact: true }))
     .toHaveAttribute('aria-current', 'page');
-  // A direct Concordance reload may still be materializing its first bounded
+  // A direct Matches reload may still be materializing its first bounded
   // row window after the general analysis barrier. Set the navigation mark
   // only once that governed surface is resident.
-  await expect(page.getByRole('grid', { name: 'Concordance' }))
+  await expect(page.getByRole('grid', { name: 'Matches' }))
     .toBeVisible({ timeout: 30_000 });
   const reloadMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
@@ -213,7 +213,7 @@ test('compact tabs keep every available destination complete in portrait and lan
   await expect(lens.getByRole('link')).toHaveText([
     'Inputs',
     'Trends',
-    'Concordance',
+    'Matches',
     'Vocabulary',
   ]);
   const landscape = await lens.boundingBox();

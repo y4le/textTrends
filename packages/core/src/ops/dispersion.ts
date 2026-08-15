@@ -2,7 +2,7 @@
  * dispersion/1 — the barcode's bounded numeric result (slice-2 ruling §1/§C).
  *
  * A dispersion result is a VISUALIZATION projection over the same
- * `NumericOccurrences` the trend/Concordance branches consume — it never resolves
+ * `NumericOccurrences` the trend/Matches branches consume — it never resolves
  * members or interprets overlap semantics itself, and it never exposes an
  * unbounded "dump every occurrence" transport. Representation is adaptive
  * PER TRACK:

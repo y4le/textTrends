@@ -4,19 +4,23 @@ import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
 import { createDocumentIndex, tokenCharLength, type DocumentIndexV1 } from '../src/index/build.ts';
 import { bindShards, bindTexts, type BoundShards, type BoundTexts } from '../src/ops/binding.ts';
 import {
-  buildConcordanceAxis,
-  concordanceAxisPayloadBytes,
-  copyConcordanceAxis,
-  materializeConcordanceWindow,
-  planConcordanceWindow,
-} from '../src/ops/concordance.ts';
+  buildMatchesAxis,
+  matchesAxisPayloadBytes,
+  copyMatchesAxis,
+  materializeMatchesWindow,
+  planMatchesWindow,
+} from '../src/ops/matches.ts';
 import { occurrences, type NumericOccurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
+import {
+  KWIC_CONTEXT_MAX_TOKENS,
+  KWIC_CONTEXT_MAX_UTF16,
+} from '../src/ops/kwic.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument, type CorpusSnapshotV1 } from '../src/snapshot/compose.ts';
 import { resolveSelection, type ResolvedSelection } from '../src/snapshot/selection.ts';
 
-const GEN = 'concordance-test' as BuildGeneration;
+const GEN = 'matches-test' as BuildGeneration;
 const FOLD: MatchMode = { case: 'folded', diacritics: 'sensitive' };
 const WOLF_GROUP: TermGroupSpec = {
   id: 'wolf',
@@ -123,8 +127,8 @@ function materializedRows(
   track: NumericOccurrences,
   contextTokens: number,
 ) {
-  const axis = buildConcordanceAxis(w.snapshot, w.selection, [track]);
-  const numeric = planConcordanceWindow(
+  const axis = buildMatchesAxis(w.snapshot, w.selection, [track]);
+  const numeric = planMatchesWindow(
     w.snapshot,
     w.bound,
     w.selection,
@@ -137,7 +141,7 @@ function materializedRows(
       contextTokens,
     },
   );
-  return materializeConcordanceWindow(
+  return materializeMatchesWindow(
     w.snapshot,
     numeric,
     w.texts,
@@ -145,7 +149,7 @@ function materializedRows(
   ).rows;
 }
 
-describe('continuous concordance axis', () => {
+describe('continuous matches axis', () => {
   it('samples rank zero and only duplicate-run boundaries after the stride', async () => {
     const w = await world({ a: Array.from({ length: 300 }, (_, index) => `w${index}`).join(' ') });
     const entries: Entry[] = Array.from({ length: 127 }, (_, pos) => ({ doc: 0, pos }));
@@ -158,15 +162,15 @@ describe('continuous concordance axis', () => {
       { doc: 0, pos: 128 },
       { doc: 0, pos: 129 },
     );
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, [occurrence(w.selection, entries)]);
-    const samples = copyConcordanceAxis(axis);
+    const axis = buildMatchesAxis(w.snapshot, w.selection, [occurrence(w.selection, entries)]);
+    const samples = copyMatchesAxis(axis);
 
     expect(axis.total).toBe(134);
     expect(Array.from(samples.ranks)).toEqual([0, 132]);
     expect(Array.from(samples.globalTokens)).toEqual([0, 128]);
 
     for (const rank of [126, 127, 128, 129, 131, 132, 133]) {
-      const window = planConcordanceWindow(
+      const window = planMatchesWindow(
         w.snapshot,
         w.bound,
         w.selection,
@@ -195,14 +199,14 @@ describe('continuous concordance axis', () => {
       })),
       ...(trackOrdinal === 0 ? [{ doc: 0, pos: 128 }] : []),
     ]));
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, tracks);
-    const samples = copyConcordanceAxis(axis);
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const samples = copyMatchesAxis(axis);
     expect(axis.total).toBe(288);
     expect(Array.from(samples.ranks)).toEqual([0, 287]);
     expect(Array.from(samples.globalTokens)).toEqual([0, 128]);
-    expect(concordanceAxisPayloadBytes(axis)).toBe(16);
+    expect(matchesAxisPayloadBytes(axis)).toBe(16);
 
-    const window = planConcordanceWindow(
+    const window = planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -218,21 +222,21 @@ describe('continuous concordance axis', () => {
 
   it('returns independent transfer-safe axis copies', async () => {
     const w = await world({ a: 'a b c' });
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, [
+    const axis = buildMatchesAxis(w.snapshot, w.selection, [
       occurrence(w.selection, [{ doc: 0, pos: 1 }]),
     ]);
-    const copy = copyConcordanceAxis(axis);
+    const copy = copyMatchesAxis(axis);
     copy.ranks[0] = 99;
     copy.globalTokens[0] = 99;
-    const secondCopy = copyConcordanceAxis(axis);
+    const secondCopy = copyMatchesAxis(axis);
     expect(Array.from(secondCopy.ranks)).toEqual([0]);
     expect(Array.from(secondCopy.globalTokens)).toEqual([1]);
-    expect(concordanceAxisPayloadBytes(axis)).toBe(8);
-    expect(() => copyConcordanceAxis({ ...axis })).toThrow(/unrecognized concordance axis/);
+    expect(matchesAxisPayloadBytes(axis)).toBe(8);
+    expect(() => copyMatchesAxis({ ...axis })).toThrow(/unrecognized matches axis/);
   });
 });
 
-describe('continuous concordance windows', () => {
+describe('continuous matches windows', () => {
   it('is byte-for-byte ordered like current reading-order KWIC, including duplicate ties', async () => {
     const w = await world({ a: 'zero one two three four five six seven' });
     const tracks = [
@@ -247,8 +251,8 @@ describe('continuous concordance windows', () => {
         { doc: 0, pos: 6, members: [0] },
       ]),
     ];
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, tracks);
-    const actual = planConcordanceWindow(
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const actual = planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -285,8 +289,8 @@ describe('continuous concordance windows', () => {
   it('restores a deep rank window from the preceding sparse sample', async () => {
     const w = await world({ a: Array.from({ length: 300 }, (_, index) => `w${index}`).join(' ') });
     const track = occurrence(w.selection, Array.from({ length: 300 }, (_, pos) => ({ doc: 0, pos })));
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, [track]);
-    const window = planConcordanceWindow(
+    const axis = buildMatchesAxis(w.snapshot, w.selection, [track]);
+    const window = planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -310,8 +314,8 @@ describe('continuous concordance windows', () => {
       ]),
       occurrence(w.selection, [{ doc: 0, pos: 7 }]),
     ];
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, tracks);
-    const gap = planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
+    const axis = buildMatchesAxis(w.snapshot, w.selection, tracks);
+    const gap = planMatchesWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
       anchor: { kind: 'position', doc: 'a', token: 5 },
       before: 1,
       after: 2,
@@ -321,7 +325,7 @@ describe('continuous concordance windows', () => {
     expect(gap.preceding).toEqual({ rank: 0, globalToken: 2 });
     expect(gap.rows.map((row) => [row.docOrdinal, row.pos])).toEqual([[0, 2], [0, 7], [0, 7], [1, 1]]);
 
-    const exact = planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
+    const exact = planMatchesWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
       anchor: { kind: 'position', doc: 'a', token: 7 },
       before: 0,
       after: 1,
@@ -330,7 +334,7 @@ describe('continuous concordance windows', () => {
     expect(exact.anchorRank).toBe(1);
     expect(exact.preceding).toEqual({ rank: 0, globalToken: 2 });
 
-    const tail = planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
+    const tail = planMatchesWindow(w.snapshot, w.bound, w.selection, axis, tracks, {
       anchor: { kind: 'position', doc: 'b', token: 7 },
       before: 1,
       after: 1,
@@ -343,8 +347,8 @@ describe('continuous concordance windows', () => {
   it('handles an empty result and materializes only bounded verified text rows', async () => {
     const w = await world({ a: 'zero one two three' });
     const emptyTrack = occurrence(w.selection, []);
-    const emptyAxis = buildConcordanceAxis(w.snapshot, w.selection, [emptyTrack]);
-    expect(planConcordanceWindow(
+    const emptyAxis = buildMatchesAxis(w.snapshot, w.selection, [emptyTrack]);
+    expect(planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -362,8 +366,8 @@ describe('continuous concordance windows', () => {
     });
 
     const materializedTrack = occurrence(w.selection, [{ doc: 0, pos: 2, members: [4] }]);
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, [materializedTrack]);
-    const numeric = planConcordanceWindow(
+    const axis = buildMatchesAxis(w.snapshot, w.selection, [materializedTrack]);
+    const numeric = planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -371,7 +375,7 @@ describe('continuous concordance windows', () => {
       [materializedTrack],
       rankRequest(0, 0, 0),
     );
-    const materialized = materializeConcordanceWindow(
+    const materialized = materializeMatchesWindow(
       w.snapshot,
       numeric,
       w.texts,
@@ -388,7 +392,7 @@ describe('continuous concordance windows', () => {
       nodeText: 'two',
       right: ' three',
     }]);
-    expect(() => materializeConcordanceWindow(w.snapshot, numeric, w.texts, []))
+    expect(() => materializeMatchesWindow(w.snapshot, numeric, w.texts, []))
       .toThrow(/requires 1 track identities/);
   });
 
@@ -423,6 +427,21 @@ describe('continuous concordance windows', () => {
     expect(rows[1]!.right).toBe('');
   });
 
+  it('caps materialized context without splitting UTF-16 surrogate pairs', async () => {
+    const long = `${'a'.repeat(KWIC_CONTEXT_MAX_UTF16 - 2)}😀${'b'.repeat(100)}`;
+    const w = await world({ a: `wolf ${long} wolf` });
+    const track = occurrences(w.snapshot, w.shards, w.resolvers, w.selection, WOLF_GROUP);
+    const rows = materializedRows(w, track, 2);
+    expect(rows[0]!.right.length).toBeLessThanOrEqual(KWIC_CONTEXT_MAX_UTF16);
+    expect(rows[1]!.left.length).toBeLessThanOrEqual(KWIC_CONTEXT_MAX_UTF16);
+    for (const context of [rows[0]!.right, rows[1]!.left]) {
+      const first = context.charCodeAt(0);
+      const last = context.charCodeAt(context.length - 1);
+      expect(first >= 0xdc00 && first <= 0xdfff).toBe(false);
+      expect(last >= 0xd800 && last <= 0xdbff).toBe(false);
+    }
+  });
+
   it('guards token character-length positions before span materialization', async () => {
     const w = await world({ a: 'one two' });
     const shard = w.shards.get('a')!;
@@ -435,12 +454,12 @@ describe('continuous concordance windows', () => {
   it('enforces admitted occurrence shapes, track counts, and duplicate-run bounds', async () => {
     const w = await world({ a: 'a b c d' });
     const base = occurrence(w.selection, [{ doc: 0, pos: 1 }]);
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [])).toThrow(/requires 1\.\.5 tracks/);
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, Array.from({ length: 6 }, () => base)))
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [])).toThrow(/requires 1\.\.5 tracks/);
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, Array.from({ length: 6 }, () => base)))
       .toThrow(/requires 1\.\.5 tracks/);
 
     const oversizedCount = 200_001;
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [{
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [{
       ...base,
       docOrdinal: new Uint32Array(oversizedCount),
       pos: new Uint32Array(oversizedCount),
@@ -450,13 +469,13 @@ describe('continuous concordance windows', () => {
     }])).toThrow(/malformed occurrence arrays/);
 
     const oversizedMembers = 1_600_001;
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [{
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [{
       ...base,
       memberOffsets: Uint32Array.of(0, oversizedMembers),
       memberOrdinals: new Uint32Array(oversizedMembers),
     }])).toThrow(/malformed occurrence arrays/);
 
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [{
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [{
       ...base,
       docOrdinal: Uint32Array.of(0, 0),
       pos: Uint32Array.of(1, 2),
@@ -469,7 +488,7 @@ describe('continuous concordance windows', () => {
       w.selection,
       Array.from({ length: 33 }, (_, member) => ({ doc: 0, pos: 1, members: [member] })),
     );
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [tooManyAtOneToken]))
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [tooManyAtOneToken]))
       .toThrow(/duplicate run exceeds/);
   });
 
@@ -480,17 +499,17 @@ describe('continuous concordance windows', () => {
       docs: ['a' as ProjectDocId],
       ranges: [{ doc: 'a' as ProjectDocId, tokens: { start: 0 as never, end: 2 as never } }],
     });
-    expect(() => buildConcordanceAxis(w.snapshot, ranged, [track])).toThrow(/full corpus/);
+    expect(() => buildMatchesAxis(w.snapshot, ranged, [track])).toThrow(/full corpus/);
 
-    const axis = buildConcordanceAxis(w.snapshot, w.selection, [track]);
-    expect(() => planConcordanceWindow(w.snapshot, w.bound, w.selection, {
+    const axis = buildMatchesAxis(w.snapshot, w.selection, [track]);
+    expect(() => planMatchesWindow(w.snapshot, w.bound, w.selection, {
       ...axis,
-    }, [track], rankRequest(0, 0, 0))).toThrow(/unrecognized concordance axis/);
-    expect(() => buildConcordanceAxis(w.snapshot, w.selection, [{
+    }, [track], rankRequest(0, 0, 0))).toThrow(/unrecognized matches axis/);
+    expect(() => buildMatchesAxis(w.snapshot, w.selection, [{
       ...track,
       snapshot: 'stale',
     } as unknown as NumericOccurrences])).toThrow(/different snapshot/);
-    expect(() => planConcordanceWindow(
+    expect(() => planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -498,9 +517,20 @@ describe('continuous concordance windows', () => {
       [track],
       rankRequest(0, 250, 250),
     )).toThrow(/1\.\.500 rows/);
+    expect(() => planMatchesWindow(
+      w.snapshot,
+      w.bound,
+      w.selection,
+      axis,
+      [track],
+      {
+        ...rankRequest(0, 0, 0),
+        contextTokens: KWIC_CONTEXT_MAX_TOKENS + 1,
+      },
+    )).toThrow(/contextTokens must be/);
 
     for (const rank of [-1, 0.5, 1]) {
-      expect(() => planConcordanceWindow(
+      expect(() => planMatchesWindow(
         w.snapshot,
         w.bound,
         w.selection,
@@ -509,9 +539,9 @@ describe('continuous concordance windows', () => {
         rankRequest(rank, 0, 0),
       )).toThrow(/rank must be in/);
     }
-    expect(() => planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, [], rankRequest(0, 0, 0)))
+    expect(() => planMatchesWindow(w.snapshot, w.bound, w.selection, axis, [], rankRequest(0, 0, 0)))
       .toThrow(/requires 1 tracks/);
-    expect(() => planConcordanceWindow(
+    expect(() => planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -519,13 +549,13 @@ describe('continuous concordance windows', () => {
       [occurrence(w.selection, [{ doc: 0, pos: 0 }])],
       rankRequest(0, 0, 0),
     )).toThrow(/sampled frontier/);
-    expect(() => planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, [
+    expect(() => planMatchesWindow(w.snapshot, w.bound, w.selection, axis, [
       occurrence(w.selection, [{ doc: 0, pos: 0 }, { doc: 0, pos: 1 }]),
     ], rankRequest(0, 0, 0))).toThrow(/axis total/);
 
     const emptyTrack = occurrence(w.selection, []);
-    const emptyAxis = buildConcordanceAxis(w.snapshot, w.selection, [emptyTrack]);
-    expect(() => planConcordanceWindow(
+    const emptyAxis = buildMatchesAxis(w.snapshot, w.selection, [emptyTrack]);
+    expect(() => planMatchesWindow(
       w.snapshot,
       w.bound,
       w.selection,
@@ -533,13 +563,13 @@ describe('continuous concordance windows', () => {
       [emptyTrack],
       rankRequest(1, 0, 0),
     )).toThrow(/only rank zero/);
-    expect(planConcordanceWindow(w.snapshot, w.bound, w.selection, emptyAxis, [emptyTrack], {
+    expect(planMatchesWindow(w.snapshot, w.bound, w.selection, emptyAxis, [emptyTrack], {
       anchor: { kind: 'position', doc: 'a', token: 2 },
       before: 0,
       after: 0,
       contextTokens: 0,
     }).rows).toEqual([]);
-    expect(() => planConcordanceWindow(w.snapshot, w.bound, w.selection, axis, [track], {
+    expect(() => planMatchesWindow(w.snapshot, w.bound, w.selection, axis, [track], {
       anchor: { kind: 'position', doc: 'a', token: 4 },
       before: 0,
       after: 0,

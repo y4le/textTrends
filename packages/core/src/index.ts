@@ -127,26 +127,27 @@ export {
   type BoundTexts,
 } from './ops/binding.ts';
 export {
+  KWIC_CONTEXT_MAX_TOKENS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   materializeKwicPage,
   type KwicRow,
 } from './ops/kwic.ts';
 export {
-  buildConcordanceAxis,
-  CONCORDANCE_AXIS_STRIDE,
-  concordanceAxisPayloadBytes,
-  copyConcordanceAxis,
-  materializeConcordanceWindow,
-  planConcordanceWindow,
-  type ConcordanceAnchorV1,
-  type ConcordanceAxisArraysV1,
-  type ConcordanceAxisV1,
-  type ConcordancePositionBracketV1,
-  type ConcordanceWindowRequestV1,
-  type ConcordanceWindowV1,
-  type NumericConcordanceWindowV1,
-} from './ops/concordance.ts';
+  buildMatchesAxis,
+  MATCHES_AXIS_STRIDE,
+  matchesAxisPayloadBytes,
+  copyMatchesAxis,
+  materializeMatchesWindow,
+  planMatchesWindow,
+  type MatchesAnchorV1,
+  type MatchesAxisArraysV1,
+  type MatchesAxisV1,
+  type MatchesPositionBracketV1,
+  type MatchesWindowRequestV1,
+  type MatchesWindowV1,
+  type NumericMatchesWindowV1,
+} from './ops/matches.ts';
 export {
   checkedResolverFor,
   occurrencePayloadBytes,

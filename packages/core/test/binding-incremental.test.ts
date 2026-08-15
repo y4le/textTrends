@@ -28,10 +28,10 @@ import {
   type BoundTexts,
 } from '../src/ops/binding.ts';
 import {
-  buildConcordanceAxis,
-  materializeConcordanceWindow,
-  planConcordanceWindow,
-} from '../src/ops/concordance.ts';
+  buildMatchesAxis,
+  materializeMatchesWindow,
+  planMatchesWindow,
+} from '../src/ops/matches.ts';
 import { occurrences, type TermGroupSpec } from '../src/ops/occurrences.ts';
 import { trend } from '../src/ops/trend.ts';
 import { buildResolver, modeKey, type MatchMode, type Resolver } from '../src/resolve/fold.ts';
@@ -109,7 +109,7 @@ function armor(s: DocumentIndexV1) {
 }
 
 /** A full query pipeline against the resident owned corpus: occurrences,
- * bounded Concordance planning, and authenticated row materialization. */
+ * bounded Matches planning, and authenticated row materialization. */
 async function wolfRows(
   snapshot: CorpusSnapshotV1,
   bound: BoundShards,
@@ -128,14 +128,14 @@ async function wolfRows(
     docs: snapshot.docs.map((ref) => ref.doc),
   });
   const occ = occurrences(snapshot, shards, resolvers, sel, wolfGroup);
-  const axis = buildConcordanceAxis(snapshot, sel, [occ]);
-  const window = planConcordanceWindow(snapshot, bound, sel, axis, [occ], {
+  const axis = buildMatchesAxis(snapshot, sel, [occ]);
+  const window = planMatchesWindow(snapshot, bound, sel, axis, [occ], {
     anchor: { kind: 'rank', rank: 0 },
     before: 0,
     after: Math.max(0, axis.total - 1),
     contextTokens: 1,
   });
-  return materializeConcordanceWindow(
+  return materializeMatchesWindow(
     snapshot,
     window,
     texts,
@@ -351,7 +351,7 @@ describe('snapshot lifetime (risk 7)', () => {
 });
 
 describe('kernel purity (risk 8)', () => {
-  it('occurrences, trend, and Concordance leave the owned artifact byte-identical', async () => {
+  it('occurrences, trend, and Matches leave the owned artifact byte-identical', async () => {
     const a = await docOf('a', 'the wolf ran and the wolf slept in the den');
     const snapshot = await snapshotOf([a]);
     const session = createBindingSession();
@@ -365,14 +365,14 @@ describe('kernel purity (risk 8)', () => {
     const occ = occurrences(snapshot, new Map([['a', resident]]), new Map([['a', byMode]]), sel, wolfGroup);
     expect(occ.pos.length).toBe(2);
     trend(snapshot, sel, occ, { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } });
-    const axis = buildConcordanceAxis(snapshot, sel, [occ]);
-    const window = planConcordanceWindow(snapshot, bound, sel, axis, [occ], {
+    const axis = buildMatchesAxis(snapshot, sel, [occ]);
+    const window = planMatchesWindow(snapshot, bound, sel, axis, [occ], {
       anchor: { kind: 'rank', rank: 0 },
       before: 0,
       after: axis.total - 1,
       contextTokens: 2,
     });
-    materializeConcordanceWindow(
+    materializeMatchesWindow(
       snapshot,
       window,
       texts,

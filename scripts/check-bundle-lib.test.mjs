@@ -29,12 +29,12 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/InputsPlace-1111.js","assets/TrendsPlace-2222.js","assets/ConcordancePlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";const library="assets/local-library-LLLL.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/InputsPlace-1111.js","assets/TrendsPlace-2222.js","assets/MatchesPlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const method="assets/MethodSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";const library="assets/local-library-LLLL.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
   put('assets/InputsPlace-1111.js', 'const archive=()=>import("./archive-RRRR.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
   put('assets/TrendsPlace-2222.js', 'export const Trends=1;');
-  put('assets/ConcordancePlace-3333.js', 'export const Concordance=1;');
+  put('assets/MatchesPlace-3333.js', 'export const Matches=1;');
   put('assets/VocabularyPlace-4444.js', 'export const Vocabulary=1;');
   put('assets/ComparePlace-5555.js', 'export const Compare=1;');
   put('assets/MethodSummary-MMMM.js', 'export const Method=1;');

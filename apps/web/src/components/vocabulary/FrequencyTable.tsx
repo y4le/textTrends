@@ -188,11 +188,11 @@ function FrequencyFilters({
 function FrequencyRowDetail({
   row,
   onAdd,
-  onConcordance,
+  onMatches,
 }: {
   readonly row: FrequencyListRowV1;
   readonly onAdd: () => void;
-  readonly onConcordance: () => void;
+  readonly onMatches: () => void;
 }) {
   return (
     <section
@@ -221,10 +221,10 @@ function FrequencyRowDetail({
         </button>
         <button
           type="button"
-          onClick={onConcordance}
-          title="Show this exact, case-sensitive term in the concordance"
+          onClick={onMatches}
+          title="Show exact, case-sensitive matches for this term"
         >
-          concordance
+          matches
         </button>
       </div>
     </section>
@@ -577,7 +577,7 @@ export function FrequencyTable({
                             <FrequencyRowDetail
                               row={row}
                               onAdd={() => addAndManage(row.key, row.typeId)}
-                              onConcordance={() => showInKwic(row.key)}
+                              onMatches={() => showInKwic(row.key)}
                             />
                           </td>
                         </tr>

@@ -1,5 +1,5 @@
 import { KwicPanel } from '../components/KwicPanel.tsx';
 
-export function ConcordancePlace() {
+export function MatchesPlace() {
   return <KwicPanel showHeading={false} />;
 }

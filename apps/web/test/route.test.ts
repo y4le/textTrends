@@ -19,7 +19,7 @@ describe('parseRoute', () => {
     ];
     for (const search of hostile) {
       expect(() => parseRoute(search)).not.toThrow();
-      expect([null, 'inputs', 'trends', 'concordance', 'vocabulary', 'compare'])
+      expect([null, 'inputs', 'trends', 'matches', 'vocabulary', 'compare'])
         .toContain(parseRoute(search).place);
     }
     expect(parseRoute('?p=trends&p=catalog&foreign=reader')).toEqual({ place: 'trends' });

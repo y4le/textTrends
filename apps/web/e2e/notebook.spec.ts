@@ -2,9 +2,9 @@
  * Slice-1 commit E acceptance (recorded ruling §4E): the query notebook in
  * the real browser over a tiny deterministic imported corpus. Proves:
  * - a multi-alias term (token + phrase + prefix, authored in one comma field)
- *   drives trends and concordance as OR
- *   alternatives, with the complete phrase span in the concordance node;
- * - visibility removes the track globally, including from Concordance, while
+ *   drives trends and matches as OR
+ *   alternatives, with the complete phrase span in the match node;
+ * - visibility removes the track globally, including from Matches, while
  *   zero-hit remains a real, visible ready state;
  * - a case-SENSITIVE member distinguishes what the folded default merges;
  * - the panel controls carry stable group-qualified accessible names and
@@ -34,7 +34,7 @@ async function importCorpus(page: Page): Promise<void> {
 }
 
 async function rowNodes(page: Page): Promise<{ term: string; node: string }[]> {
-  const trs = page.getByRole('grid', { name: 'Concordance' }).locator('[role="row"][aria-rowindex]');
+  const trs = page.getByRole('grid', { name: 'Matches' }).locator('[role="row"][aria-rowindex]');
   const n = await trs.count();
   const out: { term: string; node: string }[] = [];
   for (let i = 0; i < n; i++) {
@@ -68,13 +68,13 @@ async function awaitFreshAnswered(page: Page, mark: number): Promise<{ op: strin
   return fresh;
 }
 
-/** Wait for a fresh (post-mark) Concordance window to deliver its result. */
+/** Wait for a fresh (post-mark) Matches window to deliver its result. */
 async function awaitFreshKwic(page: Page, mark: number): Promise<void> {
   await expect
     .poll(async () => {
       const t = await trace(page);
-      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'concordance-window');
-      if (q.length === 0) return 'no fresh concordance query';
+      const q = t.events.filter((e) => e.seq > mark && e.direction === 'to-worker' && e.t === 'query' && e.op === 'matches-window');
+      if (q.length === 0) return 'no fresh matches query';
       const res = t.events.filter((e) => e.seq > mark && e.direction === 'from-worker' && e.t === 'result' && q.some((p) => p.job === e.job));
       return res.length > 0 ? 'answered' : 'no result';
     }, { timeout: 30_000 })
@@ -94,10 +94,10 @@ test('one comma-authored term compiles token, phrase, and prefix aliases as OR a
   await editor.getByRole('button', { name: 'Save term' }).click();
   await awaitFreshKwic(page, mark);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
 
   // All OR alternatives appear under the ONE group's track — including the
-  // COMPLETE phrase span as the concordance node text.
+  // COMPLETE phrase span as the match node text.
   await expect.poll(async () => (await rowNodes(page)).map((r) => r.node).sort()).toEqual(
     ['Wolf', 'dire wolf', 'wolf', 'wolves'].sort(), // folded default: Wolf merges; phrase covers dire+wolf
   );
@@ -123,7 +123,7 @@ test('the exact-match toggle distinguishes what the folded default merges', asyn
   await awaitFreshKwic(page, mark);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
   // Only the capitalized occurrence matches — the folded default would find 3+.
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
   await expect.poll(async () => (await rowNodes(page)).map((r) => r.node)).toEqual(['Wolf']);
 });
 
@@ -332,7 +332,7 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(manager.getByRole('button', { name: '+ Add term', exact: true })).toBeFocused();
 });
 
-test('visibility is global across Concordance and zero-hit is a visible ready state', async ({ page }) => {
+test('visibility is global across Matches and zero-hit is a visible ready state', async ({ page }) => {
   await importCorpus(page);
   await submitAndAwaitFreshResults(page, 'wolf, dire, absentterm');
   const terms = page.getByRole('group', { name: 'Query terms' });
@@ -363,10 +363,10 @@ test('visibility is global across Concordance and zero-hit is a visible ready st
   expect(managerShownBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 
-  // The shared terms rail remains the sole term control in Concordance.
-  await gotoPlace(page, 'concordance');
+  // The shared terms rail remains the sole term control in Matches.
+  await gotoPlace(page, 'matches');
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
   const direChip = showDire.locator('..').locator('.term-bucket-focus');
   await expect(direChip).toBeVisible();
   const muteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -378,7 +378,7 @@ test('visibility is global across Concordance and zero-hit is a visible ready st
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term)))
     .toEqual(new Set(['wolf']));
 
-  // Restoring global visibility restores the term in Concordance too.
+  // Restoring global visibility restores the term in Matches too.
   const unmuteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');

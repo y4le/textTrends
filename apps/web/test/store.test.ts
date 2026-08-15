@@ -122,7 +122,7 @@ function fakeQueryClient() {
     client,
     issued,
     trends: () => issued.filter((q) => q.op === 'trend'),
-    kwics: () => issued.filter((q) => q.op === 'concordance-window'),
+    kwics: () => issued.filter((q) => q.op === 'matches-window'),
     readers: () => issued.filter((q) => q.op === 'reader-page'),
     occurrenceSteps: () => issued.filter((q) => q.op === 'occurrence-step'),
     inventories: () => issued.filter(
@@ -322,15 +322,15 @@ function fakeTrend(marker: number): NumericTrend {
   };
 }
 
-function fakeConcordance(
+function fakeMatches(
   total = 0,
-  rows: Extract<QueryResultDataV4, { op: 'concordance-window' }>['window']['rows'] = [],
+  rows: Extract<QueryResultDataV4, { op: 'matches-window' }>['window']['rows'] = [],
   includeAxis = true,
 ): QueryResultDataV4 {
   return {
-    op: 'concordance-window',
+    op: 'matches-window',
     window: {
-      method: 'concordance-window/1',
+      method: 'matches-window/1',
       total,
       trackCount: 1,
       anchorRank: total > 0 ? 0 : null,
@@ -919,7 +919,7 @@ describe('the session bridge', () => {
     }
   });
 
-  it('restores a workspace notebook from active state, ignoring the deprecated Concordance filter', async () => {
+  it('restores a workspace notebook from active state, ignoring the deprecated Matches filter', async () => {
     const q = fakeQueryClient();
     const runtime = createAppRuntime(q.client, { newId: () => 'new' });
     const port = new FakeSessionPort(sessionState(null, {
@@ -1372,7 +1372,7 @@ describe('the session bridge', () => {
     expect(runtime.useApp.getState().bootstrap.phase).toBe('initializing');
   });
 
-  it('dispose cancels the active Concordance window and scrub cannot mint another', () => {
+  it('dispose cancels the active Matches window and scrub cannot mint another', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
@@ -1407,7 +1407,7 @@ describe('store query intent discipline', () => {
     expect(live.map((q) => q.term)).toEqual(['holmes', 'moriarty']);
     expect(new Set(live.map((q) => q.groupId)).size).toBe(2);
     const liveKwic = f.kwics().filter((q) => !q.cancelled);
-    expect(liveKwic.length).toBe(1); // ONE merged concordance, not one per series
+    expect(liveKwic.length).toBe(1); // ONE merged match set, not one per series
     expect((liveKwic[0]!.query as { tracks: { seriesId: string }[] }).tracks.map((t) => t.seriesId))
       .toEqual(f.store.getState().series.map((s) => s.id)); // all terms by default
   });
@@ -1483,7 +1483,7 @@ describe('store query intent discipline', () => {
     expect(collided.status).toBe('error');
   });
 
-  it('a focus change does NOT reissue or cancel the concordance (focus independence)', () => {
+  it('a focus change does NOT reissue or cancel Matches (focus independence)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -1491,11 +1491,11 @@ describe('store query intent discipline', () => {
     const kwicCount = f.kwics().length;
     f.store.getState().setFocus(f.store.getState().series[1]!.id);
     expect(f.store.getState().focusedSeries).toBe(f.store.getState().series[1]!.id);
-    expect(kwicBefore.cancelled).toBe(false); // the merged concordance is untouched by focus
+    expect(kwicBefore.cancelled).toBe(false); // the merged match set is untouched by focus
     expect(f.kwics().length).toBe(kwicCount); // no reissue
   });
 
-  it('global activation reissues the concordance with exactly the effective series', () => {
+  it('global activation reissues Matches with exactly the effective series', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -1510,7 +1510,7 @@ describe('store query intent discipline', () => {
     expect(tracksOf()).toEqual([holmes!.id, moriarty!.id]);
   });
 
-  it('deactivating every term clears the effective comparison and Concordance without an empty request', () => {
+  it('deactivating every term clears the effective comparison and Matches without an empty request', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -1524,7 +1524,7 @@ describe('store query intent discipline', () => {
     expect(f.kwics().length).toBe(before + 1); // only the first deactivation queried; the empty comparison did not
   });
 
-  it('global activation survives append-only additions and new groups join effective Concordance', () => {
+  it('global activation survives append-only additions and new groups join effective Matches', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -1553,7 +1553,7 @@ describe('store query intent discipline', () => {
     expect(prior.cancelled).toBe(false);
     expect(f.kwics()).toHaveLength(count);
 
-    f.store.getState().requestConcordanceWindow({ kind: 'position', doc: 'a', token: 250 });
+    f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 250 });
     expect(prior.cancelled).toBe(true);
     expect(f.kwics()).toHaveLength(count + 1);
     expect((f.kwics().at(-1)!.query as { request: { anchor: unknown } }).request.anchor)
@@ -1578,7 +1578,7 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().kwic).toBeNull();
   });
 
-  it('scrubbing with no active terms leaves Concordance absent and issues no window', () => {
+  it('scrubbing with no active terms leaves Matches absent and issues no window', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes, moriarty');
@@ -1598,7 +1598,7 @@ describe('store query intent discipline', () => {
     f.store.getState().quickAdd('holmes, moriarty');
     const oldKwic = f.kwics().filter((q) => !q.cancelled).at(-1)!;
     f.store.getState().setGroupActive(f.store.getState().series[1]!.id, false); // reissues, supersedes oldKwic
-    oldKwic.resolve(fakeConcordance(9)); // raced past cancel
+    oldKwic.resolve(fakeMatches(9)); // raced past cancel
     await flush();
     expect(f.store.getState().kwic!.state.status).toBe('pending'); // the stale result did not land
   });
@@ -1962,28 +1962,33 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().removedGroups).toHaveLength(0);
   });
 
-  it('keeps Concordance context local while corpus ordering stays invariant', () => {
+  it('keeps Matches context local while corpus ordering stays invariant', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes');
     const before = workspaceSemanticKey(f.store.getState());
     const issued = f.issued.length;
 
-    f.store.getState().setConcordanceColumnWidth('left', 72);
-    expect(f.store.getState().concordanceView).toMatchObject({
-      columns: { left: 72, node: 18, right: 40, book: 4 },
+    f.store.getState().setMatchesColumnWidth('left', 72);
+    expect(f.store.getState().matchesView).toMatchObject({
+      columns: {
+        left: 72,
+        node: 'auto',
+        right: 1,
+        book: 'auto',
+      },
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
 
-    f.store.getState().setConcordanceColumnWidth('node', -20);
-    expect(f.store.getState().concordanceView.columns.node).toBe(1);
-    f.store.getState().resetConcordanceColumns();
-    expect(f.store.getState().concordanceView.columns).toEqual({
-      left: 40,
-      node: 18,
-      right: 40,
-      book: 4,
+    f.store.getState().setMatchesColumnWidth('node', -20);
+    expect(f.store.getState().matchesView.columns.node).toBe(1);
+    f.store.getState().resetMatchesColumns();
+    expect(f.store.getState().matchesView.columns).toEqual({
+      left: 1,
+      node: 'auto',
+      right: 1,
+      book: 'auto',
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
     expect(f.issued).toHaveLength(issued);
@@ -1999,24 +2004,50 @@ describe('store query intent discipline', () => {
       };
     };
     expect(request.request).toEqual({
-      method: 'concordance-window/1',
+      method: 'matches-window/1',
       anchor: { kind: 'rank', rank: 0 },
       before: 24,
       after: 24,
-      contextTokens: 24,
+      contextTokens: 64,
       includeAxis: true,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(before);
   });
 
-  it('publishes scrub without querying until the Concordance surface requests a position window', () => {
+  it('keeps semantic column intent stable when visible terms change', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().setMatchesColumnWidth('left', 61);
+    f.store.getState().setMatchesColumnWidth('right', 57);
+    f.store.getState().quickAdd('ox, elephants');
+    expect(f.store.getState().matchesView.columns).toEqual({
+      left: 61,
+      node: 'auto',
+      right: 57,
+      book: 'auto',
+    });
+
+    const elephants = f.store.getState().notebook.groups.find(
+      (group) => group.aliases[0] === 'elephants',
+    );
+    expect(elephants).toBeDefined();
+    f.store.getState().removeGroup(elephants!.id);
+    expect(f.store.getState().matchesView.columns).toEqual({
+      left: 61,
+      node: 'auto',
+      right: 57,
+      book: 'auto',
+    });
+  });
+
+  it('publishes scrub without querying until the Matches surface requests a position window', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes');
     const issued = f.kwics().length;
     f.store.getState().setScrub({ doc: 'a', token: 20 });
     expect(f.kwics()).toHaveLength(issued);
-    f.store.getState().requestConcordanceWindow({ kind: 'position', doc: 'a', token: 20 });
+    f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 20 });
     expect(f.kwics()).toHaveLength(issued + 1);
     expect((f.kwics().at(-1)!.query as { request: { anchor: unknown } }).request.anchor)
       .toEqual({ kind: 'position', doc: 'a', token: 20 });
@@ -2031,7 +2062,7 @@ describe('store query intent discipline', () => {
 
     f.store.getState().centerKwicAt(holmes, 'a', 20);
     expect(f.kwics()).toHaveLength(issued + 1);
-    expect(f.store.getState().concordanceReveal).toMatchObject({
+    expect(f.store.getState().matchesReveal).toMatchObject({
       seriesId: holmes,
       doc: 'a',
       token: 20,
@@ -2104,7 +2135,7 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().inputError).toBeNull();
   });
 
-  it('scrub adopts a valid reading position without issuing Concordance work', () => {
+  it('scrub adopts a valid reading position without issuing Matches work', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
@@ -2328,7 +2359,7 @@ describe('query notebook — identity discipline', () => {
     expect(f.store.getState().notebookError).toBeNull();
   });
 
-  it('a member edit preserves the UUID, changes semantic identity, and reissues trend and concordance', async () => {
+  it('a member edit preserves the UUID, changes semantic identity, and reissues trend and matches', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
@@ -2345,7 +2376,7 @@ describe('query notebook — identity discipline', () => {
     expect(f.kwics().length).toBeGreaterThan(kwicsBefore);
     // The EXACT authored spec reaches EVERY operation's wire request — the
     // COMPLETE group value (ids, kinds, match modes, countOverlaps), deep-equal
-    // against the authored expectation on trend and concordance.
+    // against the authored expectation on trend and matches.
     const authored = {
       id: g.id,
       members: [
@@ -2384,7 +2415,7 @@ describe('query notebook — identity discipline', () => {
     expect(trend.cancelled).toBe(false); // the lease is genuinely still alive
     expect(kwic.cancelled).toBe(false);
     trend.resolve({ op: 'trend', trend: fakeTrend(3) });
-    kwic.resolve(fakeConcordance(1)); // rows empty: adoption alone is the probe
+    kwic.resolve(fakeMatches(1)); // rows empty: adoption alone is the probe
     await flush();
     expect(f.store.getState().trends.get(g.id)!.status).toBe('pending'); // never adopted
     expect(f.store.getState().kwic!.state.status).toBe('pending');
@@ -2420,12 +2451,12 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id]);
     const live = f.trends().filter((t) => !t.cancelled);
     expect(live.map((t) => t.groupId)).toEqual([holmes!.id]);
-    let concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
-    expect(concordance.tracks.map((track) => track.seriesId)).toEqual([holmes!.id]);
+    let matches = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(matches.tracks.map((track) => track.seriesId)).toEqual([holmes!.id]);
     f.store.getState().setGroupActive(moriarty!.id, true); // unmute
     expect(f.store.getState().series.map((s) => s.id)).toEqual([holmes!.id, moriarty!.id]);
-    concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
-    expect(concordance.tracks.map((track) => track.seriesId)).toEqual([holmes!.id, moriarty!.id]);
+    matches = f.kwics().filter((query) => !query.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(matches.tracks.map((track) => track.seriesId)).toEqual([holmes!.id, moriarty!.id]);
     expect(f.store.getState().styles.get(moriarty!.id)).toBe(styleBefore); // style identity survived
   });
 
@@ -2546,7 +2577,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.issued.length).toBe(issued); // invariant 2: no reissue
   });
 
-  it('removal cleans results, focus, effective Concordance projection, solo, and style ownership', () => {
+  it('removal cleans results, focus, effective Matches projection, solo, and style ownership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -2648,7 +2679,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     expect(f.store.getState().dispersion!.state.status).toBe('pending'); // never adopted
   });
 
-  it('exact activation preserves global activation and requests the effective Concordance tracks', () => {
+  it('exact activation preserves global activation and requests the effective Matches tracks', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes, moriarty');
@@ -2659,7 +2690,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     const q = f.kwics().filter((x) => !x.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
     expect(q.tracks.map((t) => t.seriesId))
       .toEqual(f.store.getState().series.map((series) => series.id));
-    expect(f.store.getState().concordanceReveal)
+    expect(f.store.getState().matchesReveal)
       .toMatchObject({ seriesId: sid, doc: 'a', token: 3 });
   });
 
@@ -2670,11 +2701,11 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     const sid = f.store.getState().series[0]!.id;
     f.store.getState().centerKwicAt(sid, 'a', 42, { kind: 'bucket', count: 17 });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 42 });
-    expect(f.store.getState().concordanceReveal).toBeNull();
+    expect(f.store.getState().matchesReveal).toBeNull();
     f.store.getState().centerKwicAt(sid, 'a', 7); // occurrence: no origin marker
-    expect(f.store.getState().concordanceReveal).toMatchObject({ seriesId: sid, doc: 'a', token: 7 });
+    expect(f.store.getState().matchesReveal).toMatchObject({ seriesId: sid, doc: 'a', token: 7 });
     f.store.getState().setGroupActive(sid, false);
-    expect(f.store.getState().concordanceReveal).toBeNull();
+    expect(f.store.getState().matchesReveal).toBeNull();
   });
 
   it('centerKwicAt requests immediately — no debounce, ready-doc gated', () => {
@@ -2696,13 +2727,13 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
     const first = f.kwics().at(-1)!;
-    first.resolve(fakeConcordance(20));
+    first.resolve(fakeMatches(20));
     await flush();
     const resident = f.store.getState().kwic!.resident;
     const axis = f.store.getState().kwic!.axis;
     expect(axis).not.toBeNull();
 
-    f.store.getState().requestConcordanceWindow({ kind: 'rank', rank: 10 });
+    f.store.getState().requestMatchesWindow({ kind: 'rank', rank: 10 });
     const second = f.kwics().at(-1)!;
     expect((second.query as { request: { includeAxis: boolean } }).request.includeAxis).toBe(false);
     expect(f.store.getState().kwic).toMatchObject({
@@ -2710,7 +2741,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
       axis,
       state: { status: 'pending' },
     });
-    second.resolve(fakeConcordance(20, [], false));
+    second.resolve(fakeMatches(20, [], false));
     await flush();
     expect(f.store.getState().kwic!.axis).toBe(axis);
   });
@@ -2721,7 +2752,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     f.store.getState().quickAdd('holmes');
     const sid = f.store.getState().series[0]!.id;
     const groupId = f.store.getState().notebook.groups[0]!.id;
-    f.kwics().at(-1)!.resolve(fakeConcordance(1, [{
+    f.kwics().at(-1)!.resolve(fakeMatches(1, [{
       seriesId: sid,
       groupId,
       doc: 'a',
@@ -2735,7 +2766,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     await flush();
     const count = f.kwics().length;
 
-    f.store.getState().requestConcordanceWindow(
+    f.store.getState().requestMatchesWindow(
       { kind: 'position', doc: 'a', token: 9 },
       { before: 40, after: 40 },
     );
@@ -2747,6 +2778,40 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
         before: 40,
         after: 40,
       },
+      state: { status: 'ready' },
+    });
+  });
+
+  it('refetches resident rows when the bounded context reserve grows', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    const first = f.kwics().at(-1)!;
+    first.resolve(fakeMatches());
+    await flush();
+    const axis = f.store.getState().kwic!.axis;
+
+    f.store.getState().requestMatchesWindow(
+      { kind: 'rank', rank: 0 },
+      { before: 24, after: 24, contextTokens: 128 },
+    );
+
+    const expanded = f.kwics().at(-1)!;
+    expect(expanded).not.toBe(first);
+    expect(expanded.query).toMatchObject({
+      request: { contextTokens: 128, includeAxis: false },
+    });
+    expect(f.store.getState().kwic).toMatchObject({
+      request: { contextTokens: 128 },
+      resident: { contextTokens: 64 },
+      state: { status: 'pending' },
+    });
+
+    expanded.resolve(fakeMatches(0, [], false));
+    await flush();
+    expect(f.store.getState().kwic).toMatchObject({
+      axis,
+      resident: { contextTokens: 128 },
       state: { status: 'ready' },
     });
   });
@@ -2769,9 +2834,9 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
       right: 'right',
     });
     f.kwics().at(-1)!.resolve({
-      op: 'concordance-window',
+      op: 'matches-window',
       window: {
-        method: 'concordance-window/1',
+        method: 'matches-window/1',
         total: 100,
         trackCount: 1,
         anchorRank: 11,
@@ -2786,17 +2851,17 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     const count = f.kwics().length;
 
     for (let token = 110; token < 150; token++) {
-      f.store.getState().requestConcordanceWindow({ kind: 'position', doc: 'a', token });
+      f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token });
     }
-    f.store.getState().requestConcordanceWindow({ kind: 'rank', rank: 11 });
+    f.store.getState().requestMatchesWindow({ kind: 'rank', rank: 11 });
     expect(f.kwics()).toHaveLength(count);
     expect(f.store.getState().kwic!.resident).toBe(resident);
 
-    f.store.getState().requestConcordanceWindow({ kind: 'position', doc: 'a', token: 250 });
+    f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 250 });
     const outside = f.kwics().at(-1)!;
     expect(f.kwics()).toHaveLength(count + 1);
     expect(f.store.getState().kwic!.state.status).toBe('pending');
-    f.store.getState().requestConcordanceWindow({ kind: 'position', doc: 'a', token: 150 });
+    f.store.getState().requestMatchesWindow({ kind: 'position', doc: 'a', token: 150 });
     expect(outside.cancelled).toBe(true);
     expect(f.kwics()).toHaveLength(count + 1);
     expect(f.store.getState().kwic).toMatchObject({
@@ -2818,9 +2883,9 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     });
     const request = f.kwics().at(-1)!;
     request.resolve({
-      op: 'concordance-window',
+      op: 'matches-window',
       window: {
-        method: 'concordance-window/1',
+        method: 'matches-window/1',
         total: 20,
         trackCount: 1,
         anchorRank: 12,
@@ -2854,7 +2919,7 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
       },
     });
     await flush();
-    expect(f.store.getState().concordanceReveal).toBeNull();
+    expect(f.store.getState().matchesReveal).toBeNull();
     expect(f.store.getState().kwic!.resident?.revealRank).toBe(12);
   });
 });
@@ -2865,17 +2930,17 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     ranges: [{ doc: 'a', tokens: { start, end } }],
   });
 
-  it('committing a range leaves the full-corpus concordance untouched and issues overlays on separate lanes', () => {
+  it('committing a range leaves the full-corpus match set untouched and issues overlays on separate lanes', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     f.store.getState().quickAdd('holmes');
     const baseTrend = f.trends().filter((t) => !t.cancelled).at(-1)!;
-    const concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!;
-    const concordanceCount = f.kwics().length;
+    const matches = f.kwics().filter((query) => !query.cancelled).at(-1)!;
+    const matchesCount = f.kwics().length;
     f.store.getState().setLinkedSelection(range(f, 10, 20));
-    expect(f.kwics()).toHaveLength(concordanceCount);
-    expect(concordance.cancelled).toBe(false);
-    expect((concordance.query as { selection?: unknown }).selection).toBeUndefined();
+    expect(f.kwics()).toHaveLength(matchesCount);
+    expect(matches.cancelled).toBe(false);
+    expect((matches.query as { selection?: unknown }).selection).toBeUndefined();
     // Overlays issued; the BASELINE trend job was NOT cancelled.
     expect(baseTrend.cancelled).toBe(false);
     expect(f.store.getState().selectedTrends.get(f.store.getState().series[0]!.id)!.status).toBe('pending');
@@ -2884,15 +2949,15 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(selTrend.selection.docs).toEqual(['a']);
   });
 
-  it('clearing drops overlays immediately without reissuing full-corpus concordance or resident baselines', async () => {
+  it('clearing drops overlays without reissuing the full-corpus match set or resident baselines', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
     const baseTrend = f.trends().filter((t) => !t.cancelled).at(-1)!;
     baseTrend.resolve({ op: 'trend', trend: fakeTrend(5) });
     await flush();
-    const concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!;
-    const concordanceCount = f.kwics().length;
+    const matches = f.kwics().filter((query) => !query.cancelled).at(-1)!;
+    const matchesCount = f.kwics().length;
     f.store.getState().setLinkedSelection(range(f, 3, 9));
     const trendCount = f.trends().length;
     f.store.getState().setLinkedSelection(null);
@@ -2900,11 +2965,11 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().selectedDispersion).toBeNull();
     expect(f.trends().length).toBe(trendCount); // NO baseline trend reissue
     expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready'); // resident evidence stands
-    expect(f.kwics()).toHaveLength(concordanceCount);
-    expect(concordance.cancelled).toBe(false);
+    expect(f.kwics()).toHaveLength(matchesCount);
+    expect(matches.cancelled).toBe(false);
   });
 
-  it('scopes range-aware detail consumers, but never Concordance, to every explicit range', () => {
+  it('scopes range-aware detail consumers, but never Matches, to every explicit range', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
     f.store.getState().quickAdd('holmes');
@@ -2913,8 +2978,8 @@ describe('linked token-range selection (slice-2 commit E)', () => {
       { doc: 'b', tokens: { start: 0, end: 20 } },
       { doc: 'c', tokens: { start: 0, end: 3 } },
     ];
-    const concordance = f.kwics().filter((query) => !query.cancelled).at(-1)!;
-    const concordanceCount = f.kwics().length;
+    const matches = f.kwics().filter((query) => !query.cancelled).at(-1)!;
+    const matchesCount = f.kwics().length;
     f.store.getState().setLinkedSelection({ snapshot: 's1', ranges });
     for (const issued of [
       f.trends().filter((query) => !query.cancelled).at(-1)!,
@@ -2926,8 +2991,8 @@ describe('linked token-range selection (slice-2 commit E)', () => {
         ranges,
       });
     }
-    expect(f.kwics()).toHaveLength(concordanceCount);
-    expect((concordance.query as { selection?: unknown }).selection).toBeUndefined();
+    expect(f.kwics()).toHaveLength(matchesCount);
+    expect((matches.query as { selection?: unknown }).selection).toBeUndefined();
     f.store.getState().centerKwicAt(f.store.getState().series[0]!.id, 'b', 10);
     expect(f.store.getState().linkedSelection).not.toBeNull();
     f.store.getState().centerKwicAt(f.store.getState().series[0]!.id, 'b', 25);
@@ -2960,17 +3025,17 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().selectedDispersion).toBeNull();
   });
 
-  it('rapid A→B range replacement does not supersede the independent Concordance window', async () => {
+  it('rapid A→B range replacement does not supersede the independent Matches window', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
-    const concordance = f.kwics().filter((x) => !x.cancelled).at(-1)!;
+    const matches = f.kwics().filter((x) => !x.cancelled).at(-1)!;
     const count = f.kwics().length;
     f.store.getState().setLinkedSelection(range(f, 0, 5));
     f.store.getState().setLinkedSelection(range(f, 50, 60));
     expect(f.kwics()).toHaveLength(count);
-    expect(concordance.cancelled).toBe(false);
-    concordance.resolve(fakeConcordance(9));
+    expect(matches.cancelled).toBe(false);
+    matches.resolve(fakeMatches(9));
     await flush();
     expect(f.store.getState().kwic!.state.status).toBe('ready');
   });
@@ -3019,7 +3084,7 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().selectedDispersion).toBeNull();
   });
 
-  it('exact Concordance activation preserves the independent linked range inside or outside it', () => {
+  it('exact Matches activation preserves the independent linked range inside or outside it', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes');
@@ -3131,8 +3196,8 @@ describe('global footer passage intent', () => {
       const f = harness();
       f.port.publishSnapshot('g1', 's1', ['a']);
       f.store.getState().quickAdd('holmes');
-      const concordance = f.kwics().at(-1)!;
-      concordance.resolve(fakeConcordance(0));
+      const matches = f.kwics().at(-1)!;
+      matches.resolve(fakeMatches(0));
       await settle();
       f.store.getState().setScrub({ doc: 'a', token: 25 });
       f.readers()[0]!.reject(new Error('source failed'));
@@ -3317,7 +3382,7 @@ describe('exact focused-term occurrence navigation', () => {
     };
   };
 
-  it('focuses the first active term, issues one full-corpus exact step, and centers reading + Concordance', async () => {
+  it('focuses the first active term, issues one full-corpus exact step, and centers reading + Matches', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes, watson');
@@ -4020,7 +4085,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().activeGroupIds.has(group.id)).toBe(true);
   });
 
-  it('the frequency concordance action adds and globally reactivates the exact group', () => {
+  it('the frequency matches action adds and globally reactivates the exact group', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().showFrequencyTermInKwic('Holmes');
@@ -4035,7 +4100,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().series.map((series) => series.id)).toContain(group.id);
     let query = f.kwics().filter((item) => !item.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
     expect(query.tracks.map((track) => track.seriesId)).toContain(group.id);
-    expect(f.store.getState().place).toBe('concordance');
+    expect(f.store.getState().place).toBe('matches');
 
     f.store.getState().setGroupActive(group.id, false);
     expect(f.store.getState().series.map((series) => series.id)).not.toContain(group.id);
@@ -4046,7 +4111,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     query = f.kwics().filter((item) => !item.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
     expect(query.tracks.map((track) => track.seriesId)).toContain(group.id);
     expect(f.store.getState().focusedSeries).toBe(group.id);
-    expect(f.store.getState().place).toBe('concordance');
+    expect(f.store.getState().place).toBe('matches');
   });
 
   it('refuses duplicate exact terms but persists additions beyond the five active slots', () => {

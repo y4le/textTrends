@@ -11,9 +11,9 @@
  */
 
 import type {
-  ConcordanceAnchorV1,
-  ConcordanceAxisArraysV1,
-  ConcordancePositionBracketV1,
+  MatchesAnchorV1,
+  MatchesAxisArraysV1,
+  MatchesPositionBracketV1,
   DispersionResultV1,
   ExtractionRecipeProvisional,
   KwicRow,
@@ -58,15 +58,15 @@ export interface GenerationDocSpecV4 {
   };
 }
 
-/** One concordance track: a series identity + the term group that matched. */
+/** One match track: a series identity + the term group that matched. */
 export interface KwicTrack {
   readonly seriesId: string;
   readonly group: TermGroupSpec;
 }
 
-export interface ConcordanceWindowQueryRequestV1 {
-  readonly method: 'concordance-window/1';
-  readonly anchor: ConcordanceAnchorV1;
+export interface MatchesWindowQueryRequestV1 {
+  readonly method: 'matches-window/1';
+  readonly anchor: MatchesAnchorV1;
   readonly before: number;
   readonly after: number;
   readonly contextTokens: number;
@@ -74,23 +74,23 @@ export interface ConcordanceWindowQueryRequestV1 {
   readonly includeAxis: boolean;
 }
 
-export interface ConcordanceWindowResultV1 {
-  readonly method: 'concordance-window/1';
+export interface MatchesWindowResultV1 {
+  readonly method: 'matches-window/1';
   readonly total: number;
   readonly trackCount: number;
   readonly anchorRank: number | null;
   readonly firstRank: number;
-  readonly preceding: ConcordancePositionBracketV1 | null;
+  readonly preceding: MatchesPositionBracketV1 | null;
   readonly rows: readonly KwicRow[];
-  readonly axis?: ConcordanceAxisArraysV1;
+  readonly axis?: MatchesAxisArraysV1;
 }
 
 export type QueryOpV4 =
   | { readonly op: 'trend'; readonly selection: WireSelectionV4; readonly group: TermGroupSpec; readonly request: TrendRequest }
-  // concordance-window/1 is the full-corpus continuous reading surface. It has
+  // matches-window/1 is the full-corpus continuous reading surface. It has
   // no selection field; the engine constructs canonical full-ready-corpus
   // coordinates, so a linked analytical brush cannot narrow navigation.
-  | { readonly op: 'concordance-window'; readonly tracks: readonly KwicTrack[]; readonly request: ConcordanceWindowQueryRequestV1 }
+  | { readonly op: 'matches-window'; readonly tracks: readonly KwicTrack[]; readonly request: MatchesWindowQueryRequestV1 }
   // dispersion/1 (slice-2 ruling): the barcode's bounded numeric result over
   // the shared occurrence primitive — adaptive exact/density per track. The
   // request PINS the fixed resolution policy (the exported core constants);
@@ -127,7 +127,7 @@ export interface ReaderPageRequestV1 {
 }
 
 /** A reader mark on the wire, bound to the request's series/group identity
- *  by the core materializer (the bounded-Concordance precedent). */
+ *  by the core materializer (the bounded match-window precedent). */
 export interface ReaderPageMarkV1 {
   readonly seriesId: string;
   readonly groupId: string;
@@ -206,7 +206,7 @@ export type {
 
 export type QueryResultDataV4 =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
-  | { readonly op: 'concordance-window'; readonly window: ConcordanceWindowResultV1 }
+  | { readonly op: 'matches-window'; readonly window: MatchesWindowResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }

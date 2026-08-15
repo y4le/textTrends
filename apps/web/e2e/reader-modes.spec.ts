@@ -8,8 +8,8 @@ async function openReader(page: Page) {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('navigation', { name: 'Workbench sections' })
-    .getByRole('link', { name: 'Concordance', exact: true }).click();
-  const grid = page.getByRole('grid', { name: 'Concordance' });
+    .getByRole('link', { name: 'Matches', exact: true }).click();
+  const grid = page.getByRole('grid', { name: 'Matches' });
   const read = grid.getByRole('button').first();
   await expect(read).toBeVisible();
   await read.click();
@@ -112,8 +112,8 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('navigation', { name: 'Workbench sections' })
-    .getByRole('link', { name: 'Concordance', exact: true }).click();
-  await page.getByRole('grid', { name: 'Concordance' })
+    .getByRole('link', { name: 'Matches', exact: true }).click();
+  await page.getByRole('grid', { name: 'Matches' })
     .getByRole('button').first().click();
   const fallback = page.getByRole('main', { name: /Reader:/ });
   await expect(fallback.getByRole('status', { name: 'Reader keyboard status' })).toHaveCount(1);

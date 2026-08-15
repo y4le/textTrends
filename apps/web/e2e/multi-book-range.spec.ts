@@ -49,16 +49,24 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
     await expect(row.locator('.catalog-book-tokens .selectable-stat')).not.toHaveText('0');
   }
 
-  await gotoPlace(page, 'concordance');
-  const concordance = page.getByRole('grid', { name: 'Concordance' });
-  await expect(concordance).toBeVisible({ timeout: 30_000 });
+  await gotoPlace(page, 'matches');
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches).toBeVisible({ timeout: 30_000 });
   await expect(page.getByText(/occurrences · .*ready books/i)).toHaveCount(0);
-  await expect(concordance.locator('.kwic-book-heading')).toBeVisible();
-  await expect(concordance.getByRole('columnheader', { name: 'token', exact: true }))
+  await expect(matches.locator('.kwic-book-heading')).toBeVisible();
+  await expect(matches.getByRole('columnheader', { name: 'token', exact: true }))
     .toBeVisible();
-  const firstBook = concordance.locator('[role="row"][aria-rowindex] .kwic-book').first();
+  const firstBook = matches.locator('[role="row"][aria-rowindex] .kwic-book').first();
   await expect(firstBook).toHaveText(/^\([12]\) (alpha|beta)$/);
   await expect(firstBook).toHaveAttribute('title', /^\([12]\) (alpha|beta)$/);
+  const wideBook = await firstBook.evaluate((cell) => ({
+    clipped: cell.querySelector('span')!.scrollWidth
+      > cell.querySelector('span')!.clientWidth,
+    width: cell.getBoundingClientRect().width,
+  }));
+  expect(wideBook.clipped).toBe(false);
+
+  await page.setViewportSize({ width: 390, height: 844 });
   const narrowBook = await firstBook.evaluate((cell) => {
     const span = cell.querySelector('span')!;
     const text = span.firstChild!;
@@ -80,12 +88,13 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   expect(narrowBook.prefixVisible).toBe(true);
   expect(narrowBook.titleHidden).toBe(true);
 
-  await page.getByRole('toolbar', { name: 'Concordance columns' })
+  await page.getByRole('toolbar', { name: 'Match columns' })
     .getByRole('button', { name: 'Adjust column widths' }).click();
-  const bookWidth = concordance.getByRole('separator', { name: 'Book width' });
+  const bookWidth = matches.getByRole('separator', { name: 'Book width' });
+  await expect(bookWidth).toHaveAttribute('aria-valuenow', '3');
   await bookWidth.focus();
   await bookWidth.press('End');
-  await expect(bookWidth).toHaveAttribute('aria-valuenow', '48');
+  await expect(bookWidth).toHaveAttribute('aria-valuenow', '80');
   const expandedBook = await firstBook.evaluate((cell) => ({
     clipped: cell.querySelector('span')!.scrollWidth
       > cell.querySelector('span')!.clientWidth,
@@ -93,5 +102,5 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   }));
   expect(expandedBook.clipped).toBe(false);
   expect(expandedBook.width).toBeGreaterThan(narrowBook.width);
-  await expect(concordance.locator('[data-linked-selection="true"]').first()).toBeVisible();
+  await expect(matches.locator('[data-linked-selection="true"]').first()).toBeVisible();
 });

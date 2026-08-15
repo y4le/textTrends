@@ -19,10 +19,10 @@
  */
 
 import {
-  buildConcordanceAxis,
+  buildMatchesAxis,
   buildResolver,
-  concordanceAxisPayloadBytes,
-  copyConcordanceAxis,
+  matchesAxisPayloadBytes,
+  copyMatchesAxis,
   documentTermCounts,
   DISPERSION_EXACT_MAX,
   packDensityTrack,
@@ -30,7 +30,7 @@ import {
   planDispersionGeometry,
   planReaderPage,
   materializeReaderPage,
-  materializeConcordanceWindow,
+  materializeMatchesWindow,
   selectionSlotMap,
   type DispersionResultV1,
   type DispersionTrackV1,
@@ -38,15 +38,15 @@ import {
   modeKey,
   occurrences,
   occurrenceStep,
-  planConcordanceWindow,
+  planMatchesWindow,
   validateOccurrenceOrder,
   occurrencePayloadBytes,
   trend,
   type CorpusSnapshotV1,
-  type ConcordanceAxisArraysV1,
-  type ConcordanceAxisV1,
-  type ConcordanceWindowRequestV1,
-  type ConcordanceWindowV1,
+  type MatchesAxisArraysV1,
+  type MatchesAxisV1,
+  type MatchesWindowRequestV1,
+  type MatchesWindowV1,
   type DocumentIndexV1,
   type MatchMode,
   type NumericOccurrences,
@@ -86,8 +86,8 @@ export const MAX_OCCURRENCE_CACHE_ENTRIES = MAX_KWIC_TRACKS;
  * explicit worker budget even when CSR provenance is unusually wide. */
 export const MAX_OCCURRENCE_CACHE_BYTES = 48 * 1024 * 1024;
 /** Sparse axes are at most about 61 KiB each at the one-million-row cap. */
-export const MAX_CONCORDANCE_AXIS_CACHE_ENTRIES = MAX_KWIC_TRACKS;
-export const MAX_CONCORDANCE_AXIS_CACHE_BYTES = 512 * 1024;
+export const MAX_MATCHES_AXIS_CACHE_ENTRIES = MAX_KWIC_TRACKS;
+export const MAX_MATCHES_AXIS_CACHE_BYTES = 512 * 1024;
 
 /** [SnapshotId, SelectionHash, termGroupIdentity] — the tuple that fully
  *  determines one raw `NumericOccurrences` (see the cache contract below). */
@@ -96,7 +96,7 @@ const occurrenceCacheKey = (snapshot: CorpusSnapshotV1, selection: ResolvedSelec
 
 /** Ordered matching identities determine the numeric rank axis; presentation
  * ids are deliberately excluded. */
-const concordanceAxisCacheKey = (
+const matchesAxisCacheKey = (
   snapshot: CorpusSnapshotV1,
   selection: ResolvedSelection,
   tracks: readonly { readonly group: TermGroupSpec }[],
@@ -137,7 +137,7 @@ export interface OccurrenceCachePolicy {
   readonly maxEntries: number;
   readonly maxBytes: number;
 }
-export interface ConcordanceAxisCachePolicy {
+export interface MatchesAxisCachePolicy {
   readonly maxEntries: number;
   readonly maxBytes: number;
 }
@@ -149,9 +149,9 @@ const DEFAULT_TERM_COUNT_CACHE_POLICY: TermCountCachePolicy = {
   maxEntries: TERM_COUNT_CACHE_MAX_ENTRIES,
   maxBytes: TERM_COUNT_CACHE_MAX_BYTES,
 };
-const DEFAULT_CONCORDANCE_AXIS_CACHE_POLICY: ConcordanceAxisCachePolicy = {
-  maxEntries: MAX_CONCORDANCE_AXIS_CACHE_ENTRIES,
-  maxBytes: MAX_CONCORDANCE_AXIS_CACHE_BYTES,
+const DEFAULT_MATCHES_AXIS_CACHE_POLICY: MatchesAxisCachePolicy = {
+  maxEntries: MAX_MATCHES_AXIS_CACHE_ENTRIES,
+  maxBytes: MAX_MATCHES_AXIS_CACHE_BYTES,
 };
 
 interface TermCountCacheEntry {
@@ -166,10 +166,10 @@ interface OccurrenceCacheEntry {
   readonly value: NumericOccurrences;
 }
 
-interface ConcordanceAxisCacheEntry {
+interface MatchesAxisCacheEntry {
   readonly snapshot: CorpusSnapshotV1['id'];
   readonly bytes: number;
-  readonly value: ConcordanceAxisV1;
+  readonly value: MatchesAxisV1;
 }
 
 export class QueryExecutor {
@@ -177,7 +177,7 @@ export class QueryExecutor {
    *  shard resets that document's map (`publish`); `resolverFor` additionally
    *  verifies the cached resolver still points at the resident shard. */
   private readonly resolvers = new Map<string, Map<string, Resolver>>();
-  /** Ephemeral occurrence cache SHARED by trend and Concordance
+  /** Ephemeral occurrence cache SHARED by trend and Matches
    *  (Phase E, moved verbatim): keyed by [SnapshotId, SelectionHash,
    *  termGroupIdentity] — the canonical MATCHING identity, never the
    *  caller-owned group.id. Insertion order is LRU recency; every miss
@@ -192,8 +192,8 @@ export class QueryExecutor {
   private occurrenceCacheBytes = 0;
   /** Small sparse rank axes. Entries contain no occurrence-vector references;
    * the shared occurrence LRU remains the only owner of those large buffers. */
-  private readonly concordanceAxisCache = new Map<string, ConcordanceAxisCacheEntry>();
-  private concordanceAxisCacheBytes = 0;
+  private readonly matchesAxisCache = new Map<string, MatchesAxisCacheEntry>();
+  private matchesAxisCacheBytes = 0;
   /** Sparse per-document selection counts shared by inventory, frequency, and
    * keyness. Insertion order is LRU recency. The entry and byte bounds are
    * simultaneous hard ceilings; output materializers must never transfer or
@@ -207,7 +207,7 @@ export class QueryExecutor {
     private readonly loadResolver: typeof buildResolver = buildResolver,
     private readonly termCountCachePolicy: TermCountCachePolicy = DEFAULT_TERM_COUNT_CACHE_POLICY,
     private readonly occurrenceCachePolicy: OccurrenceCachePolicy = DEFAULT_OCCURRENCE_CACHE_POLICY,
-    private readonly concordanceAxisCachePolicy: ConcordanceAxisCachePolicy = DEFAULT_CONCORDANCE_AXIS_CACHE_POLICY,
+    private readonly matchesAxisCachePolicy: MatchesAxisCachePolicy = DEFAULT_MATCHES_AXIS_CACHE_POLICY,
   ) {
     if (
       !Number.isSafeInteger(termCountCachePolicy.maxEntries) ||
@@ -230,14 +230,14 @@ export class QueryExecutor {
       throw new RangeError('occurrence cache policy may only reduce the exported hard bounds');
     }
     if (
-      !Number.isSafeInteger(concordanceAxisCachePolicy.maxEntries)
-      || concordanceAxisCachePolicy.maxEntries <= 0
-      || concordanceAxisCachePolicy.maxEntries > MAX_CONCORDANCE_AXIS_CACHE_ENTRIES
-      || !Number.isSafeInteger(concordanceAxisCachePolicy.maxBytes)
-      || concordanceAxisCachePolicy.maxBytes <= 0
-      || concordanceAxisCachePolicy.maxBytes > MAX_CONCORDANCE_AXIS_CACHE_BYTES
+      !Number.isSafeInteger(matchesAxisCachePolicy.maxEntries)
+      || matchesAxisCachePolicy.maxEntries <= 0
+      || matchesAxisCachePolicy.maxEntries > MAX_MATCHES_AXIS_CACHE_ENTRIES
+      || !Number.isSafeInteger(matchesAxisCachePolicy.maxBytes)
+      || matchesAxisCachePolicy.maxBytes <= 0
+      || matchesAxisCachePolicy.maxBytes > MAX_MATCHES_AXIS_CACHE_BYTES
     ) {
-      throw new RangeError('concordance-axis cache policy may only reduce the exported hard bounds');
+      throw new RangeError('matches-axis cache policy may only reduce the exported hard bounds');
     }
   }
 
@@ -252,10 +252,10 @@ export class QueryExecutor {
       this.occurrenceCache.delete(key);
       this.occurrenceCacheBytes -= entry.bytes;
     }
-    for (const [key, entry] of this.concordanceAxisCache) {
+    for (const [key, entry] of this.matchesAxisCache) {
       if (entry.snapshot === view.snapshot.id) continue;
-      this.concordanceAxisCache.delete(key);
-      this.concordanceAxisCacheBytes -= entry.bytes;
+      this.matchesAxisCache.delete(key);
+      this.matchesAxisCacheBytes -= entry.bytes;
     }
     const replaced = new Set(replacedDocs);
     for (const doc of replaced) this.resolvers.set(doc, new Map());
@@ -327,33 +327,33 @@ export class QueryExecutor {
     return occ;
   }
 
-  private concordanceAxisFor(
+  private matchesAxisFor(
     selection: ResolvedSelection,
     tracks: readonly { readonly group: TermGroupSpec }[],
     occurrences: readonly NumericOccurrences[],
-  ): ConcordanceAxisV1 {
+  ): MatchesAxisV1 {
     const { snapshot } = this.published();
-    const key = concordanceAxisCacheKey(snapshot, selection, tracks);
-    const hit = this.concordanceAxisCache.get(key);
+    const key = matchesAxisCacheKey(snapshot, selection, tracks);
+    const hit = this.matchesAxisCache.get(key);
     if (hit) {
-      this.concordanceAxisCache.delete(key);
-      this.concordanceAxisCache.set(key, hit);
+      this.matchesAxisCache.delete(key);
+      this.matchesAxisCache.set(key, hit);
       return hit.value;
     }
-    const value = buildConcordanceAxis(snapshot, selection, occurrences);
-    const bytes = concordanceAxisPayloadBytes(value);
-    this.concordanceAxisCache.set(key, { snapshot: snapshot.id, bytes, value });
-    this.concordanceAxisCacheBytes += bytes;
+    const value = buildMatchesAxis(snapshot, selection, occurrences);
+    const bytes = matchesAxisPayloadBytes(value);
+    this.matchesAxisCache.set(key, { snapshot: snapshot.id, bytes, value });
+    this.matchesAxisCacheBytes += bytes;
     while (
-      this.concordanceAxisCache.size > this.concordanceAxisCachePolicy.maxEntries
-      || this.concordanceAxisCacheBytes > this.concordanceAxisCachePolicy.maxBytes
+      this.matchesAxisCache.size > this.matchesAxisCachePolicy.maxEntries
+      || this.matchesAxisCacheBytes > this.matchesAxisCachePolicy.maxBytes
     ) {
-      const oldest = this.concordanceAxisCache.entries().next().value as
-        | [string, ConcordanceAxisCacheEntry]
+      const oldest = this.matchesAxisCache.entries().next().value as
+        | [string, MatchesAxisCacheEntry]
         | undefined;
       if (!oldest) break;
-      this.concordanceAxisCache.delete(oldest[0]);
-      this.concordanceAxisCacheBytes -= oldest[1].bytes;
+      this.matchesAxisCache.delete(oldest[0]);
+      this.matchesAxisCacheBytes -= oldest[1].bytes;
     }
     return value;
   }
@@ -523,7 +523,7 @@ export class QueryExecutor {
   }
 
   /** dispersion/1 (slice-2 ruling §C): adaptive exact/density per track over
-   *  the SAME cached occurrence primitive as trend/Concordance — this method never
+   *  the SAME cached occurrence primitive as trend/Matches — this method never
    *  resolves members or interprets overlap semantics itself. Geometry is
    *  planned once, lazily, only when some track crosses the exact threshold.
    *  All output arrays are FRESH (packers copy) — transferring them can
@@ -555,7 +555,7 @@ export class QueryExecutor {
     const out: DispersionTrackV1[] = [];
     for (const track of tracks) {
       const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
-      await checkpoint(); // per-track gate, as in Concordance
+      await checkpoint(); // per-track gate, as in Matches
       const total = occ.pos.length;
       if (total <= DISPERSION_EXACT_MAX) {
         out.push({ seriesId: track.seriesId, groupId: track.group.id, total, data: packExactTrack(occ, slotMap, selection.spec.docs.length) });
@@ -640,16 +640,16 @@ export class QueryExecutor {
     return step;
   }
 
-  /** Full-corpus continuous Concordance over the shared occurrence cache. */
-  async concordanceWindow(
+  /** Full-corpus continuous Matches over the shared occurrence cache. */
+  async matchesWindow(
     selection: ResolvedSelection,
     tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
-    request: ConcordanceWindowRequestV1,
+    request: MatchesWindowRequestV1,
     includeAxis: boolean,
     checkpoint: QueryCheckpoint,
   ): Promise<{
-    readonly window: ConcordanceWindowV1;
-    readonly axis?: ConcordanceAxisArraysV1;
+    readonly window: MatchesWindowV1;
+    readonly axis?: MatchesAxisArraysV1;
   }> {
     const { snapshot, bound, boundTexts } = this.published();
     const shards = this.shardsFor(selection);
@@ -671,8 +671,8 @@ export class QueryExecutor {
       trackOccurrences.push(this.occurrencesFor(shards, resolvers, selection, track.group));
       await checkpoint();
     }
-    const axis = this.concordanceAxisFor(selection, tracks, trackOccurrences);
-    const numeric = planConcordanceWindow(
+    const axis = this.matchesAxisFor(selection, tracks, trackOccurrences);
+    const numeric = planMatchesWindow(
       snapshot,
       bound,
       selection,
@@ -681,14 +681,14 @@ export class QueryExecutor {
       request,
     );
     await checkpoint();
-    const window = materializeConcordanceWindow(
+    const window = materializeMatchesWindow(
       snapshot,
       numeric,
       boundTexts,
       tracks.map((track) => ({ seriesId: track.seriesId, groupId: track.group.id })),
     );
     await checkpoint();
-    return includeAxis ? { window, axis: copyConcordanceAxis(axis) } : { window };
+    return includeAxis ? { window, axis: copyMatchesAxis(axis) } : { window };
   }
 
 }

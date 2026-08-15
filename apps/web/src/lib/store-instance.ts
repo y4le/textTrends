@@ -25,12 +25,22 @@ import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 import { libraryOperation } from './library-operation.ts';
 import { pendingAnalysisCount } from './pending-analyses.ts';
+import {
+  browserSessionStorage,
+  loadMatchesColumnSettings,
+  saveMatchesColumnSettings,
+} from './matches-column-storage.ts';
 
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
 const client = new WorkerClient(trace);
+const matchesStorage = browserSessionStorage(window);
+const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
 const runtime = createAppRuntime(client, {
   history: browserHistoryPort(window),
+  ...(restoredMatchesColumns === null
+    ? {}
+    : { matchesColumns: restoredMatchesColumns }),
 });
 
 /** The single React-facing store. */
@@ -68,6 +78,13 @@ export const resumeMonitor = createResumeMonitor(window, () => {
   };
 });
 const unsubscribeResumeState = runtime.useApp.subscribe(resumeMonitor.refresh);
+let savedMatchesColumns = runtime.useApp.getState().matchesView.columns;
+const unsubscribeMatchesColumns = runtime.useApp.subscribe((state) => {
+  const columns = state.matchesView.columns;
+  if (columns === savedMatchesColumns) return;
+  savedMatchesColumns = columns;
+  saveMatchesColumnSettings(matchesStorage, columns);
+});
 
 /** Built-in byte acquisition: fetch a bundled document by its corpus-qualified
  *  source name under the deployed base path. The session verifies the returned
@@ -231,6 +248,7 @@ if (import.meta.hot) {
     migrationAbort?.abort(new DOMException('module replaced', 'AbortError'));
     try {
       unsubscribeResumeState();
+      unsubscribeMatchesColumns();
       resumeMonitor.dispose();
       runtime.dispose();
       void closeLibrary?.();

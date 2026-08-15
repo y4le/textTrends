@@ -114,9 +114,9 @@ function ReaderProse({
             key={index}
             role="button"
             tabIndex={0}
-            aria-label={`Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Concordance`}
+            aria-label={`Find ${labelOf.get(mark.seriesId) ?? mark.seriesId} reference in Matches`}
             title={[
-              'Show this full reference in Concordance',
+              'Show this full reference in Matches',
               clippedStart ? 'continues from previous page' : '',
               clippedEnd ? 'continues on next page' : '',
             ].filter(Boolean).join(' · ')}

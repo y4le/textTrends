@@ -1,19 +1,19 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, gotoPlace, simulateKeyboard, trace } from './helpers.ts';
 
-test('compact Concordance keeps the shared terms rail and direct result controls', async ({ page }) => {
+test('compact Matches keeps the shared terms rail and direct result controls', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
 
-  const toolbar = page.getByRole('toolbar', { name: 'Concordance columns' });
-  const grid = page.getByRole('grid', { name: 'Concordance' });
+  const toolbar = page.getByRole('toolbar', { name: 'Match columns' });
+  const grid = page.getByRole('grid', { name: 'Matches' });
   await expect(grid).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'Method', exact: true })).toHaveCount(0);
-  await expect(page.getByLabel('Concordance order')).toHaveCount(0);
+  await expect(page.getByLabel('Match order')).toHaveCount(0);
   await expect(page.getByLabel('Occurrence navigation')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'recenter node' })).toHaveCount(0);
   await expect(page.getByLabel('Shown context characters')).toHaveCount(0);
@@ -44,15 +44,30 @@ test('compact Concordance keeps the shared terms rail and direct result controls
   await expect(leftWidth).toHaveAttribute('tabindex', '-1');
   await expect(nodeWidth).toHaveAttribute('tabindex', '-1');
   await expect(rightWidth).toHaveAttribute('tabindex', '-1');
+  await expect(leftWidth).toHaveAttribute('aria-valuenow', '50');
+  await expect(rightWidth).toHaveAttribute('aria-valuenow', '50');
+  const lockedDivider = await leftWidth.evaluate((handle) => ({
+    color: getComputedStyle(handle, '::after').borderInlineStartColor,
+    opacity: Number.parseFloat(getComputedStyle(handle).opacity),
+    pointerEvents: getComputedStyle(handle).pointerEvents,
+  }));
+  expect(lockedDivider.opacity).toBeGreaterThan(0);
+  expect(lockedDivider.pointerEvents).toBe('none');
+  const compactToken = grid.locator('[role="row"][aria-rowindex] .kwic-token').first();
+  await expect(compactToken.locator('.kwic-token-position')).toHaveText(/^[\d,]+$/);
+  await expect(compactToken).toHaveAttribute('title', /^[\d,]+ \/ [\d,]+$/);
+
+  await grid.evaluate((element) => element.focus({ preventScroll: true }));
+  await expect(grid).toBeFocused();
+  expect(await grid.evaluate((element) => getComputedStyle(element).outlineStyle)).toBe('none');
 
   await expect.poll(async () => {
     const portBox = await grid.boundingBox();
     const nodeBox = await grid.getByRole('columnheader', { name: 'node' }).boundingBox();
-    if (!portBox || !nodeBox) return Number.POSITIVE_INFINITY;
-    return Math.abs(
-      (portBox.x + portBox.width / 2) - (nodeBox.x + nodeBox.width / 2),
-    );
-  }).toBeLessThanOrEqual(2);
+    if (!portBox || !nodeBox) return false;
+    return nodeBox.x >= portBox.x - 1
+      && nodeBox.x + nodeBox.width <= portBox.x + portBox.width + 1;
+  }).toBe(true);
 
   const assertNowLineCentered = async () => page.locator('.kwic-grid-shell').evaluate((shell) => {
     const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
@@ -76,8 +91,14 @@ test('compact Concordance keeps the shared terms rail and direct result controls
   await expect(toolbar.getByRole('button', { name: 'Lock column widths' }))
     .toHaveAttribute('aria-pressed', 'true');
   await expect(leftWidth).toHaveAttribute('tabindex', '0');
+  await expect.poll(() => leftWidth.evaluate((handle, lockedColor) => (
+    getComputedStyle(handle, '::after').borderInlineStartColor !== lockedColor
+    && getComputedStyle(handle).pointerEvents === 'auto'
+  ), lockedDivider.color)).toBe(true);
   expect((await leftWidth.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   const firstOccurrence = grid.locator('[role="row"][aria-rowindex]').first().getByRole('button');
+  await expect.poll(() => firstOccurrence.evaluate((button) => getComputedStyle(button).cursor))
+    .toBe('pointer');
   const defaultCenterError = await firstOccurrence.evaluate((button) => {
     const cell = button.parentElement!.getBoundingClientRect();
     const node = button.getBoundingClientRect();
@@ -101,7 +122,7 @@ test('compact Concordance keeps the shared terms rail and direct result controls
     handle.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: x + 48 }));
     handle.dispatchEvent(new PointerEvent('pointerup', { ...init, clientX: x + 48 }));
   });
-  expect(Number(await rightWidth.getAttribute('aria-valuenow'))).toBeGreaterThan(40);
+  expect(Number(await rightWidth.getAttribute('aria-valuenow'))).toBeGreaterThan(50);
 
   await leftWidth.focus();
   await leftWidth.press('Home');
@@ -144,7 +165,7 @@ test('compact Concordance keeps the shared terms rail and direct result controls
   });
 
   await toolbar.getByRole('button', { name: 'Reset column widths' }).click();
-  await expect(nodeWidth).toHaveAttribute('aria-valuenow', '18');
+  await expect(nodeWidth).toHaveAttribute('aria-valuenow', '6');
   await toolbar.getByRole('button', { name: 'Lock column widths' }).click();
   await expect(nodeWidth).toHaveAttribute('tabindex', '-1');
   expect((await trace(page)).events.filter(
@@ -165,11 +186,10 @@ test('compact Concordance keeps the shared terms rail and direct result controls
   await expect.poll(async () => {
     const portBox = await grid.boundingBox();
     const nodeBox = await grid.getByRole('columnheader', { name: 'node' }).boundingBox();
-    if (!portBox || !nodeBox) return Number.POSITIVE_INFINITY;
-    return Math.abs(
-      (portBox.x + portBox.width / 2) - (nodeBox.x + nodeBox.width / 2),
-    );
-  }).toBeLessThanOrEqual(2);
+    if (!portBox || !nodeBox) return false;
+    return nodeBox.x >= portBox.x - 1
+      && nodeBox.x + nodeBox.width <= portBox.x + portBox.width + 1;
+  }).toBe(true);
 
   const overflow = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
@@ -178,13 +198,41 @@ test('compact Concordance keeps the shared terms rail and direct result controls
   }));
   expect(overflow.root).toBeLessThanOrEqual(overflow.client);
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+
+  // Column preferences are tab-local but survive a browser refresh.
+  await toolbar.getByRole('button', { name: 'Adjust column widths' }).click();
+  await leftWidth.focus();
+  await leftWidth.press('ArrowRight');
+  await expect(leftWidth).toHaveAttribute('aria-valuenow', '51');
+  await page.reload();
+  await awaitAllReady(page);
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })
+    .getByRole('separator', { name: 'Left context width' }))
+    .toHaveAttribute('aria-valuenow', '51');
+
+  for (const width of [320, 600, 1_024, 1_440]) {
+    await page.setViewportSize({ width, height: 844 });
+    await expect.poll(() => page.getByRole('grid', { name: 'Matches' })
+      .evaluate((port) => ({
+        noOverflow: port.scrollWidth <= port.clientWidth + 1,
+        partitioned: Math.abs(
+          [...port.querySelectorAll<HTMLElement>(
+            '.kwic-grid-header > [role="columnheader"]',
+          )].reduce((sum, cell) => sum + cell.getBoundingClientRect().width, 0)
+          - port.clientWidth,
+        ) <= 1,
+      }))).toEqual({ noOverflow: true, partitioned: true });
+  }
+  await expect(grid.locator('[role="row"][aria-rowindex] .kwic-token-position').first())
+    .toHaveText(/^[\d,]+ \/ [\d,]+$/);
 });
 
-test('short landscape Concordance leaves a usable centered results viewport', async ({ page }) => {
+test('short landscape Matches leaves a usable centered results viewport', async ({ page }) => {
   await page.setViewportSize({ width: 568, height: 320 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
 
   const geometry = await page.locator('.kwic-grid-shell').evaluate((shell) => {
     const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();

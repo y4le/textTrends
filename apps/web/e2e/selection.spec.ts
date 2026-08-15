@@ -185,7 +185,7 @@ test('pointer and keyboard selections share detail results and stale results can
     event.seq > hoverMark
     && event.direction === 'to-worker'
     && event.t === 'query'
-    && event.op === 'concordance-window')).toEqual([]);
+    && event.op === 'matches-window')).toEqual([]);
   await gateArm(worker);
   const beforeDrag = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.mouse.down();
@@ -220,7 +220,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await awaitDetailBurst(page, bMark);
 
   // Every selected consumer serves B: one wolf inside [0,3), versus three in
-  // the corpus. Concordance remains full-corpus and highlights the one row.
+  // the corpus. Matches remains full-corpus and highlights the one row.
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(1);
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]')).toBeVisible();
   let termTotal = page.getByRole('list', { name: 'Term totals' })
@@ -229,10 +229,10 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect(termTotal).toHaveText('1');
   await expect(page.getByRole('group', { name: 'Query terms' })
     .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();
-  await gotoPlace(page, 'concordance');
-  const concordance = page.getByRole('grid', { name: 'Concordance' });
-  await expect(concordance.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
-  await expect(concordance.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
+  await gotoPlace(page, 'matches');
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
+  await expect(matches.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('group', { name: 'Trend view' })).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
@@ -247,9 +247,9 @@ test('pointer and keyboard selections share detail results and stale results can
     .getByRole('listitem').filter({ hasText: 'wolf' })
     .locator('[data-term-occurrence-count]');
   await expect(termTotal).toHaveText('1');
-  await gotoPlace(page, 'concordance');
-  await expect(concordance.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
-  await expect(concordance.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
+  await gotoPlace(page, 'matches');
+  await expect(matches.locator('[role="row"][aria-rowindex]')).toHaveCount(3);
+  await expect(matches.locator('[role="row"][data-linked-selection="true"]')).toHaveCount(1);
   await gotoPlace(page, 'trends');
 
   // Clear while C is pending. Baseline evidence remains, the selection layers

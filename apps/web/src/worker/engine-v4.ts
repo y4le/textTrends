@@ -209,8 +209,8 @@ function trendTransferList(t: import('@texttrends/core').NumericTrend): Transfer
   return [...buffers];
 }
 
-function concordanceAxisTransferList(
-  axis: import('@texttrends/core').ConcordanceAxisArraysV1 | undefined,
+function matchesAxisTransferList(
+  axis: import('@texttrends/core').MatchesAxisArraysV1 | undefined,
 ): Transferable[] | undefined {
   if (!axis) return undefined;
   const transfers: Transferable[] = [];
@@ -937,13 +937,13 @@ export class WorkerEngineV4 {
     // and a FINAL gate immediately before every emit.
     const checkpoint = () => this.queryCheckpoint(job, gen, snapshotId);
 
-    if (q.op === 'concordance-window') {
+    if (q.op === 'matches-window') {
       const selection = await resolveSelection(snapshot, {
         docs: snapshot.docs.map((doc) => doc.doc),
       });
       await this.queryCheckpoint(job, gen, snapshotId);
       const { method: _method, includeAxis, ...request } = q.request;
-      const result = await gen.executor.concordanceWindow(
+      const result = await gen.executor.matchesWindow(
         selection,
         q.tracks,
         request,
@@ -958,14 +958,14 @@ export class WorkerEngineV4 {
         job,
         snapshot: snapshot.id,
         data: {
-          op: 'concordance-window',
+          op: 'matches-window',
           window: {
-            method: 'concordance-window/1',
+            method: 'matches-window/1',
             ...window,
             ...(result.axis ? { axis: result.axis } : {}),
           },
         },
-      }, concordanceAxisTransferList(result.axis));
+      }, matchesAxisTransferList(result.axis));
       return;
     }
 

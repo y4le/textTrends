@@ -15,7 +15,7 @@ async function awaitFreshWindow(page: Page, mark: number): Promise<void> {
       event.seq > mark
       && event.direction === 'to-worker'
       && event.t === 'query'
-      && event.op === 'concordance-window');
+      && event.op === 'matches-window');
     const jobs = new Set(queries.map((event) => event.job));
     return snapshot.events.some((event) =>
       event.seq > mark
@@ -25,10 +25,10 @@ async function awaitFreshWindow(page: Page, mark: number): Promise<void> {
   }, { timeout: 30_000 }).toBe(true);
 }
 
-test('continuous Concordance virtualizes rows and synchronizes scrolling with the shared cursor', async ({ page, context }, testInfo) => {
+test('continuous Matches virtualizes rows and synchronizes scrolling with the shared cursor', async ({ page, context }, testInfo) => {
   await context.addInitScript(() => {
     const tasks: { start: number; duration: number }[] = [];
-    (window as unknown as { __ttConcordanceLongTasks: typeof tasks }).__ttConcordanceLongTasks = tasks;
+    (window as unknown as { __ttMatchesLongTasks: typeof tasks }).__ttMatchesLongTasks = tasks;
     new PerformanceObserver((list) => {
       for (const entry of list.getEntries()) {
         tasks.push({ start: entry.startTime, duration: entry.duration });
@@ -51,18 +51,18 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'holmes, watson, moriarty');
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
 
   const terms = page.getByRole('complementary', { name: 'Terms' });
   await expect(terms).toBeVisible();
-  await expect(page.getByRole('group', { name: 'Concordance terms' })).toHaveCount(0);
+  await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
   for (const term of ['holmes', 'watson']) {
     const toggleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
     await terms.getByRole('button', { name: `Shown in analysis: ${term}` }).click();
     await awaitFreshWindow(page, toggleMark);
   }
 
-  const grid = page.getByRole('grid', { name: 'Concordance' });
+  const grid = page.getByRole('grid', { name: 'Matches' });
   await expect(grid).toBeVisible({ timeout: 30_000 });
   await expect(grid).toHaveAttribute('aria-rowcount', '1201');
   const occurrenceRows = grid.locator('.kwic-virtual-row[aria-rowindex]');
@@ -177,16 +177,16 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
     event.seq > residentMark
     && event.direction === 'to-worker'
     && event.t === 'query'
-    && event.op === 'concordance-window');
+    && event.op === 'matches-window');
   expect(prefetchQueries.length).toBeGreaterThan(0);
   expect(prefetchQueries.length).toBeLessThan(6);
   expect(unfilledFrames).toEqual([]);
   const longTasks = await page.evaluate(
     () => (window as unknown as {
-      __ttConcordanceLongTasks: { start: number; duration: number }[];
-    }).__ttConcordanceLongTasks,
+      __ttMatchesLongTasks: { start: number; duration: number }[];
+    }).__ttMatchesLongTasks,
   );
-  await testInfo.attach('continuous-concordance-long-tasks.json', {
+  await testInfo.attach('continuous-matches-long-tasks.json', {
     body: JSON.stringify({ window: { scrollWindowStart, scrollWindowEnd }, longTasks }, null, 2),
     contentType: 'application/json',
   });
@@ -197,7 +197,7 @@ test('continuous Concordance virtualizes rows and synchronizes scrolling with th
 
   await grid.focus();
   await grid.press('End');
-  await expect(grid).toHaveAttribute('aria-activedescendant', 'concordance-row-1199');
+  await expect(grid).toHaveAttribute('aria-activedescendant', 'matches-row-1199');
   await expect.poll(async () => (await centeredGeometry()).lineToActiveRow)
     .toBeLessThanOrEqual(1);
   await expect.poll(async () => {

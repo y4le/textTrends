@@ -10,7 +10,7 @@
  * express those listeners. The store SUBSCRIBES to the session's immutable
  * `SessionState` (stored whole in `projectSession`), mirrors `snapshot` +
  * analysis loading/error for the query flow, and exposes thin command wrappers
- * so components talk only to the store. Query and concordance work stay here:
+ * so components talk only to the store. Query and matches work stay here:
  * they are
  * request/response operations, not competing listeners.
  *
@@ -20,7 +20,7 @@
  * the ≤MAX_SERIES ACTIVE groups (solo temporarily narrows to one); `series`
  * is the stored projection the panels consume. TWO identities, never
  * conflated: the UUID is presentation/selection identity (focus, style,
- * concordance membership, result keys); `termGroupIdentity` is matching
+ * matches membership, result keys); `termGroupIdentity` is matching
  * identity (worker caches, stale-result admission). The comma input is the
  * APPEND-ONLY quick-add surface (`parseQuickAdd`): each term becomes a
  * single-token folded group, a term already present (same matching identity)
@@ -34,9 +34,9 @@
  * hold.
  *
  * Intent discipline (UI review round 1, extended): trend intent and
- * concordance-window intent are SEPARATE latest-wins lanes (operation leases
+ * matches-window intent are SEPARATE latest-wins lanes (operation leases
  * over one runtime scope). Changing the compared terms or the snapshot
- * cancels and reissues both. The concordance is a merged multi-term,
+ * cancels and reissues both. Matches is a merged multi-term,
  * full-corpus view independent of `focusedSeries` and `linkedSelection`.
  * `setScrub` publishes only the shared reading cursor; the mounted surface
  * requests a bounded rank/position window. Exact evidence may additionally
@@ -49,8 +49,8 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   canonicalJson,
-  type ConcordanceAnchorV1,
-  type ConcordanceAxisArraysV1,
+  type MatchesAnchorV1,
+  type MatchesAxisArraysV1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
   FREQUENCY_PAGE_MAX,
@@ -112,7 +112,7 @@ import {
   type OperationLease,
 } from './operation-lease.ts';
 import type {
-  ConcordanceWindowResultV1,
+  MatchesWindowResultV1,
   DispersionResultV1,
   QueryOpV4,
   QueryResultDataV4,
@@ -127,12 +127,13 @@ import type {
   WireSelectionV4,
 } from '../shared/analysis-contract.ts';
 import {
-  clampConcordanceColumnWidth,
-  CONCORDANCE_COLUMN_DEFAULTS,
-  CONCORDANCE_CONTEXT_TOKENS,
-  type ConcordanceColumn,
-  type ConcordanceColumnWidths,
-} from './concordance-columns.ts';
+  clampMatchesColumnWidth,
+  MATCHES_COLUMN_DEFAULTS,
+  MATCHES_CONTEXT_TOKENS,
+  MATCHES_CONTEXT_TOKENS_MAX,
+  type MatchesColumn,
+  type MatchesColumnSettings,
+} from './matches-columns.ts';
 import {
   SessionCommandError,
   type AnalysisPhase,
@@ -160,7 +161,7 @@ const FOOTER_PASSAGE_MAX_TOKENS = 400;
 const READER_SOURCE_MAX_TOKENS = 4_096;
 
 export interface KwicRowView {
-  /** The series (track) that produced this row — the merged concordance tags
+  /** The series (track) that produced this row — the merged match set tags
    *  each occurrence so the panel can colour and label it. */
   readonly seriesId: string;
   /** Wire provenance retained for occurrence identity (commit D): under
@@ -176,7 +177,7 @@ export interface KwicRowView {
   readonly right: string;
 }
 
-/** The full occurrence key of a concordance row — stable and collision-free
+/** The full occurrence key of a match row — stable and collision-free
  *  where `${seriesId}:${doc}:${pos}` is not: countOverlaps can emit two rows
  *  at one start that differ only by node end / contributing members. The
  *  encoding is an INJECTIVE JSON tuple: string fields have no delimiter-free
@@ -197,8 +198,8 @@ export interface QueryClient {
   ): { result: Promise<QueryResultDataV4>; cancel: () => void };
 }
 
-/** The max compared/concordance terms — one authority, shared with the kwic
- *  track cap so a series set can always be sent as concordance tracks. */
+/** The max compared/matches terms — one authority, shared with the kwic
+ *  track cap so a series set can always be sent as matches tracks. */
 export const MAX_SERIES = MAX_KWIC_TRACKS;
 export const DEFAULT_TREND_BINS: TrendBinsSpecV1 = Object.freeze({
   mode: 'per-doc',
@@ -235,20 +236,21 @@ export type SeriesTrendState =
   | { readonly status: 'ready'; readonly trend: NumericTrend }
   | { readonly status: 'error'; readonly message: string };
 
-export interface ConcordanceWindowView {
+export interface MatchesWindowView {
   readonly total: number;
   readonly trackCount: number;
   readonly anchorRank: number | null;
   readonly firstRank: number;
   readonly before: number;
   readonly after: number;
-  readonly preceding: ConcordanceWindowResultV1['preceding'];
+  readonly contextTokens: number;
+  readonly preceding: MatchesWindowResultV1['preceding'];
   readonly rows: readonly KwicRowView[];
   /** Exact activation disambiguation, consumed into this landed window. */
   readonly revealRank: number | null;
 }
 
-export interface ConcordanceRevealTarget {
+export interface MatchesRevealTarget {
   readonly snapshot: string;
   readonly trackKey: string;
   readonly seriesId: string;
@@ -258,7 +260,7 @@ export interface ConcordanceRevealTarget {
   readonly members?: readonly number[];
 }
 
-export type ConcordanceActivationOrigin =
+export type MatchesActivationOrigin =
   | { readonly kind: 'bucket'; readonly count: number }
   | {
       readonly kind: 'occurrence';
@@ -271,14 +273,15 @@ export interface KwicState {
   readonly snapshot: string;
   readonly trackKey: string;
   readonly request: {
-    readonly anchor: ConcordanceAnchorV1;
+    readonly anchor: MatchesAnchorV1;
     readonly before: number;
     readonly after: number;
+    readonly contextTokens: number;
   } | null;
-  readonly axis: ConcordanceAxisArraysV1 | null;
+  readonly axis: MatchesAxisArraysV1 | null;
   /** Retained while a neighboring window is pending, so bounded navigation
    * never blanks already materialized rows. */
-  readonly resident: ConcordanceWindowView | null;
+  readonly resident: MatchesWindowView | null;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready' }
@@ -538,8 +541,8 @@ export interface RemovedNotebookGroup {
   readonly solo: boolean;
 }
 
-export interface ConcordanceView {
-  readonly columns: ConcordanceColumnWidths;
+export interface MatchesView {
+  readonly columns: MatchesColumnSettings;
 }
 
 /** The scrubbed reading position — document-local, view-independent. */
@@ -668,7 +671,7 @@ export interface AppState {
    *  browser-local workspace. */
   notebook: QueryNotebookV1;
   /** Membership = the group participates in the comparison (trends, Reader
-   *  marks, and concordance eligibility). Order is notebook order. Never silently
+   *  marks, and matches eligibility). Order is notebook order. Never silently
    *  truncated: a sixth activation is refused with `notebookError`. */
   activeGroupIds: ReadonlySet<string>;
   /** Transient view projection: when set, the effective active set is JUST
@@ -697,9 +700,9 @@ export interface AppState {
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
   /** One-shot exact activation intent; consumed by the next matching window. */
-  concordanceReveal: ConcordanceRevealTarget | null;
-  /** Session-local Concordance controls. Never serialized or autosaved. */
-  concordanceView: ConcordanceView;
+  matchesReveal: MatchesRevealTarget | null;
+  /** Tab-local Matches controls. Kept outside portable workspace semantics. */
+  matchesView: MatchesView;
   /** The barcode's dispersion result (null = no comparison/corpus). */
   dispersion: DispersionState | null;
   /** The ONE transient linked token-range selection (ruling §2): single-doc,
@@ -788,17 +791,23 @@ export interface AppState {
   setSolo(groupId: string | null): void;
   clearNotebookError(): void;
   setFocus(seriesId: string): void;
-  requestConcordanceWindow(
-    anchor: ConcordanceAnchorV1,
-    window?: { readonly before: number; readonly after: number },
+  requestMatchesWindow(
+    anchor: MatchesAnchorV1,
+    window?: {
+      readonly before: number;
+      readonly after: number;
+      readonly contextTokens?: number;
+    },
   ): void;
-  setConcordanceColumnWidth(column: ConcordanceColumn, width: number): void;
-  resetConcordanceColumns(): void;
+  setMatchesColumnWidth(column: MatchesColumn, width: number): void;
+  setMatchesContextWeights(left: number, right: number): void;
+  resetMatchesColumn(column: MatchesColumn): void;
+  resetMatchesColumns(): void;
   setTrendView(view: TrendView): void;
   applyTrendSettings(input: TrendSettingsInput): TrendSettingsOutcome;
   /** Reveal an activated barcode occurrence immediately. Density midpoints
    *  publish only the shared cursor, never an exact reveal target. */
-  centerKwicAt(seriesId: string, doc: string, token: number, origin?: ConcordanceActivationOrigin): void;
+  centerKwicAt(seriesId: string, doc: string, token: number, origin?: MatchesActivationOrigin): void;
   /** Commit explicit per-document spans from one contiguous reading-order
    *  gesture. Reissues detail consumers; baseline results remain resident.
    *  Null clears. */
@@ -1051,7 +1060,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
     active: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
       .map((group) => group.id),
-    // Deprecated workspace/1 compatibility field. Concordance now follows
+    // Deprecated workspace/1 compatibility field. Matches now follows
     // the shared active projection, so new saves mirror `active` here.
     kwicEnabled: state.notebook.groups
       .filter((group) => state.activeGroupIds.has(group.id))
@@ -1208,6 +1217,8 @@ export function createAppRuntime(
     history?: HistoryPort;
     /** Last-write-wins storage for the one current workspace. */
     workspace?: WorkspaceStorePort;
+    /** Session-restored presentation geometry, separate from workspace semantics. */
+    matchesColumns?: MatchesColumnSettings;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
@@ -1219,7 +1230,7 @@ export function createAppRuntime(
   // epochs + captured keys expressed.
   const scope = new OperationScope();
   const trendLane = new QueryLane(scope);
-  const concordanceLane = new QueryLane(scope);
+  const matchesLane = new QueryLane(scope);
   // The barcode's dispersion intent — reissued with the trend burst.
   const dispersionLane = new QueryLane(scope);
   // Selected-range overlay lanes — separate latest-wins ownership so a brush
@@ -2024,7 +2035,7 @@ export function createAppRuntime(
       }
     };
 
-    const sameAnchor = (left: ConcordanceAnchorV1, right: ConcordanceAnchorV1): boolean => {
+    const sameAnchor = (left: MatchesAnchorV1, right: MatchesAnchorV1): boolean => {
       if (left.kind !== right.kind) return false;
       if (left.kind === 'rank') return right.kind === 'rank' && left.rank === right.rank;
       return right.kind === 'position'
@@ -2043,8 +2054,8 @@ export function createAppRuntime(
     };
 
     const residentCoversAnchor = (
-      resident: ConcordanceWindowView,
-      anchor: ConcordanceAnchorV1,
+      resident: MatchesWindowView,
+      anchor: MatchesAnchorV1,
       readyDocs: readonly string[],
     ): boolean => {
       if (resident.total === 0) return true;
@@ -2073,21 +2084,25 @@ export function createAppRuntime(
 
     /** Latest-wins bounded window request. Sparse axes survive neighboring
      * windows under the same snapshot + ordered matching identity. */
-    const runConcordanceWindow = (
-      requestedAnchor?: ConcordanceAnchorV1,
-      window = { before: 24, after: 24 },
+    const runMatchesWindow = (
+      requestedAnchor?: MatchesAnchorV1,
+      window: {
+        readonly before: number;
+        readonly after: number;
+        readonly contextTokens?: number;
+      } = { before: 24, after: 24 },
       force = false,
     ) => {
       const { snapshot, series, scrub } = get();
       if (!snapshot || series.length === 0) {
-        concordanceLane.supersede();
-        set({ kwic: null, concordanceReveal: null });
+        matchesLane.supersede();
+        set({ kwic: null, matchesReveal: null });
         return;
       }
       const tracks = trackSpecs(series);
       if (tracks === null) {
-        concordanceLane.supersede();
-        set({ kwic: null, concordanceReveal: null });
+        matchesLane.supersede();
+        set({ kwic: null, matchesReveal: null });
         return;
       }
       const anchor = requestedAnchor ?? (scrub && snapshot.readyDocs.includes(scrub.doc)
@@ -2098,6 +2113,7 @@ export function createAppRuntime(
         : !snapshot.readyDocs.includes(anchor.doc)
           || !Number.isSafeInteger(anchor.token)
           || anchor.token < 0;
+      const contextTokens = window.contextTokens ?? MATCHES_CONTEXT_TOKENS;
       if (
         invalidAnchor
         || !Number.isSafeInteger(window.before)
@@ -2105,6 +2121,9 @@ export function createAppRuntime(
         || !Number.isSafeInteger(window.after)
         || window.after < 0
         || window.before + 1 + window.after > KWIC_MAX_PAGE
+        || !Number.isSafeInteger(contextTokens)
+        || contextTokens < 0
+        || contextTokens > MATCHES_CONTEXT_TOKENS_MAX
       ) return;
       const trackKey = JSON.stringify(tracks.identities);
       const held = get().kwic;
@@ -2116,6 +2135,7 @@ export function createAppRuntime(
         && sameAnchor(held.request.anchor, anchor)
         && held.request.before === window.before
         && held.request.after === window.after
+        && held.request.contextTokens === contextTokens
         && (held.state.status === 'pending' || held.state.status === 'ready')
       ) return;
 
@@ -2124,6 +2144,7 @@ export function createAppRuntime(
         && held?.snapshot === snapshot.snapshot
         && held.trackKey === trackKey
         && held.resident !== null
+        && held.resident.contextTokens === contextTokens
         && (
           (held.resident.firstRank === 0 && held.resident.rows.length === held.resident.total)
           || (
@@ -2136,24 +2157,34 @@ export function createAppRuntime(
         // A reversal can return to resident evidence while an obsolete
         // outside-window request is pending. Retire it before restoring the
         // resident view, or its late result would pull the surface away again.
-        concordanceLane.supersede();
+        matchesLane.supersede();
         set({
           kwic: {
             ...held,
-            request: { anchor, before: window.before, after: window.after },
+            request: {
+              anchor,
+              before: window.before,
+              after: window.after,
+              contextTokens,
+            },
             state: { status: 'ready' },
           },
         });
         return;
       }
 
-      concordanceLane.supersede();
+      matchesLane.supersede();
       const issuedKey = snapKey(snapshot);
       const retainHeld = held?.snapshot === snapshot.snapshot && held.trackKey === trackKey;
       const retainedAxis = retainHeld ? held.axis : null;
       const retainedWindow = retainHeld ? held.resident : null;
-      const request = { anchor, before: window.before, after: window.after };
-      const lease = concordanceLane.ops.begin(
+      const request = {
+        anchor,
+        before: window.before,
+        after: window.after,
+        contextTokens,
+      };
+      const lease = matchesLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => identitiesCurrent(tracks.identities),
       );
@@ -2168,27 +2199,27 @@ export function createAppRuntime(
         },
       });
       issueOn(
-        concordanceLane,
+        matchesLane,
         snapshot.snapshot,
         {
-          op: 'concordance-window',
+          op: 'matches-window',
           tracks: tracks.wire,
           request: {
-            method: 'concordance-window/1',
+            method: 'matches-window/1',
             anchor,
             before: window.before,
             after: window.after,
-            contextTokens: CONCORDANCE_CONTEXT_TOKENS,
+            contextTokens,
             includeAxis: retainedAxis === null,
           },
         },
         lease,
         (data) => {
-          if (data.op !== 'concordance-window') return;
+          if (data.op !== 'matches-window') return;
           const live = get().kwic;
           const axis = data.window.axis
             ?? (live?.snapshot === snapshot.snapshot && live.trackKey === trackKey ? live.axis : null);
-          const reveal = get().concordanceReveal;
+          const reveal = get().matchesReveal;
           let revealRank: number | null = null;
           let consumeReveal = false;
           if (
@@ -2219,13 +2250,14 @@ export function createAppRuntime(
                 firstRank: data.window.firstRank,
                 before: window.before,
                 after: window.after,
+                contextTokens,
                 preceding: data.window.preceding,
                 rows: data.window.rows,
                 revealRank,
               },
               state: { status: 'ready' },
             },
-            ...(consumeReveal ? { concordanceReveal: null } : {}),
+            ...(consumeReveal ? { matchesReveal: null } : {}),
           });
         },
         (message) => set((state) => ({
@@ -2267,13 +2299,13 @@ export function createAppRuntime(
     /**
      * Adopt a notebook mutation: recompute styles, the series
      * projection, and the dependent normalizations (focus in projection;
-     * concordance membership per surviving group, newly active groups
+     * matches membership per surviving group, newly active groups
      * enabled; solo only on an active group). ONE authority so every action
      * leaves the same invariants (ruling invariant 7). Reissue policy is the
      * CALLER's: rename/reorder are presentation-only.
      */
     /** The EFFECTIVE query intent: for each projected series in order, its
-     *  UUID, matching identity, and concordance membership. Reissue decisions
+     *  UUID, matching identity, and matches membership. Reissue decisions
      *  compare THIS — a mutation that leaves it unchanged (muting a solo'd-out
      *  group, editing an unprojected one, appending while soloed) must not
      *  cancel or recompute live results (ruling invariant 2, review-C). */
@@ -2399,9 +2431,9 @@ export function createAppRuntime(
       focusedSeries: null,
       trends: new Map(),
       kwic: null,
-      concordanceReveal: null,
-      concordanceView: {
-        columns: CONCORDANCE_COLUMN_DEFAULTS,
+      matchesReveal: null,
+      matchesView: {
+        columns: opts?.matchesColumns ?? MATCHES_COLUMN_DEFAULTS,
       },
       dispersion: null,
       linkedSelection: null,
@@ -2763,34 +2795,59 @@ export function createAppRuntime(
       setFocus(seriesId) {
         if (get().focusedSeries === seriesId) return;
         if (!get().series.some((s) => s.id === seriesId)) return;
-        // Focus drives ONLY the trend-line emphasis; the concordance is a merged
+        // Focus drives ONLY the trend-line emphasis; Matches is a merged
         // multi-term view independent of focus, so no KWIC reissue here.
         occurrenceLane.supersede();
         set({ focusedSeries: seriesId, occurrenceNavigation: null });
       },
 
-      requestConcordanceWindow(anchor, window) {
-        runConcordanceWindow(anchor, window);
+      requestMatchesWindow(anchor, window) {
+        runMatchesWindow(anchor, window);
       },
 
-      setConcordanceColumnWidth(column, width) {
-        if (!(column in CONCORDANCE_COLUMN_DEFAULTS) || !Number.isFinite(width)) return;
-        const view = get().concordanceView;
-        const next = clampConcordanceColumnWidth(column, width);
+      setMatchesColumnWidth(column, width) {
+        if (!(column in MATCHES_COLUMN_DEFAULTS) || !Number.isFinite(width)) return;
+        const view = get().matchesView;
+        const next = clampMatchesColumnWidth(column, width);
         if (view.columns[column] === next) return;
         set({
-          concordanceView: {
+          matchesView: {
             columns: { ...view.columns, [column]: next },
           },
         });
       },
 
-      resetConcordanceColumns() {
-        const columns = get().concordanceView.columns;
-        if ((Object.keys(CONCORDANCE_COLUMN_DEFAULTS) as ConcordanceColumn[]).every(
-          (column) => columns[column] === CONCORDANCE_COLUMN_DEFAULTS[column],
+      setMatchesContextWeights(left, right) {
+        if (![left, right].every(Number.isFinite)) return;
+        const nextLeft = clampMatchesColumnWidth('left', left);
+        const nextRight = clampMatchesColumnWidth('right', right);
+        const view = get().matchesView;
+        if (view.columns.left === nextLeft && view.columns.right === nextRight) return;
+        set({
+          matchesView: {
+            columns: { ...view.columns, left: nextLeft, right: nextRight },
+          },
+        });
+      },
+
+      resetMatchesColumn(column) {
+        if (!(column in MATCHES_COLUMN_DEFAULTS)) return;
+        const view = get().matchesView;
+        const next = MATCHES_COLUMN_DEFAULTS[column];
+        if (view.columns[column] === next) return;
+        set({
+          matchesView: {
+            columns: { ...view.columns, [column]: next },
+          },
+        });
+      },
+
+      resetMatchesColumns() {
+        const columns = get().matchesView.columns;
+        if ((Object.keys(MATCHES_COLUMN_DEFAULTS) as MatchesColumn[]).every(
+          (column) => columns[column] === MATCHES_COLUMN_DEFAULTS[column],
         )) return;
-        set({ concordanceView: { columns: CONCORDANCE_COLUMN_DEFAULTS } });
+        set({ matchesView: { columns: MATCHES_COLUMN_DEFAULTS } });
       },
 
       setTrendView(view) {
@@ -2848,16 +2905,16 @@ export function createAppRuntime(
           previous?.doc !== target.doc || previous.token !== target.token;
         if (changed) {
           occurrenceLane.supersede();
-          set({ scrub: target, occurrenceNavigation: null, concordanceReveal: null });
+          set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
         }
         scheduleFooterPassage(target);
       },
 
       clearScrub() {
         occurrenceLane.supersede();
-        set({ scrub: null, occurrenceNavigation: null, concordanceReveal: null });
+        set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
         resetFooterPassage();
-        runConcordanceWindow({ kind: 'rank', rank: 0 });
+        runMatchesWindow({ kind: 'rank', rank: 0 });
       },
 
       stepOccurrence(direction) {
@@ -3022,7 +3079,7 @@ export function createAppRuntime(
             get().setScrub({ doc: hit.doc, token: hit.token });
             // Occurrence stepping deliberately collapses a same-start cluster
             // into one stop; its members are cluster-level provenance, so the
-            // Concordance applies the documented first-row rule.
+            // Matches applies the documented first-row rule.
             get().centerKwicAt(focused.id, hit.doc, hit.token, {
               kind: 'occurrence',
               groupId: group.id,
@@ -3327,7 +3384,7 @@ export function createAppRuntime(
       runQueries() {
         const { snapshot, series, trendBins } = get();
         occurrenceLane.supersede();
-        set({ occurrenceNavigation: null, concordanceReveal: null });
+        set({ occurrenceNavigation: null, matchesReveal: null });
         // Reader highlights use the CURRENT semantic active-track projection;
         // rename-only notebook edits do not call runQueries and remain
         // presentation-only, while active/member/overlap changes reissue here.
@@ -3358,9 +3415,9 @@ export function createAppRuntime(
             dispersion: null,
             selectedTrends: new Map(),
             selectedDispersion: null,
-            concordanceReveal: null,
+            matchesReveal: null,
           });
-          runConcordanceWindow();
+          runMatchesWindow();
           return;
         }
 
@@ -3458,7 +3515,7 @@ export function createAppRuntime(
         // The selected overlays follow the same burst (a snapshot change or
         // comparison change either revalidates or clears them).
         runSelected();
-        runConcordanceWindow();
+        runMatchesWindow();
       },
 
       runInventory() {
@@ -3987,21 +4044,21 @@ export function createAppRuntime(
           );
           if (added && get().activeGroupIds.has(added.id)) {
             get().setFocus(added.id);
-            get().setPlace('concordance');
+            get().setPlace('matches');
           } else if (added) {
-            refuseNotebook('term added; deactivate another term before showing it in concordance');
+            refuseNotebook('term added; deactivate another term before showing its matches');
           }
           return;
         }
         if (!state.activeGroupIds.has(group.id) && state.activeGroupIds.size >= MAX_SERIES) {
-          refuseNotebook('deactivate a group before showing this term in the concordance');
+          refuseNotebook('deactivate a group before showing matches for this term');
           return;
         }
         const active = new Set(state.activeGroupIds);
         active.add(group.id);
         adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
         get().setFocus(group.id);
-        get().setPlace('concordance');
+        get().setPlace('matches');
       },
 
       setLinkedSelection(selection) {
@@ -4029,7 +4086,7 @@ export function createAppRuntime(
         const tracks = trackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
         set({
-          concordanceReveal: origin?.kind !== 'bucket'
+          matchesReveal: origin?.kind !== 'bucket'
             ? {
                 snapshot: state.snapshot.snapshot,
                 trackKey,
@@ -4041,7 +4098,7 @@ export function createAppRuntime(
               }
             : null,
         });
-        runConcordanceWindow({ kind: 'position', doc, token }, undefined, true);
+        runMatchesWindow({ kind: 'position', doc, token }, undefined, true);
       },
 
       // ── Session command wrappers ──────────────────────────────────────────
@@ -4489,7 +4546,7 @@ export function createAppRuntime(
       // every in-flight query.
       scope.close();
       trendLane.supersede();
-      concordanceLane.supersede();
+      matchesLane.supersede();
       dispersionLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();

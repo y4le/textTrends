@@ -1,16 +1,16 @@
 import type { SequenceLayout } from './trend-geometry.ts';
 
 /** Kept below browser layout-coordinate limits while still giving ordinary
- * Concordances one native row pitch per logical occurrence. */
-export const CONCORDANCE_SAFE_SCROLL_EXTENT = 8_000_000;
-export const CONCORDANCE_ROW_HEIGHT = 32;
+ * Maps one native row pitch to each logical occurrence. */
+export const MATCHES_SAFE_SCROLL_EXTENT = 8_000_000;
+export const MATCHES_ROW_HEIGHT = 32;
 
-export interface ConcordanceAxisLike {
+export interface MatchesAxisLike {
   readonly ranks: Uint32Array;
   readonly globalTokens: Uint32Array;
 }
 
-export interface ConcordanceResidentLike {
+export interface MatchesResidentLike {
   readonly total: number;
   readonly firstRank: number;
   readonly rows: readonly { readonly doc: string; readonly pos: number }[];
@@ -21,52 +21,52 @@ interface RankTokenPoint {
   readonly globalToken: number;
 }
 
-export interface ConcordanceVisibleRanks {
+export interface MatchesVisibleRanks {
   readonly start: number;
   readonly end: number;
 }
 
-export interface ConcordanceRankTarget {
+export interface MatchesRankTarget {
   readonly rank: number;
   readonly doc: string;
   readonly token: number;
 }
 
-export function concordancePhysicalExtent(
+export function matchesPhysicalExtent(
   totalRows: number,
-  rowHeight = CONCORDANCE_ROW_HEIGHT,
+  rowHeight = MATCHES_ROW_HEIGHT,
 ): number {
   if (!Number.isFinite(totalRows) || totalRows <= 0 || !(rowHeight > 0)) return 0;
-  return Math.min(totalRows * rowHeight, CONCORDANCE_SAFE_SCROLL_EXTENT);
+  return Math.min(totalRows * rowHeight, MATCHES_SAFE_SCROLL_EXTENT);
 }
 
-export function concordanceScrollTop(
+export function matchesScrollTop(
   logical: number,
   totalRows: number,
-  rowHeight = CONCORDANCE_ROW_HEIGHT,
+  rowHeight = MATCHES_ROW_HEIGHT,
 ): number {
-  const extent = concordancePhysicalExtent(totalRows, rowHeight);
+  const extent = matchesPhysicalExtent(totalRows, rowHeight);
   if (extent === 0) return 0;
   return Math.max(0, Math.min(totalRows, logical)) / totalRows * extent;
 }
 
-export function concordanceLogicalAtScroll(
+export function matchesLogicalAtScroll(
   scrollTop: number,
   totalRows: number,
-  rowHeight = CONCORDANCE_ROW_HEIGHT,
+  rowHeight = MATCHES_ROW_HEIGHT,
 ): number {
-  const extent = concordancePhysicalExtent(totalRows, rowHeight);
+  const extent = matchesPhysicalExtent(totalRows, rowHeight);
   if (extent === 0 || !Number.isFinite(scrollTop)) return 0;
   return Math.max(0, Math.min(extent, scrollTop)) / extent * totalRows;
 }
 
-export function concordanceVisibleRanks(
+export function matchesVisibleRanks(
   logical: number,
   totalRows: number,
   viewportHeight: number,
-  rowHeight = CONCORDANCE_ROW_HEIGHT,
+  rowHeight = MATCHES_ROW_HEIGHT,
   overscanViewports = 1,
-): ConcordanceVisibleRanks {
+): MatchesVisibleRanks {
   if (totalRows <= 0 || !(rowHeight > 0)) return { start: 0, end: 0 };
   const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / rowHeight));
   const overscan = Math.ceil(visibleRows * Math.max(0, overscanViewports));
@@ -76,11 +76,11 @@ export function concordanceVisibleRanks(
   return { start, end: Math.max(start, end) };
 }
 
-export function concordanceWindowSize(viewportHeight: number): {
+export function matchesWindowSize(viewportHeight: number): {
   readonly before: number;
   readonly after: number;
 } {
-  const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / CONCORDANCE_ROW_HEIGHT));
+  const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / MATCHES_ROW_HEIGHT));
   const radius = Math.min(249, Math.max(24, visibleRows * 2));
   return { before: radius, after: radius };
 }
@@ -89,11 +89,11 @@ export function concordanceWindowSize(viewportHeight: number): {
  * reaches the leading unloaded edge. Returning the first rank just outside
  * residency makes neighboring windows overlap; ignoring trailing overscan
  * prevents newly shifted windows from immediately refetching in reverse. */
-export function concordancePrefetchRank(
+export function matchesPrefetchRank(
   logical: number,
   totalRows: number,
   viewportHeight: number,
-  resident: ConcordanceResidentLike | null,
+  resident: MatchesResidentLike | null,
   direction: -1 | 0 | 1,
 ): number | null {
   if (!Number.isFinite(totalRows) || totalRows <= 0) return null;
@@ -105,7 +105,7 @@ export function concordancePrefetchRank(
   const end = Math.max(first, Math.min(totalRows, first + resident.rows.length));
   if (active < first || active >= end) return active;
 
-  const visible = concordanceVisibleRanks(logical, totalRows, viewportHeight);
+  const visible = matchesVisibleRanks(logical, totalRows, viewportHeight);
   const needsBefore = direction <= 0 && first > 0 && visible.start <= first;
   const needsAfter = direction >= 0 && end < totalRows && visible.end >= end;
   if (needsBefore && needsAfter) {
@@ -116,13 +116,13 @@ export function concordancePrefetchRank(
   return null;
 }
 
-/** Resolve the occurrence nearest the now line. Concordance-originated cursor
+/** Resolve the occurrence nearest the now line. Matches-originated cursor
  * publication is intentionally discrete; continuous corpus interpolation is
- * reserved for the reverse scrub-to-Concordance direction. */
-export function concordanceTargetAtLogical(
+ * reserved for the reverse scrub-to-Matches direction. */
+export function matchesTargetAtLogical(
   logical: number,
-  resident: ConcordanceResidentLike | null,
-): ConcordanceRankTarget | null {
+  resident: MatchesResidentLike | null,
+): MatchesRankTarget | null {
   if (resident === null || resident.total <= 0 || !Number.isFinite(logical)) return null;
   const rank = Math.max(0, Math.min(resident.total - 1, Math.floor(logical)));
   const row = resident.rows[rank - resident.firstRank];
@@ -150,8 +150,8 @@ function rankTokenPoints(input: {
   readonly docs: readonly string[];
   readonly layout: SequenceLayout;
   readonly totalRows: number;
-  readonly axis: ConcordanceAxisLike | null;
-  readonly resident: ConcordanceResidentLike | null;
+  readonly axis: MatchesAxisLike | null;
+  readonly resident: MatchesResidentLike | null;
 }): readonly RankTokenPoint[] {
   const { docs, layout, totalRows, axis, resident } = input;
   if (totalRows <= 0 || layout.totalTokens <= 0) return [];
@@ -188,8 +188,8 @@ export function logicalForGlobalToken(input: {
   readonly layout: SequenceLayout;
   readonly totalRows: number;
   readonly globalToken: number;
-  readonly axis: ConcordanceAxisLike | null;
-  readonly resident: ConcordanceResidentLike | null;
+  readonly axis: MatchesAxisLike | null;
+  readonly resident: MatchesResidentLike | null;
 }): number {
   const { layout, totalRows } = input;
   if (totalRows <= 0 || layout.totalTokens <= 0) return 0;

@@ -51,10 +51,10 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
   await input.fill('barnowl');
   await input.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
-  const concordance = page.getByRole('grid', { name: 'Concordance' });
-  await expect(concordance).toBeVisible({ timeout: 30_000 });
-  const rows = await concordance.locator('[role="row"][aria-rowindex]').count();
+  await gotoPlace(page, 'matches');
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches).toBeVisible({ timeout: 30_000 });
+  const rows = await matches.locator('[role="row"][aria-rowindex]').count();
   expect(rows).toBeGreaterThanOrEqual(2); // "barnowl" appears in body + migration list
 
   // The <script> content never became analyzable text (inert extraction). Wait
@@ -66,6 +66,6 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
   await script.fill('SCRIPTLEAKMARKER');
   await script.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
   await expect(page.getByText('No occurrences of the enabled terms.')).toBeVisible({ timeout: 30_000 });
 });

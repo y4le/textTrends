@@ -81,7 +81,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await editor.getByRole('textbox', { name: 'Term and aliases for wolf' }).fill('wolf, hound');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await editor.getByRole('button', { name: 'Save term' }).click();
-  await awaitOps(page, mark, ['trend', 'dispersion', 'concordance-window']);
+  await awaitOps(page, mark, ['trend', 'dispersion', 'matches-window']);
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
   let termTotal = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' })
@@ -91,7 +91,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
     .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();
 
   // Activate the exact barcode tick at wolf@430. It reveals a fresh
-  // Concordance window
+  // Matches window
   // evidence and also demonstrates the exact reader open path; return so
   // the rest of the journey continues on the analysis surface.
   const trendScrubber = page.getByRole('slider', { name: /reading position/i });
@@ -99,10 +99,10 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   const canvasBox = (await canvas.boundingBox())!;
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await canvas.click({ position: { x: canvasBox.width * (430.5 / 900), y: 3 } });
-  await awaitOps(page, mark, ['concordance-window', 'reader-page']);
+  await awaitOps(page, mark, ['matches-window', 'reader-page']);
   await page.getByRole('main', { name: /Reader: slice-two/ }).getByRole('button', { name: 'back' }).click();
-  await gotoPlace(page, 'concordance');
-  await expect(page.getByRole('grid', { name: 'Concordance' })
+  await gotoPlace(page, 'matches');
+  await expect(page.getByRole('grid', { name: 'Matches' })
     .locator('[role="row"][aria-selected="true"] .kwic-token-position')).toHaveText('431 / 900');
   await gotoPlace(page, 'trends');
 
@@ -120,7 +120,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await scrubber.press('Enter');
   await awaitOps(page, mark, ['trend', 'dispersion']);
 
-  // Analytical overlays describe the range, while the Concordance retains all
+  // Analytical overlays describe the range, while Matches retains all
   // six full-corpus occurrences and marks the four selected rows.
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.locator('[data-selected-overlay]').first()).toBeVisible();
@@ -133,8 +133,8 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
     page.getByRole('group', { name: 'Query terms' })
       .getByRole('button', { name: 'wolf 4 selected / 6', exact: true }),
   ).toBeVisible();
-  await gotoPlace(page, 'concordance');
-  const rows = page.getByRole('grid', { name: 'Concordance' }).locator('[role="row"][aria-rowindex]');
+  await gotoPlace(page, 'matches');
+  const rows = page.getByRole('grid', { name: 'Matches' }).locator('[role="row"][aria-rowindex]');
   await expect(rows).toHaveCount(6);
   const rowText = (await rows.allInnerTexts()).join(' ');
   for (const marker of ['in0430', 'in0440', 'in0450', 'in0470']) {
@@ -142,11 +142,11 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   }
   expect(rowText).toContain('out0100');
   expect(rowText).toContain('out0820');
-  await expect(page.getByRole('grid', { name: 'Concordance' })
+  await expect(page.getByRole('grid', { name: 'Matches' })
     .locator('[role="row"][data-linked-selection="true"]')).toHaveCount(4);
 
-  // Open one selected concordance occurrence in the current-semantics Reader.
-  const readerOpen = page.getByRole('grid', { name: 'Concordance' })
+  // Open one selected matches occurrence in the current-semantics Reader.
+  const readerOpen = page.getByRole('grid', { name: 'Matches' })
     .locator('[role="row"][data-linked-selection="true"]')
     .first()
     .getByRole('button');
@@ -195,6 +195,6 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
     .getByRole('listitem').filter({ hasText: 'wolf' })
     .locator('[data-term-occurrence-count]');
   await expect(termTotal).toHaveText('6');
-  await gotoPlace(page, 'concordance');
+  await gotoPlace(page, 'matches');
   await expect(rows).toHaveCount(6);
 });

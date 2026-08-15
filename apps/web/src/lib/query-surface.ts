@@ -25,7 +25,7 @@ export function termFocusControlId(groupId: string): string {
 
 /** Only places whose visible marks carry series encodings own a compact key. */
 export function placeUsesQueryEncoding(place: Place): boolean {
-  return place === 'trends' || place === 'concordance';
+  return place === 'trends' || place === 'matches';
 }
 
 /**

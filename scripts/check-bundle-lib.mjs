@@ -28,7 +28,7 @@ const FACADE_SENTINELS = ['ttE2E', 'ttHarness'];
 const PLACE_CHUNKS = [
   ['Inputs', /^assets\/InputsPlace-[^/]+\.js$/],
   ['Trends', /^assets\/TrendsPlace-[^/]+\.js$/],
-  ['Concordance', /^assets\/ConcordancePlace-[^/]+\.js$/],
+  ['Matches', /^assets\/MatchesPlace-[^/]+\.js$/],
   ['Vocabulary', /^assets\/VocabularyPlace-[^/]+\.js$/],
   ['Compare', /^assets\/ComparePlace-[^/]+\.js$/],
 ];

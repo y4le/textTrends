@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_PREFIX_MAX_UNITS, FREQUENCY_WINDOW_MAX, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
@@ -136,7 +136,7 @@ function narrowSelection(s: unknown): boolean {
 }
 
 /** 1..MAX_KWIC_TRACKS tracks with unique, nonempty seriesIds and valid groups —
- *  the shared concordance track cap (one authority in core). */
+ *  the shared matches track cap (one authority in core). */
 function narrowTracks(tracks: unknown, min: number): boolean {
   if (!Array.isArray(tracks) || tracks.length < min || tracks.length > MAX_KWIC_TRACKS) return false;
   const seen = new Set<string>();
@@ -156,7 +156,7 @@ export function narrowQueryV4(q: unknown): boolean {
       return narrowSelection(q.selection) && narrowGroup(q.group) &&
         exactRecord(q.request, ['coordinate', 'bins']) &&
         COORDINATES.has(q.request.coordinate as string) && narrowTrendBins(q.request.bins);
-    case 'concordance-window': {
+    case 'matches-window': {
       const r = q.request as Record<string, unknown>;
       if (
         !exactRecord(q, ['op', 'tracks', 'request'])
@@ -169,10 +169,11 @@ export function narrowQueryV4(q: unknown): boolean {
           'contextTokens',
           'includeAxis',
         ])
-        || r.method !== 'concordance-window/1'
+        || r.method !== 'matches-window/1'
         || !isCount(r.before)
         || !isCount(r.after)
         || !isCount(r.contextTokens)
+        || (r.contextTokens as number) > KWIC_CONTEXT_MAX_TOKENS
         || typeof r.includeAxis !== 'boolean'
         || (r.before as number) + 1 + (r.after as number) > KWIC_MAX_PAGE
       ) {

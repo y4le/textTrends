@@ -19,7 +19,7 @@
  *
  * The chart spans its container's full width (the app gives it the viewport)
  * via a measured ResizeObserver width; the axis position under the pointer /
- * keyboard scrubber drives the shared reading cursor and concordance center.
+ * keyboard scrubber drives the shared reading cursor and matches center.
  * Pointer motion is rAF-coalesced and deduplicated.
  */
 
