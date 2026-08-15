@@ -35,11 +35,12 @@
  */
 
 import type { DocumentIndexV1 } from '../index/build.ts';
-import { lowerBound, tokenEndChar } from '../index/build.ts';
+import { tokenEndChar } from '../index/build.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import { internalTextOf, type BoundTexts } from './binding.ts';
 import { MAX_KWIC_TRACKS } from './kwic.ts';
-import { TERM_GROUP_LIMITS_V1, type NumericOccurrences } from './occurrences.ts';
+import { collectTokenWindowMarks } from './marks.ts';
+import type { NumericOccurrences } from './occurrences.ts';
 
 /** Requested source-slice cap; a larger `maxTokens` is clamped and reported. */
 export const READER_MAX_TOKENS = 4_096;
@@ -126,17 +127,6 @@ export interface NumericReaderPagePlan {
   readonly markMemberOffsets: Uint32Array;
   readonly markMemberOrdinals: Uint32Array;
   readonly marksTruncated: boolean;
-}
-
-interface CollectedMark {
-  ordinal: number;
-  tokenStart: number;
-  tokenEnd: number;
-  charStart: number;
-  charEnd: number;
-  clippedStart: boolean;
-  clippedEnd: boolean;
-  members: readonly number[];
 }
 
 /** The ordered track identity table the materializer binds marks against —
@@ -335,79 +325,11 @@ export function planReaderPage(
     }
   }
 
-  // ── Marks: binary-search each track's slice for THIS doc, then clip. ──
-  // Straddler discipline (why the bounded backward walk below is complete):
-  // within one document a track's `pos` is strictly ascending, and either
-  // - countOverlaps=false: merged spans are DISJOINT, so span ends are also
-  //   ascending — once one occurrence fails (start+span <= pageStart) every
-  //   earlier one fails too; or
-  // - countOverlaps=true: every member match spans at most
-  //   maxPhraseElements tokens, so nothing starting at or before
-  //   pageStart - maxPhraseElements can reach pageStart.
-  // The combined stop rule below is sound for both without knowing which
-  // regime produced the set.
-  const maxMemberSpan = TERM_GROUP_LIMITS_V1.maxPhraseElements;
-  const collected: CollectedMark[] = [];
-  const pushMark = (occ: NumericOccurrences, ordinal: number, i: number, into: CollectedMark[]) => {
-    const occStart = occ.pos[i] as number;
-    const span = occ.spanTokens[i] as number;
-    const occEnd = occStart + span;
-    if (span < 1 || occEnd > tokenCount) {
-      // A track that names positions this shard cannot hold was computed
-      // against some other artifact — refuse, never read garbage offsets.
-      throw new RangeError(`track ${ordinal} occurrence ${i} exceeds '${doc}' extent`);
-    }
-    const visStart = Math.max(occStart, start);
-    const visEnd = Math.min(occEnd, end);
-    into.push({
-      ordinal,
-      tokenStart: occStart,
-      tokenEnd: occEnd,
-      charStart: (shard.startsUtf16[visStart] as number) - charStart,
-      charEnd: tokenEndChar(shard, visEnd - 1) - charStart,
-      clippedStart: occStart < start,
-      clippedEnd: occEnd > end,
-      members: Array.from(
-        occ.memberOrdinals.subarray(
-          occ.memberOffsets[i] as number,
-          occ.memberOffsets[i + 1] as number,
-        ),
-      ),
-    });
-  };
-  for (let g = 0; g < tracks.length; g++) {
-    const occ = tracks[g] as NumericOccurrences;
-    // Doc slice: docOrdinal is ascending by contract.
-    const sliceStart = lowerBound(occ.docOrdinal, ord);
-    const sliceEnd = lowerBound(occ.docOrdinal, ord + 1);
-    if (sliceStart === sliceEnd) continue;
-    const posView = occ.pos.subarray(sliceStart, sliceEnd);
-    // First occurrence starting inside the page, and the exclusive upper
-    // bound (starts at/after pageEnd never intersect).
-    const firstIn = sliceStart + lowerBound(posView, start);
-    const hi = sliceStart + lowerBound(posView, end);
-    // Backward walk for straddlers that START before the page but reach in.
-    const straddlers: CollectedMark[] = [];
-    for (let i = firstIn - 1; i >= sliceStart; i--) {
-      const p = occ.pos[i] as number;
-      const reaches = p + (occ.spanTokens[i] as number) > start;
-      if (reaches) pushMark(occ, g, i, straddlers);
-      else if (p + maxMemberSpan <= start) break; // see discipline note above
-    }
-    straddlers.reverse();
-    for (const m of straddlers) collected.push(m);
-    for (let i = firstIn; i < hi; i++) pushMark(occ, g, i, collected);
-  }
+  const collected = collectTokenWindowMarks(shard, ord, tracks, start, end);
 
-  // Render order, then the HONEST mark cap: keep the first READER_MAX_MARKS
-  // and say so — a page never silently hides occurrences.
-  collected.sort(
-    (a, b) =>
-      a.charStart - b.charStart ||
-      a.charEnd - b.charEnd ||
-      a.ordinal - b.ordinal ||
-      a.tokenStart - b.tokenStart,
-  );
+  // The shared collector supplies render order. Apply the HONEST mark cap:
+  // keep the first READER_MAX_MARKS and say so — a page never silently hides
+  // occurrences.
   const marksTruncated = collected.length > READER_MAX_MARKS;
   const kept = marksTruncated ? collected.slice(0, READER_MAX_MARKS) : collected;
 
@@ -422,12 +344,12 @@ export function planReaderPage(
   const markMemberOffsets = new Uint32Array(n + 1);
   const memberOrdinals: number[] = [];
   for (let i = 0; i < n; i++) {
-    const m = kept[i] as CollectedMark;
-    markTrackOrdinal[i] = m.ordinal;
+    const m = kept[i]!;
+    markTrackOrdinal[i] = m.trackOrdinal;
     markTokenStart[i] = m.tokenStart;
     markTokenEnd[i] = m.tokenEnd;
-    markCharStartUtf16[i] = m.charStart;
-    markCharEndUtf16[i] = m.charEnd;
+    markCharStartUtf16[i] = m.charStartUtf16 - charStart;
+    markCharEndUtf16[i] = m.charEndUtf16 - charStart;
     markClippedStart[i] = m.clippedStart ? 1 : 0;
     markClippedEnd[i] = m.clippedEnd ? 1 : 0;
     for (const mo of m.members) memberOrdinals.push(mo);
