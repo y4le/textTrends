@@ -1,9 +1,9 @@
 import { lazy, Suspense } from 'react';
 import { TrendSettings } from './TrendSettings.tsx';
-import type { Place } from '../lib/places.ts';
 import { PLACE_HEADING } from '../lib/places.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { UtilityPane } from './UtilityPane.tsx';
+import type { MethodPlace } from '../lib/method-place.ts';
 
 const MethodSummary = lazy(() =>
   import('./MethodSummary.tsx').then(({ MethodSummary: summary }) => ({ default: summary })),
@@ -13,7 +13,7 @@ export function MethodSurface({
   place,
   onClose,
 }: {
-  readonly place: Place;
+  readonly place: MethodPlace;
   readonly onClose: () => void;
 }) {
   const title = place === 'trends' ? 'Method & settings' : 'Method';

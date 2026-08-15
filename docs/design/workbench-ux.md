@@ -93,8 +93,10 @@ governed row details remain separate history layers.
 
 Scope states the corpus, included documents or linked range, token count, and
 completeness. Its corpus label opens Inputs. **Method & settings** on Trends,
-and **Method** on supported analytical places, opens the same contextual pane;
-Inputs and Matches omit it.
+and **Method** on Vocabulary and Compare, opens the same contextual pane;
+Inputs and Matches omit it. Compare keeps its immediate profile, divergence,
+intervals, dispersion, and row evidence in the governed analysis surface,
+while Method retains versioned provenance, limitations, and result export.
 
 ### Terms rail
 

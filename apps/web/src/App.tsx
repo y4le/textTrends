@@ -13,6 +13,7 @@ import { StatusBar } from './components/StatusBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
+import { isMethodPlace, type MethodPlace } from './lib/method-place.ts';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
@@ -59,7 +60,7 @@ interface ReaderEdgePointer {
 }
 
 type OpenUtilityPane =
-  | { readonly kind: 'method'; readonly place: Place }
+  | { readonly kind: 'method'; readonly place: MethodPlace }
   | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
@@ -221,6 +222,7 @@ export function App() {
     setUtilityPane({ kind: 'shortcuts', context });
   };
   const openMethod = () => {
+    if (!isMethodPlace(place)) return;
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
     utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement

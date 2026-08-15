@@ -3,6 +3,7 @@ import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
+import { isMethodPlace } from '../lib/method-place.ts';
 
 export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void }) {
   const snapshot = useApp((state) => state.snapshot);
@@ -159,7 +160,7 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
             )}
           </span>
         ))}
-        {place !== 'matches' && place !== 'inputs' && (
+        {isMethodPlace(place) && (
           <button
             id="global-method-open"
             className="scope-organ-link coarse-target scope-method-link"
