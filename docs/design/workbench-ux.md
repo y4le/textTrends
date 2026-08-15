@@ -203,6 +203,26 @@ Shift+Left/Shift+Right move one token. Home/End use the corpus endpoints, and
 Enter or `o` opens Reader at the current position. Pointer seeking and the
 drag shuttle restore centered passage alignment.
 
+## Vocabulary
+
+Vocabulary is a progressively loaded, viewport-filling ranking table with the
+same sticky header, zero-minimum column partition, and locked-by-default resize
+controls as Matches. Worker responses remain small chunks, but scrolling can
+reach every matching type without a page control or overall result window;
+already authenticated rows stay resident while the next chunk loads. Every
+header sorts its displayed measure. Only the active sort header is bold and
+shows its direction arrow. Term order is case-insensitive lexicographic order.
+Explanations for document frequency, rate, token class, DP, and normalized DP
+are available while widths are locked and disabled while the separators are
+adjustable. A disclosed row adds filtered rank, corpus share, token interval,
+document coverage, and the mean count in containing documents without issuing
+another analysis query.
+
+The scrollport and row controls share one keyboard model: `j`/`k` and
+Down/Up move one row, Ctrl+D/Ctrl+U move half a visible page, and Enter toggles
+the selected row detail. Navigation scrolls the newly selected row into view
+and naturally triggers the next result chunk near the loaded edge.
+
 ## Matches and direct reading
 
 Matches is the canonical context surface. It presents every enabled-term
@@ -350,8 +370,9 @@ or button remains activation, never a Reader shortcut.
 Result tables share one row-navigation contract without replacing their native
 table semantics. One existing row disclosure or open control is in the Tab
 order at a time; `j`/`k` and Down/Up move one row, PageDown/PageUp move by the
-visible row count, and Home/End clamp to the first and last row. Enter keeps the
-control's native open/toggle behavior. Escape closes an open row detail first;
+visible row count, Ctrl+D/Ctrl+U move by half that count, and Home/End clamp to
+the first and last row. Enter keeps the control's native open/toggle behavior.
+Escape closes an open row detail first;
 from a closed row it returns focus to the table port. Focus movement never
 changes analysis scope or issues work.
 

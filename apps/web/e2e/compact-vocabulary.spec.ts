@@ -31,29 +31,34 @@ for (const viewport of [
     await expect(table).toBeVisible();
     await expect(table).toHaveAttribute('aria-colcount', '7');
     await expect(table.getByRole('columnheader')).toHaveCount(7);
-    await expect(table.locator('thead button')).toHaveCount(0);
+    await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(7);
+    await expect(table.locator('thead .data-grid-sort-indicator')).toHaveCount(1);
+    await expect(table.getByRole('columnheader', { name: /count/ })
+      .locator('.data-grid-sort-indicator')).toHaveText('↓');
+    await expect(table.getByRole('columnheader', { name: /term/ })
+      .locator('.data-grid-sort-indicator')).toHaveCount(0);
+    await expect(page.locator('.frequency-result-summary')).toHaveCount(0);
     const row = table.locator('tr[data-frequency-row]').first();
     await expect(row.getByRole('rowheader')).toHaveAttribute('aria-colindex', '1');
-    await expect(row.locator('td[data-current-measure]')).toHaveAttribute('aria-colindex', '2');
-    await expect(row.locator('td[data-current-measure]')).toHaveAttribute(
-      'data-measure-label',
-      'count',
-    );
-    await expect(row.locator('td.frequency-measure:not([data-current-measure])').first())
-      .toBeHidden();
+    await expect(row.getByRole('cell')).toHaveCount(6);
+    await expect(row.locator('td.frequency-count')).toHaveAttribute('aria-colindex', '2');
 
     const term = row.getByRole('button');
-    const filter = page.getByRole('button', { name: 'sort and filter' });
+    const filter = page.getByRole('button', { name: 'filter', exact: true });
     const filterBox = await filter.boundingBox();
     expect(filterBox?.height).toBeGreaterThanOrEqual(44);
     await filter.focus();
     await filter.press('Tab');
+    await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
+      .toBeFocused();
+    await page.keyboard.press('j');
     await expect(term).toBeFocused();
     await term.click();
     const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
     await expect(detail).toBeVisible();
-    await expect(detail).toContainText('Per-book distribution is not available');
-    await expect(detail.locator('dt')).toHaveCount(7);
+    await expect(detail).toContainText('document coverage');
+    await expect(detail).toContainText('token interval');
+    await expect(detail.locator('dt')).toHaveCount(10);
     await expectNoBodyOverflow(page);
 
     await page.goBack();
@@ -68,9 +73,9 @@ test('Vocabulary filter preserves drafts across width classes and applies once',
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
-  const open = page.getByRole('button', { name: 'sort and filter' });
+  const open = page.getByRole('button', { name: 'filter', exact: true });
   await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Vocabulary sort and filter' });
+  const dialog = page.getByRole('dialog', { name: 'Vocabulary filters' });
   await expect(dialog).toBeVisible();
   await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   const prefix = page.getByLabel('starts with');
@@ -94,7 +99,7 @@ test('Vocabulary filter preserves drafts across width classes and applies once',
   await page.setViewportSize({ width: 1440, height: 900 });
   await expect(dialog).toHaveCount(0);
   await expect(page.locator('#root')).toHaveJSProperty('inert', false);
-  await expect(page.getByRole('form', { name: 'Vocabulary sort and filter' })).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Vocabulary filters' })).toBeVisible();
   await expect(page.getByLabel('starts with')).toHaveValue('Hol');
 
   await page.setViewportSize({ width: 390, height: 844 });
@@ -119,14 +124,13 @@ test('Vocabulary filter preserves drafts across width classes and applies once',
   )).toEqual([]);
 
   await page.getByLabel('count ≥').fill('2');
-  await page.getByLabel('Sort field').selectOption('docFreq');
   const applyMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await dialog.getByRole('button', { name: 'apply' }).click();
   await expect(dialog).toHaveCount(0);
   await expect(open).toBeFocused();
-  await expect(page.locator('.frequency-view-bar')).toContainText('docs descending');
-  await expect(page.locator('tr[data-frequency-row]').first().locator('td[data-current-measure]'))
-    .toHaveAttribute('data-measure-label', 'docs');
+  await expect(page.locator('.frequency-result-summary')).toHaveCount(0);
+  await expect(page.getByRole('columnheader', { name: /count/ }))
+    .toHaveAttribute('aria-sort', 'descending');
   const applyQueries = (await trace(page)).events.filter(
     (event) =>
       event.seq > applyMark
@@ -163,15 +167,118 @@ test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', as
 
   const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
   await expect(table.getByRole('columnheader')).toHaveCount(7);
-  await expect(table.locator('thead button')).toHaveCount(5);
+  await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(7);
   await expect(table.locator('tr[data-frequency-row]').first().locator('td.frequency-class'))
     .toBeVisible();
-  const open = page.getByRole('button', { name: 'sort and filter' });
+  const open = page.getByRole('button', { name: 'filter', exact: true });
   await open.click();
-  await expect(page.getByRole('form', { name: 'Vocabulary sort and filter' })).toBeVisible();
-  await expect(page.getByRole('dialog', { name: 'Vocabulary sort and filter' })).toHaveCount(0);
+  await expect(page.getByRole('form', { name: 'Vocabulary filters' })).toBeVisible();
+  await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
   await page.getByRole('button', { name: 'cancel' }).click();
   await expect(open).toBeFocused();
+});
+
+test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior', async ({ page }) => {
+  await page.setViewportSize({ width: 1440, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'vocabulary');
+
+  const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
+  const port = page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' });
+  const alignmentError = () => table.evaluate((root) => {
+    const headings = [...root.querySelectorAll<HTMLElement>('[role="columnheader"]')];
+    const row = root.querySelector<HTMLElement>('tr[data-frequency-row]');
+    const cells = row === null
+      ? []
+      : [...row.querySelectorAll<HTMLElement>(':scope > [role="rowheader"], :scope > [role="cell"]')];
+    if (headings.length !== cells.length) return Number.POSITIVE_INFINITY;
+    return headings.reduce((error, heading, index) => {
+      const headerBox = heading.getBoundingClientRect();
+      const cellBox = cells[index]!.getBoundingClientRect();
+      return Math.max(
+        error,
+        Math.abs(headerBox.left - cellBox.left),
+        Math.abs(headerBox.width - cellBox.width),
+      );
+    }, 0);
+  });
+  await expect.poll(alignmentError).toBeLessThanOrEqual(1);
+  await expect.poll(() => port.evaluate((node) => node.scrollWidth <= node.clientWidth + 1))
+    .toBe(true);
+  const headerTop = await table.locator('thead').evaluate((node) => node.getBoundingClientRect().top);
+  await port.evaluate((node) => { node.scrollTop = 300; });
+  await expect.poll(() => table.locator('thead').evaluate((node, top) =>
+    Math.abs(node.getBoundingClientRect().top - top), headerTop)).toBeLessThanOrEqual(1);
+  await port.evaluate((node) => { node.scrollTop = 0; });
+
+  const dpInfo = table.getByRole('button', { name: 'About DP', exact: true });
+  await dpInfo.click();
+  await expect(page.getByRole('tooltip')).toContainText('Deviation of proportions');
+
+  const toolbar = page.getByRole('toolbar', { name: 'Vocabulary columns' });
+  await toolbar.getByRole('button', { name: 'Adjust column widths' }).click();
+  await expect(dpInfo).toBeDisabled();
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  const separators = table.getByRole('separator');
+  await expect(separators).toHaveCount(6);
+  const termWidth = separators.first();
+  const dragBefore = Number(await termWidth.getAttribute('aria-valuenow'));
+  await termWidth.evaluate((handle) => {
+    const box = handle.getBoundingClientRect();
+    const init = {
+      bubbles: true,
+      cancelable: true,
+      pointerId: 73,
+      pointerType: 'mouse',
+      isPrimary: true,
+      button: 0,
+      clientX: box.left + box.width / 2,
+      clientY: box.top + box.height / 2,
+    };
+    handle.dispatchEvent(new PointerEvent('pointerdown', init));
+    handle.dispatchEvent(new PointerEvent('pointermove', { ...init, clientX: init.clientX + 30 }));
+    handle.dispatchEvent(new PointerEvent('pointerup', { ...init, clientX: init.clientX + 30 }));
+  });
+  await expect.poll(async () => Number(await termWidth.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(dragBefore);
+  const before = Number(await termWidth.getAttribute('aria-valuenow'));
+  await termWidth.focus();
+  await termWidth.press('ArrowRight');
+  await expect(termWidth).toHaveAttribute('aria-valuenow', String(before + 1));
+  await expect.poll(alignmentError).toBeLessThanOrEqual(1);
+  await termWidth.press('Escape');
+  await expect(toolbar.getByRole('button', { name: 'Adjust column widths' })).toBeFocused();
+  await expect(dpInfo).toBeEnabled();
+
+  await table.getByRole('button', { name: 'class', exact: true }).click();
+  await expect(table.getByRole('columnheader', { name: /class/ }))
+    .toHaveAttribute('aria-sort', 'ascending');
+  await expect(table.locator('thead .data-grid-sort-indicator')).toHaveCount(1);
+  const termSort = table.getByRole('button', { name: 'term', exact: true });
+  await termSort.focus();
+  await termSort.press('Enter');
+  await expect(table.getByRole('columnheader', { name: /term/ }))
+    .toHaveAttribute('aria-sort', 'ascending');
+  await expect(table.getByRole('columnheader', { name: /term/ })
+    .locator('.data-grid-sort-indicator')).toHaveText('↑');
+
+  const rows = table.locator('tr[data-frequency-row]');
+  const firstControl = rows.first().locator('.frequency-term > button');
+  await firstControl.focus();
+  await firstControl.press('Control+d');
+  const selected = table.locator('tr[data-frequency-row][aria-selected="true"]');
+  await expect(selected).toHaveCount(1);
+  expect(await selected.evaluate((row) =>
+    [...row.parentElement!.querySelectorAll('tr[data-frequency-row]')].indexOf(row)))
+    .toBeGreaterThan(0);
+  await selected.locator('.frequency-term > button').press('Enter');
+  await expect(page.getByRole('region', { name: /Vocabulary detail:/ })).toBeVisible();
+
+  await port.focus();
+  await port.press('j');
+  await expect(table.locator('tr[data-frequency-row][aria-selected="true"] .frequency-term > button'))
+    .toBeFocused();
 });
 
 test('successful exact Matches routing restores the open Vocabulary detail on Back', async ({ page }) => {
@@ -192,29 +299,43 @@ test('successful exact Matches routing restores the open Vocabulary detail on Ba
   await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
 });
 
-test('a ready page that omits an open row stale-pops once to a surviving focus target', async ({ page }) => {
+test('Vocabulary loads every matching row progressively without pagination', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  const prose = Array.from(
+    { length: 260 },
+    (_, index) => `unique${index} marker.`,
+  ).join(' ');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'large vocabulary.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(prose, 'utf8'),
+  });
+  await awaitReadyCount(page, 1);
   await gotoPlace(page, 'vocabulary');
 
-  await page.getByRole('button', { name: 'sort and filter' }).click();
-  await page.getByLabel('rows/page').selectOption('50');
-  await page.getByRole('dialog', { name: 'Vocabulary sort and filter' })
-    .getByRole('button', { name: 'apply' })
-    .click();
-  const row = page.locator('tr[data-frequency-row]').first();
-  await row.getByRole('button').click();
-  const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
-  await expect(detail).toBeVisible();
+  const rows = page.locator('tr[data-frequency-row]');
+  const port = page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' });
+  const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
+  await expect(table).toHaveAttribute('data-loaded-rows', '100');
+  expect(await rows.count()).toBeLessThan(100);
+  await expect(page.locator('.frequency-pagination')).toHaveCount(0);
+  await expect(page.locator('.frequency-result-summary')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'next', exact: true }).click();
-  await expect(detail).toHaveCount(0);
-  await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);
-  await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
-
-  await page.goBack();
-  await expect(page).toHaveURL(/[?&]p=trends(?:&|$)/);
+  await port.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await expect(table).toHaveAttribute('data-loaded-rows', '200');
+  await port.evaluate((node) => { node.scrollTop = node.scrollHeight; });
+  await expect(table).toHaveAttribute('data-loaded-rows', '261');
+  expect(await rows.count()).toBeLessThan(100);
+  await port.focus();
+  await port.press('j');
+  const selected = table.locator('tr[data-frequency-row][aria-selected="true"]');
+  await expect(selected).toHaveCount(1);
+  expect(Number(await selected.getAttribute('aria-rowindex'))).toBeGreaterThan(100);
+  await expectNoBodyOverflow(page);
 });
 
 test('a large Vocabulary result stays inside a compact page', async ({ page }) => {
@@ -235,14 +356,11 @@ test('a large Vocabulary result stays inside a compact page', async ({ page }) =
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'vocabulary');
 
-  await page.getByRole('button', { name: 'sort and filter' }).click();
-  await page.getByLabel('Sort field').selectOption('dpNorm');
-  await page.getByRole('dialog', { name: 'Vocabulary sort and filter' })
-    .getByRole('button', { name: 'apply' })
-    .click();
+  await page.getByRole('button', { name: 'DPnorm', exact: true }).click();
   const compactMeasure = page.locator('tr[data-frequency-row]').first()
-    .locator('td[data-current-measure]');
-  await expect(compactMeasure).toHaveAttribute('data-measure-label', 'DPnorm');
+    .locator('td.frequency-dpnorm');
+  await expect(page.getByRole('columnheader', { name: /DPnorm/ }))
+    .toHaveAttribute('aria-sort', 'descending');
   await expect(compactMeasure).toHaveText('unavailable');
   await expectNoBodyOverflow(page);
 });

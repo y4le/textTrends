@@ -429,6 +429,32 @@ function fakeFrequencyResult(marker: number): QueryResultDataV4 {
   } as unknown as QueryResultDataV4;
 }
 
+function fakeFrequencyPage(
+  selection: string,
+  total: number,
+  rows: readonly { readonly key: string; readonly typeId: number }[],
+): QueryResultDataV4 {
+  return {
+    op: 'freq-list',
+    frequency: {
+      method: 'freq-list/1',
+      selection,
+      total,
+      totalTokens: 12,
+      parts: 1,
+      rows: rows.map((row) => ({
+        ...row,
+        class: 'lexical',
+        count: 1,
+        ratePer10k: 1,
+        docFreq: 1,
+        dp: 0,
+        dpNorm: null,
+      })),
+    },
+  } as unknown as QueryResultDataV4;
+}
+
 function fakeKeynessResult(marker: number): QueryResultDataV4 {
   return {
     op: 'keyness',
@@ -4084,6 +4110,41 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().frequency?.state.status).toBe('pending');
   });
 
+  it('retains resident vocabulary rows while appending the next chunk', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    const first = f.frequencies().at(-1)!;
+    first.resolve(fakeFrequencyPage('selection-a', 3, [
+      { key: 'alpha', typeId: 1 },
+      { key: 'beta', typeId: 2 },
+    ]));
+    await flush();
+
+    expect(f.store.getState().frequency?.resident?.rows.map((row) => row.key))
+      .toEqual(['alpha', 'beta']);
+    const before = f.frequencies().length;
+    f.store.getState().loadMoreFrequency();
+    expect(f.frequencies()).toHaveLength(before + 1);
+    expect(f.store.getState().frequency).toMatchObject({
+      resident: { rows: [{ key: 'alpha' }, { key: 'beta' }] },
+      state: { status: 'pending' },
+    });
+    expect((f.frequencies().at(-1)!.query as {
+      request: { page: { offset: number; limit: number } };
+    }).request.page).toEqual({ offset: 2, limit: 1 });
+
+    f.store.getState().loadMoreFrequency();
+    expect(f.frequencies()).toHaveLength(before + 1);
+    f.frequencies().at(-1)!.resolve(fakeFrequencyPage('selection-a', 3, [
+      { key: 'gamma', typeId: 3 },
+    ]));
+    await flush();
+    expect(f.store.getState().frequency).toMatchObject({
+      resident: { rows: [{ key: 'alpha' }, { key: 'beta' }, { key: 'gamma' }] },
+      state: { status: 'ready' },
+    });
+  });
+
   it('add-exact admits sensitive matching', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
@@ -4156,7 +4217,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().notebookError).toMatch(/term added.*deactivate/);
   });
 
-  it('applies the complete frequency view atomically and refuses out-of-window pages', () => {
+  it('applies the complete frequency view atomically without an overall row window', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     const before = f.frequencies().length;
@@ -4194,8 +4255,11 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
     const issued = f.frequencies().length;
     f.store.getState().setFrequencyPage(5_000);
-    expect(f.frequencies()).toHaveLength(issued);
-    expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
+    expect(f.frequencies()).toHaveLength(issued + 1);
+    expect(f.store.getState().frequencyView.page).toEqual({ offset: 5_000, limit: 200 });
+    expect((f.frequencies().at(-1)!.query as {
+      request: { page: { offset: number; limit: number } };
+    }).request.page).toEqual({ offset: 5_000, limit: 200 });
   });
 });
 

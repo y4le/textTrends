@@ -380,6 +380,8 @@ export interface FrequencyState {
   readonly snapshot: string;
   readonly selection: TokenRangeSelectionV1 | null;
   readonly view: FrequencyViewV1;
+  /** Authenticated rows retained while the next chunk is in flight. */
+  readonly resident: FrequencyListResultV1 | null;
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly result: FrequencyListResultV1 }
@@ -819,6 +821,7 @@ export interface AppState {
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   runInventory(): void;
   runFrequency(): void;
+  loadMoreFrequency(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
   applyFrequencyView(input: FrequencyViewInputV1): void;
   setFrequencyPage(offset: number): void;
@@ -3693,6 +3696,7 @@ export function createAppRuntime(
             snapshot: snapshot.snapshot,
             selection: issuedSelection,
             view: issuedView,
+            resident: null,
             state: { status: 'pending' },
           },
         });
@@ -3725,6 +3729,7 @@ export function createAppRuntime(
                 snapshot: snapshot.snapshot,
                 selection: issuedSelection,
                 view: issuedView,
+                resident: data.frequency,
                 state: { status: 'ready', result: data.frequency },
               },
             });
@@ -3734,6 +3739,116 @@ export function createAppRuntime(
               snapshot: snapshot.snapshot,
               selection: issuedSelection,
               view: issuedView,
+              resident: null,
+              state: { status: 'error', message },
+            },
+          }),
+        );
+      },
+
+      loadMoreFrequency() {
+        const { snapshot, linkedSelection, frequencyView, frequency } = get();
+        const resident = frequency?.resident
+          ?? (frequency?.state.status === 'ready' ? frequency.state.result : null);
+        if (
+          !snapshot
+          || resident === null
+          || frequency?.state.status !== 'ready'
+          || resident.rows.length >= resident.total
+        ) {
+          return;
+        }
+        const issuedKey = snapKey(snapshot);
+        const issuedSelection = linkedSelection;
+        const issuedView = frequencyView;
+        const offset = issuedView.page.offset + resident.rows.length;
+        const limit = Math.min(
+          issuedView.page.limit,
+          resident.total - resident.rows.length,
+        );
+        if (!Number.isSafeInteger(offset + limit) || limit < 1) return;
+
+        frequencyLane.supersede();
+        const lease = frequencyLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => get().linkedSelection === issuedSelection,
+          () => get().frequencyView === issuedView,
+        );
+        set({
+          frequency: {
+            snapshot: snapshot.snapshot,
+            selection: issuedSelection,
+            view: issuedView,
+            resident,
+            state: { status: 'pending' },
+          },
+        });
+        issueOn(
+          frequencyLane,
+          snapshot.snapshot,
+          {
+            op: 'freq-list',
+            selection: detailSelection(snapshot.readyDocs, issuedSelection),
+            request: {
+              method: 'freq-list/1',
+              filter: {
+                minCount: issuedView.minCount,
+                minDocFreq: issuedView.minDocFreq,
+                classes: issuedView.classes,
+                ...(issuedView.prefixNfc === undefined
+                  ? {}
+                  : { prefixNfc: issuedView.prefixNfc }),
+              },
+              sort: issuedView.sort,
+              page: { offset, limit },
+              dispersion: true,
+            },
+          },
+          lease,
+          (data) => {
+            if (data.op !== 'freq-list') return;
+            const next = data.frequency;
+            if (
+              next.total !== resident.total
+              || next.totalTokens !== resident.totalTokens
+              || next.parts !== resident.parts
+              || next.selection !== resident.selection
+              || (next.rows.length === 0 && resident.rows.length < resident.total)
+            ) {
+              set({
+                frequency: {
+                  snapshot: snapshot.snapshot,
+                  selection: issuedSelection,
+                  view: issuedView,
+                  resident,
+                  state: {
+                    status: 'error',
+                    message: 'Vocabulary changed while more rows were loading. Refresh the view to continue.',
+                  },
+                },
+              });
+              return;
+            }
+            const result: FrequencyListResultV1 = {
+              ...next,
+              rows: [...resident.rows, ...next.rows],
+            };
+            set({
+              frequency: {
+                snapshot: snapshot.snapshot,
+                selection: issuedSelection,
+                view: issuedView,
+                resident: result,
+                state: { status: 'ready', result },
+              },
+            });
+          },
+          (message) => set({
+            frequency: {
+              snapshot: snapshot.snapshot,
+              selection: issuedSelection,
+              view: issuedView,
+              resident,
               state: { status: 'error', message },
             },
           }),
@@ -3919,7 +4034,7 @@ export function createAppRuntime(
         const current = get().frequencyView;
         const dir = current.sort.by === by
           ? (current.sort.dir === 1 ? -1 : 1)
-          : (by === 'key' ? 1 : -1);
+          : (by === 'key' || by === 'class' ? 1 : -1);
         set({
           frequencyView: {
             ...current,
@@ -3945,7 +4060,8 @@ export function createAppRuntime(
           normalized.length > FREQUENCY_PREFIX_MAX_UNITS ||
           classes.length === 0 ||
           classes.length !== input.classes.length ||
-          !['count', 'docFreq', 'dp', 'dpNorm', 'key'].includes(input.sort.by) ||
+          !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
+            .includes(input.sort.by) ||
           (input.sort.dir !== 1 && input.sort.dir !== -1) ||
           !Number.isSafeInteger(input.pageLimit) ||
           input.pageLimit < 1 ||
@@ -3982,7 +4098,7 @@ export function createAppRuntime(
         if (
           !Number.isSafeInteger(offset) ||
           offset < 0 ||
-          offset + current.page.limit > FREQUENCY_WINDOW_MAX
+          !Number.isSafeInteger(offset + current.page.limit)
         ) {
           return;
         }

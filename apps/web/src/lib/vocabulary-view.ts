@@ -91,31 +91,13 @@ export function frequencyMeasure(
         ? 'unavailable'
         : decimal.format(row.dpNorm),
     };
+    case 'ratePer10k': return {
+      field,
+      label: 'rate/10k',
+      value: decimal.format(row.ratePer10k),
+    };
+    case 'class': return { field, label: 'class', value: row.class };
   }
-}
-
-const sortLabel = (sort: FrequencySortFieldV1): string => {
-  switch (sort) {
-    case 'key': return 'term';
-    case 'count': return 'count';
-    case 'docFreq': return 'docs';
-    case 'dp': return 'DP';
-    case 'dpNorm': return 'DPnorm';
-  }
-};
-
-export function frequencyViewSummary(view: FrequencyViewV1): string {
-  const direction = view.sort.dir === 1 ? 'ascending' : 'descending';
-  const measure = view.sort.by === 'key' ? ' · rows show count' : '';
-  const prefix = view.prefixNfc === undefined ? 'any start' : `starts “${view.prefixNfc}”`;
-  return [
-    `${sortLabel(view.sort.by)} ${direction}${measure}`,
-    prefix,
-    `count ≥ ${view.minCount}`,
-    `docs ≥ ${view.minDocFreq}`,
-    view.classes.join(' + '),
-    `${view.page.limit} rows/page`,
-  ].join(' · ');
 }
 
 export function frequencyViewInput(view: FrequencyViewV1): FrequencyViewInputV1 {

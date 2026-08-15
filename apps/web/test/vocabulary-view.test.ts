@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   frequencyFilterError,
   frequencyMeasure,
-  frequencyViewSummary,
   vocabularyRowControlId,
   vocabularyTarget,
   vocabularyTargetIsStale,
@@ -113,18 +112,7 @@ describe('vocabulary view law', () => {
       .toBe(false);
   });
 
-  it('summarizes the whole semantic view and validates drafts', () => {
-    expect(frequencyViewSummary({
-      schema: 'texttrends/frequency-view/1',
-      minCount: 2,
-      minDocFreq: 3,
-      classes: ['lexical', 'numeral'],
-      prefixNfc: 'Hol',
-      sort: { by: 'key', dir: 1 },
-      page: { offset: 200, limit: 100 },
-    })).toBe(
-      'term ascending · rows show count · starts “Hol” · count ≥ 2 · docs ≥ 3 · lexical + numeral · 100 rows/page',
-    );
+  it('validates filter drafts', () => {
     expect(frequencyFilterError({ ...draft, minCount: Number.NaN }))
       .toMatch(/Minimum count/);
     expect(frequencyFilterError({ ...draft, minDocFreq: 0 }))
