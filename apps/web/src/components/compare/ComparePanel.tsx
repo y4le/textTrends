@@ -168,6 +168,11 @@ export function ComparePanel() {
     applySettings(draft);
     popLayer();
   };
+  const reverseRankings = () => applySettings({
+    ...compareSettingsInput(view),
+    dirA: view.sort.dirA === 1 ? -1 : 1,
+    dirB: view.sort.dirB === 1 ? -1 : 1,
+  });
   const openRow = (side: 'a' | 'b', row: KeynessRowV1) => {
     if (
       rowTarget?.side === side
@@ -247,8 +252,16 @@ export function ComparePanel() {
         : (
           <>
             <div className="compare-definition">
+              <button
+                className="compare-reverse"
+                type="button"
+                onClick={reverseRankings}
+                aria-label="Reverse both rankings"
+                title="Reverse ranking directions"
+              >
+                <span aria-hidden="true">⇅</span>
+              </button>
               <label data-side="a">
-                <span>left side</span>
                 {sideControl('a')}
               </label>
               <button
@@ -261,7 +274,6 @@ export function ComparePanel() {
                 <span aria-hidden="true">⇄</span>
               </button>
               <label data-side="b">
-                <span>right side</span>
                 {sideControl('b')}
               </label>
               <button

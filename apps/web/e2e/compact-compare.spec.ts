@@ -117,11 +117,26 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   const right = page.getByLabel('Right comparison input');
   const leftInitial = await left.inputValue();
   const rightInitial = await right.inputValue();
+  const reverse = page.getByRole('button', { name: 'Reverse both rankings' });
+  const reverseBox = await reverse.boundingBox();
+  const leftBox = await left.boundingBox();
+  expect(reverseBox?.x).toBeLessThan(leftBox?.x ?? 0);
+  expect((await left.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  expect((await right.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await expect(page.getByText('left side', { exact: true })).toHaveCount(0);
+  await expect(page.getByText('right side', { exact: true })).toHaveCount(0);
   expect(leftInitial).not.toBe(rightInitial);
   await expect(left.locator(`option[value="${rightInitial}"]`)).toHaveAttribute('disabled', '');
   await expect(right.locator(`option[value="${leftInitial}"]`)).toHaveAttribute('disabled', '');
 
-  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await reverse.click();
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > mark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'keyness',
+  ).length).toBe(2);
+
+  mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await left.selectOption('__rest__');
   await expect(left).toHaveValue('__rest__');
   await expect(right).toHaveValue(rightInitial);

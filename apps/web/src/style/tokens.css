@@ -1216,7 +1216,7 @@ canvas {
 
 .compare-definition {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
   align-items: end;
   gap: var(--space-2);
   margin-block: var(--space-3);
@@ -1244,8 +1244,10 @@ canvas {
 .compare-definition select {
   min-inline-size: 0;
   inline-size: 100%;
+  min-block-size: 44px;
 }
 
+.compare-reverse,
 .compare-swap {
   display: inline-grid;
   inline-size: 44px;
@@ -2666,11 +2668,6 @@ canvas {
 
   .compare-definition {
     align-items: stretch;
-  }
-
-  .compare-definition select {
-    inline-size: 100%;
-    min-block-size: 44px;
   }
 
   .compare-swap {
