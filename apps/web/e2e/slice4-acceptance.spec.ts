@@ -67,8 +67,8 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await gotoPlace(page, 'compare');
   await expect(page.getByRole('region', { name: 'Compare' })).toBeVisible({ timeout: 30_000 });
 
-  await page.getByRole('button', { name: 'sort and filter' }).click();
-  const settings = page.getByRole('form', { name: 'Compare sort and filter' });
+  await page.getByRole('button', { name: 'Compare settings' }).click();
+  const settings = page.getByRole('form', { name: 'Compare settings' });
   await settings.getByLabel('combined documents ≥').fill('1');
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await settings.getByRole('button', { name: 'apply' }).click();
@@ -93,7 +93,6 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
     [
       '.compare-definition',
       '.compare-warnings',
-      '.compare-view-bar',
       '.compare-axis-section',
     ].map((selector) => panel.querySelector(selector)?.getBoundingClientRect().top ?? -1));
   expect(readingOrder).toEqual([...readingOrder].sort((a, b) => a - b));

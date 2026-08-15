@@ -4460,6 +4460,9 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 3,
       classes: ['lexical', 'numeral'],
       sortBy: 'countA',
+      dirA: before.sort.dirA,
+      dirB: before.sort.dirB,
+      showConfidenceIntervals: false,
     });
     expect(f.keynesses()).toHaveLength(4);
     expect(f.keynessInventories()).toHaveLength(2);
@@ -4484,12 +4487,21 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(f.store.getState().keynessInventoryB?.state.status).toBe('ready');
   });
 
-  it('toggles only one durable direction and refuses invalid shared settings', () => {
+  it('applies only one changed direction and refuses invalid shared settings', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     const semantic = workspaceSemanticKey(f.store.getState());
     const issued = f.keynesses().length;
-    f.store.getState().setKeynessDirection('a');
+    const initial = f.store.getState().keynessView;
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: initial.minCountTotal,
+      minDocFreqTotal: initial.minDocFreqTotal,
+      classes: initial.classes,
+      sortBy: initial.sort.by,
+      dirA: 1,
+      dirB: initial.sort.dirB,
+      showConfidenceIntervals: initial.showConfidenceIntervals,
+    });
     expect(f.keynesses()).toHaveLength(issued + 1);
     expect((f.keynesses().at(-1)!.query as {
       request: { side: string; sort: { by: string; dir: number } };
@@ -4510,6 +4522,9 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 1,
       classes: ['lexical'],
       sortBy: 'g2',
+      dirA: view.sort.dirA,
+      dirB: view.sort.dirB,
+      showConfidenceIntervals: view.showConfidenceIntervals,
     });
     expect(f.keynesses()).toHaveLength(issued + 1);
     expect(f.store.getState().keynessView).toBe(view);
@@ -4519,24 +4534,36 @@ describe('dueling keyness query intent (slice-4)', () => {
         minDocFreqTotal: 1,
         classes: ['lexical', 'lexical'],
         sortBy: 'g2',
+        dirA: -1,
+        dirB: 1,
+        showConfidenceIntervals: false,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: [],
         sortBy: 'g2',
+        dirA: -1,
+        dirB: 1,
+        showConfidenceIntervals: false,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: ['foreign'],
         sortBy: 'g2',
+        dirA: -1,
+        dirB: 1,
+        showConfidenceIntervals: false,
       },
       {
         minCountTotal: 1,
         minDocFreqTotal: 1,
         classes: ['lexical'],
         sortBy: 'foreign',
+        dirA: -1,
+        dirB: 1,
+        showConfidenceIntervals: false,
       },
     ] as const;
     for (const settings of invalidSettings) {
@@ -4554,6 +4581,9 @@ describe('dueling keyness query intent (slice-4)', () => {
       minDocFreqTotal: 4,
       classes: ['numeral'],
       sortBy: 'g2',
+      dirA: 1,
+      dirB: -1,
+      showConfidenceIntervals: true,
     });
     const durable = workspaceSemanticKey(f.store.getState());
     expect(durable).not.toBeNull();
@@ -4563,11 +4593,29 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: 9,
       minDocFreqTotal: 4,
       classes: ['numeral'],
-      sort: { by: 'g2', dirA: -1, dirB: 1 },
+      sort: { by: 'g2', dirA: 1, dirB: -1 },
       showConfidenceIntervals: true,
       pageLimit: 100,
     });
     expect(workspaceSemanticKey(f.store.getState())).toBe(durable);
+  });
+
+  it('applies Compare display preferences without reissuing rankings', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const view = f.store.getState().keynessView;
+    const issued = f.keynesses().length;
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: view.minCountTotal,
+      minDocFreqTotal: view.minDocFreqTotal,
+      classes: view.classes,
+      sortBy: view.sort.by,
+      dirA: view.sort.dirA,
+      dirB: view.sort.dirB,
+      showConfidenceIntervals: true,
+    });
+    expect(f.keynesses()).toHaveLength(issued);
+    expect(f.store.getState().keynessView.showConfidenceIntervals).toBe(true);
   });
 
   it('swaps sides and constructs document-v-rest without overlapping membership', () => {

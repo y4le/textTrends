@@ -412,6 +412,9 @@ export interface KeynessSettingsInputV1 {
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
   readonly sortBy: KeynessSortFieldV1;
+  readonly dirA: 1 | -1;
+  readonly dirB: 1 | -1;
+  readonly showConfidenceIntervals: boolean;
 }
 
 export interface KeynessTableState {
@@ -450,7 +453,7 @@ export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
     dirA: -1 as const,
     dirB: 1 as const,
   }),
-  showConfidenceIntervals: true,
+  showConfidenceIntervals: false,
   pageLimit: 100,
 });
 
@@ -832,8 +835,6 @@ export interface AppState {
   setKeynessSelection(side: 'a' | 'b', doc: string | null): void;
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
-  setKeynessDirection(side: 'a' | 'b'): void;
-  reverseKeynessDirections(): void;
   setScrub(target: ScrubTarget): void;
   clearScrub(): void;
   stepOccurrence(direction: 1 | -1): void;
@@ -4159,60 +4160,45 @@ export function createAppRuntime(
           input.classes.some(
             (value) => value !== 'lexical' && value !== 'numeral',
           ) ||
-          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy)
+          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy) ||
+          (input.dirA !== 1 && input.dirA !== -1) ||
+          (input.dirB !== 1 && input.dirB !== -1) ||
+          typeof input.showConfidenceIntervals !== 'boolean'
         ) {
           return;
         }
         const view = get().keynessView;
+        const sharedQueryChanged =
+          view.minCountTotal !== input.minCountTotal ||
+          view.minDocFreqTotal !== input.minDocFreqTotal ||
+          view.classes.length !== input.classes.length ||
+          view.classes.some((value, index) => value !== input.classes[index]) ||
+          view.sort.by !== input.sortBy;
+        const queryAChanged = sharedQueryChanged || view.sort.dirA !== input.dirA;
+        const queryBChanged = sharedQueryChanged || view.sort.dirB !== input.dirB;
+        if (
+          !queryAChanged &&
+          !queryBChanged &&
+          view.showConfidenceIntervals === input.showConfidenceIntervals
+        ) {
+          return;
+        }
         set({
           keynessView: {
             ...view,
             minCountTotal: input.minCountTotal,
             minDocFreqTotal: input.minDocFreqTotal,
             classes: [...input.classes],
-            sort: { ...view.sort, by: input.sortBy },
-          },
-        });
-        runKeynessTable('a');
-        runKeynessTable('b');
-      },
-
-      setKeynessDirection(side) {
-        if (side !== 'a' && side !== 'b') return;
-        const view = get().keynessView;
-        const next: KeynessViewV1 = side === 'a'
-          ? {
-              ...view,
-              sort: {
-                ...view.sort,
-                dirA: view.sort.dirA === 1 ? -1 : 1,
-              },
-            }
-          : {
-              ...view,
-              sort: {
-                ...view.sort,
-                dirB: view.sort.dirB === 1 ? -1 : 1,
-              },
-            };
-        set({ keynessView: next });
-        runKeynessTable(side);
-      },
-
-      reverseKeynessDirections() {
-        const view = get().keynessView;
-        set({
-          keynessView: {
-            ...view,
             sort: {
-              ...view.sort,
-              dirA: view.sort.dirA === 1 ? -1 : 1,
-              dirB: view.sort.dirB === 1 ? -1 : 1,
+              by: input.sortBy,
+              dirA: input.dirA,
+              dirB: input.dirB,
             },
+            showConfidenceIntervals: input.showConfidenceIntervals,
           },
         });
-        runKeynessTable('a');
-        runKeynessTable('b');
+        if (queryAChanged) runKeynessTable('a');
+        if (queryBChanged) runKeynessTable('b');
       },
 
       setFrequencySort(by) {

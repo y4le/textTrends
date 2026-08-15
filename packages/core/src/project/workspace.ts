@@ -101,7 +101,7 @@ export interface WorkspaceCompareViewV1 {
     readonly dirA: 1 | -1;
     readonly dirB: 1 | -1;
   };
-  /** Presentation preference only; legacy workspaces may omit it. */
+  /** Legacy omission preserves the former always-shown presentation. */
   readonly showConfidenceIntervals: boolean;
   readonly pageSize: number;
 }

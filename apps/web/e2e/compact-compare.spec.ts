@@ -54,8 +54,8 @@ const wordButton = (page: Page, word: string) =>
   pyramid(page).getByRole('button', { name: new RegExp(`^${word},`) });
 
 async function applyOneDocumentMinimum(page: Page) {
-  await page.getByRole('button', { name: 'sort and filter' }).click();
-  const form = page.getByRole('form', { name: 'Compare sort and filter' });
+  await page.getByRole('button', { name: 'Compare settings' }).click();
+  const form = page.getByRole('form', { name: 'Compare settings' });
   await form.getByLabel('combined documents ≥').fill('1');
   await form.getByRole('button', { name: 'apply' }).click();
   await expect(wordButton(page, 'forest')).toBeVisible();
@@ -169,13 +169,13 @@ test('one full-width word detail replaces the other half and explains measuremen
   await expectNoBodyOverflow(page);
 });
 
-test('Compare settings preserve a draft through width changes and apply one shared budget', async ({ page }) => {
+test('Compare settings preserve a draft through width changes and stage ranking reversal', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await prepareComparison(page);
 
-  const open = page.getByRole('button', { name: 'sort and filter' });
+  const open = page.getByRole('button', { name: 'Compare settings' });
   await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Compare sort and filter' });
+  const dialog = page.getByRole('dialog', { name: 'Compare settings' });
   const minimum = page.getByLabel('combined documents ≥');
   await expect(dialog).toBeVisible();
   const quietMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -186,14 +186,20 @@ test('Compare settings preserve a draft through width changes and apply one shar
   await expect(minimum).toHaveValue('1');
 
   await page.setViewportSize({ width: 900, height: 800 });
-  await expect(dialog).toHaveCount(0);
-  await expect(page.getByRole('form', { name: 'Compare sort and filter' })).toBeVisible();
+  await expect(dialog).toBeVisible();
+  await expect(page.getByRole('form', { name: 'Compare settings' })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(dialog).toBeVisible();
   expect((await trace(page)).events.filter(
     (event) => event.seq > quietMark && event.direction === 'to-worker'
       && event.t === 'query',
   )).toEqual([]);
+
+  await expect(dialog.getByLabel('left ranking order')).toHaveValue('-1');
+  await expect(dialog.getByLabel('right ranking order')).toHaveValue('1');
+  await dialog.getByRole('button', { name: 'reverse both rankings' }).click();
+  await expect(dialog.getByLabel('left ranking order')).toHaveValue('1');
+  await expect(dialog.getByLabel('right ranking order')).toHaveValue('-1');
 
   const applyMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await dialog.getByRole('button', { name: 'apply' }).click();
@@ -250,13 +256,27 @@ test('Compare publishes a two-sided profile and a divergence headline', async ({
   await expectNoBodyOverflow(page);
 });
 
-test('Compare shows an interval whisker and per-side dispersion', async ({ page }) => {
+test('Compare hides interval whiskers by default and can reveal them without requerying', async ({ page }) => {
   await page.setViewportSize({ width: 900, height: 800 });
   await prepareComparison(page);
   await applyOneDocumentMinimum(page);
 
-  // Tier 3 — the whisker rides the same axis as the bar it qualifies.
-  const forest = wordButton(page, 'forest');
+  let forest = wordButton(page, 'forest');
+  await expect(forest.locator('.compare-pyramid-interval')).toHaveCount(0);
+  await expect(forest).not.toHaveAttribute('aria-label', /95% interval/);
+
+  await page.getByRole('button', { name: 'Compare settings' }).click();
+  const settings = page.getByRole('dialog', { name: 'Compare settings' });
+  await settings.getByLabel('Show 95% confidence interval whiskers').check();
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await settings.getByRole('button', { name: 'apply' }).click();
+  expect((await trace(page)).events.filter(
+    (event) => event.seq > mark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'keyness',
+  )).toEqual([]);
+
+  // The optional whisker rides the same axis as the bar it qualifies.
+  forest = wordButton(page, 'forest');
   await expect(forest.locator('.compare-pyramid-interval')).toBeVisible();
   await expect(forest).toHaveAttribute('aria-label', /95% interval/);
 

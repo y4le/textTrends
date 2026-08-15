@@ -74,6 +74,21 @@ describe('workspace admission', () => {
     });
   });
 
+  it('round-trips a current workspace with interval whiskers hidden', () => {
+    const value = validWorkspace();
+    const parsed = parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        compare: {
+          ...value.views.compare,
+          showConfidenceIntervals: false,
+        },
+      },
+    });
+    expect(parsed.views.compare.showConfidenceIntervals).toBe(false);
+  });
+
   it('round-trips a query-notebook/3 workspace with an authored custom color', () => {
     const value = validWorkspace();
     const custom: WorkspaceV1 = {

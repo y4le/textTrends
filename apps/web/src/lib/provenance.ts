@@ -248,7 +248,7 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       'Display bars use a shared scale over the currently loaded ranks.',
       ...(view.showConfidenceIntervals
         ? ['Interval whiskers clamp at the axis edge when a bound exceeds that scale.']
-        : []),
+        : ['Ranking interval whiskers are hidden; exact intervals remain in term detail.']),
       'The Wald interval assumes independent token draws; running-text burstiness can make it too narrow.',
       'A linked Trends range does not redefine either comparison side.',
     ],

@@ -123,6 +123,9 @@ export function compareSettingsInput(
     minDocFreqTotal: view.minDocFreqTotal,
     classes: [...view.classes],
     sortBy: view.sort.by,
+    dirA: view.sort.dirA,
+    dirB: view.sort.dirB,
+    showConfidenceIntervals: view.showConfidenceIntervals,
   };
 }
 
@@ -150,6 +153,15 @@ export function compareSettingsError(
   }
   if (!['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy)) {
     return 'Choose an available shared sort field.';
+  }
+  if (
+    (input.dirA !== 1 && input.dirA !== -1)
+    || (input.dirB !== 1 && input.dirB !== -1)
+  ) {
+    return 'Choose an available ranking direction for each side.';
+  }
+  if (typeof input.showConfidenceIntervals !== 'boolean') {
+    return 'Choose whether to show confidence intervals.';
   }
   return null;
 }

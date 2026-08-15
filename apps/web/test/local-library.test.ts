@@ -60,7 +60,7 @@ function workspace(library: string): WorkspaceV1 {
         minDocFreqTotal: 1,
         classes: ['lexical'],
         sort: { by: 'logRatio', dirA: -1, dirB: 1 },
-        showConfidenceIntervals: true,
+        showConfidenceIntervals: false,
         pageSize: 100,
       },
     },

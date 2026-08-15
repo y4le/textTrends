@@ -39,8 +39,10 @@ There are five stable places:
 | Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
 
 Compare reports whole-distribution vocabulary divergence and a two-sided text
-profile above streamed log-ratio rankings. Each rank carries a 95% effect
-interval alongside signed G², the underlying counts, document ranges, and
+profile above streamed log-ratio rankings. A gear at the top right opens one
+settings page for sorting, per-side ranking direction, filters, and optional
+95% effect-interval whiskers (hidden by default). Exact intervals remain in
+term detail alongside signed G², the underlying counts, document ranges, and
 per-side dispersion. A browser view retains at most the first 50,000 ranks;
 the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.

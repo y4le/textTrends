@@ -27,7 +27,7 @@ const view: KeynessViewV1 = {
   minDocFreqTotal: 2,
   classes: ['lexical'],
   sort: { by: 'logRatio', dirA: -1, dirB: 1 },
-  showConfidenceIntervals: true,
+  showConfidenceIntervals: false,
   pageLimit: 100,
 };
 
@@ -159,6 +159,9 @@ describe('Compare view law', () => {
       minDocFreqTotal: 2,
       classes: ['lexical'],
       sortBy: 'logRatio',
+      dirA: -1,
+      dirB: 1,
+      showConfidenceIntervals: false,
     });
   });
 
@@ -173,6 +176,10 @@ describe('Compare view law', () => {
       .toMatch(/token class/);
     expect(compareSettingsError({ ...draft, sortBy: 'foreign' as never }))
       .toMatch(/sort field/);
+    expect(compareSettingsError({ ...draft, dirA: 0 as never }))
+      .toMatch(/ranking direction/);
+    expect(compareSettingsError({ ...draft, showConfidenceIntervals: null as never }))
+      .toMatch(/confidence intervals/);
     expect(compareScale(null, null)).toEqual({ maximum: 1, provisional: false });
     expect(compareScale(state('a', 'ready'), state('b', 'pending')))
       .toEqual({ maximum: 3, provisional: true });

@@ -6,7 +6,6 @@ import {
 } from 'react';
 import type { KeynessRowV1 } from '@texttrends/core';
 import { FormLayer } from '../FormLayer.tsx';
-import { usePresentation } from '../PresentationProvider.tsx';
 import {
   compareDivergence,
   compareRowControlId,
@@ -35,7 +34,6 @@ import { CompareSettings } from './CompareSettings.tsx';
 import { SignedAxis } from './SignedAxis.tsx';
 
 export function ComparePanel() {
-  const presentation = usePresentation();
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const view = useApp((state) => state.keynessView);
@@ -47,7 +45,6 @@ export function ComparePanel() {
   const setSelection = useApp((state) => state.setKeynessSelection);
   const swapSides = useApp((state) => state.swapKeynessSides);
   const applySettings = useApp((state) => state.applyKeynessSettings);
-  const reverseDirections = useApp((state) => state.reverseKeynessDirections);
   const loadMore = useApp((state) => state.loadMoreKeyness);
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
@@ -67,7 +64,6 @@ export function ComparePanel() {
   );
   const settingsOpen = target?.surface === 'compare-settings';
   const rowTarget = target?.surface === 'compare-row' ? target : null;
-  const compact = presentation.width === 'compact';
   const stalePopRequested = useRef(false);
 
   useEffect(() => {
@@ -77,6 +73,9 @@ export function ComparePanel() {
     view.minDocFreqTotal,
     view.classes,
     view.sort.by,
+    view.sort.dirA,
+    view.sort.dirB,
+    view.showConfidenceIntervals,
   ]);
 
   useEffect(() => {
@@ -265,6 +264,29 @@ export function ComparePanel() {
                 <span>right side</span>
                 {sideControl('b')}
               </label>
+              <button
+                id={compareSettingsControlId}
+                className="compare-settings-trigger"
+                type="button"
+                aria-label="Compare settings"
+                aria-expanded={settingsOpen}
+                aria-haspopup="dialog"
+                title="Compare settings"
+                onClick={() => {
+                  if (settingsOpen) closeSettings(false);
+                  else {
+                    writeTarget(
+                      { surface: 'compare-settings' },
+                      compareSettingsControlId,
+                    );
+                  }
+                }}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true">
+                  <circle cx="12" cy="12" r="3" />
+                  <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+                </svg>
+              </button>
             </div>
 
             <div className="compare-warnings">
@@ -285,46 +307,9 @@ export function ComparePanel() {
               })}
             </div>
 
-            <div className="compare-view-bar">
-              <div className="compare-view-actions">
-                <button type="button" onClick={reverseDirections}>
-                  reverse rankings
-                </button>
-                <button
-                  id={compareSettingsControlId}
-                  type="button"
-                  aria-expanded={settingsOpen}
-                  aria-haspopup={compact ? 'dialog' : undefined}
-                  onClick={() => {
-                    if (settingsOpen) closeSettings(false);
-                    else {
-                      writeTarget(
-                        { surface: 'compare-settings' },
-                        compareSettingsControlId,
-                      );
-                    }
-                  }}
-                >
-                  sort and filter
-                </button>
-              </div>
-            </div>
-            {settingsOpen && !compact && (
-              <div
-                className="compare-settings-inline"
-                onKeyDown={(event) => {
-                  if (event.key === 'Escape') {
-                    event.preventDefault();
-                    closeSettings(false);
-                  }
-                }}
-              >
-                {settings}
-              </div>
-            )}
-            {settingsOpen && compact && (
+            {settingsOpen && (
               <FormLayer
-                label="Compare sort and filter"
+                label="Compare settings"
                 focusKey={renderedLayer?.id ?? 'compare-settings'}
                 onClose={() => closeSettings(false)}
               >

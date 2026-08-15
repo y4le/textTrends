@@ -165,11 +165,12 @@ describe('provenanceFor', () => {
     expect(compare).toContain('shared sort field: logRatio');
     expect(compare).toContain('A direction: descending');
     expect(compare).toContain('B direction: ascending');
-    expect(compare).toContain('ranking interval whiskers: shown');
+    expect(compare).toContain('ranking interval whiskers: hidden');
     expect(compare).toContain('fetch chunk size: 100');
     expect(compare).toContain('exactly zero log ratio');
     expect(compare).toContain('shared scale over the currently loaded ranks');
-    expect(compare).toContain('Interval whiskers clamp at the axis edge');
+    expect(compare).not.toContain('Interval whiskers clamp at the axis edge');
+    expect(compare).toContain('exact intervals remain in term detail');
     expect(compare).toContain('interval: 95% Wald on log ratio');
     expect(compare).toContain('no multiple-comparison correction');
     expect(compare).toContain('independent token draws');
@@ -177,6 +178,15 @@ describe('provenanceFor', () => {
     expect(compare).toContain('divergence types: 2');
     expect(compare).toContain('dispersion: dispersion-dp/1');
     expect(compare).toContain('linked Trends range');
+
+    const shown = formatProvenanceText(provenanceFor(input({
+      keyness: {
+        ...input().keyness,
+        view: { ...DEFAULT_KEYNESS_VIEW, showConfidenceIntervals: true },
+      },
+    }), 'compare'));
+    expect(shown).toContain('ranking interval whiskers: shown');
+    expect(shown).toContain('Interval whiskers clamp at the axis edge');
   });
 
   it('is deterministic and honest about waiting and partial results', () => {

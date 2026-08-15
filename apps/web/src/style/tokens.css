@@ -1216,7 +1216,7 @@ canvas {
 
 .compare-definition {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr) auto;
   align-items: end;
   gap: var(--space-2);
   margin-block: var(--space-3);
@@ -1255,6 +1255,24 @@ canvas {
   font-size: var(--text-lg);
 }
 
+.compare-settings-trigger {
+  display: inline-grid;
+  inline-size: 44px;
+  min-block-size: 44px;
+  place-items: center;
+  padding: 0;
+}
+
+.compare-settings-trigger svg {
+  inline-size: 1.25rem;
+  block-size: 1.25rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
 .compare-warnings {
   margin-block: var(--space-2);
 }
@@ -1265,40 +1283,47 @@ canvas {
   font-size: var(--text-xs);
 }
 
-.compare-view-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-block: var(--space-3) var(--space-2);
-}
-
-.compare-view-actions {
-  display: flex;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.compare-view-actions button {
-  flex: 0 0 auto;
-}
-
-.compare-settings-inline {
-  margin-block: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--rule);
-}
-
 .compare-settings-form {
   display: flex;
   min-inline-size: 0;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.compare-settings-header h2,
+.compare-settings-form h3 {
+  margin: 0;
+}
+
+.compare-settings-header h2 {
+  font-size: var(--text-lg);
 }
 
 .compare-settings-form h3 {
-  margin: 0;
   font-size: var(--text-sm);
+}
+
+.compare-settings-header,
+.compare-settings-sections,
+.compare-settings-sections > section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.compare-settings-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.compare-settings-sections > section {
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+}
+
+.compare-settings-sections > section:first-child {
+  grid-column: 1 / -1;
 }
 
 .compare-settings-fields {
@@ -1329,6 +1354,16 @@ canvas {
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
+}
+
+.compare-reverse-rankings {
+  align-self: flex-start;
+}
+
+.compare-settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
 }
 
 .compare-settings-message {
@@ -2642,11 +2677,6 @@ canvas {
     inline-size: 44px;
   }
 
-  .compare-view-bar {
-    align-items: flex-start;
-  }
-
-  .compare-view-bar button,
   .compare-row-actions button {
     min-block-size: 44px;
   }
@@ -2714,6 +2744,14 @@ canvas {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     align-items: stretch;
+  }
+
+  .compare-settings-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .compare-settings-sections > section:first-child {
+    grid-column: auto;
   }
 
   .compare-settings-fields fieldset {
