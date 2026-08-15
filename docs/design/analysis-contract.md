@@ -79,7 +79,7 @@ non-overlapping document token ranges. It scopes selected trend and dispersion
 overlays plus the selection-following inventory and frequency work used by
 Vocabulary and contextual Method surfaces. A separate full-corpus inventory
 resident supplies stable text facts and Inputs provenance; a linked selection
-never cancels or relabels that baseline. Continuous `concordance-window`, Reader
+never cancels or relabels that baseline. Continuous `matches-window`, Reader
 paging, and exact occurrence stepping always use canonical full-corpus
 coordinates and are never clipped or reissued by that analytical selection.
 
@@ -111,7 +111,7 @@ The wire protocol has a closed query union:
 - `trend` — equal-token-bin counts or rates for one term group;
 - `dispersion` — bounded exact positions or honest density buckets for shown
   groups;
-- `concordance-window` — exact bounded windows plus an optional sparse rank
+- `matches-window` — exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
 - `inventory` — corpus and per-document measurements plus sentence rhythm;
 - `freq-list` — bounded frequency, document-frequency, dispersion, and lexical

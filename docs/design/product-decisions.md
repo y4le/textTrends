@@ -78,7 +78,7 @@ It is one transient instrument on the declared-sequence corpus axis: the
 current source line sits above a thin all-book trend sparkline, corpus progress,
 and the existing multi-track dispersion barcode. Fine-pointer scrubbing and
 keyboard movement update the shared reading cursor; exact and density barcode
-activation retain their direct Concordance behavior. Reader remains the only
+activation retain their direct Matches behavior. Reader remains the only
 full-viewport place and hides the footer.
 
 The source line uses a separately fenced, frame-coalesced and single-flight

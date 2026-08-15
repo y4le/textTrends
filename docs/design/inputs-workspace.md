@@ -47,7 +47,7 @@ in flight, and pending or failed imports remain visible in Active inputs.
 
 A full-corpus statistics table sits directly below the four cards as a stable
 full-corpus reference: a linked range selected in Trends may re-scope
-Vocabulary, Concordance, and other analytical overlays, but it does not rewrite
+Vocabulary, Matches, and other analytical overlays, but it does not rewrite
 the facts shown for an input text.
 
 The summary exposes, for every active text:

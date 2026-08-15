@@ -1,10 +1,10 @@
-# Continuous concordance implementation plan
+# Continuous matches implementation plan
 
 Status: accepted implementation plan, 2026-08-13.
 
-This plan replaces the Concordance place's bounded 50-row result table with one
+This plan replaces the Matches place's bounded 50-row result table with one
 continuous, corpus-order surface containing every occurrence of every enabled
-Concordance term. Scrolling the surface and moving the shared footer reading
+match term. Scrolling the surface and moving the shared footer reading
 cursor are two controls for the same declared-sequence position.
 
 The implementation remains local, bounded, snapshot-fenced, and source
@@ -26,7 +26,7 @@ wire payload.
   analytical range is highlighted but does not filter the rows. This matches
   Reader and exact occurrence stepping, whose full-corpus axes cannot be
   narrowed by a linked analytical selection.
-- The usable Concordance viewport excludes application chrome, Concordance
+- The usable Matches viewport excludes application chrome, Matches
   controls, compact Lens reservation, safe areas, keyboard inset, and the
   fixed reading footer. A horizontal “now” line stays at the midpoint of that
   scrollport.
@@ -51,11 +51,11 @@ wire payload.
 Each enabled term already resolves to a `NumericOccurrences` value ordered by
 `(docOrdinal, pos)` and admitted to the shared executor cache only after order
 validation. One term is capped at 200,000 occurrences; at most five terms are
-active, so a merged Concordance contains at most 1,000,000 rows. The existing
+active, so a merged match set contains at most 1,000,000 rows. The existing
 occurrence cache remains the only owner of full occurrence vectors and retains
 its five-entry, 48 MiB simultaneous ceiling.
 
-Full-corpus Concordance windows contend with range-scoped trend/dispersion
+Full-corpus Matches windows contend with range-scoped trend/dispersion
 entries when a linked selection is active. With five terms, alternating the two
 selection families can evict all five entries and make a window refill rebuild
 occurrences. The initial implementation keeps the existing hard ceiling but
@@ -66,14 +66,14 @@ ceiling; a hidden second cache is not permitted.
 
 The footer's `SequenceLayout` remains the sole declared-sequence axis:
 document bases, token counts, and total corpus tokens are not redeclared by
-Concordance. The existing shared `scrub` target remains the sole current
+Matches. The existing shared `scrub` target remains the sole current
 reading position. The footer passage lane remains independently
 single-flight/latest-pending and continues to authenticate source around that
 position.
 
 ## Core kernel
 
-Add a pure corpus-order Concordance kernel over one to five already ordered
+Add a pure corpus-order Matches kernel over one to five already ordered
 occurrence vectors. It performs a bounded k-way merge without sorting or
 materializing the complete merged result.
 
@@ -120,7 +120,7 @@ using the existing verified-text KWIC materialization boundary.
 
 ## Worker operation
 
-Add one `concordance-window/1` query operation. It carries enabled tracks and a
+Add one `matches-window/1` query operation. It carries enabled tracks and a
 bounded request:
 
 - anchor by `{ kind: 'position', doc, token }` or `{ kind: 'rank', rank }`;
@@ -155,7 +155,7 @@ is transferred or cloned; resident occurrence buffers are never transferred.
 
 ## Store lifecycle
 
-Replace the centered KWIC lane with a Concordance intent/window lane fenced by:
+Replace the centered KWIC lane with a Matches intent/window lane fenced by:
 
 - snapshot identity;
 - ordered enabled series IDs and their matching identities; and
@@ -175,20 +175,20 @@ The following nearest-page machinery is removed:
   result.
 
 `setScrub` continues to validate and publish the shared cursor and schedule the
-footer passage. It no longer schedules Concordance analysis. Exact occurrence
+footer passage. It no longer schedules Matches analysis. Exact occurrence
 stepping, Trends/barcode activation, Reader marks, footer pointer movement,
-and keyboard movement all converge on `setScrub`; the mounted Concordance
+and keyboard movement all converge on `setScrub`; the mounted Matches
 surface follows that state.
 
-Changing a linked range no longer reissues Concordance. Changing snapshot,
+Changing a linked range no longer reissues Matches. Changing snapshot,
 enabled-track membership, or a track's matching semantics does.
 
 `centerKwicAt` currently has two responsibilities beyond centering. Clearing a
 linked range for an activation outside it is removed: a full-corpus navigation
 surface must not destroy an analytical brush. Re-enabling the activated track
 is retained before publishing the cursor, because otherwise the requested
-occurrence may not exist in the enabled Concordance result. The action also
-publishes a one-shot Concordance reveal target containing series, document,
+occurrence may not exist in the enabled Matches result. The action also
+publishes a one-shot Matches reveal target containing series, document,
 token, and exact occurrence provenance when available. Density-bucket
 activation is the exception: its midpoint publishes only the shared cursor and
 no reveal target, because a bucket midpoint is not an exact occurrence and
@@ -201,7 +201,7 @@ cleared on any incompatible intent change, so it cannot fire against a later
 unrelated window. Raw footer scrubbing carries no reveal target and therefore
 maps an endpoint token to its corpus sentinel. Exact occurrence
 stepping already collapses a same-token cluster into one reading stop; when no
-more specific provenance exists, Concordance deterministically selects the
+more specific provenance exists, Matches deterministically selects the
 cluster's first row and therefore skips rows two through N of that cluster by
 design.
 
@@ -260,7 +260,7 @@ For repeated token positions:
 
 For an external cursor in a source gap, the visible rank is fractional between
 the preceding and following distinct token positions. The footer cursor is not
-snapped or rewritten; Concordance positions its row overlay so the now line
+snapped or rewritten; Matches positions its row overlay so the now line
 lies proportionally between those rows while requesting an exact surrounding
 window. The corpus-start/first-row and last-row/corpus-end intervals apply the
 same interpolation against the explicit sentinels. User scrolling publishes
@@ -286,9 +286,9 @@ or a lock in the global store.
 
 ## Viewport and accessibility
 
-The Concordance place becomes a viewport-height grid/flex column. Application
+The Matches place becomes a viewport-height grid/flex column. Application
 header, status, term chips, context control, and result status occupy natural
-rows; the Concordance scrollport owns the remaining `minmax(0, 1fr)` above the
+rows; the Matches scrollport owns the remaining `minmax(0, 1fr)` above the
 already reserved dock. Existing CSS custom properties remain the authority for
 footer, Lens, safe-area, and keyboard reservations.
 
@@ -299,7 +299,7 @@ technology.
 The virtual grid provides:
 
 - a named scroll region;
-- the existing Concordance accessible name and column meanings using explicit
+- the existing Matches accessible name and column meanings using explicit
   `grid`, `row`, `columnheader`, and `gridcell` roles;
 - `aria-rowcount` for the logical total;
 - `aria-rowindex` for every rendered data row;
@@ -357,7 +357,7 @@ App unit tests cover:
 Browser tests cover:
 
 - scrolling changes footer slider value and source position;
-- footer pointer and keyboard scrubbing move the Concordance surface;
+- footer pointer and keyboard scrubbing move the Matches surface;
 - occurrence stepping and Reader/Barcode activation land on the correct row;
 - scrolling inside a resident window posts no query;
 - term toggles and matching edits fence stale windows;
@@ -380,27 +380,27 @@ corrected local samples before becoming CI gates.
 Every candidate is staged exactly and receives an independent Claude Opus
 review before commit.
 
-1. `docs(concordance): plan continuous corpus-order scrolling`
+1. `docs(matches): plan continuous corpus-order scrolling`
    Records this architecture and its product/verification contracts.
-2. `feat(core): add bounded concordance windows`
+2. `feat(core): add bounded matches windows`
    Adds sparse sampling, exact position/rank lookup, k-way window planning,
    materialization, exports, and core tests. No app caller changes.
-3. `feat(worker): expose full-corpus concordance windows`
+3. `feat(worker): expose full-corpus matches windows`
    Adds the wire/domain contract, runtime narrowing, executor/engine path,
    transfer discipline, cache/checkpoint tests, and cancellation coverage. It
    remains additive. The new closed query-union contract is updated in
    `analysis-contract.md` in the same commit.
-4. `refactor(concordance): adopt cursor-window state`
+4. `refactor(matches): adopt cursor-window state`
    Cuts the store from nearest-50 queries to snapshot/track-fenced sparse axis
    and window state, removes scrub-triggered KWIC work, makes scope
    full-corpus, and updates store races/navigation tests while retaining a
    non-virtual transitional row rendering. It also rewrites every browser
    assertion coupled to the `kwic` wire operation, the linked-range reissue
-   set, range-scoped Concordance row counts, or the proximity caption (barcode,
-   compact-barcode, Concordance, footer, notebook, only-this-book, scope,
+   set, range-scoped Matches row counts, or the proximity caption (barcode,
+   compact-barcode, Matches, footer, notebook, only-this-book, scope,
    selection, and slice-2 acceptance specs). The linked-selection rule in
    `analysis-contract.md` changes in the same commit.
-5. `feat(concordance): add synchronized virtual scrolling`
+5. `feat(matches): add synchronized virtual scrolling`
    Adds pure scroll geometry tests, the aligned virtual table, capped physical
    plane, now line, rAF bidirectional synchronization, viewport layout, focus
    retention, active-descendant keyboard navigation, and unit/browser
@@ -408,23 +408,23 @@ review before commit.
    removes the wrapped toggle so no variable-height mode can violate the fixed
    geometry and rewrites every browser locator or assertion coupled to
    `role="table"`, `tbody tr`, or the old per-row buttons for the
-   grid/virtual-row contract (including Concordance, compact, EPUB, Reader,
+   grid/virtual-row contract (including Matches, compact, EPUB, Reader,
    HTML, selection, keyboard-navigation, slice-2/3 acceptance, range-reset,
    only-this-book, presentation, and notebook specs). It updates
    `workbench-ux.md` in the same commit.
-6. `refactor(concordance): remove legacy proximity presentation`
+6. `refactor(matches): remove legacy proximity presentation`
    Removes remaining proximity-only core/app paths, records the final product
    decision, and lands final large-result performance and accessibility gates.
 
 ## Final product decision
 
-Accepted 2026-08-13: Concordance has one continuous, full-corpus, corpus-order
+Accepted 2026-08-13: Matches has one continuous, full-corpus, corpus-order
 surface. The former proximity-sorted `kwic` operation and aligned/wrapped
 presentation split are removed rather than retained as hidden compatibility
 paths. Exact barcode activation selects its occurrence rank; density activation
 publishes only the shared corpus cursor. Neither changes the ordering model.
 
-The shipped contract is therefore `concordance-window/1` plus its sparse axis,
+The shipped contract is therefore `matches-window/1` plus its sparse axis,
 bounded resident rows, fixed-pitch virtual grid, and bidirectional shared-cursor
 mapping. Linked analytical selection remains an overlay only.
 

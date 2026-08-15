@@ -11,7 +11,7 @@ measurement gates, and method contracts.
   extraction feed one versioned snapshot/index engine (`packages/core`,
   `packages/extractors`, and `apps/web/src/worker`). One content-addressed local
   library and one last-write-wins workspace own durable browser state.
-- **Five reachable workbench places:** Inputs, Trends, Concordance,
+- **Five reachable workbench places:** Inputs, Trends, Matches,
   Vocabulary, and Compare (`apps/web/src/places`). They cover local file and
   active-corpus management, term groups, linked selections, frequency,
   keyness, workspace restore, and method surfaces.

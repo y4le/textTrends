@@ -12,7 +12,7 @@ The current workbench supports:
 - a persistent local file catalog with ordered active corpora;
 - vocabulary frequency, document dispersion, comparison, and keyness;
 - term-group trends, exact-or-density dispersion barcodes, linked ranges, and
-  a merged keyword-in-context concordance;
+  merged keyword matches shown in context;
 - a full-page canonical-text Reader with query highlights; and
 - one durable workspace containing the active corpus, notebook, and
   analysis-view settings.

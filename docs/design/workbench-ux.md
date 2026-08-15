@@ -12,7 +12,7 @@ interface maximizes the data-bearing surface and keeps the path from a question
 to the source legible:
 
 ```text
-corpus scope → terms → analysis → concordance or reader
+corpus scope → terms → analysis → matches or reader
 ```
 
 Persistent pixels must earn their place. Controls appear near the state they
@@ -34,7 +34,7 @@ There are five stable places:
 |---|---|---|
 | Inputs | What texts make up this study? | active order, local library, acquisition, full-text measurements and term counts |
 | Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
-| Concordance | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
+| Matches | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
 | Compare | What distinguishes explicit A and B? | keyness controls, effect and G² rankings, exact counts, row detail |
 
@@ -42,7 +42,7 @@ Compare reports log-ratio effect alongside signed G² and the underlying counts
 and document ranges. No confidence intervals are available; the interface says
 so rather than implying precision the analysis contract does not provide.
 
-Inputs, Trends, Concordance, Vocabulary, and Compare form one ordered
+Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only
 when at least two texts are active. Compact portrait bottom-docks every
 available destination; compact landscape uses a left rail. There is no
@@ -52,7 +52,7 @@ The query string owns one presentation key:
 
 | State | Carrier | Values |
 |---|---|---|
-| Place | `?p=` | `inputs`, `trends`, `concordance`, `vocabulary`, `compare` |
+| Place | `?p=` | `inputs`, `trends`, `matches`, `vocabulary`, `compare` |
 
 Terms, source text, and workspace data never enter the query string.
 When fewer than two texts are active, a `compare` route is rewritten in place
@@ -91,7 +91,7 @@ governed row details remain separate history layers.
 Scope states the corpus, included documents or linked range, token count, and
 completeness. Its corpus label opens Inputs. **Method & settings** on Trends,
 and **Method** on supported analytical places, opens the same contextual pane;
-Inputs and Concordance omit it.
+Inputs and Matches omit it.
 
 ### Terms rail
 
@@ -149,8 +149,8 @@ an exact barcode row snap only within the specified pixel tolerance; touch
 stays on its direct raw position. This is decided per pointer event, so an iPad
 trackpad retains precise hover and snapping while the same device keeps its
 large touch controls. Density cells never pretend to be exact targets.
-Clicking an exact occurrence centers the concordance; opening source text is an
-explicit action from Concordance or the global reading footer.
+Clicking an exact occurrence centers Matches; opening source text is an
+explicit action from Matches or the global reading footer.
 
 The fixed reading footer is the lower lane of the dock in all five workbench
 places and is absent in Reader. Its one corpus-order axis aligns a clipped
@@ -187,9 +187,9 @@ button remains a direct action for the current position.
 
 The Trends and footer barcodes share one captured-target resolver, including
 the exact proximity threshold, overlap tie-break, document ownership, and
-density midpoint rules. Density midpoints may center Concordance, but neither
+density midpoint rules. Density midpoints may center Matches, but neither
 barcode presents them as exact Reader occurrences. A footer density
-double-click supersedes its constituent bucket clicks so Concordance, Reader,
+double-click supersedes its constituent bucket clicks so Matches, Reader,
 and the reading cursor settle on the same raw corpus position.
 
 With the footer position focused, `h`/`l`, Left/Right, and PageUp/PageDown page
@@ -203,34 +203,42 @@ Shift+Left/Shift+Right move one token. Home/End use the corpus endpoints, and
 Enter or `o` opens Reader at the current position. Pointer seeking and the
 drag shuttle restore centered passage alignment.
 
-## Concordance and direct reading
+## Matches and direct reading
 
-Concordance is the canonical context surface. It presents every enabled-term
+Matches is the canonical context surface. It presents every enabled-term
 occurrence in corpus order as one continuous logical grid while keeping only a
-bounded window of fixed-height rows in the DOM. Its centered node column and
-right-aligned left context retain stable scan geometry. Every bounded worker
-window carries a fixed reserve of 24 word-like tokens on each side; the grid
-renders those complete strings once and clips them only for presentation, so
-resizing never issues analysis work and the delivered context remains available
-to assistive technology. Token position always has its own final column. The
-book column is absent for a one-book corpus; with multiple books it begins as a
-narrow numbered key such as `(1)` immediately before `token / total`, and
-expanding it reveals `(1) Book title`.
+bounded window of fixed-height rows in the DOM. Right-aligned left context and
+the fixed node track retain stable scan geometry. Bounded worker windows begin
+with 64 word-like tokens on each side; exceptionally wide context tracks grow
+that reserve from derived geometry, while ordinary viewport changes remain
+presentation-only. Token position has its own final column. The book column is
+absent for a one-book corpus; node colour remains the series cue without
+repeating the node's series identity in a separate trend column.
 
-The left-context, node, right-context, and multi-book title columns are
-session-local character widths, initially `40 / 18 / 40 / 4` and bounded to
-`1–100 / 1–48 / 1–100 / 3–48`.
-The fixed header control unlocks their trailing-edge separators; locked is the
-default whenever the surface mounts. A separator changes only the column before
-it, so the grid's intrinsic width and named horizontal scroll port absorb the
-change rather than silently stealing space from an adjacent column. Left context
-preserves its tail, right context preserves its beginning, and a node stays
-centered while it fits but clips at its end when narrow, preserving its first
-character even at width one. Reset restores the defaults and recenters the node.
+Every rendered column partitions exactly the grid's visible inline size; the
+Matches has no horizontal scroll axis. Left and right context are the only
+elastic tracks. Their stored values are a scale-independent ratio, so a `1:2`
+split remains `1:2` when the port grows or shrinks. Node, book, and token
+keep their preferred character widths while the context tracks absorb viewport
+changes. If a viewport is too narrow even for those preferences, fixed tracks
+may shrink rather than creating overflow.
+
+Reset records explicit automatic sizing for node and book instead of inferring
+it from equality with a magic width. Node fits observed node text. Token fits
+the largest displayed position: below the wide threshold it shows only `xxx`
+from `xxx / yyy`, with the complete position retained as its title; wide ports
+show the complete value. An automatic book uses a three-character numbered key
+below the wide threshold and fits the complete `(n) Book title` on a wide port;
+an explicit book width is unchanged by that threshold. These decisions use the
+measured Matches port, not the window.
+Column dividers remain visible as neutral rules. The fixed header control accents
+and unlocks their session-local resize handles; locked is the default whenever
+the surface mounts. Left context preserves its tail, while node, right context,
+and metadata preserve their beginnings when clipping is unavoidable.
 
 The grid's midpoint rule is shared with the reading cursor. Scrolling moves the
 cursor in the footer and Trends, while scrubbing either shared axis moves the
-Concordance scroll position. The visible “now” line remains halfway through the
+Matches scroll position. The visible “now” line remains halfway through the
 actual grid viewport, excluding the page header, fixed dock, safe area, and
 on-screen keyboard. The physical scroll plane is capped for browser stability;
 sparse corpus-order landmarks and the resident exact rows map that plane onto
@@ -238,12 +246,12 @@ the full logical result. Corpus endpoints are sentinels, so the first and last
 occurrence centers remain half a row pitch inside the scroll range rather than
 standing in for the beginning or end of the corpus.
 
-Linked analytical ranges never filter or reorder Concordance and never cause a
-Concordance query. Rows inside the range receive a secondary highlight while
+Linked analytical ranges never filter or reorder Matches and never cause a
+Matches query. Rows inside the range receive a secondary highlight while
 the grid continues to represent the complete enabled-term result.
 
-Activating a concordance node opens Reader directly. Exact barcode occurrence
-controls in Trends open Reader. The footer's barcode centers Concordance in
+Activating a match opens Reader directly. Exact barcode occurrence
+controls in Trends open Reader. The footer's barcode centers Matches in
 place, while its current passage and a footer double-click open Reader at the
 current or clicked position.
 
@@ -289,7 +297,7 @@ active term across the full declared corpus. If no term is focused, the first
 active term becomes the focus. Overlapping raw matches at one token start are
 one stable reading stop with their member provenance combined; density barcode
 buckets and linked analytical ranges never approximate or narrow this action.
-The shared scrub position and Concordance center follow the result, and an open
+The shared scrub position and Matches center follow the result, and an open
 Reader replaces its current page around that exact occurrence.
 
 ## Keys and gestures
@@ -310,7 +318,7 @@ state; closing it with Escape or its visible control restores the invoking
 focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
-`gi`, `gt`, `gk`, and `gv` go to Inputs, Trends, Concordance, and Vocabulary;
+`gi`, `gt`, `gm`, and `gv` go to Inputs, Trends, Matches, and Vocabulary;
 `gd` goes to Compare when at least two texts are active and otherwise announces
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 current active term in the fixed rail without scrolling the workbench.
@@ -337,7 +345,7 @@ control's native open/toggle behavior. Escape closes an open row detail first;
 from a closed row it returns focus to the table port. Focus movement never
 changes analysis scope or issues work.
 
-The virtual Concordance uses the same movement keys through one focusable ARIA
+The virtual Matches uses the same movement keys through one focusable ARIA
 grid with `aria-activedescendant`; its off-screen row buttons stay outside the
 Tab order. Moving beyond the resident window requests bounded rows around the
 new rank, Enter opens the active occurrence in Reader, and Reader Back restores
@@ -379,7 +387,7 @@ The design remains complete while these gates hold:
 4. 44px compact/coarse controls and keyboard-operable equivalents;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;
-7. direct Concordance/barcode-to-Reader navigation stays snapshot-bound;
+7. direct Matches/barcode-to-Reader navigation stays snapshot-bound;
 8. the fixed dock reserves its combined height before the reading footer mounts,
    so Terms does not move when a chunk or first snapshot arrives;
 9. Reader remains full-viewport, page-fitted, and scroll-locked at every width; and
