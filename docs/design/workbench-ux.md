@@ -234,6 +234,9 @@ The scrollport and row controls share one keyboard model: `j`/`k` and
 Down/Up move one row, Ctrl+D/Ctrl+U move half a visible page, and Enter toggles
 the selected row detail. Navigation scrolls the newly selected row into view
 and naturally triggers the next result chunk near the loaded edge.
+The scrollport claims focus when Vocabulary is entered from its tab, route, or
+workbench shortcut, so those row commands work without a preparatory click.
+Clicking any cell in a primary row toggles that row's disclosure.
 
 ## Matches and direct reading
 

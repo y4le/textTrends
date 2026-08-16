@@ -1052,6 +1052,7 @@ canvas {
 .frequency-primary-row {
   min-block-size: var(--frequency-row-height);
   border-block-start: 1px solid var(--rule);
+  cursor: pointer;
 }
 
 .frequency-primary-row:not([data-expanded='true']) {

@@ -71,7 +71,8 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await chord(scrubber, 'g', 'm');
   await expect(page.getByRole('region', { name: 'Matches', exact: true })).toBeFocused();
   await chord(page.locator('body'), 'g', 'v');
-  await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
+    .toBeFocused();
   await chord(page.locator('body'), 'g', 'd');
   await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeFocused();
   await chord(page.locator('body'), 'g', 'f');

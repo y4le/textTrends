@@ -194,6 +194,7 @@ export function FrequencyTable({
   const detailRowRef = useRef<HTMLTableRowElement | null>(null);
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
   const columnDragRef = useRef<FrequencyColumnDrag | null>(null);
+  const initialNavigationClaimedRef = useRef(false);
   const topLayer = layers.at(-1);
   const renderedLayer = useMemo(
     () => renderedRowDetailLayer(layers),
@@ -592,6 +593,23 @@ export function FrequencyTable({
       return true;
     },
   });
+  useEffect(() => {
+    if (initialNavigationClaimedRef.current || navigationKeys.length === 0) return undefined;
+    const frame = requestAnimationFrame(() => {
+      if (initialNavigationClaimedRef.current) return;
+      const active = document.activeElement;
+      const vocabularyEntryFocus = active instanceof HTMLElement
+        && (
+          active.id === 'place-vocabulary-heading'
+          || active.matches('[data-workbench-tab="vocabulary"]')
+        );
+      if (active === null || active === document.body || vocabularyEntryFocus) {
+        rowNavigation.portRef.current?.focus({ preventScroll: true });
+      }
+      initialNavigationClaimedRef.current = true;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [navigationKeys.length, rowNavigation.portRef]);
   const gridColumns: readonly DataGridColumn<VocabularyColumn>[] = SORTS.map(
     ({ by, label }) => ({
       key: by,
@@ -748,6 +766,7 @@ export function FrequencyTable({
                           data-frequency-row
                           data-row-navigation-row
                           data-expanded={expanded || undefined}
+                          onClick={() => openRow(row)}
                         >
                           <th
                             className="frequency-term"
@@ -761,7 +780,6 @@ export function FrequencyTable({
                               type="button"
                               aria-expanded={expanded}
                               aria-controls={expanded ? `vocabulary-detail-${row.typeId}` : undefined}
-                              onClick={() => openRow(row)}
                               title={row.key}
                             >
                               <span className="frequency-row-chevron" aria-hidden="true">›</span>

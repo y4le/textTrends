@@ -47,13 +47,11 @@ for (const viewport of [
     const filter = page.getByRole('searchbox', { name: 'filter (regex)' });
     const filterBox = await filter.boundingBox();
     expect(filterBox?.height).toBeGreaterThanOrEqual(44);
-    await filter.focus();
-    await filter.press('Tab');
     await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
       .toBeFocused();
     await page.keyboard.press('j');
     await expect(term).toBeFocused();
-    await term.click();
+    await row.locator('td.frequency-count').click();
     const detail = page.getByRole('region', { name: /Vocabulary detail:/ });
     await expect(detail).toBeVisible();
     await expect(detail).toContainText('document coverage');
@@ -222,6 +220,8 @@ test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior',
     .toBeGreaterThan(0);
   await selected.locator('.frequency-term > button').press('Enter');
   await expect(page.getByRole('region', { name: /Vocabulary detail:/ })).toBeVisible();
+  await selected.locator('td.frequency-rate').click();
+  await expect(page.getByRole('region', { name: /Vocabulary detail:/ })).toHaveCount(0);
 
   await port.focus();
   await port.press('j');
@@ -244,7 +244,8 @@ test('successful exact Matches routing restores the open Vocabulary detail on Ba
   await page.goBack();
   await expect(page).toHaveURL(/[?&]p=vocabulary(?:&|$)/);
   await expect(detail).toBeVisible();
-  await expect(page.getByRole('region', { name: 'Vocabulary', exact: true })).toBeFocused();
+  await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
+    .toBeFocused();
 });
 
 test('Vocabulary loads every matching row progressively without pagination', async ({ page }) => {
