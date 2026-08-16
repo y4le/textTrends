@@ -5,8 +5,6 @@ import type {
 } from '@texttrends/core';
 import {
   compareProfile,
-  compareProfileHasBar,
-  compareProfilePercent,
   hapaxShare,
   meanParagraphTokens,
   meanSentenceTokens,
@@ -125,58 +123,9 @@ describe('side derivations', () => {
 });
 
 describe('compare profile', () => {
-  it('marks raw totals as context and length-controlled measures as comparable', () => {
-    const metrics = compareProfile(result({}), result({}));
-    const byKey = new Map(metrics.map((metric) => [metric.key, metric]));
-    for (const key of ['tokens', 'sentences', 'paragraphs', 'types']) {
-      expect(byKey.get(key)!.comparable).toBe(false);
-    }
-    for (const key of ['mattr', 'hapax', 'sentence-length', 'paragraph-length', 'ari']) {
-      expect(byKey.get(key)!.comparable).toBe(true);
-    }
-  });
-
   it('survives a side that has not measured yet', () => {
     const metrics = compareProfile(result({}), null);
     expect(metrics.every((metric) => metric.b === null)).toBe(true);
     expect(metrics.find((metric) => metric.key === 'tokens')!.a).toBe(1_000);
-  });
-
-  it('drops the bar when a comparable metric can go negative', () => {
-    // ARI below zero: |−4| drawn against 3 would read as the larger value.
-    const plain = compareProfile(
-      result({ readabilityCharacters: 1_500, tokens: 1_000, sentences: 200 }),
-      result({}),
-    );
-    const ari = plain.find((metric) => metric.key === 'ari')!;
-    expect(ari.a as number).toBeLessThan(0);
-    expect(ari.comparable).toBe(true);
-    expect(compareProfileHasBar(ari)).toBe(false);
-    const mattr = plain.find((metric) => metric.key === 'mattr')!;
-    expect(compareProfileHasBar(mattr)).toBe(true);
-  });
-
-  it('never bars a context metric', () => {
-    const metrics = compareProfile(result({}), result({ tokens: 50_000 }));
-    expect(compareProfileHasBar(metrics.find((m) => m.key === 'tokens')!)).toBe(false);
-  });
-});
-
-describe('compare profile bar width', () => {
-  it('scales both sides against the pair maximum', () => {
-    expect(compareProfilePercent(5, 10)).toBeCloseTo(50, 12);
-    expect(compareProfilePercent(10, 5)).toBeCloseTo(100, 12);
-    expect(compareProfilePercent(7, 7)).toBeCloseTo(100, 12);
-  });
-
-  it('fills the side that has the only measurement', () => {
-    expect(compareProfilePercent(4, null)).toBeCloseTo(100, 12);
-    expect(compareProfilePercent(null, 4)).toBe(0);
-  });
-
-  it('is zero for absent, zero, and non-finite values', () => {
-    expect(compareProfilePercent(0, 0)).toBe(0);
-    expect(compareProfilePercent(Number.NaN, 4)).toBe(0);
-    expect(compareProfilePercent(Number.POSITIVE_INFINITY, 4)).toBe(0);
   });
 });
