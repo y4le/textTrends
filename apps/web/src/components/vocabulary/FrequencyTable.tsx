@@ -9,8 +9,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { FREQUENCY_PREFIX_MAX_UNITS, type FrequencyListRowV1 } from '@texttrends/core';
-import { FormLayer } from '../FormLayer.tsx';
+import { FREQUENCY_REGEX_MAX_UNITS, type FrequencyListRowV1 } from '@texttrends/core';
 import { usePresentation } from '../PresentationProvider.tsx';
 import {
   renderedRowDetailLayer,
@@ -18,18 +17,14 @@ import {
   rowDetailWrite,
 } from '../../lib/row-detail.ts';
 import {
-  frequencyFilterError,
   frequencyMeasure,
-  frequencyViewInput,
-  toggleFrequencyClass,
-  vocabularyFilterControlId,
+  frequencyRegexError,
   vocabularyRowControlId,
   vocabularyTarget,
   vocabularyTargetIsStale,
   type VocabularyTarget,
 } from '../../lib/vocabulary-view.ts';
 import { useApp } from '../../lib/store-instance.ts';
-import type { FrequencyViewInputV1 } from '../../lib/store.ts';
 import { useRowNavigation } from '../useRowNavigation.ts';
 import { formatRate } from '../../lib/rate-format.ts';
 import {
@@ -100,94 +95,6 @@ const FREQUENCY_COMPACT_ROW_HEIGHT = 44;
 const FREQUENCY_HEADER_HEIGHT = 36;
 const FREQUENCY_COMPACT_HEADER_HEIGHT = 44;
 const FREQUENCY_DETAIL_HEIGHT_ESTIMATE = 220;
-
-function FrequencyFilters({
-  draft,
-  message,
-  onDraft,
-  onApply,
-  onCancel,
-}: {
-  readonly draft: FrequencyViewInputV1;
-  readonly message: string | null;
-  readonly onDraft: (next: FrequencyViewInputV1) => void;
-  readonly onApply: () => void;
-  readonly onCancel: () => void;
-}) {
-  return (
-    <form
-      className="frequency-filter-form"
-      aria-label="Vocabulary filters"
-      noValidate
-      onSubmit={(event) => {
-        event.preventDefault();
-        onApply();
-      }}
-    >
-      <h3>Filters</h3>
-      <div className="frequency-filter-fields">
-        <label>
-          starts with
-          <input
-            className="exact-input"
-            value={draft.prefix}
-            maxLength={FREQUENCY_PREFIX_MAX_UNITS}
-            onChange={(event) => onDraft({ ...draft, prefix: event.target.value })}
-          />
-        </label>
-        <label>
-          count ≥
-          <input
-            className="exact-input"
-            type="number"
-            min={1}
-            step={1}
-            value={Number.isFinite(draft.minCount) ? draft.minCount : ''}
-            onChange={(event) => onDraft({
-              ...draft,
-              minCount: event.currentTarget.valueAsNumber,
-            })}
-          />
-        </label>
-        <label>
-          docs ≥
-          <input
-            className="exact-input"
-            type="number"
-            min={1}
-            step={1}
-            value={Number.isFinite(draft.minDocFreq) ? draft.minDocFreq : ''}
-            onChange={(event) => onDraft({
-              ...draft,
-              minDocFreq: event.currentTarget.valueAsNumber,
-            })}
-          />
-        </label>
-        <fieldset>
-          <legend>token classes</legend>
-          {(['lexical', 'numeral'] as const).map((tokenClass) => (
-            <label key={tokenClass}>
-              <input
-                type="checkbox"
-                checked={draft.classes.includes(tokenClass)}
-                onChange={() => onDraft({
-                  ...draft,
-                  classes: toggleFrequencyClass(draft.classes, tokenClass),
-                })}
-              />
-              {tokenClass}
-            </label>
-          ))}
-        </fieldset>
-      </div>
-      {message && <p role="status" className="frequency-filter-message">{message}</p>}
-      <div className="form-layer-actions frequency-filter-actions">
-        <button type="button" onClick={onCancel}>cancel</button>
-        <button type="submit">apply</button>
-      </div>
-    </form>
-  );
-}
 
 function FrequencyRowDetail({
   row,
@@ -267,15 +174,14 @@ export function FrequencyTable({
   const view = useApp((store) => store.frequencyView);
   const layers = useApp((store) => store.layers);
   const setSort = useApp((store) => store.setFrequencySort);
-  const applyView = useApp((store) => store.applyFrequencyView);
+  const setFrequencyRegex = useApp((store) => store.setFrequencyRegex);
   const loadMore = useApp((store) => store.loadMoreFrequency);
   const addTerm = useApp((store) => store.addTerm);
   const showInKwic = useApp((store) => store.showFrequencyTermInKwic);
   const pushLayer = useApp((store) => store.pushLayer);
   const replaceLayer = useApp((store) => store.replaceLayer);
   const popLayer = useApp((store) => store.popLayer);
-  const [draft, setDraft] = useState<FrequencyViewInputV1>(() => frequencyViewInput(view));
-  const [filterMessage, setFilterMessage] = useState<string | null>(null);
+  const [regexDraft, setRegexDraft] = useState(view.regex ?? '');
   const [columns, setColumns] = useState<VocabularyColumnSettings>(() =>
     loadVocabularyColumnSettings(vocabularySessionStorage(window))
       ?? VOCABULARY_COLUMN_DEFAULTS);
@@ -299,8 +205,7 @@ export function FrequencyTable({
       : null,
     [renderedLayer],
   );
-  const filterOpen = target?.surface === 'vocab-filter';
-  const rowTarget = target?.surface === 'vocab-row' ? target : null;
+  const rowTarget = target;
   const compact = presentation.width === 'compact';
   const stalePopRequested = useRef(false);
 
@@ -476,16 +381,17 @@ export function FrequencyTable({
   };
 
   useEffect(() => {
-    setDraft(frequencyViewInput(view));
-  }, [
-    view.minCount,
-    view.minDocFreq,
-    view.prefixNfc,
-    view.classes,
-    view.sort.by,
-    view.sort.dir,
-    view.page.limit,
-  ]);
+    setRegexDraft(view.regex ?? '');
+  }, [view.regex]);
+
+  const regexError = frequencyRegexError(regexDraft);
+  useEffect(() => {
+    if (regexError !== null) return undefined;
+    const normalized = regexDraft.normalize('NFC');
+    if (normalized === (view.regex ?? '')) return undefined;
+    const timer = window.setTimeout(() => setFrequencyRegex(normalized), 150);
+    return () => window.clearTimeout(timer);
+  }, [regexDraft, regexError, setFrequencyRegex, view.regex]);
 
   useEffect(() => {
     if (columnDragRef.current !== null) return;
@@ -535,29 +441,6 @@ export function FrequencyTable({
     );
     if (write === 'replace') replaceLayer('row-detail', next, vocabularyRowControlId(typeId));
     else pushLayer('row-detail', next, vocabularyRowControlId(typeId));
-  };
-  const openFilter = () => writeTarget(
-    { surface: 'vocab-filter' },
-    vocabularyFilterControlId,
-  );
-  const closeFilter = (discard: boolean) => {
-    if (!filterOpen) return;
-    if (discard) {
-      setDraft(frequencyViewInput(view));
-      setFilterMessage(null);
-    }
-    popLayer();
-  };
-  const applyFilter = () => {
-    if (!filterOpen) return;
-    const error = frequencyFilterError(draft);
-    if (error) {
-      setFilterMessage(error);
-      return;
-    }
-    setFilterMessage(null);
-    applyView(draft);
-    popLayer();
   };
   const openRow = (row: FrequencyListRowV1) => {
     if (rowTarget?.typeId === row.typeId && rowTarget.key === row.key) {
@@ -726,18 +609,8 @@ export function FrequencyTable({
   const gridStyle: FrequencyGridStyle = {
     '--frequency-template': vocabularyGridTemplate(columns),
   };
-  const filter = (
-    <FrequencyFilters
-      draft={draft}
-      message={filterMessage}
-      onDraft={(next) => {
-        setFilterMessage(null);
-        setDraft(next);
-      }}
-      onApply={applyFilter}
-      onCancel={() => closeFilter(true)}
-    />
-  );
+  const regexApplied = regexError === null
+    && regexDraft.normalize('NFC') === (view.regex ?? '');
 
   return (
     <section
@@ -750,42 +623,61 @@ export function FrequencyTable({
           Vocabulary
         </h2>
       )}
-      <div className="frequency-view-bar">
-        <button
-          id={vocabularyFilterControlId}
-          type="button"
-          aria-expanded={filterOpen}
-          aria-haspopup={compact ? 'dialog' : undefined}
-          onClick={() => {
-            if (filterOpen) closeFilter(false);
-            else openFilter();
-          }}
-        >
-          filter
-        </button>
-      </div>
-      {filterOpen && !compact && (
-        <div
-          className="frequency-filter-inline"
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
+      <form
+        className="frequency-regex-filter"
+        role="search"
+        aria-label="Filter vocabulary"
+        onSubmit={(event) => event.preventDefault()}
+      >
+        <label htmlFor="vocabulary-regex-filter">filter (regex)</label>
+        <div className="frequency-regex-control">
+          <input
+            id="vocabulary-regex-filter"
+            className="exact-input"
+            type="search"
+            value={regexDraft}
+            maxLength={FREQUENCY_REGEX_MAX_UNITS}
+            aria-invalid={regexError !== null || undefined}
+            aria-describedby="vocabulary-regex-status"
+            placeholder="term pattern"
+            spellCheck={false}
+            autoCapitalize="none"
+            autoCorrect="off"
+            onChange={(event) => setRegexDraft(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key !== 'Escape' || regexDraft === '') return;
               event.preventDefault();
-              closeFilter(false);
-            }
-          }}
-        >
-          {filter}
+              setRegexDraft('');
+              setFrequencyRegex('');
+            }}
+          />
+          {regexDraft !== '' && (
+            <button
+              type="button"
+              className="frequency-regex-clear"
+              aria-label="Clear vocabulary filter"
+              title="Clear filter"
+              onClick={() => {
+                setRegexDraft('');
+                setFrequencyRegex('');
+              }}
+            >
+              <span aria-hidden="true">×</span>
+            </button>
+          )}
         </div>
-      )}
-      {filterOpen && compact && (
-        <FormLayer
-          label="Vocabulary filters"
-          focusKey={renderedLayer?.id ?? 'vocabulary-filter'}
-          onClose={() => closeFilter(false)}
+        <span
+          id="vocabulary-regex-status"
+          className={regexError === null ? 'visually-hidden' : 'frequency-regex-status'}
+          role="status"
+          aria-live="polite"
         >
-          {filter}
-        </FormLayer>
-      )}
+          {regexError
+            ?? (!regexApplied || state?.state.status === 'pending'
+              ? 'Filtering vocabulary.'
+              : `${readyResult?.total ?? 0} matching vocabulary rows.`)}
+        </span>
+      </form>
       {state?.state.status === 'pending' && readyResult === null && <p>ranking vocabulary…</p>}
       {state?.state.status === 'error' && (
         <p style={{ color: 'var(--accent-text)' }}>{state.state.message}</p>

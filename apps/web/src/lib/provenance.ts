@@ -193,7 +193,7 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('minimum count', String(view.minCount)),
       parameter('minimum document frequency', String(view.minDocFreq)),
       parameter('token classes', view.classes.join(', ')),
-      parameter('prefix', view.prefixNfc ?? 'none'),
+      parameter('regular expression', view.regex ?? 'none'),
       parameter('sort', `${view.sort.by} ${view.sort.dir === 1 ? 'ascending' : 'descending'}`),
       parameter(
         'resident page',

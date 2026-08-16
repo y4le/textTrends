@@ -123,7 +123,7 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
         minCount: 2,
         minDocFreq: 1,
         classes: ['lexical'],
-        prefixNfc: 'H',
+        regex: '^H',
         sort: { by: 'count', dir: -1 },
         page: { offset: 0, limit: 100 },
       },

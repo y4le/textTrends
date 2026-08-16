@@ -18,7 +18,7 @@ import {
 
 export const FREQUENCY_PAGE_MAX = 200;
 export const FREQUENCY_WINDOW_MAX = 5_000;
-export const FREQUENCY_PREFIX_MAX_UNITS = 64;
+export const FREQUENCY_REGEX_MAX_UNITS = 256;
 export const FREQUENCY_SCAN_CHUNK = 65_536;
 
 export type FrequencyTokenClassV1 = 'lexical' | 'numeral';
@@ -37,7 +37,7 @@ export interface FrequencyListRequestV1 {
     readonly minCount: number;
     readonly minDocFreq: number;
     readonly classes: readonly FrequencyTokenClassV1[];
-    readonly prefixNfc?: string;
+    readonly regex?: string;
   };
   readonly sort: {
     readonly by: FrequencySortFieldV1;
@@ -94,19 +94,26 @@ function validateRequest(request: FrequencyListRequestV1): void {
   ) {
     throw new RangeError('frequency classes must be a nonempty unique class list');
   }
-  const prefix = request.filter.prefixNfc;
+  const regex = request.filter.regex;
   if (
-    prefix !== undefined &&
+    regex !== undefined &&
     (
-      typeof prefix !== 'string' ||
-      prefix.length < 1 ||
-      prefix.length > FREQUENCY_PREFIX_MAX_UNITS ||
-      prefix.normalize('NFC') !== prefix
+      typeof regex !== 'string' ||
+      regex.length < 1 ||
+      regex.length > FREQUENCY_REGEX_MAX_UNITS ||
+      regex.normalize('NFC') !== regex
     )
   ) {
     throw new RangeError(
-      `prefixNfc must be NFC with 1..${FREQUENCY_PREFIX_MAX_UNITS} UTF-16 units`,
+      `frequency regex must be NFC with 1..${FREQUENCY_REGEX_MAX_UNITS} UTF-16 units`,
     );
+  }
+  if (regex !== undefined) {
+    try {
+      new RegExp(regex, 'u');
+    } catch {
+      throw new RangeError('frequency regex must be a valid Unicode regular expression');
+    }
   }
   if (
     !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
@@ -228,6 +235,9 @@ export async function frequencyList(
     ? []
     : partSizes.map((value) => value / totalTokens);
   const positiveShares = partShares.filter((value) => value > 0);
+  const regex = request.filter.regex === undefined
+    ? null
+    : new RegExp(request.filter.regex, 'u');
 
   const dpCorrection = request.dispersion
     ? new Float64Array(vocabularySize)
@@ -283,7 +293,7 @@ export async function frequencyList(
       continue;
     }
     const key = snapshot.vocabulary.keys[typeId] as string;
-    if (request.filter.prefixNfc !== undefined && !key.startsWith(request.filter.prefixNfc)) {
+    if (regex !== null && !regex.test(key)) {
       continue;
     }
     let dispersion: number | null = null;

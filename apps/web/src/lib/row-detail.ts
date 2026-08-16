@@ -3,7 +3,6 @@ import type { Layer } from './layers.ts';
 export type RowDetailSurface =
   | 'query-editor'
   | 'book-sheet'
-  | 'vocab-filter'
   | 'vocab-row'
   | 'compare-settings'
   | 'compare-row';
@@ -17,7 +16,6 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
   switch (surface) {
     case 'query-editor':
     case 'book-sheet':
-    case 'vocab-filter':
     case 'vocab-row':
     case 'compare-settings':
     case 'compare-row':

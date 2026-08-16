@@ -4238,25 +4238,18 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().notebookError).toMatch(/term added.*deactivate/);
   });
 
-  it('applies the complete frequency view atomically without an overall row window', () => {
+  it('applies a valid frequency regex live and resets the progressive offset', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     const before = f.frequencies().length;
-    f.store.getState().applyFrequencyView({
-      minCount: 3,
-      minDocFreq: 2,
-      prefix: ' Holmes ',
-      classes: ['lexical', 'numeral'],
-      sort: { by: 'docFreq', dir: 1 },
-      pageLimit: 200,
-    });
+    f.store.getState().setFrequencyRegex('^Holmes$|Watson');
     expect(f.frequencies()).toHaveLength(before + 1);
     expect((f.frequencies().at(-1)!.query as {
       request: {
         filter: {
           minCount: number;
           minDocFreq: number;
-          prefixNfc: string;
+          regex: string;
           classes: string[];
         };
         sort: { by: string; dir: number };
@@ -4264,23 +4257,44 @@ describe('corpus dashboard query intent (slice-3)', () => {
       };
     }).request).toEqual(expect.objectContaining({
       filter: expect.objectContaining({
-        minCount: 3,
-        minDocFreq: 2,
-        prefixNfc: 'Holmes',
-        classes: ['lexical', 'numeral'],
+        minCount: 1,
+        minDocFreq: 1,
+        regex: '^Holmes$|Watson',
+        classes: ['lexical'],
       }),
-      sort: { by: 'docFreq', dir: 1 },
-      page: { offset: 0, limit: 200 },
+      sort: { by: 'count', dir: -1 },
+      page: { offset: 0, limit: 100 },
     }));
 
-    expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 200 });
+    expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 100 });
+    const valid = f.frequencies().length;
+    f.store.getState().setFrequencyRegex('[');
+    expect(f.frequencies()).toHaveLength(valid);
+    expect(f.store.getState().frequencyView.regex).toBe('^Holmes$|Watson');
+
     const issued = f.frequencies().length;
     f.store.getState().setFrequencyPage(5_000);
     expect(f.frequencies()).toHaveLength(issued + 1);
-    expect(f.store.getState().frequencyView.page).toEqual({ offset: 5_000, limit: 200 });
+    expect(f.store.getState().frequencyView.page).toEqual({ offset: 5_000, limit: 100 });
     expect((f.frequencies().at(-1)!.query as {
       request: { page: { offset: number; limit: number } };
-    }).request.page).toEqual({ offset: 5_000, limit: 200 });
+    }).request.page).toEqual({ offset: 5_000, limit: 100 });
+  });
+
+  it('restores a legacy literal frequency prefix as an anchored regex', () => {
+    const f = harness();
+    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    f.store.getState().restoreWorkspace({
+      ...workspace,
+      views: {
+        ...workspace.views,
+        frequency: {
+          ...workspace.views.frequency,
+          prefixNfc: 'a.b[',
+        },
+      },
+    });
+    expect(f.store.getState().frequencyView.regex).toBe('^a\\.b\\[');
   });
 });
 

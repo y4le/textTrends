@@ -35,7 +35,7 @@ function validWorkspace(): WorkspaceV1 {
         minCount: 2,
         minDocFreq: 1,
         classes: ['lexical', 'numeral'],
-        prefixNfc: 'é',
+        regex: '^é|ère$',
         sort: { by: 'count', dir: -1 },
         pageSize: 100,
       },
@@ -58,6 +58,26 @@ function validWorkspace(): WorkspaceV1 {
 describe('workspace admission', () => {
   it('admits an exact library-backed workspace', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
+  });
+
+  it('admits legacy frequency prefixes but rejects invalid current regexes', () => {
+    const value = validWorkspace();
+    const { regex: _regex, ...frequency } = value.views.frequency;
+    const legacy = {
+      ...value,
+      views: {
+        ...value.views,
+        frequency: { ...frequency, prefixNfc: 'a.b[' },
+      },
+    };
+    expect(parseWorkspace(legacy).views.frequency.prefixNfc).toBe('a.b[');
+    expect(() => parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        frequency: { ...frequency, regex: '[' },
+      },
+    })).toThrow(/frequency regex/);
   });
 
   it('upgrades legacy Compare presentation settings without changing its display', () => {

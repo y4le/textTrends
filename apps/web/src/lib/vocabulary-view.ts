@@ -1,19 +1,9 @@
 import {
-  FREQUENCY_PAGE_MAX,
-  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_REGEX_MAX_UNITS,
   type FrequencyListRowV1,
   type FrequencySortFieldV1,
-  type FrequencyTokenClassV1,
 } from '@texttrends/core';
-import type {
-  FrequencyState,
-  FrequencyViewInputV1,
-  FrequencyViewV1,
-} from './store.ts';
-
-export interface VocabularyFilterTarget {
-  readonly surface: 'vocab-filter';
-}
+import type { FrequencyState } from './store.ts';
 
 export interface VocabularyRowTarget {
   readonly surface: 'vocab-row';
@@ -21,12 +11,11 @@ export interface VocabularyRowTarget {
   readonly key: string;
 }
 
-export type VocabularyTarget = VocabularyFilterTarget | VocabularyRowTarget;
+export type VocabularyTarget = VocabularyRowTarget;
 
 export function vocabularyTarget(value: unknown): VocabularyTarget | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (candidate.surface === 'vocab-filter') return { surface: 'vocab-filter' };
   if (
     candidate.surface !== 'vocab-row'
     || !Number.isSafeInteger(candidate.typeId)
@@ -41,7 +30,6 @@ export function vocabularyTarget(value: unknown): VocabularyTarget | null {
   };
 }
 
-export const vocabularyFilterControlId = 'vocabulary-filter';
 export const vocabularyRowControlId = (typeId: number): string =>
   `vocabulary-row-${typeId}`;
 
@@ -53,7 +41,6 @@ export function vocabularyTargetIsStale(
   frequency: Pick<FrequencyState, 'state'> | null,
 ): boolean {
   if (!hasSnapshot) return true;
-  if (target.surface === 'vocab-filter') return false;
   return frequency?.state.status === 'ready'
     && !frequency.state.result.rows.some(
       (row) => row.typeId === target.typeId && row.key === target.key,
@@ -100,41 +87,15 @@ export function frequencyMeasure(
   }
 }
 
-export function frequencyViewInput(view: FrequencyViewV1): FrequencyViewInputV1 {
-  return {
-    minCount: view.minCount,
-    minDocFreq: view.minDocFreq,
-    classes: [...view.classes],
-    prefix: view.prefixNfc ?? '',
-    sort: { ...view.sort },
-    pageLimit: view.page.limit,
-  };
-}
-
-export function frequencyFilterError(input: FrequencyViewInputV1): string | null {
-  if (!Number.isSafeInteger(input.minCount) || input.minCount < 1) {
-    return 'Minimum count must be a whole number of at least 1.';
+export function frequencyRegexError(pattern: string): string | null {
+  if (pattern.length > FREQUENCY_REGEX_MAX_UNITS) {
+    return `Regular expression must be ${FREQUENCY_REGEX_MAX_UNITS} characters or fewer.`;
   }
-  if (!Number.isSafeInteger(input.minDocFreq) || input.minDocFreq < 1) {
-    return 'Minimum documents must be a whole number of at least 1.';
+  if (pattern === '') return null;
+  try {
+    new RegExp(pattern.normalize('NFC'), 'u');
+    return null;
+  } catch {
+    return 'Invalid regular expression; showing the previous results.';
   }
-  if (input.prefix.length > FREQUENCY_PREFIX_MAX_UNITS) {
-    return `Prefix must be ${FREQUENCY_PREFIX_MAX_UNITS} characters or fewer.`;
-  }
-  if (input.classes.length === 0) return 'Select at least one token class.';
-  if (
-    !Number.isSafeInteger(input.pageLimit)
-    || input.pageLimit < 1
-    || input.pageLimit > FREQUENCY_PAGE_MAX
-  ) return `Rows per page must be between 1 and ${FREQUENCY_PAGE_MAX}.`;
-  return null;
-}
-
-export function toggleFrequencyClass(
-  classes: readonly FrequencyTokenClassV1[],
-  tokenClass: FrequencyTokenClassV1,
-): readonly FrequencyTokenClassV1[] {
-  return classes.includes(tokenClass)
-    ? classes.filter((item) => item !== tokenClass)
-    : [...classes, tokenClass];
 }

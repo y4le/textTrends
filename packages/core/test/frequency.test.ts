@@ -5,7 +5,7 @@ import { createDocumentIndex } from '../src/index/build.ts';
 import {
   frequencyList,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_REGEX_MAX_UNITS,
   type FrequencyListRequestV1,
 } from '../src/ops/frequency.ts';
 import { documentTermCounts } from '../src/ops/term-counts.ts';
@@ -198,7 +198,7 @@ describe('freq-list/1', () => {
     ]);
   });
 
-  it('applies a sensitive NFC prefix and reports one-part dispersion honestly', async () => {
+  it('applies a case-sensitive Unicode regex before paging and reports one-part dispersion honestly', async () => {
     const world = await fixture([['a', 'Alpha Alpine alpha álpha']]);
     const result = await run(world, {
       ...REQUEST,
@@ -206,7 +206,7 @@ describe('freq-list/1', () => {
         minCount: 1,
         minDocFreq: 1,
         classes: ['lexical'],
-        prefixNfc: 'Al',
+        regex: '^Al(?:pha|pine)$',
       },
     });
     expect(result.rows.map((row) => row.key)).toEqual(['Alpha', 'Alpine']);
@@ -232,7 +232,7 @@ describe('freq-list/1', () => {
     expect(result.rows[1]!.dpNorm).toBeCloseTo(2 / 3, 12);
   });
 
-  it('rejects invalid chunk/filter/prefix bounds without imposing a result window', async () => {
+  it('rejects invalid chunk/filter/regex bounds without imposing a result window', async () => {
     const world = await fixture([['a', 'one two']]);
     await expect(run(world, {
       ...REQUEST,
@@ -243,8 +243,9 @@ describe('freq-list/1', () => {
       { ...REQUEST, filter: { ...REQUEST.filter, minDocFreq: 0 } },
       { ...REQUEST, filter: { ...REQUEST.filter, classes: [] } },
       { ...REQUEST, filter: { ...REQUEST.filter, classes: ['lexical', 'lexical'] } },
-      { ...REQUEST, filter: { ...REQUEST.filter, prefixNfc: 'x'.repeat(FREQUENCY_PREFIX_MAX_UNITS + 1) } },
-      { ...REQUEST, filter: { ...REQUEST.filter, prefixNfc: 'e\u0301' } },
+      { ...REQUEST, filter: { ...REQUEST.filter, regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } },
+      { ...REQUEST, filter: { ...REQUEST.filter, regex: 'e\u0301' } },
+      { ...REQUEST, filter: { ...REQUEST.filter, regex: '[' } },
       { ...REQUEST, page: { offset: 0, limit: FREQUENCY_PAGE_MAX + 1 } },
       { ...REQUEST, page: { offset: Number.MAX_SAFE_INTEGER, limit: 1 } },
       { ...REQUEST, sort: { by: 'dp', dir: -1 }, dispersion: false },

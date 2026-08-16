@@ -7,7 +7,12 @@
 import { exactArray, exactRecord, isNonNegSafeInt } from '../contract/guards.ts';
 import { INGEST_CAPS_V0 } from '../contract/ingest-caps.ts';
 import { isSourceFormat } from '../extract/formats.ts';
-import { FREQUENCY_PAGE_MAX, type FrequencySortFieldV1, type FrequencyTokenClassV1 } from '../ops/frequency.ts';
+import {
+  FREQUENCY_PAGE_MAX,
+  FREQUENCY_REGEX_MAX_UNITS,
+  type FrequencySortFieldV1,
+  type FrequencyTokenClassV1,
+} from '../ops/frequency.ts';
 import { MAX_KWIC_TRACKS } from '../ops/kwic.ts';
 import { type KeynessSortFieldV1 } from '../ops/keyness.ts';
 import {
@@ -82,7 +87,9 @@ export interface WorkspaceFrequencyViewV1 {
   readonly minCount: number;
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  /** Legacy prefix settings are admitted so workspace/1 files remain readable. */
   readonly prefixNfc?: string;
+  readonly regex?: string;
   readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
   /** Page offsets are transient; only the user's chosen page size is durable. */
   readonly pageSize: number;
@@ -295,8 +302,19 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
 }
 
 function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
-  const hasPrefix = exactRecord(value, ['minCount', 'minDocFreq', 'classes', 'prefixNfc', 'sort', 'pageSize']);
-  if (!hasPrefix && !exactRecord(value, ['minCount', 'minDocFreq', 'classes', 'sort', 'pageSize'])) {
+  const hasPrefix = exactRecord(
+    value,
+    ['minCount', 'minDocFreq', 'classes', 'prefixNfc', 'sort', 'pageSize'],
+  );
+  const hasRegex = exactRecord(
+    value,
+    ['minCount', 'minDocFreq', 'classes', 'regex', 'sort', 'pageSize'],
+  );
+  if (
+    !hasPrefix
+    && !hasRegex
+    && !exactRecord(value, ['minCount', 'minDocFreq', 'classes', 'sort', 'pageSize'])
+  ) {
     throw new RangeError('frequency view must be exact');
   }
   if (
@@ -316,11 +334,25 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
   if (prefixNfc !== undefined && prefixNfc !== prefixNfc.normalize('NFC')) {
     throw new RangeError('frequency prefix must be NFC');
   }
+  const regex = hasRegex
+    ? boundedString(value.regex, FREQUENCY_REGEX_MAX_UNITS, 'frequency regex')
+    : undefined;
+  if (regex !== undefined) {
+    if (regex !== regex.normalize('NFC')) {
+      throw new RangeError('frequency regex must be NFC');
+    }
+    try {
+      new RegExp(regex, 'u');
+    } catch {
+      throw new RangeError('frequency regex must be valid');
+    }
+  }
   return {
     minCount: value.minCount,
     minDocFreq: value.minDocFreq,
     classes: parseClasses(value.classes, 'frequency classes'),
     ...(prefixNfc === undefined ? {} : { prefixNfc }),
+    ...(regex === undefined ? {} : { regex }),
     sort: value.sort as unknown as WorkspaceFrequencyViewV1['sort'],
     pageSize: value.pageSize,
   };

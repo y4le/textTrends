@@ -18,7 +18,7 @@ import {
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_REGEX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
   KWIC_CONTEXT_MAX_TOKENS,
 } from '@texttrends/core';
@@ -367,7 +367,7 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('freq-list/1 pins dense classes, NFC prefix, sort, and chunk bounds', () => {
+  it('freq-list/1 pins dense classes, a valid NFC regex, sort, and chunk bounds', () => {
     const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
       op: 'freq-list',
       selection: { docs: ['a'] },
@@ -392,8 +392,10 @@ describe('narrowQueryV4', () => {
     const sparse = ['lexical'];
     sparse.length = 2;
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: sparse } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], prefixNfc: 'e\u0301' } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], prefixNfc: 'x'.repeat(FREQUENCY_PREFIX_MAX_UNITS + 1) } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '^Holmes$' } })).toBe(true);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'e\u0301' } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '[' } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } })).toBe(false);
     expect(query({ sort: { by: 'bogus', dir: -1 } })).toBe(false);
     expect(query({ sort: { by: 'count', dir: 0 } })).toBe(false);
     expect(query({ page: { offset: 0, limit: 1, extra: true } })).toBe(false);

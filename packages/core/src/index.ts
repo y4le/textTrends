@@ -236,7 +236,7 @@ export {
 export {
   frequencyList,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_REGEX_MAX_UNITS,
   FREQUENCY_SCAN_CHUNK,
   FREQUENCY_WINDOW_MAX,
   type FrequencyCheckpoint,

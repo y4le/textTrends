@@ -81,11 +81,8 @@ test('slice 3: corpus → focus → vocabulary → matches → linked range → 
   await page.getByRole('button', { name: 'DP', exact: true }).click();
   await awaitOps(page, mark, ['freq-list']);
 
-  await page.getByRole('button', { name: 'filter', exact: true }).click();
-  const prefix = page.getByLabel('starts with');
-  await prefix.fill('wolf');
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('button', { name: 'apply', exact: true }).click();
+  await page.getByRole('searchbox', { name: 'filter (regex)' }).fill('^wolf$');
   await awaitOps(page, mark, ['freq-list']);
   const wolfRow = page.getByRole('table', { name: 'Vocabulary frequency list' })
     .getByRole('row', { name: /^wolf / });

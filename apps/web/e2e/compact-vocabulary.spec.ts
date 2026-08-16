@@ -44,7 +44,7 @@ for (const viewport of [
     await expect(row.locator('td.frequency-count')).toHaveAttribute('aria-colindex', '2');
 
     const term = row.getByRole('button');
-    const filter = page.getByRole('button', { name: 'filter', exact: true });
+    const filter = page.getByRole('searchbox', { name: 'filter (regex)' });
     const filterBox = await filter.boundingBox();
     expect(filterBox?.height).toBeGreaterThanOrEqual(44);
     await filter.focus();
@@ -67,99 +67,50 @@ for (const viewport of [
   });
 }
 
-test('Vocabulary filter preserves drafts across width classes and applies once', async ({ page }) => {
+test('Vocabulary regex filter updates live, reports invalid input, and clears', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
-  const open = page.getByRole('button', { name: 'filter', exact: true });
-  await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Vocabulary filters' });
-  await expect(dialog).toBeVisible();
-  await expect(page.locator('#root')).toHaveJSProperty('inert', true);
-  const prefix = page.getByLabel('starts with');
-  await expect(prefix).toBeFocused();
-  await prefix.press('Shift+Tab');
-  await expect(dialog.getByRole('button', { name: 'apply' })).toBeFocused();
-  await dialog.getByRole('button', { name: 'apply' }).press('Tab');
-  await expect(prefix).toBeFocused();
-  for (const action of [
-    dialog.getByRole('button', { name: 'cancel' }),
-    dialog.getByRole('button', { name: 'apply' }),
-  ]) {
-    const box = await action.boundingBox();
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-  }
-  await prefix.fill('Hol');
-  expect(await prefix.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
+  const filter = page.getByRole('searchbox', { name: 'filter (regex)' });
+  await expect(filter).toBeVisible();
+  await expect(page.getByRole('button', { name: 'filter', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
+  expect(await filter.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
     .toBeGreaterThanOrEqual(16);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await filter.fill('^Hol');
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > mark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  ).length).toBe(1);
+  await expect(page.locator('tr[data-frequency-row] .frequency-term-label').first())
+    .toHaveText(/^Hol/u);
 
-  await page.setViewportSize({ width: 1440, height: 900 });
-  await expect(dialog).toHaveCount(0);
-  await expect(page.locator('#root')).toHaveJSProperty('inert', false);
-  await expect(page.getByRole('form', { name: 'Vocabulary filters' })).toBeVisible();
-  await expect(page.getByLabel('starts with')).toHaveValue('Hol');
-
-  await page.setViewportSize({ width: 390, height: 844 });
-  await expect(dialog).toBeVisible();
-  await expect(page.getByLabel('starts with')).toHaveValue('Hol');
-  expect((await trace(page)).events.filter(
-    (event) =>
-      event.seq > mark
-      && event.direction === 'to-worker'
-      && event.t === 'query',
-  )).toEqual([]);
-
-  await page.getByLabel('count ≥').fill('0');
   const invalidMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await dialog.getByRole('button', { name: 'apply' }).click();
-  await expect(dialog.getByRole('status')).toContainText('Minimum count');
+  await filter.fill('[');
+  await expect(filter).toHaveAttribute('aria-invalid', 'true');
+  await expect(page.locator('#vocabulary-regex-status'))
+    .toContainText('Invalid regular expression');
+  await page.waitForTimeout(250);
   expect((await trace(page)).events.filter(
-    (event) =>
-      event.seq > invalidMark
-      && event.direction === 'to-worker'
-      && event.t === 'query',
+    (event) => event.seq > invalidMark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
   )).toEqual([]);
 
-  await page.getByLabel('count ≥').fill('2');
-  const applyMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await dialog.getByRole('button', { name: 'apply' }).click();
-  await expect(dialog).toHaveCount(0);
-  await expect(open).toBeFocused();
-  await expect(page.locator('.frequency-result-summary')).toHaveCount(0);
-  await expect(page.getByRole('columnheader', { name: /count/ }))
-    .toHaveAttribute('aria-sort', 'descending');
-  const applyQueries = (await trace(page)).events.filter(
-    (event) =>
-      event.seq > applyMark
-      && event.direction === 'to-worker'
-      && event.t === 'query'
-      && event.op === 'freq-list',
-  );
-  expect(applyQueries).toHaveLength(1);
-
-  await open.click();
-  await page.getByLabel('starts with').fill('Escaped draft');
-  const closeMark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.keyboard.press('Escape');
-  await expect(dialog).toHaveCount(0);
-  await expect(open).toBeFocused();
-  await open.click();
-  await expect(page.getByLabel('starts with')).toHaveValue('Escaped draft');
-  await dialog.getByRole('button', { name: 'cancel' }).click();
-  await expect(open).toBeFocused();
-  expect((await trace(page)).events.filter(
-    (event) =>
-      event.seq > closeMark
-      && event.direction === 'to-worker'
-      && event.t === 'query',
-  )).toEqual([]);
+  const clear = page.getByRole('button', { name: 'Clear vocabulary filter' });
+  const clearBox = await clear.boundingBox();
+  expect(clearBox?.height).toBeGreaterThanOrEqual(44);
+  await clear.click();
+  await expect(filter).toHaveValue('');
+  await expect(clear).toHaveCount(0);
+  await expect(filter).not.toHaveAttribute('aria-invalid', 'true');
   await expectNoBodyOverflow(page);
 });
 
-test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', async ({ page }) => {
+test('wide Vocabulary keeps seven columns and an in-flow regex bar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -170,12 +121,9 @@ test('wide Vocabulary keeps seven columns and a target-gated in-flow filter', as
   await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(7);
   await expect(table.locator('tr[data-frequency-row]').first().locator('td.frequency-class'))
     .toBeVisible();
-  const open = page.getByRole('button', { name: 'filter', exact: true });
-  await open.click();
-  await expect(page.getByRole('form', { name: 'Vocabulary filters' })).toBeVisible();
+  await expect(page.getByRole('search', { name: 'Filter vocabulary' })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'filter (regex)' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
-  await page.getByRole('button', { name: 'cancel' }).click();
-  await expect(open).toBeFocused();
 });
 
 test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior', async ({ page }) => {

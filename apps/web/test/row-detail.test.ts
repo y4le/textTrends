@@ -21,7 +21,6 @@ describe('row detail presentation', () => {
     const surfaces: readonly RowDetailSurface[] = [
       'query-editor',
       'book-sheet',
-      'vocab-filter',
       'vocab-row',
       'compare-settings',
       'compare-row',

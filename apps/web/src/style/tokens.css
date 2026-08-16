@@ -895,82 +895,67 @@ canvas {
   display: none;
 }
 
-.frequency-view-bar {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: var(--space-2);
-  margin-block: var(--space-2);
-}
-
 .frequency-row-note {
   margin: 0;
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
-.frequency-view-bar button {
-  flex: 0 0 auto;
-}
-
-.frequency-filter-inline {
+.frequency-regex-filter {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
   margin-block: var(--space-2);
-  padding: var(--space-2);
-  border: 1px solid var(--rule);
-}
-
-.frequency-filter-form {
-  display: flex;
-  min-inline-size: 0;
-  flex-direction: column;
-  gap: var(--space-2);
-}
-
-.frequency-filter-form h3 {
-  margin: 0;
-  font-size: var(--text-sm);
-}
-
-.frequency-filter-fields {
-  display: flex;
-  align-items: end;
-  gap: var(--space-2);
-  flex-wrap: wrap;
-}
-
-.frequency-filter-fields > label {
-  display: flex;
-  min-inline-size: 0;
-  flex-direction: column;
-  gap: var(--space-1);
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
 
-.frequency-filter-fields fieldset {
-  display: flex;
-  gap: var(--space-2);
-  margin: 0;
-  padding: var(--space-1) var(--space-2);
-  border: 1px solid var(--rule);
+.frequency-regex-control {
+  position: relative;
+  min-inline-size: 0;
 }
 
-.frequency-filter-fields fieldset label {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--space-1);
+.frequency-regex-control input {
+  inline-size: 100%;
+  min-inline-size: 0;
+  box-sizing: border-box;
+  padding: 3px 2.5rem 3px 0.75ch;
+  font-family: var(--font-mono);
 }
 
-.frequency-filter-message {
-  margin: 0;
+.frequency-regex-control input::-webkit-search-cancel-button {
+  appearance: none;
+}
+
+.frequency-regex-control input[aria-invalid='true'] {
+  border-color: var(--accent-text);
+  outline-color: var(--accent-text);
+}
+
+.frequency-regex-clear {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  min-inline-size: 2.25rem;
+  padding: 0;
+  border: 0;
+  color: var(--fg-muted);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-md);
+  line-height: 1;
+}
+
+.frequency-regex-clear:hover,
+.frequency-regex-clear:focus-visible {
+  color: var(--fg);
+}
+
+.frequency-regex-status {
+  grid-column: 2;
+  margin: calc(-1 * var(--space-1)) 0 0;
   color: var(--accent-text);
-  font-size: var(--text-xs);
-}
-
-.frequency-filter-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: var(--space-2);
 }
 
 .frequency-panel {
@@ -2458,13 +2443,25 @@ canvas {
     font-size: 1rem !important;
   }
 
-  .frequency-view-bar {
-    align-items: flex-start;
-  }
-
-  .frequency-view-bar button,
   .frequency-row-actions button {
     min-block-size: 44px;
+  }
+
+  .frequency-regex-filter {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .frequency-regex-control input {
+    min-block-size: 44px;
+  }
+
+  .frequency-regex-clear {
+    min-inline-size: 44px;
+  }
+
+  .frequency-regex-status {
+    grid-column: 1;
   }
 
   .frequency-table-shell {
@@ -2516,45 +2513,6 @@ canvas {
 
   .frequency-row-actions button {
     flex: 1 1 7rem;
-  }
-
-  .frequency-filter-form {
-    min-block-size:
-      calc(100vh - 2 * var(--space-3) - var(--keyboard-inset));
-    min-block-size:
-      calc(100dvh - 2 * var(--space-3) - var(--keyboard-inset));
-  }
-
-  .frequency-filter-fields {
-    display: grid;
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-    align-items: stretch;
-  }
-
-  .frequency-filter-fields > label:first-child,
-  .frequency-filter-fields fieldset {
-    grid-column: 1 / -1;
-  }
-
-  .frequency-filter-fields input,
-  .frequency-filter-fields select {
-    min-inline-size: 0;
-    max-inline-size: 100%;
-    min-block-size: 44px;
-  }
-
-  .frequency-filter-fields fieldset {
-    min-inline-size: 0;
-    justify-content: space-around;
-  }
-
-  .frequency-filter-fields fieldset label {
-    min-block-size: 44px;
-  }
-
-  .frequency-filter-actions button {
-    min-block-size: 44px;
-    flex: 1 1 0;
   }
 
   .compare-definition {

@@ -1,26 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import {
-  frequencyFilterError,
   frequencyMeasure,
+  frequencyRegexError,
   vocabularyRowControlId,
   vocabularyTarget,
   vocabularyTargetIsStale,
 } from '../src/lib/vocabulary-view.ts';
 
-const draft = {
-  minCount: 2,
-  minDocFreq: 3,
-  classes: ['lexical'] as const,
-  prefix: '',
-  sort: { by: 'count' as const, dir: -1 as const },
-  pageLimit: 100,
-};
-
 describe('vocabulary view law', () => {
-  it('totally guards filter and row targets', () => {
-    expect(vocabularyTarget({ surface: 'vocab-filter' })).toEqual({
-      surface: 'vocab-filter',
-    });
+  it('totally guards row targets', () => {
     expect(vocabularyTarget({ surface: 'vocab-row', typeId: 7, key: 'Holmes' }))
       .toEqual({ surface: 'vocab-row', typeId: 7, key: 'Holmes' });
     for (const value of [
@@ -29,6 +17,7 @@ describe('vocabulary view law', () => {
       { surface: 'vocab-row', typeId: -1, key: 'x' },
       { surface: 'vocab-row', typeId: 1.5, key: 'x' },
       { surface: 'vocab-row', typeId: 1, key: '' },
+      { surface: 'vocab-filter' },
       { surface: 'foreign', typeId: 1, key: 'x' },
     ]) expect(vocabularyTarget(value)).toBeNull();
     expect(vocabularyRowControlId(7)).toBe('vocabulary-row-7');
@@ -108,16 +97,12 @@ describe('vocabulary view law', () => {
     expect(vocabularyTargetIsStale(target, true, ready([row]))).toBe(false);
     expect(vocabularyTargetIsStale(target, true, ready([]))).toBe(true);
     expect(vocabularyTargetIsStale(target, false, pending)).toBe(true);
-    expect(vocabularyTargetIsStale({ surface: 'vocab-filter' }, true, ready([])))
-      .toBe(false);
   });
 
-  it('validates filter drafts', () => {
-    expect(frequencyFilterError({ ...draft, minCount: Number.NaN }))
-      .toMatch(/Minimum count/);
-    expect(frequencyFilterError({ ...draft, minDocFreq: 0 }))
-      .toMatch(/Minimum documents/);
-    expect(frequencyFilterError({ ...draft, classes: [] })).toMatch(/token class/);
-    expect(frequencyFilterError(draft)).toBeNull();
+  it('validates bounded Unicode regular expressions', () => {
+    expect(frequencyRegexError('')).toBeNull();
+    expect(frequencyRegexError('^Holmes$|Watson')).toBeNull();
+    expect(frequencyRegexError('[')).toMatch(/Invalid regular expression/);
+    expect(frequencyRegexError('x'.repeat(257))).toMatch(/256/);
   });
 });

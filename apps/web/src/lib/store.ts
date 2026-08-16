@@ -53,8 +53,7 @@ import {
   type MatchesAxisArraysV1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
-  FREQUENCY_PAGE_MAX,
-  FREQUENCY_PREFIX_MAX_UNITS,
+  FREQUENCY_REGEX_MAX_UNITS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
@@ -362,18 +361,9 @@ export interface FrequencyViewV1 {
   readonly minCount: number;
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
-  readonly prefixNfc?: string;
+  readonly regex?: string;
   readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
   readonly page: { readonly offset: number; readonly limit: number };
-}
-
-export interface FrequencyViewInputV1 {
-  readonly minCount: number;
-  readonly minDocFreq: number;
-  readonly classes: readonly FrequencyTokenClassV1[];
-  readonly prefix: string;
-  readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
-  readonly pageLimit: number;
 }
 
 export interface FrequencyState {
@@ -819,10 +809,10 @@ export interface AppState {
    *  Null clears. */
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
   runInventory(): void;
-  runFrequency(): void;
+  runFrequency(retainResident?: boolean): void;
   loadMoreFrequency(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
-  applyFrequencyView(input: FrequencyViewInputV1): void;
+  setFrequencyRegex(pattern: string): void;
   setFrequencyPage(offset: number): void;
   addFrequencyTerm(key: string): void;
   showFrequencyTermInKwic(key: string): void;
@@ -1044,11 +1034,15 @@ function adjacentReaderDocument(
   return null;
 }
 
+function regexForLegacyFrequencyPrefix(prefix: string): string {
+  return `^${prefix.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&')}`;
+}
+
 export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
   if (!project) return null;
   if (project.kind === 'library' && project.data.docs.some((doc) => doc.library === undefined)) return null;
-  const { prefixNfc, ...frequency } = state.frequencyView;
+  const { regex, ...frequency } = state.frequencyView;
   return {
     schema: 'texttrends/workspace/1',
     corpus: project.kind === 'builtin'
@@ -1084,7 +1078,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         minCount: frequency.minCount,
         minDocFreq: frequency.minDocFreq,
         classes: frequency.classes,
-        ...(prefixNfc === undefined ? {} : { prefixNfc }),
+        ...(regex === undefined ? {} : { regex }),
         sort: frequency.sort,
         pageSize: frequency.page.limit,
       },
@@ -3682,9 +3676,14 @@ export function createAppRuntime(
         );
       },
 
-      runFrequency() {
+      runFrequency(retainResident = false) {
         frequencyLane.supersede();
-        const { snapshot, linkedSelection, frequencyView } = get();
+        const {
+          snapshot,
+          linkedSelection,
+          frequencyView,
+          frequency: currentFrequency,
+        } = get();
         if (!snapshot) {
           set({ frequency: null });
           return;
@@ -3692,6 +3691,14 @@ export function createAppRuntime(
         const issuedKey = snapKey(snapshot);
         const issuedSelection = linkedSelection;
         const issuedView = frequencyView;
+        const resident = retainResident
+          && currentFrequency?.snapshot === snapshot.snapshot
+          && currentFrequency.selection === issuedSelection
+          ? currentFrequency.resident
+            ?? (currentFrequency.state.status === 'ready'
+              ? currentFrequency.state.result
+              : null)
+          : null;
         const lease = frequencyLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
           () => get().linkedSelection === issuedSelection,
@@ -3702,7 +3709,7 @@ export function createAppRuntime(
             snapshot: snapshot.snapshot,
             selection: issuedSelection,
             view: issuedView,
-            resident: null,
+            resident,
             state: { status: 'pending' },
           },
         });
@@ -3718,9 +3725,9 @@ export function createAppRuntime(
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,
                 classes: issuedView.classes,
-                ...(issuedView.prefixNfc === undefined
+                ...(issuedView.regex === undefined
                   ? {}
-                  : { prefixNfc: issuedView.prefixNfc }),
+                  : { regex: issuedView.regex }),
               },
               sort: issuedView.sort,
               page: issuedView.page,
@@ -3801,9 +3808,9 @@ export function createAppRuntime(
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,
                 classes: issuedView.classes,
-                ...(issuedView.prefixNfc === undefined
+                ...(issuedView.regex === undefined
                   ? {}
-                  : { prefixNfc: issuedView.prefixNfc }),
+                  : { regex: issuedView.regex }),
               },
               sort: issuedView.sort,
               page: { offset, limit },
@@ -4216,52 +4223,32 @@ export function createAppRuntime(
         get().runFrequency();
       },
 
-      applyFrequencyView(input) {
-        const normalized = input.prefix.trim().normalize('NFC');
-        const classes = [...new Set(input.classes)].filter(
-          (value): value is FrequencyTokenClassV1 =>
-            value === 'lexical' || value === 'numeral',
-        );
-        const current = get().frequencyView;
-        if (
-          !Number.isSafeInteger(input.minCount) ||
-          input.minCount < 1 ||
-          !Number.isSafeInteger(input.minDocFreq) ||
-          input.minDocFreq < 1 ||
-          normalized.length > FREQUENCY_PREFIX_MAX_UNITS ||
-          classes.length === 0 ||
-          classes.length !== input.classes.length ||
-          !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
-            .includes(input.sort.by) ||
-          (input.sort.dir !== 1 && input.sort.dir !== -1) ||
-          !Number.isSafeInteger(input.pageLimit) ||
-          input.pageLimit < 1 ||
-          input.pageLimit > FREQUENCY_PAGE_MAX
-        ) {
-          return;
+      setFrequencyRegex(pattern) {
+        const normalized = pattern.normalize('NFC');
+        if (normalized.length > FREQUENCY_REGEX_MAX_UNITS) return;
+        if (normalized !== '') {
+          try {
+            new RegExp(normalized, 'u');
+          } catch {
+            return;
+          }
         }
-        const { prefixNfc: _oldPrefix, ...withoutPrefix } = current;
+        const current = get().frequencyView;
+        if ((current.regex ?? '') === normalized) return;
+        const { regex: _oldRegex, ...withoutRegex } = current;
         set({
           frequencyView: normalized === ''
             ? {
-                ...withoutPrefix,
-                minCount: input.minCount,
-                minDocFreq: input.minDocFreq,
-                classes,
-                sort: { ...input.sort },
-                page: { offset: 0, limit: input.pageLimit },
+                ...withoutRegex,
+                page: { ...current.page, offset: 0 },
               }
             : {
                 ...current,
-                minCount: input.minCount,
-                minDocFreq: input.minDocFreq,
-                classes,
-                prefixNfc: normalized,
-                sort: { ...input.sort },
-                page: { offset: 0, limit: input.pageLimit },
+                regex: normalized,
+                page: { ...current.page, offset: 0 },
               },
         });
-        get().runFrequency();
+        get().runFrequency(true);
       },
 
       setFrequencyPage(offset) {
@@ -4489,6 +4476,10 @@ export function createAppRuntime(
           restoredTrendBins.mode !== workspace.views.trend.bins.mode
           || restoredTrendBins.count !== workspace.views.trend.bins.count;
         const compare = workspace.views.compare;
+        const frequencyRegex = workspace.views.frequency.regex
+          ?? (workspace.views.frequency.prefixNfc === undefined
+            ? undefined
+            : regexForLegacyFrequencyPrefix(workspace.views.frequency.prefixNfc));
         set({
           trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
             || (workspace.corpus.kind === 'library' && workspace.corpus.order.length === 0)
@@ -4506,9 +4497,9 @@ export function createAppRuntime(
             minCount: workspace.views.frequency.minCount,
             minDocFreq: workspace.views.frequency.minDocFreq,
             classes: workspace.views.frequency.classes,
-            ...(workspace.views.frequency.prefixNfc === undefined
+            ...(frequencyRegex === undefined
               ? {}
-              : { prefixNfc: workspace.views.frequency.prefixNfc }),
+              : { regex: frequencyRegex }),
             sort: workspace.views.frequency.sort,
             page: { offset: 0, limit: workspace.views.frequency.pageSize },
           },
