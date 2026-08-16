@@ -310,10 +310,10 @@ describe('narrowQueryV4', () => {
     expect(rq({ kind: 'from', token: 0 }, {}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
   });
 
-  it('occurrence-step/1 admits one exact full-corpus track and a closed direction', () => {
+  it('occurrence-step/1 admits active full-corpus tracks and a closed direction', () => {
     const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
       op: 'occurrence-step',
-      track: { seriesId: 's1', group: wolfGroup },
+      tracks: [{ seriesId: 's1', group: wolfGroup }],
       request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1, ...over },
     });
     expect(query()).toBe(true);
@@ -324,12 +324,20 @@ describe('narrowQueryV4', () => {
     expect(narrowQueryV4({
       op: 'occurrence-step',
       selection: { docs: ['a'] },
-      track: { seriesId: 's1', group: wolfGroup },
+      tracks: [{ seriesId: 's1', group: wolfGroup }],
       request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1 },
     })).toBe(false);
     expect(narrowQueryV4({
       op: 'occurrence-step',
-      track: [{ seriesId: 's1', group: wolfGroup }],
+      tracks: [
+        { seriesId: 's1', group: wolfGroup },
+        { seriesId: 's2', group: { ...wolfGroup, id: 'g2' } },
+      ],
+      request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1 },
+    })).toBe(true);
+    expect(narrowQueryV4({
+      op: 'occurrence-step',
+      track: { seriesId: 's1', group: wolfGroup },
       request: { method: 'occurrence-step/1', doc: 'a', token: 3, direction: 1 },
     })).toBe(false);
   });

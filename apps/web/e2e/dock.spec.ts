@@ -13,7 +13,7 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
 
   const dock = page.locator('.workbench-dock');
   const terms = page.getByRole('complementary', { name: 'Terms' });
-  const termButtons = terms.locator('[data-term-focus]:not(:disabled)');
+  const termButtons = terms.locator('[data-term-toggle]:not(:disabled)');
   await expect(terms).toBeVisible();
   await expect(termButtons).toHaveCount(0);
   await expect.poll(() => rootMetric(page, '--reading-reserve-block-size')).toBe(0);
@@ -160,7 +160,6 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   expect(await port.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
 
   for (const control of [
-    terms.locator('.term-bucket-focus').first(),
     terms.locator('.term-bucket-toggle').first(),
     terms.getByRole('button', { name: 'Add term', exact: true }),
     terms.getByRole('button', { name: 'Manage', exact: true }),

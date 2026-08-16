@@ -122,14 +122,12 @@ const FooterSparkline = memo(function FooterSparkline({
   layout,
   width,
   geometry,
-  focusedSeries,
 }: {
   readonly series: readonly FooterSeries[];
   readonly docs: readonly string[];
   readonly layout: SequenceLayout;
   readonly width: number;
   readonly geometry: FooterGeometry;
-  readonly focusedSeries: string | null;
 }) {
   let maxValue = 0;
   for (const item of series) {
@@ -176,12 +174,9 @@ const FooterSparkline = memo(function FooterSparkline({
             d={path}
             fill="none"
             stroke={seriesColor(item.style)}
-            strokeWidth={item.id === focusedSeries
-              ? geometry.strokeFocused
-              : geometry.strokeOther}
+            strokeWidth={geometry.strokeWidth}
             strokeDasharray={seriesDash(item.style)}
             strokeLinecap={seriesLinecap(item.style)}
-            opacity={focusedSeries !== null && item.id !== focusedSeries ? 0.55 : 1}
           />
         ));
       }))}
@@ -1001,7 +996,6 @@ export function WorkbenchFooter({
   const selectedDispersion = useApp((state) => state.selectedDispersion);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
-  const focusedSeries = useApp((state) => state.focusedSeries);
   const measure = useApp((state) => state.trendMeasure);
   const coarse = presentation.coarseAvailable;
   const baseGeometry = footerGeometryFor(presentation.width, coarse);
@@ -1200,7 +1194,6 @@ export function WorkbenchFooter({
         layout={layout}
         width={width}
         geometry={geometry}
-        focusedSeries={focusedSeries}
       />
       {tracks.length > 0 && (
         <BarcodeBand
@@ -1217,7 +1210,6 @@ export function WorkbenchFooter({
           trackHeight={geometry.barcodeTrackHeight}
           trackGap={geometry.barcodeTrackGap}
           styleOf={(id) => series.find((item) => item.id === id)?.style ?? DEFAULT_SERIES_STYLE}
-          focusedSeries={focusedSeries}
           coarse={coarse}
         />
       )}

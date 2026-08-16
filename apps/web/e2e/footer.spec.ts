@@ -157,14 +157,14 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   const occurrenceMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await slider.press('w');
   await expect(footer.locator('.footer-reading-status'))
-    .toContainText('next reference for focused term');
+    .toContainText('next reference from any term');
   await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
     .toBeGreaterThan(0);
   const firstOccurrence = Number(await slider.getAttribute('aria-valuenow'));
   await slider.press('w');
   await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
     .toBeGreaterThan(firstOccurrence);
-  await slider.press('W');
+  await slider.press('b');
   await expect(slider).toHaveAttribute('aria-valuenow', String(firstOccurrence));
   expect((await trace(page)).events.filter((event) =>
     event.seq > occurrenceMark
@@ -182,7 +182,7 @@ test('footer keyboard reading enters a cold corpus and exposes page, fine, and o
   await reader.press('w');
   await expect.poll(async () => Number(await readerProse.getAttribute('data-reader-anchor')))
     .toBeGreaterThan(firstOccurrence);
-  await reader.press('W');
+  await reader.press('b');
   await expect(readerProse).toHaveAttribute('data-reader-anchor', String(firstOccurrence));
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();

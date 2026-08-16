@@ -23,31 +23,18 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   const scrollBeforeTerms = await page.evaluate(() => window.scrollY);
   await page.keyboard.press('g');
   await page.keyboard.press('q');
-  const termButtons = page.locator('[data-term-focus]:not(:disabled)');
+  const termButtons = page.locator('[data-term-toggle]:not(:disabled)');
   await expect(termButtons.nth(0)).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeTerms);
-  const focusedTermBox = await termButtons.nth(0).boundingBox();
-  expect(focusedTermBox?.y).toBeGreaterThanOrEqual(0);
-  expect(focusedTermBox ? focusedTermBox.y + focusedTermBox.height : Number.POSITIVE_INFINITY)
+  const termToggleBox = await termButtons.nth(0).boundingBox();
+  expect(termToggleBox?.y).toBeGreaterThanOrEqual(0);
+  expect(termToggleBox ? termToggleBox.y + termToggleBox.height : Number.POSITIVE_INFINITY)
     .toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
   await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'true');
-  await termButtons.nth(0).press('l');
-  await expect(termButtons.nth(1)).toBeFocused();
-  await expect(termButtons.nth(1)).toHaveAttribute('aria-pressed', 'true');
-  await termButtons.nth(1).press('g');
-  await page.keyboard.press('l');
-  await page.keyboard.press('t');
-  await expect(inputsSurface).toBeVisible();
-  await expect(termButtons.nth(2)).toBeFocused();
-  await termButtons.nth(2).press('h');
-  await expect(termButtons.nth(1)).toBeFocused();
-  await termButtons.nth(1).press('ArrowLeft');
-  await expect(termButtons.nth(0)).toBeFocused();
-
-  await chord(termButtons.nth(0), ']', 't');
-  await expect(termButtons.nth(1)).toBeFocused();
-  await chord(termButtons.nth(1), '[', 't');
-  await expect(termButtons.nth(0)).toBeFocused();
+  await termButtons.nth(0).click();
+  await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'false');
+  await termButtons.nth(0).click();
+  await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'true');
 
   const firstBook = page.getByRole('button', { name: 'A Study in Scarlet', exact: true });
   await firstBook.focus();

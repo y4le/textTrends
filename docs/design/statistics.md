@@ -73,7 +73,7 @@ cannot separate these): `a=3, N1=1000, b=0, N2=1000` → `LR = 2.807`, interval
 `LR = 3.904`, interval `(3.698, 4.109)`.
 
 Display contract: the interval is a **per-term** precision statement carrying no
-multiplicity correction. It is shown on a term the reader has selected, and it
+multiplicity correction. It is shown in a term's expanded detail, and it
 never becomes a table-wide filter — keeping only the terms whose intervals
 exclude zero is precisely the selection effect a correction would exist for.
 The Wald model also treats token draws as independent. Running-text burstiness

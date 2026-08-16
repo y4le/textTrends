@@ -1228,7 +1228,6 @@ describe('the session bridge', () => {
       soloGroupId: null,
       styles: new Map(),
       series: [],
-      focusedSeries: null,
       removedGroups: [],
       inputError: null,
     });
@@ -1528,18 +1527,6 @@ describe('store query intent discipline', () => {
     await flush();
     const collided = f.store.getState().trends.get(moriarty!.id)!;
     expect(collided.status).toBe('error');
-  });
-
-  it('a focus change does NOT reissue or cancel Matches (focus independence)', () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1');
-    f.store.getState().quickAdd('holmes, moriarty');
-    const kwicBefore = f.kwics().filter((q) => !q.cancelled).at(-1)!;
-    const kwicCount = f.kwics().length;
-    f.store.getState().setFocus(f.store.getState().series[1]!.id);
-    expect(f.store.getState().focusedSeries).toBe(f.store.getState().series[1]!.id);
-    expect(kwicBefore.cancelled).toBe(false); // the merged match set is untouched by focus
-    expect(f.kwics().length).toBe(kwicCount); // no reissue
   });
 
   it('global activation reissues Matches with exactly the effective series', () => {
@@ -1981,11 +1968,10 @@ describe('store query intent discipline', () => {
     );
   });
 
-  it('undoes explicit term deletion without granting the undo record style authority and preserves null focus', () => {
+  it('undoes explicit term deletion without granting the undo record style authority', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
-    expect(f.store.getState().focusedSeries).toBeNull();
     const removed = f.store.getState().notebook.groups[0]!;
     f.store.getState().setSolo(removed.id);
     const previousStyle = f.store.getState().styles.get(removed.id);
@@ -1997,7 +1983,6 @@ describe('store query intent discipline', () => {
     expect(f.store.getState().notebook.groups[0]).toBe(removed);
     expect(f.store.getState().activeGroupIds.has(removed.id)).toBe(true);
     expect(f.store.getState().soloGroupId).toBe(removed.id);
-    expect(f.store.getState().focusedSeries).toBeNull();
     expect(f.store.getState().styles.get(removed.id)).toEqual(previousStyle);
     // Style reconciliation may naturally choose the same free pair; the undo
     // record itself carries no style authority.
@@ -2283,12 +2268,11 @@ describe('query notebook — identity discipline', () => {
     aliases: ['holm*'],
   });
 
-  it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, focus, and global activation untouched)', () => {
+  it('quickAdd is APPEND-ONLY: a duplicate matching identity is skipped (UUID, member ids, and global activation untouched)', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
-    f.store.getState().setFocus(moriarty!.id);
     f.store.getState().setGroupActive(holmes!.id, false);
     f.store.getState().quickAdd('holmes, watson'); // holmes skipped, watson appended
     const after = groupsOf(f);
@@ -2300,7 +2284,6 @@ describe('query notebook — identity discipline', () => {
     expect(f.store.getState().activeGroupIds.has(after[2]!.id)).toBe(true);
     expect(f.store.getState().series.map((series) => series.id))
       .toEqual([moriarty!.id, after[2]!.id]);
-    expect(f.store.getState().focusedSeries).toBe(moriarty!.id); // focus survives
   });
 
   it('rename preserves the UUID and issues NO worker request; the projection relabels', () => {
@@ -2607,7 +2590,7 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.store.getState().soloGroupId).toBeNull(); // normalized away
   });
 
-  it('reorder is a refused-unless-total permutation, preserves UUIDs/slots/focus, and reissues nothing', () => {
+  it('reorder is a refused-unless-total permutation, preserves UUIDs/slots, and reissues nothing', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
@@ -2624,17 +2607,15 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(f.issued.length).toBe(issued); // invariant 2: no reissue
   });
 
-  it('removal cleans results, focus, effective Matches projection, solo, and style ownership', () => {
+  it('removal cleans results, effective Matches projection, solo, and style ownership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');
     f.store.getState().quickAdd('holmes, moriarty');
     const [holmes, moriarty] = groupsOf(f);
-    f.store.getState().setFocus(moriarty!.id);
     f.store.getState().setSolo(moriarty!.id);
     f.store.getState().removeGroup(moriarty!.id);
     const state = f.store.getState();
     expect(state.notebook.groups.map((g) => g.id)).toEqual([holmes!.id]);
-    expect(state.focusedSeries).toBe(holmes!.id);
     expect(state.soloGroupId).toBeNull();
     expect(state.styles.has(moriarty!.id)).toBe(false);
     expect(state.activeGroupIds.has(moriarty!.id)).toBe(false);
@@ -3429,51 +3410,58 @@ describe('global footer passage intent', () => {
   });
 });
 
-describe('exact focused-term occurrence navigation', () => {
+describe('exact any-term occurrence navigation', () => {
   const resultFor = (
     entry: Issued,
     hit: { readonly doc: string; readonly token: number; readonly spanTokens: number; readonly members: readonly number[] } | null,
+    seriesId?: string,
   ): QueryResultDataV4 => {
     const query = entry.query as {
-      track: { seriesId: string; group: { id: string } };
+      tracks: readonly { seriesId: string; group: { id: string } }[];
     };
+    const track = query.tracks.find((candidate) => candidate.seriesId === seriesId)
+      ?? query.tracks[0]!;
     return {
       op: 'occurrence-step',
-      seriesId: query.track.seriesId,
-      groupId: query.track.group.id,
+      seriesId: track.seriesId,
+      groupId: track.group.id,
       step: { method: 'occurrence-step/1', hit, atEdge: hit === null },
     };
   };
 
-  it('focuses the first active term, issues one full-corpus exact step, and centers reading + Matches', async () => {
+  it('queries every active term and centers the nearest result in reading + Matches', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().quickAdd('holmes, watson');
-    f.store.setState({ focusedSeries: null });
     f.store.getState().setScrub({ doc: 'a', token: 2 });
 
     f.store.getState().stepOccurrence(1);
     const request = f.occurrenceSteps().at(-1)!;
     const query = request.query as {
       selection?: unknown;
-      track: { seriesId: string; group: { id: string; members: { surface: string }[] } };
+      tracks: readonly { seriesId: string; group: { id: string; members: { surface: string }[] } }[];
       request: { method: string; doc: string; token: number; direction: number };
     };
     expect(query.selection).toBeUndefined();
-    expect(query.track.seriesId).toBe(f.store.getState().series[0]!.id);
-    expect(query.track.group.members[0]!.surface).toBe('holmes');
+    expect(query.tracks.map((track) => track.seriesId)).toEqual(
+      f.store.getState().series.map((series) => series.id),
+    );
+    expect(query.tracks.map((track) => track.group.members[0]!.surface))
+      .toEqual(['holmes', 'watson']);
     expect(query.request).toEqual({
       method: 'occurrence-step/1', doc: 'a', token: 2, direction: 1,
     });
     expect(f.store.getState().occurrenceNavigation?.state.status).toBe('pending');
+    expect(request.cancelled).toBe(false);
+    expect(f.store.getState().occurrenceNavigation?.state.status).toBe('pending');
 
+    const watson = f.store.getState().series[1]!;
     request.resolve(resultFor(request, {
       doc: 'a', token: 7, spanTokens: 2, members: [0],
-    }));
+    }, watson.id));
     await flush();
     expect(f.store.getState()).toMatchObject({
       scrub: { doc: 'a', token: 7 },
-      focusedSeries: f.store.getState().series[0]!.id,
       occurrenceNavigation: {
         direction: 1,
         state: {
@@ -3510,7 +3498,7 @@ describe('exact focused-term occurrence navigation', () => {
     });
     expect(occurrenceNavigationText(
       f.store.getState().occurrenceNavigation,
-    )).toBe('no previous reference for focused term');
+    )).toBe('no references from any term');
   });
 
   it('describes every reference-navigation state without leaking a term label', () => {
@@ -3520,16 +3508,16 @@ describe('exact focused-term occurrence navigation', () => {
       direction: 1 as const,
     };
     expect(occurrenceNavigationText({ ...base, state: { status: 'pending' } }))
-      .toBe('finding next reference for focused term');
+      .toBe('finding next reference from any term');
     expect(occurrenceNavigationText({
       ...base,
       state: {
         status: 'ready',
         hit: { doc: 'a', token: 7, spanTokens: 1, members: [0] },
       },
-    })).toBe('next reference for focused term');
+    })).toBe('next reference from any term');
     expect(occurrenceNavigationText({ ...base, state: { status: 'edge' } }))
-      .toBe('no next reference for focused term');
+      .toBe('no references from any term');
     expect(occurrenceNavigationText({
       ...base,
       state: { status: 'error', message: 'worker unavailable' },
@@ -3608,7 +3596,7 @@ describe('exact focused-term occurrence navigation', () => {
     });
     await flush();
     expect(f.store.getState().occurrenceNavigation?.state).toMatchObject({
-      status: 'error', message: 'worker returned the wrong term',
+      status: 'error', message: 'worker returned an inactive term',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
 
@@ -4208,7 +4196,6 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().series.map((series) => series.id)).toContain(group.id);
     query = f.kwics().filter((item) => !item.cancelled).at(-1)!.query as { tracks: { seriesId: string }[] };
     expect(query.tracks.map((track) => track.seriesId)).toContain(group.id);
-    expect(f.store.getState().focusedSeries).toBe(group.id);
     expect(f.store.getState().place).toBe('matches');
   });
 

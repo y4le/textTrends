@@ -42,8 +42,7 @@ const COMPACT_FINE: FooterGeometry = Object.freeze({
   barcodeTrackHeight: 5,
   barcodeTrackGap: 1,
   barcodeBandGap: 3,
-  strokeFocused: 1.5,
-  strokeOther: 1,
+  strokeWidth: 1,
   bookMarks: 'boundaries',
 });
 
@@ -60,8 +59,7 @@ const STANDARD_FINE: FooterGeometry = Object.freeze({
   barcodeTrackHeight: 6,
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
-  strokeFocused: 1.5,
-  strokeOther: 1,
+  strokeWidth: 1,
   bookMarks: 'boundaries',
 });
 

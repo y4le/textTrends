@@ -190,7 +190,6 @@ export function ReaderDrawer({
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const series = useApp((state) => state.series);
-  const focusedSeries = useApp((state) => state.focusedSeries);
   const paneRef = useRef<HTMLDivElement | null>(null);
   const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
   const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
@@ -387,7 +386,7 @@ export function ReaderDrawer({
     (id) => identities.get(id) ?? null,
     liveSeries,
   );
-  const focused = series.find((item) => item.id === focusedSeries) ?? series[0];
+  const hasTerms = series.length > 0;
   const occurrencePending = occurrenceNavigation?.state.status === 'pending';
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
@@ -484,10 +483,10 @@ export function ReaderDrawer({
           className="reader-occurrence-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
-          disabled={!focused || occurrencePending}
+          disabled={!hasTerms || occurrencePending}
           onClick={() => stepOccurrence(-1)}
-          title={focused ? 'Previous exact reference for focused term' : 'No active term'}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
+          title={hasTerms ? 'Previous exact reference from any term' : 'No active terms'}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: hasTerms && !occurrencePending ? 1 : 0.45 }}
         >
           previous reference
         </button>
@@ -515,10 +514,10 @@ export function ReaderDrawer({
           className="reader-occurrence-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
-          disabled={!focused || occurrencePending}
+          disabled={!hasTerms || occurrencePending}
           onClick={() => stepOccurrence(1)}
-          title={focused ? 'Next exact reference for focused term' : 'No active term'}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: focused && !occurrencePending ? 1 : 0.45 }}
+          title={hasTerms ? 'Next exact reference from any term' : 'No active terms'}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: hasTerms && !occurrencePending ? 1 : 0.45 }}
         >
           next reference
         </button>

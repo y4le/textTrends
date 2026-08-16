@@ -361,12 +361,11 @@ export function narrowQueryV4(q: unknown): boolean {
       return c.kind === 'around' || c.kind === 'from';
     }
     case 'occurrence-step': {
-      // Full-corpus selection is ENGINE-owned, and exactly one track is part
-      // of the operation identity. The result is one bounded hit, never an
-      // occurrence array or a density approximation.
+      // Full-corpus selection is ENGINE-owned. The result is the nearest hit
+      // from any active track, never an occurrence array or approximation.
       const r = q.request as Record<string, unknown>;
-      return exactRecord(q, ['op', 'track', 'request'])
-        && narrowTracks([q.track], 1)
+      return exactRecord(q, ['op', 'tracks', 'request'])
+        && narrowTracks(q.tracks, 1)
         && exactRecord(q.request, ['method', 'doc', 'token', 'direction'])
         && r.method === 'occurrence-step/1'
         && isStr(r.doc)

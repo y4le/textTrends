@@ -2961,26 +2961,21 @@ canvas {
   margin-inline-start: auto;
 }
 
-.term-bucket button + button {
+.term-bucket > * + button {
   border-inline-start: 1px solid var(--rule);
 }
 
-.term-bucket-focus {
+.term-bucket-summary {
   display: inline-flex;
   min-width: 0;
   align-items: center;
   gap: 0.65ch;
   padding-inline: var(--space-2);
-  font-family: var(--font-mono) !important;
+  font-family: var(--font-mono);
   white-space: nowrap;
 }
 
-.term-bucket-focus[aria-pressed='true'] {
-  box-shadow: inset 0 -2px 0 var(--fg);
-}
-
-.term-bucket-focus:disabled {
-  cursor: default;
+.term-bucket-summary:not([data-projected='true']) {
   opacity: 0.56;
 }
 

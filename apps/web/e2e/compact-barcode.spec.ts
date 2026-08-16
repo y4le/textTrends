@@ -35,7 +35,7 @@ async function awaitFreshKwic(
   }, { timeout: 30_000 }).toBe('ready');
 }
 
-test('coarse pointers read the dense barcode through one focused 48px stepper', async ({ browser }) => {
+test('coarse pointers read the dense barcode through the first shown term\'s 48px stepper', async ({ browser }) => {
   const context = await browser.newContext({
     viewport: { width: 390, height: 844 },
     hasTouch: true,
@@ -48,7 +48,7 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
-  const canvas = scrubber.locator('canvas[data-pointer-contract="scrub-only"]');
+  const canvas = scrubber.locator('canvas[data-pointer-contract="scrub-only"]').first();
   await expect(canvas).toBeVisible();
   expect(await canvas.evaluate((node) => getComputedStyle(node).pointerEvents)).toBe('none');
 
@@ -108,10 +108,8 @@ test('coarse pointers read the dense barcode through one focused 48px stepper', 
       && event.op === 'matches-window',
   )).toBe(true);
 
-  await page
-    .getByRole('group', { name: 'Query terms' })
-    .getByRole('button', { name: /^Moriarty \d+$/ })
-    .click();
+  await page.getByRole('button', { name: 'Shown in analysis: Holmes' }).click();
+  await page.getByRole('button', { name: 'Shown in analysis: Watson' }).click();
   const termRow = (term: string) => page.locator('[data-term-occurrences]').filter({ hasText: term });
   await expect(termRow('Moriarty').getByRole('group', { name: /^Barcode (reference|bucket) navigation$/ }))
     .toBeVisible();

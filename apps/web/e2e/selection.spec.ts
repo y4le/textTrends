@@ -228,7 +228,7 @@ test('pointer and keyboard selections share detail results and stale results can
     .locator('[data-term-occurrence-count]');
   await expect(termTotal).toHaveText('1');
   await expect(page.getByRole('group', { name: 'Query terms' })
-    .getByRole('button', { name: 'wolf 1 selected / 3', exact: true })).toBeVisible();
+    .locator('.term-bucket-summary').filter({ hasText: /wolf\s*1 selected \/ 3/ })).toBeVisible();
   await gotoPlace(page, 'matches');
   const matches = page.getByRole('grid', { name: 'Matches' });
   await expect(matches.locator('[role="row"][aria-rowindex]')).toHaveCount(3);

@@ -8,8 +8,7 @@ export interface TrendGeometry {
   readonly barcodeTrackHeight: number;
   readonly barcodeTrackGap: number;
   readonly barcodeBandGap: number;
-  readonly strokeFocused: number;
-  readonly strokeOther: number;
+  readonly strokeWidth: number;
   readonly bookMarks: 'ticks' | 'boundaries';
 }
 
@@ -21,8 +20,7 @@ const STANDARD: TrendGeometry = Object.freeze({
   barcodeTrackHeight: 7,
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
-  strokeFocused: 2.5,
-  strokeOther: 1.5,
+  strokeWidth: 1.5,
   bookMarks: 'ticks',
 });
 
@@ -34,8 +32,7 @@ const COMPACT: TrendGeometry = Object.freeze({
   barcodeTrackHeight: 5,
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
-  strokeFocused: 3.5,
-  strokeOther: 2,
+  strokeWidth: 2,
   bookMarks: 'boundaries',
 });
 

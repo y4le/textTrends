@@ -7,18 +7,14 @@ export interface BarcodeStepperVM {
 }
 
 /**
- * A coarse pointer gets one honest navigation control, owned by chart focus.
+ * A coarse pointer gets one honest navigation control on the first shown term.
  * The dense canvas remains analytical ink rather than pretending each 7px row
- * is a touch target.
+ * is a touch target. Users can hide other terms to expose a specific track.
  */
 export function barcodeStepperFor(
   tracks: readonly BarcodeTrackVM[],
-  focusedSeries: string | null,
 ): BarcodeStepperVM {
-  const focused = focusedSeries === null
-    ? null
-    : tracks.find((track) => track.seriesId === focusedSeries) ?? null;
-  const track = focused ?? tracks[0] ?? null;
+  const track = tracks[0] ?? null;
   if (!track) {
     return {
       track: null,

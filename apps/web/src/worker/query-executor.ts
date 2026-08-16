@@ -612,32 +612,89 @@ export class QueryExecutor {
     return page;
   }
 
-  /** occurrence-step/1: one exact hit from the SAME full-corpus occurrence
-   * cache as trends, dispersion, KWIC, and Reader. The output is bounded and
-   * contains no transferable view into the cached typed arrays. */
+  /** occurrence-step/1: the nearest exact hit from ANY active track, using the
+   * SAME full-corpus occurrence cache as trends, dispersion, KWIC, and Reader.
+   * At the corpus edge it cycles once to the opposite edge. The output remains
+   * bounded and contains no view into the cached typed arrays. */
   async occurrenceStep(
     selection: ResolvedSelection,
-    track: { readonly seriesId: string; readonly group: TermGroupSpec },
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
     request: OccurrenceStepRequestV1,
     checkpoint: QueryCheckpoint,
-  ): Promise<OccurrenceStepResultV1> {
+  ): Promise<{
+    readonly seriesId: string;
+    readonly groupId: string;
+    readonly step: OccurrenceStepResultV1;
+  }> {
+    if (tracks.length === 0) throw new RangeError('occurrence stepping requires an active track');
     const { snapshot } = this.published();
     const shards = this.shardsFor(selection);
     const resolvers = new Map<string, Map<string, Resolver>>();
     for (const id of selection.spec.docs) {
       const byMode = new Map<string, Resolver>();
-      for (const member of track.group.members) {
-        const mk = modeKey(member.match);
-        if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+      for (const track of tracks) {
+        for (const member of track.group.members) {
+          const mk = modeKey(member.match);
+          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
+        }
       }
       resolvers.set(id, byMode);
     }
     await checkpoint();
-    const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+    const candidates: {
+      readonly track: (typeof tracks)[number];
+      readonly occurrences: NumericOccurrences;
+      readonly step: OccurrenceStepResultV1;
+    }[] = [];
+    for (const track of tracks) {
+      const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+      candidates.push({
+        track,
+        occurrences: occ,
+        step: occurrenceStep(snapshot, selection, occ, request),
+      });
+      await checkpoint();
+    }
+    const globalPosition = (candidate: (typeof candidates)[number]): number => {
+      const hit = candidate.step.hit;
+      if (hit === null) return request.direction === 1
+        ? Number.POSITIVE_INFINITY
+        : Number.NEGATIVE_INFINITY;
+      const ref = snapshot.docs.find((document) => document.doc === hit.doc);
+      if (!ref) throw new RangeError(`occurrence step returned unknown document '${hit.doc}'`);
+      return ref.sequenceTokenBase + hit.token;
+    };
+    const nearest = (values: readonly (typeof candidates)[number][]) => values.reduce<
+      (typeof candidates)[number] | null
+    >((best, candidate) => {
+      if (candidate.step.hit === null) return best;
+      if (best === null) return candidate;
+      const position = globalPosition(candidate);
+      const bestPosition = globalPosition(best);
+      return request.direction === 1
+        ? position < bestPosition ? candidate : best
+        : position > bestPosition ? candidate : best;
+    }, null);
+    let chosen = nearest(candidates);
+    if (chosen === null) {
+      chosen = nearest(candidates.map((candidate) => ({
+        ...candidate,
+        step: occurrenceStep(
+          snapshot,
+          selection,
+          candidate.occurrences,
+          request,
+          true,
+        ),
+      })));
+    }
     await checkpoint();
-    const step = occurrenceStep(snapshot, selection, occ, request);
-    await checkpoint();
-    return step;
+    const result = chosen ?? candidates[0]!;
+    return {
+      seriesId: result.track.seriesId,
+      groupId: result.track.group.id,
+      step: result.step,
+    };
   }
 
   /** Full-corpus continuous Matches over the shared occurrence cache. */

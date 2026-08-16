@@ -1153,7 +1153,7 @@ describe('dispersion/1 through the executor (slice-2 commit C)', () => {
 describe('occurrence-step/1 through the executor', () => {
   const query = (doc: string, token: number, direction: 1 | -1) => ({
     op: 'occurrence-step' as const,
-    track: { seriesId: 's-wolf', group: wolfGroup },
+    tracks: [{ seriesId: 's-wolf', group: wolfGroup }],
     request: { method: 'occurrence-step/1' as const, doc, token, direction },
   });
 
@@ -1203,9 +1203,60 @@ describe('occurrence-step/1 through the executor', () => {
     expect(previous.data.step.hit).toMatchObject({ doc: 'a', token: 5 });
 
     await h.send({ t: 'query', job: 54, snapshot: snap, query: query('b', 2, 1) });
-    const edge = h.last('result');
-    if (edge.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
-    expect(edge.data.step).toEqual({ method: 'occurrence-step/1', hit: null, atEdge: true });
+    const cycled = h.last('result');
+    if (cycled.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(cycled.data.step).toEqual({
+      method: 'occurrence-step/1',
+      hit: { doc: 'a', token: 1, spanTokens: 1, members: [0] },
+      atEdge: false,
+    });
+  });
+
+  it('chooses the nearest reference from any track and cycles at either edge', async () => {
+    const h = harness();
+    const text = 'wolf fox wolf';
+    const spec = await docSpec('a', text);
+    await begin(h, [spec]);
+    await coldIngest(h, 'g', 'a', text, 10);
+    const snap = h.last('snapshot-published').snapshot;
+    const foxGroup = {
+      ...wolfGroup,
+      id: 'fox-group',
+      members: wolfGroup.members.map((member) => ({ ...member, id: 'fox', surface: 'fox' })),
+    };
+    const anyTermQuery = (token: number, direction: 1 | -1) => ({
+      op: 'occurrence-step' as const,
+      tracks: [
+        { seriesId: 's-wolf', group: wolfGroup },
+        { seriesId: 's-fox', group: foxGroup },
+      ],
+      request: { method: 'occurrence-step/1' as const, doc: 'a', token, direction },
+    });
+
+    await h.send({ t: 'query', job: 58, snapshot: snap, query: anyTermQuery(0, 1) });
+    const fox = h.last('result');
+    if (fox.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(fox.data).toMatchObject({
+      seriesId: 's-fox',
+      groupId: 'fox-group',
+      step: { hit: { doc: 'a', token: 1 } },
+    });
+
+    await h.send({ t: 'query', job: 59, snapshot: snap, query: anyTermQuery(2, 1) });
+    const first = h.last('result');
+    if (first.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(first.data).toMatchObject({
+      seriesId: 's-wolf',
+      step: { hit: { doc: 'a', token: 0 }, atEdge: false },
+    });
+
+    await h.send({ t: 'query', job: 60, snapshot: snap, query: anyTermQuery(0, -1) });
+    const last = h.last('result');
+    if (last.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(last.data).toMatchObject({
+      seriesId: 's-wolf',
+      step: { hit: { doc: 'a', token: 2 }, atEdge: false },
+    });
   });
 
   it('coalesces real countOverlaps duplicate starts into inverse reading stops', async () => {
@@ -1228,7 +1279,7 @@ describe('occurrence-step/1 through the executor', () => {
     };
     const overlapQuery = (token: number, direction: 1 | -1) => ({
       op: 'occurrence-step' as const,
-      track: { seriesId: 'overlap-series', group: overlapGroup },
+      tracks: [{ seriesId: 'overlap-series', group: overlapGroup }],
       request: { method: 'occurrence-step/1' as const, doc: 'a', token, direction },
     });
 

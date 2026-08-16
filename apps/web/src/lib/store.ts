@@ -19,8 +19,8 @@
  * a stable UUID + display name + authored core members. The comparison is
  * the ≤MAX_SERIES ACTIVE groups (solo temporarily narrows to one); `series`
  * is the stored projection the panels consume. TWO identities, never
- * conflated: the UUID is presentation/selection identity (focus, style,
- * matches membership, result keys); `termGroupIdentity` is matching
+ * conflated: the UUID is presentation identity (style, matches membership,
+ * result keys); `termGroupIdentity` is matching
  * identity (worker caches, stale-result admission). The comma input is the
  * APPEND-ONLY quick-add surface (`parseQuickAdd`): each term becomes a
  * single-token folded group, a term already present (same matching identity)
@@ -37,7 +37,7 @@
  * matches-window intent are SEPARATE latest-wins lanes (operation leases
  * over one runtime scope). Changing the compared terms or the snapshot
  * cancels and reissues both. Matches is a merged multi-term,
- * full-corpus view independent of `focusedSeries` and `linkedSelection`.
+ * full-corpus view independent of `linkedSelection`.
  * `setScrub` publishes only the shared reading cursor; the mounted surface
  * requests a bounded rank/position window. Exact evidence may additionally
  * carry a one-shot row identity for duplicate-position disambiguation. A
@@ -547,7 +547,7 @@ export interface ScrubTarget {
   readonly token: number;
 }
 
-/** One exact focused-term navigation intent. The worker returns one bounded
+/** One exact any-active-term navigation intent. The worker returns one bounded
  * distinct-start hit; raw overlap counts never become a misleading progress
  * readout. */
 export interface OccurrenceNavigationState {
@@ -567,9 +567,9 @@ export function occurrenceNavigationText(
   if (navigation === null) return '';
   const way = navigation.direction === 1 ? 'next' : 'previous';
   switch (navigation.state.status) {
-    case 'pending': return `finding ${way} reference for focused term`;
-    case 'ready': return `${way} reference for focused term`;
-    case 'edge': return `no ${way} reference for focused term`;
+    case 'pending': return `finding ${way} reference from any term`;
+    case 'ready': return `${way} reference from any term`;
+    case 'edge': return `no references from any term`;
     case 'error': return `reference navigation failed: ${navigation.state.message}`;
     default: {
       const exhaustive: never = navigation.state;
@@ -691,7 +691,6 @@ export interface AppState {
   /** Add demo suggestions without replacing authored terms. Valid new terms
    *  enter the notebook; as many as fit also become active. */
   mergeStarterTerms(input: string): { readonly added: number; readonly activated: number; readonly skipped: number };
-  focusedSeries: string | null;
   /** Seeded 'pending' per issued series — panels must not show stale arrays. */
   trends: ReadonlyMap<string, SeriesTrendState>;
   kwic: KwicState | null;
@@ -738,7 +737,7 @@ export interface AppState {
   scrub: ScrubTarget | null;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
-  /** Latest exact w/W navigation request and its accessible outcome. */
+  /** Latest exact w/b navigation request and its accessible outcome. */
   occurrenceNavigation: OccurrenceNavigationState | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
@@ -786,7 +785,6 @@ export interface AppState {
   setGroupActive(groupId: string, active: boolean): void;
   setSolo(groupId: string | null): void;
   clearNotebookError(): void;
-  setFocus(seriesId: string): void;
   requestMatchesWindow(
     anchor: MatchesAnchorV1,
     window?: {
@@ -1257,7 +1255,7 @@ export function createAppRuntime(
   // Full-reader pages are a distinct latest-wins presentation intent. Rapid
   // Next/Previous cannot race with trends or one another.
   const readerLane = new QueryLane(scope);
-  // Exact focused-term stepping is independent of Reader/footer passage work.
+  // Exact any-term stepping is independent of Reader/footer passage work.
   const occurrenceLane = new QueryLane(scope);
   // The global reading footer reuses reader-page/1 through a separate lane.
   // Reader navigation and footer scrubbing never supersede one another.
@@ -2306,8 +2304,8 @@ export function createAppRuntime(
 
     /**
      * Adopt a notebook mutation: recompute styles, the series
-     * projection, and the dependent normalizations (focus in projection;
-     * matches membership per surviving group, newly active groups
+     * projection, and the dependent normalizations (matches membership per
+     * surviving group, newly active groups
      * enabled; solo only on an active group). ONE authority so every action
      * leaves the same invariants (ruling invariant 7). Reissue policy is the
      * CALLER's: rename/reorder are presentation-only.
@@ -2344,7 +2342,6 @@ export function createAppRuntime(
       if (solo !== null && !active.has(solo)) solo = null;
       const styles = new Map(notebook.groups.map((group) => [group.id, group.style]));
       const series = projectSeries(notebook, active, solo, styles);
-      const stillFocused = series.some((s) => s.id === prev.focusedSeries);
       set({
         notebook,
         activeGroupIds: active,
@@ -2352,11 +2349,6 @@ export function createAppRuntime(
         styles,
         series,
         notebookError: null,
-        focusedSeries: prev.focusedSeries === null
-          ? null
-          : stillFocused
-            ? prev.focusedSeries
-            : series[0]?.id ?? null,
       });
       if (opts.reissue && effectiveIntentKey(notebook, series) !== prevIntent) {
         get().runQueries();
@@ -2433,10 +2425,6 @@ export function createAppRuntime(
       removedGroups: [],
       series: [],
       inputError: null,
-      // Canonical from the start: the store, not the panels, decides the
-      // default focus (review round 5 — a derived fallback left the pressed
-      // chip and the recorded focus disagreeing).
-      focusedSeries: null,
       trends: new Map(),
       kwic: null,
       matchesReveal: null,
@@ -2800,15 +2788,6 @@ export function createAppRuntime(
         set({ notebookError: null });
       },
 
-      setFocus(seriesId) {
-        if (get().focusedSeries === seriesId) return;
-        if (!get().series.some((s) => s.id === seriesId)) return;
-        // Focus drives ONLY the trend-line emphasis; Matches is a merged
-        // multi-term view independent of focus, so no KWIC reissue here.
-        occurrenceLane.supersede();
-        set({ focusedSeries: seriesId, occurrenceNavigation: null });
-      },
-
       requestMatchesWindow(anchor, window) {
         runMatchesWindow(anchor, window);
       },
@@ -2929,17 +2908,15 @@ export function createAppRuntime(
         occurrenceLane.supersede();
         const state = get();
         const snapshot = state.snapshot;
-        const focused = state.series.find((item) => item.id === state.focusedSeries)
-          ?? state.series[0];
-        if (!snapshot || !focused || (direction !== 1 && direction !== -1)) {
+        const tracks = state.series.flatMap((series) => {
+          const group = specFor(series.id);
+          return group === null ? [] : [{ seriesId: series.id, group }];
+        });
+        if (!snapshot || tracks.length === 0 || (direction !== 1 && direction !== -1)) {
           set({ occurrenceNavigation: null });
           return;
         }
-        const group = specFor(focused.id);
-        if (group === null) {
-          set({ occurrenceNavigation: null });
-          return;
-        }
+        const navigationSeriesId = tracks[0]!.seriesId;
         const currentReader = state.readerPlace;
         const readyReader = currentReader
           && state.readerPage
@@ -2965,21 +2942,20 @@ export function createAppRuntime(
         let anchor = readerAnchor ?? state.scrub;
         if (anchor === null) {
           const candidates = direction === 1
-            ? snapshot.readyDocs
-            : [...snapshot.readyDocs].reverse();
+            ? [...snapshot.readyDocs].reverse()
+            : snapshot.readyDocs;
           const doc = candidates.find((candidate) =>
             (state.corpusTokenCounts.get(candidate) ?? 0) > 0);
           const tokenCount = doc ? state.corpusTokenCounts.get(doc) ?? 0 : 0;
           anchor = doc
-            ? { doc, token: direction === 1 ? 0 : tokenCount - 1 }
+            ? { doc, token: direction === 1 ? tokenCount - 1 : 0 }
             : null;
         }
         if (anchor === null || !snapshot.readyDocs.includes(anchor.doc)) {
           set({
-            focusedSeries: focused.id,
             occurrenceNavigation: {
               snapshot: snapshot.snapshot,
-              seriesId: focused.id,
+              seriesId: navigationSeriesId,
               direction,
               state: { status: 'error', message: 'source positions are still loading' },
             },
@@ -2987,7 +2963,10 @@ export function createAppRuntime(
           return;
         }
         const issuedKey = snapKey(snapshot);
-        const issuedIdentity = termGroupIdentity(group);
+        const issuedIdentities = tracks.map((track) => ({
+          seriesId: track.seriesId,
+          identity: termGroupIdentity(track.group),
+        }));
         const issuedReader = currentReader;
         const readerLayer = issuedReader
           ? state.layers.findLast((layer) => layer.kind === 'reader')
@@ -2995,14 +2974,14 @@ export function createAppRuntime(
         const returnFocusTo = readerLayer?.returnFocusTo;
         const lease = occurrenceLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
-          () => identityOf(focused.id) === issuedIdentity,
+          () => issuedIdentities.every((entry) =>
+            identityOf(entry.seriesId) === entry.identity),
           () => sameReaderPlace(get().readerPlace, issuedReader),
         );
         set({
-          focusedSeries: focused.id,
           occurrenceNavigation: {
             snapshot: snapshot.snapshot,
-            seriesId: focused.id,
+            seriesId: navigationSeriesId,
             direction,
             state: { status: 'pending' },
           },
@@ -3012,7 +2991,7 @@ export function createAppRuntime(
           snapshot.snapshot,
           {
             op: 'occurrence-step',
-            track: { seriesId: focused.id, group },
+            tracks,
             request: {
               method: 'occurrence-step/1',
               doc: anchor.doc,
@@ -3024,16 +3003,27 @@ export function createAppRuntime(
           (data) => {
             if (
               data.op !== 'occurrence-step'
-              || data.seriesId !== focused.id
-              || data.groupId !== group.id
               || data.step.method !== 'occurrence-step/1'
             ) {
               set({
                 occurrenceNavigation: {
                   snapshot: snapshot.snapshot,
-                  seriesId: focused.id,
+                  seriesId: navigationSeriesId,
                   direction,
-                  state: { status: 'error', message: 'worker returned the wrong term' },
+                  state: { status: 'error', message: 'worker returned the wrong operation' },
+                },
+              });
+              return;
+            }
+            const chosen = tracks.find((track) =>
+              track.seriesId === data.seriesId && track.group.id === data.groupId);
+            if (!chosen) {
+              set({
+                occurrenceNavigation: {
+                  snapshot: snapshot.snapshot,
+                  seriesId: navigationSeriesId,
+                  direction,
+                  state: { status: 'error', message: 'worker returned an inactive term' },
                 },
               });
               return;
@@ -3043,7 +3033,7 @@ export function createAppRuntime(
               set({
                 occurrenceNavigation: {
                   snapshot: snapshot.snapshot,
-                  seriesId: focused.id,
+                  seriesId: chosen.seriesId,
                   direction,
                   state: { status: 'error', message: 'worker returned an invalid reference step' },
                 },
@@ -3054,7 +3044,7 @@ export function createAppRuntime(
               set({
                 occurrenceNavigation: {
                   snapshot: snapshot.snapshot,
-                  seriesId: focused.id,
+                  seriesId: chosen.seriesId,
                   direction,
                   state: { status: 'edge' },
                 },
@@ -3072,12 +3062,12 @@ export function createAppRuntime(
               || hit.members.some((member) =>
                 !Number.isSafeInteger(member)
                 || member < 0
-                || member >= group.members.length)
+                || member >= chosen.group.members.length)
             ) {
               set({
                 occurrenceNavigation: {
                   snapshot: snapshot.snapshot,
-                  seriesId: focused.id,
+                  seriesId: chosen.seriesId,
                   direction,
                   state: { status: 'error', message: 'worker returned an invalid reference' },
                 },
@@ -3088,9 +3078,9 @@ export function createAppRuntime(
             // Occurrence stepping deliberately collapses a same-start cluster
             // into one stop; its members are cluster-level provenance, so the
             // Matches applies the documented first-row rule.
-            get().centerKwicAt(focused.id, hit.doc, hit.token, {
+            get().centerKwicAt(chosen.seriesId, hit.doc, hit.token, {
               kind: 'occurrence',
-              groupId: group.id,
+              groupId: chosen.group.id,
             });
             if (issuedReader !== null) {
               get().openReader({
@@ -3103,7 +3093,7 @@ export function createAppRuntime(
             set({
               occurrenceNavigation: {
                 snapshot: snapshot.snapshot,
-                seriesId: focused.id,
+                seriesId: chosen.seriesId,
                 direction,
                 state: { status: 'ready', hit },
               },
@@ -3112,7 +3102,7 @@ export function createAppRuntime(
           (message) => set({
             occurrenceNavigation: {
               snapshot: snapshot.snapshot,
-              seriesId: focused.id,
+              seriesId: navigationSeriesId,
               direction,
               state: { status: 'error', message },
             },
@@ -4322,7 +4312,6 @@ export function createAppRuntime(
             (candidate) => groupIdentity(candidate) === groupIdentity(probe),
           );
           if (added && get().activeGroupIds.has(added.id)) {
-            get().setFocus(added.id);
             get().setPlace('matches');
           } else if (added) {
             refuseNotebook('term added; deactivate another term before showing its matches');
@@ -4336,7 +4325,6 @@ export function createAppRuntime(
         const active = new Set(state.activeGroupIds);
         active.add(group.id);
         adoptNotebook({ activeGroupIds: active, soloGroupId: null }, { reissue: true });
-        get().setFocus(group.id);
         get().setPlace('matches');
       },
 

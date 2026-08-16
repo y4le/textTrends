@@ -81,7 +81,6 @@ export function FooterPassage({
   const openReader = useApp((state) => state.openReader);
   const retryPassage = useApp((state) => state.runFooterPassage);
   const setScrub = useApp((state) => state.setScrub);
-  const focusedSeries = useApp((state) => state.focusedSeries);
   const beforeRef = useRef<HTMLSpanElement | null>(null);
   const passageRef = useRef<HTMLElement | null>(null);
   const scrollFrame = useRef<number | null>(null);
@@ -248,15 +247,12 @@ export function FooterPassage({
     const text = display.slice(segment.start, segment.end);
     if (segment.values.length === 0) return <span key={key}>{text}</span>;
     const tintId = segment.values[0]!;
-    const lineId = segment.values.includes(focusedSeries ?? '')
-      ? focusedSeries!
-      : tintId;
     return (
       <span
         key={key}
         style={{
           background: `color-mix(in srgb, ${seriesColor(styles.get(tintId) ?? DEFAULT_SERIES_STYLE)} 22%, transparent)`,
-          borderBlockEnd: `2px solid ${seriesColor(styles.get(lineId) ?? DEFAULT_SERIES_STYLE)}`,
+          borderBlockEnd: `2px solid ${seriesColor(styles.get(tintId) ?? DEFAULT_SERIES_STYLE)}`,
         }}
       >
         {text}

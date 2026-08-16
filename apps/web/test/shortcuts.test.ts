@@ -29,8 +29,8 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('ArrowLeft', { shiftKey: true }), 'footer-token-previous')).toBe(true);
     expect(shortcutMatches(key('H'), 'footer-token-previous')).toBe(true);
     expect(shortcutMatches(key('H', { shiftKey: true }), 'footer-token-previous')).toBe(true);
-    expect(shortcutMatches(key('W'), 'reader-occurrence-previous')).toBe(true);
-    expect(shortcutMatches(key('W', { shiftKey: true }), 'reader-occurrence-previous')).toBe(true);
+    expect(shortcutMatches(key('b'), 'reader-occurrence-previous')).toBe(true);
+    expect(shortcutMatches(key('W'), 'reader-occurrence-previous')).toBe(false);
     expect(shortcutMatches(key('w'), 'reader-occurrence-next')).toBe(true);
   });
 
@@ -88,6 +88,12 @@ describe('shortcut registry', () => {
       .map((entry) => entry.id)).toContain('go-terms');
     expect(workbench.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'trend-toggle-view')?.label).toBe('Toggle combined / separate view');
+    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'footer-occurrence-previous')).toEqual({
+        id: 'footer-occurrence-previous',
+        label: 'Previous reference from any term',
+        keys: ['b'],
+      });
     const readerIds = shortcutHelpSections('reader')
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
@@ -111,19 +117,11 @@ describe('shortcut registry', () => {
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('x'), 'workbench', 200))
       .toEqual({ kind: 'none' });
-    const restarted = advanceShortcutSequence(prefix.state, key('['), 'workbench', 200);
-    expect(restarted).toEqual({
-      kind: 'pending',
-      state: { prefix: '[', expiresAt: 1_100 },
-    });
-    if (restarted.kind !== 'pending') throw new Error('expected a restarted sequence');
-    expect(advanceShortcutSequence(restarted.state, key('t'), 'workbench', 300))
-      .toEqual({ kind: 'matched', id: 'focus-term-previous' });
+    expect(advanceShortcutSequence(prefix.state, key('['), 'workbench', 200))
+      .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(null, key('g', { ctrlKey: true }), 'workbench', 100))
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(null, key('g'), 'reader', 100))
       .toEqual({ kind: 'none' });
-    expect(shortcutHelpSections('workbench').flatMap((section) => section.entries)
-      .find((entry) => entry.id === 'focus-term-next')?.keys).toEqual([']t']);
   });
 });

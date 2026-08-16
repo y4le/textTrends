@@ -206,7 +206,6 @@ test('compact query controls meet the 44px touch-target floor', async ({ page })
   await awaitAllReady(page, { loadDemo: true });
 
   for (const control of [
-    page.locator('.term-bucket-focus').first(),
     page.locator('.term-bucket-toggle').first(),
     page.locator('.term-bar-actions button').first(),
   ]) {

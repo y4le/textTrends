@@ -103,8 +103,10 @@ while Method retains versioned provenance, limitations, and result export.
 ### Terms rail
 
 The Terms rail is the cross-width interactive legend and notebook summary. Each
-group bucket provides a line sample, name, delivered count or status, explicit
-focus, a shown/hidden analysis toggle, edit where width permits, and removal.
+group bucket provides a line sample, name, delivered count or status, an explicit
+shown/hidden analysis toggle, edit where width permits, and removal. There is no
+selected term: every shown term has equal visual weight and participates in
+occurrence navigation. To isolate one term, the reader hides the others.
 
 Removal creates a bounded five-item undo stack. The notebook may hold up to 64
 groups; at most five are projected into analysis. **Add** opens quick entry and
@@ -337,9 +339,8 @@ request the document boundaries, and Escape follows the same governed Back path
 as the visible control. Resize and font settlement preserve the current start
 token and deliberately recompute later boundaries for the new geometry.
 
-`w` and `W` move to the next and previous exact occurrence of the focused
-active term across the full declared corpus. If no term is focused, the first
-active term becomes the focus. Overlapping raw matches at one token start are
+`w` and `b` move to the next and previous exact occurrence of any shown term
+across the full declared corpus. Overlapping raw matches at one token start are
 one stable reading stop with their member provenance combined; density barcode
 buckets and linked analytical ranges never approximate or narrow this action.
 The shared scrub position and Matches center follow the result, and an open
@@ -366,9 +367,8 @@ Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gi`, `gt`, `gm`, and `gv` go to Inputs, Trends, Matches, and Vocabulary;
 `gd` goes to Compare when at least two texts are active and otherwise announces
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
-current active term in the fixed rail without scrolling the workbench.
-`[t`/`]t` clamp through active terms with a polite boundary announcement.
-Within the Terms and
+first term visibility control in the fixed rail without scrolling the workbench.
+Within the
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
 activate a destination until the link is invoked. With at least two active
 texts, `v` on the Trends scrubber switches the visible combined/separate

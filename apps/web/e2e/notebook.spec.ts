@@ -106,7 +106,7 @@ test('one comma-authored term compiles token, phrase, and prefix aliases as OR a
   // The notebook count qualifies as a READY total for the merged group.
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('group', { name: 'Query terms' })
-    .getByRole('button', { name: 'wolf 4', exact: true })).toBeVisible();
+    .locator('.term-bucket-summary').filter({ hasText: /wolf\s*4/ })).toBeVisible();
 
 });
 
@@ -338,7 +338,7 @@ test('visibility is global across Matches and zero-hit is a visible ready state'
   const terms = page.getByRole('group', { name: 'Query terms' });
 
   // Zero-hit: a valid query displaying the number 0 (ready, not missing).
-  await expect(terms.getByRole('button', { name: 'absentterm 0', exact: true })).toBeVisible();
+  await expect(terms.locator('.term-bucket-summary').filter({ hasText: /absentterm\s*0/ })).toBeVisible();
 
   // The footer and manager expose the same global visibility state.
   const showDire = terms.getByRole('button', { name: 'Shown in analysis: dire' });
@@ -367,12 +367,12 @@ test('visibility is global across Matches and zero-hit is a visible ready state'
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
-  const direChip = showDire.locator('..').locator('.term-bucket-focus');
-  await expect(direChip).toBeVisible();
+  const direSummary = showDire.locator('..').locator('.term-bucket-summary');
+  await expect(direSummary).toBeVisible();
   const muteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'false');
-  await expect(direChip).toBeDisabled();
+  await expect(direSummary).not.toHaveAttribute('data-projected', 'true');
   const mutedBurst = await awaitFreshAnswered(page, muteMark);
   expect(mutedBurst.filter((q) => q.op === 'trend').length).toBe(2);
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term)))
@@ -382,7 +382,7 @@ test('visibility is global across Matches and zero-hit is a visible ready state'
   const unmuteMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await showDire.click();
   await expect(showDire).toHaveAttribute('aria-pressed', 'true');
-  await expect(direChip).toBeEnabled();
+  await expect(direSummary).toHaveAttribute('data-projected', 'true');
   const unmutedBurst = await awaitFreshAnswered(page, unmuteMark);
   expect(unmutedBurst.filter((q) => q.op === 'trend').length).toBe(3);
   await expect.poll(async () => new Set((await rowNodes(page)).map((r) => r.term)))
@@ -397,5 +397,6 @@ test('visibility is global across Matches and zero-hit is a visible ready state'
   await page.keyboard.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' })
     .getByRole('button', { name: 'Done', exact: true }).click();
-  await expect(terms.getByRole('button', { name: /^keyterm \d+$/ })).toBeVisible();
+  await expect(terms.locator('.term-bucket-summary').filter({ hasText: /keyterm\s*\d+/ }))
+    .toBeVisible();
 });

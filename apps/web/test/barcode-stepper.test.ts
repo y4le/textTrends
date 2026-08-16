@@ -17,20 +17,17 @@ const exact = (seriesId: string, total = 2): BarcodeTrackVM => ({
 });
 
 describe('barcodeStepperFor', () => {
-  it('selects the focused exact track', () => {
-    const view = barcodeStepperFor(
-      [exact('holmes'), exact('moriarty', 1)],
-      'moriarty',
-    );
-    expect(view.track?.seriesId).toBe('moriarty');
+  it('selects the first shown exact track', () => {
+    const view = barcodeStepperFor([exact('holmes'), exact('moriarty', 1)]);
+    expect(view.track?.seriesId).toBe('holmes');
     expect(view).toMatchObject({
       unit: 'occurrence',
       enabled: true,
     });
   });
 
-  it('falls back to the first delivered track when focus has no track', () => {
-    const view = barcodeStepperFor([exact('holmes')], 'missing');
+  it('uses the first delivered track', () => {
+    const view = barcodeStepperFor([exact('holmes')]);
     expect(view.track?.seriesId).toBe('holmes');
   });
 
@@ -57,15 +54,15 @@ describe('barcodeStepperFor', () => {
         midToken: 5,
       }]],
     };
-    expect(barcodeStepperFor([dense], 'holmes')).toMatchObject({
+    expect(barcodeStepperFor([dense])).toMatchObject({
       unit: 'bucket',
       enabled: true,
     });
   });
 
   it('disables empty and absent tracks', () => {
-    expect(barcodeStepperFor([exact('holmes', 0)], 'holmes').enabled).toBe(false);
-    expect(barcodeStepperFor([], null)).toEqual({
+    expect(barcodeStepperFor([exact('holmes', 0)]).enabled).toBe(false);
+    expect(barcodeStepperFor([])).toEqual({
       track: null,
       unit: 'occurrence',
       enabled: false,

@@ -89,14 +89,16 @@ export function validateOccurrenceOrder(
 /** Step strictly by distinct occurrence START from the supplied document-local
  * token. Under countOverlaps, several raw occurrences may share that start;
  * they form one reachable reading stop with maximal span and unioned member
- * provenance. A hit beginning at the anchor is skipped, direction never wraps,
- * and next/previous round trips retain the same stop identity. The cache
- * validates the occurrence ordering once before this logarithmic lookup. */
+ * provenance. A hit beginning at the anchor is skipped. Callers may request a
+ * cycle at the edge; next/previous round trips otherwise retain the same stop
+ * identity. The cache validates the occurrence ordering once before this
+ * logarithmic lookup. */
 export function occurrenceStep(
   snapshot: CorpusSnapshotV1,
   selection: ResolvedSelection,
   occ: NumericOccurrences,
   request: OccurrenceStepRequestV1,
+  cycleAtEdge = false,
 ): OccurrenceStepResultV1 {
   assertFullCorpusSelection(snapshot, selection);
   if (occ.snapshot !== snapshot.id) {
@@ -137,13 +139,16 @@ export function occurrenceStep(
     if (beforeBoundary) low = middle + 1;
     else high = middle;
   }
-  const index = request.direction === 1 ? low : low - 1;
+  let index = request.direction === 1 ? low : low - 1;
   if (index < 0 || index >= occ.pos.length) {
-    return {
-      method: 'occurrence-step/1',
-      hit: null,
-      atEdge: true,
-    };
+    if (!cycleAtEdge || occ.pos.length === 0) {
+      return {
+        method: 'occurrence-step/1',
+        hit: null,
+        atEdge: true,
+      };
+    }
+    index = request.direction === 1 ? 0 : occ.pos.length - 1;
   }
   const sameStart = (left: number, right: number): boolean =>
     occ.docOrdinal[left] === occ.docOrdinal[right]

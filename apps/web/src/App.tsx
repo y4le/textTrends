@@ -25,7 +25,7 @@ import {
   type ShortcutSequenceState,
 } from './lib/shortcuts.ts';
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
-import { termFocusControlId } from './lib/query-surface.ts';
+import { termToggleControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 
 const ReaderDrawer = lazy(() =>
@@ -274,35 +274,14 @@ export function App() {
         return true;
       }
       case 'go-terms': {
-        const focused = state.focusedSeries
-          ? document.getElementById(termFocusControlId(state.focusedSeries))
-          : null;
-        const target = focused
-          ?? document.querySelector<HTMLElement>('[data-term-focus]:not(:disabled)')
+        const firstTerm = state.notebook.groups[0];
+        const target = (firstTerm
+          ? document.getElementById(termToggleControlId(firstTerm.id))
+          : null)
+          ?? document.querySelector<HTMLElement>('[data-term-toggle]:not(:disabled)')
           ?? document.getElementById('term-add');
         target?.focus({ preventScroll: true });
         setKeyboardNavigationStatus(target ? 'Terms' : 'Terms unavailable');
-        return true;
-      }
-      case 'focus-term-previous':
-      case 'focus-term-next': {
-        const direction = id === 'focus-term-next' ? 1 : -1;
-        const terms = state.series;
-        if (terms.length === 0) {
-          setKeyboardNavigationStatus('no active terms');
-          return true;
-        }
-        const current = terms.findIndex((item) => item.id === state.focusedSeries);
-        const base = current >= 0 ? current : direction === 1 ? -1 : terms.length;
-        const next = Math.max(0, Math.min(terms.length - 1, base + direction));
-        const term = terms[next]!;
-        state.setFocus(term.id);
-        focusAfterRender(termFocusControlId(term.id));
-        setKeyboardNavigationStatus(
-          next === current
-            ? `${direction === 1 ? 'last' : 'first'} active term · ${term.label}`
-            : `${term.label} · active term ${next + 1} of ${terms.length}`,
-        );
         return true;
       }
       default: return false;

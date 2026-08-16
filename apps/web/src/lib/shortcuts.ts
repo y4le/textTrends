@@ -4,8 +4,6 @@ export type ShortcutId =
   | 'show-help'
   | 'focus-horizontal-previous'
   | 'focus-horizontal-next'
-  | 'focus-term-previous'
-  | 'focus-term-next'
   | 'go-inputs'
   | 'go-trends'
   | 'go-matches'
@@ -111,31 +109,15 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'focus-horizontal-previous',
     group: 'Navigation',
     helpContexts: ['workbench'],
-    label: 'Previous term or lens',
+    label: 'Previous workbench section',
     strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
   },
   {
     id: 'focus-horizontal-next',
     group: 'Navigation',
     helpContexts: ['workbench'],
-    label: 'Next term or lens',
+    label: 'Next workbench section',
     strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
-  },
-  {
-    id: 'focus-term-previous',
-    group: 'Terms',
-    helpContexts: ['workbench'],
-    label: 'Previous active term',
-    strokes: [],
-    sequence: [{ key: '[' }, { key: 't' }],
-  },
-  {
-    id: 'focus-term-next',
-    group: 'Terms',
-    helpContexts: ['workbench'],
-    label: 'Next active term',
-    strokes: [],
-    sequence: [{ key: ']' }, { key: 't' }],
   },
   {
     id: 'go-inputs',
@@ -379,14 +361,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'footer-occurrence-previous',
     group: 'Reading footer',
     helpContexts: ['workbench'],
-    label: 'Previous reference for focused term',
-    strokes: [{ key: 'W', shift: true }],
+    label: 'Previous reference from any term',
+    strokes: [{ key: 'b' }],
   },
   {
     id: 'footer-occurrence-next',
     group: 'Reading footer',
     helpContexts: ['workbench'],
-    label: 'Next reference for focused term',
+    label: 'Next reference from any term',
     strokes: [{ key: 'w' }],
   },
   {
@@ -428,14 +410,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'reader-occurrence-previous',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Previous reference for focused term',
-    strokes: [{ key: 'W', shift: true }],
+    label: 'Previous reference from any term',
+    strokes: [{ key: 'b' }],
   },
   {
     id: 'reader-occurrence-next',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Next reference for focused term',
+    label: 'Next reference from any term',
     strokes: [{ key: 'w' }],
   },
   {

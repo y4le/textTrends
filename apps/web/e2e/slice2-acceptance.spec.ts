@@ -88,7 +88,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
     .locator('[data-term-occurrence-count]');
   await expect(termTotal).toHaveText('6');
   await expect(page.getByRole('group', { name: 'Query terms' })
-    .getByRole('button', { name: 'wolf 6', exact: true })).toBeVisible();
+    .locator('.term-bucket-summary').filter({ hasText: /wolf\s*6/ })).toBeVisible();
 
   // Activate the exact barcode tick at wolf@430. It reveals a fresh
   // Matches window
@@ -131,7 +131,7 @@ test('slice 2: exact occurrences → linked range → gap-free reader → baseli
   await expect(termTotal).toHaveText('4');
   await expect(
     page.getByRole('group', { name: 'Query terms' })
-      .getByRole('button', { name: 'wolf 4 selected / 6', exact: true }),
+      .locator('.term-bucket-summary').filter({ hasText: /wolf\s*4 selected \/ 6/ }),
   ).toBeVisible();
   await gotoPlace(page, 'matches');
   const rows = page.getByRole('grid', { name: 'Matches' }).locator('[role="row"][aria-rowindex]');

@@ -51,7 +51,7 @@ range that fits without vertical scrolling. Forward pages meet at exact token
 boundaries, and a bounded session walk remembers measured boundaries so Back
 reproduces pages until a resize or font change deliberately invalidates them.
 The prose pane is overflow-hidden, while Home/End, h/l, arrows, Page Up/Down,
-and w/W retain their reading semantics. Compact layouts use a two-row control
+and w/b retain their reading semantics. Compact layouts use a two-row control
 grid. The requested anchor keeps a layout-neutral underline and background;
 font-weight emphasis is excluded because it can move the measured page seam.
 On touch screens, a short tap in the Reader's outer edge zone turns toward that

@@ -133,7 +133,7 @@ export function TrendPanel() {
   // Deliberately NO `scrub` subscription here: it updates once per
   // pointer animation frame, and this component's render rebuilds every path,
   // hover rect, and totals row. The ScrubSurface child owns the
-  // per-frame state; this panel re-renders only on data/view/focus/resize
+  // per-frame state; this panel re-renders only on data/view/resize
   // changes (the Phase B ruling's invariant).
   const series = useApp((s) => s.series);
   const project = useApp((s) => s.projectSession?.project ?? null);
@@ -144,7 +144,6 @@ export function TrendPanel() {
   const linkedSelection = useApp((s) => s.linkedSelection);
   const trendView = useApp((s) => s.trendView);
   const trendMeasure = useApp((s) => s.trendMeasure);
-  const focusedSeries = useApp((s) => s.focusedSeries);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
@@ -349,8 +348,7 @@ export function TrendPanel() {
     }),
   );
   const maxValue = Math.max(1e-9, dataMaxValue);
-  const strokeFor = (id: string) =>
-    id === focusedSeries ? geometry.strokeFocused : geometry.strokeOther;
+  const strokeFor = () => geometry.strokeWidth;
 
   return (
     <section>
@@ -375,7 +373,6 @@ export function TrendPanel() {
         trend={geo}
         plotW={plotW}
         series={series}
-        focusedSeries={focusedSeries}
         geometry={geometry}
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
@@ -399,7 +396,6 @@ export function TrendPanel() {
             trackHeight={geometry.barcodeTrackHeight}
             trackGap={geometry.barcodeTrackGap}
             styleOf={styleOf}
-            focusedSeries={focusedSeries}
             coarse={presentation.coarseAvailable}
           />
         )}
@@ -441,7 +437,6 @@ export function TrendPanel() {
         selectedStatus={linkedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
         styleOf={styleOf}
         labelOf={labelOf}
-        focusedSeries={focusedSeries}
         onActivate={activateBarcode}
       />
     </section>
@@ -472,7 +467,6 @@ function ScrubSurface({
   trend,
   plotW,
   series,
-  focusedSeries,
   geometry,
   barcodeHeight,
   rowPitch,
@@ -492,7 +486,6 @@ function ScrubSurface({
   trend: NumericTrend;
   plotW: number;
   series: readonly SeriesIntent[];
-  focusedSeries: string | null;
   geometry: TrendGeometry;
   barcodeHeight: number;
   rowPitch: number;

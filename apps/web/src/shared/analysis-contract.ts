@@ -111,10 +111,10 @@ export type QueryOpV4 =
   // engine constructs the only valid full-corpus selection, making accidental
   // range-filtered reader highlights impossible. ZERO tracks is legal.
   | { readonly op: 'reader-page'; readonly tracks: readonly KwicTrack[]; readonly request: ReaderPageRequestV1 }
-  // occurrence-step/1 is exact full-corpus navigation for one focused track.
+  // occurrence-step/1 is exact full-corpus navigation over every active track.
   // Like Reader it has no caller-owned selection; linked ranges must not turn
-  // next/previous term into a partial-corpus operation.
-  | { readonly op: 'occurrence-step'; readonly track: KwicTrack; readonly request: OccurrenceStepRequestV1 };
+  // next/previous reference into a partial-corpus operation.
+  | { readonly op: 'occurrence-step'; readonly tracks: readonly KwicTrack[]; readonly request: OccurrenceStepRequestV1 };
 
 export interface ReaderPageRequestV1 {
   readonly method: 'reader-page/1';

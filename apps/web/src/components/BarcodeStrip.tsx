@@ -38,7 +38,6 @@ interface BarcodeBandProps {
   readonly trackHeight: number;
   readonly trackGap: number;
   readonly styleOf: (seriesId: string) => SeriesStyleV1;
-  readonly focusedSeries: string | null;
   readonly coarse: boolean;
 }
 
@@ -56,7 +55,6 @@ export function BarcodeBand({
   trackHeight,
   trackGap,
   styleOf,
-  focusedSeries,
   coarse,
 }: BarcodeBandProps) {
   const presentation = usePresentation();
@@ -80,7 +78,6 @@ export function BarcodeBand({
         trackHeight={trackHeight}
         trackGap={trackGap}
         styleOf={styleOf}
-        focusedSeries={focusedSeries}
         coarse={coarse}
         colorScheme={presentation.colorScheme}
         docOrdinalById={docOrdinalById}
@@ -102,7 +99,6 @@ export function BarcodeBand({
       trackHeight={trackHeight}
       trackGap={trackGap}
       styleOf={styleOf}
-      focusedSeries={focusedSeries}
       coarse={coarse}
       colorScheme={presentation.colorScheme}
       docOrdinalById={docOrdinalById}
@@ -123,7 +119,6 @@ function BarcodeCanvas({
   trackHeight,
   trackGap,
   styleOf,
-  focusedSeries,
   coarse,
   colorScheme,
   docOrdinalById,
@@ -171,7 +166,6 @@ function BarcodeCanvas({
         // Resolve the shared series token explicitly so a per-book canvas
         // does not silently retain its default black fill.
         ctx.fillStyle = canvasColor(seriesColor(styleOf(track.seriesId)));
-        const focusDim = focusedSeries !== null && track.seriesId !== focusedSeries ? 0.45 : 1;
         const paintBucket = (bucketOrdinal: number) => {
           const doc = track.docOrder[bucketOrdinal];
           const d = doc === undefined ? undefined : docOrdinalById.get(doc);
@@ -180,7 +174,7 @@ function BarcodeCanvas({
             const x0 = edgeX(d, segment.t0);
             const x1 = edgeX(d, segment.t1);
             const markAlpha = segment.kind === 'tick' ? 1 : 0.15 + 0.85 * segment.intensity;
-            ctx.globalAlpha = markAlpha * focusDim * (context ? 0.25 : 1);
+            ctx.globalAlpha = markAlpha * (context ? 0.25 : 1);
             ctx.fillRect(x0, y, Math.max(1, x1 - x0), trackHeight);
           }
         };
@@ -195,7 +189,7 @@ function BarcodeCanvas({
     };
     paint(tracks, linkedSelection);
     paint(selectedTracks, false);
-  }, [docs, docOrdinal, tracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, styleOf, focusedSeries, colorScheme, docOrdinalById]);
+  }, [docs, docOrdinal, tracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, styleOf, colorScheme, docOrdinalById]);
 
   return (
     <canvas
@@ -230,7 +224,6 @@ export function BarcodeLegend({
   selectedStatus,
   labelOf,
   styleOf,
-  focusedSeries,
   onActivate,
 }: {
   readonly tracks: readonly BarcodeTrackVM[];
@@ -239,13 +232,12 @@ export function BarcodeLegend({
   readonly selectedStatus: 'pending' | 'ready' | 'error' | null;
   readonly labelOf: (seriesId: string) => string;
   readonly styleOf: (seriesId: string) => SeriesStyleV1;
-  readonly focusedSeries: string | null;
   readonly onActivate: (track: BarcodeTrackVM, target: BarcodeActivation | null, openExact?: boolean) => void;
 }) {
   const presentation = usePresentation();
   const coarse = presentation.coarseAvailable;
   const selectedBySeries = new Map(selectedTracks.map((track) => [track.seriesId, track]));
-  const stepper = barcodeStepperFor(tracks, focusedSeries);
+  const stepper = barcodeStepperFor(tracks);
   if (tracks.length === 0) return null;
 
   const step = (track: BarcodeTrackVM, dir: 1 | -1) => {
@@ -288,7 +280,7 @@ export function BarcodeLegend({
           >
             <SeriesLineSample
               style={styleOf(track.seriesId)}
-              emphasized={focusedSeries === track.seriesId}
+              emphasized
             />
             <span data-term-occurrence-label style={{ color: 'var(--fg)' }}>
               {labelOf(track.seriesId)}

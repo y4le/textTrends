@@ -55,6 +55,15 @@ describe('occurrenceStep', () => {
     });
   });
 
+  it('cycles to the opposite corpus edge when requested', () => {
+    expect(occurrenceStep(snapshot, selection, occurrences, {
+      method: 'occurrence-step/1', doc: 'b', token: 7, direction: 1,
+    }, true).hit).toEqual({ doc: 'a', token: 2, spanTokens: 1, members: [0] });
+    expect(occurrenceStep(snapshot, selection, occurrences, {
+      method: 'occurrence-step/1', doc: 'a', token: 0, direction: -1,
+    }, true).hit).toEqual({ doc: 'b', token: 6, spanTokens: 1, members: [4] });
+  });
+
   it('coalesces duplicate starts into stable reachable stops in both directions', () => {
     const overlapping = {
       ...occurrences,

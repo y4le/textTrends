@@ -11,8 +11,7 @@ describe('trendGeometryFor', () => {
       barcodeTrackHeight: 5,
       barcodeTrackGap: 2,
       barcodeBandGap: 3,
-      strokeFocused: 3.5,
-      strokeOther: 2,
+      strokeWidth: 2,
       bookMarks: 'boundaries',
     });
   });
@@ -26,8 +25,7 @@ describe('trendGeometryFor', () => {
       barcodeTrackHeight: 7,
       barcodeTrackGap: 2,
       barcodeBandGap: 3,
-      strokeFocused: 2.5,
-      strokeOther: 1.5,
+      strokeWidth: 1.5,
       bookMarks: 'ticks',
     });
   });

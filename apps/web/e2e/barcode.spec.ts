@@ -173,10 +173,9 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   await submitAndAwaitFreshResults(page, 'wolf');
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
-  const focused = page.getByRole('group', { name: 'Query terms' }).getByRole('button', { name: /^wolf \d+$/i });
-  const focusedBefore = await focused.getAttribute('aria-pressed');
+  const shown = page.getByRole('button', { name: 'Shown in analysis: wolf' });
   const assertHoverOnly = async () => {
-    await expect(focused).toHaveAttribute('aria-pressed', focusedBefore ?? 'false');
+    await expect(shown).toHaveAttribute('aria-pressed', 'true');
     await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
     await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   };

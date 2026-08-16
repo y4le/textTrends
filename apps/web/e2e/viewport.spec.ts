@@ -130,7 +130,6 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
   )));
 
   for (const control of [
-    terms.locator('.term-bucket-focus').first(),
     terms.locator('.term-bucket-toggle').first(),
     terms.locator('.term-bar-actions button').first(),
   ]) {
