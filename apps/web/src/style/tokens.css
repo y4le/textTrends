@@ -1216,7 +1216,7 @@ canvas {
 
 .compare-definition {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto minmax(0, 1fr) auto;
+  grid-template-columns: 44px minmax(0, 1fr) 44px minmax(0, 1fr) 44px;
   align-items: end;
   gap: var(--space-2);
   margin-block: var(--space-3) 0;
@@ -1248,21 +1248,18 @@ canvas {
 }
 
 .compare-reverse,
-.compare-swap {
-  display: inline-grid;
-  inline-size: 44px;
-  min-block-size: 44px;
-  place-items: center;
-  padding: 0;
-  font-size: var(--text-lg);
-}
-
+.compare-profile-trigger,
 .compare-settings-trigger {
   display: inline-grid;
   inline-size: 44px;
   min-block-size: 44px;
   place-items: center;
   padding: 0;
+}
+
+.compare-reverse,
+.compare-profile-trigger {
+  font-size: var(--text-lg);
 }
 
 .compare-settings-trigger svg {
@@ -1358,10 +1355,6 @@ canvas {
   gap: var(--space-1);
 }
 
-.compare-reverse-rankings {
-  align-self: flex-start;
-}
-
 .compare-settings-toggle {
   display: inline-flex;
   align-items: center;
@@ -1398,14 +1391,13 @@ canvas {
 }
 
 .compare-table-port {
-  --compare-profile-trigger-width: 44px;
-
   block-size: 100%;
   min-block-size: 0;
   max-inline-size: 100%;
   flex: 1 1 auto;
   overflow: auto;
   overscroll-behavior: contain;
+  scrollbar-gutter: stable both-edges;
   outline: none;
 }
 
@@ -1420,103 +1412,9 @@ canvas {
   border-collapse: collapse;
 }
 
-.compare-axis-head {
-  position: sticky;
-  z-index: 3;
-  inset-block-start: 0;
-  background: var(--bg);
-}
-
 .compare-axis-table th,
 .compare-axis-table td {
   vertical-align: middle;
-}
-
-.compare-axis-head > tr:first-child > th {
-  inline-size: 50%;
-  block-size: 44px;
-  padding: var(--space-1) var(--space-2);
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-  font-weight: 400;
-}
-
-.compare-axis-head > tr:first-child > th:first-child {
-  padding-inline-end: calc(var(--compare-profile-trigger-width) / 2 + var(--space-2));
-  border-inline-end: 1px solid var(--rule-strong);
-  text-align: end;
-}
-
-.compare-axis-head > tr:first-child > th:last-child {
-  padding-inline-start: calc(var(--compare-profile-trigger-width) / 2 + var(--space-2));
-}
-
-.compare-profile-trigger-layer {
-  position: sticky;
-  z-index: 4;
-  inset-block-start: 0;
-  display: flex;
-  block-size: 0;
-  justify-content: center;
-  pointer-events: none;
-}
-
-.compare-profile-trigger {
-  display: inline-flex;
-  inline-size: var(--compare-profile-trigger-width);
-  block-size: 44px;
-  align-items: center;
-  justify-content: center;
-  padding: 0;
-  border-color: var(--rule-strong);
-  background: var(--bg);
-  color: var(--fg);
-  font-size: var(--text-lg);
-  font-weight: 600;
-  margin-block-start: 0;
-  pointer-events: auto;
-  white-space: nowrap;
-}
-
-.compare-profile-trigger:hover,
-.compare-profile-trigger[aria-expanded='true'] {
-  background: color-mix(in srgb, var(--rule) 30%, var(--bg));
-}
-
-.compare-pyramid-heading-content {
-  display: flex;
-  align-items: baseline;
-  gap: var(--space-2);
-  min-inline-size: 0;
-}
-
-.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content {
-  justify-content: flex-end;
-}
-
-.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content > span {
-  order: 1;
-}
-
-.compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content > strong {
-  order: 2;
-}
-
-.compare-axis-head > tr:first-child > th:last-child .compare-pyramid-heading-content {
-  justify-content: flex-start;
-}
-
-.compare-pyramid-heading-content strong {
-  min-inline-size: 0;
-  overflow: hidden;
-  color: var(--fg);
-  font-size: var(--text-sm);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.compare-pyramid-heading-content > span {
-  flex: 0 0 auto;
 }
 
 .compare-pyramid-half {
@@ -1661,22 +1559,22 @@ canvas {
   background: var(--bg);
 }
 
-.compare-profile-dropdown-row > td {
-  padding: 0;
-  border-block-end: 1px solid var(--rule-strong);
+.compare-profile-dropdown {
+  position: sticky;
+  z-index: 3;
+  inset-block-start: 0;
+  background: var(--bg);
 }
 
 .compare-divergence {
-  margin-block-end: var(--space-3);
-  padding-block-end: var(--space-3);
-  border-block-end: 1px solid var(--rule);
+  border-block-start: 0;
 }
 
-.compare-divergence-heading {
+.compare-divergence-content {
   display: flex;
   align-items: baseline;
-  justify-content: space-between;
-  gap: var(--space-3);
+  justify-content: center;
+  gap: var(--space-2);
 }
 
 .compare-divergence-label {
@@ -1698,22 +1596,6 @@ canvas {
   font-size: var(--text-xs);
 }
 
-.compare-divergence-track {
-  block-size: 0.4rem;
-  margin-block-start: var(--space-1);
-  background: color-mix(in srgb, var(--rule) 45%, transparent);
-}
-
-.compare-divergence-fill {
-  display: block;
-  block-size: 100%;
-  inline-size: var(--compare-divergence-width);
-  min-inline-size: 1px;
-  background: var(--accent-text);
-}
-
-.compare-divergence-note,
-.compare-profile-note,
 .compare-profile-status {
   margin: var(--space-1) 0 0;
   color: var(--fg-muted);
@@ -1725,10 +1607,23 @@ canvas {
 }
 
 .compare-profile-grid {
+  display: grid;
   inline-size: 100%;
-  border-collapse: collapse;
-  table-layout: fixed;
+  grid-template-columns:
+    minmax(0, 1fr)
+    minmax(min-content, max-content)
+    minmax(0, 1fr);
   font-size: var(--text-xs);
+}
+
+.compare-profile-grid > tbody {
+  display: contents;
+}
+
+.compare-profile-row {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
 }
 
 .compare-profile-row > td,
@@ -1738,69 +1633,32 @@ canvas {
   vertical-align: middle;
 }
 
-.compare-profile-head > th {
-  padding-block-end: var(--space-2);
-  border-block-end: 1px solid var(--rule);
-  overflow: hidden;
-  font-weight: 600;
-  text-overflow: ellipsis;
+.compare-profile-value {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
   white-space: nowrap;
 }
 
-/* Percentage widths under `table-layout: fixed` so the strip always fits its
-   container — a rem-based track would overflow the narrowest compact
-   viewport, and this table sits above a pyramid that must not scroll
-   sideways. */
-.compare-profile-value {
-  inline-size: 21%;
-  font-family: var(--font-mono);
-  font-variant-numeric: tabular-nums;
-  overflow-wrap: anywhere;
-}
-
-.compare-profile-head > .compare-profile-value {
-  font-family: inherit;
-}
-
 .compare-profile-value[data-side='a'] {
-  text-align: start;
-}
-
-.compare-profile-value[data-side='b'] {
   text-align: end;
 }
 
+.compare-profile-value[data-side='b'] {
+  text-align: start;
+}
+
 .compare-profile-label {
-  inline-size: 30%;
   color: var(--fg-muted);
   text-align: center;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 
 .compare-profile-label > span {
   margin-inline-end: var(--space-1);
 }
 
-.compare-profile-plot[data-bar] {
-  background-clip: content-box;
-  background-color: color-mix(in srgb, var(--rule) 45%, transparent);
-}
-
-.compare-profile-bar {
-  display: block;
-  block-size: 0.4rem;
-  inline-size: var(--compare-bar-width);
-  min-inline-size: 1px;
-}
-
-.compare-profile-plot[data-side='a'] .compare-profile-bar {
-  margin-inline-start: auto;
-  background: var(--accent-text);
-}
-
-.compare-profile-plot[data-side='b'] .compare-profile-bar {
-  margin-inline-end: auto;
-  background: var(--series-1);
+.compare-divergence > td {
+  grid-column: 1 / -1;
 }
 
 .compare-pyramid-half[data-side='a'] .compare-pyramid-bar {
@@ -2703,10 +2561,6 @@ canvas {
     align-items: stretch;
   }
 
-  .compare-swap {
-    inline-size: 44px;
-  }
-
   .compare-row-actions button {
     min-block-size: 44px;
   }
@@ -2722,40 +2576,6 @@ canvas {
   .compare-profile-row > td,
   .compare-profile-row > th {
     padding-inline: 0;
-  }
-
-  .compare-profile-value {
-    inline-size: 24%;
-  }
-
-  .compare-profile-label {
-    inline-size: 34%;
-  }
-
-  .compare-axis-head > tr:first-child > th {
-    padding-inline: var(--space-1);
-  }
-
-  .compare-axis-head > tr:first-child > th:first-child {
-    padding-inline-end: calc(var(--compare-profile-trigger-width) / 2 + var(--space-1));
-  }
-
-  .compare-axis-head > tr:first-child > th:last-child {
-    padding-inline-start: calc(var(--compare-profile-trigger-width) / 2 + var(--space-1));
-  }
-
-  .compare-pyramid-heading-content {
-    gap: 0;
-    align-items: stretch;
-    flex-direction: column;
-  }
-
-  .compare-axis-head > tr:first-child > th:first-child .compare-pyramid-heading-content {
-    align-items: flex-end;
-  }
-
-  .compare-axis-head > tr:first-child > th:last-child .compare-pyramid-heading-content {
-    align-items: flex-start;
   }
 
   .compare-pyramid-button {

@@ -43,7 +43,6 @@ export function ComparePanel() {
   const inventoryB = useApp((state) => state.keynessInventoryB);
   const layers = useApp((state) => state.layers);
   const setSelection = useApp((state) => state.setKeynessSelection);
-  const swapSides = useApp((state) => state.swapKeynessSides);
   const applySettings = useApp((state) => state.applyKeynessSettings);
   const loadMore = useApp((state) => state.loadMoreKeyness);
   const pushLayer = useApp((state) => state.pushLayer);
@@ -284,13 +283,15 @@ export function ComparePanel() {
                 {sideControl('a')}
               </label>
               <button
-                className="compare-swap"
+                className="compare-profile-trigger"
                 type="button"
-                onClick={swapSides}
-                aria-label="Swap keyness sides"
-                title="Swap comparison sides"
+                aria-label="Text profile"
+                aria-expanded={profileOpen}
+                aria-controls="compare-text-profile"
+                title={`${profileOpen ? 'Hide' : 'Show'} text profile`}
+                onClick={() => setProfileOpen((open) => !open)}
               >
-                <span aria-hidden="true">⇄</span>
+                <span aria-hidden="true">Σ</span>
               </button>
               <label data-side="b">
                 {sideControl('b')}
@@ -348,7 +349,6 @@ export function ComparePanel() {
                   sideLabelB={sideLabelB}
                 />
               )}
-              onToggleProfile={() => setProfileOpen((open) => !open)}
               onRow={openRow}
               onLoadMore={loadMore}
               onCloseRow={closeRow}

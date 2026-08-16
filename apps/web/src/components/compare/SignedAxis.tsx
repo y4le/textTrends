@@ -13,7 +13,6 @@ import {
   compareBarPercent,
   compareResidentResult,
   compareRowControlId,
-  compareSortDescription,
   type CompareRowTarget,
   type CompareScale,
 } from '../../lib/compare-view.ts';
@@ -37,7 +36,6 @@ import {
 const decimal = new Intl.NumberFormat('en-US', { maximumFractionDigits: 3 });
 const integer = new Intl.NumberFormat('en-US');
 const rowNavigationKey = (side: 'a' | 'b', typeId: number) => `${side}:${typeId}`;
-const COMPARE_HEADER_HEIGHT_ESTIMATE = 44;
 const COMPARE_DETAIL_HEIGHT_ESTIMATE = 320;
 
 function readyRows(state: KeynessTableState | null): readonly KeynessRowV1[] {
@@ -147,7 +145,6 @@ export function SignedAxis({
   sideLabelB,
   profileOpen,
   profileContent,
-  onToggleProfile,
   onRow,
   onLoadMore,
   onCloseRow,
@@ -161,7 +158,6 @@ export function SignedAxis({
   readonly sideLabelB: string;
   readonly profileOpen: boolean;
   readonly profileContent: ReactNode;
-  readonly onToggleProfile: () => void;
   readonly onRow: (side: 'a' | 'b', row: KeynessRowV1) => void;
   readonly onLoadMore: (side: 'a' | 'b') => void;
   readonly onCloseRow: () => boolean;
@@ -180,11 +176,11 @@ export function SignedAxis({
     [loadedPairCount, rowsA, rowsB],
   );
   const [viewport, setViewport] = useState({ scrollTop: 0, height: 0 });
-  const [headerHeight, setHeaderHeight] = useState(COMPARE_HEADER_HEIGHT_ESTIMATE);
+  const [profileHeight, setProfileHeight] = useState(0);
   const [rowHeight, setRowHeight] = useState(COMPARE_ROW_HEIGHT_ESTIMATE);
   const [detailHeight, setDetailHeight] = useState(COMPARE_DETAIL_HEIGHT_ESTIMATE);
   const portRef = useRef<HTMLDivElement | null>(null);
-  const headerRef = useRef<HTMLTableSectionElement | null>(null);
+  const profileRef = useRef<HTMLDivElement | null>(null);
   const measuredRowRef = useRef<HTMLTableRowElement | null>(null);
   const detailRowRef = useRef<HTMLTableRowElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -199,7 +195,7 @@ export function SignedAxis({
     expandedIndex,
     detailHeight,
   ), [detailHeight, expandedIndex, rowHeight]);
-  const bodyViewportTop = Math.max(0, viewport.scrollTop - headerHeight);
+  const bodyViewportTop = Math.max(0, viewport.scrollTop - profileHeight);
   const overscan = Math.max(viewport.height, rowHeight * 8);
   const virtual = compareVirtualLayout({
     rowCount: loadedPairCount,
@@ -286,18 +282,21 @@ export function SignedAxis({
     if (scrollFrameRef.current !== null) cancelAnimationFrame(scrollFrameRef.current);
   }, []);
   useEffect(() => {
-    const header = headerRef.current;
-    if (header === null) return;
+    const profile = profileRef.current;
+    if (profile === null) {
+      setProfileHeight(0);
+      return;
+    }
     const measure = () => {
-      const next = header.getBoundingClientRect().height;
-      if (next > 0) setHeaderHeight(next);
+      const next = profile.getBoundingClientRect().height;
+      if (next > 0) setProfileHeight(next);
     };
     measure();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(measure);
-    observer.observe(header);
+    observer.observe(profile);
     return () => observer.disconnect();
-  }, []);
+  }, [profileOpen]);
   useEffect(() => {
     const row = measuredRowRef.current;
     if (row === null) return;
@@ -340,15 +339,15 @@ export function SignedAxis({
       (row) => rowNavigationKey(side, row.typeId) === key,
     );
     if (rank < 0) return;
-    const top = headerHeight + rowTop(rank);
+    const top = profileHeight + rowTop(rank);
     const bottom = top + rowHeight;
-    const visibleTop = port.scrollTop + headerHeight;
+    const visibleTop = port.scrollTop + profileHeight;
     const visibleBottom = port.scrollTop + port.clientHeight;
-    if (top < visibleTop) port.scrollTop = Math.max(0, top - headerHeight);
+    if (top < visibleTop) port.scrollTop = Math.max(0, top - profileHeight);
     else if (bottom > visibleBottom) port.scrollTop = bottom - port.clientHeight;
     updateViewport();
     maybeLoadMore();
-  }, [headerHeight, maybeLoadMore, rowHeight, rowTop, rowsA, rowsB, updateViewport]);
+  }, [maybeLoadMore, profileHeight, rowHeight, rowTop, rowsA, rowsB, updateViewport]);
   const rowNavigation = useRowNavigation({
     keys: navigationKeys,
     label: 'Compare',
@@ -468,27 +467,19 @@ export function SignedAxis({
         tabIndex={0}
         onScroll={onScroll}
       >
-        <div className="compare-profile-trigger-layer">
-          <button
-            className="compare-profile-trigger"
-            type="button"
-            aria-label="Text profile"
-            aria-expanded={profileOpen}
-            aria-controls="compare-text-profile"
-            title={`${profileOpen ? 'Hide' : 'Show'} text profile`}
-            onClick={onToggleProfile}
-          >
-            <span aria-hidden="true">Σ</span>
-          </button>
-        </div>
+        {profileOpen && (
+          <div ref={profileRef} className="compare-profile-dropdown">
+            {profileContent}
+          </div>
+        )}
         <table
           className="compare-axis-table"
           role="table"
           aria-label="Compare population pyramid"
           aria-colcount={2}
           aria-rowcount={loadedPairCount === 0
-            ? 2
-            : Math.min(totalPairCount, COMPARE_MAX_RESIDENT_ROWS) + 1}
+            ? 1
+            : Math.min(totalPairCount, COMPARE_MAX_RESIDENT_ROWS)}
           data-loaded-rows={loadedPairCount}
         >
           <caption className="visually-hidden">
@@ -496,37 +487,6 @@ export function SignedAxis({
             uses a shared scale over the loaded ranks; select either half-row for
             that word's full comparison.
           </caption>
-          <thead ref={headerRef} className="compare-axis-head" role="rowgroup">
-            <tr role="row">
-              <th
-                scope="col"
-                role="columnheader"
-                aria-colindex={1}
-                aria-label={`${sideLabelA}, ${compareSortDescription(view, 'a')}`}
-              >
-                <span className="compare-pyramid-heading-content">
-                  <strong>{sideLabelA}</strong>
-                  <span>{compareSortDescription(view, 'a')}</span>
-                </span>
-              </th>
-              <th
-                scope="col"
-                role="columnheader"
-                aria-colindex={2}
-                aria-label={`${sideLabelB}, ${compareSortDescription(view, 'b')}`}
-              >
-                <span className="compare-pyramid-heading-content">
-                  <strong>{sideLabelB}</strong>
-                  <span>{compareSortDescription(view, 'b')}</span>
-                </span>
-              </th>
-            </tr>
-            {profileOpen && (
-              <tr className="compare-profile-dropdown-row" role="presentation">
-                <td colSpan={2} role="presentation">{profileContent}</td>
-              </tr>
-            )}
-          </thead>
           <tbody role="rowgroup" aria-label="Paired distinctive term ranks">
             {topSpacerHeight > 0 && (
               <tr
@@ -538,7 +498,7 @@ export function SignedAxis({
               </tr>
             )}
             {loadedPairCount === 0 && (
-              <tr className="compare-pyramid-row" role="row" aria-rowindex={2}>
+              <tr className="compare-pyramid-row" role="row" aria-rowindex={1}>
                 <td className="compare-pyramid-half" data-side="a" role="cell" aria-colindex={1}>
                   <SideStatus state={stateA} side="a" />
                 </td>
@@ -559,7 +519,7 @@ export function SignedAxis({
                     ref={localIndex === 0 ? measuredRowRef : undefined}
                     className="compare-pyramid-row"
                     role="row"
-                    aria-rowindex={index + 2}
+                    aria-rowindex={index + 1}
                     data-row-navigation-row
                   >
                     <td className="compare-pyramid-half" data-side="a" role="cell" aria-colindex={1}>

@@ -77,7 +77,7 @@ for (const viewport of [
 
     const table = pyramid(page);
     await expect(table).toHaveAttribute('aria-colcount', '2');
-    await expect(table.getByRole('columnheader')).toHaveCount(2);
+    await expect(table.getByRole('columnheader')).toHaveCount(0);
     await expect(table.getByRole('rowgroup', { name: 'Paired distinctive term ranks' }))
       .toBeVisible();
     const port = page.getByRole('region', { name: 'Compare population pyramid' });
@@ -145,15 +145,12 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
     (event) => event.seq > mark && event.direction === 'to-worker'
       && event.t === 'query' && event.op === 'keyness',
   ).length).toBe(2);
-  await expect(pyramid(page).getByRole('columnheader').first())
-    .toContainText(/all books except/i);
+  await expect(left.locator('option:checked')).toContainText(/all other texts/i);
 
   await left.selectOption(leftInitial);
   await expect(left).toHaveValue(leftInitial);
   await expect(right).toHaveValue(rightInitial);
-  await page.getByRole('button', { name: 'Swap keyness sides' }).click();
-  await expect(left).toHaveValue(rightInitial);
-  await expect(right).toHaveValue(leftInitial);
+  await expect(page.getByRole('button', { name: 'Swap keyness sides' })).toHaveCount(0);
 });
 
 test('one full-width word detail replaces the other half and explains measurements', async ({ page }) => {
@@ -233,7 +230,7 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   await prepareComparison(page);
   await applyOneDocumentMinimum(page);
 
-  const divergence = page.getByRole('meter', { name: /Vocabulary divergence/ });
+  const divergence = page.locator('[data-metric="divergence"]');
   await expect(divergence).toHaveCount(0);
 
   const trigger = page.getByRole('button', { name: 'Text profile' });
@@ -241,54 +238,33 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   const triggerSize = await trigger.boundingBox();
   expect(triggerSize?.width).toBe(44);
   expect(triggerSize?.height).toBe(44);
-  const swapSize = await page.getByRole('button', { name: 'Swap keyness sides' })
-    .boundingBox();
-  expect(swapSize?.y).toBeDefined();
-  expect(triggerSize?.y).toBe((swapSize?.y ?? 0) + (swapSize?.height ?? 0));
-  const headers = page.getByRole('columnheader');
-  const leftTitle = headers.first().locator('strong');
-  const rightTitle = headers.last().locator('strong');
-  const [leftTitleBox, triggerBox, rightTitleBox] = await Promise.all([
-    leftTitle.boundingBox(),
+  const left = page.getByLabel('Left comparison input');
+  const right = page.getByLabel('Right comparison input');
+  const [leftBox, triggerBox, rightBox] = await Promise.all([
+    left.boundingBox(),
     trigger.boundingBox(),
-    rightTitle.boundingBox(),
+    right.boundingBox(),
   ]);
-  expect((leftTitleBox?.x ?? 0) + (leftTitleBox?.width ?? 0))
+  expect((leftBox?.x ?? 0) + (leftBox?.width ?? 0))
     .toBeLessThanOrEqual(triggerBox?.x ?? 0);
   expect((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0))
-    .toBeLessThanOrEqual(rightTitleBox?.x ?? 0);
+    .toBeLessThanOrEqual(rightBox?.x ?? 0);
   expect(await trigger.evaluate((button) =>
     Number.parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThan(13);
-  expect(await leftTitle.evaluate((title) =>
-    Number.parseFloat(getComputedStyle(title).fontSize))).toBeGreaterThan(11);
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
 
   const profile = page.getByRole('region', { name: 'Text profile' });
   await expect(divergence).toBeVisible();
-  await expect
-    .poll(async () => Number(await divergence.getAttribute('aria-valuenow')))
-    .toBeGreaterThan(0);
-  expect(Number(await divergence.getAttribute('aria-valuenow')))
-    .toBeLessThanOrEqual(1);
+  await expect(divergence.locator('.compare-divergence-value')).not.toHaveText('—');
 
   await expect(profile.locator('.compare-profile-grid')).toBeVisible();
+  await expect(profile.getByRole('columnheader')).toHaveCount(0);
   for (const metric of ['tokens', 'sentences', 'mattr', 'ari']) {
     await expect(profile.locator(`[data-metric="${metric}"]`)).toBeVisible();
   }
-  // Length-controlled rows earn a bar...
-  for (const metric of ['mattr', 'hapax', 'sentence-length']) {
-    await expect(
-      profile.locator(`[data-metric="${metric}"] .compare-profile-bar`),
-    ).toHaveCount(2);
-  }
-  // ...and raw totals never do: they measure length, not the texts.
-  for (const metric of ['tokens', 'sentences', 'paragraphs', 'types']) {
-    await expect(
-      profile.locator(`[data-metric="${metric}"] .compare-profile-bar`),
-    ).toHaveCount(0);
-  }
+  await expect(profile.locator('.compare-profile-bar')).toHaveCount(0);
 
   await expectNoBodyOverflow(page);
 });
