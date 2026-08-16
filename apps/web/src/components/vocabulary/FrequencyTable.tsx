@@ -63,7 +63,6 @@ const SORTS = [
   { by: 'dp', label: 'DP' },
   { by: 'dpNorm', label: 'DPnorm' },
   { by: 'ratePer10k', label: 'rate/10k' },
-  { by: 'class', label: 'class' },
 ] as const;
 
 const COLUMN_EXPLANATIONS: Readonly<Partial<Record<VocabularyColumn, string>>> = Object.freeze({
@@ -71,7 +70,6 @@ const COLUMN_EXPLANATIONS: Readonly<Partial<Record<VocabularyColumn, string>>> =
   dp: 'Deviation of proportions (DP): how unevenly the term is distributed across selected documents. Zero is even; values nearer one are more concentrated.',
   dpNorm: 'Normalized DP adjusts deviation of proportions for the smallest selected document share, making results from unequal document sizes easier to compare.',
   ratePer10k: 'Occurrences per 10,000 selected tokens in the enabled lexical and numeral classes.',
-  class: 'The index class assigned to the token: a lexical word-like form or a numeral.',
 });
 const vocabularyColumnLabel = (column: VocabularyColumn) =>
   SORTS.find((candidate) => candidate.by === column)?.label ?? column;
@@ -721,7 +719,7 @@ export function FrequencyTable({
                 className="frequency-table"
                 role="table"
                 aria-label="Vocabulary frequency list"
-                aria-colcount={7}
+                aria-colcount={6}
                 aria-rowcount={readyResult.total + 1}
                 data-loaded-rows={readyResult.rows.length}
                 style={gridStyle}
@@ -741,7 +739,7 @@ export function FrequencyTable({
                       aria-hidden="true"
                       style={{ height: `${topSpacerHeight}px` }}
                     >
-                      <td colSpan={7} />
+                      <td colSpan={6} />
                     </tr>
                   )}
                   {renderedRows.map((row, localIndex) => {
@@ -801,9 +799,6 @@ export function FrequencyTable({
                           <td className="frequency-rate selectable-stat" role="cell" aria-colindex={6} title={formatRate(row.ratePer10k)}>
                             {formatRate(row.ratePer10k)}
                           </td>
-                          <td className="frequency-class" role="cell" aria-colindex={7} title={row.class}>
-                            {row.class}
-                          </td>
                         </tr>
                         {expanded && (
                           <tr
@@ -811,7 +806,7 @@ export function FrequencyTable({
                             className="frequency-detail-row"
                             role="row"
                           >
-                            <td role="cell" aria-colindex={1} colSpan={7}>
+                            <td role="cell" aria-colindex={1} colSpan={6}>
                               <FrequencyRowDetail
                                 row={row}
                                 rank={view.page.offset + index + 1}
@@ -834,7 +829,7 @@ export function FrequencyTable({
                       aria-hidden="true"
                       style={{ height: `${bottomSpacerHeight}px` }}
                     >
-                      <td colSpan={7} />
+                      <td colSpan={6} />
                     </tr>
                   )}
                 </tbody>

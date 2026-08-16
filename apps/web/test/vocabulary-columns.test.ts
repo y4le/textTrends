@@ -11,8 +11,8 @@ import {
 describe('Vocabulary column geometry', () => {
   it('partitions every column without intrinsic width floors', () => {
     expect(vocabularyGridTemplate(VOCABULARY_COLUMN_DEFAULTS)).toBe(
-      'minmax(0, 28fr) minmax(0, 13fr) minmax(0, 10fr) minmax(0, 10fr) '
-      + 'minmax(0, 12fr) minmax(0, 15fr) minmax(0, 12fr)',
+      'minmax(0, 32fr) minmax(0, 15fr) minmax(0, 11fr) minmax(0, 11fr) '
+      + 'minmax(0, 14fr) minmax(0, 17fr)',
     );
   });
 
@@ -24,13 +24,13 @@ describe('Vocabulary column geometry', () => {
       100,
       100,
     );
-    expect(dragged.key + dragged.count).toBe(41);
+    expect(dragged.key + dragged.count).toBe(47);
     expect(dragged.key).toBeGreaterThan(VOCABULARY_COLUMN_DEFAULTS.key);
     expect(Object.values(dragged).reduce((sum, width) => sum + width, 0)).toBe(100);
 
     const keyed = vocabularyColumnBoundaryFromKey(dragged, 'key', 'ArrowLeft', true)!;
     expect(keyed.key).toBe(dragged.key - 5);
-    expect(keyed.key + keyed.count).toBe(41);
+    expect(keyed.key + keyed.count).toBe(47);
   });
 
   it('resets one boundary and recognizes the complete default', () => {

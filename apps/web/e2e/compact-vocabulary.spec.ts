@@ -29,9 +29,9 @@ for (const viewport of [
 
     const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
     await expect(table).toBeVisible();
-    await expect(table).toHaveAttribute('aria-colcount', '7');
-    await expect(table.getByRole('columnheader')).toHaveCount(7);
-    await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(7);
+    await expect(table).toHaveAttribute('aria-colcount', '6');
+    await expect(table.getByRole('columnheader')).toHaveCount(6);
+    await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(6);
     await expect(table.locator('thead .data-grid-sort-indicator')).toHaveCount(1);
     await expect(table.getByRole('columnheader', { name: /count/ })
       .locator('.data-grid-sort-indicator')).toHaveText('↓');
@@ -40,7 +40,7 @@ for (const viewport of [
     await expect(page.locator('.frequency-result-summary')).toHaveCount(0);
     const row = table.locator('tr[data-frequency-row]').first();
     await expect(row.getByRole('rowheader')).toHaveAttribute('aria-colindex', '1');
-    await expect(row.getByRole('cell')).toHaveCount(6);
+    await expect(row.getByRole('cell')).toHaveCount(5);
     await expect(row.locator('td.frequency-count')).toHaveAttribute('aria-colindex', '2');
 
     const term = row.getByRole('button');
@@ -108,17 +108,16 @@ test('Vocabulary regex filter updates live, reports invalid input, and clears', 
   await expectNoBodyOverflow(page);
 });
 
-test('wide Vocabulary keeps seven columns and an in-flow regex bar', async ({ page }) => {
+test('wide Vocabulary keeps six columns and an in-flow regex bar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
   const table = page.getByRole('table', { name: 'Vocabulary frequency list' });
-  await expect(table.getByRole('columnheader')).toHaveCount(7);
-  await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(7);
-  await expect(table.locator('tr[data-frequency-row]').first().locator('td.frequency-class'))
-    .toBeVisible();
+  await expect(table.getByRole('columnheader')).toHaveCount(6);
+  await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(6);
+  await expect(table.getByRole('columnheader', { name: /class/ })).toHaveCount(0);
   await expect(page.getByRole('search', { name: 'Filter vocabulary' })).toBeVisible();
   await expect(page.getByRole('searchbox', { name: 'filter (regex)' })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
@@ -167,7 +166,7 @@ test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior',
   await expect(dpInfo).toBeDisabled();
   await expect(page.getByRole('tooltip')).toHaveCount(0);
   const separators = table.getByRole('separator');
-  await expect(separators).toHaveCount(6);
+  await expect(separators).toHaveCount(5);
   const termWidth = separators.first();
   const dragBefore = Number(await termWidth.getAttribute('aria-valuenow'));
   await termWidth.evaluate((handle) => {
@@ -197,9 +196,9 @@ test('Vocabulary shares responsive resize, tooltip, sort, and row-key behavior',
   await expect(toolbar.getByRole('button', { name: 'Adjust column widths' })).toBeFocused();
   await expect(dpInfo).toBeEnabled();
 
-  await table.getByRole('button', { name: 'class', exact: true }).click();
-  await expect(table.getByRole('columnheader', { name: /class/ }))
-    .toHaveAttribute('aria-sort', 'ascending');
+  await table.getByRole('button', { name: 'rate/10k', exact: true }).click();
+  await expect(table.getByRole('columnheader', { name: /rate\/10k/ }))
+    .toHaveAttribute('aria-sort', 'descending');
   await expect(table.locator('thead .data-grid-sort-indicator')).toHaveCount(1);
   const termSort = table.getByRole('button', { name: 'term', exact: true });
   await termSort.focus();

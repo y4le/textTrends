@@ -7,20 +7,18 @@ export const VOCABULARY_COLUMNS = [
   'dp',
   'dpNorm',
   'ratePer10k',
-  'class',
 ] as const;
 
 export type VocabularyColumn = typeof VOCABULARY_COLUMNS[number];
 export type VocabularyColumnSettings = Readonly<Record<VocabularyColumn, number>>;
 
 export const VOCABULARY_COLUMN_DEFAULTS: VocabularyColumnSettings = Object.freeze({
-  key: 28,
-  count: 13,
-  docFreq: 10,
-  dp: 10,
-  dpNorm: 12,
-  ratePer10k: 15,
-  class: 12,
+  key: 32,
+  count: 15,
+  docFreq: 11,
+  dp: 11,
+  dpNorm: 14,
+  ratePer10k: 17,
 });
 
 export function vocabularyGridTemplate(settings: VocabularyColumnSettings): string {
