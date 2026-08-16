@@ -47,9 +47,10 @@ export async function clearDemoInputs(page: Page): Promise<void> {
   }
 }
 
-/** Wait for the header to report `n/n books ready` (a user project's count). */
+/** Wait for the header's accessible status to report `n/n books ready`. */
 export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {
-  await expect(page.getByText(`${n}/${n} books ready`, { exact: true })).toBeVisible({ timeout });
+  await expect(page.locator('.scope-organ > [role="status"]'))
+    .toContainText(`${n}/${n} books ready`, { timeout });
 }
 
 /** Clear the disposable artifact stores. Awaits transaction completion before
@@ -162,12 +163,12 @@ export async function awaitAllReady(
   options: { readonly loadDemo?: boolean; readonly timeout?: number; readonly placeAfterLoad?: Place } = {},
 ): Promise<void> {
   const timeout = options.timeout ?? 60_000;
-  const ready = page.getByText(READY_TEXT, { exact: true });
+  const ready = page.locator('.scope-organ > [role="status"]');
   if (!options.loadDemo) {
-    await expect(ready).toBeVisible({ timeout });
+    await expect(ready).toContainText(READY_TEXT, { timeout });
     return;
   }
-  if (await ready.isVisible()) return;
+  if ((await ready.textContent())?.includes(READY_TEXT)) return;
   const navigation = page.getByRole('navigation', { name: 'Workbench sections' });
   await expect(navigation).toBeVisible({ timeout });
   const current = navigation.locator('[aria-current="page"]');
@@ -177,7 +178,7 @@ export async function awaitAllReady(
   const loadDemo = page.getByRole('button', { name: 'Load Sherlock Holmes demo' });
   await expect(loadDemo).toBeVisible({ timeout });
   await loadDemo.click();
-  await expect(ready).toBeVisible({ timeout });
+  await expect(ready).toContainText(READY_TEXT, { timeout });
   await expect.poll(() => page.evaluate(async (databaseName) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {
       const request = indexedDB.open(databaseName);

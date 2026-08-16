@@ -58,7 +58,9 @@ test('workbench tabs round-trip canonical places without issuing analysis', asyn
   const reloadMark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   const status = page.getByRole('region', { name: 'Corpus status' });
-  await status.getByRole('button', { name: 'Library corpus', exact: true }).click();
+  await expect(status.getByRole('button', { name: 'Library corpus', exact: true })).toHaveCount(0);
+  await page.getByRole('navigation', { name: 'Workbench sections' })
+    .getByRole('link', { name: 'Inputs', exact: true }).click();
   await expect(page).toHaveURL(/\?foreign=%2f&p=inputs$/);
   await expectOnlyCanonicalPlace(page, 'inputs');
   await page.getByRole('navigation', { name: 'Workbench sections' })

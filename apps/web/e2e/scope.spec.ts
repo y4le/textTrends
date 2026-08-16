@@ -7,8 +7,9 @@ test('Scope states resident corpus truth and follows the committed range', async
   await gotoPlace(page, 'inputs');
 
   const scope = page.getByRole('region', { name: 'Corpus status' });
-  await expect(scope.getByText('Library corpus', { exact: true })).toBeVisible();
-  await expect(scope.getByText('6/6 books ready', { exact: true })).toBeVisible();
+  await expect(scope.getByText('Library corpus', { exact: true })).toHaveCount(0);
+  await expect(scope.getByText('all 6 books', { exact: true })).toHaveCount(0);
+  await expect(scope.getByText('6/6 books ready', { exact: true })).toHaveCount(0);
 
   const dashboardTokens = await page
     .locator('.catalog-summary')
@@ -16,7 +17,7 @@ test('Scope states resident corpus truth and follows the committed range', async
     .locator('..')
     .locator('dd')
     .innerText();
-  await expect(scope.getByText(`${dashboardTokens} tokens`, { exact: true })).toBeVisible();
+  await expect(scope.getByText(`${dashboardTokens} tokens`, { exact: true })).toHaveCount(0);
 
   await gotoPlace(page, 'trends');
   const scrubber = page.getByRole('slider', { name: /reading position/i });
@@ -27,7 +28,6 @@ test('Scope states resident corpus truth and follows the committed range', async
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
 
-  await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
   await expect(scope.getByRole('button', {
     name: /tokens 1–3 · 3 tokens — review linked range in Trends/,
   }))
@@ -36,7 +36,7 @@ test('Scope states resident corpus truth and follows the committed range', async
 
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await scope.getByRole('button', { name: 'Clear linked range' }).click();
-  await expect(scope.getByText('all 6 books', { exact: true })).toBeVisible();
+  await expect(scope.getByText('all 6 books', { exact: true })).toHaveCount(0);
   await expect(scope.getByRole('button', { name: 'Clear linked range' })).toHaveCount(0);
 
   const after = await trace(page);
@@ -64,10 +64,14 @@ test('Scope states resident corpus truth and follows the committed range', async
   await scrubber.press('ArrowRight');
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
-  await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
+  await expect(scope.getByRole('button', {
+    name: /tokens 1–3 · 3 tokens — review linked range in Trends/,
+  })).toBeVisible();
   await page.locator('[data-term-occurrences]').filter({ hasText: 'Holmes' })
     .getByRole('button', { name: 'Next Holmes reference' }).click();
   await expect(scope.getByRole('button', { name: 'Clear linked range' })).toBeVisible();
-  await expect(scope.getByText('1 book in scope', { exact: true })).toBeVisible();
+  await expect(scope.getByRole('button', {
+    name: /tokens 1–3 · 3 tokens — review linked range in Trends/,
+  })).toBeVisible();
   await expect(scope.getByRole('status')).toContainText('tokens 1–3');
 });

@@ -16,7 +16,8 @@ test('demos load as additive local texts and merge useful starter terms', async 
   const beforeAsoif = requests.length;
   await page.getByRole('button', { name: 'Load A Song of Ice and Fire demo' }).click();
   await awaitReadyCount(page, ASOIF.length);
-  await expect(page.getByRole('region', { name: 'Corpus status' })).toContainText('Library corpus');
+  await expect(page.getByRole('region', { name: 'Corpus status' }).getByText('Library corpus', { exact: true }))
+    .toHaveCount(0);
   await expect(page.getByRole('button', { name: 'A Game of Thrones', exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Jon' })).toBeVisible();

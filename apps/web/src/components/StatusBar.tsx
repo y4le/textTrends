@@ -63,6 +63,13 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
     && selectionFullTokens !== null
     && isWholeBookSelection(linkedSelection, onlyRange.doc, selectionFullTokens);
   const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
+  // Keep the persistent header quiet at whole-corpus scope. A committed range
+  // remains visible because it carries navigation and clear actions; Compare's
+  // range exception remains beside it. The complete status is still announced
+  // through the live region above.
+  const visibleSegments = vm.range === null
+    ? []
+    : [vm.range.label, ...(vm.exception === null ? [] : [vm.exception])];
 
   return (
     <section
@@ -114,31 +121,21 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
           event.preventDefault();
         }}
       >
-        {vm.segments.map((segment, index) => (
+        {visibleSegments.map((segment, index) => (
           <span key={`${index}:${segment}`} style={{ display: 'inline-flex', gap: '0.5ch' }}>
             {index > 0 && <span aria-hidden="true">·</span>}
-            {index === 0
+            {segment === vm.range?.label
               ? (
                   <button
                     className="scope-organ-link coarse-target"
                     type="button"
-                    onClick={() => setPlace('inputs')}
+                    aria-label={`${segment} — review linked range in Trends`}
+                    onClick={() => setPlace('trends')}
                   >
                     {segment}
                   </button>
                 )
-              : segment === vm.range?.label
-                  ? (
-                      <button
-                        className="scope-organ-link coarse-target"
-                        type="button"
-                        aria-label={`${segment} — review linked range in Trends`}
-                        onClick={() => setPlace('trends')}
-                      >
-                        {segment}
-                      </button>
-                    )
-                  : <span>{segment}</span>}
+              : <span>{segment}</span>}
             {segment === vm.range?.label && (
               <button
                 className="coarse-target"
