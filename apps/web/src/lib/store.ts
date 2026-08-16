@@ -431,7 +431,7 @@ export interface KeynessInventoryState {
 
 export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
   schema: 'texttrends/keyness-view/1',
-  mode: 'documents',
+  mode: 'document-rest',
   documentA: null,
   documentB: null,
   restOn: 'b',
@@ -820,6 +820,9 @@ export interface AppState {
   showFrequencyTermInKwic(key: string): void;
   runKeyness(): void;
   loadMoreKeyness(side: 'a' | 'b'): void;
+  /** Restore the default first-document-v-rest comparison. The document may
+   * still be importing; the reset remains pending until it is ready. */
+  resetKeynessComparison(doc: string): void;
   setKeynessMode(mode: KeynessViewV1['mode']): void;
   setKeynessDocument(side: 'a' | 'b', doc: string): void;
   /** Set one visible compare selector. Null represents all ready documents
@@ -1282,6 +1285,10 @@ export function createAppRuntime(
   let workspaceSaveToken = 0;
   let workspaceScheduling = false;
   let saveWorkspaceNow = (): void => undefined;
+  // A demo acquisition knows its declared first document before concurrent
+  // extraction has made that document ready. Keep that one-shot intent outside
+  // the durable workspace so async completion order cannot choose Book 2.
+  let pendingKeynessResetDoc: string | null = null;
   let historyTraversalPending = false;
   let pendingBackFocusTo: string | null = null;
   let readerWalk: {
@@ -4007,6 +4014,7 @@ export function createAppRuntime(
       },
 
       setKeynessMode(mode) {
+        pendingKeynessResetDoc = null;
         if (mode !== 'documents' && mode !== 'document-rest') return;
         const state = get();
         if (state.keynessView.mode === mode) return;
@@ -4031,6 +4039,7 @@ export function createAppRuntime(
       },
 
       setKeynessDocument(side, doc) {
+        pendingKeynessResetDoc = null;
         const state = get();
         const ready = state.snapshot?.readyDocs ?? [];
         if (!ready.includes(doc)) return;
@@ -4055,6 +4064,7 @@ export function createAppRuntime(
       },
 
       setKeynessSelection(side, doc) {
+        pendingKeynessResetDoc = null;
         if (side !== 'a' && side !== 'b') return;
         const state = get();
         const ready = state.snapshot?.readyDocs ?? [];
@@ -4122,6 +4132,7 @@ export function createAppRuntime(
       },
 
       swapKeynessSides() {
+        pendingKeynessResetDoc = null;
         const view = get().keynessView;
         const ready = get().snapshot?.readyDocs ?? [];
         let next: KeynessViewV1;
@@ -4149,6 +4160,32 @@ export function createAppRuntime(
           };
         }
         set({ keynessView: next });
+        get().runKeyness();
+      },
+
+      resetKeynessComparison(doc) {
+        const state = get();
+        const activeDocuments = [
+          ...(state.projectSession?.project.data.order ?? []),
+          ...(state.projectSession?.imports
+            .filter((pendingImport) => pendingImport.status !== 'failed')
+            .map((pendingImport) => pendingImport.doc) ?? []),
+        ];
+        if (!activeDocuments.includes(doc)) return;
+        const ready = state.snapshot?.readyDocs ?? [];
+        const focusReady = ready.includes(doc);
+        pendingKeynessResetDoc = focusReady ? null : doc;
+        set({
+          keynessView: {
+            ...state.keynessView,
+            mode: DEFAULT_KEYNESS_VIEW.mode,
+            documentA: focusReady ? doc : null,
+            documentB: focusReady
+              ? ready.find((candidate) => candidate !== doc) ?? null
+              : null,
+            restOn: DEFAULT_KEYNESS_VIEW.restOn,
+          },
+        });
         get().runKeyness();
       },
 
@@ -4461,6 +4498,7 @@ export function createAppRuntime(
         saveWorkspaceNow();
       },
       restoreWorkspace(workspace) {
+        pendingKeynessResetDoc = null;
         const state = get();
         const fittedRestoredTrendBins = fitTrendBinsToCorpus(
           state,
@@ -4680,10 +4718,44 @@ export function createAppRuntime(
   const acceptSessionState = (next: SessionState) => {
     const prevKey = snapKey(store.getState().snapshot);
     const nextKey = snapKey(next.snapshot);
-    const keynessView = reconcileKeynessView(
-      store.getState().keynessView,
-      next.snapshot?.readyDocs ?? next.project.data.order,
-    );
+    const readyDocs = next.snapshot?.readyDocs ?? next.project.data.order;
+    const currentKeynessView = store.getState().keynessView;
+    const activeDocuments = new Set([
+      ...next.project.data.order,
+      ...next.imports
+        .filter((pendingImport) => pendingImport.status !== 'failed')
+        .map((pendingImport) => pendingImport.doc),
+    ]);
+    if (
+      pendingKeynessResetDoc !== null
+      && !activeDocuments.has(pendingKeynessResetDoc)
+    ) {
+      pendingKeynessResetDoc = null;
+    }
+    let keynessView: KeynessViewV1;
+    if (pendingKeynessResetDoc !== null) {
+      if (readyDocs.includes(pendingKeynessResetDoc)) {
+        const focus = pendingKeynessResetDoc;
+        pendingKeynessResetDoc = null;
+        keynessView = {
+          ...currentKeynessView,
+          mode: DEFAULT_KEYNESS_VIEW.mode,
+          documentA: focus,
+          documentB: readyDocs.find((doc) => doc !== focus) ?? null,
+          restOn: DEFAULT_KEYNESS_VIEW.restOn,
+        };
+      } else {
+        keynessView = {
+          ...currentKeynessView,
+          mode: DEFAULT_KEYNESS_VIEW.mode,
+          documentA: null,
+          documentB: null,
+          restOn: DEFAULT_KEYNESS_VIEW.restOn,
+        };
+      }
+    } else {
+      keynessView = reconcileKeynessView(currentKeynessView, readyDocs);
+    }
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,

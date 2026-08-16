@@ -52,6 +52,7 @@ export function ProjectPanel() {
   const imports = useApp((s) => s.projectSession?.imports ?? null);
   const sources = useApp((s) => s.projectSession?.sources ?? null);
   const mergeStarterTerms = useApp((s) => s.mergeStarterTerms);
+  const resetKeynessComparison = useApp((s) => s.resetKeynessComparison);
   const importFiles = useApp((s) => s.importFiles);
   const removeImport = useApp((s) => s.removeImport);
   const removeDocument = useApp((s) => s.removeDocument);
@@ -187,13 +188,13 @@ export function ProjectPanel() {
     signal?: AbortSignal,
     existingLease?: symbol,
     setNotice: (message: string | null) => void = setLibraryNotice,
-  ): Promise<{ readonly ok: boolean; readonly activated: number }> => {
-    if (files.length === 0) return { ok: false, activated: 0 };
+  ): Promise<{ readonly ok: boolean; readonly activated: number; readonly firstDocument: string | null }> => {
+    if (files.length === 0) return { ok: false, activated: 0, firstDocument: null };
     const claimedHere = existingLease === undefined;
     const lease = existingLease ?? claimLibrary();
     if (lease === null || !libraryOperation.owns(lease)) {
       setNotice(LIBRARY_BUSY_NOTICE);
-      return { ok: false, activated: 0 };
+      return { ok: false, activated: 0, firstDocument: null };
     }
     setLibraryError(null);
     setNotice(null);
@@ -210,14 +211,22 @@ export function ProjectPanel() {
       if (signal?.aborted !== true) {
         setNotice(duplicateNotice(savedDuplicates, activation.duplicates));
       }
+      const firstLibrary = results[0]?.item.id;
+      const session = useApp.getState().projectSession;
+      const firstDocument = firstLibrary === undefined || session === null
+        ? null
+        : session.project.data.docs.find((doc) => doc.library === firstLibrary)?.doc
+          ?? session.imports.find((item) => item.library === firstLibrary)?.doc
+          ?? null;
       return {
         ok: signal?.aborted !== true && activation.accepted,
         activated: activation.activated,
+        firstDocument,
       };
     } catch (error) {
       setLibraryError(error instanceof Error ? error.message : String(error));
       await refreshLibrary(false); // quota failures may have committed earlier files
-      return { ok: false, activated: 0 };
+      return { ok: false, activated: 0, firstDocument: null };
     } finally {
       if (claimedHere) releaseLibrary(lease);
       if (importRef.current) importRef.current.value = '';
@@ -239,6 +248,9 @@ export function ProjectPanel() {
       if (!acquired.ok) {
         setDemoError('The demo texts were saved, but could not be activated. Review the app message, then retry.');
         return;
+      }
+      if (acquired.firstDocument !== null) {
+        resetKeynessComparison(acquired.firstDocument);
       }
       const terms = mergeStarterTerms(demo.option.defaultTerms);
       const termText = terms.added === 0

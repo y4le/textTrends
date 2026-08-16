@@ -49,6 +49,12 @@ test('demos load as additive local texts and merge useful starter terms', async 
   const local = page.getByRole('region', { name: 'Local library' });
   await expect(local.getByRole('list', { name: 'Saved texts' }).getByRole('listitem'))
     .toHaveCount(ASOIF.length + LOTR.length);
+
+  await page.getByRole('link', { name: 'Compare', exact: true }).click();
+  await expect(page.getByLabel('Left comparison input').locator('option:checked'))
+    .toHaveText('The Fellowship of the Ring');
+  await expect(page.getByLabel('Right comparison input').locator('option:checked'))
+    .toContainText('All other texts');
 });
 
 test('demo acquisition owns the library lane from fetch through activation', async ({ page }) => {

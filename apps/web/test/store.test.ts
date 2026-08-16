@@ -4297,7 +4297,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
 });
 
 describe('dueling keyness query intent (slice-4)', () => {
-  it('defaults to log-ratio projections and reuses inventory on explicit sides', () => {
+  it('defaults to the first document against the rest with log-ratio projections', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
     expect(Object.isFrozen(DEFAULT_KEYNESS_VIEW)).toBe(true);
@@ -4314,20 +4314,76 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
     expect(a!.request).toMatchObject({
       a: { docs: ['a'] },
-      b: { docs: ['b'] },
+      b: { docs: ['b', 'c'] },
       side: 'a',
       sort: { by: 'logRatio', dir: -1 },
     });
     expect(b!.request).toMatchObject({
       a: { docs: ['a'] },
-      b: { docs: ['b'] },
+      b: { docs: ['b', 'c'] },
       side: 'b',
       sort: { by: 'logRatio', dir: 1 },
     });
     expect(f.keynessInventories()).toHaveLength(2);
     expect(f.keynessInventories().map((issued) =>
       (issued.query as { selection: { docs: string[] } }).selection.docs,
-    )).toEqual([['a'], ['b']]);
+    )).toEqual([['a'], ['b', 'c']]);
+  });
+
+  it('holds a demo reset on its first document while later books become ready first', () => {
+    const project = (order: readonly string[]) => ({
+      kind: 'library' as const,
+      id: 'library',
+      data: { ...BUILTIN_PROJECT.data, id: 'library', order },
+    });
+    const pendingFirst = {
+      doc: 'book-1',
+      sourceName: 'book-1.txt',
+      library: `txt:${'1'.repeat(64)}`,
+      status: 'extracting' as const,
+      published: false,
+    };
+    const initial: SessionState = {
+      ...sessionState(null, { project: project([]) }),
+      imports: [
+        pendingFirst,
+        { ...pendingFirst, doc: 'book-2', sourceName: 'book-2.txt', library: `txt:${'2'.repeat(64)}` },
+        { ...pendingFirst, doc: 'book-3', sourceName: 'book-3.txt', library: `txt:${'3'.repeat(64)}` },
+      ],
+    };
+    const f = harness(initial);
+
+    f.store.getState().resetKeynessComparison('book-1');
+    f.port.emit({
+      ...sessionState(snap('g1', 'partial', ['book-2', 'book-3']), {
+        project: project(['book-2', 'book-3']),
+      }),
+      imports: [pendingFirst],
+    });
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'document-rest',
+      documentA: null,
+      documentB: null,
+      restOn: 'b',
+    });
+
+    f.port.emit(sessionState(snap('g1', 'complete', ['book-2', 'book-3', 'book-1']), {
+      project: project(['book-1', 'book-2', 'book-3']),
+    }));
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'document-rest',
+      documentA: 'book-1',
+      documentB: 'book-2',
+      restOn: 'b',
+    });
+    const requests = f.keynesses().slice(-2).map((issued) =>
+      (issued.query as {
+        request: { a: { docs: string[] }; b: { docs: string[] } };
+      }).request);
+    expect(requests[0]).toMatchObject({
+      a: { docs: ['book-1'] },
+      b: { docs: ['book-2', 'book-3'] },
+    });
   });
 
   it('is independent of the linked trend brush', () => {
@@ -4586,8 +4642,9 @@ describe('dueling keyness query intent (slice-4)', () => {
   });
 
   it('round-trips shared settings through research', () => {
-    const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const f = harness(sessionState(snap('g1', 's1', ['a', 'b']), {
+      project: { data: { ...BUILTIN_PROJECT.data, order: ['a', 'b'] } },
+    }));
     f.store.getState().applyKeynessSettings({
       minCountTotal: 9,
       minDocFreqTotal: 4,
@@ -4633,6 +4690,7 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('swaps sides and constructs document-v-rest without overlapping membership', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().setKeynessMode('documents');
     f.store.getState().setKeynessDocument('a', 'c');
     expect(f.store.getState().keynessView).toMatchObject({
       documentA: 'c',
@@ -4668,6 +4726,7 @@ describe('dueling keyness query intent (slice-4)', () => {
   it('drives both visible side selectors through document and rest comparisons', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
+    f.store.getState().setKeynessMode('documents');
 
     f.store.getState().setKeynessSelection('a', null);
     expect(f.store.getState().keynessView).toMatchObject({
