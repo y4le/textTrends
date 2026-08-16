@@ -2953,7 +2953,7 @@ canvas {
   font: inherit;
 }
 
-.scope-method-link {
+.scope-settings-link {
   margin-inline-start: auto;
 }
 
@@ -3576,18 +3576,7 @@ canvas {
   font-weight: 600;
 }
 
-.method-pane-columns {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: var(--space-4);
-}
-
-.method-pane-columns[data-settings='true'] {
-  grid-template-columns: repeat(auto-fit, minmax(min(28rem, 100%), 1fr));
-}
-
-.trend-settings,
-.method-summary {
+.trend-settings {
   min-width: 0;
   padding-block: var(--space-3);
 }
@@ -3655,27 +3644,6 @@ canvas {
 
 .trend-settings-actions button {
   min-block-size: 44px;
-}
-
-.method-summary-header {
-  padding-block-end: var(--space-2);
-  border-bottom: 1px solid var(--rule);
-}
-
-.method-summary-header h3,
-.method-summary-header p {
-  margin: 0;
-}
-
-.method-summary-header p {
-  margin-block-start: var(--space-1);
-  color: var(--fg-muted);
-  font-size: var(--text-xs);
-}
-
-.method-summary-content {
-  max-inline-size: 72ch;
-  padding-block-start: var(--space-2);
 }
 
 @media (max-width: 599.98px) {

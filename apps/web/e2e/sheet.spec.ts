@@ -7,13 +7,13 @@ test.beforeEach(async ({ page }) => {
   await awaitAllReady(page, { loadDemo: true });
 });
 
-test('Method is a transient full-screen modal outside browser history', async ({ page }) => {
+test('Settings is a transient full-screen modal outside browser history', async ({ page }) => {
   const historyBefore = await page.evaluate(() => history.length);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  const method = page.getByRole('button', { name: 'Method & settings', exact: true });
-  await method.click();
+  const settings = page.getByRole('button', { name: 'Settings', exact: true });
+  await settings.click();
 
-  const pane = page.getByRole('dialog', { name: 'Method & settings' });
+  const pane = page.getByRole('dialog', { name: 'Trend settings' });
   await expect(pane).toHaveAttribute('aria-modal', 'true');
   await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   expect(await page.evaluate(() => history.length)).toBe(historyBefore);
@@ -28,29 +28,31 @@ test('Method is a transient full-screen modal outside browser history', async ({
   await page.keyboard.press('Escape');
   await expect(pane).toHaveCount(0);
   await expect(page.locator('#root')).toHaveJSProperty('inert', false);
-  await expect(method).toBeFocused();
+  await expect(settings).toBeFocused();
   expect(await page.evaluate(() => history.length)).toBe(historyBefore);
   expect((await trace(page)).events.filter((event) =>
     event.seq > mark && event.direction === 'to-worker' && event.t === 'query')).toEqual([]);
 });
 
-test('Method keeps the context in which it was opened while Back navigates beneath it', async ({ page }) => {
+test('Settings keeps its Trends context while navigation moves beneath it', async ({ page }) => {
   await gotoPlace(page, 'vocabulary');
-  await page.getByRole('button', { name: 'Method', exact: true }).click();
-  const pane = page.getByRole('dialog', { name: 'Method', exact: true });
-
   await page.goBack();
   await expect(page).toHaveURL(/\?p=trends$/);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const pane = page.getByRole('dialog', { name: 'Trend settings', exact: true });
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\?p=vocabulary$/);
   await expect(pane).toBeVisible();
-  await expect(pane.getByRole('form', { name: 'Trend settings' })).toHaveCount(0);
+  await expect(pane.getByRole('form', { name: 'Trend settings' })).toHaveCount(1);
 
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toBeFocused();
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
 });
 
-test('an open Method pane preserves its draft and focus across widths', async ({ page }) => {
-  await page.getByRole('button', { name: 'Method & settings', exact: true }).click();
-  const pane = page.getByRole('dialog', { name: 'Method & settings' });
+test('an open Settings pane preserves its draft and focus across widths', async ({ page }) => {
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const pane = page.getByRole('dialog', { name: 'Trend settings' });
   const bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
   await bins.fill('23');
   await expect(pane).toBeVisible();
@@ -65,9 +67,9 @@ test('an open Method pane preserves its draft and focus across widths', async ({
 });
 
 test('unchanged settings stay open while close discards the draft', async ({ page }) => {
-  const method = page.getByRole('button', { name: 'Method & settings', exact: true });
-  await method.click();
-  let pane = page.getByRole('dialog', { name: 'Method & settings' });
+  const settings = page.getByRole('button', { name: 'Settings', exact: true });
+  await settings.click();
+  let pane = page.getByRole('dialog', { name: 'Trend settings' });
   let bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
 
   await pane.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -77,10 +79,10 @@ test('unchanged settings stay open while close discards the draft', async ({ pag
 
   await bins.fill('23');
   await pane.getByRole('button', { name: 'close', exact: true }).click();
-  await expect(method).toBeFocused();
+  await expect(settings).toBeFocused();
 
-  await method.click();
-  pane = page.getByRole('dialog', { name: 'Method & settings' });
+  await settings.click();
+  pane = page.getByRole('dialog', { name: 'Trend settings' });
   bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
   await expect(bins).toHaveValue('40');
 });

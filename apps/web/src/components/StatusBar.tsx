@@ -3,9 +3,9 @@ import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
-import { isMethodPlace } from '../lib/method-place.ts';
+import { isSettingsPlace } from '../lib/settings-place.ts';
 
-export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void }) {
+export function StatusBar({ onOpenSettings }: { readonly onOpenSettings: () => void }) {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
@@ -62,7 +62,6 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
   const isOnlyThisBook = onlyRange !== null
     && selectionFullTokens !== null
     && isWholeBookSelection(linkedSelection, onlyRange.doc, selectionFullTokens);
-  const methodLabel = place === 'trends' ? 'Method & settings' : 'Method';
   // Keep the persistent header quiet at whole-corpus scope. A committed range
   // remains visible because it carries navigation and clear actions; Compare's
   // range exception remains beside it. The complete status is still announced
@@ -157,14 +156,14 @@ export function StatusBar({ onOpenMethod }: { readonly onOpenMethod: () => void 
             )}
           </span>
         ))}
-        {isMethodPlace(place) && (
+        {isSettingsPlace(place) && (
           <button
-            id="global-method-open"
-            className="scope-organ-link coarse-target scope-method-link"
+            id="global-settings-open"
+            className="scope-organ-link coarse-target scope-settings-link"
             type="button"
-            onClick={onOpenMethod}
+            onClick={onOpenSettings}
           >
-            {methodLabel}
+            Settings
           </button>
         )}
       </div>

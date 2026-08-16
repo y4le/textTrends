@@ -49,8 +49,8 @@ for (const viewport of viewports) {
     await page.getByRole('dialog', { name: 'Manage terms' })
       .getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(1);
-    await expect(page.getByRole('button', { name: 'Method & settings', exact: true })).toHaveCount(1);
-    await expect(page.getByRole('region', { name: 'Method', exact: true })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);
+    await expect(page.getByRole('dialog', { name: 'Trend settings', exact: true })).toHaveCount(0);
   });
 }
 

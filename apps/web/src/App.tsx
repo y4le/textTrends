@@ -13,7 +13,7 @@ import { StatusBar } from './components/StatusBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
-import { isMethodPlace, type MethodPlace } from './lib/method-place.ts';
+import { isSettingsPlace } from './lib/settings-place.ts';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
@@ -46,8 +46,8 @@ const TrendsPlace = lazy(() =>
 const MatchesPlace = lazy(() =>
   import('./places/MatchesPlace.tsx').then(({ MatchesPlace: placeBody }) => ({ default: placeBody })),
 );
-const MethodSurface = lazy(() =>
-  import('./components/MethodSurface.tsx').then(({ MethodSurface: surface }) => ({ default: surface })),
+const SettingsSurface = lazy(() =>
+  import('./components/SettingsSurface.tsx').then(({ SettingsSurface: surface }) => ({ default: surface })),
 );
 
 interface ReaderEdgePointer {
@@ -60,7 +60,7 @@ interface ReaderEdgePointer {
 }
 
 type OpenUtilityPane =
-  | { readonly kind: 'method'; readonly place: MethodPlace }
+  | { readonly kind: 'settings' }
   | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
@@ -221,14 +221,14 @@ export function App() {
       : null;
     setUtilityPane({ kind: 'shortcuts', context });
   };
-  const openMethod = () => {
-    if (!isMethodPlace(place)) return;
+  const openSettings = () => {
+    if (!isSettingsPlace(place)) return;
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
     utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
       ? document.activeElement
       : null;
-    setUtilityPane({ kind: 'method', place });
+    setUtilityPane({ kind: 'settings' });
   };
   const closeUtilityPane = () => {
     const target = utilityPaneReturnFocus.current;
@@ -435,10 +435,10 @@ export function App() {
 
   const utilityPaneSurface = utilityPane?.kind === 'shortcuts'
     ? <KeyboardShortcuts context={utilityPane.context} onClose={closeUtilityPane} />
-    : utilityPane?.kind === 'method'
+    : utilityPane?.kind === 'settings'
       ? (
           <Suspense fallback={null}>
-            <MethodSurface place={utilityPane.place} onClose={closeUtilityPane} />
+            <SettingsSurface onClose={closeUtilityPane} />
           </Suspense>
         )
       : null;
@@ -596,7 +596,7 @@ export function App() {
             shortcuts
           </button>
         </div>
-        <StatusBar onOpenMethod={openMethod} />
+        <StatusBar onOpenSettings={openSettings} />
         <WorkbenchTabs />
       </header>
       <ResumeStatus />

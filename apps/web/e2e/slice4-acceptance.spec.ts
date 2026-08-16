@@ -121,8 +121,5 @@ test('slice 4: A-key/B-key → swap inversion → brush independence', async ({ 
   await gotoPlace(page, 'compare');
   await expect(pyramid.getByRole('button', { name: /^forest,/ })).toBeVisible();
 
-  await page.getByRole('button', { name: 'Method', exact: true }).click();
-  const method = page.getByRole('dialog', { name: 'Method' });
-  await expect(method.getByText('keyness-g2-2x2/1', { exact: true })).toBeVisible();
-  await expect(method.getByText('log-ratio-halves/1', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
 });

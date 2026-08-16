@@ -12,7 +12,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await expect(grid).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Method', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
   await expect(page.getByLabel('Match order')).toHaveCount(0);
   await expect(page.getByLabel('Occurrence navigation')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'recenter node' })).toHaveCount(0);
