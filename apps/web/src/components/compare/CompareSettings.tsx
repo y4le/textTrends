@@ -40,10 +40,6 @@ export function CompareSettings({
     >
       <header className="compare-settings-header">
         <h2>Compare settings</h2>
-        <p className="compare-settings-note">
-          Tune both rankings from one place. Changes take effect only when you
-          apply them.
-        </p>
       </header>
 
       <div className="compare-settings-sections">
@@ -88,17 +84,6 @@ export function CompareSettings({
               </label>
             ))}
           </div>
-          <button
-            className="compare-reverse-rankings"
-            type="button"
-            onClick={() => onDraft({
-              ...draft,
-              dirA: draft.dirA === 1 ? -1 : 1,
-              dirB: draft.dirB === 1 ? -1 : 1,
-            })}
-          >
-            reverse both rankings
-          </button>
         </section>
 
         <section aria-labelledby="compare-filter-settings">
