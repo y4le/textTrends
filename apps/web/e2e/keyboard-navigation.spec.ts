@@ -52,7 +52,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
   await scrubber.focus();
   await scrubber.press('v');
-  await expect(page.getByRole('button', { name: 'separate', exact: true }))
+  await expect(page.getByRole('button', { name: 'combined', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
 
   await chord(scrubber, 'g', 'm');

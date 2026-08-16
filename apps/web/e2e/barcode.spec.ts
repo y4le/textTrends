@@ -171,6 +171,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const shown = page.getByRole('button', { name: 'Shown in analysis: wolf' });

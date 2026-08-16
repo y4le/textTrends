@@ -1523,11 +1523,16 @@ const SeriesView = memo(function SeriesView({
           </g>
         );
       })}
-      {/* y extent, direct-labeled at the max gridline — no axis chrome */}
-      <line x1={0} y1={y(maxValue)} x2={plotW} y2={y(maxValue)} stroke="var(--rule)" strokeWidth={1} />
-      <text x={0} y={y(maxValue) - 3} fill="var(--fg-muted)" fontSize="var(--text-xs)" fontFamily="var(--font-mono)">
-        {formatTrendDisplayValue(dataMaxValue, measure)}{trendMeasureUnit(measure)}
-      </text>
+      {/* The direct-labeled y extent helps compare a combined multi-book
+          sequence. With one text it is redundant chrome above the graph. */}
+      {docs.length > 1 && (
+        <g data-trend-y-extent>
+          <line x1={0} y1={y(maxValue)} x2={plotW} y2={y(maxValue)} stroke="var(--rule)" strokeWidth={1} />
+          <text x={0} y={y(maxValue) - 3} fill="var(--fg-muted)" fontSize="var(--text-xs)" fontFamily="var(--font-mono)">
+            {formatTrendDisplayValue(dataMaxValue, measure)}{trendMeasureUnit(measure)}
+          </text>
+        </g>
+      )}
       {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && ready.flatMap((r) =>
         docs.flatMap((doc, d) => {
           const x0 = x(bases[d] ?? 0);

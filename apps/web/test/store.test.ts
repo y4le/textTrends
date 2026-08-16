@@ -880,6 +880,7 @@ describe('the session bridge', () => {
     expect(workspace.corpus).toEqual({ kind: 'library', order: [], docs: [] });
     expect(workspace.notebook.groups).toEqual([]);
     expect(workspace.active).toEqual([]);
+    expect(workspace.views.trend.mode).toBe('by-book');
     expect(workspace.views.trend).not.toHaveProperty('focusedDoc');
     expect(workspace.views.compare.documentA).toBeNull();
     expect(workspace.views.compare.documentB).toBeNull();
@@ -1645,8 +1646,9 @@ describe('store query intent discipline', () => {
       project: project(['a', 'b']),
     }));
     const count = f.issued.length;
-    f.store.getState().setTrendView('by-book');
     expect(f.store.getState().trendView).toBe('by-book');
+    f.store.getState().setTrendView('series');
+    expect(f.store.getState().trendView).toBe('series');
     expect(f.issued.length).toBe(count);
 
     f.port.emit(sessionState(snap('g2', 's2', ['a']), {
@@ -1657,6 +1659,15 @@ describe('store query intent discipline', () => {
     f.store.getState().setTrendView('by-book');
     expect(f.store.getState().trendView).toBe('series');
     expect(f.issued.length).toBe(afterCorpusChange);
+
+    f.port.emit(sessionState(snap('g3', 's3', ['a', 'b']), {
+      project: project(['a', 'b']),
+    }));
+    expect(f.store.getState().trendView).toBe('by-book');
+
+    f.port.emit(sessionState(snap('g4', 's4', ['a']), {
+      project: project(['a']),
+    }));
 
     const restored = workspaceState(BUILTIN_SHERLOCK_ID);
     f.store.getState().restoreWorkspace({

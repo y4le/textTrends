@@ -195,7 +195,7 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await gotoPlace(page, 'trends');
   const view = page.getByRole('group', { name: 'Trend view' });
   await expect(view.getByRole('button')).toHaveText(['combined', 'separate']);
-  await expect(view.getByRole('button', { name: 'combined' }))
+  await expect(view.getByRole('button', { name: 'separate' }))
     .toHaveAttribute('aria-pressed', 'true');
 });
 

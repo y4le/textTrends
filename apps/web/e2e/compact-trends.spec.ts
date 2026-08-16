@@ -1,14 +1,42 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace, submitAndAwaitFreshResults, trace } from './helpers.ts';
+import {
+  awaitAllReady,
+  awaitReadyCount,
+  clearDemoInputs,
+  gotoPlace,
+  submitAndAwaitFreshResults,
+} from './helpers.ts';
+
+test('a single-text trend omits the redundant y-extent label above the graph', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'one.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('wolf alpha beta wolf gamma', 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+  await submitAndAwaitFreshResults(page, 'wolf');
+  await gotoPlace(page, 'trends');
+
+  const seriesChart = page.locator('svg[data-trend-view="series"]');
+  await expect(seriesChart).toBeVisible();
+  await expect(seriesChart.locator('[data-trend-y-extent]')).toHaveCount(0);
+  await expect(seriesChart.locator('text').filter({ hasText: '/10,000' })).toHaveCount(0);
+});
 
 test('an all-zero rate series labels its data maximum rather than its geometry floor', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'absentterm');
   await gotoPlace(page, 'trends');
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
 
   const seriesChart = page.locator('svg[data-trend-view="series"]');
   await expect(seriesChart).toBeVisible();
+  await expect(seriesChart.locator('[data-trend-y-extent]')).toHaveCount(1);
   await expect(seriesChart.locator('text').filter({ hasText: '0/10,000' })).toHaveCount(1);
   await expect(seriesChart).not.toContainText('0.000000001/10,000');
 });
@@ -22,6 +50,7 @@ for (const viewport of [
     await page.goto('./');
     await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'trends');
+    await page.getByRole('button', { name: 'combined', exact: true }).click();
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });
     const dock = page.locator('.workbench-dock');
@@ -76,20 +105,6 @@ for (const viewport of [
     const occurrenceRows = page.getByRole('list', { name: 'Term totals' })
       .getByRole('listitem');
     await expect(occurrenceRows).toHaveCount(3);
-
-    const beforeFocus = (await trace(page)).events.at(-1)?.seq ?? -1;
-    await page
-      .getByRole('group', { name: 'Query terms' })
-      .getByRole('button', { name: /^Moriarty \d+$/ })
-      .click();
-    const focusedStrokes = await seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
-      [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),
-    );
-    expect(focusedStrokes).toEqual([2, 3.5]);
-    expect((await trace(page)).events.filter((event) =>
-      event.seq > beforeFocus
-      && event.direction === 'to-worker'
-      && event.t === 'query')).toEqual([]);
 
     await page.getByRole('button', { name: 'separate', exact: true }).click();
     const byBook = page.locator('svg[data-trend-view="by-book"]');

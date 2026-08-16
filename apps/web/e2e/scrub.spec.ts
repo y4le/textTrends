@@ -22,6 +22,7 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'holmes');
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const seriesChart = page.locator('svg[data-trend-view="series"]');

@@ -522,6 +522,7 @@ function keynessTableIntentKey(
 }
 
 export type TrendView = 'series' | 'by-book';
+export const DEFAULT_TREND_VIEW: TrendView = 'by-book';
 
 export interface TrendSettingsInput {
   readonly bins: TrendBinsSpecV1;
@@ -725,6 +726,9 @@ export interface AppState {
   keynessB: KeynessTableState | null;
   keynessInventoryA: KeynessInventoryState | null;
   keynessInventoryB: KeynessInventoryState | null;
+  /** Durable choice restored when the corpus has enough texts to expose both
+   * presentations. `trendView` may temporarily be `series` for one text. */
+  trendViewPreference: TrendView;
   trendView: TrendView;
   /** Durable result geometry and resident-data display transform. Bin changes
    * reissue only baseline + selected trend lanes; measure changes query
@@ -1068,7 +1072,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
       .map((group) => group.id),
     views: {
       trend: {
-        mode: state.trendView,
+        mode: state.trendViewPreference,
         bins: state.trendBins,
         measure: state.trendMeasure,
       },
@@ -1107,7 +1111,7 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
     kwicEnabled: [],
     views: {
       trend: {
-        mode: 'series',
+        mode: DEFAULT_TREND_VIEW,
         bins: DEFAULT_TREND_BINS,
         measure: DEFAULT_TREND_MEASURE,
       },
@@ -2452,7 +2456,8 @@ export function createAppRuntime(
       keynessB: null,
       keynessInventoryA: null,
       keynessInventoryB: null,
-      trendView: 'series',
+      trendViewPreference: DEFAULT_TREND_VIEW,
+      trendView: DEFAULT_TREND_VIEW,
       trendBins: DEFAULT_TREND_BINS,
       trendMeasure: DEFAULT_TREND_MEASURE,
       trendSettingsNotice: null,
@@ -2839,7 +2844,10 @@ export function createAppRuntime(
 
       setTrendView(view) {
         const textCount = get().projectSession?.project.data.order.length ?? 0;
-        set({ trendView: textCount > 1 ? view : 'series' }); // presentation-only: no query is reissued
+        set({
+          trendViewPreference: view,
+          trendView: textCount > 1 ? view : 'series',
+        }); // presentation-only: no query is reissued
       },
 
       applyTrendSettings(input) {
@@ -4469,6 +4477,7 @@ export function createAppRuntime(
             ? undefined
             : regexForLegacyFrequencyPrefix(workspace.views.frequency.prefixNfc));
         set({
+          trendViewPreference: workspace.views.trend.mode,
           trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
             || (workspace.corpus.kind === 'library' && workspace.corpus.order.length === 0)
             ? workspace.views.trend.mode
@@ -4697,7 +4706,7 @@ export function createAppRuntime(
       trendView: next.project.data.order.length === 1
         && !next.imports.some((pendingImport) => pendingImport.status !== 'failed')
         ? 'series'
-        : store.getState().trendView,
+        : store.getState().trendViewPreference,
     });
     if (prevKey !== nextKey) {
       readerLane.supersede();
