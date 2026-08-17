@@ -32,6 +32,10 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('b'), 'reader-occurrence-previous')).toBe(true);
     expect(shortcutMatches(key('W'), 'reader-occurrence-previous')).toBe(false);
     expect(shortcutMatches(key('w'), 'reader-occurrence-next')).toBe(true);
+    expect(shortcutMatches(key(' '), 'term-toggle')).toBe(true);
+    expect(shortcutMatches(key('x'), 'term-delete')).toBe(true);
+    expect(shortcutMatches(key('Enter'), 'term-open-menu')).toBe(true);
+    expect(shortcutMatches(key('Escape'), 'term-exit')).toBe(true);
   });
 
   it('never captures browser chords or composition', () => {
@@ -49,7 +53,10 @@ describe('shortcut registry', () => {
     const input = { closest: () => ({ tagName: 'INPUT' }) } as unknown as EventTarget;
     const plain = { closest: () => null } as unknown as EventTarget;
     const dialog = ({
-      closest: (selector: string) => selector === '[role="dialog"]' ? {} : null,
+      closest: (selector: string) => selector.includes('[role="dialog"]') ? {} : null,
+    }) as unknown as EventTarget;
+    const menu = ({
+      closest: (selector: string) => selector.includes('[role="menu"]') ? {} : null,
     }) as unknown as EventTarget;
     const event = (target: EventTarget, defaultPrevented = false) => ({
       ...key('?', { shiftKey: true }),
@@ -59,12 +66,22 @@ describe('shortcut registry', () => {
     expect(rootShortcutAllowed(event(plain))).toBe(true);
     expect(rootShortcutAllowed(event(input))).toBe(false);
     expect(rootShortcutAllowed(event(dialog))).toBe(false);
+    expect(rootShortcutAllowed(event(menu))).toBe(false);
     expect(rootShortcutAllowed(event(plain, true))).toBe(false);
   });
 
   it('derives accessibility metadata and contextual help from the same definitions', () => {
     expect(shortcutAria(['footer-page-previous', 'footer-token-previous']))
       .toBe('h ArrowLeft PageUp Shift+H Shift+ArrowLeft');
+    expect(shortcutAria([
+      'term-previous',
+      'term-next',
+      'term-toggle',
+      'term-delete',
+      'term-add-inline',
+      'term-open-menu',
+      'term-exit',
+    ])).toBe('h ArrowLeft l ArrowRight Space x Backspace Delete a Enter Escape');
     const trends = shortcutHelpSections({
       context: 'workbench',
       place: 'trends',
@@ -93,6 +110,17 @@ describe('shortcut registry', () => {
       .map((entry) => entry.id)).not.toContain('go-trends');
     expect(trends.find((section) => section.title === 'Terms')?.entries
       .map((entry) => entry.id)).toContain('go-terms');
+    expect(trends.find((section) => section.title === 'Terms')?.entries
+      .map((entry) => entry.id)).toEqual([
+        'go-terms',
+        'term-previous',
+        'term-next',
+        'term-toggle',
+        'term-delete',
+        'term-add-inline',
+        'term-open-menu',
+        'term-exit',
+      ]);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'trend-toggle-view')?.label).toBe('Toggle combined / separate view');
     expect(trends.flatMap((section) => section.entries).find((entry) =>

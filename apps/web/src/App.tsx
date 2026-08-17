@@ -25,7 +25,7 @@ import {
   type ShortcutSequenceState,
 } from './lib/shortcuts.ts';
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
-import { termToggleControlId } from './lib/query-surface.ts';
+import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 
 const ReaderDrawer = lazy(() =>
@@ -276,9 +276,9 @@ export function App() {
       case 'go-terms': {
         const firstTerm = state.notebook.groups[0];
         const target = (firstTerm
-          ? document.getElementById(termToggleControlId(firstTerm.id))
+          ? document.getElementById(termFocusControlId(firstTerm.id))
           : null)
-          ?? document.querySelector<HTMLElement>('[data-term-toggle]:not(:disabled)')
+          ?? document.querySelector<HTMLElement>('[data-term-focus]:not(:disabled)')
           ?? document.getElementById('term-add');
         target?.focus({ preventScroll: true });
         setKeyboardNavigationStatus(target ? 'Terms' : 'Terms unavailable');

@@ -2936,10 +2936,17 @@ canvas {
   align-items: stretch;
   border: 1px solid var(--rule);
   background: color-mix(in srgb, var(--fg) 2%, transparent);
+  touch-action: pan-x;
+  user-select: none;
 }
 
 .term-bucket[data-active='true'] {
   border-color: var(--rule-strong);
+}
+
+.term-bucket[data-solo='true'] {
+  outline: 1px solid var(--fg);
+  outline-offset: -2px;
 }
 
 .term-bucket button,
@@ -2971,6 +2978,7 @@ canvas {
   gap: 0.65ch;
   padding-inline: var(--space-2);
   font-family: var(--font-mono);
+  text-align: start;
   white-space: nowrap;
 }
 
@@ -3011,6 +3019,80 @@ canvas {
 .term-bar-empty {
   align-self: center;
   color: var(--fg-muted);
+}
+
+.term-quick-add {
+  display: inline-flex;
+  flex: 0 0 auto;
+  min-block-size: var(--term-target-block-size);
+  align-items: stretch;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+}
+
+.term-quick-add input {
+  inline-size: min(24ch, 52vw);
+  min-inline-size: 12ch;
+  border: 0;
+  border-inline-end: 1px solid var(--rule);
+  border-radius: 0;
+  padding-inline: var(--space-2);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--font-mono);
+}
+
+.term-quick-add button {
+  min-inline-size: 44px;
+  border: 0;
+  border-inline-start: 1px solid var(--rule);
+  padding-inline: var(--space-2);
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.term-quick-add button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.term-action-menu {
+  position: fixed;
+  z-index: 75;
+  display: grid;
+  min-inline-size: min(14rem, calc(100vw - 16px));
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+  box-shadow: 0 8px 24px color-mix(in srgb, #000 24%, transparent);
+}
+
+.term-action-menu button {
+  min-block-size: 40px;
+  border: 0;
+  border-block-start: 1px solid var(--rule);
+  padding: var(--space-2) var(--space-3);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  text-align: start;
+}
+
+.term-action-menu button:first-child {
+  border-block-start: 0;
+}
+
+.term-action-menu button:hover,
+.term-action-menu button:focus-visible {
+  background: color-mix(in srgb, var(--fg) 8%, var(--bg));
+}
+
+.term-action-menu button[data-danger='true'] {
+  color: var(--accent-text);
 }
 
 .term-undo {

@@ -23,18 +23,19 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   const scrollBeforeTerms = await page.evaluate(() => window.scrollY);
   await page.keyboard.press('g');
   await page.keyboard.press('q');
-  const termButtons = page.locator('[data-term-toggle]:not(:disabled)');
-  await expect(termButtons.nth(0)).toBeFocused();
+  const termItems = page.locator('[data-term-focus]:not(:disabled)');
+  const termToggles = page.locator('[data-term-toggle]:not(:disabled)');
+  await expect(termItems.nth(0)).toBeFocused();
   expect(await page.evaluate(() => window.scrollY)).toBe(scrollBeforeTerms);
-  const termToggleBox = await termButtons.nth(0).boundingBox();
-  expect(termToggleBox?.y).toBeGreaterThanOrEqual(0);
-  expect(termToggleBox ? termToggleBox.y + termToggleBox.height : Number.POSITIVE_INFINITY)
+  const termItemBox = await termItems.nth(0).boundingBox();
+  expect(termItemBox?.y).toBeGreaterThanOrEqual(0);
+  expect(termItemBox ? termItemBox.y + termItemBox.height : Number.POSITIVE_INFINITY)
     .toBeLessThanOrEqual(await page.evaluate(() => window.innerHeight));
-  await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'true');
-  await termButtons.nth(0).click();
-  await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'false');
-  await termButtons.nth(0).click();
-  await expect(termButtons.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await expect(termToggles.nth(0)).toHaveAttribute('aria-pressed', 'true');
+  await termItems.nth(0).press('Space');
+  await expect(termToggles.nth(0)).toHaveAttribute('aria-pressed', 'false');
+  await termItems.nth(0).press('Space');
+  await expect(termToggles.nth(0)).toHaveAttribute('aria-pressed', 'true');
 
   const firstBook = page.getByRole('button', { name: 'A Study in Scarlet', exact: true });
   await firstBook.focus();
@@ -60,7 +61,7 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await chord(page.locator('body'), 'g', 'v');
   await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
     .toBeFocused();
-  await chord(page.locator('body'), 'g', 'd');
+  await chord(page.locator('body'), 'g', 'c');
   await expect(page.getByRole('region', { name: 'Compare', exact: true })).toBeFocused();
   await chord(page.locator('body'), 'g', 'f');
   await expect(page.getByRole('slider', { name: 'Corpus footer position' })).toBeFocused();
@@ -71,6 +72,96 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await filter.pressSequentially('gt]b');
   await expect(filter).toHaveValue('gt]b');
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible();
+});
+
+test('the term rail supports keyboard management, inline creation, and touch actions', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  await chord(page.locator('body'), 'g', 'q');
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const items = terms.locator('[data-term-focus]:not(:disabled)');
+  await expect(items).toHaveCount(3);
+  await expect(items.first()).toBeFocused();
+
+  await items.first().press('l');
+  await expect(items.nth(1)).toBeFocused();
+  await items.nth(1).press('ArrowRight');
+  await expect(items.nth(2)).toBeFocused();
+  await items.nth(2).press('h');
+  await expect(items.nth(1)).toBeFocused();
+  await items.nth(1).press('ArrowLeft');
+  await expect(items.first()).toBeFocused();
+
+  await items.first().press('Enter');
+  let menu = page.getByRole('menu', { name: /Manage / });
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole('menuitem')).toHaveText([
+    'Select only this item',
+    'Delete this item',
+    'Manage this item',
+  ]);
+  await expect(menu.getByRole('menuitem').first()).toBeFocused();
+  await menu.getByRole('menuitem').first().press('ArrowDown');
+  await expect(menu.getByRole('menuitem').nth(1)).toBeFocused();
+  await menu.getByRole('menuitem').nth(1).press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(items.first()).toBeFocused();
+
+  await items.first().press('Enter');
+  menu = page.getByRole('menu', { name: /Manage / });
+  await menu.getByRole('menuitem', { name: 'Select only this item', exact: true }).click();
+  await expect(terms.locator('.term-bucket-summary[data-projected="true"]')).toHaveCount(1);
+  await expect(items.first()).toBeFocused();
+  await items.first().press('Enter');
+  await page.getByRole('menuitem', { name: 'Show all selected items', exact: true }).click();
+  await expect(terms.locator('.term-bucket-summary[data-projected="true"]')).toHaveCount(3);
+
+  await items.first().press('a');
+  const inline = terms.getByRole('form', { name: 'Add a term inline' });
+  const input = inline.getByRole('textbox', { name: 'New term' });
+  await expect(input).toBeFocused();
+  await input.fill('new keyboard term');
+  await input.press('Enter');
+  await expect(items).toHaveCount(4);
+  await expect(terms.getByRole('button', { name: 'new keyboard term, shown in analysis' }))
+    .toBeFocused();
+  await page.keyboard.press('x');
+  await expect(items).toHaveCount(3);
+  await expect(items.nth(2)).toBeFocused();
+
+  await items.nth(2).press('Escape');
+  await expect(terms.getByRole('group', { name: 'Query terms' })).toBeFocused();
+  await chord(page.locator('body'), 'g', 'q');
+  await expect(items.first()).toBeFocused();
+
+  const firstBucket = terms.locator('.term-bucket').first();
+  const box = await firstBucket.boundingBox();
+  if (!box) throw new Error('term bucket has no layout box');
+  const point = { clientX: box.x + box.width / 2, clientY: box.y + box.height / 2 };
+  await firstBucket.dispatchEvent('pointerdown', {
+    ...point,
+    pointerId: 81,
+    pointerType: 'touch',
+    button: 0,
+    buttons: 1,
+    isPrimary: true,
+  });
+  await page.waitForTimeout(550);
+  await firstBucket.dispatchEvent('pointerup', {
+    ...point,
+    pointerId: 81,
+    pointerType: 'touch',
+    button: 0,
+    buttons: 0,
+    isPrimary: true,
+  });
+  menu = page.getByRole('menu', { name: /Manage / });
+  await expect(menu).toBeVisible();
+  await menu.getByRole('menuitem', { name: 'Manage this item', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Manage terms' })).toBeVisible();
 });
 
 test('result tables retain their intended keyboard behavior', async ({ page }) => {

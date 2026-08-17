@@ -23,6 +23,10 @@ export function termToggleControlId(groupId: string): string {
   return `term-toggle-${encodeURIComponent(groupId)}`;
 }
 
+export function termFocusControlId(groupId: string): string {
+  return `term-focus-${encodeURIComponent(groupId)}`;
+}
+
 /** Only places whose visible marks carry series encodings own a compact key. */
 export function placeUsesQueryEncoding(place: Place): boolean {
   return place === 'trends' || place === 'matches';

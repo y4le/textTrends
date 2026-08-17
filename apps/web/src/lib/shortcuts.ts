@@ -13,6 +13,13 @@ export type ShortcutId =
   | 'go-compare'
   | 'go-footer'
   | 'go-terms'
+  | 'term-previous'
+  | 'term-next'
+  | 'term-toggle'
+  | 'term-delete'
+  | 'term-add-inline'
+  | 'term-open-menu'
+  | 'term-exit'
   | 'row-previous'
   | 'row-next'
   | 'row-page-previous'
@@ -190,6 +197,55 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     label: 'Focus Terms',
     strokes: [],
     sequence: [{ key: 'g' }, { key: 'q' }],
+  },
+  {
+    id: 'term-previous',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Previous term',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'term-next',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Next term',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
+    id: 'term-toggle',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Toggle focused term',
+    strokes: [{ key: ' ' }],
+  },
+  {
+    id: 'term-delete',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Delete focused term',
+    strokes: [{ key: 'x' }, { key: 'Backspace' }, { key: 'Delete' }],
+  },
+  {
+    id: 'term-add-inline',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Add a term inline',
+    strokes: [{ key: 'a' }],
+  },
+  {
+    id: 'term-open-menu',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Open focused term actions',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
+    id: 'term-exit',
+    group: 'Terms',
+    helpContexts: ['workbench'],
+    label: 'Leave term navigation',
+    strokes: [{ key: 'Escape' }],
   },
   {
     id: 'row-previous',
@@ -580,7 +636,7 @@ export function rootShortcutAllowed(
     && !isShortcutTypingTarget(event.target)
     && !(
       (event.target as (EventTarget & { closest?: (selector: string) => unknown }) | null)
-        ?.closest?.('[role="dialog"]')
+        ?.closest?.('[role="dialog"], [role="menu"]')
     );
 }
 
@@ -593,6 +649,9 @@ const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
   PageDown: 'Page Down',
   Escape: 'Esc',
   Enter: 'Enter',
+  ' ': 'Space',
+  Backspace: 'Backspace',
+  Delete: 'Delete',
   Home: 'Home',
   End: 'End',
 });
@@ -606,9 +665,10 @@ function displayStroke(stroke: ShortcutStroke): string {
 }
 
 function ariaStroke(stroke: ShortcutStroke): string {
+  const key = stroke.key === ' ' ? 'Space' : stroke.key;
   const modified = !stroke.shift || (shiftIsImpliedByResolvedKey(stroke) && stroke.key === '?')
-    ? stroke.key
-    : `Shift+${stroke.key}`;
+    ? key
+    : `Shift+${key}`;
   return stroke.ctrl ? `Control+${modified}` : modified;
 }
 
