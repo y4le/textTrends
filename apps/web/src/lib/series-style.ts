@@ -27,11 +27,11 @@ const COLOR_TOKEN: Record<SeriesColorId, string> = {
 };
 
 const COLOR_LABEL: Record<SeriesColorId, string> = {
-  blue: 'Blue',
-  orange: 'Amber',
-  green: 'Teal',
-  violet: 'Vermillion',
-  gold: 'Magenta',
+  blue: 'Automatic 1',
+  orange: 'Automatic 2',
+  green: 'Automatic 3',
+  violet: 'Automatic 4',
+  gold: 'Automatic 5',
 };
 
 const LINE_DASH: Record<SeriesLineId, string> = {

@@ -217,12 +217,12 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await wolf.click();
   const wolfColor = manager.getByLabel('Color for wolf');
   await expect(wolfColor).toHaveAttribute('type', 'color');
-  await expect(wolfColor).toHaveValue('#3b98d4');
-  await expect(manager.getByText('Blue', { exact: true })).toBeVisible();
+  await expect(wolfColor).toHaveValue('#30aff8');
+  await expect(manager.getByText('Automatic 1', { exact: true })).toBeVisible();
   await page.emulateMedia({ colorScheme: 'light' });
-  await expect(wolfColor).toHaveValue('#0072b2');
+  await expect(wolfColor).toHaveValue('#1f68bc');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await expect(wolfColor).toHaveValue('#3b98d4');
+  await expect(wolfColor).toHaveValue('#30aff8');
   await manager.getByRole('button', { name: 'Save term' }).click();
   await expect(page.locator(`[data-series-path="${wolfGroupId}"]`).first())
     .toHaveAttribute('stroke', 'var(--series-1)');
@@ -245,6 +245,14 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(manager.getByText('#6a5acd', { exact: true })).toBeVisible();
   await manager.getByText('Dotted', { exact: true }).click();
   await manager.getByRole('button', { name: 'Add term', exact: true }).click();
+
+  // The fixed picker override reserves perceptual space in both automatic
+  // theme palettes. These are the deterministic GraphTV-maximin results for
+  // the active #6a5acd override; no saved automatic slot id is rewritten.
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement)
+    .getPropertyValue('--series-dark-3').trim())).toBe('#8e8945');
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement)
+    .getPropertyValue('--series-light-1').trim())).toBe('#743b1f');
 
   const nyc = manager.getByRole('button', { name: 'Edit term: NYC' });
   await expect(nyc).toBeVisible();
@@ -269,7 +277,7 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(manager.getByRole('checkbox', { name: 'Exact match' })).toBeChecked();
   await expect(manager.getByLabel('Color for NYC')).toHaveValue('#6a5acd');
   await expect(manager.getByText('#6a5acd', { exact: true })).toBeVisible();
-  await expect(manager.getByRole('radio', { name: /Blue|Amber|Teal|Vermillion|Magenta/ }))
+  await expect(manager.getByRole('radio', { name: /Automatic [1-5]/ }))
     .toHaveCount(0);
   await expect(manager.getByRole('radio', { name: 'Dotted' })).toBeChecked();
 
@@ -330,6 +338,8 @@ test('the full-screen manager adds aliases, picks style, reorders with feedback,
   await expect(dismissButton).toBeVisible();
   await dismissButton.click();
   await expect(manager.getByRole('button', { name: '+ Add term', exact: true })).toBeFocused();
+  await expect.poll(() => page.evaluate(() => getComputedStyle(document.documentElement)
+    .getPropertyValue('--series-dark-3').trim())).toBe('#d740a2');
 });
 
 test('visibility is global across Matches and zero-hit is a visible ready state', async ({ page }) => {

@@ -27,15 +27,26 @@
   /* AA-contrast accent for small text on the dark background (>=4.5:1). */
   --accent-text: #ff8a66;
 
-  /* Data series: Okabe–Ito-derived categorical slots, snapped into the dark
-   * lightness band and ≥3:1 against --bg (validated; slots are assigned in
-   * fixed order and paired with dash patterns — color is never the only
-   * series encoding). */
-  --series-1: #3b98d4;
-  --series-2: #c28400;
-  --series-3: #009e73;
-  --series-4: #d55e00;
-  --series-5: #bc5f92;
+  /* Data series: a GraphTV-derived maximin prefix in each theme. JavaScript
+   * rewrites the paired theme slots when active manual colors need perceptual
+   * clearance; the public slots switch synchronously with the media query.
+   * Line patterns remain a secondary encoding — color is never the only
+   * series identity. */
+  --series-dark-1: #30aff8;
+  --series-dark-2: #fcb442;
+  --series-dark-3: #d740a2;
+  --series-dark-4: #5c9932;
+  --series-dark-5: #fa9ff2;
+  --series-light-1: #1f68bc;
+  --series-light-2: #5c9932;
+  --series-light-3: #d740a2;
+  --series-light-4: #743b1f;
+  --series-light-5: #6213ab;
+  --series-1: var(--series-dark-1);
+  --series-2: var(--series-dark-2);
+  --series-3: var(--series-dark-3);
+  --series-4: var(--series-dark-4);
+  --series-5: var(--series-dark-5);
 
   --space-1: 0.25rem;
   --space-2: 0.5rem;
@@ -64,11 +75,11 @@
     --rule-strong: #948a73;
     --accent: #b23a24;
     --accent-text: #8f2c1a;
-    --series-1: #0072b2;
-    --series-2: #b36b00;
-    --series-3: #007f5f;
-    --series-4: #d55e00;
-    --series-5: #a23b72;
+    --series-1: var(--series-light-1);
+    --series-2: var(--series-light-2);
+    --series-3: var(--series-light-3);
+    --series-4: var(--series-light-4);
+    --series-5: var(--series-light-5);
   }
 }
 

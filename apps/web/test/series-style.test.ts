@@ -12,8 +12,8 @@ describe('series style rendering', () => {
   it('keeps legacy colors theme-aware and passes authored hex through unchanged', () => {
     expect(seriesColor({ color: 'blue', line: 'solid' })).toBe('var(--series-1)');
     expect(seriesColor({ color: '#a1b2c3', line: 'dash' })).toBe('#a1b2c3');
-    expect(seriesColorLabel('violet')).toBe('Vermillion');
-    expect(seriesColorLabel('gold')).toBe('Magenta');
+    expect(seriesColorLabel('violet')).toBe('Automatic 4');
+    expect(seriesColorLabel('gold')).toBe('Automatic 5');
     expect(seriesColorLabel('#a1b2c3')).toBe('#a1b2c3');
   });
 

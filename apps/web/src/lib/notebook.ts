@@ -54,6 +54,21 @@ export function styleKey(style: { readonly color: string; readonly line: string 
   return `${style.color}|${style.line}`;
 }
 
+/** Automatic colors are primary categorical identities, so two active terms
+ * may not share an automatic slot even when their line patterns differ.
+ * Manual colors remain author-owned and collide only when the complete style
+ * is identical. */
+export function stylesVisuallyCollide(
+  left: { readonly color: string; readonly line: string },
+  right: { readonly color: string; readonly line: string },
+): boolean {
+  const leftAutomatic = SERIES_COLOR_IDS.includes(left.color as never);
+  const rightAutomatic = SERIES_COLOR_IDS.includes(right.color as never);
+  return leftAutomatic && rightAutomatic
+    ? left.color === right.color
+    : styleKey(left) === styleKey(right);
+}
+
 /** Present a legacy custom title in the unified comma-authored field. An
  * untouched save can still round-trip the legacy representation losslessly;
  * once the aliases are edited, the title becomes the first matching alias. */
@@ -78,16 +93,17 @@ export function termAliasesForSave(
 }
 
 export function firstFreeStyle(groups: readonly NotebookGroupV1[], active: ReadonlySet<string>): SeriesStyleV1 {
-  const taken = new Set(groups.filter((group) => active.has(group.id)).map((group) => styleKey(group.style)));
+  const taken = groups.filter((group) => active.has(group.id)).map((group) => group.style);
   // The first five terms should be distinguishable by color before line type
   // is needed as a secondary encoding.
   for (let index = 0; index < SERIES_COLOR_IDS.length; index++) {
     const style = defaultSeriesStyle(index);
-    if (!taken.has(styleKey(style))) return style;
+    if (!taken.some((candidate) => stylesVisuallyCollide(candidate, style))) return style;
   }
   for (const color of SERIES_COLOR_IDS) {
     for (const line of SERIES_LINE_IDS) {
-      if (!taken.has(styleKey({ color, line }))) return { color, line };
+      const style = { color, line };
+      if (!taken.some((candidate) => stylesVisuallyCollide(candidate, style))) return style;
     }
   }
   return defaultSeriesStyle(groups.length);
@@ -102,7 +118,7 @@ export function resolveActiveStyleCollisions(
   previouslyActive: ReadonlySet<string> = new Set(),
 ): QueryNotebookV1 {
   let groups = [...notebook.groups];
-  const taken = new Set<string>();
+  const taken: SeriesStyleV1[] = [];
   let changed = false;
   const activeIndexes = groups
     .map((group, index) => active.has(group.id) ? index : -1)
@@ -111,14 +127,13 @@ export function resolveActiveStyleCollisions(
   const returningIndexes = activeIndexes.filter((index) => !previouslyActive.has(groups[index]!.id));
   for (const index of [...survivorIndexes, ...returningIndexes]) {
     const group = groups[index]!;
-    const key = styleKey(group.style);
-    if (!taken.has(key)) {
-      taken.add(key);
+    if (!taken.some((style) => stylesVisuallyCollide(style, group.style))) {
+      taken.push(group.style);
       continue;
     }
     const style = firstFreeStyle(groups, active);
     groups[index] = { ...group, style };
-    taken.add(styleKey(style));
+    taken.push(style);
     changed = true;
   }
   return changed ? { ...notebook, groups } : notebook;

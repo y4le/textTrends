@@ -2523,6 +2523,35 @@ describe('query notebook — active set, solo, order, and style', () => {
     expect(groupsOf(f)[1]!.style).not.toEqual(groupsOf(f)[0]!.style);
   });
 
+  it('reassigns a returning automatic color that an active survivor already uses', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('a, b');
+    const [a, b] = groupsOf(f);
+
+    f.store.getState().setGroupActive(b!.id, false);
+    f.store.getState().setGroupStyle(b!.id, { color: 'blue', line: 'dash' });
+    expect(groupsOf(f)[1]!.style).toEqual({ color: 'blue', line: 'dash' });
+    f.store.getState().setGroupActive(b!.id, true);
+
+    expect(groupsOf(f)[0]!.style).toEqual(a!.style);
+    expect(groupsOf(f)[1]!.style.color).not.toBe(a!.style.color);
+    expect(new Set(f.store.getState().series.map((item) => item.style.color))).toHaveLength(2);
+  });
+
+  it('refuses one automatic color on two active terms even with different lines', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1');
+    f.store.getState().quickAdd('a, b');
+    const [a, b] = groupsOf(f);
+
+    f.store.getState().setGroupStyle(a!.id, { color: 'gold', line: 'dot' });
+    f.store.getState().setGroupStyle(b!.id, { color: 'gold', line: 'dash' });
+
+    expect(f.store.getState().notebookError).toMatch(/already uses/);
+    expect(groupsOf(f)[1]!.style.color).not.toBe('gold');
+  });
+
   it('refuses only exact custom color/line collisions and allows nearby authored colors', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1');

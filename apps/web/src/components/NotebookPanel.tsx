@@ -28,6 +28,7 @@ import {
   seriesColorFromNativeInput,
   seriesColorLabel,
 } from '../lib/series-style.ts';
+import { DEFAULT_MAXIMIN_SERIES_PALETTE } from '../lib/series-palette.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
 
@@ -76,14 +77,6 @@ function aliasesOf(input: string): string[] {
   return input.split(',').map((alias) => alias.trim()).filter(Boolean);
 }
 
-const LEGACY_COLOR_FALLBACK = {
-  blue: { dark: '#3b98d4', light: '#0072b2' },
-  orange: { dark: '#c28400', light: '#b36b00' },
-  green: { dark: '#009e73', light: '#007f5f' },
-  violet: { dark: '#d55e00', light: '#d55e00' },
-  gold: { dark: '#bc5f92', light: '#a23b72' },
-} as const;
-
 function nativeColorValue(
   color: SeriesStyleV1['color'],
   scheme: 'dark' | 'light',
@@ -96,7 +89,7 @@ function nativeColorValue(
       .toLowerCase();
     if (/^#[0-9a-f]{6}$/u.test(value)) return value;
   }
-  return LEGACY_COLOR_FALLBACK[color][scheme];
+  return DEFAULT_MAXIMIN_SERIES_PALETTE[scheme][SERIES_COLOR_IDS.indexOf(color)]!;
 }
 
 function StylePicker({

@@ -98,7 +98,7 @@ import {
   NOTEBOOK_LIMITS_V1,
   parseQuickAdd,
   resolveActiveStyleCollisions,
-  styleKey,
+  stylesVisuallyCollide,
   validateNotebookGroup,
   type NotebookGroupV1,
   type QueryNotebookV1,
@@ -2575,7 +2575,7 @@ export function createAppRuntime(
         if (state.activeGroupIds.size < MAX_SERIES) {
           const collision = state.notebook.groups.find((candidate) =>
             state.activeGroupIds.has(candidate.id)
-            && styleKey(candidate.style) === styleKey(group.style));
+            && stylesVisuallyCollide(candidate.style, group.style));
           if (collision) {
             refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
             return null;
@@ -2615,7 +2615,7 @@ export function createAppRuntime(
           const collision = state.notebook.groups.find((group) =>
             group.id !== groupId
             && state.activeGroupIds.has(group.id)
-            && styleKey(group.style) === styleKey(edited.style));
+            && stylesVisuallyCollide(group.style, edited.style));
           if (collision) {
             refuseNotebook(`${groupTitle(collision)} already uses that color and line type`);
             return false;

@@ -11,6 +11,7 @@ import {
   parseQueryNotebook,
   parseQuickAdd,
   resolveActiveStyleCollisions,
+  stylesVisuallyCollide,
   termAliasesForSave,
   validateNotebookGroup,
   type NotebookGroupV1,
@@ -186,6 +187,23 @@ describe('durable styles', () => {
     );
     expect(resolved.groups[0]!.style).toEqual(custom);
     expect(resolved.groups[1]!.style).not.toEqual(custom);
+  });
+
+  it('treats a shared automatic color as a collision even when line patterns differ', () => {
+    const source = notebook(
+      group('survivor', 'survivor', { color: 'blue', line: 'solid' }),
+      group('returning', 'returning', { color: 'blue', line: 'dash' }),
+    );
+    const resolved = resolveActiveStyleCollisions(
+      source,
+      new Set(['survivor', 'returning']),
+      new Set(['survivor']),
+    );
+
+    expect(resolved.groups[0]!.style).toEqual({ color: 'blue', line: 'solid' });
+    expect(resolved.groups[1]!.style.color).not.toBe('blue');
+    expect(stylesVisuallyCollide(resolved.groups[0]!.style, resolved.groups[1]!.style))
+      .toBe(false);
   });
 });
 

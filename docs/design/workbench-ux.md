@@ -125,10 +125,15 @@ pointer cancellation clears every drag affordance. The same handles retain a
 Space/Enter grab-and-drop path with Up/Down movement for keyboard users.
 
 Each term editor uses the platform's native color input and a separate line
-pattern control. Existing palette colors remain theme-aware; choosing a custom
-color stores its lowercase six-digit hex value and keeps that color fixed
-across themes. The editor warns, without blocking or changing the choice, when
-a custom color falls below 3:1 contrast against either supported background.
+pattern control. Automatic colors form a theme-aware maximin palette: each
+active automatic term has a unique slot, and the active automatic set maximizes
+its minimum perceptual distance internally while retaining GraphTV's spot-color
+exclusion. Choosing a custom color stores its lowercase six-digit hex value and
+keeps that color fixed across themes; active manual overrides reserve the same
+0.15 OKLab clearance used by GraphTV. Visual separation takes priority over
+keeping an automatic term at its previous rendered color. The editor warns,
+without blocking or changing the choice, when a custom color falls below 3:1
+contrast against either supported background.
 
 The Terms rail persists across all five places, including before a usable
 snapshot exists; with no corpus the dock honestly collapses to the Terms-only
