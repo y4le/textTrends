@@ -107,6 +107,13 @@ import {
 import { isCancelled, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import {
+  compileFindQuery,
+  findWrapped,
+  NO_INTERACTION,
+  type FindSeekState,
+  type InteractionState,
+} from './interaction.ts';
+import {
   LatestOperation,
   OperationScope,
   type OperationLease,
@@ -636,6 +643,17 @@ export interface AppState {
   appNotice: string | null;
   workspacePersistence: WorkspacePersistenceState;
 
+  /** The one primary interaction state. Utility panes and future cursor
+   * pinning are orthogonal; future command/speed modes extend this union. */
+  interaction: InteractionState;
+  /** One bounded Find authoring refusal, separate from a submitted query. */
+  interactionError: string | null;
+  enterFind(): void;
+  submitFind(raw: string): boolean;
+  stepFind(direction: 1 | -1): void;
+  exitInteraction(): void;
+  clearInteractionError(): void;
+
   // ── Route/layer state: session presentation, never research data. ──
   place: Place;
   /** A p-less URL waits for the attached corpus before choosing Inputs or
@@ -983,6 +1001,12 @@ function queryErrorMessage(e: unknown): string {
     : msg(e);
 }
 
+function findErrorMessage(e: unknown): string {
+  return e instanceof WorkerClientError && e.analysisCode === 'CAP_EXCEEDED'
+    ? 'This query occurs too often to navigate exactly — try a longer phrase.'
+    : queryErrorMessage(e);
+}
+
 function retainTrendTokenCounts(
   current: ReadonlyMap<string, number>,
   trend: NumericTrend,
@@ -1264,6 +1288,9 @@ export function createAppRuntime(
   const readerLane = new QueryLane(scope);
   // Exact any-term stepping is independent of Reader/footer passage work.
   const occurrenceLane = new QueryLane(scope);
+  // Temporary corpus Find is notebook-independent and must not race with the
+  // existing any-active-term occurrence navigation lane.
+  const findLane = new QueryLane(scope);
   // The global reading footer reuses reader-page/1 through a separate lane.
   // Reader navigation and footer scrubbing never supersede one another.
   const footerPassageLane = new QueryLane(scope);
@@ -1462,6 +1489,7 @@ export function createAppRuntime(
       lease: OperationLease,
       onReady: (data: QueryResultDataV4) => void,
       onError: (message: string) => void,
+      errorMessage: (error: unknown) => string = queryErrorMessage,
     ): void => {
       const handle = client.query(snapshotId, op);
       lane.track(handle.cancel);
@@ -1471,7 +1499,7 @@ export function createAppRuntime(
         })
         .catch((e: unknown) => {
           if (isCancelled(e) || !lease.isCurrent()) return;
-          onError(queryErrorMessage(e));
+          onError(errorMessage(e));
         });
     };
 
@@ -2380,6 +2408,8 @@ export function createAppRuntime(
       commandError: null,
       appNotice: null,
       workspacePersistence: { phase: 'idle' },
+      interaction: NO_INTERACTION,
+      interactionError: null,
       place: bootRoute.place ?? 'inputs',
       routeStatus: bootRoute.place === null ? 'pending' : 'resolved',
       layers: initialLayers,
@@ -2917,6 +2947,232 @@ export function createAppRuntime(
         set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
         resetFooterPassage();
         runMatchesWindow({ kind: 'rank', rank: 0 });
+      },
+
+      enterFind() {
+        const current = get().interaction;
+        set({
+          interaction: current.kind === 'find'
+            ? current
+            : { kind: 'find', find: null },
+          interactionError: null,
+        });
+      },
+
+      submitFind(raw) {
+        const compiled = compileFindQuery(raw, newId);
+        if (!compiled.ok) {
+          set({ interactionError: compiled.message });
+          return false;
+        }
+        findLane.supersede();
+        const snapshot = get().snapshot;
+        if (snapshot === null) {
+          set({
+            interaction: { kind: 'find', find: null },
+            interactionError: 'Add an input before finding in the corpus.',
+          });
+          return false;
+        }
+        set({
+          interaction: {
+            kind: 'find',
+            find: {
+              snapshot: snapshot.snapshot,
+              query: compiled.query,
+              anchor: null,
+              state: { status: 'idle' },
+            },
+          },
+          interactionError: null,
+        });
+        get().stepFind(1);
+        return true;
+      },
+
+      stepFind(direction) {
+        const initial = get();
+        const snapshot = initial.snapshot;
+        const find = initial.interaction.kind === 'find'
+          ? initial.interaction.find
+          : null;
+        if (
+          snapshot === null
+          || find === null
+          || find.snapshot !== snapshot.snapshot
+          || (direction !== 1 && direction !== -1)
+        ) return;
+        if (find.state.status === 'pending' && find.state.direction === direction) return;
+
+        findLane.supersede();
+        const currentReader = initial.readerPlace;
+        const readyReader = currentReader
+          && initial.readerPage
+          && sameReaderPlace(initial.readerPage.place, currentReader)
+          && initial.readerPage.state.status === 'ready'
+          ? initial.readerPage.state.page
+          : null;
+        const candidateVisible = initial.readerVisibleRange;
+        const visibleReader = readyReader
+          && candidateVisible !== null
+          && candidateVisible.snapshot === initial.readerPage?.snapshot
+          && candidateVisible.doc === readyReader.doc
+          ? candidateVisible
+          : null;
+        const readerAnchor = readyReader
+          ? {
+              doc: readyReader.doc,
+              token: readyReader.anchor?.token
+                ?? visibleReader?.tokens.start
+                ?? readyReader.tokens.start,
+            }
+          : null;
+        let anchor = readerAnchor ?? initial.scrub;
+        const syntheticAnchor = anchor === null;
+        if (anchor === null) {
+          const candidates = direction === 1
+            ? [...snapshot.readyDocs].reverse()
+            : snapshot.readyDocs;
+          const doc = candidates.find((candidate) =>
+            (initial.corpusTokenCounts.get(candidate) ?? 0) > 0);
+          const tokenCount = doc ? initial.corpusTokenCounts.get(doc) ?? 0 : 0;
+          anchor = doc
+            ? { doc, token: direction === 1 ? tokenCount - 1 : 0 }
+            : null;
+        }
+        if (anchor === null || !snapshot.readyDocs.includes(anchor.doc)) {
+          set({
+            interaction: {
+              kind: 'find',
+              find: {
+                ...find,
+                anchor: null,
+                state: { status: 'error', message: 'source positions are still loading' },
+              },
+            },
+          });
+          return;
+        }
+
+        const issuedKey = snapKey(snapshot);
+        const issuedIdentity = find.query.identity;
+        const issuedSeriesId = find.query.seriesId;
+        const issuedGroupId = find.query.group.id;
+        const issuedAnchor = anchor;
+        const lease = findLane.ops.begin(
+          () => snapKey(get().snapshot) === issuedKey,
+          () => {
+            const live = get().interaction;
+            return live.kind === 'find'
+              && live.find?.query.identity === issuedIdentity;
+          },
+        );
+        set({
+          interaction: {
+            kind: 'find',
+            find: {
+              ...find,
+              anchor: issuedAnchor,
+              state: { status: 'pending', direction },
+            },
+          },
+          interactionError: null,
+        });
+        const writeFindState = (state: FindSeekState) => {
+          const live = get().interaction;
+          if (live.kind !== 'find' || live.find?.query.identity !== issuedIdentity) return;
+          set({
+            interaction: {
+              kind: 'find',
+              find: { ...live.find, anchor: issuedAnchor, state },
+            },
+          });
+        };
+        issueOn(
+          findLane,
+          snapshot.snapshot,
+          {
+            op: 'occurrence-step',
+            tracks: [{ seriesId: issuedSeriesId, group: find.query.group }],
+            request: {
+              method: 'occurrence-step/1',
+              doc: issuedAnchor.doc,
+              token: issuedAnchor.token,
+              direction,
+            },
+          },
+          lease,
+          (data) => {
+            if (
+              data.op !== 'occurrence-step'
+              || data.step.method !== 'occurrence-step/1'
+            ) {
+              writeFindState({ status: 'error', message: 'worker returned the wrong operation' });
+              return;
+            }
+            if (data.seriesId !== issuedSeriesId || data.groupId !== issuedGroupId) {
+              writeFindState({ status: 'error', message: 'worker returned the wrong find query' });
+              return;
+            }
+            const hit = data.step.hit;
+            if (data.step.atEdge !== (hit === null)) {
+              writeFindState({ status: 'error', message: 'worker returned an invalid find step' });
+              return;
+            }
+            if (hit === null) {
+              writeFindState({ status: 'edge' });
+              return;
+            }
+            const tokenCount = get().corpusTokenCounts.get(hit.doc);
+            if (
+              !snapshot.readyDocs.includes(hit.doc)
+              || !Number.isSafeInteger(hit.token)
+              || hit.token < 0
+              || !Number.isSafeInteger(hit.spanTokens)
+              || hit.spanTokens < 1
+              || (tokenCount !== undefined && hit.token + hit.spanTokens > tokenCount)
+              || hit.members.some((member) =>
+                !Number.isSafeInteger(member)
+                || member < 0
+                || member >= find.query.group.members.length)
+            ) {
+              writeFindState({ status: 'error', message: 'worker returned an invalid find match' });
+              return;
+            }
+
+            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().requestMatchesWindow({ kind: 'position', doc: hit.doc, token: hit.token });
+            const liveReader = get().readerPlace;
+            if (liveReader?.snapshot === snapshot.snapshot) {
+              const readerLayer = get().layers.findLast((layer) => layer.kind === 'reader');
+              get().openReader({
+                snapshot: snapshot.snapshot,
+                doc: hit.doc,
+                token: hit.token,
+                from: 'occurrence',
+              }, readerLayer?.returnFocusTo);
+            }
+            writeFindState({
+              status: 'ready',
+              direction,
+              hit,
+              wrapped: syntheticAnchor
+                ? false
+                : findWrapped(issuedAnchor, hit, direction, snapshot.readyDocs),
+            });
+          },
+          (message) => writeFindState({ status: 'error', message }),
+          findErrorMessage,
+        );
+      },
+
+      exitInteraction() {
+        findLane.supersede();
+        set({ interaction: NO_INTERACTION, interactionError: null });
+      },
+
+      clearInteractionError() {
+        set({ interactionError: null });
       },
 
       stepOccurrence(direction) {
@@ -4783,9 +5039,11 @@ export function createAppRuntime(
     if (prevKey !== nextKey) {
       readerLane.supersede();
       occurrenceLane.supersede();
+      findLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
+      store.setState({ interaction: NO_INTERACTION, interactionError: null });
       const live = store.getState();
       const readerLive =
         live.readerPlace !== null
@@ -4910,9 +5168,11 @@ export function createAppRuntime(
       keynessInventoryBLane.supersede();
       readerLane.supersede();
       occurrenceLane.supersede();
+      findLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
+      store.setState({ interaction: NO_INTERACTION, interactionError: null });
       const state = store.getState();
       const readerIndex = state.layers.findIndex((layer) => layer.kind === 'reader');
       if (readerIndex >= 0 || state.readerPlace !== null) {

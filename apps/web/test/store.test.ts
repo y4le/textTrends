@@ -3450,6 +3450,232 @@ describe('global footer passage intent', () => {
   });
 });
 
+describe('temporary corpus Find', () => {
+  const resultFor = (
+    entry: Issued,
+    hit: { readonly doc: string; readonly token: number; readonly spanTokens: number; readonly members: readonly number[] } | null,
+    overrides: Partial<Extract<QueryResultDataV4, { op: 'occurrence-step' }>> = {},
+  ): QueryResultDataV4 => {
+    const query = entry.query as {
+      tracks: readonly { seriesId: string; group: { id: string } }[];
+    };
+    const track = query.tracks[0]!;
+    return {
+      op: 'occurrence-step',
+      seriesId: track.seriesId,
+      groupId: track.group.id,
+      step: { method: 'occurrence-step/1', hit, atEdge: hit === null },
+      ...overrides,
+    };
+  };
+
+  const setup = (docs: readonly string[] = ['a']) => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', docs);
+    f.store.setState({
+      corpusTokenCounts: new Map(docs.map((doc) => [doc, 100])),
+    });
+    f.store.getState().enterFind();
+    return f;
+  };
+
+  it('issues one transient full-corpus track with an empty notebook without calling the first hit a wrap', async () => {
+    const f = setup();
+    expect(f.store.getState().series).toHaveLength(0);
+    expect(f.store.getState().submitFind('New Yo*')).toBe(true);
+
+    const entry = f.occurrenceSteps().at(-1)!;
+    const query = entry.query as {
+      selection?: unknown;
+      tracks: readonly {
+        seriesId: string;
+        group: { id: string; members: readonly { kind: string }[] };
+      }[];
+      request: unknown;
+    };
+    expect(query.selection).toBeUndefined();
+    expect(query.tracks).toHaveLength(1);
+    expect(query.tracks[0]!.seriesId).toMatch(/^find-series:/);
+    expect(query.tracks[0]!.group).toMatchObject({
+      id: expect.stringMatching(/^find-group:/),
+      members: [{ kind: 'phrase' }],
+    });
+    expect(query.request).toEqual({
+      method: 'occurrence-step/1', doc: 'a', token: 99, direction: 1,
+    });
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find',
+      find: { query: { raw: 'New Yo*' }, state: { status: 'pending', direction: 1 } },
+    });
+
+    entry.resolve(resultFor(entry, {
+      doc: 'a', token: 4, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'ready', wrapped: false } },
+    });
+  });
+
+  it('does not call a first backward seek from the synthetic corpus edge a wrap', async () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const initial = f.occurrenceSteps().at(-1)!;
+    initial.resolve(resultFor(initial, {
+      doc: 'a', token: 4, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    f.store.getState().clearScrub();
+    f.store.getState().stepFind(-1);
+    const backward = f.occurrenceSteps().at(-1)!;
+    expect((backward.query as { request: unknown }).request).toEqual({
+      method: 'occurrence-step/1', doc: 'a', token: 0, direction: -1,
+    });
+    backward.resolve(resultFor(backward, {
+      doc: 'a', token: 80, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'ready', direction: -1, wrapped: false } },
+    });
+  });
+
+  it('moves the truthful cursor, reanchors Matches, detects wrap, and does not open Reader', async () => {
+    const f = setup(['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setScrub({ doc: 'b', token: 90 });
+    const kwicBefore = f.kwics().length;
+    f.store.getState().submitFind('watson');
+    const entry = f.occurrenceSteps().at(-1)!;
+
+    entry.resolve(resultFor(entry, {
+      doc: 'a', token: 4, spanTokens: 1, members: [0],
+    }));
+    await flush();
+
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find',
+      find: {
+        anchor: { doc: 'b', token: 90 },
+        state: { status: 'ready', direction: 1, wrapped: true },
+      },
+    });
+    expect(f.store.getState().matchesReveal).toBeNull();
+    expect(f.kwics().length).toBeGreaterThan(kwicBefore);
+    expect((f.kwics().at(-1)!.query as { request: { anchor: unknown } }).request.anchor)
+      .toEqual({ kind: 'position', doc: 'a', token: 4 });
+    expect(f.store.getState().readerPlace).toBeNull();
+  });
+
+  it('is latest-wins across direction and query changes while ordinary cursor and notebook edits preserve Find', async () => {
+    const f = setup();
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    f.store.getState().submitFind('holmes');
+    const first = f.occurrenceSteps().at(-1)!;
+
+    f.store.getState().stepFind(1);
+    expect(f.occurrenceSteps().at(-1)).toBe(first);
+    f.store.getState().stepFind(-1);
+    const reversed = f.occurrenceSteps().at(-1)!;
+    expect(first.cancelled).toBe(true);
+
+    f.store.getState().setScrub({ doc: 'a', token: 20 });
+    f.store.getState().quickAdd('watson');
+    expect(reversed.cancelled).toBe(false);
+    expect(f.store.getState().interaction.kind).toBe('find');
+
+    f.store.getState().submitFind('moriarty');
+    const latest = f.occurrenceSteps().at(-1)!;
+    expect(reversed.cancelled).toBe(true);
+    reversed.resolve(resultFor(reversed, {
+      doc: 'a', token: 2, spanTokens: 1, members: [0],
+    }));
+    latest.resolve(resultFor(latest, {
+      doc: 'a', token: 30, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 30 });
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { query: { raw: 'moriarty' }, state: { status: 'ready' } },
+    });
+  });
+
+  it('clears and cancels on snapshot replacement', () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const pending = f.occurrenceSteps().at(-1)!;
+    f.port.publishSnapshot('g1', 's2', ['a']);
+    expect(pending.cancelled).toBe(true);
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    expect(f.store.getState().interactionError).toBeNull();
+  });
+
+  it('clears and cancels on runtime disposal', () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const pending = f.occurrenceSteps().at(-1)!;
+    f.runtime.dispose();
+    expect(pending.cancelled).toBe(true);
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    expect(f.store.getState().interactionError).toBeNull();
+  });
+
+  it('admits only the issued transient identity and maps occurrence-cap errors', async () => {
+    const f = setup();
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    f.store.getState().submitFind('holmes');
+    const wrong = f.occurrenceSteps().at(-1)!;
+    wrong.resolve(resultFor(wrong, {
+      doc: 'a', token: 20, spanTokens: 1, members: [0],
+    }, { seriesId: 'wrong-series' }));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 10 });
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'error', message: 'worker returned the wrong find query' } },
+    });
+
+    f.store.getState().stepFind(1);
+    const capped = f.occurrenceSteps().at(-1)!;
+    capped.reject(new WorkerClientError('WORKER_ERROR', 'cap', 'CAP_EXCEEDED'));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find',
+      find: {
+        state: {
+          status: 'error',
+          message: 'This query occurs too often to navigate exactly — try a longer phrase.',
+        },
+      },
+    });
+  });
+
+  it('settles against the live Reader even when Reader opened after issue', async () => {
+    const f = setup(['a', 'b']);
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    f.store.getState().submitFind('holmes');
+    const pending = f.occurrenceSteps().at(-1)!;
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 10, from: 'footer',
+    });
+    const readerCount = f.readers().length;
+
+    pending.resolve(resultFor(pending, {
+      doc: 'b', token: 5, spanTokens: 1, members: [0],
+    }));
+    await flush();
+
+    expect(f.store.getState().readerPlace).toMatchObject({
+      snapshot: 's1', doc: 'b', from: 'occurrence', cursor: { kind: 'around', token: 5 },
+    });
+    expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
+    expect(f.readers()).toHaveLength(readerCount + 1);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'ready' } },
+    });
+  });
+});
+
 describe('exact any-term occurrence navigation', () => {
   const resultFor = (
     entry: Issued,

@@ -19,10 +19,12 @@ const KEY_ACCESSIBLE_NAME: Readonly<Record<string, string>> = Object.freeze({
 export function KeyboardShortcuts({
   context,
   place,
+  onFind,
   onClose,
 }: {
   readonly context: ShortcutHelpContext;
   readonly place: Place;
+  readonly onFind: () => void;
   readonly onClose: () => void;
 }) {
   const activeTextCount = useApp(
@@ -52,6 +54,17 @@ export function KeyboardShortcuts({
       }}
     >
       <div className="shortcut-help-sections">
+        <section className="shortcut-help-tools" aria-labelledby="shortcut-help-tools">
+          <h3 id="shortcut-help-tools">Tools</h3>
+          <button
+            type="button"
+            className="coarse-target"
+            aria-keyshortcuts={shortcutAria(['find-open'])}
+            onClick={onFind}
+          >
+            Find in corpus <kbd aria-hidden="true">/</kbd>
+          </button>
+        </section>
         {sections.map((section) => (
           <section
             className="shortcut-help-section"

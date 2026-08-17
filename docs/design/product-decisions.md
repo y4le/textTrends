@@ -4,6 +4,40 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-17 — One explicit interaction mode and temporary corpus Find
+
+The workbench now permits one explicit primary interaction state, beginning
+with temporary corpus Find and designed to extend to command and focus-reading
+modes. This is a narrow exception to simultaneous no-mode shortcuts: the active
+mode is always named by a visible, non-modal control with keyboard and touch
+entry, visible Close, Escape, and deterministic focus restoration. Native text
+editing, focused controls, utility panes, Meta/browser chords, and IME
+composition remain authoritative. `/` and `Ctrl-F` enter Find; macOS `Cmd-F`
+remains browser-owned.
+
+Find compiles one word, phrase, or existing one-ended wildcard through the same
+tokenizer-aware alias dialect as Terms, but never adds it to the notebook or
+shown analytical series. Commas are refused because Find owns one query rather
+than quick-add's multi-term syntax. `n`/`Ctrl-G` and `p`/`Ctrl-Shift-G` cycle
+through exact full-corpus occurrence starts. The shared reading cursor follows
+each hit, an already-open Reader is repositioned, and the ordinary Matches
+window re-anchors without falsely attributing the transient query to a durable
+series. No substring search, regular expressions, total count, or persistent
+highlighting is implied.
+
+Submitted interaction intent is snapshot-bound and worker requests are
+latest-wins under compiled-query identity. Draft keystrokes remain local to the
+visible Find bar. Ordinary scrubbing and notebook edits do not clear a
+submitted Find; explicit Close/Escape, snapshot replacement, and runtime
+disposal do. Cycling is preserved and a wrap is derived from declared corpus
+order; a null hit therefore truthfully means the query has no occurrences in
+the corpus.
+
+The architecture was reviewed before implementation with an explicitly pinned
+Claude Opus planner through Parley (request `req_consult_c46e366e6ea319c7`,
+artifact
+`art_sha256_6ddf207cd30fd7b1e2f3f2749545bcfb095ad022a125a48e0fbdc38b1a798c02`).
+
 ## 2026-08-10 — Terms joins the persistent reading dock
 
 The global Terms rail moves from the scrolling workbench column into one fixed

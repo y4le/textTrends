@@ -353,8 +353,11 @@ Reader replaces its current page around that exact occurrence.
 
 ## Keys and gestures
 
-Vim and conventional bindings are simultaneous; there is no keyboard mode to
-enter or remember. A central registry is the source for event matching,
+Vim and conventional bindings are simultaneous during ordinary navigation.
+Explicit interaction modes are the narrow exception: at most one is active,
+and a visible non-modal indicator always names it and provides a touch/coarse
+entry and exit path. Temporary corpus Find is the first such mode. A central
+registry is the source for event matching,
 `aria-keyshortcuts`, and the contextual shortcuts reference opened by `?` or
 the visible Shortcuts control. The reference interleaves keyboard and touch
 gestures under the surfaces they govern. Workbench help includes Terms, Trends,
@@ -373,6 +376,15 @@ Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gd` goes to Compare when at least two texts are active and otherwise announces
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 first term visibility control in the fixed rail without scrolling the workbench.
+
+`/` and `Ctrl-F` open temporary corpus Find while `Cmd-F` remains browser-owned.
+Find accepts one tokenizer-aware Terms alias (word, phrase, or one-ended
+wildcard), never mutates the notebook, and exposes Previous, Next, and Close as
+visible coarse-pointer controls. Enter seeks forward; `n`/`Ctrl-G` and
+`p`/`Ctrl-Shift-G` cycle through exact starts. Escape clears the transient
+query. Hits update the shared reading cursor, re-anchor Matches without a fake
+series identity, and reposition Reader only when Reader is already open.
+
 Within the
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
 activate a destination until the link is invoked. With at least two active

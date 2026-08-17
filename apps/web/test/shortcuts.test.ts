@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceShortcutSequence,
+  interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutAria,
   shortcutHelpSections,
@@ -23,6 +24,12 @@ const key = (
 
 describe('shortcut registry', () => {
   it('matches Vim and conventional aliases while preserving modifiers', () => {
+    expect(shortcutMatches(key('/'), 'find-open')).toBe(true);
+    expect(shortcutMatches(key('/', { shiftKey: true }), 'find-open')).toBe(true);
+    expect(shortcutMatches(key('f', { ctrlKey: true }), 'find-open')).toBe(true);
+    expect(shortcutMatches(key('g', { ctrlKey: true }), 'find-next')).toBe(true);
+    expect(shortcutMatches(key('G', { shiftKey: true, ctrlKey: true }), 'find-previous')).toBe(true);
+    expect(shortcutMatches(key('g', { ctrlKey: true }), 'find-previous')).toBe(false);
     expect(shortcutMatches(key('h'), 'footer-page-previous')).toBe(true);
     expect(shortcutMatches(key('ArrowLeft'), 'footer-page-previous')).toBe(true);
     expect(shortcutMatches(key('ArrowLeft', { shiftKey: true }), 'footer-page-previous')).toBe(false);
@@ -50,7 +57,18 @@ describe('shortcut registry', () => {
   });
 
   it('lets focused typing controls and locally handled events win at the root', () => {
-    const input = { closest: () => ({ tagName: 'INPUT' }) } as unknown as EventTarget;
+    const input = ({
+      closest: (selector: string) => selector.includes('input') ? { tagName: 'INPUT' } : null,
+    }) as unknown as EventTarget;
+    const findInput = ({
+      closest: (selector: string) => {
+        if (selector.includes('input')) return { tagName: 'INPUT' };
+        if (selector === '[data-interaction-surface="find"]') {
+          return { dataset: { interactionSurface: 'find' } };
+        }
+        return null;
+      },
+    }) as unknown as EventTarget;
     const plain = { closest: () => null } as unknown as EventTarget;
     const dialog = ({
       closest: (selector: string) => selector.includes('[role="dialog"]') ? {} : null,
@@ -68,6 +86,29 @@ describe('shortcut registry', () => {
     expect(rootShortcutAllowed(event(dialog))).toBe(false);
     expect(rootShortcutAllowed(event(menu))).toBe(false);
     expect(rootShortcutAllowed(event(plain, true))).toBe(false);
+
+    const interactionEvent = (
+      target: EventTarget,
+      overrides: Partial<ShortcutEventLike & { defaultPrevented: boolean }> = {},
+    ) => ({
+      ...key('f', { ctrlKey: true }),
+      target,
+      defaultPrevented: false,
+      ...overrides,
+    });
+    expect(interactionShortcutAllowed(interactionEvent(plain))).toBe(true);
+    expect(interactionShortcutAllowed(interactionEvent(input))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(findInput))).toBe(true);
+    expect(interactionShortcutAllowed({
+      ...interactionEvent(findInput, { ctrlKey: false }),
+      key: '/',
+    })).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(dialog))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(menu))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(plain, { defaultPrevented: true }))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(plain, { metaKey: true }))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(plain, { altKey: true }))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(plain, { isComposing: true }))).toBe(false);
   });
 
   it('derives accessibility metadata and contextual help from the same definitions', () => {
@@ -90,6 +131,7 @@ describe('shortcut registry', () => {
     });
     expect(trends.map((section) => section.title)).toEqual([
       'Global',
+      'Find',
       'Navigation',
       'Terms',
       'Trends',
@@ -104,6 +146,8 @@ describe('shortcut registry', () => {
       });
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'find-previous')?.keys).toEqual(['p', 'Ctrl + Shift + G']);
     expect(trends.find((section) => section.title === 'Navigation')?.entries
       .map((entry) => entry.id)).toContain('go-inputs');
     expect(trends.find((section) => section.title === 'Navigation')?.entries
@@ -137,6 +181,7 @@ describe('shortcut registry', () => {
     });
     expect(inputs.map((section) => section.title)).toEqual([
       'Global',
+      'Find',
       'Navigation',
       'Terms',
       'Rows',
@@ -156,6 +201,7 @@ describe('shortcut registry', () => {
     });
     expect(empty.map((section) => section.title)).toEqual([
       'Global',
+      'Find',
       'Navigation',
       'Terms',
     ]);
@@ -165,6 +211,7 @@ describe('shortcut registry', () => {
     const readerIds = shortcutHelpSections({ context: 'reader' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
+    expect(readerIds).toContain('find-open');
     expect(readerIds).not.toContain('footer-page-next');
   });
 

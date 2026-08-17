@@ -1,9 +1,14 @@
+import { FIND_SURFACE_SELECTOR } from './interaction.ts';
 import type { Place } from './places.ts';
 
 export type ShortcutHelpContext = 'workbench' | 'reader';
 
 export type ShortcutId =
   | 'show-help'
+  | 'find-open'
+  | 'find-next'
+  | 'find-previous'
+  | 'find-close'
   | 'focus-horizontal-previous'
   | 'focus-horizontal-next'
   | 'go-inputs'
@@ -72,7 +77,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'Global' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader';
+  readonly group: 'Global' | 'Find' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -127,6 +132,34 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench', 'reader'],
     label: 'Toggle keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
+  },
+  {
+    id: 'find-open',
+    group: 'Find',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Find a word or phrase in the corpus',
+    strokes: [{ key: '/' }, { key: 'f', ctrl: true }],
+  },
+  {
+    id: 'find-next',
+    group: 'Find',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Next find match',
+    strokes: [{ key: 'n' }, { key: 'g', ctrl: true }],
+  },
+  {
+    id: 'find-previous',
+    group: 'Find',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Previous find match',
+    strokes: [{ key: 'p' }, { key: 'G', shift: true, ctrl: true }],
+  },
+  {
+    id: 'find-close',
+    group: 'Find',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Close find',
+    strokes: [{ key: 'Escape' }],
   },
   {
     id: 'focus-horizontal-previous',
@@ -559,7 +592,7 @@ function definition(id: ShortcutId): ShortcutDefinition {
 }
 
 function shiftIsImpliedByResolvedKey(stroke: ShortcutStroke): boolean {
-  return stroke.key === '?'
+  return stroke.key === '?' || stroke.key === '/'
     || (stroke.key.length === 1 && stroke.key >= 'A' && stroke.key <= 'Z');
 }
 
@@ -640,6 +673,27 @@ export function rootShortcutAllowed(
     );
 }
 
+/** Narrow gate for explicit interaction-mode chords. It retains native text
+ * priority outside Find's own composer, plus modal, Meta/browser, Alt,
+ * composition, and local-handler priority, while allowing the registry to
+ * claim only its named Ctrl chords. */
+export function interactionShortcutAllowed(
+  event: ShortcutEventLike & { readonly defaultPrevented: boolean; readonly target: EventTarget | null },
+): boolean {
+  const target = event.target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  return !event.defaultPrevented
+    && !event.metaKey
+    && !event.altKey
+    && !event.isComposing
+    && (
+      !isShortcutTypingTarget(event.target)
+      || (event.ctrlKey && target?.closest?.(FIND_SURFACE_SELECTOR) != null)
+    )
+    && !(
+      target?.closest?.('[role="dialog"], [role="menu"]')
+    );
+}
+
 const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
   ArrowLeft: '←',
   ArrowRight: '→',
@@ -658,7 +712,8 @@ const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
 
 function displayStroke(stroke: ShortcutStroke): string {
   const key = DISPLAY_KEY[stroke.key] ?? stroke.key;
-  const modified = !stroke.shift || shiftIsImpliedByResolvedKey(stroke)
+  const modified = !stroke.shift
+    || (shiftIsImpliedByResolvedKey(stroke) && stroke.ctrl !== true)
     ? key
     : `Shift + ${key}`;
   return stroke.ctrl ? `Ctrl + ${modified}` : modified;
@@ -700,9 +755,10 @@ const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
  * unavailable sections from the menu. */
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
-    ? ['Global', 'Reader']
+    ? ['Global', 'Find', 'Reader']
     : [
         'Global',
+        'Find',
         'Navigation',
         'Terms',
         ...(scope.activeTextCount > 0 && ROW_PLACES.has(scope.place) ? ['Rows' as const] : []),

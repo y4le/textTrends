@@ -63,6 +63,7 @@ function pendingAnalyses(): number {
       state.footerPassage?.state,
       state.readerPage?.state,
       state.occurrenceNavigation?.state,
+      state.interaction.kind === 'find' ? state.interaction.find?.state : null,
     ],
     maps: [state.trends, state.selectedTrends],
   });

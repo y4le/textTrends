@@ -1210,6 +1210,29 @@ describe('occurrence-step/1 through the executor', () => {
       hit: { doc: 'a', token: 1, spanTokens: 1, members: [0] },
       atEdge: false,
     });
+
+    const absentGroup = {
+      ...wolfGroup,
+      id: 'absent-group',
+      members: wolfGroup.members.map((member) => ({
+        ...member,
+        id: 'absent',
+        surface: 'unfindabletoken',
+      })),
+    };
+    await h.send({
+      t: 'query', job: 55, snapshot: snap,
+      query: {
+        op: 'occurrence-step',
+        tracks: [{ seriesId: 's-absent', group: absentGroup }],
+        request: { method: 'occurrence-step/1', doc: 'a', token: 1, direction: 1 },
+      },
+    });
+    const absent = h.last('result');
+    if (absent.data.op !== 'occurrence-step') throw new Error('expected occurrence-step');
+    expect(absent.data.step).toEqual({
+      method: 'occurrence-step/1', hit: null, atEdge: true,
+    });
   });
 
   it('chooses the nearest reference from any track and cycles at either edge', async () => {

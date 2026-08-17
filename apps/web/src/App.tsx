@@ -17,6 +17,7 @@ import { isSettingsPlace } from './lib/settings-place.ts';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
+  interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutAria,
   shortcutMatches,
@@ -27,6 +28,8 @@ import {
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
+import { FindBar } from './components/FindBar.tsx';
+import { FIND_INPUT_ID } from './lib/interaction.ts';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -166,6 +169,10 @@ export function App() {
   const readerNavigation = useApp((s) => s.readerNavigation);
   const readerVisibleRange = useApp((s) => s.readerVisibleRange);
   const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
+  const interaction = useApp((s) => s.interaction);
+  const enterFind = useApp((s) => s.enterFind);
+  const stepFind = useApp((s) => s.stepFind);
+  const exitInteraction = useApp((s) => s.exitInteraction);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
@@ -186,6 +193,9 @@ export function App() {
   const [readerKeyboardStatus, setReaderKeyboardStatus] = useState('');
   const [utilityPane, setUtilityPane] = useState<OpenUtilityPane | null>(null);
   const utilityPaneReturnFocus = useRef<HTMLElement | null>(null);
+  const findReturnFocus = useRef<HTMLElement | null>(null);
+  const restoreFindFocus = useRef(false);
+  const previousInteractionKind = useRef(interaction.kind);
   const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -216,19 +226,50 @@ export function App() {
   const openShortcutHelp = (context: ShortcutHelpContext) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    utilityPaneReturnFocus.current = interaction.kind === 'find'
+      ? findReturnFocus.current
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (interaction.kind === 'find') exitInteraction();
     setUtilityPane({ kind: 'shortcuts', context });
   };
   const openSettings = () => {
     if (!isSettingsPlace(place)) return;
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = document.activeElement instanceof HTMLElement
-      ? document.activeElement
-      : null;
+    utilityPaneReturnFocus.current = interaction.kind === 'find'
+      ? findReturnFocus.current
+      : document.activeElement instanceof HTMLElement
+        ? document.activeElement
+        : null;
+    if (interaction.kind === 'find') exitInteraction();
     setUtilityPane({ kind: 'settings' });
+  };
+  const focusFindInput = () => {
+    requestAnimationFrame(() => {
+      document.getElementById(FIND_INPUT_ID)?.focus({ preventScroll: true });
+    });
+  };
+  const openFind = (fromUtilityPane = false) => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    if (interaction.kind !== 'find') {
+      restoreFindFocus.current = false;
+      const active = fromUtilityPane
+        ? utilityPaneReturnFocus.current
+        : document.activeElement instanceof HTMLElement && document.activeElement !== document.body
+          ? document.activeElement
+          : null;
+      findReturnFocus.current = active;
+    }
+    if (fromUtilityPane) setUtilityPane(null);
+    enterFind();
+    focusFindInput();
+  };
+  const closeFind = () => {
+    restoreFindFocus.current = true;
+    exitInteraction();
   };
   const closeUtilityPane = () => {
     const target = utilityPaneReturnFocus.current;
@@ -339,6 +380,34 @@ export function App() {
       }
     }, Math.max(0, advanced.state.expiresAt - performance.now()));
   };
+  const handleInteractionShortcut = (
+    event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
+  ): boolean => {
+    if (utilityPane !== null || !interactionShortcutAllowed(event)) return false;
+    if (shortcutMatches(event, 'find-open')) {
+      event.preventDefault();
+      openFind();
+      return true;
+    }
+    const active = useApp.getState().interaction;
+    if (active.kind !== 'find') return false;
+    if (shortcutMatches(event, 'find-close')) {
+      event.preventDefault();
+      closeFind();
+      return true;
+    }
+    if (active.find !== null && shortcutMatches(event, 'find-next')) {
+      event.preventDefault();
+      stepFind(1);
+      return true;
+    }
+    if (active.find !== null && shortcutMatches(event, 'find-previous')) {
+      event.preventDefault();
+      stepFind(-1);
+      return true;
+    }
+    return false;
+  };
 
   useEffect(() => {
     if (!readerOpen) return undefined;
@@ -357,11 +426,32 @@ export function App() {
       // authoritative. The document seam also reaches a fresh workbench while
       // focus still rests on <body>.
       if (utilityPane !== null) return;
+      if (handleInteractionShortcut(event)) return;
       handleRootShortcut(event, readerOpen ? 'reader' : 'workbench', true);
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [readerOpen, utilityPane]);
+  }, [interaction.kind, readerOpen, utilityPane]);
+
+  useEffect(() => {
+    const previous = previousInteractionKind.current;
+    previousInteractionKind.current = interaction.kind;
+    if (previous !== 'find' || interaction.kind === 'find') return;
+    const shouldRestore = restoreFindFocus.current;
+    restoreFindFocus.current = false;
+    const target = findReturnFocus.current;
+    findReturnFocus.current = null;
+    const orphaned = document.activeElement === null || document.activeElement === document.body;
+    if (!shouldRestore && !orphaned) return;
+    requestAnimationFrame(() => {
+      if (target?.isConnected) {
+        target.focus({ preventScroll: true });
+        return;
+      }
+      document.getElementById(readerOpen ? 'reader-region' : `place-${place}-heading`)
+        ?.focus({ preventScroll: true });
+    });
+  }, [interaction.kind, place, readerOpen]);
 
   useEffect(() => () => {
     if (shortcutSequenceTimer.current !== null) clearTimeout(shortcutSequenceTimer.current);
@@ -434,7 +524,14 @@ export function App() {
   };
 
   const utilityPaneSurface = utilityPane?.kind === 'shortcuts'
-    ? <KeyboardShortcuts context={utilityPane.context} place={place} onClose={closeUtilityPane} />
+    ? (
+        <KeyboardShortcuts
+          context={utilityPane.context}
+          place={place}
+          onFind={() => openFind(true)}
+          onClose={closeUtilityPane}
+        />
+      )
     : utilityPane?.kind === 'settings'
       ? (
           <Suspense fallback={null}>
@@ -459,6 +556,7 @@ export function App() {
         onPointerUp={onReaderPointerUp}
         onPointerCancel={() => { readerEdgePointer.current = null; }}
         onKeyDown={(event) => {
+          if (handleInteractionShortcut(event)) return;
           if (!rootShortcutAllowed(event)) return;
           if (shortcutMatches(event, 'reader-close')) {
             event.preventDefault();
@@ -544,6 +642,7 @@ export function App() {
         </Suspense>
       </main>
       {utilityPaneSurface}
+      {interaction.kind === 'find' && <FindBar onClose={closeFind} />}
       </>
     );
   }
@@ -554,7 +653,10 @@ export function App() {
       className="app-shell"
       data-place={place}
       data-shortcut-context="workbench"
-      onKeyDown={(event) => handleRootShortcut(event, 'workbench')}
+      onKeyDown={(event) => {
+        if (handleInteractionShortcut(event)) return;
+        handleRootShortcut(event, 'workbench');
+      }}
     >
       <p
         className="visually-hidden"
@@ -700,6 +802,7 @@ export function App() {
       <WorkbenchDock globalShortcuts={place === 'trends'} />
     </main>
     {utilityPaneSurface}
+    {interaction.kind === 'find' && <FindBar onClose={closeFind} />}
     </>
   );
 }
