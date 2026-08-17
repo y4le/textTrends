@@ -434,7 +434,7 @@ export function App() {
   };
 
   const utilityPaneSurface = utilityPane?.kind === 'shortcuts'
-    ? <KeyboardShortcuts context={utilityPane.context} onClose={closeUtilityPane} />
+    ? <KeyboardShortcuts context={utilityPane.context} place={place} onClose={closeUtilityPane} />
     : utilityPane?.kind === 'settings'
       ? (
           <Suspense fallback={null}>

@@ -65,36 +65,76 @@ describe('shortcut registry', () => {
   it('derives accessibility metadata and contextual help from the same definitions', () => {
     expect(shortcutAria(['footer-page-previous', 'footer-token-previous']))
       .toBe('h ArrowLeft PageUp Shift+H Shift+ArrowLeft');
-    const workbench = shortcutHelpSections('workbench');
-    expect(workbench.map((section) => section.title)).toEqual([
-      'General',
+    const trends = shortcutHelpSections({
+      context: 'workbench',
+      place: 'trends',
+      activeTextCount: 2,
+      footerAvailable: true,
+    });
+    expect(trends.map((section) => section.title)).toEqual([
+      'Global',
       'Navigation',
       'Terms',
-      'Rows',
       'Trends',
       'Reading footer',
+      'Footer size',
     ]);
-    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'footer-page-next')).toEqual({
         id: 'footer-page-next',
         label: 'Next rendered passage',
         keys: ['l', '→', 'Page Down'],
       });
-    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
-    expect(workbench.find((section) => section.title === 'Navigation')?.entries
+    expect(trends.find((section) => section.title === 'Navigation')?.entries
       .map((entry) => entry.id)).toContain('go-inputs');
-    expect(workbench.find((section) => section.title === 'Terms')?.entries
+    expect(trends.find((section) => section.title === 'Navigation')?.entries
+      .map((entry) => entry.id)).not.toContain('go-trends');
+    expect(trends.find((section) => section.title === 'Terms')?.entries
       .map((entry) => entry.id)).toContain('go-terms');
-    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'trend-toggle-view')?.label).toBe('Toggle combined / separate view');
-    expect(workbench.flatMap((section) => section.entries).find((entry) =>
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'footer-occurrence-previous')).toEqual({
         id: 'footer-occurrence-previous',
         label: 'Previous reference from any term',
         keys: ['b'],
       });
-    const readerIds = shortcutHelpSections('reader')
+    const inputs = shortcutHelpSections({
+      context: 'workbench',
+      place: 'inputs',
+      activeTextCount: 1,
+      footerAvailable: true,
+    });
+    expect(inputs.map((section) => section.title)).toEqual([
+      'Global',
+      'Navigation',
+      'Terms',
+      'Rows',
+      'Reading footer',
+      'Footer size',
+    ]);
+    const inputIds = inputs.flatMap((section) => section.entries.map((entry) => entry.id));
+    expect(inputIds).not.toContain('go-inputs');
+    expect(inputIds).not.toContain('go-compare');
+    expect(inputIds).not.toContain('trend-step-next');
+
+    const empty = shortcutHelpSections({
+      context: 'workbench',
+      place: 'inputs',
+      activeTextCount: 0,
+      footerAvailable: false,
+    });
+    expect(empty.map((section) => section.title)).toEqual([
+      'Global',
+      'Navigation',
+      'Terms',
+    ]);
+    expect(empty.flatMap((section) => section.entries.map((entry) => entry.id)))
+      .not.toContain('go-footer');
+
+    const readerIds = shortcutHelpSections({ context: 'reader' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
     expect(readerIds).not.toContain('footer-page-next');
@@ -111,6 +151,10 @@ describe('shortcut registry', () => {
       .toEqual({ kind: 'matched', id: 'go-inputs' });
     expect(advanceShortcutSequence(prefix.state, key('m'), 'workbench', 200))
       .toEqual({ kind: 'matched', id: 'go-matches' });
+    expect(advanceShortcutSequence(prefix.state, key('c'), 'workbench', 200))
+      .toEqual({ kind: 'matched', id: 'go-compare' });
+    expect(advanceShortcutSequence(prefix.state, key('d'), 'workbench', 200))
+      .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('k'), 'workbench', 200))
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(prefix.state, key('i'), 'workbench', 1_001))

@@ -173,14 +173,15 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await scrubber.press('v');
   await expect(page.locator('svg[data-trend-view="by-book"]')).toHaveCount(0);
   await page.locator('body').press('g');
-  await page.locator('body').press('d');
+  await page.locator('body').press('c');
   await expect(page).toHaveURL(/\?fresh=1&p=trends$/);
   await expect(page.getByRole('status', { name: 'Navigation status' }))
     .toHaveText('Compare requires at least two active texts');
 
   await page.getByRole('button', { name: 'shortcuts', exact: true }).click();
-  const shortcuts = page.getByRole('dialog', { name: 'Keys & gestures' });
-  await expect(shortcuts.getByText('Go to Trends', { exact: true })).toBeVisible();
+  const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await expect(shortcuts.getByText('Go to Trends', { exact: true })).toHaveCount(0);
+  await expect(shortcuts.getByText('Go to Inputs', { exact: true })).toBeVisible();
   await expect(shortcuts.getByText('Go to Compare', { exact: true })).toHaveCount(0);
   await expect(shortcuts.getByText('Toggle combined / separate view', { exact: true }))
     .toHaveCount(0);

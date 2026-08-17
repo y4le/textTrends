@@ -7,6 +7,9 @@ export function UtilityPane({
   focusKey,
   closeKeyshortcuts,
   className,
+  layerClassName,
+  compactClose = false,
+  closeOnBackdrop = false,
   onClose,
   onKeyDown,
   children,
@@ -17,6 +20,9 @@ export function UtilityPane({
   readonly focusKey?: string;
   readonly closeKeyshortcuts?: string;
   readonly className?: string;
+  readonly layerClassName?: string;
+  readonly compactClose?: boolean;
+  readonly closeOnBackdrop?: boolean;
   readonly onClose: () => void;
   readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
   readonly children: ReactNode;
@@ -28,6 +34,8 @@ export function UtilityPane({
     <FormLayer
       labelledBy={titleId}
       {...(focusKey === undefined ? {} : { focusKey })}
+      {...(layerClassName === undefined ? {} : { className: layerClassName })}
+      closeOnBackdrop={closeOnBackdrop}
       onClose={onClose}
     >
       <section
@@ -42,10 +50,11 @@ export function UtilityPane({
           </div>
           <button
             type="button"
+            {...(compactClose ? { 'aria-label': 'close' } : {})}
             {...(closeKeyshortcuts === undefined ? {} : { 'aria-keyshortcuts': closeKeyshortcuts })}
             onClick={onClose}
           >
-            close
+            {compactClose ? <span aria-hidden="true">×</span> : 'close'}
           </button>
         </header>
         <div className="utility-pane-body">{children}</div>

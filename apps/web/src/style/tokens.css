@@ -3155,54 +3155,165 @@ canvas {
   background: var(--bg);
 }
 
+.form-layer.shortcut-help-layer {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding:
+    calc(var(--space-3) + env(safe-area-inset-top, 0px))
+    calc(var(--space-3) + env(safe-area-inset-right, 0px))
+    calc(var(--space-3) + var(--keyboard-inset) + env(safe-area-inset-bottom, 0px))
+    calc(var(--space-3) + env(safe-area-inset-left, 0px));
+  overflow: hidden;
+  background: color-mix(in srgb, var(--bg) 76%, transparent);
+  backdrop-filter: blur(6px);
+}
+
+.form-layer.shortcut-help-layer > .shortcut-help-pane {
+  width: min(100%, 68rem);
+  min-block-size: 0;
+  max-block-size:
+    min(
+      48rem,
+      calc(
+        100dvh
+        - 2 * var(--space-3)
+        - var(--keyboard-inset)
+        - env(safe-area-inset-top, 0px)
+        - env(safe-area-inset-bottom, 0px)
+      )
+    );
+  margin: 0;
+  gap: 0;
+  overflow: hidden;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+  box-shadow: 0 1rem 3rem color-mix(in srgb, #000 18%, transparent);
+}
+
+.shortcut-help-pane .utility-pane-header {
+  position: static;
+  align-items: baseline;
+  padding: 0.85rem 1rem 0.7rem;
+  border-bottom-color: var(--rule);
+}
+
+.shortcut-help-pane .utility-pane-header h2 {
+  font-size: var(--text-lg);
+  font-weight: 400;
+}
+
+.shortcut-help-pane .utility-pane-header button {
+  display: grid;
+  min-inline-size: 2rem;
+  min-block-size: 2rem;
+  place-items: center;
+  margin: -0.25rem -0.25rem -0.25rem 0;
+  padding: 0;
+  border: 0;
+  color: var(--fg);
+  font-size: 1.5rem;
+  line-height: 1;
+}
+
+.shortcut-help-pane .utility-pane-body {
+  min-block-size: 0;
+  overflow: auto;
+  padding: 1.4rem 1rem 1rem;
+}
+
 .shortcut-help-sections {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(18rem, 100%), 1fr));
-  gap: var(--space-4);
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1.5rem;
+}
+
+.shortcut-help-section {
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 0.55rem;
+  align-content: start;
 }
 
 .shortcut-help-sections h3 {
-  padding-block-end: var(--space-1);
-  border-bottom: 1px solid var(--rule);
-  font-size: var(--text-md);
+  grid-column: 2;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.shortcut-help-list {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  row-gap: 0.3rem;
+  align-items: start;
+  margin-block-start: 0.45rem;
+  font-size: var(--text-sm);
+  line-height: 1.35;
 }
 
 .shortcut-help-list > div {
   display: grid;
-  grid-template-columns: minmax(9rem, 0.8fr) minmax(12rem, 1.2fr);
-  align-items: baseline;
-  gap: var(--space-3);
-  padding-block: var(--space-2);
-  border-bottom: 1px solid var(--rule);
+  grid-column: 1 / -1;
+  grid-template-columns: subgrid;
+  align-items: start;
 }
 
 .shortcut-help-list dt {
   display: flex;
   flex-wrap: wrap;
-  gap: var(--space-1);
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.15rem;
 }
 
 .shortcut-help-list dd {
   margin: 0;
+  color: var(--fg-muted);
 }
 
 .shortcut-help-list kbd {
-  font-family: var(--font-mono);
+  display: inline-grid;
+  min-inline-size: 1.35rem;
+  min-block-size: 1.35rem;
+  place-items: center;
+  padding: 0.06rem 0.28rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.2rem;
+  background: color-mix(in srgb, var(--fg) 3%, transparent);
+  color: var(--fg);
+  font-family: var(--font-ui);
   font-size: var(--text-xs);
+  line-height: 1;
   white-space: nowrap;
 }
 
-.shortcut-help-gesture {
+.shortcut-help-key-separator {
   color: var(--fg-muted);
-  font-family: var(--font-mono);
   font-size: var(--text-xs);
-  white-space: nowrap;
 }
 
-@media (max-width: 479.98px) {
-  .shortcut-help-list > div {
+@media (max-width: 860px) {
+  .shortcut-help-sections {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 1.25rem;
+  }
+}
+
+@media (max-width: 599.98px) {
+  .shortcut-help-pane .utility-pane-header button {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+
+  .shortcut-help-pane .utility-pane-body {
+    padding-block-start: var(--space-3);
+  }
+
+  .shortcut-help-sections {
     grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-1);
+    gap: var(--space-3);
   }
 }
 

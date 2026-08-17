@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { dockSizing } from '../lib/footer-metrics.ts';
+import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 
@@ -237,7 +238,13 @@ export function WorkbenchDock({ globalShortcuts }: {
           aria-valuemax={sizing.maxBlockSize}
           aria-valuenow={sizing.blockSize}
           aria-valuetext={`${sizing.blockSize} pixels · ${laneText}`}
-          aria-keyshortcuts="Home End Enter ArrowUp ArrowDown PageUp PageDown"
+          aria-keyshortcuts={shortcutAria([
+            'dock-resize-step',
+            'dock-resize-fine',
+            'dock-resize-page',
+            'dock-resize-limits',
+            'dock-resize-reset',
+          ])}
           tabIndex={0}
           data-resizing={resizing || undefined}
           onFocus={measureAvailable}

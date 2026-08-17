@@ -18,12 +18,16 @@ export function FormLayer({
   label,
   labelledBy,
   focusKey,
+  className,
+  closeOnBackdrop = false,
   onClose,
   children,
 }: {
   readonly label?: string;
   readonly labelledBy?: string;
   readonly focusKey?: string;
+  readonly className?: string;
+  readonly closeOnBackdrop?: boolean;
   readonly onClose: () => void;
   readonly children: ReactNode;
 }): ReactPortal {
@@ -108,13 +112,16 @@ export function FormLayer({
   return createPortal(
     <div
       ref={layerRef}
-      className="form-layer"
+      className={['form-layer', className].filter(Boolean).join(' ')}
       role="dialog"
       aria-modal="true"
       aria-label={labelledBy ? undefined : label}
       aria-labelledby={labelledBy}
       tabIndex={-1}
       onKeyDown={onKeyDown}
+      onPointerDown={(event) => {
+        if (closeOnBackdrop && event.target === event.currentTarget) onClose();
+      }}
     >
       {children}
     </div>,

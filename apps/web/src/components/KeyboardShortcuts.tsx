@@ -1,50 +1,48 @@
+import { Fragment } from 'react';
 import type { ShortcutHelpContext } from '../lib/shortcuts.ts';
 import {
   shortcutAria,
   shortcutHelpSections,
   shortcutMatches,
 } from '../lib/shortcuts.ts';
+import type { Place } from '../lib/places.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { UtilityPane } from './UtilityPane.tsx';
 
+const KEY_ACCESSIBLE_NAME: Readonly<Record<string, string>> = Object.freeze({
+  '←': 'Left arrow',
+  '→': 'Right arrow',
+  '↑': 'Up arrow',
+  '↓': 'Down arrow',
+});
+
 export function KeyboardShortcuts({
   context,
+  place,
   onClose,
 }: {
   readonly context: ShortcutHelpContext;
+  readonly place: Place;
   readonly onClose: () => void;
 }) {
   const activeTextCount = useApp(
     (state) => state.projectSession?.project.data.order.length ?? 0,
   );
-  const sections = shortcutHelpSections(context).map((section) => ({
-    ...section,
-    entries: section.entries.filter((entry) =>
-      activeTextCount > 1
-      || (entry.id !== 'go-compare' && entry.id !== 'trend-toggle-view')),
-  })).filter((section) => section.entries.length > 0);
-  const gestures = context === 'reader'
-    ? new Map([['Reader', [
-        ['Touch', 'Tap a page edge to turn; drag vertically to scroll or select text.'],
-      ]]])
-    : new Map([
-        ['Terms', [
-          ['Touch', 'Drag a term only from its reorder handle.'],
-          ['Keyboard', 'On a reorder handle, press Space or Enter to grab, Arrow Up or Down to move, then Space or Enter to drop.'],
-        ]],
-        ['Trends', [
-          ['Touch', 'Drag one finger to read. Hold a range start, then tap its end; two fingers select the same range directly.'],
-        ]],
-        ['Reading footer', [
-          ['Touch', 'Tap or drag horizontally to read; drag the top edge vertically to resize.'],
-          ['Keyboard', 'On the top edge, use arrows or Page Up/Down to resize, Home/End for the limits, and Enter to restore the default.'],
-        ]],
-      ]);
+  const footerAvailable = useApp((state) => state.snapshot !== null
+    && state.snapshot.readyDocs.length > 0
+    && state.snapshot.readyDocs.some((doc) =>
+      (state.corpusTokenCounts.get(doc) ?? 0) > 0));
+  const sections = shortcutHelpSections(context === 'reader'
+    ? { context }
+    : { context, place, activeTextCount, footerAvailable });
   return (
     <UtilityPane
-      title="Keys & gestures"
-      subtitle={`${context === 'reader' ? 'Reader' : 'Workbench'} · Vim and conventional keys work together and follow focus; typing fields keep their normal keys.`}
-      focusKey={context}
+      title="Keyboard shortcuts"
+      focusKey={`${context}:${place}`}
+      className="shortcut-help-pane"
+      layerClassName="shortcut-help-layer"
+      compactClose
+      closeOnBackdrop
       closeKeyshortcuts={shortcutAria(['reader-close', 'show-help'])}
       onClose={onClose}
       onKeyDown={(event) => {
@@ -55,21 +53,37 @@ export function KeyboardShortcuts({
     >
       <div className="shortcut-help-sections">
         {sections.map((section) => (
-          <section key={section.title} aria-labelledby={`shortcut-help-${section.title.toLowerCase().replaceAll(' ', '-')}`}>
+          <section
+            className="shortcut-help-section"
+            key={section.title}
+            aria-labelledby={`shortcut-help-${section.title.toLowerCase().replaceAll(' ', '-')}`}
+          >
             <h3 id={`shortcut-help-${section.title.toLowerCase().replaceAll(' ', '-')}`}>
               {section.title}
             </h3>
             <dl className="shortcut-help-list">
               {section.entries.map((entry) => (
                 <div key={entry.id}>
-                  <dt>{entry.keys.map((key) => <kbd key={key}>{key}</kbd>)}</dt>
+                  <dt>
+                    {entry.keys.map((key, index) => (
+                      <Fragment key={`${key}:${index}`}>
+                        {index > 0 && (
+                          <span className="shortcut-help-key-separator" aria-hidden="true">/</span>
+                        )}
+                        <kbd
+                          {...(KEY_ACCESSIBLE_NAME[key]
+                            ? {
+                                'aria-label': KEY_ACCESSIBLE_NAME[key],
+                                title: KEY_ACCESSIBLE_NAME[key],
+                              }
+                            : {})}
+                        >
+                          {key}
+                        </kbd>
+                      </Fragment>
+                    ))}
+                  </dt>
                   <dd>{entry.label}</dd>
-                </div>
-              ))}
-              {(gestures.get(section.title) ?? []).map(([kind, label]) => (
-                <div key={`${kind}:${label}`}>
-                  <dt><span className="shortcut-help-gesture">{kind}</span></dt>
-                  <dd>{label}</dd>
                 </div>
               ))}
             </dl>

@@ -1,3 +1,5 @@
+import type { Place } from './places.ts';
+
 export type ShortcutHelpContext = 'workbench' | 'reader';
 
 export type ShortcutId =
@@ -42,6 +44,11 @@ export type ShortcutId =
   | 'footer-corpus-start'
   | 'footer-corpus-end'
   | 'footer-open-reader'
+  | 'dock-resize-step'
+  | 'dock-resize-fine'
+  | 'dock-resize-page'
+  | 'dock-resize-limits'
+  | 'dock-resize-reset'
   | 'reader-page-previous'
   | 'reader-page-next'
   | 'reader-occurrence-previous'
@@ -58,7 +65,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'General' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Reader';
+  readonly group: 'Global' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -85,6 +92,15 @@ export interface ShortcutHelpSection {
   readonly entries: readonly ShortcutHelpEntry[];
 }
 
+export type ShortcutHelpScope =
+  | { readonly context: 'reader' }
+  | {
+      readonly context: 'workbench';
+      readonly place: Place;
+      readonly activeTextCount: number;
+      readonly footerAvailable: boolean;
+    };
+
 export const SHORTCUT_SEQUENCE_TIMEOUT_MS = 900;
 
 export interface ShortcutSequenceState {
@@ -100,7 +116,7 @@ export type ShortcutSequenceAdvance =
 const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   {
     id: 'show-help',
-    group: 'General',
+    group: 'Global',
     helpContexts: ['workbench', 'reader'],
     label: 'Toggle keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
@@ -157,7 +173,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench'],
     label: 'Go to Compare',
     strokes: [],
-    sequence: [{ key: 'g' }, { key: 'd' }],
+    sequence: [{ key: 'g' }, { key: 'c' }],
   },
   {
     id: 'go-footer',
@@ -393,6 +409,41 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: 'Enter' }, { key: 'o' }],
   },
   {
+    id: 'dock-resize-step',
+    group: 'Footer size',
+    helpContexts: ['workbench'],
+    label: 'Resize the footer',
+    strokes: [{ key: 'ArrowUp' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'dock-resize-fine',
+    group: 'Footer size',
+    helpContexts: ['workbench'],
+    label: 'Resize by one pixel',
+    strokes: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }],
+  },
+  {
+    id: 'dock-resize-page',
+    group: 'Footer size',
+    helpContexts: ['workbench'],
+    label: 'Resize by a large step',
+    strokes: [{ key: 'PageUp' }, { key: 'PageDown' }],
+  },
+  {
+    id: 'dock-resize-limits',
+    group: 'Footer size',
+    helpContexts: ['workbench'],
+    label: 'Minimum or maximum size',
+    strokes: [{ key: 'Home' }, { key: 'End' }],
+  },
+  {
+    id: 'dock-resize-reset',
+    group: 'Footer size',
+    helpContexts: ['workbench'],
+    label: 'Restore the default size',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
     id: 'reader-page-previous',
     group: 'Reader',
     helpContexts: ['reader'],
@@ -569,13 +620,50 @@ export function shortcutAria(ids: readonly ShortcutId[]): string {
   return [...keys].join(' ');
 }
 
-export function shortcutHelpSections(context: ShortcutHelpContext): readonly ShortcutHelpSection[] {
-  const order: readonly ShortcutDefinition['group'][] = context === 'reader'
-    ? ['General', 'Reader']
-    : ['General', 'Navigation', 'Terms', 'Rows', 'Trends', 'Reading footer'];
+const ROW_PLACES: ReadonlySet<Place> = new Set([
+  'inputs',
+  'matches',
+  'vocabulary',
+  'compare',
+]);
+
+const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
+  'go-inputs': 'inputs',
+  'go-trends': 'trends',
+  'go-matches': 'matches',
+  'go-vocabulary': 'vocabulary',
+  'go-compare': 'compare',
+});
+
+/** Build help from the commands that are usable in the active surface. The
+ * registry still owns every binding; this projection only removes no-op or
+ * unavailable sections from the menu. */
+export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
+  const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
+    ? ['Global', 'Reader']
+    : [
+        'Global',
+        'Navigation',
+        'Terms',
+        ...(scope.activeTextCount > 0 && ROW_PLACES.has(scope.place) ? ['Rows' as const] : []),
+        ...(scope.place === 'trends' ? ['Trends' as const] : []),
+        ...(scope.footerAvailable ? ['Reading footer' as const] : []),
+        ...(scope.footerAvailable ? ['Footer size' as const] : []),
+      ];
   return order.flatMap((group) => {
     const entries = SHORTCUTS
-      .filter((shortcut) => shortcut.group === group && shortcut.helpContexts.includes(context))
+      .filter((shortcut) => {
+        if (
+          shortcut.group !== group
+          || !shortcut.helpContexts.includes(scope.context)
+        ) return false;
+        if (scope.context === 'reader') return true;
+        if (GO_PLACE[shortcut.id] === scope.place) return false;
+        if (shortcut.id === 'go-compare' && scope.activeTextCount < 2) return false;
+        if (shortcut.id === 'go-footer' && !scope.footerAvailable) return false;
+        if (shortcut.id === 'trend-toggle-view' && scope.activeTextCount < 2) return false;
+        return true;
+      })
       .map((shortcut) => ({
         id: shortcut.id,
         label: shortcut.label,
