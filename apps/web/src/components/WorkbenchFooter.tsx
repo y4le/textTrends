@@ -24,10 +24,7 @@ import { occurrenceNavigationText } from '../lib/store.ts';
 import {
   advanceFooterShuttle,
   corpusProgress,
-  expandedFooterGeometry,
   FOOTER_SHUTTLE_DEFAULT_VISIBLE_TOKENS,
-  footerBlockSize,
-  footerGeometryFor,
   footerShuttleRate,
   footerStatusText,
   nextPassageToken,
@@ -198,6 +195,7 @@ function FooterInteractive({
   strip,
   containerRef,
   globalShortcuts,
+  showStatus,
 }: {
   readonly docs: readonly string[];
   readonly titles: ReadonlyMap<string, string>;
@@ -212,6 +210,7 @@ function FooterInteractive({
   readonly strip: ReactNode;
   readonly containerRef: (element: HTMLDivElement | null) => void;
   readonly globalShortcuts: boolean;
+  readonly showStatus: boolean;
 }) {
   const presentation = usePresentation();
   const scrub = useApp((state) => state.scrub);
@@ -709,7 +708,9 @@ function FooterInteractive({
         onVisibleTokensChange={setVisiblePassageTokens}
         onPassageWindowChange={publishPassageWindow}
       />
-      <div className="footer-reading-status" title={status}>{status}</div>
+      {showStatus && (
+        <div className="footer-reading-status" title={status}>{status}</div>
+      )}
       <span className="visually-hidden" role="status" aria-live="polite">
         {[keyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}
       </span>
@@ -717,6 +718,7 @@ function FooterInteractive({
         id="corpus-footer-position"
         ref={attachSlider}
         className="footer-strip"
+        title={showStatus ? undefined : status}
         role="slider"
         aria-roledescription="corpus reading position"
         aria-keyshortcuts={shortcutAria([
@@ -984,8 +986,18 @@ function FooterInteractive({
 
 export function WorkbenchFooter({
   globalShortcuts = false,
+  geometry,
+  blockSize,
+  trackCount,
+  showStatus,
+  showBarcode,
 }: {
   readonly globalShortcuts?: boolean;
+  readonly geometry: FooterGeometry;
+  readonly blockSize: number;
+  readonly trackCount: number;
+  readonly showStatus: boolean;
+  readonly showBarcode: boolean;
 }) {
   const presentation = usePresentation();
   const snapshot = useApp((state) => state.snapshot);
@@ -998,7 +1010,6 @@ export function WorkbenchFooter({
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const measure = useApp((state) => state.trendMeasure);
   const coarse = presentation.coarseAvailable;
-  const baseGeometry = footerGeometryFor(presentation.width, coarse);
   const docs = snapshot?.readyDocs ?? [];
   const firstReady = [...trends.values()].find((state) => state.status === 'ready');
   const referenceTrend = firstReady?.status === 'ready' ? firstReady.trend : null;
@@ -1025,105 +1036,10 @@ export function WorkbenchFooter({
     selectedDocs,
     seriesOrder,
   );
-  const reservedTrackCount = series.length === 0 ? 0 : Math.max(series.length, tracks.length);
-  const minimumBlockSize = footerBlockSize(baseGeometry, reservedTrackCount);
-  const [footerExpansion, setFooterExpansion] = useState(0);
-  const footerExpansionRef = useRef(footerExpansion);
-  footerExpansionRef.current = footerExpansion;
-  const [maximumExpansion, setMaximumExpansion] = useState(0);
-  const [resizing, setResizing] = useState(false);
-  const footerRef = useRef<HTMLElement | null>(null);
-  const resizeDrag = useRef<{
-    readonly pointerId: number;
-    readonly startY: number;
-    readonly startExpansion: number;
-    readonly maximumExpansion: number;
-  } | null>(null);
-  const geometry = expandedFooterGeometry(
-    baseGeometry,
-    reservedTrackCount,
-    footerExpansion,
-  );
+  const reservedTrackCount = Math.max(0, Math.floor(trackCount));
   const barcodeHeight = reservedTrackCount
     * (geometry.barcodeTrackHeight + geometry.barcodeTrackGap);
   const visible = snapshot !== null && docs.length > 0 && layout.totalTokens > 0;
-  const blockSize = visible ? footerBlockSize(geometry, reservedTrackCount) : 0;
-
-  const measureMaximumExpansion = useCallback(() => {
-    const footer = footerRef.current;
-    const dock = footer?.closest<HTMLElement>('.workbench-dock');
-    if (!footer || !dock) return footerExpansionRef.current;
-    const headerBottom = document.querySelector<HTMLElement>('.app-header')
-      ?.getBoundingClientRect().bottom ?? 0;
-    const available = footerExpansionRef.current
-      + dock.getBoundingClientRect().top
-      - headerBottom;
-    return Math.max(0, Math.floor(available));
-  }, []);
-
-  useLayoutEffect(() => {
-    if (!visible) return undefined;
-    const publishMaximum = () => {
-      const next = measureMaximumExpansion();
-      setMaximumExpansion(next);
-      setFooterExpansion((current) => Math.min(current, next));
-    };
-    publishMaximum();
-    window.addEventListener('resize', publishMaximum);
-    return () => window.removeEventListener('resize', publishMaximum);
-  }, [measureMaximumExpansion, minimumBlockSize, visible]);
-
-  useEffect(() => () => {
-    document.documentElement.removeAttribute('data-footer-resizing');
-  }, []);
-
-  useEffect(() => {
-    if (visible) return;
-    resizeDrag.current = null;
-    setResizing(false);
-    document.documentElement.removeAttribute('data-footer-resizing');
-  }, [visible]);
-
-  const setResizeActive = (active: boolean) => {
-    setResizing(active);
-    if (active) document.documentElement.setAttribute('data-footer-resizing', 'true');
-    else document.documentElement.removeAttribute('data-footer-resizing');
-  };
-
-  const finishResize = (pointerId: number) => {
-    if (resizeDrag.current?.pointerId !== pointerId) return;
-    resizeDrag.current = null;
-    setResizeActive(false);
-  };
-
-  const resizeByKeyboard = (event: KeyboardEvent<HTMLDivElement>) => {
-    const direction = event.key === 'ArrowUp' || event.key === 'PageUp'
-      ? 1
-      : event.key === 'ArrowDown' || event.key === 'PageDown'
-        ? -1
-        : 0;
-    if (direction === 0 && event.key !== 'Home' && event.key !== 'End') return;
-    event.preventDefault();
-    const maximum = measureMaximumExpansion();
-    setMaximumExpansion(maximum);
-    const step = event.key === 'PageUp' || event.key === 'PageDown' ? 64 : 16;
-    setFooterExpansion((current) => event.key === 'Home'
-      ? 0
-      : event.key === 'End'
-        ? maximum
-        : Math.max(0, Math.min(maximum, current + direction * step)));
-  };
-
-  useLayoutEffect(() => {
-    if (!visible) {
-      document.documentElement.style.removeProperty('--footer-block-size');
-      return undefined;
-    }
-    document.documentElement.style.setProperty('--footer-block-size', `${blockSize}px`);
-    return () => {
-      document.documentElement.style.removeProperty('--footer-block-size');
-    };
-  }, [blockSize, visible]);
   const [container, setContainer] = useState<HTMLDivElement | null>(null);
   const [width, setWidth] = useState(1);
   useLayoutEffect(() => {
@@ -1185,7 +1101,9 @@ export function WorkbenchFooter({
         top: 'auto',
         bottom: 0,
         height: geometry.seriesHeight
-          + (reservedTrackCount > 0 ? geometry.barcodeBandGap + barcodeHeight : 0),
+          + (showBarcode && reservedTrackCount > 0
+            ? geometry.barcodeBandGap + barcodeHeight
+            : 0),
       }}
     >
       <FooterSparkline
@@ -1195,7 +1113,7 @@ export function WorkbenchFooter({
         width={width}
         geometry={geometry}
       />
-      {tracks.length > 0 && (
+      {showBarcode && tracks.length > 0 && (
         <BarcodeBand
           view="series"
           docs={docs}
@@ -1228,7 +1146,6 @@ export function WorkbenchFooter({
 
   return (
     <aside
-      ref={footerRef}
       className="workbench-footer"
       aria-label="Reading position"
       style={{
@@ -1239,66 +1156,21 @@ export function WorkbenchFooter({
         '--footer-pad-block': `${geometry.padBlock}px`,
       } as CSSProperties}
     >
-      <div
-        className="footer-resize-handle"
-        role="separator"
-        aria-label="Resize reading footer"
-        aria-orientation="horizontal"
-        aria-controls="corpus-footer-position"
-        aria-valuemin={minimumBlockSize}
-        aria-valuemax={minimumBlockSize + maximumExpansion}
-        aria-valuenow={blockSize}
-        aria-valuetext={`${Math.round(blockSize)} pixels high`}
-        tabIndex={0}
-        data-resizing={resizing || undefined}
-        onFocus={() => { setMaximumExpansion(measureMaximumExpansion()); }}
-        onKeyDown={resizeByKeyboard}
-        onPointerDown={(event) => {
-          if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
-          event.preventDefault();
-          const maximum = measureMaximumExpansion();
-          setMaximumExpansion(maximum);
-          resizeDrag.current = {
-            pointerId: event.pointerId,
-            startY: event.clientY,
-            startExpansion: footerExpansionRef.current,
-            maximumExpansion: maximum,
-          };
-          event.currentTarget.setPointerCapture(event.pointerId);
-          setResizeActive(true);
-        }}
-        onPointerMove={(event) => {
-          const drag = resizeDrag.current;
-          if (drag?.pointerId !== event.pointerId) return;
-          event.preventDefault();
-          const next = drag.startExpansion + drag.startY - event.clientY;
-          setFooterExpansion(Math.max(0, Math.min(drag.maximumExpansion, Math.round(next))));
-        }}
-        onPointerUp={(event) => {
-          if (event.currentTarget.hasPointerCapture(event.pointerId)) {
-            event.currentTarget.releasePointerCapture(event.pointerId);
-          }
-          finishResize(event.pointerId);
-        }}
-        onPointerCancel={(event) => { finishResize(event.pointerId); }}
-        onLostPointerCapture={(event) => { finishResize(event.pointerId); }}
-      >
-        <span aria-hidden="true" />
-      </div>
       <FooterInteractive
         docs={docs}
         titles={titleByDoc}
         layout={layout}
         width={width}
         geometry={geometry}
-        tracks={tracks}
-        trackCount={reservedTrackCount}
+        tracks={showBarcode ? tracks : []}
+        trackCount={showBarcode ? reservedTrackCount : 0}
         pending={pending}
         failed={failed}
         partial={(snapshot?.missingDocs.length ?? 0) > 0}
         strip={strip}
         containerRef={setContainer}
         globalShortcuts={globalShortcuts}
+        showStatus={showStatus}
       />
     </aside>
   );

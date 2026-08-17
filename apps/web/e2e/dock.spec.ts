@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady } from './helpers.ts';
+import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 async function rootMetric(page: Page, name: string): Promise<number> {
   return page.evaluate((property) => Number.parseFloat(
@@ -16,12 +16,13 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   const termButtons = terms.locator('[data-term-toggle]:not(:disabled)');
   await expect(terms).toBeVisible();
   await expect(termButtons).toHaveCount(0);
-  await expect.poll(() => rootMetric(page, '--reading-reserve-block-size')).toBe(0);
+  await expect(page.getByRole('complementary', { name: 'Reading position' })).toHaveCount(0);
+  await expect.poll(() => rootMetric(page, '--dock-block-size'))
+    .toBe(await rootMetric(page, '--terms-rail-block-size'));
 
   await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
   await expect(termButtons).toHaveCount(3);
-  await expect.poll(() => rootMetric(page, '--reading-reserve-block-size'))
-    .toBeGreaterThan(0);
+  await expect.poll(() => rootMetric(page, '--footer-block-size')).toBeGreaterThan(0);
   const railTopBefore = (await terms.boundingBox())?.y;
   await awaitAllReady(page);
   const footer = page.getByRole('complementary', { name: 'Reading position' });
@@ -34,9 +35,9 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   if (!dockBox || !termsBox || !footerBox || railTopBefore === undefined) {
     throw new Error('dock geometry is unavailable');
   }
-  const [railSize, reserveSize, footerSize, viewportHeight] = await Promise.all([
+  const [railSize, dockSize, footerSize, viewportHeight] = await Promise.all([
     rootMetric(page, '--terms-rail-block-size'),
-    rootMetric(page, '--reading-reserve-block-size'),
+    rootMetric(page, '--dock-block-size'),
     rootMetric(page, '--footer-block-size'),
     page.evaluate(() => window.innerHeight),
   ]);
@@ -45,13 +46,30 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   expect(Math.abs(termsBox.y - railTopBefore)).toBeLessThanOrEqual(1);
   expect(termsBox.height).toBe(railSize);
   expect(footerBox.height).toBe(footerSize);
-  expect(dockBox.height).toBe(railSize + Math.max(reserveSize, footerSize));
+  expect(dockBox.height).toBe(dockSize);
+  expect(dockBox.height).toBe(railSize + footerSize);
   expect(Math.abs(termsBox.y + termsBox.height - footerBox.y)).toBeLessThanOrEqual(1);
   expect(Math.abs(dockBox.y + dockBox.height - viewportHeight)).toBeLessThanOrEqual(1);
 
   const dockTopBeforeScroll = dockBox.y;
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));
   expect((await dock.boundingBox())?.y).toBe(dockTopBeforeScroll);
+
+  for (const place of ['matches', 'vocabulary', 'compare'] as const) {
+    await gotoPlace(page, place);
+    const surface = page.locator(`.app-shell[data-place="${place}"] .place-surface`);
+    await expect(surface).toBeVisible();
+    const [surfaceBox, placeDockBox] = await Promise.all([
+      surface.boundingBox(),
+      dock.boundingBox(),
+    ]);
+    if (!surfaceBox || !placeDockBox) {
+      throw new Error(`${place} dock boundary geometry is unavailable`);
+    }
+    expect(Math.abs(surfaceBox.y + surfaceBox.height - placeDockBox.y))
+      .toBeLessThanOrEqual(1);
+  }
+  await gotoPlace(page, 'trends');
 
   const slider = footer.getByRole('slider', { name: 'Corpus footer position' });
   await slider.focus();
@@ -62,7 +80,7 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
 });
 
-test('the reading footer resizes from its current minimum and caps barcode growth', async ({
+test('the reading dock resizes through its full range and caps barcode growth', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 900, height: 1000 });
@@ -83,7 +101,9 @@ test('the reading footer resizes from its current minimum and caps barcode growt
   if (!before.dock || !before.footer || !before.graph || !before.barcode) {
     throw new Error('resizable footer geometry is unavailable');
   }
-  await expect(handle).toHaveAttribute('aria-valuemin', String(before.footer.height));
+  const minimum = Number(await handle.getAttribute('aria-valuemin'));
+  expect(minimum).toBeLessThan(before.dock.height);
+  await expect(handle).toHaveAttribute('aria-valuenow', String(before.dock.height));
 
   const drag = async (upward: number) => {
     const box = await handle.boundingBox();
@@ -109,7 +129,7 @@ test('the reading footer resizes from its current minimum and caps barcode growt
   expect(grown.barcode.height).toBeGreaterThan(before.barcode.height);
   expect(grown.dock.y).toBe(before.dock.y - 120);
   expect(grown.dock.y + grown.dock.height).toBe(before.dock.y + before.dock.height);
-  await expect(handle).toHaveAttribute('aria-valuenow', String(grown.footer.height));
+  await expect(handle).toHaveAttribute('aria-valuenow', String(grown.dock.height));
 
   await drag(80);
   const cappedBarcodeHeight = (await barcode.boundingBox())?.height;
@@ -118,12 +138,49 @@ test('the reading footer resizes from its current minimum and caps barcode growt
   expect(tallerGraphHeight).toBe(grown.graph.height + 80);
 
   await handle.focus();
-  await handle.press('Home');
+  await handle.press('Enter');
   expect((await footer.boundingBox())?.height).toBe(before.footer.height);
   await handle.press('ArrowUp');
   expect((await footer.boundingBox())?.height).toBe(before.footer.height + 16);
   await handle.press('ArrowDown');
   expect((await footer.boundingBox())?.height).toBe(before.footer.height);
+
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const [baseRailHeight, baseTermTarget] = await Promise.all([
+    terms.boundingBox().then((box) => box?.height),
+    rootMetric(page, '--term-target-block-size'),
+  ]);
+  await drag(-10);
+  expect((await terms.boundingBox())?.height).toBe((baseRailHeight ?? 0) - 10);
+  const earlyToggleHeight = (await page.locator('.term-bucket-toggle').first().boundingBox())?.height;
+  expect(earlyToggleHeight).toBeLessThan(baseTermTarget);
+  expect(earlyToggleHeight).toBeGreaterThan(24);
+  expect((await footer.boundingBox())?.height).toBe(before.footer.height);
+  await handle.press('Enter');
+
+  const defaultDock = await dock.boundingBox();
+  await drag(-90);
+  const shrunkDock = await dock.boundingBox();
+  if (!defaultDock || !shrunkDock) throw new Error('shrunk dock geometry is unavailable');
+  expect(shrunkDock.height).toBe(defaultDock.height - 90);
+  expect(shrunkDock.y).toBe(defaultDock.y + 90);
+  expect(shrunkDock.y + shrunkDock.height).toBe(defaultDock.y + defaultDock.height);
+  await expect(footer.locator('.footer-reading-status')).toHaveCount(0);
+  await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
+  await expect(handle).toHaveAttribute('aria-valuetext', /terms, passage, graph$/);
+
+  await handle.press('Home');
+  await expect(handle).toHaveAttribute('aria-valuenow', String(minimum));
+  expect((await dock.boundingBox())?.height).toBe(minimum);
+  const coarse = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
+  expect((await footer.locator('.footer-passage').boundingBox())?.height)
+    .toBe(coarse ? 24 : 20);
+  expect((await graph.boundingBox())?.height).toBe(coarse ? 24 : 12);
+  expect((await page.getByRole('complementary', { name: 'Terms' }).boundingBox())?.height)
+    .toBe(31);
+  expect((await page.locator('.term-bucket-toggle').first().boundingBox())?.height).toBe(24);
+  await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
+
   await handle.press('End');
   const [maximizedDock, header] = await Promise.all([
     dock.boundingBox(),
@@ -131,7 +188,8 @@ test('the reading footer resizes from its current minimum and caps barcode growt
   ]);
   if (!maximizedDock || !header) throw new Error('maximum footer geometry is unavailable');
   expect(Math.abs(maximizedDock.y - (header.y + header.height))).toBeLessThanOrEqual(1);
-  await handle.press('Home');
+  await handle.press('Enter');
+  expect((await dock.boundingBox())?.height).toBe(before.dock.height);
 });
 
 test('the compact dock stays one row, pins its actions, and opens Undo upward', async ({ page }) => {
@@ -166,7 +224,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBe(36);
     expect(box?.x).toBeGreaterThanOrEqual(0);
     expect(box ? box.x + box.width : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(390);
   }
@@ -193,7 +251,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
 });
 
-test('the coarse regular-width rail keeps every visible action at target size', async ({
+test('the coarse regular-width rail keeps compact-height, wide actions', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'webkit-compact', 'requires a coarse-pointer project');
@@ -206,5 +264,5 @@ test('the coarse regular-width rail keeps every visible action at target size', 
   await expect(edit).toBeVisible();
   const editBox = await edit.boundingBox();
   expect(editBox?.width).toBeGreaterThanOrEqual(44);
-  expect(editBox?.height).toBeGreaterThanOrEqual(44);
+  expect(editBox?.height).toBe(36);
 });

@@ -36,7 +36,8 @@ export function KeyboardShortcuts({
           ['Touch', 'Drag one finger to read. Hold a range start, then tap its end; two fingers select the same range directly.'],
         ]],
         ['Reading footer', [
-          ['Touch', 'Tap or drag horizontally to read; drag vertically to scroll.'],
+          ['Touch', 'Tap or drag horizontally to read; drag the top edge vertically to resize.'],
+          ['Keyboard', 'On the top edge, use arrows or Page Up/Down to resize, Home/End for the limits, and Enter to restore the default.'],
         ]],
       ]);
   return (

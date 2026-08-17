@@ -200,7 +200,7 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
 });
 
-test('compact query controls meet the 44px touch-target floor', async ({ page }) => {
+test('compact query controls keep wide targets in the shortened terms row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -211,7 +211,7 @@ test('compact query controls meet the 44px touch-target floor', async ({ page })
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBe(36);
   }
 });
 

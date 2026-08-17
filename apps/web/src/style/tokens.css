@@ -45,13 +45,12 @@
   /* Workbench chrome metrics shared by layout and safe-area reservation. */
   --lens-block-size: 4.5rem;
   --keyboard-inset: 0px;
-  --terms-rail-block-size: 56px;
-  --reading-reserve-block-size: 0px;
+  --terms-rail-block-size: 48px;
+  --terms-rail-pad-block: 3px;
+  --term-target-block-size: 34px;
   --footer-block-size: 0px;
-  --reading-lane-block-size:
-    max(var(--footer-block-size), var(--reading-reserve-block-size));
   --dock-block-size:
-    calc(var(--terms-rail-block-size) + var(--reading-lane-block-size));
+    calc(var(--terms-rail-block-size) + var(--footer-block-size));
   /* Keep focus targets clear of the measured 44px header plus breathing room. */
   scroll-padding-block: 52px calc(var(--dock-block-size) + var(--space-2));
 }
@@ -2925,7 +2924,7 @@ canvas {
   gap: var(--space-1);
   overflow-x: auto;
   overscroll-behavior: none;
-  padding-block: var(--space-1);
+  padding-block: var(--terms-rail-pad-block);
   scroll-padding-inline: var(--space-2);
   scrollbar-width: thin;
 }
@@ -2933,7 +2932,7 @@ canvas {
 .term-bucket {
   display: inline-flex;
   flex: 0 0 auto;
-  min-block-size: 40px;
+  min-block-size: var(--term-target-block-size);
   align-items: stretch;
   border: 1px solid var(--rule);
   background: color-mix(in srgb, var(--fg) 2%, transparent);
@@ -2951,6 +2950,10 @@ canvas {
   background: none;
   cursor: pointer;
   font: inherit;
+}
+
+.term-bucket button {
+  min-block-size: var(--term-target-block-size);
 }
 
 .scope-settings-link {
@@ -2999,7 +3002,7 @@ canvas {
 }
 
 .term-bar-actions button {
-  min-block-size: 40px;
+  min-block-size: var(--term-target-block-size);
   padding-inline: var(--space-2);
   border: 1px solid var(--rule-strong);
   white-space: nowrap;
@@ -3012,9 +3015,9 @@ canvas {
 
 .term-undo {
   position: absolute;
-  z-index: 3;
+  z-index: 9;
   inset-inline-end: 0;
-  inset-block-end: calc(100% + var(--space-1));
+  inset-block-end: calc(100% + 10px);
   max-inline-size: calc(100% - var(--space-2));
   padding: var(--space-1) var(--space-2);
   border: 1px solid var(--rule-strong);
@@ -3661,9 +3664,8 @@ canvas {
   }
 
   .term-bucket,
-  .term-bucket button,
   .term-bar-actions button {
-    min-block-size: 44px;
+    min-block-size: var(--term-target-block-size);
   }
 
   .term-bucket-toggle {
@@ -3735,13 +3737,13 @@ canvas {
 
 @media (pointer: coarse), (any-pointer: coarse) {
   :root {
-    --terms-rail-block-size: 62px;
+    --terms-rail-block-size: 50px;
+    --term-target-block-size: 36px;
   }
 
   .term-bucket,
-  .term-bucket button,
   .term-bar-actions button {
-    min-block-size: 44px;
+    min-block-size: var(--term-target-block-size);
   }
 
   .term-bucket-edit,
@@ -3776,6 +3778,15 @@ canvas {
   block-size: calc(100dvh - var(--keyboard-inset));
   flex-direction: column;
   overflow: hidden;
+}
+
+@media (min-width: 600px) {
+  .app-shell[data-place='matches'],
+  .app-shell[data-place='vocabulary'],
+  .app-shell[data-place='compare'] {
+    padding-block-end:
+      calc(var(--dock-block-size) + env(safe-area-inset-bottom, 0px));
+  }
 }
 
 .app-shell[data-place='matches'] .workbench,
@@ -3842,13 +3853,14 @@ canvas {
   position: fixed;
   z-index: 30;
   display: grid;
-  grid-template-rows: var(--terms-rail-block-size) minmax(0, 1fr);
+  grid-template-rows:
+    var(--terms-local-block-size, var(--terms-rail-block-size)) minmax(0, 1fr);
   inset-inline:
     calc(var(--space-4) + env(safe-area-inset-left, 0px))
     calc(var(--space-4) + env(safe-area-inset-right, 0px));
   inset-block-end:
     calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
-  block-size: var(--dock-block-size);
+  block-size: var(--dock-local-block-size, var(--dock-block-size));
   min-inline-size: 0;
   overflow: visible;
   background: var(--bg);
@@ -3901,6 +3913,14 @@ canvas {
 .footer-resize-handle:focus-visible span {
   outline: 1px solid var(--bg);
   outline-offset: 1px;
+}
+
+.workbench-dock[data-terms-compressed='true'] .term-bucket-port {
+  scrollbar-width: none;
+}
+
+.workbench-dock[data-terms-compressed='true'] .term-bucket-port::-webkit-scrollbar {
+  display: none;
 }
 
 html[data-footer-resizing='true'],
@@ -4157,7 +4177,8 @@ html[data-footer-resizing='true'] * {
 @media (max-width: 599.98px) {
   :root {
     --lens-block-size: 53px;
-    --terms-rail-block-size: 62px;
+    --terms-rail-block-size: 50px;
+    --term-target-block-size: 36px;
   }
 
   .app-shell {
