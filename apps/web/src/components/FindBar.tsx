@@ -75,6 +75,7 @@ export function FindBar({
           placeholder="word, phrase, alias*"
           aria-describedby="corpus-find-status corpus-find-error"
           enterKeyHint="search"
+          autoComplete="off"
           autoCapitalize="none"
           autoCorrect="off"
           spellCheck={false}

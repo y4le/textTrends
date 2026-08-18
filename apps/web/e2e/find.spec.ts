@@ -37,6 +37,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(terms).toHaveCount(0);
   await expect(find.locator('.term-bar-label')).toHaveText('Find');
   await expect(input).toBeFocused();
+  await expect(input).toHaveAttribute('autocomplete', 'off');
   await expect(seriesChart).toBeVisible();
   await expect.poll(async () => seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
     [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
