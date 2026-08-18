@@ -172,6 +172,69 @@ export interface FindBarModel {
   readonly busy: boolean;
 }
 
+export interface FindMatchProgress {
+  readonly current: number;
+  readonly total: number;
+}
+
+interface FindMatchesState {
+  readonly snapshot: string;
+  readonly request: {
+    readonly anchor:
+      | { readonly kind: 'rank'; readonly rank: number }
+      | { readonly kind: 'position'; readonly doc: string; readonly token: number };
+  } | null;
+  readonly resident: {
+    readonly total: number;
+    readonly firstRank: number;
+    readonly rows: readonly {
+      readonly seriesId: string;
+      readonly groupId: string;
+      readonly members: readonly number[];
+      readonly doc: string;
+      readonly pos: number;
+    }[];
+  } | null;
+  readonly state: { readonly status: 'pending' | 'ready' | 'error' };
+}
+
+/** Expose an exact one-based Find position only after the matching bounded
+ * window lands. The row check prevents a retained or superseded window from
+ * briefly labelling a newer occurrence-step result with stale progress. */
+export function findMatchProgress(
+  find: FindState | null,
+  matches: FindMatchesState | null,
+): FindMatchProgress | null {
+  if (
+    find?.state.status !== 'ready'
+    || matches?.state.status !== 'ready'
+    || matches.snapshot !== find.snapshot
+  ) return null;
+  const hit = find.state.hit;
+  const anchor = matches.request?.anchor;
+  const resident = matches.resident;
+  if (
+    anchor?.kind !== 'position'
+    || anchor.doc !== hit.doc
+    || anchor.token !== hit.token
+    || resident === null
+    || !Number.isSafeInteger(resident.total)
+    || !Number.isSafeInteger(resident.firstRank)
+    || resident.total < 1
+    || resident.firstRank < 0
+  ) return null;
+  const rowIndex = resident.rows.findIndex((row) =>
+    row.seriesId === find.query.seriesId
+    && row.groupId === find.query.group.id
+    && row.doc === hit.doc
+    && row.pos === hit.token
+    && row.members.length === hit.members.length
+    && row.members.every((member, index) => member === hit.members[index]));
+  const rank = resident.firstRank + rowIndex;
+  if (rowIndex < 0 || rank >= resident.total) return null;
+  return { current: rank + 1, total: resident.total };
+}
+
 export function findBarModel(
   interaction: InteractionState,
 ): FindBarModel {

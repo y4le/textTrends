@@ -3516,6 +3516,18 @@ html.reader-open .find-bar--floating {
   cursor: default;
 }
 
+.find-bar-match-progress {
+  display: inline-flex;
+  min-inline-size: 7ch;
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-1);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
 .find-bar-status,
 .find-bar-error {
   grid-column: 1 / -1;
@@ -3579,6 +3591,10 @@ html.reader-open .find-bar--floating {
   .find-bar--floating .find-bar-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .find-bar--floating .find-bar-actions[data-has-find-progress='true'] {
+    grid-template-columns: auto repeat(3, minmax(0, 1fr));
   }
 
   .find-bar-form input {

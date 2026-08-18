@@ -62,6 +62,10 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(next).toBeFocused();
   await expect(status).toContainText(/holmes/i);
   await expect(status).not.toContainText('Searching');
+  const progress = find.locator('[data-find-match-progress]');
+  await expect(progress).toHaveText(/^\d[\d,]*\/\d[\d,]*$/);
+  await expect(progress).toHaveAccessibleName(/^Find match [\d,]+ of [\d,]+$/);
+  const firstProgress = await progress.textContent();
   await expect.poll(() => footer.getAttribute('aria-valuenow')).not.toBe(before);
   await page.getByRole('button', { name: 'combined', exact: true }).click();
   await expect(seriesChart).toBeVisible();
@@ -165,12 +169,14 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
     const text = await status.textContent();
     return text?.includes('Searching') ? first : text;
   }).not.toBe(first);
+  await expect.poll(() => progress.textContent()).not.toBe(firstProgress);
   const second = await status.textContent();
   await input.press('Control+Shift+G');
   await expect.poll(async () => {
     const text = await status.textContent();
     return text?.includes('Searching') ? second : text;
   }).toBe(first);
+  await expect.poll(() => progress.textContent()).toBe(firstProgress);
 
   await find.getByRole('button', { name: 'Clear and close find' }).click();
   await expect(find).toHaveCount(0);

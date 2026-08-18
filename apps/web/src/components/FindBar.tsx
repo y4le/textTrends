@@ -1,5 +1,10 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
-import { FIND_INPUT_ID, findBarModel, findStatusText } from '../lib/interaction.ts';
+import {
+  FIND_INPUT_ID,
+  findBarModel,
+  findMatchProgress,
+  findStatusText,
+} from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 
@@ -12,6 +17,7 @@ export function FindBar({
 }) {
   const interaction = useApp((state) => state.interaction);
   const interactionError = useApp((state) => state.interactionError);
+  const matches = useApp((state) => state.kwic);
   const clearInteractionError = useApp((state) => state.clearInteractionError);
   const submitFind = useApp((state) => state.submitFind);
   const stepFind = useApp((state) => state.stepFind);
@@ -21,6 +27,7 @@ export function FindBar({
   const [draft, setDraft] = useState(submittedRaw);
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const model = findBarModel(interaction);
+  const progress = findMatchProgress(find, matches);
   const rail = placement === 'rail';
 
   useEffect(() => setDraft(submittedRaw), [submittedRaw]);
@@ -78,7 +85,23 @@ export function FindBar({
         />
         <button type="submit" className="coarse-target" aria-label="Submit find">Find</button>
       </form>
-      <div className="find-bar-actions">
+      <div
+        className="find-bar-actions"
+        data-has-find-progress={progress !== null || undefined}
+      >
+        {progress !== null && (
+          <output
+            className="find-bar-match-progress"
+            data-find-match-progress
+            aria-label={`Find match ${progress.current.toLocaleString()} of ${progress.total.toLocaleString()}`}
+            aria-live="polite"
+            aria-atomic="true"
+          >
+            <span aria-hidden="true">
+              {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
+            </span>
+          </output>
+        )}
         <button
           type="button"
           className="coarse-target"

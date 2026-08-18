@@ -394,6 +394,8 @@ contributors to that scale settle. Hover readouts remain Find-only, while the
 accessible graph name explicitly identifies the durable lines as de-emphasized
 context. The durable comparison returns at normal emphasis on exit. Enter seeks
 forward; `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact starts.
+After the matching window lands, the controls show the current one-based match
+and exact total as `x/y`; the indicator is absent while a seek is pending.
 Escape or × clears the transient query and restores invoking focus. Reader has
 no Terms rail, so the same controls use the keyboard-safe floating placement.
 While Find is already open, `Ctrl/Cmd-F` focuses the query field and selects

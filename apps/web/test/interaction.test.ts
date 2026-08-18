@@ -3,6 +3,7 @@ import { defaultSeriesStyle } from '@texttrends/core';
 import {
   compileFindQuery,
   findBarModel,
+  findMatchProgress,
   findStatusText,
   findWrapped,
   NO_INTERACTION,
@@ -103,5 +104,57 @@ describe('temporary corpus Find model', () => {
       kind: 'find',
       find: { ...base, state: { status: 'pending', direction: 1 } },
     })).toEqual({ hasSubmittedQuery: true, busy: true });
+  });
+
+  it('publishes exact match progress only for the landed window at the current hit', () => {
+    const find = {
+      snapshot: 's1',
+      query: {
+        raw: 'holmes',
+        label: 'holmes',
+        seriesId: 'find-series:1',
+        group: { id: 'find-group:1', members: [], countOverlaps: false },
+        identity: 'identity',
+        style: defaultSeriesStyle(0),
+      },
+      anchor: { doc: 'a', token: 4 },
+      state: {
+        status: 'ready' as const,
+        direction: 1 as const,
+        hit: { doc: 'a', token: 4, spanTokens: 1, members: [0] },
+        wrapped: false,
+      },
+      trend: { status: 'pending' as const },
+      dispersion: { status: 'pending' as const },
+    } satisfies FindState;
+    const matches = {
+      snapshot: 's1',
+      request: { anchor: { kind: 'position' as const, doc: 'a', token: 4 } },
+      resident: {
+        total: 12,
+        // A neighboring position can reuse a resident window whose original
+        // anchor rank differs; the exact row still determines current rank.
+        anchorRank: 6,
+        firstRank: 6,
+        rows: [
+          { seriesId: 'find-series:1', groupId: 'find-group:1', members: [0], doc: 'a', pos: 3 },
+          { seriesId: 'find-series:1', groupId: 'find-group:1', members: [0], doc: 'a', pos: 4 },
+        ],
+      },
+      state: { status: 'ready' as const },
+    };
+    expect(findMatchProgress(find, matches)).toEqual({ current: 8, total: 12 });
+    expect(findMatchProgress(find, { ...matches, state: { status: 'pending' } })).toBeNull();
+    expect(findMatchProgress(find, {
+      ...matches,
+      request: { anchor: { kind: 'position', doc: 'a', token: 5 } },
+    })).toBeNull();
+    expect(findMatchProgress(find, {
+      ...matches,
+      resident: {
+        ...matches.resident,
+        rows: [matches.resident.rows[0]!, { ...matches.resident.rows[1]!, seriesId: 'stale' }],
+      },
+    })).toBeNull();
   });
 });

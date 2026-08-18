@@ -33,9 +33,11 @@ immediately on exit. The first alias names the temporary term, matching the
 Terms editor rather than quick-add's separate-group comma behavior.
 `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact full-corpus
 occurrence starts. The shared reading cursor follows each hit and an already-open
-Reader is repositioned. No substring search, regular expressions, or total
-count is implied. Repeating `Ctrl/Cmd-F` while Find is open selects the complete
-query draft, matching the replacement behavior users expect from native Find.
+Reader is repositioned. The controls show the current exact match and total as
+`x/y` once the matching window lands, and hide that progress while seeking. No
+substring search or regular expressions are implied. Repeating `Ctrl/Cmd-F`
+while Find is open selects the complete query draft, matching the replacement
+behavior users expect from native Find.
 
 Submitted interaction intent is snapshot-bound and worker requests are
 latest-wins under compiled-query identity. Draft keystrokes remain local to the
