@@ -3612,7 +3612,7 @@ html.reader-open .find-bar--floating {
 
   .find-bar--floating .find-bar-form {
     display: grid;
-    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto auto;
   }
 
   .find-bar--floating .find-bar-actions {

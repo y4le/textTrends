@@ -240,6 +240,44 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(reader).toBeVisible();
 });
 
+test('Find saves its submitted aliases as one active term and disables Save at capacity', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+
+  const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  await footer.focus();
+  await footer.press('Control+f');
+
+  const find = page.getByRole('search', { name: 'Find in corpus' });
+  const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
+  const save = find.getByRole('button', { name: 'Save Find as term' });
+  await expect(save).toBeDisabled();
+  await input.fill('Baker Street, 221B');
+  await input.press('Enter');
+  await expect(save).toBeEnabled();
+  await save.click();
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
+
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  await expect(terms.getByRole('button', { name: 'Baker Street, shown in analysis' }))
+    .toBeVisible();
+
+  await terms.getByRole('button', { name: 'Add term', exact: true }).click();
+  const manager = page.getByRole('dialog', { name: 'Manage terms' });
+  await manager.getByRole('textbox', { name: 'Term and aliases for new term' })
+    .fill('capacity marker');
+  await manager.getByRole('button', { name: 'Add term', exact: true }).click();
+  await expect(manager.getByRole('button', { name: 'Edit term: capacity marker' })).toBeVisible();
+  await manager.getByRole('button', { name: 'Done', exact: true }).click();
+
+  await footer.focus();
+  await footer.press('Control+f');
+  await input.fill('final capacity probe');
+  await input.press('Enter');
+  await expect(save).toBeDisabled();
+  await expect(save).toHaveAttribute('title', /Deactivate a term before saving this Find/);
+});
+
 test('store-driven Find teardown restores focus instead of orphaning it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'inputs' });
@@ -282,7 +320,13 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   await expect(input).toBeFocused();
 
   if (testInfo.project.name === 'webkit-compact') {
-    for (const name of ['Previous match', 'Next match', 'Clear and close find']) {
+    for (const name of [
+      'Submit find',
+      'Save Find as term',
+      'Previous match',
+      'Next match',
+      'Clear and close find',
+    ]) {
       const box = await find.getByRole('button', { name }).boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(box?.height).toBeGreaterThanOrEqual(44);

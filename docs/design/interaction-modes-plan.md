@@ -185,6 +185,9 @@ name distinguishes the Find subject from its de-emphasized context.
 - Enter seeks forward; `n` and `Ctrl/Cmd-G` seek forward; `p` and
   `Ctrl/Cmd-Shift-G` seek backward.
 - Escape clears the temporary term, its status, and any transient marks.
+- Save promotes the submitted alias group through the durable Terms authoring
+  path. It is disabled until submission and whenever either the active-analysis
+  or saved-notebook capacity is full.
 - A hit updates the shared cursor as a discrete jump and may open/reposition
   Reader only when that is already the active reading surface.
 - The submitted identity is the only active series in the barcode and totals,
@@ -199,13 +202,14 @@ The existing worker query accepts an arbitrary `KwicTrack`, so seeking can
 reuse the occurrence cache and `occurrence-step/1`. Find uses separate transient
 seek, trend, and dispersion lanes so late results cannot commit after the query
 changes. Term-aware source requests use the same temporary track without
-mutating `series`, notebook identity, or the resident durable analysis maps.
+mutating `series`, notebook identity, or the resident durable analysis maps;
+only the explicit Save action crosses that boundary through normal Terms admission.
 
 ### Touch behavior
 
 Touch opens Find from Help/Tools. On the workbench the Find composer owns the
 fixed Terms rail; in Reader it floats above the visual keyboard. Both expose
-Find, Previous, Next, and Close as 44px controls. After a result lands, the
+Find, Save, Previous, Next, and Close as 44px controls. After a result lands, the
 composer retains Previous, Next, and Close so repeated navigation does not
 require reopening the keyboard. No swipe gesture is required.
 

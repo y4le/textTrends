@@ -1,3 +1,4 @@
+import { MAX_KWIC_TRACKS, NOTEBOOK_LIMITS_V1 } from '@texttrends/core';
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from 'react';
 import {
   FIND_INPUT_ID,
@@ -6,6 +7,7 @@ import {
   findStatusText,
 } from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
+import { parseAuthoredAliases } from '../lib/notebook.ts';
 import { useApp } from '../lib/store-instance.ts';
 
 const FIND_RESULT_ID = 'corpus-find-result';
@@ -20,7 +22,11 @@ export function FindBar({
   const interaction = useApp((state) => state.interaction);
   const interactionError = useApp((state) => state.interactionError);
   const matches = useApp((state) => state.kwic);
+  const notebookTermCount = useApp((state) => state.notebook.groups.length);
+  const activeTermCount = useApp((state) => state.activeGroupIds.size);
   const clearInteractionError = useApp((state) => state.clearInteractionError);
+  const clearNotebookError = useApp((state) => state.clearNotebookError);
+  const addTerm = useApp((state) => state.addTerm);
   const submitFind = useApp((state) => state.submitFind);
   const stepFind = useApp((state) => state.stepFind);
   const openReader = useApp((state) => state.openReader);
@@ -32,6 +38,16 @@ export function FindBar({
   const model = findBarModel(interaction);
   const progress = findMatchProgress(find, matches);
   const rail = placement === 'rail';
+  const notebookAtCapacity = notebookTermCount >= NOTEBOOK_LIMITS_V1.maxGroups;
+  const analysisAtCapacity = activeTermCount >= MAX_KWIC_TRACKS;
+  const saveDisabled = find === null || notebookAtCapacity || analysisAtCapacity;
+  const saveTitle = notebookAtCapacity
+    ? `Terms is limited to ${NOTEBOOK_LIMITS_V1.maxGroups} saved terms`
+    : analysisAtCapacity
+      ? `Deactivate a term before saving this Find; analysis shows up to ${MAX_KWIC_TRACKS}`
+      : find === null
+        ? 'Run Find before saving a term'
+        : `Save ${find.query.label} to Terms`;
 
   useEffect(() => setDraft(submittedRaw), [submittedRaw]);
 
@@ -63,6 +79,11 @@ export function FindBar({
       },
       FIND_RESULT_ID,
     );
+  };
+  const saveCurrentFind = () => {
+    if (find === null || notebookAtCapacity || analysisAtCapacity) return;
+    clearNotebookError();
+    addTerm({ aliases: parseAuthoredAliases(find.query.raw) });
   };
   const statusContent = (
     <>
@@ -116,6 +137,16 @@ export function FindBar({
           }}
         />
         <button type="submit" className="coarse-target" aria-label="Submit find">Find</button>
+        <button
+          type="button"
+          className="coarse-target"
+          aria-label="Save Find as term"
+          title={saveTitle}
+          disabled={saveDisabled}
+          onClick={saveCurrentFind}
+        >
+          Save
+        </button>
       </form>
       <div className="find-bar-actions">
         <button

@@ -38,7 +38,9 @@ and total as `x/y` once the matching window lands, and hides that progress
 while seeking. Activating the explainer opens Reader at the current hit. No
 substring search or regular expressions are implied. Repeating `Ctrl/Cmd-F`
 while Find is open selects the complete query draft, matching the replacement
-behavior users expect from native Find.
+behavior users expect from native Find. Save promotes the submitted aliases as
+one durable, active term through normal Terms admission and is disabled when
+the active comparison or saved notebook has no capacity.
 
 Submitted interaction intent is snapshot-bound and worker requests are
 latest-wins under compiled-query identity. Draft keystrokes remain local to the

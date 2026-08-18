@@ -397,6 +397,8 @@ forward; `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact starts.
 After the matching window lands, the explainer strip shows the current
 one-based match and exact total as `x/y`; the indicator is absent while a seek
 is pending. The ready explainer is actionable: Enter opens Reader at that hit.
+Save promotes the submitted aliases into one durable, active term and is
+disabled when the active comparison or saved notebook is at capacity.
 Escape or × clears the transient query and restores invoking focus. Reader has
 no Terms rail, so the same controls use the keyboard-safe floating placement.
 While Find is already open, `Ctrl/Cmd-F` focuses the query field and selects
