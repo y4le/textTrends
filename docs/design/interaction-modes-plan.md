@@ -143,7 +143,7 @@ to run first.
 
 | Capability | Keyboard | Precise pointer | Touch/coarse pointer | Active surface |
 |---|---|---|---|---|
-| Find | `/`, `Ctrl-F`, or `:find` | **Find** in Help/Tools | **Find** in Help/Tools | Query, result/edge status, Previous, Next, Close |
+| Find | `/`, `Ctrl/Cmd-F`, or `:find` | **Find** in Help/Tools | **Find** in Help/Tools | Terms-rail takeover with query, result/edge status, Previous, Next, Close |
 | Command line | `:` | **Commands** in Help/Tools | **Commands** in Help/Tools | Text input, suggestions, Run, Close |
 | Transient speed | Mouse path is not keyboard-relevant | Press-drag the footer graph; release pauses/exits | No hidden equivalent; use the visible persistent entry | Fixed-focal word plus approximate effective rate |
 | Persistent speed | `S` or `:speed` subject to the local `S` rule | **Speed read** in Help/Tools or the footer status | **Speed read** in Help/Tools or the footer status | Word, Play/Pause, slower, WPM, faster, seek, Close |
@@ -163,8 +163,10 @@ layout and target size, never whether an action exists.
 
 ### MVP semantics
 
-Find is a temporary, snapshot-bound corpus term used for seeking. It does not
-enter the durable notebook or change the shown analytical groups.
+Find is a temporary, snapshot-bound corpus term used for seeking and analysis.
+It does not enter or mutate the durable notebook. While active, it replaces
+the shown comparison with one transient identity; the durable comparison and
+resident results remain available for immediate restoration.
 
 - Use the same tokenizer, folding, phrase, exact-match, and overlap contracts
   as an ordinary term group.
@@ -172,29 +174,31 @@ enter the durable notebook or change the shown analytical groups.
   one-ended Terms wildcard dialect. It is not arbitrary substring search, a
   regular expression, or browser DOM find. A comma is refused because Find is
   one query rather than the Terms quick-add surface.
-- `/`, `Ctrl-F`, the `find` command, and the visible Find action open the same
-  composer.
-- Enter seeks forward; `n` and `Ctrl-G` seek forward; `p` and
-  `Shift+Ctrl-G` seek backward.
+- `/`, `Ctrl/Cmd-F`, the `find` command, and the visible Find action open the
+  same composer.
+- Enter seeks forward; `n` and `Ctrl/Cmd-G` seek forward; `p` and
+  `Ctrl/Cmd-Shift-G` seek backward.
 - Escape clears the temporary term, its status, and any transient marks.
 - A hit updates the shared cursor as a discrete jump and may open/reposition
   Reader only when that is already the active reading surface.
+- The submitted identity is the only presented series in Trends, barcode and
+  totals, the reading footer, Reader marks, and Matches until exit.
 - An edge/no-hit result remains explicit. MVP need not claim a total result
   count because the existing occurrence-step result does not provide one.
 
 The existing worker query accepts an arbitrary `KwicTrack`, so seeking can
-reuse the occurrence cache and `occurrence-step/1`. Find needs a separate
-transient identity and query lane so late results cannot commit after the query
-changes. If temporary marks are added to Reader or the footer, they must be
-merged as presentation tracks without mutating `series` or notebook identity.
+reuse the occurrence cache and `occurrence-step/1`. Find uses separate transient
+seek, trend, and dispersion lanes so late results cannot commit after the query
+changes. Term-aware source requests use the same temporary track without
+mutating `series`, notebook identity, or the resident durable analysis maps.
 
 ### Touch behavior
 
-Touch opens Find from Help/Tools. The utility pane uses the native on-screen
-keyboard and exposes Find, Previous, Next, and Close as 44px controls. After a
-result lands, the compact mode indicator retains Previous, Next, and Close so
-repeated navigation does not require reopening the keyboard. No swipe gesture
-is required.
+Touch opens Find from Help/Tools. On the workbench the Find composer owns the
+fixed Terms rail; in Reader it floats above the visual keyboard. Both expose
+Find, Previous, Next, and Close as 44px controls. After a result lands, the
+composer retains Previous, Next, and Close so repeated navigation does not
+require reopening the keyboard. No swipe gesture is required.
 
 ## Speed reading mode
 

@@ -3,7 +3,10 @@ import {
   defaultSeriesStyle,
   termGroupIdentity,
   validateNotebookGroup,
+  type DispersionResultV1,
   type NotebookGroupV1,
+  type NumericTrend,
+  type SeriesStyleV1,
   type TermGroupSpec,
 } from '@texttrends/core';
 import type { OccurrenceStepHitV1 } from '../shared/analysis-contract.ts';
@@ -33,13 +36,28 @@ export interface FindQuery {
   readonly seriesId: string;
   readonly group: TermGroupSpec;
   readonly identity: string;
+  readonly style: SeriesStyleV1;
 }
+
+export type FindTrendState =
+  | { readonly status: 'pending' }
+  | { readonly status: 'ready'; readonly trend: NumericTrend }
+  | { readonly status: 'error'; readonly message: string };
+
+export type FindDispersionState =
+  | { readonly status: 'pending' }
+  | { readonly status: 'ready'; readonly result: DispersionResultV1 }
+  | { readonly status: 'error'; readonly message: string };
 
 export interface FindState {
   readonly snapshot: string;
   readonly query: FindQuery;
   readonly anchor: FindAnchor | null;
   readonly state: FindSeekState;
+  /** The temporary one-term comparison shown instead of durable Terms while
+   * Find owns the interaction surface. These lanes never mutate the notebook. */
+  readonly trend: FindTrendState;
+  readonly dispersion: FindDispersionState;
 }
 
 /** The one primary interaction state. Future command and speed modes extend
@@ -69,12 +87,13 @@ export function compileFindQuery(raw: string, newId: () => string): CompileFindR
     };
   }
   const groupId = `find-group:${newId()}`;
+  const style = defaultSeriesStyle(0);
   const authored: NotebookGroupV1 = {
     id: groupId,
     aliases: [normalized],
     exactMatch: false,
     countOverlaps: false,
-    style: defaultSeriesStyle(0),
+    style,
   };
   try {
     validateNotebookGroup(authored);
@@ -86,6 +105,7 @@ export function compileFindQuery(raw: string, newId: () => string): CompileFindR
         seriesId: `find-series:${newId()}`,
         group,
         identity: termGroupIdentity(group),
+        style,
       },
     };
   } catch (error) {
@@ -155,6 +175,8 @@ export function findBarModel(
   const find = interaction.kind === 'find' ? interaction.find : null;
   return {
     hasSubmittedQuery: find !== null,
-    busy: find?.state.status === 'pending',
+    busy: find?.state.status === 'pending'
+      || find?.trend.status === 'pending'
+      || find?.dispersion.status === 'pending',
   };
 }

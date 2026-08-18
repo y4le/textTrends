@@ -3,7 +3,13 @@ import { FIND_INPUT_ID, findBarModel, findStatusText } from '../lib/interaction.
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 
-export function FindBar({ onClose }: { readonly onClose: () => void }) {
+export function FindBar({
+  onClose,
+  placement = 'floating',
+}: {
+  readonly onClose: () => void;
+  readonly placement?: 'rail' | 'floating';
+}) {
   const interaction = useApp((state) => state.interaction);
   const interactionError = useApp((state) => state.interactionError);
   const clearInteractionError = useApp((state) => state.clearInteractionError);
@@ -15,6 +21,7 @@ export function FindBar({ onClose }: { readonly onClose: () => void }) {
   const [draft, setDraft] = useState(submittedRaw);
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const model = findBarModel(interaction);
+  const rail = placement === 'rail';
 
   useEffect(() => setDraft(submittedRaw), [submittedRaw]);
 
@@ -38,15 +45,21 @@ export function FindBar({ onClose }: { readonly onClose: () => void }) {
 
   return (
     <section
-      className="find-bar"
+      className={`find-bar find-bar--${placement}${rail ? ' query-region term-bar' : ''}`}
       data-interaction-surface="find"
       role="search"
       aria-label="Find in corpus"
       aria-busy={model.busy}
+      data-find-submitted={model.hasSubmittedQuery || undefined}
       onKeyDown={handleKeyDown}
     >
+      <label
+        className={rail ? 'term-bar-label' : 'find-bar-label'}
+        htmlFor={FIND_INPUT_ID}
+      >
+        Find
+      </label>
       <form className="find-bar-form" onSubmit={submit}>
-        <label htmlFor={FIND_INPUT_ID}>Find</label>
         <input
           id={FIND_INPUT_ID}
           type="search"
@@ -62,7 +75,7 @@ export function FindBar({ onClose }: { readonly onClose: () => void }) {
             if (interactionError !== null) clearInteractionError();
           }}
         />
-        <button type="submit" className="coarse-target">Find</button>
+        <button type="submit" className="coarse-target" aria-label="Submit find">Find</button>
       </form>
       <div className="find-bar-actions">
         <button
@@ -89,11 +102,11 @@ export function FindBar({ onClose }: { readonly onClose: () => void }) {
         <button
           type="button"
           className="coarse-target"
-          aria-label="Close find"
+          aria-label="Clear and close find"
           aria-keyshortcuts={shortcutAria(['find-close'])}
           onClick={onClose}
         >
-          close
+          {rail ? <span aria-hidden="true">×</span> : 'close'}
         </button>
       </div>
       <p

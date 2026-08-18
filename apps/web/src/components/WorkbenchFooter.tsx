@@ -168,6 +168,7 @@ const FooterSparkline = memo(function FooterSparkline({
         ).map((path, index) => (
           <path
             key={`${item.id}:${doc}:${index}`}
+            data-footer-series-path={item.id}
             d={path}
             fill="none"
             stroke={seriesColor(item.style)}
@@ -1003,6 +1004,7 @@ export function WorkbenchFooter({
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const series = useApp((state) => state.series);
+  const interaction = useApp((state) => state.interaction);
   const trends = useApp((state) => state.trends);
   const dispersion = useApp((state) => state.dispersion);
   const selectedDispersion = useApp((state) => state.selectedDispersion);
@@ -1011,7 +1013,21 @@ export function WorkbenchFooter({
   const measure = useApp((state) => state.trendMeasure);
   const coarse = presentation.coarseAvailable;
   const docs = snapshot?.readyDocs ?? [];
-  const firstReady = [...trends.values()].find((state) => state.status === 'ready');
+  const findMode = interaction.kind === 'find';
+  const find = findMode ? interaction.find : null;
+  const displayedSeries = useMemo<readonly {
+    readonly id: string;
+    readonly label: string;
+    readonly style: SeriesStyleV1;
+  }[]>(() => findMode
+    ? find === null
+      ? []
+      : [{ id: find.query.seriesId, label: find.query.raw, style: find.query.style }]
+    : series,
+  [find, findMode, series]);
+  const firstReady = findMode
+    ? find?.trend.status === 'ready' ? find.trend : null
+    : [...trends.values()].find((state) => state.status === 'ready') ?? null;
   const referenceTrend = firstReady?.status === 'ready' ? firstReady.trend : null;
   const layout = useMemo(() => referenceTrend?.sequenceBases
     ? {
@@ -1024,15 +1040,22 @@ export function WorkbenchFooter({
       }
     : sequenceLayoutFor(docs, (doc) => corpusTokenCounts.get(doc)),
   [corpusTokenCounts, docs, referenceTrend]);
-  const seriesOrder = useMemo(() => series.map((item) => item.id), [series]);
+  const seriesOrder = useMemo(
+    () => displayedSeries.map((item) => item.id),
+    [displayedSeries],
+  );
   const tracks = projectedBarcodeTracks(
-    dispersion?.state.status === 'ready' ? dispersion.state.result : null,
+    findMode
+      ? find?.dispersion.status === 'ready' ? find.dispersion.result : null
+      : dispersion?.state.status === 'ready' ? dispersion.state.result : null,
     docs,
     seriesOrder,
   );
-  const selectedDocs = linkedSelection?.ranges.map((range) => range.doc) ?? [];
+  const selectedDocs = findMode ? [] : linkedSelection?.ranges.map((range) => range.doc) ?? [];
   const selectedTracks = projectedBarcodeTracks(
-    selectedDispersion?.state.status === 'ready' ? selectedDispersion.state.result : null,
+    !findMode && selectedDispersion?.state.status === 'ready'
+      ? selectedDispersion.state.result
+      : null,
     selectedDocs,
     seriesOrder,
   );
@@ -1057,9 +1080,12 @@ export function WorkbenchFooter({
     [layout, width],
   );
   const readySeries = useMemo<FooterSeries[]>(() => {
-    if (series.some((item) => trends.get(item.id)?.status === 'pending')) return [];
-    return series.flatMap((item) => {
-      const state = trends.get(item.id);
+    const stateFor = (id: string) => findMode && find?.query.seriesId === id
+      ? find.trend
+      : trends.get(id);
+    if (displayedSeries.some((item) => stateFor(item.id)?.status === 'pending')) return [];
+    return displayedSeries.flatMap((item) => {
+      const state = stateFor(item.id);
       return state?.status === 'ready'
         ? [{
             id: item.id,
@@ -1069,12 +1095,14 @@ export function WorkbenchFooter({
           }]
         : [];
     });
-  }, [measure, series, trends]);
-  const pending = series.some((item) => {
-    const state = trends.get(item.id);
+  }, [displayedSeries, find, findMode, measure, trends]);
+  const pending = displayedSeries.some((item) => {
+    const state = findMode && find?.query.seriesId === item.id ? find.trend : trends.get(item.id);
     return !state || state.status === 'pending';
   });
-  const failed = series.filter((item) => trends.get(item.id)?.status === 'error').length;
+  const failed = displayedSeries.filter((item) =>
+    (findMode && find?.query.seriesId === item.id ? find.trend : trends.get(item.id))?.status === 'error')
+    .length;
   const titleByDoc = useMemo(
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
     [project],
@@ -1119,7 +1147,7 @@ export function WorkbenchFooter({
           docs={docs}
           tracks={tracks}
           selectedTracks={selectedTracks}
-          linkedSelection={linkedSelection !== null}
+          linkedSelection={!findMode && linkedSelection !== null}
           edgeX={edgeX}
           width={width}
           plotHeight={geometry.seriesHeight}
@@ -1127,7 +1155,7 @@ export function WorkbenchFooter({
           bandGap={geometry.barcodeBandGap}
           trackHeight={geometry.barcodeTrackHeight}
           trackGap={geometry.barcodeTrackGap}
-          styleOf={(id) => series.find((item) => item.id === id)?.style ?? DEFAULT_SERIES_STYLE}
+          styleOf={(id) => displayedSeries.find((item) => item.id === id)?.style ?? DEFAULT_SERIES_STYLE}
           coarse={coarse}
         />
       )}

@@ -196,6 +196,7 @@ function BarcodeCanvas({
       ref={canvasRef}
       data-barcode-band={docOrdinal === undefined ? 'series' : 'by-book'}
       data-barcode-doc={docOrdinal}
+      data-barcode-series={tracks.map((track) => track.seriesId).join(' ')}
       data-pointer-contract={coarse ? 'scrub-only' : 'hover-scrub-click-activate'}
       data-selected-layer={selectedTracks.some((track) =>
         docOrdinal === undefined

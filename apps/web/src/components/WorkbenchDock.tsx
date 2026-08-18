@@ -14,6 +14,7 @@ import { dockSizing } from '../lib/footer-metrics.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { usePresentation } from './PresentationProvider.tsx';
+import { FindBar } from './FindBar.tsx';
 
 const QuerySurface = lazy(() =>
   import('./QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
@@ -34,11 +35,13 @@ function TermsRailFallback() {
 /** Fixed layout host for the authored query state and transient reading
  * instrument. The two named asides remain independent accessibility regions;
  * this wrapper owns only viewport placement and the pre-mount reservation. */
-export function WorkbenchDock({ globalShortcuts }: {
+export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
   readonly globalShortcuts: boolean;
+  readonly onCloseFind: () => void;
 }) {
   const presentation = usePresentation();
   const seriesCount = useApp((state) => state.series.length);
+  const interaction = useApp((state) => state.interaction);
   const snapshot = useApp((state) => state.snapshot);
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const documentCount = useApp(
@@ -52,10 +55,13 @@ export function WorkbenchDock({ globalShortcuts }: {
   const footerVisible = snapshot !== null
     && snapshot.readyDocs.length > 0
     && snapshot.readyDocs.some((doc) => (corpusTokenCounts.get(doc) ?? 0) > 0);
+  const displayedTrackCount = interaction.kind === 'find'
+    ? interaction.find === null ? 0 : 1
+    : seriesCount;
   const sizing = dockSizing({
     width: presentation.width,
     coarse: presentation.coarseAvailable,
-    trackCount: seriesCount,
+    trackCount: displayedTrackCount,
     footerPresent,
     targetBlockSize,
     availableBlockSize,
@@ -209,7 +215,7 @@ export function WorkbenchDock({ globalShortcuts }: {
   };
 
   const laneText = [
-    'terms',
+    interaction.kind === 'find' ? 'find' : 'terms',
     footerVisible ? 'passage' : '',
     footerVisible && sizing.showStatus ? 'status' : '',
     footerVisible ? 'graph' : '',
@@ -287,15 +293,19 @@ export function WorkbenchDock({ globalShortcuts }: {
           <span aria-hidden="true" />
         </div>
       )}
-      <Suspense fallback={<TermsRailFallback />}>
-        <QuerySurface />
-      </Suspense>
+      {interaction.kind === 'find'
+        ? <FindBar placement="rail" onClose={onCloseFind} />
+        : (
+            <Suspense fallback={<TermsRailFallback />}>
+              <QuerySurface />
+            </Suspense>
+          )}
       <Suspense fallback={null}>
         <WorkbenchFooter
           globalShortcuts={globalShortcuts}
           geometry={sizing.footerGeometry}
           blockSize={sizing.footerBlockSize}
-          trackCount={seriesCount}
+          trackCount={displayedTrackCount}
           showStatus={sizing.showStatus}
           showBarcode={sizing.showBarcode}
         />

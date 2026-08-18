@@ -6,16 +6,23 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
   const footer = page.getByRole('slider', { name: 'Corpus footer position' });
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  await expect.poll(() => page.locator('[data-series-path]').count()).toBeGreaterThan(1);
+  const durableSeries = await page.locator('[data-series-path]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  );
+  expect(durableSeries.length).toBeGreaterThan(1);
   await footer.focus();
   const before = await footer.getAttribute('aria-valuenow');
-  await footer.press('/');
+  await footer.press('Meta+f');
 
   const find = page.getByRole('search', { name: 'Find in corpus' });
   const input = find.getByRole('searchbox', { name: 'Find word or phrase' });
   const next = find.getByRole('button', { name: 'Next match' });
-  const previous = find.getByRole('button', { name: 'Previous match' });
   const status = find.locator('#corpus-find-status');
   await expect(find).toBeVisible();
+  await expect(terms).toHaveCount(0);
+  await expect(find.locator('.term-bar-label')).toHaveText('Find');
   await expect(input).toBeFocused();
   await input.fill('holmes');
   await input.press('Enter');
@@ -23,22 +30,59 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(status).toContainText(/holmes/i);
   await expect(status).not.toContainText('Searching');
   await expect.poll(() => footer.getAttribute('aria-valuenow')).not.toBe(before);
+  await expect(page.locator('[data-series-path^="find-series:"]').first()).toBeVisible();
+  await expect.poll(async () => page.locator('[data-series-path]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  )).toEqual([expect.stringMatching(/^find-series:/)]);
+  await expect.poll(async () => page.locator('[data-footer-series-path]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))],
+  )).toEqual([expect.stringMatching(/^find-series:/)]);
+  await expect.poll(async () => page.locator('[data-barcode-series]').evaluateAll((canvases) =>
+    [...new Set(canvases.map((canvas) => canvas.getAttribute('data-barcode-series')).filter(Boolean))],
+  )).toEqual([expect.stringMatching(/^find-series:/)]);
+  await expect(page.locator('[data-term-occurrences]')).toHaveCount(1);
+  await expect(page.locator('[data-term-occurrence-label]')).toHaveText('holmes');
+  const expectFindDraftSelected = async () => {
+    await expect(input).toBeFocused();
+    expect(await input.evaluate((element) => ({
+      start: (element as HTMLInputElement).selectionStart,
+      end: (element as HTMLInputElement).selectionEnd,
+      length: (element as HTMLInputElement).value.length,
+    }))).toEqual({ start: 0, end: 6, length: 6 });
+  };
+  await footer.press('Meta+f');
+  await expectFindDraftSelected();
+  await input.evaluate((element) => {
+    const field = element as HTMLInputElement;
+    field.setSelectionRange(field.value.length, field.value.length);
+  });
+  await footer.press('Control+f');
+  await expectFindDraftSelected();
+  await page.getByRole('link', { name: 'Matches', exact: true }).click();
+  await expect(page.locator('[data-series-label="holmes"]').first()).toBeVisible();
+  await expect(page.locator('[data-series-label^="find-series:"]')).toHaveCount(0);
+  await page.getByRole('link', { name: 'Trends', exact: true }).click();
 
   const first = await status.textContent();
-  await input.press('Control+g');
+  await input.press('Meta+g');
   await expect.poll(async () => {
     const text = await status.textContent();
     return text?.includes('Searching') ? first : text;
   }).not.toBe(first);
   const second = await status.textContent();
-  await previous.press('p');
+  await input.press('Control+Shift+G');
   await expect.poll(async () => {
     const text = await status.textContent();
     return text?.includes('Searching') ? second : text;
   }).toBe(first);
 
-  await page.keyboard.press('Escape');
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
   await expect(find).toHaveCount(0);
+  await expect(terms).toBeVisible();
+  await expect.poll(async () => page.locator('[data-series-path]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  )).toEqual(durableSeries);
+  await expect(page.locator('[data-series-path^="find-series:"]')).toHaveCount(0);
   await expect(footer).toBeFocused();
 
   await footer.press('Control+f');
@@ -65,6 +109,12 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await input.press('Enter');
   await expect(status).not.toContainText('Searching');
   await expect(reader).toBeVisible();
+  const highlights = reader.getByLabel('Reader query highlights');
+  await expect(highlights).toContainText('moriarty');
+  await expect(highlights).not.toContainText('query changed');
+  const nextFindMatch = reader.getByRole('button', { name: 'next find match', exact: true });
+  await expect(nextFindMatch).toBeEnabled();
+  await expect(nextFindMatch).toHaveAttribute('title', 'Next exact Find match');
   await expect.poll(() => readerPosition.textContent()).not.toBe(readerBefore);
   await page.keyboard.press('Escape');
   await expect(find).toHaveCount(0);
@@ -98,7 +148,7 @@ test('store-driven Find teardown restores focus instead of orphaning it', async 
   await expect(inputsRegion).toBeFocused();
 });
 
-test('Shortcuts exposes a touch-sized Find entry above the visual keyboard', async ({ page }, testInfo) => {
+test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
@@ -119,7 +169,7 @@ test('Shortcuts exposes a touch-sized Find entry above the visual keyboard', asy
   await expect(input).toBeFocused();
 
   if (testInfo.project.name === 'webkit-compact') {
-    for (const name of ['Previous match', 'Next match', 'Close find']) {
+    for (const name of ['Previous match', 'Next match', 'Clear and close find']) {
       const box = await find.getByRole('button', { name }).boundingBox();
       expect(box?.width).toBeGreaterThanOrEqual(44);
       expect(box?.height).toBeGreaterThanOrEqual(44);

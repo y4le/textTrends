@@ -27,8 +27,12 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('/'), 'find-open')).toBe(true);
     expect(shortcutMatches(key('/', { shiftKey: true }), 'find-open')).toBe(true);
     expect(shortcutMatches(key('f', { ctrlKey: true }), 'find-open')).toBe(true);
+    expect(shortcutMatches(key('f', { metaKey: true }), 'find-open')).toBe(true);
+    expect(shortcutMatches(key('n'), 'find-next')).toBe(true);
     expect(shortcutMatches(key('g', { ctrlKey: true }), 'find-next')).toBe(true);
+    expect(shortcutMatches(key('g', { metaKey: true }), 'find-next')).toBe(true);
     expect(shortcutMatches(key('G', { shiftKey: true, ctrlKey: true }), 'find-previous')).toBe(true);
+    expect(shortcutMatches(key('G', { shiftKey: true, metaKey: true }), 'find-previous')).toBe(true);
     expect(shortcutMatches(key('g', { ctrlKey: true }), 'find-previous')).toBe(false);
     expect(shortcutMatches(key('h'), 'footer-page-previous')).toBe(true);
     expect(shortcutMatches(key('ArrowLeft'), 'footer-page-previous')).toBe(true);
@@ -45,7 +49,7 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('Escape'), 'term-exit')).toBe(true);
   });
 
-  it('never captures browser chords or composition', () => {
+  it('captures only named browser chords and never composition', () => {
     expect(shortcutMatches(key('?'), 'show-help')).toBe(true);
     expect(shortcutMatches(key('?', { shiftKey: true }), 'show-help')).toBe(true);
     expect(shortcutMatches(key('w', { ctrlKey: true }), 'reader-occurrence-next')).toBe(false);
@@ -53,6 +57,7 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('d', { ctrlKey: true }), 'row-half-page-next')).toBe(true);
     expect(shortcutMatches(key('u'), 'row-half-page-previous')).toBe(false);
     expect(shortcutMatches(key('?', { shiftKey: true, metaKey: true }), 'show-help')).toBe(false);
+    expect(shortcutMatches(key('w', { metaKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('l', { isComposing: true }), 'reader-page-next')).toBe(false);
   });
 
@@ -97,8 +102,12 @@ describe('shortcut registry', () => {
       ...overrides,
     });
     expect(interactionShortcutAllowed(interactionEvent(plain))).toBe(true);
-    expect(interactionShortcutAllowed(interactionEvent(input))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(input))).toBe(true);
     expect(interactionShortcutAllowed(interactionEvent(findInput))).toBe(true);
+    expect(interactionShortcutAllowed(interactionEvent(input, {
+      key: 'x',
+      ctrlKey: true,
+    }))).toBe(false);
     expect(interactionShortcutAllowed({
       ...interactionEvent(findInput, { ctrlKey: false }),
       key: '/',
@@ -106,7 +115,15 @@ describe('shortcut registry', () => {
     expect(interactionShortcutAllowed(interactionEvent(dialog))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(menu))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { defaultPrevented: true }))).toBe(false);
-    expect(interactionShortcutAllowed(interactionEvent(plain, { metaKey: true }))).toBe(false);
+    expect(interactionShortcutAllowed(interactionEvent(plain, {
+      ctrlKey: false,
+      metaKey: true,
+    }))).toBe(true);
+    expect(interactionShortcutAllowed(interactionEvent(plain, {
+      key: 'x',
+      ctrlKey: false,
+      metaKey: true,
+    }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { altKey: true }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { isComposing: true }))).toBe(false);
   });
@@ -147,7 +164,11 @@ describe('shortcut registry', () => {
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
-      entry.id === 'find-previous')?.keys).toEqual(['p', 'Ctrl + Shift + G']);
+      entry.id === 'find-previous')?.keys).toEqual([
+        'p',
+        'Ctrl + Shift + G',
+        'Cmd + Shift + G',
+      ]);
     expect(trends.find((section) => section.title === 'Navigation')?.entries
       .map((entry) => entry.id)).toContain('go-inputs');
     expect(trends.find((section) => section.title === 'Navigation')?.entries

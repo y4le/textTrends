@@ -110,7 +110,9 @@ import {
   compileFindQuery,
   findWrapped,
   NO_INTERACTION,
+  type FindDispersionState,
   type FindSeekState,
+  type FindTrendState,
   type InteractionState,
 } from './interaction.ts';
 import {
@@ -1291,6 +1293,10 @@ export function createAppRuntime(
   // Temporary corpus Find is notebook-independent and must not race with the
   // existing any-active-term occurrence navigation lane.
   const findLane = new QueryLane(scope);
+  // Find projects one temporary term through the same graph/barcode contracts
+  // without superseding or overwriting the durable comparison residents.
+  const findTrendLane = new QueryLane(scope);
+  const findDispersionLane = new QueryLane(scope);
   // The global reading footer reuses reader-page/1 through a separate lane.
   // Reader navigation and footer scrubbing never supersede one another.
   const footerPassageLane = new QueryLane(scope);
@@ -1688,6 +1694,9 @@ export function createAppRuntime(
      *  (ruling invariant 4) — a member edit under the same UUID must reject
      *  the old semantics' late result even if a reissue was somehow missed. */
     const identityOf = (id: string): string | null => {
+      const interaction = get().interaction;
+      const find = interaction.kind === 'find' ? interaction.find : null;
+      if (find?.query.seriesId === id) return find.query.identity;
       const g = get().notebook.groups.find((x) => x.id === id);
       return g ? groupIdentity(g) : null;
     };
@@ -1731,6 +1740,30 @@ export function createAppRuntime(
         }));
       }
       return { wire, identities, captured: Object.freeze(captured) };
+    };
+
+    /** Find temporarily replaces the authored comparison for every term-aware
+     * presentation consumer while leaving the durable series/results resident. */
+    const effectiveTrackSpecs = (
+      series: readonly SeriesIntent[],
+    ): ReturnType<typeof trackSpecs> => {
+      const interaction = get().interaction;
+      if (interaction.kind !== 'find') return trackSpecs(series);
+      const find = interaction.find;
+      if (find === null) {
+        return { wire: [], identities: [], captured: Object.freeze([]) };
+      }
+      return {
+        wire: [{ seriesId: find.query.seriesId, group: find.query.group }],
+        identities: [[find.query.seriesId, find.query.identity] as const],
+        captured: Object.freeze([Object.freeze({
+          seriesId: find.query.seriesId,
+          groupId: find.query.group.id,
+          identity: find.query.identity,
+          label: find.query.raw,
+          style: find.query.style,
+        })]),
+      };
     };
 
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
@@ -1795,7 +1828,7 @@ export function createAppRuntime(
       const { snapshot, series } = get();
       if (!target || !snapshot || !snapshot.readyDocs.includes(target.doc)) return;
       if (footerServes(target)) return;
-      const tracks = trackSpecs(series);
+      const tracks = effectiveTrackSpecs(series);
       if (tracks === null) {
         set({ footerPassage: null });
         return;
@@ -1886,12 +1919,146 @@ export function createAppRuntime(
         .finally(settle);
     };
 
-    /** Reissue only the two trend result lanes after a bin-policy change.
+    const writeFindTrend = (identity: string, state: FindTrendState): void => {
+      const live = get().interaction;
+      if (live.kind !== 'find' || live.find?.query.identity !== identity) return;
+      set({
+        interaction: {
+          kind: 'find',
+          find: { ...live.find, trend: state },
+        },
+        ...(state.status === 'ready'
+          ? { corpusTokenCounts: retainTrendTokenCounts(get().corpusTokenCounts, state.trend) }
+          : {}),
+      });
+    };
+
+    const writeFindDispersion = (identity: string, state: FindDispersionState): void => {
+      const live = get().interaction;
+      if (live.kind !== 'find' || live.find?.query.identity !== identity) return;
+      set({
+        interaction: {
+          kind: 'find',
+          find: { ...live.find, dispersion: state },
+        },
+      });
+    };
+
+    /** Reissue Find's temporary graph without disturbing the resident authored
+     * comparison. Bin-policy changes call this alongside the durable lanes. */
+    const runFindTrend = (): void => {
+      findTrendLane.supersede();
+      const { snapshot, interaction, trendBins } = get();
+      const find = interaction.kind === 'find' ? interaction.find : null;
+      if (!snapshot || !find || find.snapshot !== snapshot.snapshot) return;
+      const issuedKey = snapKey(snapshot);
+      const issuedIdentity = find.query.identity;
+      const issuedBins = trendBins;
+      const lease = findTrendLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => {
+          const live = get().interaction;
+          return live.kind === 'find' && live.find?.query.identity === issuedIdentity;
+        },
+        () => {
+          const live = get().trendBins;
+          return live.mode === issuedBins.mode && live.count === issuedBins.count;
+        },
+      );
+      writeFindTrend(issuedIdentity, { status: 'pending' });
+      issueOn(
+        findTrendLane,
+        snapshot.snapshot,
+        {
+          op: 'trend',
+          selection: { docs: [...snapshot.readyDocs] },
+          group: find.query.group,
+          request: { coordinate: 'declared-sequence', bins: issuedBins },
+        },
+        lease,
+        (data) => {
+          if (data.op !== 'trend') {
+            writeFindTrend(issuedIdentity, {
+              status: 'error',
+              message: 'worker returned the wrong find trend operation',
+            });
+            return;
+          }
+          writeFindTrend(issuedIdentity, { status: 'ready', trend: data.trend });
+        },
+        (message) => writeFindTrend(issuedIdentity, { status: 'error', message }),
+      );
+    };
+
+    const runFindDispersion = (): void => {
+      findDispersionLane.supersede();
+      const { snapshot, interaction } = get();
+      const find = interaction.kind === 'find' ? interaction.find : null;
+      if (!snapshot || !find || find.snapshot !== snapshot.snapshot) return;
+      const issuedKey = snapKey(snapshot);
+      const issuedIdentity = find.query.identity;
+      const issuedSeriesId = find.query.seriesId;
+      const issuedGroupId = find.query.group.id;
+      const lease = findDispersionLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedKey,
+        () => {
+          const live = get().interaction;
+          return live.kind === 'find' && live.find?.query.identity === issuedIdentity;
+        },
+      );
+      writeFindDispersion(issuedIdentity, { status: 'pending' });
+      issueOn(
+        findDispersionLane,
+        snapshot.snapshot,
+        {
+          op: 'dispersion',
+          selection: { docs: [...snapshot.readyDocs] },
+          tracks: [{ seriesId: issuedSeriesId, group: find.query.group }],
+          request: {
+            method: 'dispersion/1',
+            exactMax: DISPERSION_EXACT_MAX,
+            bucketBudget: DISPERSION_BUCKET_BUDGET,
+          },
+        },
+        lease,
+        (data) => {
+          if (data.op !== 'dispersion') {
+            writeFindDispersion(issuedIdentity, {
+              status: 'error',
+              message: 'worker returned the wrong find dispersion operation',
+            });
+            return;
+          }
+          const [track] = data.dispersion.tracks;
+          if (
+            data.dispersion.tracks.length !== 1
+            || track?.seriesId !== issuedSeriesId
+            || track?.groupId !== issuedGroupId
+          ) {
+            writeFindDispersion(issuedIdentity, {
+              status: 'error',
+              message: 'worker returned the wrong find dispersion track',
+            });
+            return;
+          }
+          writeFindDispersion(issuedIdentity, { status: 'ready', result: data.dispersion });
+        },
+        (message) => writeFindDispersion(issuedIdentity, { status: 'error', message }),
+      );
+    };
+
+    const runFindAnalysis = (): void => {
+      runFindTrend();
+      runFindDispersion();
+    };
+
+    /** Reissue only the trend result lanes after a bin-policy change.
      * Dispersion, KWIC, and inventory do not depend on trend bins and must
      * remain resident. */
     const runTrendLanesOnly = () => {
       trendLane.supersede();
       selectedTrendLane.supersede();
+      runFindTrend();
       const { snapshot, series, linkedSelection, trendBins } = get();
       if (!snapshot || series.length === 0) {
         set({ trends: new Map(), selectedTrends: new Map() });
@@ -2139,13 +2306,13 @@ export function createAppRuntime(
       force = false,
     ) => {
       const { snapshot, series, scrub } = get();
-      if (!snapshot || series.length === 0) {
+      if (!snapshot) {
         matchesLane.supersede();
         set({ kwic: null, matchesReveal: null });
         return;
       }
-      const tracks = trackSpecs(series);
-      if (tracks === null) {
+      const tracks = effectiveTrackSpecs(series);
+      if (tracks === null || tracks.wire.length === 0) {
         matchesLane.supersede();
         set({ kwic: null, matchesReveal: null });
         return;
@@ -2957,6 +3124,12 @@ export function createAppRuntime(
             : { kind: 'find', find: null },
           interactionError: null,
         });
+        if (current.kind !== 'find') {
+          get().runReader();
+          resetFooterPassage();
+          if (get().scrub) get().runFooterPassage();
+          runMatchesWindow();
+        }
       },
 
       submitFind(raw) {
@@ -2966,6 +3139,8 @@ export function createAppRuntime(
           return false;
         }
         findLane.supersede();
+        findTrendLane.supersede();
+        findDispersionLane.supersede();
         const snapshot = get().snapshot;
         if (snapshot === null) {
           set({
@@ -2982,10 +3157,17 @@ export function createAppRuntime(
               query: compiled.query,
               anchor: null,
               state: { status: 'idle' },
+              trend: { status: 'pending' },
+              dispersion: { status: 'pending' },
             },
           },
           interactionError: null,
         });
+        runFindAnalysis();
+        get().runReader();
+        resetFooterPassage();
+        if (get().scrub) get().runFooterPassage();
+        runMatchesWindow();
         get().stepFind(1);
         return true;
       },
@@ -3168,7 +3350,13 @@ export function createAppRuntime(
 
       exitInteraction() {
         findLane.supersede();
+        findTrendLane.supersede();
+        findDispersionLane.supersede();
         set({ interaction: NO_INTERACTION, interactionError: null });
+        get().runReader();
+        resetFooterPassage();
+        if (get().scrub) get().runFooterPassage();
+        runMatchesWindow();
       },
 
       clearInteractionError() {
@@ -3176,6 +3364,10 @@ export function createAppRuntime(
       },
 
       stepOccurrence(direction) {
+        if (get().interaction.kind === 'find') {
+          get().stepFind(direction);
+          return;
+        }
         occurrenceLane.supersede();
         const state = get();
         const snapshot = state.snapshot;
@@ -3561,7 +3753,7 @@ export function createAppRuntime(
           set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
           return;
         }
-        const tracks = trackSpecs(series);
+        const tracks = effectiveTrackSpecs(series);
         if (tracks === null) {
           set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
           return;
@@ -4651,7 +4843,7 @@ export function createAppRuntime(
         // carries a one-shot row disambiguator; density midpoints never do.
         get().setScrub({ doc, token });
         const live = get();
-        const tracks = trackSpecs(live.series);
+        const tracks = effectiveTrackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
         set({
           matchesReveal: origin?.kind !== 'bucket'
@@ -5040,6 +5232,8 @@ export function createAppRuntime(
       readerLane.supersede();
       occurrenceLane.supersede();
       findLane.supersede();
+      findTrendLane.supersede();
+      findDispersionLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;
@@ -5169,6 +5363,8 @@ export function createAppRuntime(
       readerLane.supersede();
       occurrenceLane.supersede();
       findLane.supersede();
+      findTrendLane.supersede();
+      findDispersionLane.supersede();
       footerPassageLane.supersede();
       footerPassageActive = null;
       footerPassagePending = null;

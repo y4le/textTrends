@@ -133,9 +133,10 @@ export function TrendPanel() {
   // Deliberately NO `scrub` subscription here: it updates once per
   // pointer animation frame, and this component's render rebuilds every path,
   // hover rect, and totals row. The ScrubSurface child owns the
-  // per-frame state; this panel re-renders only on data/view/resize
-  // changes (the Phase B ruling's invariant).
+  // per-frame state; this panel re-renders on data/view/resize changes and
+  // bounded Find-mode transitions, never on ambient cursor motion.
   const series = useApp((s) => s.series);
+  const interaction = useApp((s) => s.interaction);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const trends = useApp((s) => s.trends);
   const selectedTrends = useApp((s) => s.selectedTrends);
@@ -168,7 +169,24 @@ export function TrendPanel() {
     return () => observer.disconnect();
   }, [containerEl]);
 
-  const states = series.map((intent) => ({ intent, state: trends.get(intent.id) }));
+  const findMode = interaction.kind === 'find';
+  const find = findMode ? interaction.find : null;
+  const displayedSeries = useMemo<readonly SeriesIntent[]>(
+    () => findMode
+      ? find === null
+        ? []
+        : [{ id: find.query.seriesId, label: find.query.raw, style: find.query.style }]
+      : series,
+    [find, findMode, series],
+  );
+  const displayedDispersion = findMode
+    ? find?.dispersion.status === 'ready' ? find.dispersion.result : null
+    : dispersion?.state.status === 'ready' ? dispersion.state.result : null;
+  const displayedSelection = findMode ? null : linkedSelection;
+  const barcodeSnapshot = findMode ? find?.snapshot ?? null : dispersion?.snapshot ?? null;
+  const states = findMode
+    ? displayedSeries.map((intent) => ({ intent, state: find?.trend }))
+    : displayedSeries.map((intent) => ({ intent, state: trends.get(intent.id) }));
   const pending = states.filter((s) => !s.state || s.state.status === 'pending');
   const failed = states.filter((s) => s.state?.status === 'error');
   const failureText = (failure: (typeof failed)[number]) =>
@@ -176,29 +194,29 @@ export function TrendPanel() {
   const ready: ReadySeries[] = states.flatMap(({ intent, state }) =>
     state?.status === 'ready' ? [{ intent, trend: state.trend }] : [],
   );
-  const selectedReady: ReadySeries[] = series.flatMap((intent) => {
+  const selectedReady: ReadySeries[] = (findMode ? [] : displayedSeries).flatMap((intent) => {
     const state = selectedTrends.get(intent.id);
     return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
   });
   const readyGeo = ready[0]?.trend ?? null;
   const stageProjection = useMemo(() => {
     if (
-      series.length === 0
+      displayedSeries.length === 0
       || pending.length > 0
       || !readyGeo
       || !readyGeo.sequenceBases
     ) return null;
     return trendStageProjection({
       trend: readyGeo,
-      seriesOrder: series.map((item) => item.id),
-      dispersion: dispersion?.state.status === 'ready' ? dispersion.state.result : null,
-      selectedDispersion: selectedDispersion?.state.status === 'ready'
+      seriesOrder: displayedSeries.map((item) => item.id),
+      dispersion: displayedDispersion,
+      selectedDispersion: !findMode && selectedDispersion?.state.status === 'ready'
         ? selectedDispersion.state.result
         : null,
-      selectedDocs: linkedSelection?.ranges.map((range) => range.doc) ?? [],
+      selectedDocs: displayedSelection?.ranges.map((range) => range.doc) ?? [],
       geometry,
     });
-  }, [dispersion, geometry, linkedSelection, pending.length, readyGeo, selectedDispersion, series]);
+  }, [displayedDispersion, displayedSelection, displayedSeries, findMode, geometry, pending.length, readyGeo, selectedDispersion]);
   const stageGeometry = useMemo(() => stageProjection
     ? trendStageGeometry(stageProjection, {
         plotWidth: plotW,
@@ -211,12 +229,12 @@ export function TrendPanel() {
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
   } | null>(null);
   const styleBySeries = useMemo(
-    () => new Map(series.map((item) => [item.id, item.style])),
-    [series],
+    () => new Map(displayedSeries.map((item) => [item.id, item.style])),
+    [displayedSeries],
   );
   const labelBySeries = useMemo(
-    () => new Map(series.map((item) => [item.id, item.label])),
-    [series],
+    () => new Map(displayedSeries.map((item) => [item.id, item.label])),
+    [displayedSeries],
   );
   const styleOf = useCallback(
     (id: string) => styleBySeries.get(id) ?? DEFAULT_SERIES_STYLE,
@@ -224,7 +242,7 @@ export function TrendPanel() {
   );
   const labelOf = useCallback((id: string) => labelBySeries.get(id) ?? id, [labelBySeries]);
 
-  if (series.length === 0) return null;
+  if (displayedSeries.length === 0) return null;
 
   // Hold the comparison until the current set settles: a shared y-scale that
   // re-fits as each line lands reads as data changing when it isn't.
@@ -309,9 +327,9 @@ export function TrendPanel() {
         : { kind: 'occurrence', groupId: track.groupId },
     );
     const readerTarget = openExact ? barcodeReaderActivation(target) : null;
-    if (readerTarget && dispersion) {
+    if (readerTarget && barcodeSnapshot) {
       openReader({
-        snapshot: dispersion.snapshot,
+        snapshot: barcodeSnapshot,
         doc: readerTarget.doc,
         token: readerTarget.token,
         from: 'barcode',
@@ -372,7 +390,7 @@ export function TrendPanel() {
         layout={layout}
         trend={geo}
         plotW={plotW}
-        series={series}
+        series={displayedSeries}
         geometry={geometry}
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
@@ -387,7 +405,7 @@ export function TrendPanel() {
             docs={docs}
             tracks={tracks}
             selectedTracks={selectedTracks}
-            linkedSelection={linkedSelection !== null}
+            linkedSelection={displayedSelection !== null}
             edgeX={edgeX}
             width={plotW}
             plotHeight={trendView === 'series' ? geometry.seriesHeight : geometry.rowHeight}
@@ -433,8 +451,8 @@ export function TrendPanel() {
       <BarcodeLegend
         tracks={tracks}
         selectedTracks={selectedTracks}
-        linkedSelection={linkedSelection !== null}
-        selectedStatus={linkedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
+        linkedSelection={displayedSelection !== null}
+        selectedStatus={displayedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
         styleOf={styleOf}
         labelOf={labelOf}
         onActivate={activateBarcode}

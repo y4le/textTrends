@@ -3433,9 +3433,9 @@ canvas {
   }
 }
 
-/* One non-modal interaction indicator. It stays above the reading dock and
- * moves with the shared visual-viewport keyboard inset. Reader has no dock. */
-.find-bar {
+/* Find owns the Terms rail on the workbench. Reader has no rail, so its same
+ * interaction surface remains a compact floating composer. */
+.find-bar--floating {
   position: fixed;
   z-index: 79;
   inset-inline:
@@ -3459,13 +3459,23 @@ canvas {
   box-shadow: 0 0.6rem 1.8rem color-mix(in srgb, #000 18%, transparent);
 }
 
-html.reader-open .find-bar {
+html.reader-open .find-bar--floating {
   inset-block-end:
     calc(
       var(--keyboard-inset)
       + var(--space-2)
       + env(safe-area-inset-bottom, 0px)
     );
+}
+
+.find-bar--rail {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: var(--space-2);
+  padding-inline: 0;
+}
+
+.find-bar--rail .term-bar-label {
+  align-self: center;
 }
 
 .find-bar-form,
@@ -3476,7 +3486,7 @@ html.reader-open .find-bar {
   gap: var(--space-1);
 }
 
-.find-bar-form label {
+.find-bar-label {
   align-self: center;
   font-weight: 600;
 }
@@ -3522,26 +3532,66 @@ html.reader-open .find-bar {
   color: var(--accent-text);
 }
 
+.find-bar--rail .find-bar-status,
+.find-bar--rail .find-bar-error {
+  position: absolute;
+  z-index: 3;
+  inset-inline: max(var(--space-4), 5rem) var(--space-2);
+  inset-block-end: 100%;
+  display: none;
+  overflow: hidden;
+  padding: 0.2rem var(--space-2);
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.find-bar--rail[data-find-submitted='true'] .find-bar-status,
+.find-bar--rail .find-bar-error:not(:empty) {
+  display: block;
+}
+
+.find-bar--rail .find-bar-error:not(:empty) {
+  z-index: 4;
+}
+
+.find-bar--rail .find-bar-actions button:last-child {
+  min-inline-size: max(44px, var(--term-target-block-size));
+  padding-inline: var(--space-2);
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
 @media (max-width: 599.98px) {
-  .find-bar {
+  .find-bar--floating {
     inset-inline:
       calc(var(--space-2) + env(safe-area-inset-left, 0px))
       calc(var(--space-2) + env(safe-area-inset-right, 0px));
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .find-bar-form {
+  .find-bar--floating .find-bar-form {
     display: grid;
-    grid-template-columns: auto minmax(0, 1fr) auto;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
-  .find-bar-actions {
+  .find-bar--floating .find-bar-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .find-bar-form input {
     font-size: 16px;
+  }
+
+  .find-bar--rail {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .find-bar--rail .find-bar-actions button {
+    min-inline-size: 44px;
+    padding-inline: var(--space-1);
   }
 }
 

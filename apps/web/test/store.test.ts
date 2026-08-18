@@ -3469,6 +3469,34 @@ describe('temporary corpus Find', () => {
     };
   };
 
+  const dispersionResultFor = (
+    entry: Issued,
+    docs: readonly string[] = ['a'],
+  ): QueryResultDataV4 => {
+    const query = entry.query as {
+      tracks: readonly { seriesId: string; group: { id: string } }[];
+    };
+    const track = query.tracks[0]!;
+    return {
+      op: 'dispersion',
+      dispersion: {
+        method: 'dispersion/1',
+        geometry: null,
+        tracks: [{
+          seriesId: track.seriesId,
+          groupId: track.group.id,
+          total: 1,
+          data: {
+            kind: 'exact',
+            docOffsets: Uint32Array.from([0, 1, ...docs.slice(1).map(() => 1)]),
+            starts: Uint32Array.of(4),
+            spanTokens: Uint32Array.of(1),
+          },
+        }],
+      },
+    };
+  };
+
   const setup = (docs: readonly string[] = ['a']) => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', docs);
@@ -3515,6 +3543,152 @@ describe('temporary corpus Find', () => {
     expect(f.store.getState().interaction).toMatchObject({
       kind: 'find', find: { state: { status: 'ready', wrapped: false } },
     });
+  });
+
+  it('projects one temporary analysis track everywhere and restores the resident comparison on exit', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.setState({ corpusTokenCounts: new Map([['a', 100], ['b', 100]]) });
+    f.store.getState().quickAdd('holmes, watson');
+    f.store.getState().setScrub({ doc: 'a', token: 10 });
+    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 10, from: 'footer' });
+    const durableSeries = f.store.getState().series;
+    const durableIds = durableSeries.map((series) => series.id);
+    const durableTrends = f.store.getState().trends;
+    const durableDispersion = f.store.getState().dispersion;
+
+    f.store.getState().enterFind();
+    expect(f.store.getState().series).toBe(durableSeries);
+    expect(f.store.getState().kwic).toBeNull();
+    expect(f.store.getState().submitFind('moriarty')).toBe(true);
+
+    const interaction = f.store.getState().interaction;
+    expect(interaction.kind).toBe('find');
+    const find = interaction.kind === 'find' ? interaction.find : null;
+    expect(find).not.toBeNull();
+    const findId = find!.query.seriesId;
+    const findTrend = f.trends().filter((entry) => entry.term === 'moriarty').at(-1)!;
+    const findDispersion = f.issued.filter(
+      (entry) => entry.op === 'dispersion' && entry.term === 'moriarty',
+    ).at(-1)!;
+    const findMatches = f.kwics().at(-1)!;
+    expect((findTrend.query as { selection: { docs: string[] } }).selection.docs)
+      .toEqual(['a', 'b']);
+    expect((findDispersion.query as { tracks: { seriesId: string }[] }).tracks)
+      .toEqual([{ seriesId: findId, group: find!.query.group }]);
+    expect((findMatches.query as { tracks: { seriesId: string }[] }).tracks.map((track) => track.seriesId))
+      .toEqual([findId]);
+    const findSourceQueries = f.readers().filter((entry) => entry.term === 'moriarty');
+    expect(findSourceQueries.map((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens).sort((left, right) => left - right)).toEqual([400, 4_096]);
+    for (const entry of findSourceQueries) {
+      expect((entry.query as { tracks: { seriesId: string }[] }).tracks.map((track) => track.seriesId))
+        .toEqual([findId]);
+    }
+    expect(f.store.getState().readerPage?.tracks).toMatchObject([{ seriesId: findId }]);
+    expect(f.store.getState().footerPassage?.tracks).toMatchObject([{ seriesId: findId }]);
+    expect(f.store.getState().series).toBe(durableSeries);
+    expect(f.store.getState().trends).toBe(durableTrends);
+    expect(f.store.getState().dispersion).toBe(durableDispersion);
+
+    findTrend.resolve({ op: 'trend', trend: fakeTrend(7) });
+    findDispersion.resolve(dispersionResultFor(findDispersion, ['a', 'b']));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find',
+      find: {
+        trend: { status: 'ready', trend: { count: Uint32Array.of(7) } },
+        dispersion: {
+          status: 'ready',
+          result: { tracks: [{ seriesId: findId, total: 1 }] },
+        },
+      },
+    });
+
+    f.store.getState().exitInteraction();
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    expect(f.store.getState().series).toBe(durableSeries);
+    expect(f.store.getState().trends).toBe(durableTrends);
+    expect(f.store.getState().dispersion).toBe(durableDispersion);
+    const restored = f.kwics().at(-1)!.query as { tracks: { seriesId: string }[] };
+    expect(restored.tracks.map((track) => track.seriesId)).toEqual(durableIds);
+    expect(f.store.getState().readerPage?.tracks.map((track) => track.seriesId)).toEqual(durableIds);
+    expect(f.store.getState().footerPassage?.tracks.map((track) => track.seriesId)).toEqual(durableIds);
+    f.runtime.dispose();
+  });
+
+  it('makes temporary graph and barcode analysis latest-wins across Find query changes', async () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const staleTrend = f.trends().filter((entry) => entry.term === 'holmes').at(-1)!;
+    const staleDispersion = f.issued.filter(
+      (entry) => entry.op === 'dispersion' && entry.term === 'holmes',
+    ).at(-1)!;
+
+    f.store.getState().submitFind('moriarty');
+    const liveTrend = f.trends().filter((entry) => entry.term === 'moriarty').at(-1)!;
+    const liveDispersion = f.issued.filter(
+      (entry) => entry.op === 'dispersion' && entry.term === 'moriarty',
+    ).at(-1)!;
+    expect(staleTrend.cancelled).toBe(true);
+    expect(staleDispersion.cancelled).toBe(true);
+
+    staleTrend.resolve({ op: 'trend', trend: fakeTrend(99) });
+    staleDispersion.resolve(dispersionResultFor(staleDispersion));
+    liveTrend.resolve({ op: 'trend', trend: fakeTrend(3) });
+    liveDispersion.resolve(dispersionResultFor(liveDispersion));
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find',
+      find: {
+        query: { raw: 'moriarty' },
+        trend: { status: 'ready', trend: { count: Uint32Array.of(3) } },
+        dispersion: { status: 'ready', result: { tracks: [{ total: 1 }] } },
+      },
+    });
+    f.runtime.dispose();
+  });
+
+  it('routes shared occurrence navigation through Find even with an empty notebook', () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const forward = f.occurrenceSteps().at(-1)!;
+
+    f.store.getState().stepOccurrence(-1);
+    const backward = f.occurrenceSteps().at(-1)!;
+    expect(backward).not.toBe(forward);
+    expect(forward.cancelled).toBe(true);
+    expect((backward.query as { request: { direction: number } }).request.direction).toBe(-1);
+    expect(f.store.getState().series).toHaveLength(0);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'pending', direction: -1 } },
+    });
+    f.runtime.dispose();
+  });
+
+  it('reissues only the temporary trend when bins change during Find', () => {
+    const f = setup();
+    f.store.getState().submitFind('holmes');
+    const trendCount = f.trends().length;
+    const dispersionCount = f.issued.filter((entry) => entry.op === 'dispersion').length;
+    const matchesCount = f.kwics().length;
+
+    expect(f.store.getState().applyTrendSettings({
+      bins: { mode: 'fixed-tokens', count: 250 },
+      measure: { kind: 'count' },
+    })).toBe('applied');
+    expect(f.trends()).toHaveLength(trendCount + 1);
+    expect(f.issued.filter((entry) => entry.op === 'dispersion')).toHaveLength(dispersionCount);
+    expect(f.kwics()).toHaveLength(matchesCount);
+    const reissued = f.trends().at(-1)!;
+    expect(reissued.term).toBe('holmes');
+    expect((reissued.query as { request: { bins: unknown } }).request.bins)
+      .toEqual({ mode: 'fixed-tokens', count: 250 });
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { trend: { status: 'pending' } },
+    });
+    f.runtime.dispose();
   });
 
   it('does not call a first backward seek from the synthetic corpus edge a wrap', async () => {
@@ -3605,8 +3779,14 @@ describe('temporary corpus Find', () => {
     const f = setup();
     f.store.getState().submitFind('holmes');
     const pending = f.occurrenceSteps().at(-1)!;
+    const pendingTrend = f.trends().filter((entry) => entry.term === 'holmes').at(-1)!;
+    const pendingDispersion = f.issued.filter(
+      (entry) => entry.op === 'dispersion' && entry.term === 'holmes',
+    ).at(-1)!;
     f.port.publishSnapshot('g1', 's2', ['a']);
     expect(pending.cancelled).toBe(true);
+    expect(pendingTrend.cancelled).toBe(true);
+    expect(pendingDispersion.cancelled).toBe(true);
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });
     expect(f.store.getState().interactionError).toBeNull();
   });
@@ -3615,8 +3795,14 @@ describe('temporary corpus Find', () => {
     const f = setup();
     f.store.getState().submitFind('holmes');
     const pending = f.occurrenceSteps().at(-1)!;
+    const pendingTrend = f.trends().filter((entry) => entry.term === 'holmes').at(-1)!;
+    const pendingDispersion = f.issued.filter(
+      (entry) => entry.op === 'dispersion' && entry.term === 'holmes',
+    ).at(-1)!;
     f.runtime.dispose();
     expect(pending.cancelled).toBe(true);
+    expect(pendingTrend.cancelled).toBe(true);
+    expect(pendingDispersion.cancelled).toBe(true);
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });
     expect(f.store.getState().interactionError).toBeNull();
   });

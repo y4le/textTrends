@@ -113,6 +113,7 @@ export function KwicPanel({
   const scrub = useApp((state) => state.scrub);
   const linkedSelection = useApp((state) => state.linkedSelection);
   const series = useApp((state) => state.series);
+  const interaction = useApp((state) => state.interaction);
   const view = useApp((state) => state.matchesView);
   const requestWindow = useApp((state) => state.requestMatchesWindow);
   const setColumnWidth = useApp((state) => state.setMatchesColumnWidth);
@@ -147,9 +148,20 @@ export function KwicPanel({
   const [announcement, setAnnouncement] = useState('');
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
 
+  const findMode = interaction.kind === 'find';
+  const findQuery = findMode ? interaction.find?.query ?? null : null;
+  const displayedSeries = useMemo(
+    () => findMode
+      ? findQuery === null
+        ? []
+        : [{ id: findQuery.seriesId, label: findQuery.raw, style: findQuery.style }]
+      : series,
+    [findMode, findQuery, series],
+  );
+
   const seriesById = useMemo(
-    () => new Map(series.map((item) => [item.id, item])),
-    [series],
+    () => new Map(displayedSeries.map((item) => [item.id, item])),
+    [displayedSeries],
   );
   const titleByDoc = useMemo(
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
@@ -200,13 +212,13 @@ export function KwicPanel({
   const contextMentionStyle = useCallback((part: MatchesContextPart): CSSProperties | undefined => {
     const ordinal = part.trackOrdinals[0];
     if (!part.marked || ordinal === undefined) return undefined;
-    const color = seriesColor(series[ordinal]?.style ?? DEFAULT_SERIES_STYLE);
+    const color = seriesColor(displayedSeries[ordinal]?.style ?? DEFAULT_SERIES_STYLE);
     return {
       color: 'var(--fg)',
       background: `color-mix(in srgb, ${color} 20%, transparent)`,
       borderBottom: `2px solid ${color}`,
     };
-  }, [series]);
+  }, [displayedSeries]);
   const rankedRows = useMemo(
     () => rows.map((row, index) => ({ row, rank: (resident?.firstRank ?? 0) + index })),
     [resident?.firstRank, rows],
@@ -497,7 +509,7 @@ export function KwicPanel({
   const columnContent = useMemo(() => {
     const visibleNodes = rows.map((row) => row.nodeText);
     return {
-      nodes: visibleNodes.length > 0 ? visibleNodes : series.map((item) => item.label),
+      nodes: visibleNodes.length > 0 ? visibleNodes : displayedSeries.map((item) => item.label),
       books: docs.map((doc, index) => `(${index + 1}) ${titleByDoc.get(doc) ?? doc}`),
       tokens: [
         'token',
@@ -508,7 +520,7 @@ export function KwicPanel({
         }),
       ],
     };
-  }, [docs, rows, series, titleByDoc, tokenCountsByDoc]);
+  }, [displayedSeries, docs, rows, titleByDoc, tokenCountsByDoc]);
   const displayedColumns = useMemo(() => resolvedMatchesColumns(
     view.columns,
     columnContent,
@@ -902,8 +914,8 @@ export function KwicPanel({
 
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode;
-  if (series.length === 0) {
-    body = <p className="kwic-message">No terms shown in analysis.</p>;
+  if (displayedSeries.length === 0) {
+    body = <p className="kwic-message">{findMode ? 'Type a Find query.' : 'No terms shown in analysis.'}</p>;
   } else if (status === 'error' && resident === null) {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p className="kwic-message kwic-error">matches failed: {message}</p>;
@@ -916,7 +928,7 @@ export function KwicPanel({
       </div>
     );
   } else if (resident && total === 0) {
-    body = <p className="kwic-message">No occurrences of the enabled terms.</p>;
+    body = <p className="kwic-message">{findMode ? 'No occurrences of the Find query.' : 'No occurrences of the enabled terms.'}</p>;
   } else {
     body = (
       <div

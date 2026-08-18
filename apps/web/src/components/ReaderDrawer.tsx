@@ -190,6 +190,25 @@ export function ReaderDrawer({
   const occurrenceNavigation = useApp((state) => state.occurrenceNavigation);
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const series = useApp((state) => state.series);
+  const interaction = useApp((state) => state.interaction);
+  const findMode = interaction.kind === 'find';
+  const find = findMode ? interaction.find : null;
+  const findQuery = find?.query ?? null;
+  const presentedSeries = findMode
+    ? findQuery === null
+      ? []
+      : [{ id: findQuery.seriesId, label: findQuery.raw, style: findQuery.style }]
+    : notebook.groups.map((group) => ({
+        id: group.id,
+        label: groupTitle(group),
+        style: styles.get(group.id) ?? group.style,
+      }));
+  const liveIdentityOf = (id: string): string | null => {
+    if (findQuery?.seriesId === id) return findQuery.identity;
+    if (findMode) return null;
+    const group = notebook.groups.find((candidate) => candidate.id === id);
+    return group ? groupIdentity(group) : null;
+  };
   const paneRef = useRef<HTMLDivElement | null>(null);
   const sourceRef = useRef<{ readonly key: string; readonly page: ReaderPageResultV1 } | null>(null);
   const visibleRef = useRef<{ readonly start: number; readonly end: number } | null>(null);
@@ -207,12 +226,12 @@ export function ReaderDrawer({
   const current = place && result && sameReaderPlace(result.place, place) ? result : null;
   const ready = current?.state.status === 'ready' ? current.state.page : null;
   const trackKey = JSON.stringify(current?.tracks.map((track) => {
-    const live = notebook.groups.find((group) => group.id === track.seriesId);
+    const live = presentedSeries.find((candidate) => candidate.id === track.seriesId);
     return [
       track.seriesId,
       track.identity,
-      live ? groupTitle(live) : null,
-      live ? groupIdentity(live) : null,
+      live?.label ?? null,
+      liveIdentityOf(track.seriesId),
     ];
   }) ?? []);
   const sourceKey = ready ? `${readerSourceKey(ready)}:${trackKey}` : null;
@@ -373,21 +392,21 @@ export function ReaderDrawer({
   const title =
     project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
     ?? place.doc;
-  const identities = new Map(
-    notebook.groups.map((group) => [group.id, groupIdentity(group)]),
-  );
-  const liveSeries = notebook.groups.map((group) => ({
-    id: group.id,
-    label: groupTitle(group),
-    style: styles.get(group.id) ?? group.style,
-  }));
   const legend = trackLegend(
     current?.tracks ?? [],
-    (id) => identities.get(id) ?? null,
-    liveSeries,
+    liveIdentityOf,
+    presentedSeries,
   );
-  const hasTerms = series.length > 0;
-  const occurrencePending = occurrenceNavigation?.state.status === 'pending';
+  const hasPresentedTerms = findMode ? find !== null : series.length > 0;
+  const occurrencePending = findMode
+    ? find?.state.status === 'pending'
+    : occurrenceNavigation?.state.status === 'pending';
+  const occurrenceTitle = (direction: 'Previous' | 'Next') => {
+    if (!hasPresentedTerms) return findMode ? 'No active Find query' : 'No active terms';
+    return findMode
+      ? `${direction} exact Find match`
+      : `${direction} exact reference from any term`;
+  };
   const turnPage = (direction: -1 | 1) => {
     const cursor = direction === -1 ? navigation?.previous : navigation?.next;
     if (cursor) navigateReader(cursor);
@@ -483,12 +502,12 @@ export function ReaderDrawer({
           className="reader-occurrence-previous"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-previous'])}
-          disabled={!hasTerms || occurrencePending}
+          disabled={!hasPresentedTerms || occurrencePending}
           onClick={() => stepOccurrence(-1)}
-          title={hasTerms ? 'Previous exact reference from any term' : 'No active terms'}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasTerms && !occurrencePending ? 1 : 0.45 }}
+          title={occurrenceTitle('Previous')}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
         >
-          previous reference
+          {findMode ? 'previous find match' : 'previous reference'}
         </button>
         <button
           className="reader-page-previous"
@@ -514,12 +533,12 @@ export function ReaderDrawer({
           className="reader-occurrence-next"
           type="button"
           aria-keyshortcuts={shortcutAria(['reader-occurrence-next'])}
-          disabled={!hasTerms || occurrencePending}
+          disabled={!hasPresentedTerms || occurrencePending}
           onClick={() => stepOccurrence(1)}
-          title={hasTerms ? 'Next exact reference from any term' : 'No active terms'}
-          style={{ ...SMALL_BUTTON_STYLE, opacity: hasTerms && !occurrencePending ? 1 : 0.45 }}
+          title={occurrenceTitle('Next')}
+          style={{ ...SMALL_BUTTON_STYLE, opacity: hasPresentedTerms && !occurrencePending ? 1 : 0.45 }}
         >
-          next reference
+          {findMode ? 'next find match' : 'next reference'}
         </button>
       </nav>
     </>

@@ -366,10 +366,11 @@ actions.
 
 Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable
-content, browser modifier chords, and IME composition retain their native
-behavior. Shortcut help is a transient modal rather than navigable research
-state; closing it with Escape or its visible control restores the invoking
-focus without adding browser history.
+content, unrelated browser modifier chords, and IME composition retain their
+native behavior. The explicit `Ctrl/Cmd-F` and `Ctrl/Cmd-G` Find chords are the
+narrow exception. Shortcut help is a transient modal rather than navigable
+research state; closing it with Escape or its visible control restores the
+invoking focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gi`, `gt`, `gm`, and `gv` go to Inputs, Trends, Matches, and Vocabulary;
@@ -377,13 +378,18 @@ Two-key Vim sequences expire after 900ms and never create a persistent mode.
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 first term visibility control in the fixed rail without scrolling the workbench.
 
-`/` and `Ctrl-F` open temporary corpus Find while `Cmd-F` remains browser-owned.
-Find accepts one tokenizer-aware Terms alias (word, phrase, or one-ended
-wildcard), never mutates the notebook, and exposes Previous, Next, and Close as
-visible coarse-pointer controls. Enter seeks forward; `n`/`Ctrl-G` and
-`p`/`Ctrl-Shift-G` cycle through exact starts. Escape clears the transient
-query. Hits update the shared reading cursor, re-anchor Matches without a fake
-series identity, and reposition Reader only when Reader is already open.
+`/` and `Ctrl/Cmd-F` open temporary corpus Find. On the workbench Find replaces
+the whole Terms rail with a `Find` label, a wide query field, submit action,
+Previous/Next controls, and a clear/close ×. It accepts one tokenizer-aware
+Terms alias (word, phrase, or one-ended wildcard) and never mutates the
+notebook. Once submitted, that temporary identity is the sole presented term
+in the trend graph, barcode/totals, reading footer, Reader marks, and Matches;
+the durable comparison stays resident and returns on exit. Enter seeks
+forward; `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact starts.
+Escape or × clears the transient query and restores invoking focus. Reader has
+no Terms rail, so the same controls use the keyboard-safe floating placement.
+While Find is already open, `Ctrl/Cmd-F` focuses the query field and selects
+its complete draft so a replacement can be typed immediately.
 
 Within the
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not

@@ -73,6 +73,7 @@ interface ShortcutStroke {
   readonly key: string;
   readonly shift?: true;
   readonly ctrl?: true;
+  readonly meta?: true;
 }
 
 interface ShortcutDefinition {
@@ -138,21 +139,25 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     group: 'Find',
     helpContexts: ['workbench', 'reader'],
     label: 'Find a word or phrase in the corpus',
-    strokes: [{ key: '/' }, { key: 'f', ctrl: true }],
+    strokes: [{ key: '/' }, { key: 'f', ctrl: true }, { key: 'f', meta: true }],
   },
   {
     id: 'find-next',
     group: 'Find',
     helpContexts: ['workbench', 'reader'],
     label: 'Next find match',
-    strokes: [{ key: 'n' }, { key: 'g', ctrl: true }],
+    strokes: [{ key: 'n' }, { key: 'g', ctrl: true }, { key: 'g', meta: true }],
   },
   {
     id: 'find-previous',
     group: 'Find',
     helpContexts: ['workbench', 'reader'],
     label: 'Previous find match',
-    strokes: [{ key: 'p' }, { key: 'G', shift: true, ctrl: true }],
+    strokes: [
+      { key: 'p' },
+      { key: 'G', shift: true, ctrl: true },
+      { key: 'G', shift: true, meta: true },
+    ],
   },
   {
     id: 'find-close',
@@ -602,15 +607,18 @@ function strokeMatches(event: ShortcutEventLike, stroke: ShortcutStroke): boolea
   // layouts may synthesize the same character without exposing that physical
   // modifier; the resolved character is the stable contract here.
   if (shiftIsImpliedByResolvedKey(stroke)) {
-    return event.key === stroke.key && event.ctrlKey === (stroke.ctrl === true);
+    return event.key === stroke.key
+      && event.ctrlKey === (stroke.ctrl === true)
+      && event.metaKey === (stroke.meta === true);
   }
   return event.key === stroke.key
     && event.shiftKey === (stroke.shift === true)
-    && event.ctrlKey === (stroke.ctrl === true);
+    && event.ctrlKey === (stroke.ctrl === true)
+    && event.metaKey === (stroke.meta === true);
 }
 
 export function shortcutMatches(event: ShortcutEventLike, id: ShortcutId): boolean {
-  if (event.metaKey || event.altKey || event.isComposing) return false;
+  if (event.altKey || event.isComposing) return false;
   return definition(id).strokes.some((stroke) => strokeMatches(event, stroke));
 }
 
@@ -673,20 +681,23 @@ export function rootShortcutAllowed(
     );
 }
 
-/** Narrow gate for explicit interaction-mode chords. It retains native text
- * priority outside Find's own composer, plus modal, Meta/browser, Alt,
- * composition, and local-handler priority, while allowing the registry to
- * claim only its named Ctrl chords. */
+/** Narrow gate for explicit interaction-mode chords. Named Ctrl/Cmd Find
+ * chords intentionally outrank browser/text-field search behavior; every
+ * other native text, modal, Meta/browser, Alt, composition, and local-handler
+ * meaning remains authoritative. */
 export function interactionShortcutAllowed(
   event: ShortcutEventLike & { readonly defaultPrevented: boolean; readonly target: EventTarget | null },
 ): boolean {
   const target = event.target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  const nativeFindChord = event.ctrlKey !== event.metaKey
+    && (event.key.toLowerCase() === 'f' || event.key.toLowerCase() === 'g');
   return !event.defaultPrevented
-    && !event.metaKey
     && !event.altKey
     && !event.isComposing
+    && (!event.metaKey || nativeFindChord)
     && (
       !isShortcutTypingTarget(event.target)
+      || nativeFindChord
       || (event.ctrlKey && target?.closest?.(FIND_SURFACE_SELECTOR) != null)
     )
     && !(
@@ -713,10 +724,12 @@ const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
 function displayStroke(stroke: ShortcutStroke): string {
   const key = DISPLAY_KEY[stroke.key] ?? stroke.key;
   const modified = !stroke.shift
-    || (shiftIsImpliedByResolvedKey(stroke) && stroke.ctrl !== true)
+    || (shiftIsImpliedByResolvedKey(stroke) && stroke.ctrl !== true && stroke.meta !== true)
     ? key
     : `Shift + ${key}`;
-  return stroke.ctrl ? `Ctrl + ${modified}` : modified;
+  if (stroke.ctrl) return `Ctrl + ${modified}`;
+  if (stroke.meta) return `Cmd + ${modified}`;
+  return modified;
 }
 
 function ariaStroke(stroke: ShortcutStroke): string {
@@ -724,7 +737,9 @@ function ariaStroke(stroke: ShortcutStroke): string {
   const modified = !stroke.shift || (shiftIsImpliedByResolvedKey(stroke) && stroke.key === '?')
     ? key
     : `Shift+${key}`;
-  return stroke.ctrl ? `Control+${modified}` : modified;
+  if (stroke.ctrl) return `Control+${modified}`;
+  if (stroke.meta) return `Meta+${modified}`;
+  return modified;
 }
 
 export function shortcutAria(ids: readonly ShortcutId[]): string {

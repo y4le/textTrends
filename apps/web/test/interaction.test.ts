@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { defaultSeriesStyle } from '@texttrends/core';
 import {
   compileFindQuery,
   findBarModel,
@@ -65,8 +66,11 @@ describe('temporary corpus Find model', () => {
         seriesId: 'find-series:1',
         group: { id: 'find-group:1', members: [], countOverlaps: false },
         identity: 'identity',
+        style: defaultSeriesStyle(0),
       },
       anchor: { doc: 'a', token: 4 },
+      trend: { status: 'pending' },
+      dispersion: { status: 'pending' },
     } satisfies Omit<FindState, 'state'>;
     expect(findStatusText(null, (doc) => doc)).toBe('Type one word or phrase to find in the corpus.');
     expect(findStatusText({ ...base, state: { status: 'pending', direction: 1 } }, () => 'Book A'))

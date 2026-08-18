@@ -246,12 +246,15 @@ export function App() {
     if (interaction.kind === 'find') exitInteraction();
     setUtilityPane({ kind: 'settings' });
   };
-  const focusFindInput = () => {
+  const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
-      document.getElementById(FIND_INPUT_ID)?.focus({ preventScroll: true });
+      const input = document.getElementById(FIND_INPUT_ID);
+      if (!(input instanceof HTMLInputElement)) return;
+      input.focus({ preventScroll: true });
+      if (selectAll) input.select();
     });
   };
-  const openFind = (fromUtilityPane = false) => {
+  const openFind = (fromUtilityPane = false, selectAll = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
     if (interaction.kind !== 'find') {
@@ -265,7 +268,7 @@ export function App() {
     }
     if (fromUtilityPane) setUtilityPane(null);
     enterFind();
-    focusFindInput();
+    focusFindInput(selectAll);
   };
   const closeFind = () => {
     restoreFindFocus.current = true;
@@ -386,7 +389,7 @@ export function App() {
     if (utilityPane !== null || !interactionShortcutAllowed(event)) return false;
     if (shortcutMatches(event, 'find-open')) {
       event.preventDefault();
-      openFind();
+      openFind(false, event.ctrlKey || event.metaKey);
       return true;
     }
     const active = useApp.getState().interaction;
@@ -799,10 +802,9 @@ export function App() {
               )}
         </div>
       </div>
-      <WorkbenchDock globalShortcuts={place === 'trends'} />
+      <WorkbenchDock globalShortcuts={place === 'trends'} onCloseFind={closeFind} />
     </main>
     {utilityPaneSurface}
-    {interaction.kind === 'find' && <FindBar onClose={closeFind} />}
     </>
   );
 }
