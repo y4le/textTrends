@@ -151,33 +151,33 @@ export function FindBar({
       <div className="find-bar-actions">
         <button
           type="button"
-          className="coarse-target"
+          className="coarse-target find-bar-icon-action"
           aria-label="Previous match"
           aria-keyshortcuts={shortcutAria(['find-previous'])}
           disabled={!model.hasSubmittedQuery}
           onClick={() => stepFind(-1)}
         >
-          previous
+          <span className="find-bar-action-glyph" aria-hidden="true">←</span>
         </button>
         <button
           ref={nextRef}
           type="button"
-          className="coarse-target"
+          className="coarse-target find-bar-icon-action"
           aria-label="Next match"
           aria-keyshortcuts={shortcutAria(['find-next'])}
           disabled={!model.hasSubmittedQuery}
           onClick={() => stepFind(1)}
         >
-          next
+          <span className="find-bar-action-glyph" aria-hidden="true">→</span>
         </button>
         <button
           type="button"
-          className="coarse-target"
+          className="coarse-target find-bar-icon-action"
           aria-label="Clear and close find"
           aria-keyshortcuts={shortcutAria(['find-close'])}
           onClick={onClose}
         >
-          {rail ? <span aria-hidden="true">×</span> : 'close'}
+          <span className="find-bar-action-glyph" aria-hidden="true">×</span>
         </button>
       </div>
       <p

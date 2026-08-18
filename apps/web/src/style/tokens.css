@@ -3516,6 +3516,24 @@ html.reader-open .find-bar--floating {
   cursor: default;
 }
 
+.find-bar button.find-bar-icon-action {
+  display: inline-flex;
+  min-inline-size: max(44px, var(--term-target-block-size));
+  align-items: center;
+  justify-content: center;
+  padding-inline: var(--space-2);
+  font-size: var(--text-lg);
+  line-height: 1;
+}
+
+.find-bar-action-glyph {
+  display: inline-flex;
+  inline-size: 1em;
+  block-size: 1em;
+  align-items: center;
+  justify-content: center;
+}
+
 .find-bar button.find-bar-result {
   display: flex;
   min-inline-size: 0;
@@ -3593,13 +3611,6 @@ html.reader-open .find-bar--floating {
 
 .find-bar--rail .find-bar-error:not(:empty) {
   z-index: 4;
-}
-
-.find-bar--rail .find-bar-actions button:last-child {
-  min-inline-size: max(44px, var(--term-target-block-size));
-  padding-inline: var(--space-2);
-  font-size: var(--text-lg);
-  line-height: 1;
 }
 
 @media (max-width: 599.98px) {

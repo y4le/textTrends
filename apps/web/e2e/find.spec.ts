@@ -318,6 +318,13 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
   await expect(dialog).toHaveCount(0);
   await expect(input).toBeFocused();
+  const glyphs = find.locator('.find-bar-action-glyph');
+  await expect(glyphs).toHaveText(['←', '→', '×']);
+  const glyphMetrics = await glyphs.evaluateAll((nodes) => nodes.map((node) => {
+    const style = getComputedStyle(node);
+    return `${style.inlineSize}/${style.blockSize}/${style.fontSize}/${style.lineHeight}`;
+  }));
+  expect(new Set(glyphMetrics).size).toBe(1);
 
   if (testInfo.project.name === 'webkit-compact') {
     for (const name of [

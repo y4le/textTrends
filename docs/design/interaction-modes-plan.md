@@ -209,8 +209,9 @@ only the explicit Save action crosses that boundary through normal Terms admissi
 
 Touch opens Find from Help/Tools. On the workbench the Find composer owns the
 fixed Terms rail; in Reader it floats above the visual keyboard. Both expose
-Find, Save, Previous, Next, and Close as 44px controls. After a result lands, the
-composer retains Previous, Next, and Close so repeated navigation does not
+Find, Save, ←, →, and × as 44px controls. The three action glyphs share one
+size and target style. After a result lands, the
+composer retains ←, →, and × so repeated navigation does not
 require reopening the keyboard. No swipe gesture is required.
 
 ## Speed reading mode
