@@ -19,7 +19,7 @@ import {
   type BarcodeTrackVM,
 } from '../lib/barcode-view.ts';
 import { barcodeStepperFor } from '../lib/barcode-stepper.ts';
-import { seriesColor } from '../lib/series-style.ts';
+import { GHOST_BARCODE_OPACITY, seriesColor } from '../lib/series-style.ts';
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
 import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -28,6 +28,7 @@ interface BarcodeBandProps {
   readonly view: 'series' | 'by-book';
   readonly docs: readonly string[];
   readonly tracks: readonly BarcodeTrackVM[];
+  readonly backgroundTracks?: readonly BarcodeTrackVM[];
   readonly selectedTracks: readonly BarcodeTrackVM[];
   readonly linkedSelection: boolean;
   readonly edgeX: (docOrdinal: number, token: number) => number;
@@ -39,12 +40,15 @@ interface BarcodeBandProps {
   readonly trackGap: number;
   readonly styleOf: (seriesId: string) => SeriesStyleV1;
   readonly coarse: boolean;
+  readonly foregroundOverlay?: boolean;
+  readonly reservedTrackCount?: number;
 }
 
 export function BarcodeBand({
   view,
   docs,
   tracks,
+  backgroundTracks = [],
   selectedTracks,
   linkedSelection,
   edgeX,
@@ -56,19 +60,26 @@ export function BarcodeBand({
   trackGap,
   styleOf,
   coarse,
+  foregroundOverlay = false,
+  reservedTrackCount = 0,
 }: BarcodeBandProps) {
   const presentation = usePresentation();
   const docOrdinalById = useMemo(
     () => new Map(docs.map((doc, d) => [doc, d])),
     [docs],
   );
-  if (tracks.length === 0) return null;
-  const height = barcodeBandHeight(tracks.length, trackHeight, trackGap);
+  if (tracks.length === 0 && backgroundTracks.length === 0) return null;
+  const height = barcodeBandHeight(
+    Math.max(tracks.length, backgroundTracks.length, reservedTrackCount),
+    trackHeight,
+    trackGap,
+  );
   if (view === 'series') {
     return (
       <BarcodeCanvas
         docs={docs}
         tracks={tracks}
+        backgroundTracks={backgroundTracks}
         selectedTracks={selectedTracks}
         linkedSelection={linkedSelection}
         edgeX={edgeX}
@@ -79,6 +90,8 @@ export function BarcodeBand({
         trackGap={trackGap}
         styleOf={styleOf}
         coarse={coarse}
+        foregroundOverlay={foregroundOverlay}
+        reservedTrackCount={reservedTrackCount}
         colorScheme={presentation.colorScheme}
         docOrdinalById={docOrdinalById}
       />
@@ -90,6 +103,7 @@ export function BarcodeBand({
       docs={docs}
       docOrdinal={d}
       tracks={tracks}
+      backgroundTracks={backgroundTracks}
       selectedTracks={selectedTracks}
       linkedSelection={linkedSelection}
       edgeX={edgeX}
@@ -100,6 +114,8 @@ export function BarcodeBand({
       trackGap={trackGap}
       styleOf={styleOf}
       coarse={coarse}
+      foregroundOverlay={foregroundOverlay}
+      reservedTrackCount={reservedTrackCount}
       colorScheme={presentation.colorScheme}
       docOrdinalById={docOrdinalById}
     />
@@ -110,6 +126,7 @@ function BarcodeCanvas({
   docs,
   docOrdinal,
   tracks,
+  backgroundTracks = [],
   selectedTracks,
   linkedSelection,
   edgeX,
@@ -120,6 +137,7 @@ function BarcodeCanvas({
   trackGap,
   styleOf,
   coarse,
+  foregroundOverlay = false,
   colorScheme,
   docOrdinalById,
 }: Omit<BarcodeBandProps, 'view' | 'plotHeight' | 'rowPitch' | 'bandGap'> & {
@@ -156,12 +174,19 @@ function BarcodeCanvas({
       }
     }
 
-    const rowBySeries = new Map(tracks.map((track, row) => [track.seriesId, row]));
-    const paint = (paintTracks: readonly BarcodeTrackVM[], context: boolean) => {
+    const paint = (
+      paintTracks: readonly BarcodeTrackVM[],
+      rowTracks: readonly BarcodeTrackVM[],
+      context: boolean,
+      opacity: number,
+      overlay: boolean,
+    ) => {
+      const rowBySeries = new Map(rowTracks.map((track, row) => [track.seriesId, row]));
       for (const track of paintTracks) {
         const row = rowBySeries.get(track.seriesId);
         if (row === undefined) continue;
-        const y = row * (trackHeight + trackGap);
+        const y = overlay ? 0 : row * (trackHeight + trackGap);
+        const markHeight = overlay ? height : trackHeight;
         // Canvas fillStyle does not resolve CSS custom-property expressions.
         // Resolve the shared series token explicitly so a per-book canvas
         // does not silently retain its default black fill.
@@ -174,8 +199,15 @@ function BarcodeCanvas({
             const x0 = edgeX(d, segment.t0);
             const x1 = edgeX(d, segment.t1);
             const markAlpha = segment.kind === 'tick' ? 1 : 0.15 + 0.85 * segment.intensity;
-            ctx.globalAlpha = markAlpha * (context ? 0.25 : 1);
-            ctx.fillRect(x0, y, Math.max(1, x1 - x0), trackHeight);
+            const markWidth = Math.max(overlay ? 2 : 1, x1 - x0);
+            if (overlay) {
+              ctx.globalAlpha = 0.9;
+              ctx.fillStyle = canvasColor('var(--bg)');
+              ctx.fillRect(x0 - 1, y, markWidth + 2, markHeight);
+              ctx.fillStyle = canvasColor(seriesColor(styleOf(track.seriesId)));
+            }
+            ctx.globalAlpha = markAlpha * opacity * (context ? 0.25 : 1);
+            ctx.fillRect(x0, y, markWidth, markHeight);
           }
         };
         if (docOrdinal === undefined) {
@@ -187,9 +219,10 @@ function BarcodeCanvas({
         ctx.globalAlpha = 1;
       }
     };
-    paint(tracks, linkedSelection);
-    paint(selectedTracks, false);
-  }, [docs, docOrdinal, tracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, styleOf, colorScheme, docOrdinalById]);
+    paint(backgroundTracks, backgroundTracks, false, GHOST_BARCODE_OPACITY, false);
+    paint(tracks, tracks, linkedSelection, 1, foregroundOverlay);
+    paint(selectedTracks, tracks, false, 1, foregroundOverlay);
+  }, [docs, docOrdinal, tracks, backgroundTracks, selectedTracks, linkedSelection, edgeX, width, height, trackHeight, trackGap, styleOf, coarse, colorScheme, docOrdinalById, foregroundOverlay]);
 
   return (
     <canvas
@@ -197,7 +230,13 @@ function BarcodeCanvas({
       data-barcode-band={docOrdinal === undefined ? 'series' : 'by-book'}
       data-barcode-doc={docOrdinal}
       data-barcode-series={tracks.map((track) => track.seriesId).join(' ')}
-      data-pointer-contract={coarse ? 'scrub-only' : 'hover-scrub-click-activate'}
+      data-barcode-background-series={backgroundTracks.map((track) => track.seriesId).join(' ')}
+      data-barcode-foreground-overlay={foregroundOverlay || undefined}
+      data-pointer-contract={coarse
+        ? 'scrub-only'
+        : tracks.length === 0
+          ? 'background-only'
+          : 'hover-scrub-click-activate'}
       data-selected-layer={selectedTracks.some((track) =>
         docOrdinal === undefined
           ? track.segments.length > 0
@@ -211,7 +250,7 @@ function BarcodeCanvas({
         width,
         height,
         display: 'block',
-        pointerEvents: coarse ? 'none' : 'auto',
+        pointerEvents: coarse || tracks.length === 0 ? 'none' : 'auto',
         zIndex: 1,
       }}
     />

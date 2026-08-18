@@ -18,6 +18,21 @@ export const DEFAULT_SERIES_STYLE: SeriesStyleV1 = {
   line: 'solid',
 };
 
+export const GHOST_SERIES_OPACITY = 0.38;
+export const GHOST_BARCODE_OPACITY = 0.38;
+
+export function ghostSeriesStrokeWidth(strokeWidth: number): number {
+  return Math.max(1, strokeWidth - 0.25);
+}
+
+export function findSeriesStrokeWidth(strokeWidth: number): number {
+  return strokeWidth + 2;
+}
+
+export function findSeriesHaloStrokeWidth(strokeWidth: number): number {
+  return findSeriesStrokeWidth(strokeWidth) + 3;
+}
+
 const COLOR_TOKEN: Record<SeriesColorId, string> = {
   blue: 'var(--series-1)',
   orange: 'var(--series-2)',

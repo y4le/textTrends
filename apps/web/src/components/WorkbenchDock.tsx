@@ -56,7 +56,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
     && snapshot.readyDocs.length > 0
     && snapshot.readyDocs.some((doc) => (corpusTokenCounts.get(doc) ?? 0) > 0);
   const displayedTrackCount = interaction.kind === 'find'
-    ? interaction.find === null ? 0 : 1
+    ? Math.max(seriesCount, interaction.find === null ? 0 : 1)
     : seriesCount;
   const sizing = dockSizing({
     width: presentation.width,

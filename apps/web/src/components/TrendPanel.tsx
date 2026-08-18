@@ -38,10 +38,15 @@ import {
 } from '../lib/barcode-view.ts';
 import {
   DEFAULT_SERIES_STYLE,
+  findSeriesHaloStrokeWidth,
+  findSeriesStrokeWidth,
+  GHOST_SERIES_OPACITY,
+  ghostSeriesStrokeWidth,
   seriesColor,
   seriesDash,
   seriesLinecap,
 } from '../lib/series-style.ts';
+import { trendSeriesGate } from '../lib/trend-series-gate.ts';
 import {
   bookTokenFromX,
   bookXFromToken,
@@ -76,7 +81,12 @@ import {
   trendMeasureUnit,
   trendRawValues,
 } from '../lib/trend-display.ts';
-import { trendStageGeometry, trendStageProjection, trendStageSnapIndexes } from '../lib/trend-stage.ts';
+import {
+  projectedBarcodeTracks,
+  trendStageGeometry,
+  trendStageProjection,
+  trendStageSnapIndexes,
+} from '../lib/trend-stage.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
 import {
@@ -96,11 +106,22 @@ const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 interface ReadySeries {
   readonly intent: SeriesIntent;
   readonly trend: NumericTrend;
+  readonly ghost?: boolean;
 }
 
 interface DisplayedSeries extends ReadySeries {
   readonly values: Float64Array;
   readonly rawValues: Float64Array;
+}
+
+function accessibleTrendSeries(ready: readonly DisplayedSeries[]): string {
+  const foreground = ready.filter((item) => !item.ghost).map((item) => item.intent.label);
+  const context = ready.filter((item) => item.ghost).map((item) => item.intent.label);
+  if (context.length === 0) return foreground.join(', ');
+  if (foreground.length === 0) {
+    return `${context.join(', ')} as de-emphasized context while Find awaits a query`;
+  }
+  return `Find ${foreground.join(', ')}, with ${context.join(', ')} as de-emphasized context`;
 }
 
 interface RangePreview {
@@ -171,7 +192,7 @@ export function TrendPanel() {
 
   const findMode = interaction.kind === 'find';
   const find = findMode ? interaction.find : null;
-  const displayedSeries = useMemo<readonly SeriesIntent[]>(
+  const activeSeries = useMemo<readonly SeriesIntent[]>(
     () => findMode
       ? find === null
         ? []
@@ -185,38 +206,56 @@ export function TrendPanel() {
   const displayedSelection = findMode ? null : linkedSelection;
   const barcodeSnapshot = findMode ? find?.snapshot ?? null : dispersion?.snapshot ?? null;
   const states = findMode
-    ? displayedSeries.map((intent) => ({ intent, state: find?.trend }))
-    : displayedSeries.map((intent) => ({ intent, state: trends.get(intent.id) }));
-  const pending = states.filter((s) => !s.state || s.state.status === 'pending');
+    ? activeSeries.map((intent) => ({ intent, state: find?.trend }))
+    : activeSeries.map((intent) => ({ intent, state: trends.get(intent.id) }));
+  const ghostStates = findMode
+    ? series.map((intent) => ({ intent, state: trends.get(intent.id) }))
+    : [];
+  const graphGate = findMode && find === null
+    ? trendSeriesGate(ghostStates.map(({ state }) => state), [])
+    : trendSeriesGate(
+        states.map(({ state }) => state),
+        ghostStates.map(({ state }) => state),
+      );
   const failed = states.filter((s) => s.state?.status === 'error');
   const failureText = (failure: (typeof failed)[number]) =>
     `${failure.intent.label}: ${failure.state?.status === 'error' ? failure.state.message : 'query failed'}`;
-  const ready: ReadySeries[] = states.flatMap(({ intent, state }) =>
+  const activeReady: ReadySeries[] = states.flatMap(({ intent, state }) =>
     state?.status === 'ready' ? [{ intent, trend: state.trend }] : [],
   );
-  const selectedReady: ReadySeries[] = (findMode ? [] : displayedSeries).flatMap((intent) => {
+  const ghostReady: ReadySeries[] = findMode
+    ? ghostStates.flatMap(({ intent, state }) => {
+        return state?.status === 'ready'
+          ? [{ intent, trend: state.trend, ghost: true }]
+          : [];
+      })
+    : [];
+  // Ghosts render first so the active Find line is always the visual foreground.
+  const graphReady = findMode ? [...ghostReady, ...activeReady] : activeReady;
+  const selectedReady: ReadySeries[] = (findMode ? [] : activeSeries).flatMap((intent) => {
     const state = selectedTrends.get(intent.id);
     return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
   });
-  const readyGeo = ready[0]?.trend ?? null;
+  const readyGeo = activeReady[0]?.trend ?? ghostReady[0]?.trend ?? null;
   const stageProjection = useMemo(() => {
     if (
-      displayedSeries.length === 0
-      || pending.length > 0
+      graphGate !== 'ready'
       || !readyGeo
       || !readyGeo.sequenceBases
     ) return null;
     return trendStageProjection({
       trend: readyGeo,
-      seriesOrder: displayedSeries.map((item) => item.id),
+      seriesOrder: activeSeries.map((item) => item.id),
       dispersion: displayedDispersion,
       selectedDispersion: !findMode && selectedDispersion?.state.status === 'ready'
         ? selectedDispersion.state.result
         : null,
       selectedDocs: displayedSelection?.ranges.map((range) => range.doc) ?? [],
       geometry,
+      reservedTrackCount: findMode ? Math.max(series.length, activeSeries.length) : 0,
+      foregroundBarcodeOverlay: findMode && find !== null,
     });
-  }, [displayedDispersion, displayedSelection, displayedSeries, findMode, geometry, pending.length, readyGeo, selectedDispersion]);
+  }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, selectedDispersion, series.length]);
   const stageGeometry = useMemo(() => stageProjection
     ? trendStageGeometry(stageProjection, {
         plotWidth: plotW,
@@ -229,12 +268,13 @@ export function TrendPanel() {
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
   } | null>(null);
   const styleBySeries = useMemo(
-    () => new Map(displayedSeries.map((item) => [item.id, item.style])),
-    [displayedSeries],
+    () => new Map((findMode ? [...series, ...activeSeries] : activeSeries)
+      .map((item) => [item.id, item.style])),
+    [activeSeries, findMode, series],
   );
   const labelBySeries = useMemo(
-    () => new Map(displayedSeries.map((item) => [item.id, item.label])),
-    [displayedSeries],
+    () => new Map(activeSeries.map((item) => [item.id, item.label])),
+    [activeSeries],
   );
   const styleOf = useCallback(
     (id: string) => styleBySeries.get(id) ?? DEFAULT_SERIES_STYLE,
@@ -242,16 +282,16 @@ export function TrendPanel() {
   );
   const labelOf = useCallback((id: string) => labelBySeries.get(id) ?? id, [labelBySeries]);
 
-  if (displayedSeries.length === 0) return null;
+  if (activeSeries.length === 0 && ghostStates.length === 0) return null;
 
   // Hold the comparison until the current set settles: a shared y-scale that
   // re-fits as each line lands reads as data changing when it isn't.
-  if (pending.length > 0) {
+  if (graphGate === 'pending') {
     return (
       <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
     );
   }
-  if (ready.length === 0) {
+  if ((!findMode || find !== null) && activeReady.length === 0) {
     return failed.length > 0 ? (
       <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
         {failed.map(failureText).join(' · ')}
@@ -259,8 +299,10 @@ export function TrendPanel() {
     ) : null;
   }
 
+  if (graphReady.length === 0) return null;
+
   // Geometry is identical across series (same snapshot, selection, bins) —
-  // take it from the first ready result.
+  // prefer Find, then use the resident context while its composer is empty.
   const geo = readyGeo!;
   if (!stageProjection || !stageGeometry) {
     throw new Error('trend stage projection missing for ready geometry');
@@ -273,6 +315,13 @@ export function TrendPanel() {
     barcodeHeight,
     rowPitch,
   } = stageProjection;
+  const backgroundBarcodeTracks = findMode
+    ? projectedBarcodeTracks(
+        dispersion?.state.status === 'ready' ? dispersion.state.result : null,
+        docs,
+        series.map((item) => item.id),
+      )
+    : [];
   const {
     edgeX,
     hitSpec,
@@ -336,7 +385,7 @@ export function TrendPanel() {
       });
     }
   };
-  const displayedReady: DisplayedSeries[] = ready.map((item) => ({
+  const displayedReady: DisplayedSeries[] = graphReady.map((item) => ({
     ...item,
     values: trendDisplayValues(item.trend, trendMeasure),
     rawValues: trendRawValues(item.trend, trendMeasure),
@@ -350,6 +399,7 @@ export function TrendPanel() {
     ...displayedReady.flatMap((item) => [
       item.values,
       ...(trendMeasure.kind === 'rate' && trendMeasure.smoothing !== 0 && trendMeasure.showRaw
+        && (!item.ghost || activeReady.length === 0)
         ? [item.rawValues]
         : []),
     ]),
@@ -390,7 +440,7 @@ export function TrendPanel() {
         layout={layout}
         trend={geo}
         plotW={plotW}
-        series={displayedSeries}
+        series={activeSeries}
         geometry={geometry}
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
@@ -404,6 +454,7 @@ export function TrendPanel() {
             view={trendView}
             docs={docs}
             tracks={tracks}
+            backgroundTracks={backgroundBarcodeTracks}
             selectedTracks={selectedTracks}
             linkedSelection={displayedSelection !== null}
             edgeX={edgeX}
@@ -415,6 +466,8 @@ export function TrendPanel() {
             trackGap={geometry.barcodeTrackGap}
             styleOf={styleOf}
             coarse={presentation.coarseAvailable}
+            foregroundOverlay={findMode && find !== null}
+            reservedTrackCount={findMode ? Math.max(series.length, activeSeries.length) : 0}
           />
         )}
       >
@@ -1481,7 +1534,10 @@ const SeriesView = memo(function SeriesView({
   geometry: TrendGeometry;
   barcodeHeight: number;
 }) {
-  const geo = ready[0]!.trend;
+  const foregroundReady = ready.filter((item) => !item.ghost);
+  const rawReady = foregroundReady.length > 0 ? foregroundReady : ready;
+  const hasGhostContext = ready.some((item) => item.ghost);
+  const geo = foregroundReady[0]?.trend ?? ready[0]!.trend;
   const totalTokens =
     docs.length === 0 ? 0 : (bases[docs.length - 1] ?? 0) + (geo.docTokenCount[docs.length - 1] ?? 0);
   const x = linearMap(0, Math.max(1, totalTokens), 0, plotW);
@@ -1503,7 +1559,7 @@ const SeriesView = memo(function SeriesView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${ready.map((r) => r.intent.label).join(', ')} across ${docs.length} books in reading order`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} across ${docs.length} books in reading order`}
     >
       <line
         data-trend-axis="series"
@@ -1551,7 +1607,7 @@ const SeriesView = memo(function SeriesView({
           </text>
         </g>
       )}
-      {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && ready.flatMap((r) =>
+      {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && rawReady.flatMap((r) =>
         docs.flatMap((doc, d) => {
           const x0 = x(bases[d] ?? 0);
           const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
@@ -1570,7 +1626,7 @@ const SeriesView = memo(function SeriesView({
               stroke={seriesColor(r.intent.style)}
               strokeWidth={1}
               strokeDasharray={seriesDash(r.intent.style)}
-              opacity={0.2}
+              opacity={r.ghost ? 0.1 : 0.2}
               pointerEvents="none"
             />
           ));
@@ -1587,17 +1643,38 @@ const SeriesView = memo(function SeriesView({
             (b) => clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP),
             y,
           ).map((path, index) => (
-            <path
-              key={`${r.intent.id}:${doc}:${index}`}
-              data-series-path={r.intent.id}
-              d={path}
-              fill="none"
-              stroke={seriesColor(r.intent.style)}
-              strokeWidth={strokeFor(r.intent.id)}
-              strokeDasharray={seriesDash(r.intent.style)}
-              strokeLinecap={seriesLinecap(r.intent.style)}
-              opacity={selected.length > 0 ? 0.45 : 1}
-            />
+            <g key={`${r.intent.id}:${doc}:${index}`}>
+              {!r.ghost && hasGhostContext && (
+                <path
+                  data-series-find-halo={r.intent.id}
+                  d={path}
+                  fill="none"
+                  stroke="var(--bg)"
+                  strokeWidth={findSeriesHaloStrokeWidth(strokeFor(r.intent.id))}
+                  strokeDasharray={seriesDash(r.intent.style)}
+                  strokeLinecap={seriesLinecap(r.intent.style)}
+                  opacity={0.92}
+                  pointerEvents="none"
+                />
+              )}
+              <path
+                data-series-path={r.intent.id}
+                data-series-ghost={r.ghost || undefined}
+                data-series-find-foreground={!r.ghost && hasGhostContext || undefined}
+                d={path}
+                fill="none"
+                stroke={seriesColor(r.intent.style)}
+                strokeWidth={r.ghost
+                  ? ghostSeriesStrokeWidth(strokeFor(r.intent.id))
+                  : hasGhostContext
+                    ? findSeriesStrokeWidth(strokeFor(r.intent.id))
+                    : strokeFor(r.intent.id)}
+                strokeDasharray={seriesDash(r.intent.style)}
+                strokeLinecap={seriesLinecap(r.intent.style)}
+                opacity={r.ghost ? GHOST_SERIES_OPACITY : selected.length > 0 ? 0.45 : 1}
+                pointerEvents={r.ghost ? 'none' : undefined}
+              />
+            </g>
           ));
         }),
       )}
@@ -1638,7 +1715,7 @@ const SeriesView = memo(function SeriesView({
           const x0 = x((bases[d] ?? 0) + start);
           const w = Math.max(1, x((bases[d] ?? 0) + end) - x0);
           const title = titles[d] ?? doc;
-          const lines = ready
+          const lines = foregroundReady
             .map((r) => {
               const iRow = rows.start + b;
               const displayed = r.values[iRow];
@@ -1682,7 +1759,10 @@ const ByBookView = memo(function ByBookView({
   geometry: TrendGeometry;
   rowPitch: number;
 }) {
-  const geo = ready[0]!.trend;
+  const foregroundReady = ready.filter((item) => !item.ghost);
+  const rawReady = foregroundReady.length > 0 ? foregroundReady : ready;
+  const hasGhostContext = ready.some((item) => item.ghost);
+  const geo = foregroundReady[0]?.trend ?? ready[0]!.trend;
   const y = linearMap(0, maxValue, geometry.rowHeight, 0);
   const height = docs.length * rowPitch + 4;
   const pointX = (d: number, b: number) => {
@@ -1697,7 +1777,7 @@ const ByBookView = memo(function ByBookView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${ready.map((r) => r.intent.label).join(', ')} within each of ${docs.length} books`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} books`}
     >
       {docs.map((doc, d) => {
         const rowY = d * rowPitch;
@@ -1705,7 +1785,7 @@ const ByBookView = memo(function ByBookView({
         return (
           <g key={doc}>
             <line x1={0} y1={rowY + geometry.rowHeight} x2={plotW} y2={rowY + geometry.rowHeight} stroke="var(--rule)" strokeWidth={1} />
-            {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && ready.flatMap((r) =>
+            {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && rawReady.flatMap((r) =>
               selectedTrendPathData(
                 r.trend,
                 doc,
@@ -1721,7 +1801,7 @@ const ByBookView = memo(function ByBookView({
                   stroke={seriesColor(r.intent.style)}
                   strokeWidth={1}
                   strokeDasharray={seriesDash(r.intent.style)}
-                  opacity={0.2}
+                  opacity={r.ghost ? 0.1 : 0.2}
                   pointerEvents="none"
                 />
               )),
@@ -1734,17 +1814,38 @@ const ByBookView = memo(function ByBookView({
                 (b) => pointX(d, b),
                 (value) => rowY + y(value),
               ).map((path, index) => (
-                <path
-                  key={`${r.intent.id}:${index}`}
-                  data-series-path={r.intent.id}
-                  d={path}
-                  fill="none"
-                  stroke={seriesColor(r.intent.style)}
-                  strokeWidth={strokeFor(r.intent.id)}
-                  strokeDasharray={seriesDash(r.intent.style)}
-                  strokeLinecap={seriesLinecap(r.intent.style)}
-                  opacity={selected.length > 0 ? 0.45 : 1}
-                />
+                <g key={`${r.intent.id}:${index}`}>
+                  {!r.ghost && hasGhostContext && (
+                    <path
+                      data-series-find-halo={r.intent.id}
+                      d={path}
+                      fill="none"
+                      stroke="var(--bg)"
+                      strokeWidth={findSeriesHaloStrokeWidth(strokeFor(r.intent.id))}
+                      strokeDasharray={seriesDash(r.intent.style)}
+                      strokeLinecap={seriesLinecap(r.intent.style)}
+                      opacity={0.92}
+                      pointerEvents="none"
+                    />
+                  )}
+                  <path
+                    data-series-path={r.intent.id}
+                    data-series-ghost={r.ghost || undefined}
+                    data-series-find-foreground={!r.ghost && hasGhostContext || undefined}
+                    d={path}
+                    fill="none"
+                    stroke={seriesColor(r.intent.style)}
+                    strokeWidth={r.ghost
+                      ? ghostSeriesStrokeWidth(strokeFor(r.intent.id))
+                      : hasGhostContext
+                        ? findSeriesStrokeWidth(strokeFor(r.intent.id))
+                        : strokeFor(r.intent.id)}
+                    strokeDasharray={seriesDash(r.intent.style)}
+                    strokeLinecap={seriesLinecap(r.intent.style)}
+                    opacity={r.ghost ? GHOST_SERIES_OPACITY : selected.length > 0 ? 0.45 : 1}
+                    pointerEvents={r.ghost ? 'none' : undefined}
+                  />
+                </g>
               )),
             )}
             {selected.flatMap((r) =>
@@ -1772,7 +1873,7 @@ const ByBookView = memo(function ByBookView({
               const rows = trendRowsForDoc(geo, d);
               const span = trendBinSpan(geo, d, b);
               if (span.end <= span.start) return null;
-              const lines = ready
+              const lines = foregroundReady
                 .map((r) => {
                   const iRow = rows.start + b;
                   const displayed = r.values[iRow];

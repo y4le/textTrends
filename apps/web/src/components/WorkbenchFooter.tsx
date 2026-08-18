@@ -58,10 +58,15 @@ import {
 } from '../lib/barcode-view.ts';
 import {
   DEFAULT_SERIES_STYLE,
+  findSeriesHaloStrokeWidth,
+  findSeriesStrokeWidth,
+  GHOST_SERIES_OPACITY,
+  ghostSeriesStrokeWidth,
   seriesColor,
   seriesDash,
   seriesLinecap,
 } from '../lib/series-style.ts';
+import { trendSeriesGate } from '../lib/trend-series-gate.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { BarcodeBand } from './BarcodeStrip.tsx';
 import { FooterPassage } from './FooterPassage.tsx';
@@ -103,6 +108,7 @@ interface FooterSeries {
   readonly style: SeriesStyleV1;
   readonly trend: NumericTrend;
   readonly values: Float64Array;
+  readonly ghost?: boolean;
 }
 
 function FooterCommitProbe() {
@@ -133,6 +139,7 @@ const FooterSparkline = memo(function FooterSparkline({
     }
   }
   const y = linearMap(0, maxValue, geometry.seriesHeight, geometry.topPad);
+  const hasGhostContext = series.some((item) => item.ghost);
   return (
     <svg
       className="footer-sparkline"
@@ -166,16 +173,38 @@ const FooterSparkline = memo(function FooterSparkline({
           },
           y,
         ).map((path, index) => (
-          <path
-            key={`${item.id}:${doc}:${index}`}
-            data-footer-series-path={item.id}
-            d={path}
-            fill="none"
-            stroke={seriesColor(item.style)}
-            strokeWidth={geometry.strokeWidth}
-            strokeDasharray={seriesDash(item.style)}
-            strokeLinecap={seriesLinecap(item.style)}
-          />
+          <g key={`${item.id}:${doc}:${index}`}>
+            {!item.ghost && hasGhostContext && (
+              <path
+                data-footer-series-find-halo={item.id}
+                d={path}
+                fill="none"
+                stroke="var(--bg)"
+                strokeWidth={findSeriesHaloStrokeWidth(geometry.strokeWidth)}
+                strokeDasharray={seriesDash(item.style)}
+                strokeLinecap={seriesLinecap(item.style)}
+                opacity={0.92}
+                pointerEvents="none"
+              />
+            )}
+            <path
+              data-footer-series-path={item.id}
+              data-footer-series-ghost={item.ghost || undefined}
+              data-footer-series-find-foreground={!item.ghost && hasGhostContext || undefined}
+              d={path}
+              fill="none"
+              stroke={seriesColor(item.style)}
+              strokeWidth={item.ghost
+                ? ghostSeriesStrokeWidth(geometry.strokeWidth)
+                : hasGhostContext
+                  ? findSeriesStrokeWidth(geometry.strokeWidth)
+                  : geometry.strokeWidth}
+              strokeDasharray={seriesDash(item.style)}
+              strokeLinecap={seriesLinecap(item.style)}
+              opacity={item.ghost ? GHOST_SERIES_OPACITY : 1}
+              pointerEvents={item.ghost ? 'none' : undefined}
+            />
+          </g>
         ));
       }))}
     </svg>
@@ -197,6 +226,7 @@ function FooterInteractive({
   containerRef,
   globalShortcuts,
   showStatus,
+  foregroundBarcodeOverlay,
 }: {
   readonly docs: readonly string[];
   readonly titles: ReadonlyMap<string, string>;
@@ -212,6 +242,7 @@ function FooterInteractive({
   readonly containerRef: (element: HTMLDivElement | null) => void;
   readonly globalShortcuts: boolean;
   readonly showStatus: boolean;
+  readonly foregroundBarcodeOverlay: boolean;
 }) {
   const presentation = usePresentation();
   const scrub = useApp((state) => state.scrub);
@@ -454,7 +485,11 @@ function FooterInteractive({
   ): CapturedBarcodeTarget | null => {
     const barcodeY = y - stripTop - geometry.seriesHeight - geometry.barcodeBandGap;
     const stride = geometry.barcodeTrackHeight + geometry.barcodeTrackGap;
-    const row = stride > 0 ? Math.floor(barcodeY / stride) : -1;
+    const overlayHit = foregroundBarcodeOverlay
+      && tracks.length > 0
+      && barcodeY >= 0
+      && barcodeY < trackCount * stride;
+    const row = overlayHit ? 0 : stride > 0 ? Math.floor(barcodeY / stride) : -1;
     const rowOffset = stride > 0 ? barcodeY - row * stride : -1;
     const target = rawTarget(x);
     const track = row >= 0 ? tracks[row] : undefined;
@@ -462,8 +497,7 @@ function FooterInteractive({
       !target
       || !track
       || barcodeY < 0
-      || rowOffset < 0
-      || rowOffset >= geometry.barcodeTrackHeight
+      || (!overlayHit && (rowOffset < 0 || rowOffset >= geometry.barcodeTrackHeight))
     ) return null;
     let exactIndexes: ReturnType<typeof projectedBarcodeSnapIndexes> = [];
     if (allowExactSnap && track.representation === 'exact') {
@@ -1079,33 +1113,59 @@ export function WorkbenchFooter({
       seriesXFromTokenEdge(docOrdinal, token, width, layout),
     [layout, width],
   );
+  const stateFor = (id: string) => findMode && find?.query.seriesId === id
+    ? find.trend
+    : trends.get(id);
+  const durableStates = findMode ? series.map((item) => trends.get(item.id)) : [];
+  const graphGate = findMode && find === null
+    ? trendSeriesGate(durableStates, [])
+    : trendSeriesGate(
+        displayedSeries.map((item) => stateFor(item.id)),
+        durableStates,
+      );
   const readySeries = useMemo<FooterSeries[]>(() => {
-    const stateFor = (id: string) => findMode && find?.query.seriesId === id
-      ? find.trend
-      : trends.get(id);
-    if (displayedSeries.some((item) => stateFor(item.id)?.status === 'pending')) return [];
-    return displayedSeries.flatMap((item) => {
-      const state = stateFor(item.id);
+    if (graphGate !== 'ready') return [];
+    const activeReady = displayedSeries.flatMap((item) => {
+      const state = findMode && find?.query.seriesId === item.id
+        ? find.trend
+        : trends.get(item.id);
       return state?.status === 'ready'
         ? [{
             id: item.id,
             style: item.style,
             trend: state.trend,
             values: trendDisplayValues(state.trend, measure),
-          }]
+        }]
         : [];
     });
-  }, [displayedSeries, find, findMode, measure, trends]);
-  const pending = displayedSeries.some((item) => {
-    const state = findMode && find?.query.seriesId === item.id ? find.trend : trends.get(item.id);
-    return !state || state.status === 'pending';
-  });
+    const ghostReady = findMode
+      ? series.flatMap((item) => {
+          const state = trends.get(item.id);
+          return state?.status === 'ready'
+            ? [{
+                id: item.id,
+                style: item.style,
+                trend: state.trend,
+                values: trendDisplayValues(state.trend, measure),
+                ghost: true,
+              }]
+            : [];
+        })
+      : [];
+    return [...ghostReady, ...activeReady];
+  }, [displayedSeries, find, findMode, graphGate, measure, series, trends]);
+  const pending = graphGate === 'pending';
   const failed = displayedSeries.filter((item) =>
     (findMode && find?.query.seriesId === item.id ? find.trend : trends.get(item.id))?.status === 'error')
     .length;
   const titleByDoc = useMemo(
     () => new Map((project?.data.docs ?? []).map((doc) => [doc.doc, doc.meta.title])),
     [project],
+  );
+  const backgroundTracks = projectedBarcodeTracks(
+    findMode && dispersion?.state.status === 'ready' ? dispersion.state.result : null,
+    docs,
+    series.map((item) => item.id),
   );
   if (!visible) return null;
   const range = linkedSelection && linkedSelection.ranges.length > 0
@@ -1141,11 +1201,12 @@ export function WorkbenchFooter({
         width={width}
         geometry={geometry}
       />
-      {showBarcode && tracks.length > 0 && (
+      {showBarcode && (tracks.length > 0 || backgroundTracks.length > 0) && (
         <BarcodeBand
           view="series"
           docs={docs}
           tracks={tracks}
+          backgroundTracks={backgroundTracks}
           selectedTracks={selectedTracks}
           linkedSelection={!findMode && linkedSelection !== null}
           edgeX={edgeX}
@@ -1155,8 +1216,12 @@ export function WorkbenchFooter({
           bandGap={geometry.barcodeBandGap}
           trackHeight={geometry.barcodeTrackHeight}
           trackGap={geometry.barcodeTrackGap}
-          styleOf={(id) => displayedSeries.find((item) => item.id === id)?.style ?? DEFAULT_SERIES_STYLE}
+          styleOf={(id) => displayedSeries.find((item) => item.id === id)?.style
+            ?? series.find((item) => item.id === id)?.style
+            ?? DEFAULT_SERIES_STYLE}
           coarse={coarse}
+          foregroundOverlay={findMode && find !== null}
+          reservedTrackCount={findMode ? Math.max(series.length, displayedSeries.length) : 0}
         />
       )}
       {docs.slice(1).map((doc, index) => {
@@ -1199,6 +1264,7 @@ export function WorkbenchFooter({
         containerRef={setContainer}
         globalShortcuts={globalShortcuts}
         showStatus={showStatus}
+        foregroundBarcodeOverlay={findMode && find !== null}
       />
     </aside>
   );

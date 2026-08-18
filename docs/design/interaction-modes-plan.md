@@ -164,9 +164,14 @@ layout and target size, never whether an action exists.
 ### MVP semantics
 
 Find is a temporary, snapshot-bound corpus term used for seeking and analysis.
-It does not enter or mutate the durable notebook. While active, it replaces
-the shown comparison with one transient identity; the durable comparison and
-resident results remain available for immediate restoration.
+It does not enter or mutate the durable notebook. While active, it owns the
+interactive comparison and barcode with one transient identity. Opening the
+composer immediately leaves durable trend lines and barcode rows visible as
+dimmed, non-interactive context. After submission, a wider, haloed Find line
+and full-height Find barcode paint above them. Only the transient identity is
+hit-testable. Ghosts and Find share one y-scale, so the graph holds until its
+non-failed contributors settle; hover values stay Find-only and the accessible
+name distinguishes the Find subject from its de-emphasized context.
 
 - Use the same tokenizer, folding, phrase, exact-match, and overlap contracts
   as an ordinary term group.
@@ -181,8 +186,9 @@ resident results remain available for immediate restoration.
 - Escape clears the temporary term, its status, and any transient marks.
 - A hit updates the shared cursor as a discrete jump and may open/reposition
   Reader only when that is already the active reading surface.
-- The submitted identity is the only presented series in Trends, barcode and
-  totals, the reading footer, Reader marks, and Matches until exit.
+- The submitted identity is the only active series in the barcode and totals,
+  Reader marks, Matches, and navigation until exit. Main and footer trend-line
+  and barcode surfaces retain durable terms as deemphasized visual context.
 - An edge/no-hit result remains explicit. MVP need not claim a total result
   count because the existing occurrence-step result does not provide one.
 

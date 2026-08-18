@@ -382,9 +382,16 @@ first term visibility control in the fixed rail without scrolling the workbench.
 the whole Terms rail with a `Find` label, a wide query field, submit action,
 Previous/Next controls, and a clear/close ×. It accepts one tokenizer-aware
 Terms alias (word, phrase, or one-ended wildcard) and never mutates the
-notebook. Once submitted, that temporary identity is the sole presented term
-in the trend graph, barcode/totals, reading footer, Reader marks, and Matches;
-the durable comparison stays resident and returns on exit. Enter seeks
+notebook. Once submitted, that temporary identity owns the barcode/totals,
+Reader marks, Matches, and navigation. From the moment Find opens, the main and
+footer trend graphs and barcode rows retain the durable terms as readable,
+dimmed, non-interactive context. A submitted Find paints above that context as
+a wider line with a background halo and as a full-height foreground barcode;
+only Find participates in barcode hit-testing and totals. Find and its ghost
+context use one honest y-scale, and the graph holds until all non-failed
+contributors to that scale settle. Hover readouts remain Find-only, while the
+accessible graph name explicitly identifies the durable lines as de-emphasized
+context. The durable comparison returns at normal emphasis on exit. Enter seeks
 forward; `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact starts.
 Escape or × clears the transient query and restores invoking focus. Reader has
 no Terms rail, so the same controls use the keyboard-safe floating placement.

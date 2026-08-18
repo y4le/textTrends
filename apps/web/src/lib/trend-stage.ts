@@ -74,6 +74,10 @@ export interface TrendStageProjectionInput {
   readonly selectedDispersion: DispersionResultV1 | null;
   readonly selectedDocs: readonly string[];
   readonly geometry: TrendGeometry;
+  /** Find keeps the durable barcode's visual height while exposing one
+   * full-height foreground lane to interaction. */
+  readonly reservedTrackCount?: number;
+  readonly foregroundBarcodeOverlay?: boolean;
 }
 
 export interface TrendStageProjection {
@@ -85,6 +89,7 @@ export interface TrendStageProjection {
   readonly barcodeHeight: number;
   readonly rowPitch: number;
   readonly geometry: TrendGeometry;
+  readonly foregroundBarcodeOverlay: boolean;
 }
 
 export function trendStageProjection(input: TrendStageProjectionInput): TrendStageProjection {
@@ -106,7 +111,7 @@ export function trendStageProjection(input: TrendStageProjectionInput): TrendSta
     ? projectedBarcodeTracks(input.selectedDispersion, input.selectedDocs, seriesOrder)
     : [];
   const barcodeHeight = barcodeBandHeight(
-    tracks.length,
+    Math.max(tracks.length, input.reservedTrackCount ?? 0),
     geometry.barcodeTrackHeight,
     geometry.barcodeTrackGap,
   );
@@ -125,6 +130,7 @@ export function trendStageProjection(input: TrendStageProjectionInput): TrendSta
     barcodeHeight,
     rowPitch,
     geometry,
+    foregroundBarcodeOverlay: input.foregroundBarcodeOverlay ?? false,
   };
 }
 
@@ -161,15 +167,22 @@ export function trendStageGeometry(
     layout,
     tokenCounts,
     tracks,
+    foregroundBarcodeOverlay,
   } = projection;
   const edgeX = view === 'series'
     ? (d: number, token: number) => seriesXFromTokenEdge(d, token, plotWidth, layout)
     : (d: number, token: number) => bookXFromTokenEdge(token, plotWidth, tokenCounts[d] ?? 0);
-  const band = {
-    trackCount: tracks.length,
-    trackHeight: geometry.barcodeTrackHeight,
-    trackGap: geometry.barcodeTrackGap,
-  };
+  const band = foregroundBarcodeOverlay
+    ? {
+        trackCount: tracks.length > 0 ? 1 : 0,
+        trackHeight: barcodeHeight,
+        trackGap: 0,
+      }
+    : {
+        trackCount: tracks.length,
+        trackHeight: geometry.barcodeTrackHeight,
+        trackGap: geometry.barcodeTrackGap,
+      };
   const hitSpec: TrendStageSpec = view === 'series'
     ? {
         view: 'series',

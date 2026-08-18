@@ -18,10 +18,18 @@ composition remain authoritative. Find deliberately captures the conventional
 Find compiles one word, phrase, or existing one-ended wildcard through the same
 tokenizer-aware alias dialect as Terms, but never adds it to the notebook. On
 the workbench it takes over the Terms rail and temporarily becomes the sole
-presented series in Trends, its barcode and totals, the reading footer, Reader
-marks, and Matches. The durable comparison and its resident trend/dispersion
-results remain untouched and return immediately on exit. Commas are refused
-because Find owns one query rather than quick-add's multi-term syntax.
+active series in the Trends barcode and totals, Reader marks, Matches, and
+navigation. Opening Find immediately retains the durable trend lines and
+barcode rows as dimmed, non-interactive context, including before a query is
+submitted. Once submitted, Find paints above them with a wider, haloed line
+and a full-height barcode overlay. Only Find contributes barcode hit targets,
+totals, and hover values. Ghost lines share Find's y-scale so their relative
+magnitude remains honest and are identified as de-emphasized context in the
+graph's accessible name. The graph waits for every non-failed line
+contributing to that scale before painting.
+Durable trend/dispersion results remain untouched and return at normal emphasis
+immediately on exit. Commas are refused because Find owns one query rather than
+quick-add's multi-term syntax.
 `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact full-corpus
 occurrence starts. The shared reading cursor follows each hit and an already-open
 Reader is repositioned. No substring search, regular expressions, or total

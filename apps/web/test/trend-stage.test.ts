@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { DispersionResultV1, NumericTrend } from '@texttrends/core';
 import { trendGeometryFor } from '../src/lib/trend-compact.ts';
+import { barcodeBandHeight, trendStageHit } from '../src/lib/trend-geometry.ts';
 import {
   projectedBarcodeSnapIndexes,
   projectedBarcodeTracks,
@@ -107,6 +108,36 @@ describe('trend stage projection and geometry', () => {
     expect(projected.selectedTracks[0]?.docOrder).toEqual(['a', 'b']);
     expect(projected.selectedTracks[0]?.segmentsByDocOrdinal.map((bucket) => bucket.length))
       .toEqual([1, 1]);
+  });
+
+  it('reserves durable barcode rows while exposing one full-height overlay lane', () => {
+    const geometry = trendGeometryFor('wide');
+    const projected = trendStageProjection({
+      trend,
+      seriesOrder: ['s'],
+      dispersion,
+      selectedDispersion: null,
+      selectedDocs: [],
+      geometry,
+      reservedTrackCount: 3,
+      foregroundBarcodeOverlay: true,
+    });
+    const stage = trendStageGeometry(projected, { plotWidth: 300, view: 'series' });
+    const expectedHeight = barcodeBandHeight(
+      3,
+      geometry.barcodeTrackHeight,
+      geometry.barcodeTrackGap,
+    );
+    expect(projected.barcodeHeight).toBe(expectedHeight);
+    expect(stage.hitSpec).toMatchObject({
+      barcodeHeight: expectedHeight,
+      band: { trackCount: 1, trackHeight: expectedHeight, trackGap: 0 },
+    });
+    expect(trendStageHit(
+      100,
+      geometry.seriesHeight + geometry.barcodeBandGap + expectedHeight - 0.1,
+      stage.hitSpec,
+    )).toMatchObject({ zone: 'barcode', trackRow: 0 });
   });
 
   it('shares barcode projections and snap indexes across consumers', () => {

@@ -7,11 +7,24 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
 
   const footer = page.getByRole('slider', { name: 'Corpus footer position' });
   const terms = page.getByRole('complementary', { name: 'Terms' });
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  const seriesChart = page.locator('svg[data-trend-view="series"]');
+  const mainBarcode = page.getByRole('slider', { name: 'Reading position scrubber' })
+    .locator('canvas[data-barcode-band="series"]');
+  const footerBarcode = footer.locator('canvas[data-barcode-band="series"]');
+  await expect(seriesChart).toBeVisible();
+  await expect(footerBarcode).toBeVisible();
+  const durableBarcodeHeight = (await mainBarcode.boundingBox())?.height;
+  const durableFooterBarcodeHeight = (await footerBarcode.boundingBox())?.height;
   await expect.poll(() => page.locator('[data-series-path]').count()).toBeGreaterThan(1);
   const durableSeries = await page.locator('[data-series-path]').evaluateAll((paths) =>
     [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
   );
+  const durableLabelNodes = page.locator('[data-term-occurrence-label]');
+  await expect.poll(() => durableLabelNodes.count()).toBeGreaterThan(1);
+  const durableLabels = await durableLabelNodes.allTextContents();
   expect(durableSeries.length).toBeGreaterThan(1);
+  expect(durableLabels.length).toBeGreaterThan(1);
   await footer.focus();
   const before = await footer.getAttribute('aria-valuenow');
   await footer.press('Meta+f');
@@ -24,24 +37,106 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(terms).toHaveCount(0);
   await expect(find.locator('.term-bar-label')).toHaveText('Find');
   await expect(input).toBeFocused();
+  await expect(seriesChart).toBeVisible();
+  await expect.poll(async () => seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  )).toEqual(durableSeries);
+  await expect.poll(async () => seriesChart.locator('[data-series-ghost="true"]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  )).toEqual(durableSeries);
+  await expect(seriesChart).toHaveAttribute('aria-label', /de-emphasized context while Find awaits a query/i);
+  await expect.poll(async () => page.locator('[data-barcode-background-series]').evaluateAll((canvases) =>
+    [...new Set(canvases.flatMap((canvas) =>
+      (canvas.getAttribute('data-barcode-background-series') ?? '').split(/\s+/).filter(Boolean),
+    ))].sort(),
+  )).toEqual(durableSeries);
+  expect((await mainBarcode.boundingBox())?.height).toBe(durableBarcodeHeight);
+  expect((await footerBarcode.boundingBox())?.height).toBe(durableFooterBarcodeHeight);
+  await expect.poll(async () => footer.locator('[data-footer-series-ghost="true"]')
+    .evaluateAll((paths) =>
+      [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))].sort(),
+    )).toEqual(durableSeries);
+  await expect(page.locator('[data-series-path^="find-series:"]')).toHaveCount(0);
   await input.fill('holmes');
   await input.press('Enter');
   await expect(next).toBeFocused();
   await expect(status).toContainText(/holmes/i);
   await expect(status).not.toContainText('Searching');
   await expect.poll(() => footer.getAttribute('aria-valuenow')).not.toBe(before);
-  await expect(page.locator('[data-series-path^="find-series:"]').first()).toBeVisible();
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await expect(seriesChart).toBeVisible();
+  const findPath = page.locator('[data-series-path^="find-series:"]').first();
+  await expect(findPath).toBeVisible();
+  const findSeriesId = await findPath.getAttribute('data-series-path');
+  expect(findSeriesId).toMatch(/^find-series:/);
+  if (findSeriesId === null) throw new Error('Find graph path is missing its series identity');
   await expect.poll(async () => page.locator('[data-series-path]').evaluateAll((paths) =>
     [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
-  )).toEqual([expect.stringMatching(/^find-series:/)]);
+  )).toEqual([...durableSeries, findSeriesId].sort());
+  await expect.poll(async () => page.locator('[data-series-ghost="true"]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
+  )).toEqual(durableSeries);
+  await expect(seriesChart).toHaveAttribute('aria-label', /Find holmes, with .*de-emphasized context/i);
+  const foregroundStroke = Number(await findPath.getAttribute('stroke-width'));
+  const ghostStyles = await seriesChart.locator('[data-series-ghost="true"]').evaluateAll((paths) =>
+    paths.map((path) => ({
+      opacity: path.getAttribute('opacity'),
+      pointerEvents: path.getAttribute('pointer-events'),
+      strokeWidth: Number(path.getAttribute('stroke-width')),
+    })),
+  );
+  expect(ghostStyles.length).toBeGreaterThan(0);
+  expect(ghostStyles.every((style) => style.opacity === '0.38')).toBe(true);
+  expect(ghostStyles.every((style) => style.pointerEvents === 'none')).toBe(true);
+  expect(ghostStyles.every((style) => style.strokeWidth < foregroundStroke)).toBe(true);
+  expect(await seriesChart.locator('[data-series-path]').evaluateAll((paths) => {
+    const lastGhost = paths.findLastIndex((path) => path.hasAttribute('data-series-ghost'));
+    const firstForeground = paths.findIndex((path) => !path.hasAttribute('data-series-ghost'));
+    return lastGhost < firstForeground;
+  })).toBe(true);
+  const hoverReadout = await seriesChart.locator('rect title').first().textContent();
+  expect(hoverReadout?.split('\n').slice(1)).toEqual([expect.stringMatching(/^holmes:/)]);
+  await expect(findPath).not.toHaveAttribute('data-series-ghost');
+  await expect(findPath).toHaveAttribute('data-series-find-foreground', 'true');
+  await expect(findPath).toHaveAttribute('opacity', '1');
+  const findHalo = seriesChart.locator(`[data-series-find-halo="${findSeriesId}"]`).first();
+  await expect(findHalo).toBeVisible();
+  expect(Number(await findHalo.getAttribute('stroke-width'))).toBeGreaterThan(foregroundStroke);
   await expect.poll(async () => page.locator('[data-footer-series-path]').evaluateAll((paths) =>
-    [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))],
-  )).toEqual([expect.stringMatching(/^find-series:/)]);
+    [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))].sort(),
+  )).toEqual([...durableSeries, findSeriesId].sort());
+  await expect.poll(async () => page.locator('[data-footer-series-ghost="true"]').evaluateAll((paths) =>
+    [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))].sort(),
+  )).toEqual(durableSeries);
+  expect(await page.locator('[data-footer-series-ghost="true"]').evaluateAll((paths) => paths.every((path) =>
+    path.getAttribute('opacity') === '0.38'
+      && path.getAttribute('pointer-events') === 'none',
+  ))).toBe(true);
+  const footerFindPath = footer.locator(`[data-footer-series-find-foreground="true"][data-footer-series-path="${findSeriesId}"]`).first();
+  await expect(footerFindPath).toBeVisible();
+  await expect(footer.locator(`[data-footer-series-find-halo="${findSeriesId}"]`).first()).toBeVisible();
   await expect.poll(async () => page.locator('[data-barcode-series]').evaluateAll((canvases) =>
     [...new Set(canvases.map((canvas) => canvas.getAttribute('data-barcode-series')).filter(Boolean))],
-  )).toEqual([expect.stringMatching(/^find-series:/)]);
+  )).toEqual([findSeriesId]);
+  await expect.poll(async () => page.locator('[data-barcode-background-series]').evaluateAll((canvases) =>
+    [...new Set(canvases.flatMap((canvas) =>
+      (canvas.getAttribute('data-barcode-background-series') ?? '').split(/\s+/).filter(Boolean),
+    ))].sort(),
+  )).toEqual(durableSeries);
+  await expect(page.locator('[data-barcode-foreground-overlay="true"]')).not.toHaveCount(0);
+  expect((await mainBarcode.boundingBox())?.height).toBe(durableBarcodeHeight);
+  expect((await footerBarcode.boundingBox())?.height).toBe(durableFooterBarcodeHeight);
   await expect(page.locator('[data-term-occurrences]')).toHaveCount(1);
   await expect(page.locator('[data-term-occurrence-label]')).toHaveText('holmes');
+  await page.getByRole('button', { name: 'separate', exact: true }).click();
+  const byBookChart = page.locator('svg[data-trend-view="by-book"]');
+  await expect(byBookChart).toBeVisible();
+  await expect(byBookChart.locator('[data-series-ghost="true"]')).not.toHaveCount(0);
+  await expect(byBookChart).toHaveAttribute('aria-label', /Find holmes, with .*de-emphasized context/i);
+  const byBookHover = await byBookChart.locator('rect title').first().textContent();
+  expect(byBookHover?.split('\n').slice(1)).toEqual([expect.stringMatching(/^holmes:/)]);
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await expect(seriesChart).toBeVisible();
   const expectFindDraftSelected = async () => {
     await expect(input).toBeFocused();
     expect(await input.evaluate((element) => ({
@@ -83,6 +178,8 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
     [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
   )).toEqual(durableSeries);
   await expect(page.locator('[data-series-path^="find-series:"]')).toHaveCount(0);
+  await expect(page.locator('[data-series-ghost]')).toHaveCount(0);
+  await expect(page.locator('[data-footer-series-ghost]')).toHaveCount(0);
   await expect(footer).toBeFocused();
 
   await footer.press('Control+f');
