@@ -3590,7 +3590,7 @@ html.reader-open .find-bar--floating {
 .find-bar--rail .find-bar-error {
   position: absolute;
   z-index: 3;
-  inset-inline: max(var(--space-4), 5rem) var(--space-2);
+  inset-inline: var(--space-2);
   inset-block-end: 100%;
   display: none;
   overflow: hidden;

@@ -63,6 +63,11 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(next).toBeFocused();
   await expect(status).toContainText(/holmes/i);
   await expect(status).not.toContainText('Searching');
+  const statusInsets = await status.evaluate((element) => {
+    const style = getComputedStyle(element);
+    return [style.insetInlineStart, style.insetInlineEnd];
+  });
+  expect(statusInsets[0]).toBe(statusInsets[1]);
   const progress = status.locator('[data-find-match-progress]');
   await expect(progress).toHaveText(/^\d[\d,]*\/\d[\d,]*$/);
   await expect(progress).toHaveAccessibleName(/^Find match [\d,]+ of [\d,]+$/);
