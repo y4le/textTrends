@@ -8,6 +8,8 @@ import {
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 
+const FIND_RESULT_ID = 'corpus-find-result';
+
 export function FindBar({
   onClose,
   placement = 'floating',
@@ -21,6 +23,7 @@ export function FindBar({
   const clearInteractionError = useApp((state) => state.clearInteractionError);
   const submitFind = useApp((state) => state.submitFind);
   const stepFind = useApp((state) => state.stepFind);
+  const openReader = useApp((state) => state.openReader);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const find = interaction.kind === 'find' ? interaction.find : null;
   const submittedRaw = find?.query.raw ?? '';
@@ -49,6 +52,34 @@ export function FindBar({
     event.stopPropagation();
     onClose();
   };
+  const openCurrentResult = () => {
+    if (find?.state.status !== 'ready') return;
+    openReader(
+      {
+        snapshot: find.snapshot,
+        doc: find.state.hit.doc,
+        token: find.state.hit.token,
+        from: 'occurrence',
+      },
+      FIND_RESULT_ID,
+    );
+  };
+  const statusContent = (
+    <>
+      <span className="find-bar-status-text">{status}</span>
+      {progress !== null && (
+        <span
+          className="find-bar-match-progress"
+          data-find-match-progress
+          aria-label={`Find match ${progress.current.toLocaleString()} of ${progress.total.toLocaleString()}`}
+        >
+          <span aria-hidden="true">
+            {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
+          </span>
+        </span>
+      )}
+    </>
+  );
 
   return (
     <section
@@ -86,23 +117,7 @@ export function FindBar({
         />
         <button type="submit" className="coarse-target" aria-label="Submit find">Find</button>
       </form>
-      <div
-        className="find-bar-actions"
-        data-has-find-progress={progress !== null || undefined}
-      >
-        {progress !== null && (
-          <output
-            className="find-bar-match-progress"
-            data-find-match-progress
-            aria-label={`Find match ${progress.current.toLocaleString()} of ${progress.total.toLocaleString()}`}
-            aria-live="polite"
-            aria-atomic="true"
-          >
-            <span aria-hidden="true">
-              {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
-            </span>
-          </output>
-        )}
+      <div className="find-bar-actions">
         <button
           type="button"
           className="coarse-target"
@@ -141,7 +156,18 @@ export function FindBar({
         aria-live="polite"
         aria-atomic="true"
       >
-        {status}
+        {find?.state.status === 'ready' ? (
+          <button
+            id={FIND_RESULT_ID}
+            type="button"
+            className="find-bar-result"
+            title="Open current Find result in Reader"
+            onClick={openCurrentResult}
+          >
+            <span className="visually-hidden">Open current Find result in Reader: </span>
+            {statusContent}
+          </button>
+        ) : statusContent}
       </p>
       <p id="corpus-find-error" className="find-bar-error" role={interactionError ? 'alert' : undefined}>
         {interactionError}

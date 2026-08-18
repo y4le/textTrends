@@ -191,9 +191,9 @@ name distinguishes the Find subject from its de-emphasized context.
   Reader marks, Matches, and navigation until exit. Main and footer trend-line
   and barcode surfaces retain durable terms as deemphasized visual context.
 - An edge/no-hit result remains explicit. Once the exact match window for a hit
-  lands, the Find controls show its one-based position and total as `x/y`;
+  lands, the Find explainer strip shows its one-based position and total as `x/y`;
   progress stays hidden while seeking so retained windows cannot mislabel a
-  newer hit.
+  newer hit. Activating that current-result explainer opens Reader at the hit.
 
 The existing worker query accepts an arbitrary `KwicTrack`, so seeking can
 reuse the occurrence cache and `occurrence-step/1`. Find uses separate transient

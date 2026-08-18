@@ -3516,11 +3516,26 @@ html.reader-open .find-bar--floating {
   cursor: default;
 }
 
+.find-bar button.find-bar-result {
+  display: flex;
+  min-inline-size: 0;
+  inline-size: 100%;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  text-align: start;
+}
+
 .find-bar-match-progress {
   display: inline-flex;
+  flex: none;
   min-inline-size: 7ch;
   align-items: center;
   justify-content: center;
+  margin-inline-start: auto;
   padding-inline: var(--space-1);
   color: var(--fg-muted);
   font-family: var(--font-mono);
@@ -3537,7 +3552,16 @@ html.reader-open .find-bar--floating {
 }
 
 .find-bar-status {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
   color: var(--fg-muted);
+}
+
+.find-bar-status-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .find-bar-error {
@@ -3559,7 +3583,10 @@ html.reader-open .find-bar--floating {
   white-space: nowrap;
 }
 
-.find-bar--rail[data-find-submitted='true'] .find-bar-status,
+.find-bar--rail[data-find-submitted='true'] .find-bar-status {
+  display: flex;
+}
+
 .find-bar--rail .find-bar-error:not(:empty) {
   display: block;
 }
@@ -3591,10 +3618,6 @@ html.reader-open .find-bar--floating {
   .find-bar--floating .find-bar-actions {
     display: grid;
     grid-template-columns: repeat(3, minmax(0, 1fr));
-  }
-
-  .find-bar--floating .find-bar-actions[data-has-find-progress='true'] {
-    grid-template-columns: auto repeat(3, minmax(0, 1fr));
   }
 
   .find-bar-form input {

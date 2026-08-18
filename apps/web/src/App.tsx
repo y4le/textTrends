@@ -447,8 +447,13 @@ export function App() {
     const orphaned = document.activeElement === null || document.activeElement === document.body;
     if (!shouldRestore && !orphaned) return;
     requestAnimationFrame(() => {
-      if (target?.isConnected) {
-        target.focus({ preventScroll: true });
+      const connectedTarget = target?.isConnected
+        ? target
+        : target?.id
+          ? document.getElementById(target.id)
+          : null;
+      if (connectedTarget) {
+        connectedTarget.focus({ preventScroll: true });
         return;
       }
       document.getElementById(readerOpen ? 'reader-region' : `place-${place}-heading`)

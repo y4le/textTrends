@@ -33,8 +33,9 @@ immediately on exit. The first alias names the temporary term, matching the
 Terms editor rather than quick-add's separate-group comma behavior.
 `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact full-corpus
 occurrence starts. The shared reading cursor follows each hit and an already-open
-Reader is repositioned. The controls show the current exact match and total as
-`x/y` once the matching window lands, and hide that progress while seeking. No
+Reader is repositioned. The Find explainer strip shows the current exact match
+and total as `x/y` once the matching window lands, and hides that progress
+while seeking. Activating the explainer opens Reader at the current hit. No
 substring search or regular expressions are implied. Repeating `Ctrl/Cmd-F`
 while Find is open selects the complete query draft, matching the replacement
 behavior users expect from native Find.
