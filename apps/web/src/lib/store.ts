@@ -96,6 +96,7 @@ import {
   groupIdentity,
   groupTitle,
   NOTEBOOK_LIMITS_V1,
+  normalizeAuthoredAliases,
   parseQuickAdd,
   resolveActiveStyleCollisions,
   stylesVisuallyCollide,
@@ -988,15 +989,6 @@ function msg(e: unknown): string {
   return e instanceof Error ? e.message : String(e);
 }
 
-function normalizeAuthoredAliases(aliases: readonly string[]): string[] {
-  const normalized: string[] = [];
-  for (const alias of aliases) {
-    const value = alias.trim().normalize('NFC');
-    if (value !== '' && !normalized.includes(value)) normalized.push(value);
-  }
-  return normalized;
-}
-
 function queryErrorMessage(e: unknown): string {
   return e instanceof WorkerClientError && e.analysisCode === 'CAP_EXCEEDED'
     ? 'Too many occurrences to analyse at once — narrow the selected range or corpus.'
@@ -1760,7 +1752,7 @@ export function createAppRuntime(
           seriesId: find.query.seriesId,
           groupId: find.query.group.id,
           identity: find.query.identity,
-          label: find.query.raw,
+          label: find.query.label,
           style: find.query.style,
         })]),
       };

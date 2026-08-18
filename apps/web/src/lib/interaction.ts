@@ -1,14 +1,18 @@
 import {
-  coreGroupOf,
-  defaultSeriesStyle,
   termGroupIdentity,
-  validateNotebookGroup,
   type DispersionResultV1,
   type NotebookGroupV1,
   type NumericTrend,
   type SeriesStyleV1,
   type TermGroupSpec,
 } from '@texttrends/core';
+import {
+  coreGroupOf,
+  defaultSeriesStyle,
+  groupTitle,
+  parseAuthoredAliases,
+  validateNotebookGroup,
+} from './notebook.ts';
 import type { OccurrenceStepHitV1 } from '../shared/analysis-contract.ts';
 
 export const FIND_INPUT_ID = 'corpus-find-input';
@@ -32,7 +36,11 @@ export type FindSeekState =
   | { readonly status: 'error'; readonly message: string };
 
 export interface FindQuery {
+  /** Canonical comma-authored input restored to the composer and announced in
+   * status text. */
   readonly raw: string;
+  /** Terms semantics: the first authored alias names the temporary group. */
+  readonly label: string;
   readonly seriesId: string;
   readonly group: TermGroupSpec;
   readonly identity: string;
@@ -72,25 +80,19 @@ export type CompileFindResult =
   | { readonly ok: true; readonly query: FindQuery }
   | { readonly ok: false; readonly message: string };
 
-/** Compile Find through the same authored-alias admission as durable Terms.
- * Commas alone are reserved because Find owns one word-or-phrase query rather
- * than quick-add's multi-term syntax. */
+/** Compile Find through the same comma-authored alias parser, normalization,
+ * validation, and core group compiler as a durable Term. Its aliases are OR
+ * alternatives within one temporary identity; Find never mutates Terms. */
 export function compileFindQuery(raw: string, newId: () => string): CompileFindResult {
-  const normalized = raw.trim().normalize('NFC');
-  if (normalized === '') {
+  const aliases = parseAuthoredAliases(raw);
+  if (aliases.length === 0) {
     return { ok: false, message: 'type at least one letter or number' };
-  }
-  if (normalized.includes(',')) {
-    return {
-      ok: false,
-      message: 'Find takes one word or phrase — commas add several terms in Terms.',
-    };
   }
   const groupId = `find-group:${newId()}`;
   const style = defaultSeriesStyle(0);
   const authored: NotebookGroupV1 = {
     id: groupId,
-    aliases: [normalized],
+    aliases,
     exactMatch: false,
     countOverlaps: false,
     style,
@@ -101,7 +103,8 @@ export function compileFindQuery(raw: string, newId: () => string): CompileFindR
     return {
       ok: true,
       query: {
-        raw: normalized,
+        raw: aliases.join(', '),
+        label: groupTitle(authored),
         seriesId: `find-series:${newId()}`,
         group,
         identity: termGroupIdentity(group),
@@ -144,7 +147,7 @@ export function findStatusText(
   find: FindState | null,
   documentTitle: (doc: string) => string,
 ): string {
-  if (find === null) return 'Type one word or phrase to find in the corpus.';
+  if (find === null) return 'Type a term or comma-separated aliases to find in the corpus.';
   const quoted = `“${find.query.raw}”`;
   switch (find.state.status) {
     case 'idle': return `Ready to find ${quoted}.`;

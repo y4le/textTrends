@@ -175,10 +175,11 @@ name distinguishes the Find subject from its de-emphasized context.
 
 - Use the same tokenizer, folding, phrase, exact-match, and overlap contracts
   as an ordinary term group.
-- MVP accepts one token, tokenizer-recognized phrase, or the existing
-  one-ended Terms wildcard dialect. It is not arbitrary substring search, a
-  regular expression, or browser DOM find. A comma is refused because Find is
-  one query rather than the Terms quick-add surface.
+- MVP accepts the same comma-authored alias list as the Terms editor. Each
+  alias may be a token, tokenizer-recognized phrase, or existing one-ended
+  wildcard, and the aliases match as OR alternatives within one temporary
+  term identity. It is not arbitrary substring search, a regular expression,
+  or browser DOM find.
 - `/`, `Ctrl/Cmd-F`, the `find` command, and the visible Find action open the
   same composer.
 - Enter seeks forward; `n` and `Ctrl/Cmd-G` seek forward; `p` and

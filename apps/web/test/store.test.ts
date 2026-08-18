@@ -3507,10 +3507,10 @@ describe('temporary corpus Find', () => {
     return f;
   };
 
-  it('issues one transient full-corpus track with an empty notebook without calling the first hit a wrap', async () => {
+  it('issues one multi-alias Terms track with an empty notebook without calling the first hit a wrap', async () => {
     const f = setup();
     expect(f.store.getState().series).toHaveLength(0);
-    expect(f.store.getState().submitFind('New Yo*')).toBe(true);
+    expect(f.store.getState().submitFind('New Yo*, NYC')).toBe(true);
 
     const entry = f.occurrenceSteps().at(-1)!;
     const query = entry.query as {
@@ -3526,18 +3526,21 @@ describe('temporary corpus Find', () => {
     expect(query.tracks[0]!.seriesId).toMatch(/^find-series:/);
     expect(query.tracks[0]!.group).toMatchObject({
       id: expect.stringMatching(/^find-group:/),
-      members: [{ kind: 'phrase' }],
+      members: [{ kind: 'phrase' }, { kind: 'token' }],
     });
     expect(query.request).toEqual({
       method: 'occurrence-step/1', doc: 'a', token: 99, direction: 1,
     });
     expect(f.store.getState().interaction).toMatchObject({
       kind: 'find',
-      find: { query: { raw: 'New Yo*' }, state: { status: 'pending', direction: 1 } },
+      find: {
+        query: { raw: 'New Yo*, NYC', label: 'New Yo*' },
+        state: { status: 'pending', direction: 1 },
+      },
     });
 
     entry.resolve(resultFor(entry, {
-      doc: 'a', token: 4, spanTokens: 1, members: [0],
+      doc: 'a', token: 4, spanTokens: 1, members: [1],
     }));
     await flush();
     expect(f.store.getState().interaction).toMatchObject({

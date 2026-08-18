@@ -30,7 +30,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await footer.press('Meta+f');
 
   const find = page.getByRole('search', { name: 'Find in corpus' });
-  const input = find.getByRole('searchbox', { name: 'Find word or phrase' });
+  const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
   const next = find.getByRole('button', { name: 'Next match' });
   const status = find.locator('#corpus-find-status');
   await expect(find).toBeVisible();
@@ -57,7 +57,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
       [...new Set(paths.map((path) => path.getAttribute('data-footer-series-path')).filter(Boolean))].sort(),
     )).toEqual(durableSeries);
   await expect(page.locator('[data-series-path^="find-series:"]')).toHaveCount(0);
-  await input.fill('holmes');
+  await input.fill('holmes, Sherlock Holmes');
   await input.press('Enter');
   await expect(next).toBeFocused();
   await expect(status).toContainText(/holmes/i);
@@ -139,11 +139,12 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(seriesChart).toBeVisible();
   const expectFindDraftSelected = async () => {
     await expect(input).toBeFocused();
-    expect(await input.evaluate((element) => ({
+    const selection = await input.evaluate((element) => ({
       start: (element as HTMLInputElement).selectionStart,
       end: (element as HTMLInputElement).selectionEnd,
       length: (element as HTMLInputElement).value.length,
-    }))).toEqual({ start: 0, end: 6, length: 6 });
+    }));
+    expect(selection).toEqual({ start: 0, end: selection.length, length: selection.length });
   };
   await footer.press('Meta+f');
   await expectFindDraftSelected();
@@ -184,9 +185,9 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
 
   await footer.press('Control+f');
   await expect(input).toBeFocused();
-  await input.fill('one,two');
+  await input.fill('wo*lf');
   await input.press('Enter');
-  await expect(find.locator('#corpus-find-error')).toContainText('commas');
+  await expect(find.locator('#corpus-find-error')).toContainText('start or end');
   await input.press('x');
   await expect(find.locator('#corpus-find-error')).toBeEmpty();
   await input.fill('');
@@ -233,7 +234,7 @@ test('store-driven Find teardown restores focus instead of orphaning it', async 
   await inputsRegion.press('/');
 
   const find = page.getByRole('search', { name: 'Find in corpus' });
-  await expect(find.getByRole('searchbox', { name: 'Find word or phrase' })).toBeFocused();
+  await expect(find.getByRole('searchbox', { name: 'Find term or aliases' })).toBeFocused();
   await page.getByLabel('Add files').setInputFiles({
     name: 'focus-fence.txt',
     mimeType: 'text/plain',
@@ -261,7 +262,7 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   await tool.click();
 
   const find = page.getByRole('search', { name: 'Find in corpus' });
-  const input = find.getByRole('searchbox', { name: 'Find word or phrase' });
+  const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
   await expect(dialog).toHaveCount(0);
   await expect(input).toBeFocused();
 

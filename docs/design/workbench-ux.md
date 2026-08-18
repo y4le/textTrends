@@ -380,9 +380,10 @@ first term visibility control in the fixed rail without scrolling the workbench.
 
 `/` and `Ctrl/Cmd-F` open temporary corpus Find. On the workbench Find replaces
 the whole Terms rail with a `Find` label, a wide query field, submit action,
-Previous/Next controls, and a clear/close ×. It accepts one tokenizer-aware
-Terms alias (word, phrase, or one-ended wildcard) and never mutates the
-notebook. Once submitted, that temporary identity owns the barcode/totals,
+Previous/Next controls, and a clear/close ×. It accepts the Terms editor's
+comma-authored aliases (words, phrases, and one-ended wildcards) as OR
+alternatives in one temporary term and never mutates the notebook. The first
+alias names that term. Once submitted, its identity owns the barcode/totals,
 Reader marks, Matches, and navigation. From the moment Find opens, the main and
 footer trend graphs and barcode rows retain the durable terms as readable,
 dimmed, non-interactive context. A submitted Find paints above that context as

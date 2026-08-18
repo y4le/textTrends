@@ -80,6 +80,25 @@ export function aliasesForTermEditor(group: NotebookGroupV1): readonly string[] 
   ];
 }
 
+/** Apply the same authored-alias normalization when an already-split list
+ * crosses the store command boundary. */
+export function normalizeAuthoredAliases(input: readonly string[]): string[] {
+  const aliases: string[] = [];
+  for (const raw of input) {
+    const alias = raw.trim().normalize('NFC');
+    if (alias !== '' && !aliases.includes(alias)) aliases.push(alias);
+  }
+  return aliases;
+}
+
+/** Parse the shared comma-authored alias field used by Terms and transient
+ * Find. Whitespace-only entries disappear, authored spelling is normalized to
+ * NFC, and exact duplicate aliases retain their first position. Semantic
+ * duplicate detection remains part of normal notebook-group validation. */
+export function parseAuthoredAliases(input: string): string[] {
+  return normalizeAuthoredAliases(input.split(','));
+}
+
 /** Keep a legacy title lossless on a no-op/style-only save. Any actual edit
  * adopts the unified model, where the first authored alias is also the title. */
 export function termAliasesForSave(
@@ -162,13 +181,7 @@ export function parseQuickAdd(
   } catch (e) {
     return { groups: null, error: e instanceof Error ? e.message : String(e) };
   }
-  const labels: string[] = [];
-  for (const raw of input.split(',')) {
-    const label = raw.trim().normalize('NFC');
-    if (label === '') continue;
-    if (labels.includes(label)) continue;
-    labels.push(label);
-  }
+  const labels = parseAuthoredAliases(input);
   const over = labels.find((l) => l.length > TERM_GROUP_LIMITS_V1.maxSurfaceUnits);
   if (over !== undefined) {
     return { groups: null, error: `“${over.slice(0, 24)}…” is too long for one term` };

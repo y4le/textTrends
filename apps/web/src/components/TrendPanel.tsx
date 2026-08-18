@@ -196,7 +196,7 @@ export function TrendPanel() {
     () => findMode
       ? find === null
         ? []
-        : [{ id: find.query.seriesId, label: find.query.raw, style: find.query.style }]
+        : [{ id: find.query.seriesId, label: find.query.label, style: find.query.style }]
       : series,
     [find, findMode, series],
   );

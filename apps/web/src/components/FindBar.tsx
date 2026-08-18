@@ -64,7 +64,8 @@ export function FindBar({
           id={FIND_INPUT_ID}
           type="search"
           value={draft}
-          aria-label="Find word or phrase"
+          aria-label="Find term or aliases"
+          placeholder="word, phrase, alias*"
           aria-describedby="corpus-find-status corpus-find-error"
           enterKeyHint="search"
           autoCapitalize="none"

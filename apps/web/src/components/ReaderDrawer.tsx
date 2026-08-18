@@ -197,7 +197,7 @@ export function ReaderDrawer({
   const presentedSeries = findMode
     ? findQuery === null
       ? []
-      : [{ id: findQuery.seriesId, label: findQuery.raw, style: findQuery.style }]
+      : [{ id: findQuery.seriesId, label: findQuery.label, style: findQuery.style }]
     : notebook.groups.map((group) => ({
         id: group.id,
         label: groupTitle(group),

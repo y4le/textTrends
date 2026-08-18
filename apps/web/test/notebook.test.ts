@@ -8,6 +8,8 @@ import {
   groupIdentity,
   memberSemanticKey,
   NOTEBOOK_LIMITS_V1,
+  normalizeAuthoredAliases,
+  parseAuthoredAliases,
   parseQueryNotebook,
   parseQuickAdd,
   resolveActiveStyleCollisions,
@@ -86,6 +88,16 @@ describe('parseQuickAdd', () => {
     const invalidExisting = { ...group('bad', 'word'), aliases: ['★'] };
     expect(() => parseQuickAdd('wolf', counter(), 10, [invalidExisting])).not.toThrow();
     expect(parseQuickAdd('wolf', counter(), 10, [invalidExisting]).groups).toBeNull();
+  });
+});
+
+describe('authored alias parsing', () => {
+  it('shares comma splitting, NFC normalization, empty filtering, and stable deduplication', () => {
+    const decomposed = 'Cafe\u0301';
+    expect(parseAuthoredAliases(` ${decomposed}, , Café, noir `))
+      .toEqual(['Café', 'noir']);
+    expect(normalizeAuthoredAliases([` ${decomposed} `, '', 'Café', ' noir ']))
+      .toEqual(['Café', 'noir']);
   });
 });
 

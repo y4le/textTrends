@@ -154,7 +154,7 @@ export function KwicPanel({
     () => findMode
       ? findQuery === null
         ? []
-        : [{ id: findQuery.seriesId, label: findQuery.raw, style: findQuery.style }]
+        : [{ id: findQuery.seriesId, label: findQuery.label, style: findQuery.style }]
       : series,
     [findMode, findQuery, series],
   );

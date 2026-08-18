@@ -138,7 +138,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'find-open',
     group: 'Find',
     helpContexts: ['workbench', 'reader'],
-    label: 'Find a word or phrase in the corpus',
+    label: 'Find a term or aliases in the corpus',
     strokes: [{ key: '/' }, { key: 'f', ctrl: true }, { key: 'f', meta: true }],
   },
   {

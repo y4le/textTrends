@@ -15,16 +15,17 @@ function ids(): () => string {
 }
 
 describe('temporary corpus Find model', () => {
-  it('compiles one normalized alias through the Terms dialect', () => {
-    const composed = compileFindQuery('  Cafe\u0301 noir  ', ids());
+  it('compiles comma-authored aliases through the Terms dialect as one group', () => {
+    const composed = compileFindQuery('  Cafe\u0301 noir, café, New Yo*, café  ', ids());
     expect(composed.ok).toBe(true);
     if (!composed.ok) throw new Error('expected a compiled query');
-    expect(composed.query.raw).toBe('Café noir');
+    expect(composed.query.raw).toBe('Café noir, café, New Yo*');
+    expect(composed.query.label).toBe('Café noir');
     expect(composed.query.seriesId).toBe('find-series:2');
     expect(composed.query.group).toMatchObject({
       id: 'find-group:1',
       countOverlaps: false,
-      members: [{ kind: 'phrase' }],
+      members: [{ kind: 'phrase' }, { kind: 'token' }, { kind: 'phrase' }],
     });
   });
 
@@ -34,8 +35,7 @@ describe('temporary corpus Find model', () => {
     ['---', 'type at least one letter or number'],
     ['*', 'use one * at the start or end, like New Yo*'],
     ['*abc*', 'use one * at the start or end, like New Yo*'],
-    ['one, two', 'Find takes one word or phrase — commas add several terms in Terms.'],
-  ])('refuses invalid one-query input %j', (raw, message) => {
+  ])('refuses invalid term input %j', (raw, message) => {
     expect(compileFindQuery(raw, ids())).toEqual({ ok: false, message });
   });
 
@@ -63,6 +63,7 @@ describe('temporary corpus Find model', () => {
       snapshot: 's1',
       query: {
         raw: 'holmes',
+        label: 'holmes',
         seriesId: 'find-series:1',
         group: { id: 'find-group:1', members: [], countOverlaps: false },
         identity: 'identity',
@@ -72,7 +73,8 @@ describe('temporary corpus Find model', () => {
       trend: { status: 'pending' },
       dispersion: { status: 'pending' },
     } satisfies Omit<FindState, 'state'>;
-    expect(findStatusText(null, (doc) => doc)).toBe('Type one word or phrase to find in the corpus.');
+    expect(findStatusText(null, (doc) => doc))
+      .toBe('Type a term or comma-separated aliases to find in the corpus.');
     expect(findStatusText({ ...base, state: { status: 'pending', direction: 1 } }, () => 'Book A'))
       .toBe('Searching for “holmes”.');
     expect(findStatusText({ ...base, state: { status: 'edge' } }, () => 'Book A'))

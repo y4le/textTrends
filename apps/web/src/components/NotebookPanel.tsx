@@ -18,6 +18,7 @@ import {
   aliasesForTermEditor,
   firstFreeStyle,
   groupTitle,
+  parseAuthoredAliases,
   termAliasesForSave,
 } from '../lib/notebook.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
@@ -71,10 +72,6 @@ function draftOf(group: NotebookGroupV1): TermDraft {
     countOverlaps: group.countOverlaps,
     style: group.style,
   };
-}
-
-function aliasesOf(input: string): string[] {
-  return input.split(',').map((alias) => alias.trim()).filter(Boolean);
 }
 
 function nativeColorValue(
@@ -206,7 +203,7 @@ function TermEditor({
   const save = () => {
     clearNotebookError();
     setEditorNotice(null);
-    const aliases = aliasesOf(draft.aliases);
+    const aliases = parseAuthoredAliases(draft.aliases);
     if (group) {
       if (!saveTerm(group.id, {
         ...draft,
