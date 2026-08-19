@@ -7,6 +7,20 @@ import {
 } from '../src/lib/vocabulary-column-storage.ts';
 import { awaitReadyCount, openQuickAdd } from './helpers.ts';
 
+test('puts recovery and demo corpora before diagnostic sections', async ({ page }) => {
+  await page.goto('./');
+  await page.keyboard.press('Shift+D');
+
+  const headings = page.getByRole('dialog', { name: 'Debug' }).getByRole('heading', { level: 3 });
+  await expect(headings).toHaveText([
+    'Recovery',
+    'Demo corpora',
+    'Runtime',
+    'Analysis lanes',
+    'Storage and presentation',
+  ]);
+});
+
 test('cache clear preserves research state while full reset removes app-owned browser data', async ({ page }) => {
   await page.goto('./');
   const active = page.getByRole('region', { name: 'Active inputs' });

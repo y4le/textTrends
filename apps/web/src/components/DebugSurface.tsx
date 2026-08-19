@@ -149,83 +149,6 @@ export function DebugSurface({ onClose }: { readonly onClose: () => void }) {
       }}
     >
       <div className="debug-sections">
-        <section aria-labelledby="debug-runtime-heading">
-          <h3 id="debug-runtime-heading">Runtime</h3>
-          {diagnosticError && <p role="alert">Diagnostics unavailable: {diagnosticError}</p>}
-          {!diagnostics && !diagnosticError && <p role="status">Collecting diagnostics…</p>}
-          {diagnostics && (
-            <dl className="debug-facts">
-              <div><dt>Build</dt><dd>{diagnostics.build.mode} · {diagnostics.build.commit === null ? 'local build' : shortIdentity(diagnostics.build.commit)}</dd></div>
-              <div><dt>Protocol</dt><dd>v{diagnostics.build.protocol}</dd></div>
-              <div><dt>Worker</dt><dd>{diagnostics.worker.health} · {diagnostics.worker.restartCount} restart{diagnostics.worker.restartCount === 1 ? '' : 's'} · {diagnostics.worker.pendingRequests} pending</dd></div>
-              <div><dt>Cache warning</dt><dd>{diagnostics.worker.lastStorageWarning?.code ?? 'none reported'}</dd></div>
-              <div><dt>Workspace save</dt><dd>{diagnostics.workspace.persistence}</dd></div>
-              <div><dt>Analysis</dt><dd>{diagnostics.workspace.analysis}</dd></div>
-              <div><dt>Project</dt><dd>{diagnostics.workspace.projectKind} · {diagnostics.workspace.activeDocuments} active · {diagnostics.workspace.pendingImports} importing</dd></div>
-              <div><dt>Import states</dt><dd>{Object.entries(diagnostics.workspace.pendingImportStates).map(([kind, count]) => `${kind} ${count}`).join(' · ') || 'none'}</dd></div>
-              <div><dt>Route</dt><dd>{diagnostics.workspace.route.place} · {diagnostics.workspace.route.status} · layers {diagnostics.workspace.route.layers.join(' › ') || 'none'}</dd></div>
-              <div><dt>Generation</dt><dd><code>{shortIdentity(diagnostics.workspace.generation)}</code></dd></div>
-              <div><dt>Snapshot</dt><dd><code>{shortIdentity(diagnostics.workspace.snapshot)}</code></dd></div>
-              <div><dt>Documents</dt><dd>{diagnostics.workspace.readyDocuments} ready · {diagnostics.workspace.missingDocuments} missing</dd></div>
-              <div><dt>Token counts</dt><dd>{diagnostics.workspace.documentTokenCounts.length === 0 ? '—' : diagnostics.workspace.documentTokenCounts.join(', ')}</dd></div>
-              <div><dt>Index recipe</dt><dd><code>{diagnostics.recipes.index.map(shortIdentity).join(', ') || '—'}</code></dd></div>
-              <div><dt>Extraction recipes</dt><dd><code>{diagnostics.recipes.extraction.map(shortIdentity).join(', ') || '—'}</code></dd></div>
-              <div><dt>Segmenters</dt><dd>{diagnostics.recipes.segmenters.map((item) => `${item.locale} / ${item.adapter}@${item.adapterVersion} / ${shortIdentity(item.probeHash)}`).join(', ') || '—'}</dd></div>
-              <div><dt>Extraction warnings</dt><dd>{diagnostics.recipes.extractionDiagnostics.documents} observed · {diagnostics.recipes.extractionDiagnostics.decoderReplacements} replacements · {diagnostics.recipes.extractionDiagnostics.suspiciousControls} suspicious controls</dd></div>
-            </dl>
-          )}
-        </section>
-
-        <section aria-labelledby="debug-lanes-heading">
-          <h3 id="debug-lanes-heading">Analysis lanes</h3>
-          {diagnostics && (
-            <dl className="debug-facts debug-facts-lanes">
-              {Object.entries(diagnostics.lanes).map(([name, value]) => (
-                <div key={name}>
-                  <dt>{name}</dt>
-                  <dd>{typeof value === 'string'
-                    ? value
-                    : Object.entries(value).filter(([, count]) => count > 0).map(([kind, count]) => `${kind} ${count}`).join(' · ')}</dd>
-                </div>
-              ))}
-            </dl>
-          )}
-        </section>
-
-        <section aria-labelledby="debug-storage-heading">
-          <h3 id="debug-storage-heading">Storage and presentation</h3>
-          {diagnostics && storage && (
-            <dl className="debug-facts">
-              <div><dt>Local library</dt><dd>{storage.localLibrary.files} files · {formatBytes(storage.localLibrary.bytes)}</dd></div>
-              <div><dt>Origin storage</dt><dd>{formatBytes(storage.estimate.usage)} / {formatBytes(storage.estimate.quota)} · {storage.estimate.persisted === null ? 'persistence unknown' : storage.estimate.persisted ? 'persistent' : 'best effort'}</dd></div>
-              <div><dt>Databases</dt><dd>{storage.databases.map((database) => `${database.name} v${database.version}${database.disposable ? ' (disposable)' : ''}`).join(' · ')}</dd></div>
-              <div><dt>Viewport</dt><dd>{diagnostics.presentation.width} · {diagnostics.presentation.viewport.width}×{diagnostics.presentation.viewport.height} @ {diagnostics.presentation.viewport.devicePixelRatio}×</dd></div>
-              <div><dt>Input</dt><dd>{diagnostics.presentation.coarseAvailable ? 'coarse pointer available' : 'precise pointer only'}</dd></div>
-              <div><dt>Preferences</dt><dd>{diagnostics.presentation.colorScheme} · {diagnostics.presentation.reducedMotion ? 'reduced motion' : 'full motion'}</dd></div>
-            </dl>
-          )}
-        </section>
-
-        <section aria-labelledby="debug-demo-heading">
-          <h3 id="debug-demo-heading">Demo corpora</h3>
-          <p>Load prepared texts additively. Existing active texts, saved files, and terms are preserved.</p>
-          <div className="debug-actions">
-            {BUILTIN_CORPORA.map((corpus) => (
-              <button
-                key={corpus.id}
-                type="button"
-                aria-disabled={busy}
-                aria-busy={working === `demo:${corpus.id}` || undefined}
-                onClick={() => {
-                  if (!busy) void loadDemo(corpus.id);
-                }}
-              >
-                Load {corpus.label} demo
-              </button>
-            ))}
-          </div>
-        </section>
-
         <section aria-labelledby="debug-actions-heading">
           <h3 id="debug-actions-heading">Recovery</h3>
           <div className="debug-actions">
@@ -290,6 +213,83 @@ export function DebugSurface({ onClose }: { readonly onClose: () => void }) {
           <p className="debug-recovery-note">
             Clear cache deletes only recomputable analysis artifacts. Full reset deletes both app databases and owned session settings.
           </p>
+        </section>
+
+        <section aria-labelledby="debug-demo-heading">
+          <h3 id="debug-demo-heading">Demo corpora</h3>
+          <p>Load prepared texts additively. Existing active texts, saved files, and terms are preserved.</p>
+          <div className="debug-actions">
+            {BUILTIN_CORPORA.map((corpus) => (
+              <button
+                key={corpus.id}
+                type="button"
+                aria-disabled={busy}
+                aria-busy={working === `demo:${corpus.id}` || undefined}
+                onClick={() => {
+                  if (!busy) void loadDemo(corpus.id);
+                }}
+              >
+                Load {corpus.label} demo
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section aria-labelledby="debug-runtime-heading">
+          <h3 id="debug-runtime-heading">Runtime</h3>
+          {diagnosticError && <p role="alert">Diagnostics unavailable: {diagnosticError}</p>}
+          {!diagnostics && !diagnosticError && <p role="status">Collecting diagnostics…</p>}
+          {diagnostics && (
+            <dl className="debug-facts">
+              <div><dt>Build</dt><dd>{diagnostics.build.mode} · {diagnostics.build.commit === null ? 'local build' : shortIdentity(diagnostics.build.commit)}</dd></div>
+              <div><dt>Protocol</dt><dd>v{diagnostics.build.protocol}</dd></div>
+              <div><dt>Worker</dt><dd>{diagnostics.worker.health} · {diagnostics.worker.restartCount} restart{diagnostics.worker.restartCount === 1 ? '' : 's'} · {diagnostics.worker.pendingRequests} pending</dd></div>
+              <div><dt>Cache warning</dt><dd>{diagnostics.worker.lastStorageWarning?.code ?? 'none reported'}</dd></div>
+              <div><dt>Workspace save</dt><dd>{diagnostics.workspace.persistence}</dd></div>
+              <div><dt>Analysis</dt><dd>{diagnostics.workspace.analysis}</dd></div>
+              <div><dt>Project</dt><dd>{diagnostics.workspace.projectKind} · {diagnostics.workspace.activeDocuments} active · {diagnostics.workspace.pendingImports} importing</dd></div>
+              <div><dt>Import states</dt><dd>{Object.entries(diagnostics.workspace.pendingImportStates).map(([kind, count]) => `${kind} ${count}`).join(' · ') || 'none'}</dd></div>
+              <div><dt>Route</dt><dd>{diagnostics.workspace.route.place} · {diagnostics.workspace.route.status} · layers {diagnostics.workspace.route.layers.join(' › ') || 'none'}</dd></div>
+              <div><dt>Generation</dt><dd><code>{shortIdentity(diagnostics.workspace.generation)}</code></dd></div>
+              <div><dt>Snapshot</dt><dd><code>{shortIdentity(diagnostics.workspace.snapshot)}</code></dd></div>
+              <div><dt>Documents</dt><dd>{diagnostics.workspace.readyDocuments} ready · {diagnostics.workspace.missingDocuments} missing</dd></div>
+              <div><dt>Token counts</dt><dd>{diagnostics.workspace.documentTokenCounts.length === 0 ? '—' : diagnostics.workspace.documentTokenCounts.join(', ')}</dd></div>
+              <div><dt>Index recipe</dt><dd><code>{diagnostics.recipes.index.map(shortIdentity).join(', ') || '—'}</code></dd></div>
+              <div><dt>Extraction recipes</dt><dd><code>{diagnostics.recipes.extraction.map(shortIdentity).join(', ') || '—'}</code></dd></div>
+              <div><dt>Segmenters</dt><dd>{diagnostics.recipes.segmenters.map((item) => `${item.locale} / ${item.adapter}@${item.adapterVersion} / ${shortIdentity(item.probeHash)}`).join(', ') || '—'}</dd></div>
+              <div><dt>Extraction warnings</dt><dd>{diagnostics.recipes.extractionDiagnostics.documents} observed · {diagnostics.recipes.extractionDiagnostics.decoderReplacements} replacements · {diagnostics.recipes.extractionDiagnostics.suspiciousControls} suspicious controls</dd></div>
+            </dl>
+          )}
+        </section>
+
+        <section aria-labelledby="debug-lanes-heading">
+          <h3 id="debug-lanes-heading">Analysis lanes</h3>
+          {diagnostics && (
+            <dl className="debug-facts debug-facts-lanes">
+              {Object.entries(diagnostics.lanes).map(([name, value]) => (
+                <div key={name}>
+                  <dt>{name}</dt>
+                  <dd>{typeof value === 'string'
+                    ? value
+                    : Object.entries(value).filter(([, count]) => count > 0).map(([kind, count]) => `${kind} ${count}`).join(' · ')}</dd>
+                </div>
+              ))}
+            </dl>
+          )}
+        </section>
+
+        <section aria-labelledby="debug-storage-heading">
+          <h3 id="debug-storage-heading">Storage and presentation</h3>
+          {diagnostics && storage && (
+            <dl className="debug-facts">
+              <div><dt>Local library</dt><dd>{storage.localLibrary.files} files · {formatBytes(storage.localLibrary.bytes)}</dd></div>
+              <div><dt>Origin storage</dt><dd>{formatBytes(storage.estimate.usage)} / {formatBytes(storage.estimate.quota)} · {storage.estimate.persisted === null ? 'persistence unknown' : storage.estimate.persisted ? 'persistent' : 'best effort'}</dd></div>
+              <div><dt>Databases</dt><dd>{storage.databases.map((database) => `${database.name} v${database.version}${database.disposable ? ' (disposable)' : ''}`).join(' · ')}</dd></div>
+              <div><dt>Viewport</dt><dd>{diagnostics.presentation.width} · {diagnostics.presentation.viewport.width}×{diagnostics.presentation.viewport.height} @ {diagnostics.presentation.viewport.devicePixelRatio}×</dd></div>
+              <div><dt>Input</dt><dd>{diagnostics.presentation.coarseAvailable ? 'coarse pointer available' : 'precise pointer only'}</dd></div>
+              <div><dt>Preferences</dt><dd>{diagnostics.presentation.colorScheme} · {diagnostics.presentation.reducedMotion ? 'reduced motion' : 'full motion'}</dd></div>
+            </dl>
+          )}
         </section>
 
         <p className="debug-status" role="status" aria-live="polite" aria-atomic="true">{status}</p>
