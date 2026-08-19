@@ -1,0 +1,44 @@
+{
+  "name": "@texttrends/standard-ebooks",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Browser-first access to the Standard Ebooks catalog and analysis-ready ebook text.",
+  "engines": {
+    "node": ">=22.12.0"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./extract": {
+      "types": "./dist/extract.d.ts",
+      "import": "./dist/extract.js"
+    },
+    "./archive": {
+      "types": "./dist/archive.d.ts",
+      "import": "./dist/archive.js"
+    }
+  },
+  "files": [
+    "dist",
+    "!dist/build.tsbuildinfo",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "tsc -b tsconfig.build.json",
+    "test": "vitest run",
+    "test:live": "STANDARD_EBOOKS_LIVE_TEST=1 vitest run test/live.test.ts",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "pnpm typecheck && pnpm test && pnpm build"
+  },
+  "dependencies": {
+    "@xmldom/xmldom": "0.9.10",
+    "fflate": "0.8.3"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.10"
+  }
+}

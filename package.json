@@ -15,7 +15,7 @@
     "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle && pnpm check:bundle",
     "check:bundle": "node scripts/check-bundle.mjs",
     "build:se": "pnpm --filter @texttrends/standard-ebooks build",
-    "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && vitest run && pnpm --filter @texttrends/standard-ebooks test",
+    "test": "pnpm build:se && node --test 'scripts/*.test.mjs' && vitest run",
     "typecheck": "pnpm build:se && pnpm -r typecheck",
     "e2e": "pnpm --filter @texttrends/web e2e",
     "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs",
