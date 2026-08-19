@@ -174,6 +174,11 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('presentation · measure', presentation),
       parameter('presentation · smoothing', smoothing),
       parameter('resident series', input.trends.map((trend) => trend.label).join(', ')),
+      ...(input.linkedSelection === null ? [] : [
+        parameter('range comparison', 'selected trend sums vs baseline remainder'),
+        parameter('range direction', 'rate-contrast/1 over observed rates'),
+        parameter('range direction weight', 'solid when both pooled expected counts are at least 5'),
+      ]),
     ],
     limitations: [
       'Bins with no selected-token denominator are gaps, not zero observations.',
@@ -181,6 +186,9 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
         ? ['Where a document edge or adjacent gap supplies too few contributing bins, the plotted point retains its exact unsmoothed value.']
         : []),
       'Rates describe the selected corpus; they are not uncertainty estimates.',
+      ...(input.linkedSelection === null ? [] : [
+        'A multi-token match crossing a range boundary is assigned outside because ranged matches must be fully contained.',
+      ]),
     ],
   };
 }

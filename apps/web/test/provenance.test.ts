@@ -247,6 +247,11 @@ describe('provenanceFor', () => {
       .toBe('a token 9 through b token 4 (6 tokens across 2 documents)');
     expect(value.completeness.statement)
       .toBe('The selected range across 2 documents is represented.');
+    const text = formatProvenanceText(value);
+    expect(text).toContain('range comparison: selected trend sums vs baseline remainder');
+    expect(text).toContain('range direction: rate-contrast/1 over observed rates');
+    expect(text).toContain('both pooled expected counts are at least 5');
+    expect(text).toContain('fully contained');
   });
 });
 

@@ -33,7 +33,7 @@ There are five stable places:
 | Place | Governing question | Contents |
 |---|---|---|
 | Inputs | What texts make up this study? | active order, local library, acquisition, full-text measurements and term counts |
-| Trends | Where do tracked terms occur? | trend plate, dispersion, linked range |
+| Trends | Where do tracked terms occur? | trend plate, dispersion, term-by-book distribution shape, linked-range density against the corpus remainder |
 | Matches | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
 | Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
@@ -46,6 +46,12 @@ term detail alongside signed G², the underlying counts, document ranges, and
 per-side dispersion. A browser view retains at most the first 50,000 ranks;
 the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.
+
+Trends keeps the term set fixed to the at-most-five groups already being
+tracked. Its book matrix is qualitative shape, not a second exact-values table;
+Inputs remains the home of exact per-book counts. A linked range may show exact
+inside/rest rates for those tracked terms, but it never ranks vocabulary,
+discovers terms, or adds G² evidence columns—the Compare place owns those jobs.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only

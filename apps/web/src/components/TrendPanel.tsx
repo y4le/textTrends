@@ -14,7 +14,7 @@
  * setting; count is a separate unsmoothed view. Series identity
  * is color + dash in the Terms footer — never color alone. The plot holds
  * until every non-failed series resolves so the shared scale never jumps.
- * Exact per-book values live in Catalog; this surface stays focused on shape,
+ * Exact per-book values live in Inputs; this surface stays focused on shape,
  * distribution, and reading-position interaction.
  *
  * The chart spans its container's full width (the app gives it the viewport)
