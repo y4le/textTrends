@@ -108,6 +108,38 @@ export function occurrencePayloadBytes(occurrences: NumericOccurrences): number 
 }
 
 /**
+ * Build a fresh CSR-style document index over an occurrence vector. The
+ * vector's `(docOrdinal, pos)` order is an occurrence-cache invariant, so each
+ * boundary is found independently by binary search rather than by rescanning
+ * the full vector. Slice `[out[d], out[d + 1])` belongs to document ordinal d.
+ */
+export function trackDocumentSlices(
+  occurrences: NumericOccurrences,
+  docCount: number,
+): Uint32Array {
+  if (!Number.isSafeInteger(docCount) || docCount < 0) {
+    throw new RangeError('document count must be a non-negative safe integer');
+  }
+  const docs = occurrences.docOrdinal;
+  const out = new Uint32Array(docCount + 1);
+  for (let target = 0; target < docCount; target++) {
+    let low = 0;
+    let high = docs.length;
+    while (low < high) {
+      const middle = low + Math.floor((high - low) / 2);
+      if (docs[middle]! < target) low = middle + 1;
+      else high = middle;
+    }
+    out[target] = low;
+  }
+  out[docCount] = docs.length;
+  if (docs.length > 0 && docs[docs.length - 1]! >= docCount) {
+    throw new RangeError('occurrences reference a document outside the supplied count');
+  }
+  return out;
+}
+
+/**
  * The canonical MATCHING identity of a term group — the coordinates that fully
  * determine the `NumericOccurrences` a group produces against a fixed
  * (snapshot, selection). It captures every member's matching semantics (kind,

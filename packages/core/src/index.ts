@@ -169,6 +169,7 @@ export {
   OCCURRENCE_LIMITS_V1,
   TERM_GROUP_LIMITS_V1,
   termGroupIdentity,
+  trackDocumentSlices,
   validateGroup,
   type GroupMember,
   type PhraseElement,
@@ -176,6 +177,18 @@ export {
   type ResolverTable,
   type TermGroupSpec,
 } from './ops/occurrences.ts';
+export {
+  company,
+  createCompanyScratch,
+  COMPANY_CHECKPOINT_SPAN,
+  COMPANY_GAP_EDGES_V1,
+  type CompanyCheckpoint,
+  type CompanyPairV1,
+  type CompanyRequestV1,
+  type CompanyResultV1,
+  type CompanyScratchV1,
+  type CompanyTrackInputV1,
+} from './ops/company.ts';
 export {
   materializeReaderPage,
   planReaderPage,

@@ -11,7 +11,9 @@ import { fileURLToPath } from 'node:url';
 import {
   buildResolver,
   CapError,
+  company,
   composeSnapshot,
+  createCompanyScratch,
   createDocumentIndex,
   DEFAULT_INDEX_RECIPE,
   makeReadyDocument,
@@ -22,7 +24,9 @@ import {
   resolveSelection,
   segment,
   type DocumentIndexV1,
+  COMPANY_GAP_EDGES_V1,
   type MatchMode,
+  type NumericOccurrences,
   type Resolver,
   type TermGroupSpec,
 } from '@texttrends/core';
@@ -526,6 +530,100 @@ async function benchOccurrences(dir: string): Promise<void> {
   process.stdout.write(`${JSON.stringify(fixture, null, 2)}\n`);
 }
 
+/** Cached-occurrence Company benchmark. Five logical tracks use shifted,
+ * document-valid position buffers derived from one near-cap occurrence vector.
+ * Immutable provenance arrays remain borrowed, keeping fixture overhead small
+ * while exercising gap bucketing and directional classification rather than
+ * measuring only the identical-vector overlap fast path. */
+async function benchCompany(dir: string, iterations = 5): Promise<void> {
+  const fixture = await prepareOccurrenceBenchmark(dir);
+  const occurrence = occurrences(
+    fixture.snapshot,
+    fixture.shards,
+    fixture.resolvers,
+    fixture.selection,
+    fixture.nearCapGroup,
+  );
+  const maxSpanByDoc = new Uint32Array(fixture.snapshot.docs.length);
+  for (let index = 0; index < occurrence.pos.length; index++) {
+    const doc = occurrence.docOrdinal[index]!;
+    maxSpanByDoc[doc] = Math.max(maxSpanByDoc[doc]!, occurrence.spanTokens[index]!);
+  }
+  const shiftedOccurrence = (offset: number): NumericOccurrences => {
+    const pos = new Uint32Array(occurrence.pos.length);
+    for (let index = 0; index < pos.length; index++) {
+      const doc = occurrence.docOrdinal[index]!;
+      const ceiling = fixture.snapshot.docs[doc]!.tokenCount - maxSpanByDoc[doc]!;
+      pos[index] = Math.min(occurrence.pos[index]! + offset, ceiling);
+    }
+    return { ...occurrence, pos };
+  };
+  const offsets = [0, 7, 37, 101, 301] as const;
+  const tracks = offsets.map((offset, index) => ({
+    seriesId: `bench-${index}`,
+    groupId: `bench-group-${index}`,
+    occurrences: shiftedOccurrence(offset),
+  }));
+  const request = { method: 'company/1' as const, gapEdges: COMPANY_GAP_EDGES_V1 };
+  const run = async () => company(
+    fixture.snapshot,
+    fixture.selection,
+    tracks,
+    request,
+    createCompanyScratch(tracks, fixture.snapshot.docs.length),
+    async () => {},
+  );
+  await run(); // JIT warmup, discarded
+  const samples: number[] = [];
+  let result: Awaited<ReturnType<typeof run>> | null = null;
+  for (let iteration = 0; iteration < iterations; iteration++) {
+    const started = performance.now();
+    result = await run();
+    samples.push(performance.now() - started);
+  }
+  if (!result) throw new Error('company benchmark did not run');
+  const medianMs = median(samples);
+  const totalOccurrences = tracks.reduce((sum, track) => sum + track.occurrences.pos.length, 0);
+  const histogramBucketsPopulated = new Set<number>();
+  let overlapClassifications = 0;
+  for (const pair of result.pairs) {
+    pair.fromA.forEach((count, bucket) => {
+      if (count > 0) histogramBucketsPopulated.add(bucket);
+    });
+    pair.fromB.forEach((count, bucket) => {
+      if (count > 0) histogramBucketsPopulated.add(bucket);
+    });
+    overlapClassifications += pair.overlapA + pair.overlapB;
+  }
+  process.stdout.write(`${JSON.stringify({
+    method: {
+      command: 'node --expose-gc packages/cli/src/main.ts bench-company <dir>',
+      corpusFiles: fixture.files.length,
+      corpusTokens: fixture.snapshot.docs.reduce((sum, doc) => sum + doc.tokenCount, 0),
+      tracks: tracks.length,
+      occurrencesPerTrack: occurrence.pos.length,
+      positionOffsets: offsets,
+      totalOccurrences,
+      pairCount: result.pairs.length,
+      warmupIterations: 1,
+      measuredIterations: iterations,
+      reported: 'median of cached-occurrence kernel runs; scratch creation included',
+      node: process.version,
+    },
+    timing: {
+      medianMs: Math.round(medianMs * 10) / 10,
+      samplesMs: samples.map((sample) => Math.round(sample * 10) / 10),
+      sourceOccurrenceVisits: (tracks.length - 1) * totalOccurrences,
+      overlapClassifications,
+      histogramBucketsPopulated: histogramBucketsPopulated.size,
+    },
+    output: {
+      bytesUtf8Json: Buffer.byteLength(JSON.stringify(result)),
+      pairs: result.pairs.length,
+    },
+  }, null, 2)}\n`);
+}
+
 const [, , command, arg] = process.argv;
 switch (command) {
   case 'bench':
@@ -537,7 +635,10 @@ switch (command) {
   case 'bench-occurrences-worker':
     await benchOccurrencesWorker(arg ?? 'text/sherlock');
     break;
+  case 'bench-company':
+    await benchCompany(arg ?? 'text/sherlock');
+    break;
   default:
-    process.stdout.write('usage: node --expose-gc packages/cli/src/main.ts <bench|bench-occurrences> <dir>\n');
+    process.stdout.write('usage: node --expose-gc packages/cli/src/main.ts <bench|bench-occurrences|bench-company> <dir>\n');
     process.exitCode = command === undefined ? 0 : 1;
 }
