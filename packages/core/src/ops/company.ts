@@ -18,6 +18,10 @@ import {
   trackDocumentSlices,
   type NumericOccurrences,
 } from './occurrences.ts';
+import {
+  assertFullCorpusSelection,
+  assertOccurrenceDocumentSlices,
+} from './overview.ts';
 
 export const COMPANY_GAP_EDGES_V1 = [
   0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200,
@@ -95,22 +99,6 @@ interface DirectionResult {
   backward: number;
   tied: number;
   overlap: number;
-}
-
-function assertFullCorpusSelection(
-  snapshot: CorpusSnapshotV1,
-  selection: ResolvedSelection,
-): void {
-  if (selection.snapshot !== snapshot.id) {
-    throw new RangeError('selection is bound to a different snapshot');
-  }
-  if (
-    selection.spec.ranges !== undefined
-    || selection.spec.docs.length !== snapshot.docs.length
-    || selection.spec.docs.some((doc, index) => doc !== snapshot.docs[index]?.doc)
-  ) {
-    throw new RangeError('company requires the full corpus selection');
-  }
 }
 
 function assertRequest(request: CompanyRequestV1): void {
@@ -224,7 +212,7 @@ export async function company(
   scratch: CompanyScratchV1,
   checkpoint: CompanyCheckpoint,
 ): Promise<CompanyResultV1> {
-  assertFullCorpusSelection(snapshot, selection);
+  assertFullCorpusSelection('company', snapshot, selection);
   assertRequest(request);
   if (tracks.length < 2 || tracks.length > MAX_KWIC_TRACKS) {
     throw new RangeError(`company requires 2–${MAX_KWIC_TRACKS} tracks`);
@@ -235,33 +223,8 @@ export async function company(
   const docCount = snapshot.docs.length;
   for (let track = 0; track < tracks.length; track++) {
     const occurrences = tracks[track]!.occurrences;
-    if (occurrences.snapshot !== snapshot.id || occurrences.selection !== selection.hash) {
-      throw new RangeError('company occurrences were computed under different coordinates');
-    }
     const slices = scratch.documentSlices[track]!;
-    if (
-      slices.length !== docCount + 1
-      || slices[0] !== 0
-      || slices[docCount] !== occurrences.pos.length
-    ) {
-      throw new RangeError('company scratch does not index the supplied occurrences');
-    }
-    for (let doc = 0; doc < docCount; doc++) {
-      const start = slices[doc]!;
-      const end = slices[doc + 1]!;
-      if (
-        start > end
-        || end > occurrences.pos.length
-        || (start < end && (
-          occurrences.docOrdinal[start] !== doc
-          || occurrences.docOrdinal[end - 1] !== doc
-        ))
-        || (start > 0 && occurrences.docOrdinal[start - 1]! >= doc)
-        || (end < occurrences.pos.length && occurrences.docOrdinal[end]! <= doc)
-      ) {
-        throw new RangeError('company scratch contains invalid document boundaries');
-      }
-    }
+    assertOccurrenceDocumentSlices('company', snapshot, selection, occurrences, slices);
   }
 
   const pairs: CompanyPairV1[] = [];

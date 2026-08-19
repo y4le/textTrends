@@ -10,19 +10,30 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   buildResolver,
+  bindShardsIncremental,
+  bindTextsVerified,
   CapError,
   company,
   composeSnapshot,
+  createBindingSession,
   createCompanyScratch,
+  createDestinationsScratch,
   createDocumentIndex,
   DEFAULT_INDEX_RECIPE,
+  destinationScratchBytes,
+  DESTINATION_MAX_RESULTS,
+  DESTINATION_WINDOW_TOKENS_V1,
   makeReadyDocument,
+  materializeDestinations,
   modeKey,
   OCCURRENCE_LIMITS_V1,
   occurrencePayloadBytes,
   occurrences,
+  planDestinationWindowSpikeV0,
+  planDestinations,
   resolveSelection,
   segment,
+  verifyText,
   type DocumentIndexV1,
   COMPANY_GAP_EDGES_V1,
   type MatchMode,
@@ -185,11 +196,13 @@ async function bench(dir: string, iterations = 3): Promise<void> {
 
 interface OccurrenceBenchmarkFixture {
   files: string[];
+  sourceTexts: Map<string, string>;
   shards: Map<string, DocumentIndexV1>;
   snapshot: Awaited<ReturnType<typeof composeSnapshot>>;
   selection: Awaited<ReturnType<typeof resolveSelection>>;
   resolvers: Map<string, Map<string, Resolver>>;
   common: [string, number];
+  typesByFrequency: readonly [string, number][];
   nearCap: { surface: string; postings: number; members: number };
   nearCapGroup: TermGroupSpec;
   capGroup: TermGroupSpec;
@@ -223,10 +236,12 @@ async function prepareOccurrenceBenchmark(dir: string): Promise<OccurrenceBenchm
   const texts = files.map((p) => readFileSync(p, 'utf8'));
   const docs = files.map((path, index) => `bench-${index}-${path.split('/').pop() ?? index}`);
   const shards = new Map<string, DocumentIndexV1>();
+  const sourceTexts = new Map<string, string>();
   const ready = new Map<string, Awaited<ReturnType<typeof makeReadyDocument>>>();
   for (let i = 0; i < files.length; i++) {
     const shard = (await indexFile(files[i] as string, texts[i] as string)).shard;
     shards.set(docs[i] as string, shard);
+    sourceTexts.set(docs[i] as string, texts[i] as string);
     ready.set(docs[i]!, await makeReadyDocument(docs[i]! as never, shard));
   }
   const snapshot = await composeSnapshot('occurrence-benchmark' as never, docs as never, ready as never);
@@ -250,7 +265,9 @@ async function prepareOccurrenceBenchmark(dir: string): Promise<OccurrenceBenchm
       frequencies.set(key, (frequencies.get(key) ?? 0) + count);
     }
   }
-  const common = [...frequencies].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0];
+  const typesByFrequency = [...frequencies]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  const common = typesByFrequency[0];
   if (!common) throw new Error('occurrence benchmark corpus contains no tokens');
   const nearCapCandidate = [...frequencies]
     .flatMap(([surface, postings]) => {
@@ -293,11 +310,13 @@ async function prepareOccurrenceBenchmark(dir: string): Promise<OccurrenceBenchm
 
   return {
     files,
+    sourceTexts,
     shards,
     snapshot,
     selection,
     resolvers,
     common,
+    typesByFrequency,
     nearCap: nearCapCandidate,
     nearCapGroup,
     capGroup,
@@ -530,20 +549,16 @@ async function benchOccurrences(dir: string): Promise<void> {
   process.stdout.write(`${JSON.stringify(fixture, null, 2)}\n`);
 }
 
-/** Cached-occurrence Company benchmark. Five logical tracks use shifted,
- * document-valid position buffers derived from one near-cap occurrence vector.
- * Immutable provenance arrays remain borrowed, keeping fixture overhead small
- * while exercising gap bucketing and directional classification rather than
- * measuring only the identical-vector overlap fast path. */
-async function benchCompany(dir: string, iterations = 5): Promise<void> {
-  const fixture = await prepareOccurrenceBenchmark(dir);
-  const occurrence = occurrences(
-    fixture.snapshot,
-    fixture.shards,
-    fixture.resolvers,
-    fixture.selection,
-    fixture.nearCapGroup,
-  );
+const BENCH_TRACK_OFFSETS = [0, 7, 37, 101, 301] as const;
+
+function shiftedBenchmarkTracks(
+  fixture: OccurrenceBenchmarkFixture,
+  occurrence: NumericOccurrences,
+): readonly {
+  readonly seriesId: string;
+  readonly groupId: string;
+  readonly occurrences: NumericOccurrences;
+}[] {
   const maxSpanByDoc = new Uint32Array(fixture.snapshot.docs.length);
   for (let index = 0; index < occurrence.pos.length; index++) {
     const doc = occurrence.docOrdinal[index]!;
@@ -558,12 +573,75 @@ async function benchCompany(dir: string, iterations = 5): Promise<void> {
     }
     return { ...occurrence, pos };
   };
-  const offsets = [0, 7, 37, 101, 301] as const;
-  const tracks = offsets.map((offset, index) => ({
+  return BENCH_TRACK_OFFSETS.map((offset, index) => ({
     seriesId: `bench-${index}`,
     groupId: `bench-group-${index}`,
     occurrences: shiftedOccurrence(offset),
   }));
+}
+
+/** Five cache-admissible near-cap vectors whose positions are interleaved over
+ * the real snapshot geometry. Unlike duplicate-member term fixtures, these
+ * maximize distinct anchor positions, which is the Destinations hot path. */
+function interleavedDestinationBenchmarkTracks(
+  fixture: OccurrenceBenchmarkFixture,
+): readonly {
+  readonly seriesId: string;
+  readonly groupId: string;
+  readonly occurrences: NumericOccurrences;
+}[] {
+  const trackCount = 5;
+  const corpusTokens = fixture.snapshot.docs.reduce((sum, doc) => sum + doc.tokenCount, 0);
+  const occurrencesPerTrack = Math.min(OCCURRENCE_LIMITS_V1.maxOccurrences, corpusTokens);
+  return Array.from({ length: trackCount }, (_, track) => {
+    const docOrdinal = new Uint32Array(occurrencesPerTrack);
+    const pos = new Uint32Array(occurrencesPerTrack);
+    const spanTokens = new Uint32Array(occurrencesPerTrack);
+    spanTokens.fill(1);
+    let doc = 0;
+    for (let index = 0; index < occurrencesPerTrack; index++) {
+      const global = Math.floor(
+        ((index * trackCount + track) * corpusTokens)
+        / (occurrencesPerTrack * trackCount),
+      );
+      while (
+        doc + 1 < fixture.snapshot.docs.length
+        && global >= fixture.snapshot.docs[doc + 1]!.sequenceTokenBase
+      ) doc++;
+      docOrdinal[index] = doc;
+      pos[index] = global - fixture.snapshot.docs[doc]!.sequenceTokenBase;
+    }
+    return {
+      seriesId: `bench-${track}`,
+      groupId: `bench-group-${track}`,
+      occurrences: {
+        snapshot: fixture.snapshot.id,
+        selection: fixture.selection.hash,
+        docOrdinal,
+        pos,
+        spanTokens,
+        memberOffsets: new Uint32Array(occurrencesPerTrack + 1),
+        memberOrdinals: new Uint32Array(),
+      },
+    };
+  });
+}
+
+/** Cached-occurrence Company benchmark. Five logical tracks use shifted,
+ * document-valid position buffers derived from one near-cap occurrence vector.
+ * Immutable provenance arrays remain borrowed, keeping fixture overhead small
+ * while exercising gap bucketing and directional classification rather than
+ * measuring only the identical-vector overlap fast path. */
+async function benchCompany(dir: string, iterations = 5): Promise<void> {
+  const fixture = await prepareOccurrenceBenchmark(dir);
+  const occurrence = occurrences(
+    fixture.snapshot,
+    fixture.shards,
+    fixture.resolvers,
+    fixture.selection,
+    fixture.nearCapGroup,
+  );
+  const tracks = shiftedBenchmarkTracks(fixture, occurrence);
   const request = { method: 'company/1' as const, gapEdges: COMPANY_GAP_EDGES_V1 };
   const run = async () => company(
     fixture.snapshot,
@@ -602,7 +680,7 @@ async function benchCompany(dir: string, iterations = 5): Promise<void> {
       corpusTokens: fixture.snapshot.docs.reduce((sum, doc) => sum + doc.tokenCount, 0),
       tracks: tracks.length,
       occurrencesPerTrack: occurrence.pos.length,
-      positionOffsets: offsets,
+      positionOffsets: BENCH_TRACK_OFFSETS,
       totalOccurrences,
       pairCount: result.pairs.length,
       warmupIterations: 1,
@@ -624,6 +702,212 @@ async function benchCompany(dir: string, iterations = 5): Promise<void> {
   }, null, 2)}\n`);
 }
 
+/** Cached-occurrence Destinations benchmark. Planning includes fresh bounded
+ * scratch; source binding is prepared outside the measured phases. */
+async function benchDestinations(dir: string, iterations = 5): Promise<void> {
+  const fixture = await prepareOccurrenceBenchmark(dir);
+  const tracks = interleavedDestinationBenchmarkTracks(fixture);
+  const request = {
+    method: 'destinations/1' as const,
+    windowTokens: DESTINATION_WINDOW_TOKENS_V1,
+    limit: DESTINATION_MAX_RESULTS,
+    focus: null,
+  } as const;
+  const runPlan = () => planDestinations(
+    fixture.snapshot,
+    fixture.selection,
+    tracks,
+    request,
+    createDestinationsScratch(tracks, fixture.snapshot.docs.length),
+    async () => {},
+  );
+  await runPlan();
+  await runPlan();
+  const planSamples: number[] = [];
+  let plan: Awaited<ReturnType<typeof runPlan>> | null = null;
+  for (let iteration = 0; iteration < iterations; iteration++) {
+    const started = performance.now();
+    plan = await runPlan();
+    planSamples.push(performance.now() - started);
+  }
+  if (!plan) throw new Error('destinations planning benchmark did not run');
+
+  const binding = createBindingSession();
+  const boundShards = await bindShardsIncremental(binding, fixture.snapshot, fixture.shards);
+  const verifiedTexts = new Map<string, Awaited<ReturnType<typeof verifyText>>>();
+  for (const [doc, text] of fixture.sourceTexts) verifiedTexts.set(doc, await verifyText(text));
+  const boundTexts = await bindTextsVerified(fixture.snapshot, boundShards, verifiedTexts);
+  const runMaterialize = () => materializeDestinations(
+    fixture.snapshot,
+    plan!,
+    boundShards,
+    boundTexts,
+    tracks,
+  );
+  runMaterialize();
+  runMaterialize();
+  const materializeSamples: number[] = [];
+  let result: ReturnType<typeof runMaterialize> | null = null;
+  for (let iteration = 0; iteration < iterations; iteration++) {
+    const started = performance.now();
+    result = runMaterialize();
+    materializeSamples.push(performance.now() - started);
+  }
+  if (!result) throw new Error('destinations materialization benchmark did not run');
+  const scratch = createDestinationsScratch(tracks, fixture.snapshot.docs.length);
+  process.stdout.write(`${JSON.stringify({
+    method: {
+      command: 'node --expose-gc packages/cli/src/main.ts bench-destinations <dir>',
+      corpusFiles: fixture.files.length,
+      corpusTokens: fixture.snapshot.docs.reduce((sum, doc) => sum + doc.tokenCount, 0),
+      tracks: tracks.length,
+      occurrencesPerTrack: tracks[0]!.occurrences.pos.length,
+      totalOccurrences: tracks.reduce((sum, track) => sum + track.occurrences.pos.length, 0),
+      positionFixture: 'five interleaved cache-admissible vectors over real snapshot geometry',
+      windowTokens: request.windowTokens,
+      warmupIterations: 2,
+      measuredIterations: iterations,
+      node: process.version,
+    },
+    planning: {
+      medianMs: Math.round(median(planSamples) * 10) / 10,
+      samplesMs: planSamples.map((sample) => Math.round(sample * 10) / 10),
+      scratchBytes: destinationScratchBytes(scratch),
+      destinations: plan.destinations.length,
+    },
+    materialization: {
+      medianMs: Math.round(median(materializeSamples) * 100) / 100,
+      samplesMs: materializeSamples.map((sample) => Math.round(sample * 100) / 100),
+    },
+    output: {
+      bytesUtf8Json: Buffer.byteLength(JSON.stringify(result)),
+      destinations: result.destinations.length,
+      marks: result.destinations.reduce((sum, item) => sum + item.snippet.marks.length, 0),
+    },
+  }, null, 2)}\n`);
+}
+
+/** Deterministic real-kernel policy spike used before destinations/1 is
+ * admitted to the worker protocol. It compares window widths across four
+ * qualitatively different track sets and reports the full Company edge mass. */
+async function spikeOverview(dir: string): Promise<void> {
+  const fixture = await prepareOccurrenceBenchmark(dir);
+  const exact: MatchMode = { case: 'sensitive', diacritics: 'sensitive' };
+  const groupFor = (surface: string, index: number): TermGroupSpec => ({
+    id: `spike-${index}`,
+    countOverlaps: false,
+    members: [{ id: `token-${index}`, kind: 'token', surface, match: exact }],
+  });
+  const distinct = fixture.typesByFrequency.filter(([, count]) => count > 0);
+  const commonTypes = distinct.slice(0, 5);
+  const rareType = [...distinct].reverse().find(([, count]) => count >= 2) ?? distinct.at(-1);
+  if (commonTypes.length < 5 || rareType === undefined) {
+    throw new Error('overview spike needs at least five observed token types');
+  }
+  const makeTracks = (types: readonly [string, number][]) => types.map(([surface], index) => ({
+    seriesId: `spike-${index}`,
+    groupId: surface,
+    occurrences: occurrences(
+      fixture.snapshot,
+      fixture.shards,
+      fixture.resolvers,
+      fixture.selection,
+      groupFor(surface, index),
+    ),
+  }));
+  const rare = makeTracks([rareType]);
+  const cooccurring = makeTracks(commonTypes.slice(0, 2));
+  const commonRare = makeTracks([commonTypes[0]!, rareType]);
+  const nearCap = occurrences(
+    fixture.snapshot,
+    fixture.shards,
+    fixture.resolvers,
+    fixture.selection,
+    fixture.nearCapGroup,
+  );
+  const capPressure = shiftedBenchmarkTracks(fixture, nearCap);
+  const scenarios = [
+    ['rare', rare],
+    ['co-occurring-common', cooccurring],
+    ['common-plus-rare', commonRare],
+    ['five-track-cap-pressure', capPressure],
+  ] as const;
+  const destinationResults = [];
+  for (const [scenario, tracks] of scenarios) {
+    for (const windowTokens of [300, 400, 600] as const) {
+      const plan = await planDestinationWindowSpikeV0(
+        fixture.snapshot,
+        fixture.selection,
+        tracks,
+        {
+          method: 'destinations/1',
+          windowTokens,
+          limit: DESTINATION_MAX_RESULTS,
+          focus: null,
+        },
+        createDestinationsScratch(tracks, fixture.snapshot.docs.length),
+        async () => {},
+      );
+      destinationResults.push({
+        scenario,
+        windowTokens,
+        trackTotals: plan.tracks.map((track) => track.total),
+        resultCount: plan.destinations.length,
+        docsRepresented: new Set(plan.destinations.map((item) => item.docOrdinal)).size,
+        meanPresentTracks: plan.destinations.length === 0 ? 0 : Math.round(
+          100 * plan.destinations.reduce((sum, item) => sum + item.presentTracks, 0)
+          / plan.destinations.length,
+        ) / 100,
+        top: plan.destinations.slice(0, 3).map((item) => ({
+          docOrdinal: item.docOrdinal,
+          tokens: item.tokens,
+          counts: item.counts,
+          score: item.score,
+        })),
+      });
+    }
+  }
+  const companyResults = [];
+  for (const [scenario, tracks] of [
+    ['co-occurring-common', cooccurring],
+    ['common-plus-rare', commonRare],
+  ] as const) {
+    const result = await company(
+      fixture.snapshot,
+      fixture.selection,
+      tracks,
+      { method: 'company/1', gapEdges: COMPANY_GAP_EDGES_V1 },
+      createCompanyScratch(tracks, fixture.snapshot.docs.length),
+      async () => {},
+    );
+    const pair = result.pairs[0]!;
+    companyResults.push({
+      scenario,
+      trackTotals: result.tracks.map((track) => track.total),
+      fromA: pair.fromA,
+      fromB: pair.fromB,
+      overlapA: pair.overlapA,
+      overlapB: pair.overlapB,
+      noneA: pair.noneA,
+      noneB: pair.noneB,
+    });
+  }
+  process.stdout.write(`${JSON.stringify({
+    method: {
+      command: 'node packages/cli/src/main.ts spike-overview <dir>',
+      corpusFiles: fixture.files.length,
+      corpusTokens: fixture.snapshot.docs.reduce((sum, doc) => sum + doc.tokenCount, 0),
+      commonTypes,
+      rareType,
+    },
+    company: {
+      gapEdges: COMPANY_GAP_EDGES_V1,
+      scenarios: companyResults,
+    },
+    destinations: destinationResults,
+  }, null, 2)}\n`);
+}
+
 const [, , command, arg] = process.argv;
 switch (command) {
   case 'bench':
@@ -638,7 +922,13 @@ switch (command) {
   case 'bench-company':
     await benchCompany(arg ?? 'text/sherlock');
     break;
+  case 'bench-destinations':
+    await benchDestinations(arg ?? 'text/sherlock');
+    break;
+  case 'spike-overview':
+    await spikeOverview(arg ?? 'text/sherlock');
+    break;
   default:
-    process.stdout.write('usage: node --expose-gc packages/cli/src/main.ts <bench|bench-occurrences|bench-company> <dir>\n');
+    process.stdout.write('usage: node --expose-gc packages/cli/src/main.ts <bench|bench-occurrences|bench-company|bench-destinations|spike-overview> <dir>\n');
     process.exitCode = command === undefined ? 0 : 1;
 }
