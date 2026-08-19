@@ -52,6 +52,10 @@ describe('shortcut registry', () => {
   it('captures only named browser chords and never composition', () => {
     expect(shortcutMatches(key('?'), 'show-help')).toBe(true);
     expect(shortcutMatches(key('?', { shiftKey: true }), 'show-help')).toBe(true);
+    expect(shortcutMatches(key('D', { shiftKey: true }), 'show-debug')).toBe(true);
+    expect(shortcutMatches(key('D'), 'show-debug')).toBe(false);
+    expect(shortcutMatches(key('d'), 'show-debug')).toBe(false);
+    expect(shortcutMatches(key('D', { shiftKey: true, ctrlKey: true }), 'show-debug')).toBe(false);
     expect(shortcutMatches(key('w', { ctrlKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('u', { ctrlKey: true }), 'row-half-page-previous')).toBe(true);
     expect(shortcutMatches(key('d', { ctrlKey: true }), 'row-half-page-next')).toBe(true);
@@ -163,6 +167,8 @@ describe('shortcut registry', () => {
       });
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'show-debug')?.keys).toEqual(['Shift + D']);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'find-previous')?.keys).toEqual([
         'p',

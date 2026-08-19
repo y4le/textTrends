@@ -5,6 +5,7 @@ export type ShortcutHelpContext = 'workbench' | 'reader';
 
 export type ShortcutId =
   | 'show-help'
+  | 'show-debug'
   | 'find-open'
   | 'find-next'
   | 'find-previous'
@@ -72,6 +73,10 @@ export type ShortcutId =
 interface ShortcutStroke {
   readonly key: string;
   readonly shift?: true;
+  /** Require the physical Shift modifier even when `key` is already an
+   * uppercase resolved character. Used when the modifier is part of the
+   * shortcut contract rather than merely how the character is typed. */
+  readonly explicitShift?: true;
   readonly ctrl?: true;
   readonly meta?: true;
 }
@@ -133,6 +138,13 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench', 'reader'],
     label: 'Toggle keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
+  },
+  {
+    id: 'show-debug',
+    group: 'Global',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Open debug menu',
+    strokes: [{ key: 'D', shift: true, explicitShift: true }],
   },
   {
     id: 'find-open',
@@ -597,8 +609,8 @@ function definition(id: ShortcutId): ShortcutDefinition {
 }
 
 function shiftIsImpliedByResolvedKey(stroke: ShortcutStroke): boolean {
-  return stroke.key === '?' || stroke.key === '/'
-    || (stroke.key.length === 1 && stroke.key >= 'A' && stroke.key <= 'Z');
+  return stroke.explicitShift !== true && (stroke.key === '?' || stroke.key === '/'
+    || (stroke.key.length === 1 && stroke.key >= 'A' && stroke.key <= 'Z'));
 }
 
 function strokeMatches(event: ShortcutEventLike, stroke: ShortcutStroke): boolean {

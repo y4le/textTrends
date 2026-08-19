@@ -6,7 +6,7 @@ import {
   type MatchesTrackWidth,
 } from './matches-columns.ts';
 
-const STORAGE_KEY = 'texttrends/matches-columns/3';
+export const MATCHES_COLUMN_STORAGE_KEY = 'texttrends/matches-columns/3';
 const CONTEXT_COLUMNS = ['left', 'right'] as const;
 
 type StorageReader = Pick<Storage, 'getItem'>;
@@ -34,7 +34,7 @@ export function loadMatchesColumnSettings(
 ): MatchesColumnSettings | null {
   if (storage === null) return null;
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(MATCHES_COLUMN_STORAGE_KEY);
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
@@ -68,7 +68,7 @@ export function saveMatchesColumnSettings(
 ): void {
   if (storage === null) return;
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    storage.setItem(MATCHES_COLUMN_STORAGE_KEY, JSON.stringify(settings));
   } catch {
     // Storage can be disabled or full; resizing remains functional for the
     // lifetime of the current page.

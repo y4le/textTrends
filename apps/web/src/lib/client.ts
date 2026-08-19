@@ -23,10 +23,14 @@ import type {
   QueryOpV4,
   QueryResultDataV4,
   ToWorkerV4,
+  StorageWarningCodeV4,
   WorkerErrorCodeV4,
 } from '../worker/protocol-v4.ts';
 import { PROTOCOL_VERSION_V4 } from '../worker/protocol-v4.ts';
 import type { ProtocolTraceSink } from './trace.ts';
+
+/** Sanitized transport identity for diagnostics outside the wire boundary. */
+export const workerProtocolVersion = PROTOCOL_VERSION_V4;
 
 /** Transport-lifecycle failure codes for analysis-lane rejections. */
 export type WorkerClientFailureCode =
@@ -108,11 +112,21 @@ type Pending =
   | { kind: 'query'; resolve: (r: QueryResultDataV4) => void; reject: (e: Error) => void }
   | { kind: 'open'; resolve: (r: GenerationReady) => void; reject: (e: Error) => void };
 
+export interface WorkerClientDiagnostics {
+  readonly health: 'live' | 'dead' | 'closed';
+  readonly restartCount: number;
+  readonly pendingRequests: number;
+  readonly lastStorageWarning: {
+    readonly code: StorageWarningCodeV4;
+  } | null;
+}
+
 export class WorkerClient {
   private worker: Worker;
   /** Fences messages AND late handlers from a replaced worker instance. */
   private workerEpoch = 0;
   private restartAttempts = 0;
+  private restartCount = 0;
   /** Set when restarts are exhausted: the worker is terminated and NOT
    *  replaced. New queries reject immediately — posting into a terminated
    *  worker would hang forever — and only an explicit openGeneration (a
@@ -128,6 +142,7 @@ export class WorkerClient {
   private ingestErrorListener: ((generation: string, message: string, doc?: string) => void) | null = null;
   private sourceReadyListener: ((info: SourceReadyInfo) => void) | null = null;
   private restartListener: ((fatal: boolean) => void) | null = null;
+  private lastStorageWarning: WorkerClientDiagnostics['lastStorageWarning'] = null;
   /** job -> the ingest's generation + document. A successful ingest has no
    *  job-bearing completion event (source-ready is too early — segment/index
    *  work can still fail after it), so entries are retired DELIBERATELY:
@@ -165,6 +180,7 @@ export class WorkerClient {
    *  recovery is the app's: re-open the generation (warm) and refetch only
    *  what the barrier reports missing. */
   private restart(): void {
+    this.restartCount++;
     for (const [, p] of this.pending) {
       p.reject(new WorkerClientError('WORKER_RESTARTED', 'WORKER_RESTARTED'));
     }
@@ -297,6 +313,7 @@ export class WorkerClient {
         // ingest-failure or query rejection paths. The codes are all
         // artifact-CACHE degradation (cold recomputes, never data loss), so a
         // console warning is the whole surface.
+        this.lastStorageWarning = { code: m.code };
         console.warn(`[texttrends worker] ${m.code}: ${m.message}`);
         return;
       case 'source-ready':
@@ -315,6 +332,35 @@ export class WorkerClient {
           suspiciousControlCount: m.suspiciousControlCount,
         });
         return;
+    }
+  }
+
+  /** Metadata-only health snapshot for the production debug pane. */
+  diagnostics(): WorkerClientDiagnostics {
+    return {
+      health: this.closed ? 'closed' : this.dead ? 'dead' : 'live',
+      restartCount: this.restartCount,
+      pendingRequests: this.pending.size,
+      lastStorageWarning: this.lastStorageWarning === null
+        ? null
+        : { ...this.lastStorageWarning },
+    };
+  }
+
+  /** Deliberately replace the worker. The session's existing restart listener
+   * reopens the current generation against the fresh process. */
+  restartNow(): boolean {
+    if (this.closed) return false;
+    this.restartAttempts = 0;
+    this.dead = false;
+    try {
+      this.restart();
+      return !this.dead;
+    } catch {
+      this.dead = true;
+      this.workerEpoch++;
+      this.restartListener?.(true);
+      return false;
     }
   }
 

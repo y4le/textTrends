@@ -499,7 +499,7 @@ canvas {
 
 .input-card-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--space-2);
 }
 
@@ -608,16 +608,56 @@ canvas {
 }
 
 .active-input-actions,
-.demo-actions,
 .local-library-row {
   display: flex;
   align-items: baseline;
   gap: var(--space-1);
 }
 
-.demo-actions {
+.input-sample {
+  display: flex;
+  align-items: center;
   flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
   margin-block-start: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--rule);
+}
+
+.input-sample-copy {
+  display: flex;
+  flex: 1 1 28rem;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+}
+
+.input-sample-copy span,
+.input-sample-actions > span,
+.input-sample-message {
+  color: var(--fg-muted);
+}
+
+.input-sample-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
+.input-sample-actions button[aria-disabled='true'],
+.input-sample-actions button:disabled {
+  cursor: default !important;
+  opacity: 0.55;
+}
+
+.input-sample-message {
+  flex-basis: 100%;
+  margin: 0;
+}
+
+.input-sample-compact {
+  font-size: var(--text-xs);
 }
 
 .local-library-row {
@@ -724,12 +764,6 @@ canvas {
 
 .active-input-actions button[aria-disabled='true'] {
   opacity: 0.55;
-}
-
-@media (max-width: 999.98px) {
-  .input-card-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
 }
 
 @media (max-width: 799.98px) {
@@ -3410,6 +3444,100 @@ canvas {
   font-size: var(--text-xs);
 }
 
+.debug-pane .utility-pane-body {
+  padding-block-end: var(--space-5);
+}
+
+.debug-sections {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-4);
+}
+
+.debug-sections > section {
+  min-width: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+}
+
+.debug-sections h3,
+.debug-sections p,
+.debug-facts {
+  margin-block: 0 var(--space-2);
+}
+
+.debug-sections h3 {
+  font-size: var(--text-md);
+}
+
+.debug-sections p,
+.debug-facts {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.debug-facts {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.debug-facts > div {
+  display: grid;
+  grid-template-columns: minmax(8rem, 0.4fr) minmax(0, 1fr);
+  gap: var(--space-2);
+}
+
+.debug-facts dt {
+  color: var(--fg);
+}
+
+.debug-facts dd {
+  min-width: 0;
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+
+.debug-facts code {
+  font-family: ui-monospace, monospace;
+  font-size: var(--text-xs);
+}
+
+.debug-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.debug-actions button {
+  border: 1px solid var(--rule-strong);
+  padding-inline: var(--space-2);
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.debug-actions button:disabled,
+.debug-actions button[aria-disabled='true'] {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.debug-actions .debug-danger {
+  color: var(--accent-text);
+  border-color: currentColor;
+}
+
+.debug-recovery-note {
+  margin-block-start: var(--space-2) !important;
+}
+
+.debug-status {
+  grid-column: 1 / -1;
+  min-block-size: 1.4em;
+  margin: 0;
+}
+
 @media (max-width: 860px) {
   .shortcut-help-sections {
     grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -3430,6 +3558,14 @@ canvas {
   .shortcut-help-sections {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-3);
+  }
+
+  .debug-sections {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .debug-facts > div {
+    grid-template-columns: minmax(7rem, 0.4fr) minmax(0, 1fr);
   }
 }
 

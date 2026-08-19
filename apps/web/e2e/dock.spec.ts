@@ -20,7 +20,7 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await expect.poll(() => rootMetric(page, '--dock-block-size'))
     .toBe(await rootMetric(page, '--terms-rail-block-size'));
 
-  await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
+  await page.getByRole('button', { name: 'Try the Sherlock Holmes sample' }).click();
   await expect(termButtons).toHaveCount(3);
   await expect.poll(() => rootMetric(page, '--footer-block-size')).toBeGreaterThan(0);
   const railTopBefore = (await terms.boundingBox())?.y;

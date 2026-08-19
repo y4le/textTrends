@@ -18,6 +18,13 @@ export default defineConfig(({ mode }) => ({
   // normal bundle for the facade name to prove elimination.
   define: {
     __TT_E2E__: JSON.stringify(mode === 'e2e'),
+    __TT_BUILD__: JSON.stringify({
+      mode,
+      commit: process.env.GITHUB_SHA
+        ?? process.env.VERCEL_GIT_COMMIT_SHA
+        ?? process.env.COMMIT_SHA
+        ?? null,
+    }),
   },
   // Vitest must not collect the Playwright specs (e2e/*.spec.ts) — they
   // only run under `playwright test` against a served build.

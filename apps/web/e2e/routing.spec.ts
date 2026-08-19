@@ -117,7 +117,11 @@ test('a fresh p-less workspace opens Inputs without loading a demo implicitly', 
   await expect(page.getByRole('link', { name: 'Inputs', exact: true }))
     .toHaveAttribute('aria-current', 'page');
   await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
-  await expect(page.getByRole('button', { name: 'Load Sherlock Holmes demo' })).toBeVisible();
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  await expect(active.getByText('Want to explore first?', { exact: true })).toBeVisible();
+  await expect(active.getByRole('button', { name: 'Add your files' })).toBeVisible();
+  await expect(active.getByRole('button', { name: 'Try the Sherlock Holmes sample' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Load demo' })).toHaveCount(0);
   expect(requests).toEqual([]);
   await expect.poll(() => page.evaluate(async (databaseName) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {

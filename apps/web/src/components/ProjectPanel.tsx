@@ -5,7 +5,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-import { fetchDemoCorpus } from '../lib/demo-corpora.ts';
+import {
+  demoLoadNotice,
+  LIBRARY_BUSY_NOTICE,
+  loadDemoCorpus,
+} from '../lib/demo-loader.ts';
 import {
   localFileIdentity,
   localLibrary,
@@ -13,7 +17,13 @@ import {
   type LocalLibraryFile,
   type LocalLibraryItem,
 } from '../lib/local-library.ts';
-import { BUILTIN_CORPORA, builtinCorpusOption, SOURCE_FILE_ACCEPT, type BuiltinCorpusId } from '../lib/project.ts';
+import {
+  BUILTIN_SHERLOCK_ID,
+  SHERLOCK,
+  builtinCorpusOption,
+  SOURCE_FILE_ACCEPT,
+  type BuiltinCorpusId,
+} from '../lib/project.ts';
 import type { SourceStatus } from '../lib/project-session.ts';
 import { libraryOperation } from '../lib/library-operation.ts';
 import { inputResetCopy } from '../lib/input-reset-view.ts';
@@ -21,7 +31,10 @@ import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
 const ACTIVE_DRAG = 'application/x-texttrends-active-document';
-const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when it finishes.';
+const SHERLOCK_CORPUS = builtinCorpusOption(BUILTIN_SHERLOCK_ID)!;
+const SHERLOCK_LIBRARY_IDS = new Set(
+  SHERLOCK.map((document) => localFileIdentity('txt', document.sourceHash)),
+);
 
 function sourceLabel(status: SourceStatus | undefined): string {
   switch (status?.phase) {
@@ -51,8 +64,6 @@ export function ProjectPanel() {
   const docs = useApp((s) => s.projectSession?.project.data.docs ?? null);
   const imports = useApp((s) => s.projectSession?.imports ?? null);
   const sources = useApp((s) => s.projectSession?.sources ?? null);
-  const mergeStarterTerms = useApp((s) => s.mergeStarterTerms);
-  const resetKeynessComparison = useApp((s) => s.resetKeynessComparison);
   const importFiles = useApp((s) => s.importFiles);
   const removeImport = useApp((s) => s.removeImport);
   const removeDocument = useApp((s) => s.removeDocument);
@@ -137,6 +148,7 @@ export function ProjectPanel() {
   const importLabel = 'Add files';
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
+  const inputCount = finalizedDocs.length + pendingImports.length;
   const canReorder = pendingImports.length === 0 && finalizedDocs.length > 1;
   activeIdentityRef.current = new Set(finalizedDocs.flatMap((doc) => doc.library === undefined ? [] : [doc.library]));
   if (pendingImports.length > 0) sawPendingImportsRef.current = true;
@@ -144,6 +156,24 @@ export function ProjectPanel() {
     pendingActivationRef.current.clear();
     sawPendingImportsRef.current = false;
   }
+  const activeSherlockIds = new Set([
+    ...finalizedDocs.flatMap((document) => document.library === undefined ? [] : [document.library]),
+    ...pendingImports.map((item) => item.library),
+  ].filter((id) => SHERLOCK_LIBRARY_IDS.has(id)));
+  const savedSherlockCount = library.filter((item) => SHERLOCK_LIBRARY_IDS.has(item.id)).length;
+  const allSherlockActive = activeSherlockIds.size === SHERLOCK.length;
+  const sherlockActionLabel = demoLoading !== null
+    ? 'Adding Sherlock sample…'
+    : allSherlockActive
+      ? 'All Sherlock texts are active'
+      : savedSherlockCount === SHERLOCK.length
+        ? 'Activate saved Sherlock texts'
+        : activeSherlockIds.size > 0 || savedSherlockCount > 0
+          ? 'Add missing Sherlock texts'
+          : inputCount === 0
+            ? 'Try the Sherlock Holmes sample'
+            : 'Add Sherlock sample';
+  const sherlockActionUnavailable = demoLoading !== null || libraryBusy || allSherlockActive;
 
   const activateUnique = (
     files: readonly LocalLibraryFile[],
@@ -234,36 +264,16 @@ export function ProjectPanel() {
   };
 
   const loadDemo = async (id: BuiltinCorpusId) => {
-    const lease = claimLibrary();
-    if (lease === null) {
-      setDemoNotice(LIBRARY_BUSY_NOTICE);
-      return;
-    }
     setDemoLoading(id);
     setDemoError(null);
     setDemoNotice(null);
     try {
-      const demo = await fetchDemoCorpus(id);
-      const acquired = await acquire(demo.files, true, undefined, lease, setDemoNotice);
-      if (!acquired.ok) {
-        setDemoError('The demo texts were saved, but could not be activated. Review the app message, then retry.');
-        return;
-      }
-      if (acquired.firstDocument !== null) {
-        resetKeynessComparison(acquired.firstDocument);
-      }
-      const terms = mergeStarterTerms(demo.option.defaultTerms);
-      const termText = terms.added === 0
-        ? 'Starter terms were already present or the notebook is full.'
-        : `${terms.added} starter term${terms.added === 1 ? '' : 's'} added${terms.activated < terms.added ? `; ${terms.activated} activated` : ''}.`;
-      const inputText = acquired.activated === 0
-        ? 'No new texts were activated.'
-        : `${acquired.activated} local text${acquired.activated === 1 ? '' : 's'} activated.`;
-      setDemoNotice(`${demo.option.label}: ${inputText} ${termText}`);
+      const result = await loadDemoCorpus(id, 'additive', { getState: useApp.getState });
+      await refreshLibrary();
+      setDemoNotice(demoLoadNotice(result, 'additive'));
     } catch (error) {
       setDemoError(error instanceof Error ? error.message : String(error));
     } finally {
-      releaseLibrary(lease);
       setDemoLoading(null);
     }
   };
@@ -415,6 +425,8 @@ export function ProjectPanel() {
       const cleared = clearActiveInputsAndTerms();
       if (cleared.texts + cleared.terms === 0) return;
       setReorderNotice('');
+      setDemoError(null);
+      setDemoNotice(null);
       setActiveNotice(inputResetCopy(cleared.texts, cleared.terms).notice);
     } finally {
       releaseLibrary(lease);
@@ -440,12 +452,12 @@ export function ProjectPanel() {
         >
           <div className="input-card-heading-row">
             <h4 id="active-inputs-heading">Active inputs</h4>
-            <span>{finalizedDocs.length + pendingImports.length} text{finalizedDocs.length + pendingImports.length === 1 ? '' : 's'}</span>
+            <span>{inputCount} text{inputCount === 1 ? '' : 's'}</span>
             <span className="input-card-spacer" />
             <button
               type="button"
-              aria-disabled={libraryBusy || (finalizedDocs.length + pendingImports.length === 0 && termCount === 0)}
-              aria-label={inputResetCopy(finalizedDocs.length + pendingImports.length, termCount).accessibleName}
+              aria-disabled={libraryBusy || (inputCount === 0 && termCount === 0)}
+              aria-label={inputResetCopy(inputCount, termCount).accessibleName}
               onClick={clearActive}
               style={SMALL_BUTTON_STYLE}
             >
@@ -455,7 +467,7 @@ export function ProjectPanel() {
           <p className="input-card-help">
             These texts are analyzed in this order. Drop saved or new files here; drag rows or use the move buttons to reorder.
           </p>
-          {finalizedDocs.length === 0 && pendingImports.length === 0 && (
+          {inputCount === 0 && (
             <p className="input-card-empty">No active inputs. Nothing is being analyzed.</p>
           )}
           <p
@@ -531,6 +543,47 @@ export function ProjectPanel() {
               </li>
             ))}
           </ol>
+          <div className={`input-sample${inputCount === 0 ? ' input-sample-empty' : ' input-sample-compact'}`}>
+            <p className="input-sample-copy">
+              <strong>{inputCount === 0 ? 'Want to explore first?' : 'Sample corpus'}</strong>
+              <span>
+                {inputCount === 0
+                  ? 'Add your own files, or explore with prepared public-domain texts and suggested terms.'
+                  : 'Sherlock can be added without replacing your active texts or authored terms.'}
+              </span>
+            </p>
+            <div className="input-sample-actions">
+              {inputCount === 0 && (
+                <>
+                  <button
+                    type="button"
+                    disabled={libraryBusy}
+                    onClick={() => importRef.current?.click()}
+                    style={{ ...SMALL_BUTTON_STYLE, borderColor: 'var(--fg)', padding: '3px 1ch' }}
+                  >
+                    Add your files
+                  </button>
+                  <span aria-hidden="true">or</span>
+                </>
+              )}
+              <button
+                key="sherlock-sample"
+                type="button"
+                aria-disabled={sherlockActionUnavailable}
+                aria-busy={demoLoading === BUILTIN_SHERLOCK_ID || undefined}
+                onClick={() => {
+                  if (!sherlockActionUnavailable) void loadDemo(BUILTIN_SHERLOCK_ID);
+                }}
+                style={SMALL_BUTTON_STYLE}
+              >
+                {sherlockActionLabel}
+              </button>
+            </div>
+            {demoError && <p role="alert" className="input-card-error input-sample-message">{demoError}</p>}
+            <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status input-sample-message">
+              {demoLoading ? `Adding the ${SHERLOCK_CORPUS.label} sample…` : demoNotice ?? ''}
+            </p>
+          </div>
         </section>
 
         <section
@@ -655,31 +708,6 @@ export function ProjectPanel() {
           <CatalogPanel onAcquire={async (files, signal, lease) => (await acquire(files, true, signal, lease)).ok} />
         </section>
 
-        <section className="input-card" aria-labelledby="demo-corpora-heading">
-          <h4 id="demo-corpora-heading">Load demo</h4>
-          <p className="input-card-help">Add a prepared corpus to your local library. Suggested terms are appended without replacing yours.</p>
-          <div className="demo-actions">
-            {BUILTIN_CORPORA.map((corpus) => (
-              <button
-                key={corpus.id}
-                type="button"
-                aria-disabled={demoLoading !== null || libraryBusy}
-                aria-label={`Load ${corpus.label} demo`}
-                aria-busy={demoLoading === corpus.id || undefined}
-                onClick={() => {
-                  if (demoLoading === null && !libraryBusy) void loadDemo(corpus.id);
-                }}
-                style={SMALL_BUTTON_STYLE}
-              >
-                Load {corpus.label} demo
-              </button>
-            ))}
-          </div>
-          {demoError && <p role="alert" className="input-card-error">{demoError}</p>}
-          <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status">
-            {demoLoading ? `Loading ${builtinCorpusOption(demoLoading)!.label} demo…` : demoNotice ?? ''}
-          </p>
-        </section>
       </div>
 
       {workspacePersistence.phase === 'error' && (

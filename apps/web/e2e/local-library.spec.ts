@@ -8,12 +8,11 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await gotoPlace(page, 'inputs');
 
   const cards = page.locator('.input-card-grid > .input-card');
-  await expect(cards).toHaveCount(4);
+  await expect(cards).toHaveCount(3);
   await expect(cards.locator(':scope > h4, :scope > .input-card-heading-row > h4')).toHaveText([
     'Active inputs',
     'Local library',
     'Load from Standard Ebooks',
-    'Load demo',
   ]);
   const addFiles = page.getByLabel('Add files');
   await addFiles.focus();
@@ -22,6 +21,9 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
 
   const localPanel = page.getByRole('region', { name: 'Local library' });
   const activePanel = page.getByRole('region', { name: 'Active inputs' });
+  // This portion of the active card remains visible with the internally
+  // scrolling saved-text list, so native drag events keep their true source.
+  const activeDropTarget = activePanel.locator('.input-sample');
   const saved = page.getByRole('list', { name: 'Saved texts' });
   await expect(saved.getByRole('listitem')).toHaveCount(DOC_COUNT);
 
@@ -46,12 +48,16 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(localPanel.getByRole('status')).toContainText('already saved');
 
   // A saved-file drag appends to the same ordinary corpus; a second is refused.
-  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activePanel);
+  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activeDropTarget);
+  await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
+    .toHaveCount(DOC_COUNT + 1);
   await awaitReadyCount(page, DOC_COUNT + 1);
-  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activePanel);
+  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activeDropTarget);
   await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(DOC_COUNT + 1);
   await expect(localPanel.getByRole('status')).toContainText('already active');
-  await saved.getByRole('listitem').filter({ hasText: 'beta.md' }).dragTo(activePanel);
+  await saved.getByRole('listitem').filter({ hasText: 'beta.md' }).dragTo(activeDropTarget);
+  await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
+    .toHaveCount(DOC_COUNT + 2);
   await awaitReadyCount(page, DOC_COUNT + 2);
 
   const active = activePanel.getByRole('list', { name: 'Active input order' });
@@ -69,14 +75,16 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(moveAlphaUp).toBeFocused();
   await expect(active.getByRole('listitem').nth(DOC_COUNT)).toContainText('alpha');
   await expect(active.getByRole('listitem').nth(DOC_COUNT + 1)).toContainText('beta');
-  await expect(activePanel.getByRole('status')).toHaveText(`alpha moved to position ${DOC_COUNT + 1} of ${DOC_COUNT + 2}.`);
+  await expect(activePanel.locator(':scope > [role="status"]'))
+    .toHaveText(`alpha moved to position ${DOC_COUNT + 1} of ${DOC_COUNT + 2}.`);
   for (let position = DOC_COUNT; position > 0; position -= 1) await moveAlphaUp.click();
   await expect(active.getByRole('listitem').first()).toContainText('alpha');
   await expect(moveAlphaUp).toBeFocused();
   await expect(moveAlphaUp).toHaveAttribute('aria-disabled', 'true');
   await moveAlphaUp.press('Enter');
   await expect(moveAlphaUp).toBeFocused();
-  await expect(activePanel.getByRole('status')).toHaveText('alpha is already first.');
+  await expect(activePanel.locator(':scope > [role="status"]'))
+    .toHaveText('alpha is already first.');
   await expect(active.getByRole('button', { name: 'Move beta down' })).toHaveAttribute('aria-disabled', 'true');
 
   // Removing from the corpus leaves the reusable device copy intact.
@@ -172,7 +180,7 @@ test('removing the last input settles the corpus and gives analysis places a foc
   await awaitReadyCount(page, 1);
 
   await activePanel.getByRole('button', { name: 'Remove only from active inputs' }).click();
-  await expect(page.getByText('nothing is being analyzed', { exact: true })).toBeVisible();
+  await expect(page.locator('.scope-organ > [role="status"]')).toContainText('nothing is being analyzed');
   await expect(activePanel.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
 
   await gotoPlace(page, 'trends');
@@ -215,7 +223,7 @@ test('Clear all confirms one reset, keeps saved texts, and leaves demos additive
   await expect(saved).toHaveCount(DOC_COUNT);
   await expect(clear).toHaveAttribute('aria-disabled', 'true');
   await expect(clear).toBeFocused();
-  await expect(active.getByRole('status')).toHaveText(
+  await expect(active.locator(':scope > [role="status"]')).toHaveText(
     `${DOC_COUNT} active texts and 3 terms cleared. Saved texts remain in the local library.`,
   );
 
@@ -254,7 +262,7 @@ test('Clear all confirms one reset, keeps saved texts, and leaves demos additive
   await authored.fill('Reader term');
   await authored.press('Enter');
   await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
-  await page.getByRole('button', { name: 'Load Sherlock Holmes demo' }).click();
+  await page.getByRole('button', { name: 'Activate saved Sherlock texts' }).click();
   await awaitReadyCount(page, DOC_COUNT);
   await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Holmes' })).toBeVisible();

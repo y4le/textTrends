@@ -20,7 +20,12 @@ import { reconcileWorkspaceDocuments, type WorkspaceV1 } from '@texttrends/core'
 import { WorkerClient } from './client.ts';
 import { RingTrace } from './trace.ts';
 import type { ProjectSession, BundledByteProvider } from './project-session.ts';
-import { createAppRuntime, emptyLibraryWorkspace, type WorkspaceStorePort } from './store.ts';
+import {
+  createAppRuntime,
+  emptyLibraryWorkspace,
+  workspaceSemanticKey,
+  type WorkspaceStorePort,
+} from './store.ts';
 import { createResumeMonitor } from './resume.ts';
 import { browserHistoryPort } from './history-port.ts';
 import { libraryOperation } from './library-operation.ts';
@@ -30,7 +35,13 @@ import {
   loadMatchesColumnSettings,
   saveMatchesColumnSettings,
 } from './matches-column-storage.ts';
+import { consumeDemoBootRequest } from './demo-query.ts';
+import { demoLoadNotice, loadDemoCorpus } from './demo-loader.ts';
 
+// Consume the one-shot parameter before createAppRuntime performs any route
+// replace. Otherwise the route layer correctly preserves this foreign key and
+// the preset would run again after reload or place navigation.
+const demoBootRequest = consumeDemoBootRequest(window);
 const trace = __TT_E2E__ ? new RingTrace() : undefined;
 
 const client = new WorkerClient(trace);
@@ -45,6 +56,12 @@ const runtime = createAppRuntime(client, {
 
 /** The single React-facing store. */
 export const useApp = runtime.useApp;
+
+export const workerDiagnostics = () => client.diagnostics();
+
+export function restartWorker(): boolean {
+  return client.restartNow();
+}
 
 function pendingAnalyses(): number {
   const state = runtime.useApp.getState();
@@ -151,7 +168,7 @@ async function bootstrap(): Promise<void> {
         workspace = empty;
         restoredWorkspace = empty;
         if (option === undefined) {
-          bootstrapNotice = 'The saved legacy demo was unavailable. Its terms and view settings were preserved; choose a demo again in Inputs.';
+          bootstrapNotice = 'The saved legacy demo was unavailable. Its terms and view settings were preserved; choose a demo again from Inputs or Debug.';
           afterAttach = () => {
             void localLibrary.saveWorkspace(empty).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
           };
@@ -159,7 +176,7 @@ async function bootstrap(): Promise<void> {
           afterAttach = () => {
             const lease = libraryOperation.claim();
             if (lease === null) {
-              runtime.reportNotice(`The saved ${option.label} demo is ready to migrate. Retry it from Inputs after the current library action finishes.`);
+              runtime.reportNotice(`The saved ${option.label} demo is ready to migrate. Retry it from Inputs or Debug after the current library action finishes.`);
               return;
             }
             const controller = new AbortController();
@@ -177,7 +194,7 @@ async function bootstrap(): Promise<void> {
                 runtime.reportNotice(`${option.label} was migrated to local inputs. Its texts can now be reordered, removed, and reused like any others.`);
               } catch (error) {
                 if (!torndown && !controller.signal.aborted) {
-                  runtime.reportNotice(`The saved ${option.label} demo could not be migrated: ${error instanceof Error ? error.message : String(error)}. Its terms and view settings were preserved; retry from Inputs.`);
+                  runtime.reportNotice(`The saved ${option.label} demo could not be migrated: ${error instanceof Error ? error.message : String(error)}. Its terms and view settings were preserved; retry from Inputs or Debug.`);
                 }
               } finally {
                 if (migrationAbort === controller) migrationAbort = null;
@@ -217,7 +234,10 @@ async function bootstrap(): Promise<void> {
       workspace,
       new Map(libraryItems.map((item) => [item.id, item])),
     );
-    if (torndown) return; // HMR replaced this module mid-bootstrap
+    if (torndown) {
+      await localLibrary.close();
+      return; // HMR or a reset replaced this module mid-bootstrap
+    }
     session = new ProjectSession(initial, {
       client,
       bundledBytes,
@@ -232,10 +252,85 @@ async function bootstrap(): Promise<void> {
   runtime.attachSession(session, restoredWorkspace ?? undefined, workspaceStore); // subscribe + seed, exactly once
   if (bootstrapNotice !== null) runtime.reportNotice(bootstrapNotice);
   session.start(); // only after the store is observing
-  afterAttach?.();
+  if (demoBootRequest !== null && demoBootRequest.id !== null) {
+    void loadDemoCorpus(demoBootRequest.id, 'replace', { getState: runtime.useApp.getState }).then(
+      (result) => runtime.reportNotice(demoLoadNotice(result, 'replace')),
+      (error: unknown) => {
+        // A successful replacement supersedes legacy migration/persistence.
+        // On failure, resume that deferred bootstrap work so the prior saved
+        // state is not silently abandoned.
+        afterAttach?.();
+        runtime.reportNotice(
+          `The ${demoBootRequest.slug} demo could not be loaded: ${error instanceof Error ? error.message : String(error)}`,
+        );
+      },
+    );
+  } else {
+    afterAttach?.();
+    if (demoBootRequest !== null) {
+      runtime.reportNotice(`Unknown demo “${demoBootRequest.slug || '(empty)'}”. The URL parameter was removed.`);
+    }
+  }
 }
 
 void bootstrap();
+
+let teardownStarted = false;
+
+async function saveWorkspaceBeforeReload(): Promise<void> {
+  const initial = runtime.useApp.getState();
+  if (initial.bootstrap.phase !== 'attached') return;
+  // Some transient library projects cannot be represented as a durable
+  // workspace. The store deliberately declines to save them; there is no
+  // persistence barrier for cache clearing to wait on.
+  if (workspaceSemanticKey(initial) === null) return;
+  initial.retryWorkspaceSave();
+  const current = runtime.useApp.getState().workspacePersistence;
+  if (current.phase === 'saved') return;
+  if (current.phase === 'error') throw new Error(current.message);
+  await new Promise<void>((resolve, reject) => {
+    let settled = false;
+    const finish = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      unsubscribe();
+      if (error) reject(error);
+      else resolve();
+    };
+    const unsubscribe = runtime.useApp.subscribe((state) => {
+      if (state.workspacePersistence.phase === 'saved') finish();
+      else if (state.workspacePersistence.phase === 'error') {
+        finish(new Error(state.workspacePersistence.message));
+      }
+    });
+    const timeout = setTimeout(() => {
+      finish(new Error('Workspace saving did not finish before the cache clear.'));
+    }, 15_000);
+  });
+}
+
+/** Stop every app-owned live resource before deleting IndexedDB databases.
+ * Idempotence also keeps HMR and a user-triggered reset from racing teardown. */
+export async function shutdownAppForReload(options: { readonly preserveWorkspace?: boolean } = {}): Promise<void> {
+  if (!teardownStarted && options.preserveWorkspace === true) {
+    await saveWorkspaceBeforeReload();
+  }
+  if (!teardownStarted) {
+    teardownStarted = true;
+    torndown = true;
+    migrationAbort?.abort(new DOMException('app is reloading', 'AbortError'));
+    try {
+      unsubscribeResumeState();
+      unsubscribeMatchesColumns();
+      resumeMonitor.dispose();
+      runtime.dispose();
+    } finally {
+      client.close();
+    }
+  }
+  await closeLibrary?.();
+}
 
 // Dev-server module replacement: this module owns the app's live resources
 // (the Worker, the session, in-flight queries), so a hot swap must tear the
@@ -245,17 +340,7 @@ void bootstrap();
 // (import.meta.hot is undefined outside the dev server).
 if (import.meta.hot) {
   import.meta.hot.dispose(() => {
-    torndown = true;
-    migrationAbort?.abort(new DOMException('module replaced', 'AbortError'));
-    try {
-      unsubscribeResumeState();
-      unsubscribeMatchesColumns();
-      resumeMonitor.dispose();
-      runtime.dispose();
-      void closeLibrary?.();
-    } finally {
-      client.close();
-    }
+    void shutdownAppForReload();
   });
 }
 

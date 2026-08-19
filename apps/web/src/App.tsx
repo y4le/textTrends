@@ -52,6 +52,9 @@ const MatchesPlace = lazy(() =>
 const SettingsSurface = lazy(() =>
   import('./components/SettingsSurface.tsx').then(({ SettingsSurface: surface }) => ({ default: surface })),
 );
+const DebugSurface = lazy(() =>
+  import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
+);
 
 interface ReaderEdgePointer {
   readonly id: number;
@@ -64,6 +67,7 @@ interface ReaderEdgePointer {
 
 type OpenUtilityPane =
   | { readonly kind: 'settings' }
+  | { readonly kind: 'debug' }
   | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
@@ -246,6 +250,19 @@ export function App() {
     if (interaction.kind === 'find') exitInteraction();
     setUtilityPane({ kind: 'settings' });
   };
+  const openDebug = (fromUtilityPane = false) => {
+    clearShortcutSequence();
+    setKeyboardNavigationStatus('');
+    if (!fromUtilityPane) {
+      utilityPaneReturnFocus.current = interaction.kind === 'find'
+        ? findReturnFocus.current
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+    }
+    if (interaction.kind === 'find') exitInteraction();
+    setUtilityPane({ kind: 'debug' });
+  };
   const focusFindInput = (selectAll = false) => {
     requestAnimationFrame(() => {
       const input = document.getElementById(FIND_INPUT_ID);
@@ -350,6 +367,12 @@ export function App() {
       event.preventDefault();
       clearShortcutSequence();
       openShortcutHelp(context);
+      return;
+    }
+    if (shortcutMatches(event, 'show-debug')) {
+      event.preventDefault();
+      clearShortcutSequence();
+      openDebug();
       return;
     }
     if (!dispatchSequences || context !== 'workbench') return;
@@ -537,6 +560,7 @@ export function App() {
           context={utilityPane.context}
           place={place}
           onFind={() => openFind(true)}
+          onDebug={() => openDebug(true)}
           onClose={closeUtilityPane}
         />
       )
@@ -546,6 +570,12 @@ export function App() {
             <SettingsSurface onClose={closeUtilityPane} />
           </Suspense>
         )
+      : utilityPane?.kind === 'debug'
+        ? (
+            <Suspense fallback={null}>
+              <DebugSurface onClose={closeUtilityPane} />
+            </Suspense>
+          )
       : null;
 
   if (readerPlace) {

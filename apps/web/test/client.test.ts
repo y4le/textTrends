@@ -92,6 +92,30 @@ describe('WorkerClient close()', () => {
 });
 
 describe('WorkerClient restart machinery', () => {
+  it('reports sanitized health and explicitly revives a fatally exhausted worker', () => {
+    const client = new WorkerClient();
+    const first = FakeWorker.instances.at(-1)!;
+    first.onmessage?.({
+      data: {
+        v: PROTOCOL_VERSION_V4,
+        t: 'warning',
+        code: 'CACHE_WRITE_FAILED',
+        message: 'sensitive implementation detail',
+      },
+    });
+    for (let i = 0; i < 4; i++) FakeWorker.instances.at(-1)!.onerror?.(new Event('error'));
+
+    expect(client.diagnostics()).toEqual({
+      health: 'dead',
+      restartCount: 4,
+      pendingRequests: 0,
+      lastStorageWarning: { code: 'CACHE_WRITE_FAILED' },
+    });
+    expect(client.restartNow()).toBe(true);
+    expect(FakeWorker.instances.length).toBe(5);
+    expect(client.diagnostics()).toMatchObject({ health: 'live', restartCount: 5 });
+  });
+
   it('bounded restarts: each death respawns until the budget is exhausted, then fatal', () => {
     const restarts: boolean[] = [];
     const client = new WorkerClient();

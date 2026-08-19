@@ -1,6 +1,7 @@
 import { Fragment } from 'react';
 import type { ShortcutHelpContext } from '../lib/shortcuts.ts';
 import {
+  isShortcutTypingTarget,
   shortcutAria,
   shortcutHelpSections,
   shortcutMatches,
@@ -20,11 +21,13 @@ export function KeyboardShortcuts({
   context,
   place,
   onFind,
+  onDebug,
   onClose,
 }: {
   readonly context: ShortcutHelpContext;
   readonly place: Place;
   readonly onFind: () => void;
+  readonly onDebug: () => void;
   readonly onClose: () => void;
 }) {
   const activeTextCount = useApp(
@@ -48,9 +51,14 @@ export function KeyboardShortcuts({
       closeKeyshortcuts={shortcutAria(['reader-close', 'show-help'])}
       onClose={onClose}
       onKeyDown={(event) => {
-        if (!shortcutMatches(event, 'show-help')) return;
-        event.preventDefault();
-        onClose();
+        if (isShortcutTypingTarget(event.target)) return;
+        if (shortcutMatches(event, 'show-help')) {
+          event.preventDefault();
+          onClose();
+        } else if (shortcutMatches(event, 'show-debug')) {
+          event.preventDefault();
+          onDebug();
+        }
       }}
     >
       <div className="shortcut-help-sections">
@@ -63,6 +71,14 @@ export function KeyboardShortcuts({
             onClick={onFind}
           >
             Find in corpus <kbd aria-hidden="true">/</kbd>
+          </button>
+          <button
+            type="button"
+            className="coarse-target"
+            aria-keyshortcuts={shortcutAria(['show-debug'])}
+            onClick={onDebug}
+          >
+            Debug <kbd aria-hidden="true">Shift + D</kbd>
           </button>
         </section>
         {sections.map((section) => (

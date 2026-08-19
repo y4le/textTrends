@@ -3,7 +3,7 @@ import {
   type VocabularyColumnSettings,
 } from './vocabulary-columns.ts';
 
-const STORAGE_KEY = 'texttrends/vocabulary-columns/1';
+export const VOCABULARY_COLUMN_STORAGE_KEY = 'texttrends/vocabulary-columns/1';
 type StorageReader = Pick<Storage, 'getItem'>;
 type StorageWriter = Pick<Storage, 'setItem'>;
 
@@ -15,7 +15,7 @@ export function loadVocabularyColumnSettings(
 ): VocabularyColumnSettings | null {
   if (storage === null) return null;
   try {
-    const raw = storage.getItem(STORAGE_KEY);
+    const raw = storage.getItem(VOCABULARY_COLUMN_STORAGE_KEY);
     if (raw === null) return null;
     const parsed: unknown = JSON.parse(raw);
     if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) return null;
@@ -43,7 +43,7 @@ export function saveVocabularyColumnSettings(
 ): void {
   if (storage === null) return;
   try {
-    storage.setItem(STORAGE_KEY, JSON.stringify(settings));
+    storage.setItem(VOCABULARY_COLUMN_STORAGE_KEY, JSON.stringify(settings));
   } catch {
     // Disabled/full storage does not prevent resizing for this mount.
   }

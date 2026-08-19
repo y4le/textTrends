@@ -5,7 +5,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'inputs' });
 
-  const demoButton = page.getByRole('button', { name: 'Load Sherlock Holmes demo' });
+  const demoButton = page.getByRole('button', { name: 'All Sherlock texts are active' });
   await expect(demoButton).toBeFocused();
   await demoButton.press('?');
   let dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
@@ -42,6 +42,10 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(dialog.getByText('Go to Inputs', { exact: true })).toHaveCount(0);
   await expect(dialog.getByText('Go to Trends', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Previous rendered passage')).toBeVisible();
+  const debugButton = dialog.getByRole('button', { name: 'Debug', exact: true });
+  const debugButtonBox = await debugButton.boundingBox();
+  expect(debugButtonBox?.width).toBeGreaterThanOrEqual(44);
+  expect(debugButtonBox?.height).toBeGreaterThanOrEqual(44);
   const panel = dialog.locator('.shortcut-help-pane');
   const [panelBox, viewport] = await Promise.all([
     panel.boundingBox(),
@@ -53,9 +57,17 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(dialog.locator('.shortcut-help-key-separator').first()).toHaveText('/');
   expect(await dialog.locator('kbd').first().evaluate((node) =>
     getComputedStyle(node).borderTopStyle)).toBe('solid');
-  await page.keyboard.press('?');
-  await expect(dialog).toHaveCount(0);
+  await debugButton.click();
+  const debug = page.getByRole('dialog', { name: 'Debug' });
+  await expect(debug).toBeVisible();
+  await expect(debug.getByRole('button', { name: 'Clear cache' })).toBeVisible();
+  await page.keyboard.press('Shift+D');
+  await expect(debug).toHaveCount(0);
   await expect(open).toBeFocused();
+
+  await page.keyboard.press('Shift+D');
+  await expect(page.getByRole('dialog', { name: 'Debug' })).toBeVisible();
+  await page.keyboard.press('Escape');
 
   await gotoPlace(page, 'trends');
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });

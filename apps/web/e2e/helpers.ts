@@ -175,9 +175,9 @@ export async function awaitAllReady(
   const original = await current.getAttribute('href');
   const inputs = navigation.getByRole('link', { name: 'Inputs', exact: true });
   if (!(await inputs.getAttribute('aria-current'))) await inputs.click();
-  const loadDemo = page.getByRole('button', { name: 'Load Sherlock Holmes demo' });
+  const loadDemo = page.locator('.input-sample').getByRole('button', { name: /Sherlock/ });
   await expect(loadDemo).toBeVisible({ timeout });
-  await loadDemo.click();
+  if ((await loadDemo.getAttribute('aria-disabled')) !== 'true') await loadDemo.click();
   await expect(ready).toContainText(READY_TEXT, { timeout });
   await expect.poll(() => page.evaluate(async (databaseName) => {
     const database = await new Promise<IDBDatabase>((resolve, reject) => {

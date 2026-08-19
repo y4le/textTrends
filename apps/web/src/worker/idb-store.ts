@@ -31,13 +31,9 @@ import {
   type CacheRead,
   type DocumentIndexCacheKey,
 } from './store.ts';
+import { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION } from '../shared/storage-schema.ts';
 
-/**
- * NEW database NAME (not just a version bump): db3 retains only verified text
- * and document indexes. The old databases are abandoned for one cold rebuild.
- */
-export const ARTIFACT_DB_NAME = 'texttrends-artifacts-provisional-db3';
-export const ARTIFACT_DB_VERSION = 1;
+export { ARTIFACT_DB_NAME, ARTIFACT_DB_VERSION } from '../shared/storage-schema.ts';
 
 export type WarnStorage = (code: StorageWarningCode, message: string) => void;
 
