@@ -49,6 +49,9 @@
 import { create, type StoreApi, type UseBoundStore } from 'zustand';
 import {
   canonicalJson,
+  COMPANY_GAP_EDGES_V1,
+  DESTINATION_MAX_RESULTS,
+  DESTINATION_WINDOW_TOKENS_V1,
   type MatchesAnchorV1,
   type MatchesAxisArraysV1,
   DISPERSION_BUCKET_BUDGET,
@@ -122,6 +125,8 @@ import {
   type OperationLease,
 } from './operation-lease.ts';
 import type {
+  CompanyResultV1,
+  DestinationsResultV1,
   MatchesWindowResultV1,
   DispersionResultV1,
   QueryOpV4,
@@ -310,6 +315,36 @@ export interface DispersionState {
   readonly state:
     | { readonly status: 'pending' }
     | { readonly status: 'ready'; readonly result: DispersionResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+/** Stable series identities for a strict pair-focused destination request.
+ * The worker receives ordinals derived from the canonical overview track
+ * order; presentation reorder therefore never changes the analytical intent. */
+export interface DestinationFocusIntent {
+  readonly seriesIds: readonly [string, string];
+}
+
+export interface CompanyState {
+  readonly snapshot: string;
+  /** Ordered matching identities, canonicalized independently of notebook
+   * presentation order. This is the semantic resident-result key. */
+  readonly trackKey: string;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: CompanyResultV1 }
+    | { readonly status: 'error'; readonly message: string };
+}
+
+export interface DestinationsState {
+  readonly snapshot: string;
+  /** Track identity plus stable pair focus; exact ready results can survive a
+   * temporary linked selection and reappear without recomputation. */
+  readonly resultKey: string;
+  readonly focus: DestinationFocusIntent | null;
+  readonly state:
+    | { readonly status: 'pending' }
+    | { readonly status: 'ready'; readonly result: DestinationsResultV1 }
     | { readonly status: 'error'; readonly message: string };
 }
 
@@ -722,6 +757,12 @@ export interface AppState {
   matchesView: MatchesView;
   /** The barcode's dispersion result (null = no comparison/corpus). */
   dispersion: DispersionState | null;
+  /** Full-corpus no-selection overview lanes. They are independently owned so
+   * one analysis can fail without blanking the other. */
+  company: CompanyState | null;
+  destinations: DestinationsState | null;
+  /** Stable series-id focus; only the Destinations lane depends on it. */
+  destinationFocus: DestinationFocusIntent | null;
   /** The ONE transient linked token-range selection (ruling §2): single-doc,
    *  half-open, snapshot-bound; NEVER persisted, NEVER a durable Brush.
    *  Cleared on snapshot replacement or when its document departs. */
@@ -831,6 +872,9 @@ export interface AppState {
    *  gesture. Reissues detail consumers; baseline results remain resident.
    *  Null clears. */
   setLinkedSelection(selection: TokenRangeSelectionV1 | null): void;
+  /** Focus Reading Destinations on one Company pair. Null restores the
+   * all-track ranking; invalid/inactive pairs are ignored. */
+  setDestinationFocus(seriesIds: readonly [string, string] | null): void;
   runInventory(): void;
   runFrequency(retainResident?: boolean): void;
   loadMoreFrequency(): void;
@@ -999,6 +1043,12 @@ function findErrorMessage(e: unknown): string {
   return e instanceof WorkerClientError && e.analysisCode === 'CAP_EXCEEDED'
     ? 'This query occurs too often to navigate exactly — try a longer phrase.'
     : queryErrorMessage(e);
+}
+
+function overviewQueryErrorMessage(e: unknown): string {
+  return e instanceof WorkerClientError && e.analysisCode === 'CAP_EXCEEDED'
+    ? 'This overview is too large to analyse exactly — remove a tracked term or text.'
+    : msg(e);
 }
 
 function retainTrendTokenCounts(
@@ -1261,6 +1311,10 @@ export function createAppRuntime(
   const matchesLane = new QueryLane(scope);
   // The barcode's dispersion intent — reissued with the trend burst.
   const dispersionLane = new QueryLane(scope);
+  // No-selection overview analyses are independent latest-wins lanes. A
+  // Company failure or pair-focus change cannot supersede its sibling.
+  const companyLane = new QueryLane(scope);
+  const destinationsLane = new QueryLane(scope);
   // Selected-range overlay lanes — separate latest-wins ownership so a brush
   // never cancels the resident baseline (ruling §2).
   const selectedTrendLane = new QueryLane(scope);
@@ -1760,6 +1814,252 @@ export function createAppRuntime(
 
     const identitiesCurrent = (pairs: readonly (readonly [string, string])[]): boolean =>
       pairs.every(([id, ident]) => identityOf(id) === ident);
+
+    /** Company/Destinations are set analyses, not notebook-order analyses.
+     * Canonical series-id order keeps rename and reorder presentation-only and
+     * gives both lanes one stable semantic result key. */
+    const overviewTrackSpecs = (
+      series: readonly SeriesIntent[],
+    ): ReturnType<typeof trackSpecs> => trackSpecs(
+      [...series].sort((left, right) =>
+        left.id < right.id ? -1 : left.id > right.id ? 1 : 0),
+    );
+
+    const overviewTrackKey = (
+      tracks: NonNullable<ReturnType<typeof overviewTrackSpecs>>,
+    ): string => canonicalJson(tracks.identities);
+
+    const normalizeDestinationFocus = (
+      value: readonly [string, string] | null,
+      tracks: NonNullable<ReturnType<typeof overviewTrackSpecs>>,
+    ): DestinationFocusIntent | null | undefined => {
+      if (value === null) return null;
+      const [left, right] = value;
+      if (left === right) return undefined;
+      const active = new Set(tracks.wire.map((track) => track.seriesId));
+      if (!active.has(left) || !active.has(right)) return undefined;
+      return {
+        seriesIds: left < right ? [left, right] : [right, left],
+      };
+    };
+
+    const sameDestinationFocus = (
+      left: DestinationFocusIntent | null,
+      right: DestinationFocusIntent | null,
+    ): boolean => left === null
+      ? right === null
+      : right !== null
+        && left.seriesIds[0] === right.seriesIds[0]
+        && left.seriesIds[1] === right.seriesIds[1];
+
+    const resultTracksMatch = (
+      result: readonly { readonly seriesId: string; readonly groupId: string }[],
+      tracks: NonNullable<ReturnType<typeof overviewTrackSpecs>>,
+    ): boolean => result.length === tracks.wire.length
+      && result.every((track, index) =>
+        track.seriesId === tracks.wire[index]!.seriesId
+        && track.groupId === tracks.wire[index]!.group.id);
+
+    const runCompanyOverview = (): void => {
+      companyLane.supersede();
+      const { snapshot, series, linkedSelection, company } = get();
+      const tracks = overviewTrackSpecs(series);
+      if (!snapshot || tracks === null || tracks.wire.length < 2) {
+        set({ company: null });
+        return;
+      }
+      const issuedSnapshotKey = snapKey(snapshot);
+      const trackKey = overviewTrackKey(tracks);
+      const residentMatches = company?.snapshot === snapshot.snapshot
+        && company.trackKey === trackKey;
+      if (linkedSelection !== null) {
+        if (!residentMatches || company.state.status !== 'ready') set({ company: null });
+        return;
+      }
+      if (residentMatches && company.state.status === 'ready') return;
+
+      const lease = companyLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedSnapshotKey,
+        () => {
+          const liveTracks = overviewTrackSpecs(get().series);
+          return liveTracks !== null
+            && overviewTrackKey(liveTracks) === trackKey
+            && identitiesCurrent(tracks.identities);
+        },
+        () => get().linkedSelection === null,
+      );
+      set({
+        company: {
+          snapshot: snapshot.snapshot,
+          trackKey,
+          state: { status: 'pending' },
+        },
+      });
+      issueOn(
+        companyLane,
+        snapshot.snapshot,
+        {
+          op: 'company',
+          tracks: tracks.wire,
+          request: { method: 'company/1', gapEdges: COMPANY_GAP_EDGES_V1 },
+        },
+        lease,
+        (data) => {
+          if (
+            data.op !== 'company'
+            || data.company.method !== 'company/1'
+            || !resultTracksMatch(data.company.tracks, tracks)
+          ) {
+            set({
+              company: {
+                snapshot: snapshot.snapshot,
+                trackKey,
+                state: { status: 'error', message: 'worker returned mismatched Company data' },
+              },
+            });
+            return;
+          }
+          set({
+            company: {
+              snapshot: snapshot.snapshot,
+              trackKey,
+              state: { status: 'ready', result: data.company },
+            },
+          });
+        },
+        (message) => set({
+          company: {
+            snapshot: snapshot.snapshot,
+            trackKey,
+            state: { status: 'error', message },
+          },
+        }),
+        overviewQueryErrorMessage,
+      );
+    };
+
+    const runDestinationsOverview = (): void => {
+      destinationsLane.supersede();
+      const state = get();
+      const { snapshot, series, linkedSelection, destinations } = state;
+      const tracks = overviewTrackSpecs(series);
+      if (!snapshot || tracks === null || tracks.wire.length === 0) {
+        set({ destinations: null, destinationFocus: null });
+        return;
+      }
+      const normalizedFocus = normalizeDestinationFocus(
+        state.destinationFocus?.seriesIds ?? null,
+        tracks,
+      );
+      const focus = normalizedFocus === undefined ? null : normalizedFocus;
+      if (!sameDestinationFocus(state.destinationFocus, focus)) {
+        set({ destinationFocus: focus });
+      }
+      const trackKey = overviewTrackKey(tracks);
+      const resultKey = canonicalJson([trackKey, focus?.seriesIds ?? null]);
+      const residentMatches = destinations?.snapshot === snapshot.snapshot
+        && destinations.resultKey === resultKey;
+      if (linkedSelection !== null) {
+        if (!residentMatches || destinations.state.status !== 'ready') {
+          set({ destinations: null });
+        }
+        return;
+      }
+      if (residentMatches && destinations.state.status === 'ready') return;
+
+      const focusOrdinals = focus === null
+        ? null
+        : {
+            a: tracks.wire.findIndex((track) => track.seriesId === focus.seriesIds[0]),
+            b: tracks.wire.findIndex((track) => track.seriesId === focus.seriesIds[1]),
+          };
+      if (focusOrdinals !== null && (
+        focusOrdinals.a < 0
+        || focusOrdinals.a >= focusOrdinals.b
+        || focusOrdinals.b >= tracks.wire.length
+      )) {
+        throw new Error('canonical destination focus did not map to ordered tracks');
+      }
+      const issuedSnapshotKey = snapKey(snapshot);
+      const lease = destinationsLane.ops.begin(
+        () => snapKey(get().snapshot) === issuedSnapshotKey,
+        () => {
+          const liveTracks = overviewTrackSpecs(get().series);
+          if (liveTracks === null || overviewTrackKey(liveTracks) !== trackKey) return false;
+          const liveFocus = normalizeDestinationFocus(
+            get().destinationFocus?.seriesIds ?? null,
+            liveTracks,
+          );
+          return liveFocus !== undefined
+            && sameDestinationFocus(liveFocus, focus)
+            && identitiesCurrent(tracks.identities);
+        },
+        () => get().linkedSelection === null,
+      );
+      set({
+        destinations: {
+          snapshot: snapshot.snapshot,
+          resultKey,
+          focus,
+          state: { status: 'pending' },
+        },
+      });
+      issueOn(
+        destinationsLane,
+        snapshot.snapshot,
+        {
+          op: 'destinations',
+          tracks: tracks.wire,
+          request: {
+            method: 'destinations/1',
+            windowTokens: DESTINATION_WINDOW_TOKENS_V1,
+            limit: DESTINATION_MAX_RESULTS,
+            focus: focusOrdinals,
+          },
+        },
+        lease,
+        (data) => {
+          if (
+            data.op !== 'destinations'
+            || data.destinations.method !== 'destinations/1'
+            || !resultTracksMatch(data.destinations.tracks, tracks)
+            || canonicalJson(data.destinations.focus) !== canonicalJson(focusOrdinals)
+          ) {
+            set({
+              destinations: {
+                snapshot: snapshot.snapshot,
+                resultKey,
+                focus,
+                state: { status: 'error', message: 'worker returned mismatched Reading Destinations data' },
+              },
+            });
+            return;
+          }
+          set({
+            destinations: {
+              snapshot: snapshot.snapshot,
+              resultKey,
+              focus,
+              state: { status: 'ready', result: data.destinations },
+            },
+          });
+        },
+        (message) => set({
+          destinations: {
+            snapshot: snapshot.snapshot,
+            resultKey,
+            focus,
+            state: { status: 'error', message },
+          },
+        }),
+        overviewQueryErrorMessage,
+      );
+    };
+
+    const runOverview = (): void => {
+      runCompanyOverview();
+      runDestinationsOverview();
+    };
 
     const footerServes = (target: ScrubTarget): boolean => {
       const snapshot = get().snapshot;
@@ -2632,6 +2932,9 @@ export function createAppRuntime(
         columns: opts?.matchesColumns ?? MATCHES_COLUMN_DEFAULTS,
       },
       dispersion: null,
+      company: null,
+      destinations: null,
+      destinationFocus: null,
       linkedSelection: null,
       selectedTrends: new Map(),
       selectedDispersion: null,
@@ -3861,11 +4164,16 @@ export function createAppRuntime(
           // return or their late results could repopulate the cleared overlays.
           selectedTrendLane.supersede();
           selectedDispersionLane.supersede();
+          companyLane.supersede();
+          destinationsLane.supersede();
           set({
             trends: new Map(),
             scrub: null,
             footerPassage: null,
             dispersion: null,
+            company: null,
+            destinations: null,
+            destinationFocus: null,
             selectedTrends: new Map(),
             selectedDispersion: null,
             matchesReveal: null,
@@ -3964,6 +4272,11 @@ export function createAppRuntime(
             }),
           );
         }
+
+        // Overview messages are posted only after the complete primary trend
+        // burst and barcode request. Separate lanes keep their failures and
+        // pair-focus refreshes independent from those primary surfaces.
+        runOverview();
 
         // The selected overlays follow the same burst (a snapshot change or
         // comparison change either revalidates or clears them).
@@ -4821,11 +5134,38 @@ export function createAppRuntime(
         }
         if (get().linkedSelection === selection) return;
         set({ linkedSelection: selection });
+        if (selection === null) {
+          // Exact ready residents survive a temporary range and are reused;
+          // cancelled or failed matching intents are reissued here.
+          runOverview();
+        } else {
+          // The selected-range organ replaces overview presentation. Stop
+          // expensive work immediately but retain exact ready residents for
+          // a possible deselection of the same semantic tracks/focus.
+          companyLane.supersede();
+          destinationsLane.supersede();
+          set((state) => ({
+            company: state.company?.state.status === 'ready' ? state.company : null,
+            destinations: state.destinations?.state.status === 'ready'
+              ? state.destinations
+              : null,
+          }));
+        }
         // Detail consumers reissue; the resident BASELINE trends/dispersion
         // are untouched (clearing a brush must not recompute them).
         runSelected();
         get().runInventory();
         get().runFrequency();
+      },
+
+      setDestinationFocus(seriesIds) {
+        const tracks = overviewTrackSpecs(get().series);
+        if (tracks === null) return;
+        const focus = normalizeDestinationFocus(seriesIds, tracks);
+        if (focus === undefined || sameDestinationFocus(get().destinationFocus, focus)) return;
+        destinationsLane.supersede();
+        set({ destinationFocus: focus });
+        runDestinationsOverview();
       },
 
       centerKwicAt(seriesId, doc, token, origin) {
@@ -5343,6 +5683,8 @@ export function createAppRuntime(
       trendLane.supersede();
       matchesLane.supersede();
       dispersionLane.supersede();
+      companyLane.supersede();
+      destinationsLane.supersede();
       selectedTrendLane.supersede();
       selectedDispersionLane.supersede();
       inventoryLane.supersede();

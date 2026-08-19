@@ -71,6 +71,8 @@ function pendingAnalyses(): number {
     other: [
       state.kwic?.state,
       state.dispersion?.state,
+      state.company?.state,
+      state.destinations?.state,
       state.selectedDispersion?.state,
       state.frequency?.state,
       state.keynessA?.state,

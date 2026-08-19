@@ -132,6 +132,8 @@ function fakeQueryClient() {
     keynessInventories: () => issued.filter(isKeynessInventory),
     frequencies: () => issued.filter((q) => q.op === 'freq-list'),
     keynesses: () => issued.filter((q) => q.op === 'keyness'),
+    companies: () => issued.filter((q) => q.op === 'company'),
+    destinations: () => issued.filter((q) => q.op === 'destinations'),
   };
 }
 
@@ -320,6 +322,70 @@ function fakeTrend(marker: number): NumericTrend {
     order: ['a'],
     sequenceBases: [0],
     docTokenCount: [10],
+  };
+}
+
+function fakeCompanyResult(entry: Issued): QueryResultDataV4 {
+  const wire = entry.query as {
+    tracks: readonly { readonly seriesId: string; readonly group: { readonly id: string } }[];
+    request: { readonly gapEdges: readonly number[] };
+  };
+  const histogram = wire.request.gapEdges.map(() => 0);
+  return {
+    op: 'company',
+    company: {
+      method: 'company/1',
+      gapEdges: [...wire.request.gapEdges],
+      tracks: wire.tracks.map((track) => ({
+        seriesId: track.seriesId,
+        groupId: track.group.id,
+        total: 1,
+        docCount: 1,
+      })),
+      corpusTokens: 10,
+      pairs: wire.tracks.length < 2 ? [] : [{
+        a: 0,
+        b: 1,
+        fromA: [...histogram],
+        fromB: [...histogram],
+        noneA: 0,
+        noneB: 0,
+        forwardA: 0,
+        backwardA: 0,
+        tiedA: 0,
+        overlapA: 0,
+        forwardB: 0,
+        backwardB: 0,
+        tiedB: 0,
+        overlapB: 0,
+        docsWithBoth: 1,
+      }],
+    },
+  };
+}
+
+function fakeDestinationsResult(entry: Issued): QueryResultDataV4 {
+  const wire = entry.query as {
+    tracks: readonly { readonly seriesId: string; readonly group: { readonly id: string } }[];
+    request: {
+      readonly windowTokens: 400;
+      readonly focus: { readonly a: number; readonly b: number } | null;
+    };
+  };
+  return {
+    op: 'destinations',
+    destinations: {
+      method: 'destinations/1',
+      windowTokens: wire.request.windowTokens,
+      focus: wire.request.focus,
+      tracks: wire.tracks.map((track) => ({
+        seriesId: track.seriesId,
+        groupId: track.group.id,
+        total: 1,
+        weight: 65_536,
+      })),
+      destinations: [],
+    },
   };
 }
 
@@ -3005,6 +3071,248 @@ describe('dispersion barcode lane (slice-2 commit D)', () => {
     await flush();
     expect(f.store.getState().matchesReveal).toBeNull();
     expect(f.store.getState().kwic!.resident?.revealRank).toBe(12);
+  });
+});
+
+describe('Company and Reading Destinations overview lanes', () => {
+  it('posts overview work after the primary burst and isolates sibling failures', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const start = f.issued.length;
+    f.store.getState().quickAdd('holmes, moriarty');
+    const burst = f.issued.slice(start);
+    const lastTrend = burst.findLastIndex((entry) => entry.op === 'trend');
+    const dispersion = burst.findIndex((entry) => entry.op === 'dispersion');
+    const company = burst.findIndex((entry) => entry.op === 'company');
+    const destinations = burst.findIndex((entry) => entry.op === 'destinations');
+    expect(lastTrend).toBeGreaterThanOrEqual(0);
+    expect(dispersion).toBeGreaterThan(lastTrend);
+    expect(company).toBeGreaterThan(dispersion);
+    expect(destinations).toBeGreaterThan(company);
+    expect(f.store.getState().company?.state.status).toBe('pending');
+    expect(f.store.getState().destinations?.state.status).toBe('pending');
+
+    const companyQuery = f.companies().at(-1)!;
+    const destinationsQuery = f.destinations().at(-1)!;
+    companyQuery.reject(new Error('company failed independently'));
+    destinationsQuery.resolve(fakeDestinationsResult(destinationsQuery));
+    await flush();
+    expect(f.store.getState().company?.state).toEqual({
+      status: 'error',
+      message: 'company failed independently',
+    });
+    expect(f.store.getState().destinations?.state.status).toBe('ready');
+  });
+
+  it('uses canonical semantic track order and reissues only Destinations for pair focus', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const [first, second] = f.store.getState().series;
+    const originalCompany = f.companies().at(-1)!;
+    const originalDestinations = f.destinations().at(-1)!;
+    const companyCount = f.companies().length;
+
+    // Reorder presentation before focusing: the worker ordinals must still
+    // come from canonical series-id order, not current notebook order.
+    f.store.getState().reorderGroups([second!.id, first!.id]);
+    f.store.getState().setDestinationFocus([second!.id, first!.id]);
+    expect(originalDestinations.cancelled).toBe(true);
+    expect(originalCompany.cancelled).toBe(false);
+    expect(f.companies()).toHaveLength(companyCount);
+    expect(f.destinations()).toHaveLength(2);
+    const focused = f.destinations().at(-1)!;
+    const focusedWire = focused.query as {
+      tracks: readonly { readonly seriesId: string }[];
+      request: { readonly focus: { readonly a: number; readonly b: number } | null };
+    };
+    expect(focusedWire.tracks.map((track) => track.seriesId)).toEqual(['u1', 'u2']);
+    expect(focusedWire.request.focus).toEqual({ a: 0, b: 1 });
+    expect(f.store.getState().destinationFocus).toEqual({ seriesIds: ['u1', 'u2'] });
+
+    // A raced all-track result is fenced by the Destinations lease only.
+    originalDestinations.resolve(fakeDestinationsResult(originalDestinations));
+    await flush();
+    expect(f.store.getState().destinations?.state.status).toBe('pending');
+    focused.resolve(fakeDestinationsResult(focused));
+    originalCompany.resolve(fakeCompanyResult(originalCompany));
+    await flush();
+    expect(f.store.getState().destinations?.state.status).toBe('ready');
+    expect(f.store.getState().company?.state.status).toBe('ready');
+
+    // Focus is part of the resident key: clearing a settled focus must issue
+    // a fresh all-track ranking without touching Company.
+    f.store.getState().setDestinationFocus(null);
+    expect(f.companies()).toHaveLength(companyCount);
+    expect(f.destinations()).toHaveLength(3);
+    expect((f.destinations().at(-1)!.query as {
+      request: { readonly focus: unknown };
+    }).request.focus).toBeNull();
+
+    const beforePresentationEdits = {
+      company: f.companies().length,
+      destinations: f.destinations().length,
+    };
+    f.store.getState().renameGroup(first!.id, 'Detective');
+    f.store.getState().setGroupStyle(first!.id, { color: 'gold', line: 'dot' });
+    f.store.getState().applyTrendSettings({
+      bins: { mode: 'per-doc', count: 40 },
+      measure: { kind: 'rate', denominator: 10_000, smoothing: 5, showRaw: true },
+    });
+    expect(f.companies()).toHaveLength(beforePresentationEdits.company);
+    expect(f.destinations()).toHaveLength(beforePresentationEdits.destinations);
+  });
+
+  it('invalidates ready residents when a matching identity changes', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const company = f.companies().at(-1)!;
+    const destinations = f.destinations().at(-1)!;
+    company.resolve(fakeCompanyResult(company));
+    destinations.resolve(fakeDestinationsResult(destinations));
+    await flush();
+    const oldCompanyKey = f.store.getState().company!.trackKey;
+    const oldDestinationsKey = f.store.getState().destinations!.resultKey;
+    const group = f.store.getState().notebook.groups[0]!;
+    const member = coreGroupOf(group).members[0]!;
+    if (member.kind !== 'token') throw new Error('quick-add should create a token');
+
+    f.store.getState().setGroupMembers(
+      group.id,
+      [{ ...member, surface: 'watson' }],
+      false,
+    );
+    expect(f.companies()).toHaveLength(2);
+    expect(f.destinations()).toHaveLength(2);
+    expect(f.store.getState().company?.state.status).toBe('pending');
+    expect(f.store.getState().destinations?.state.status).toBe('pending');
+    expect(f.store.getState().company!.trackKey).not.toBe(oldCompanyKey);
+    expect(f.store.getState().destinations!.resultKey).not.toBe(oldDestinationsKey);
+  });
+
+  it('ignores invalid focus identities before they can reach worker ordinals', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const [first] = f.store.getState().series;
+    const count = f.destinations().length;
+    expect(() => f.store.getState().setDestinationFocus([first!.id, first!.id])).not.toThrow();
+    expect(() => f.store.getState().setDestinationFocus([first!.id, 'unknown'])).not.toThrow();
+    expect(f.destinations()).toHaveLength(count);
+    expect(f.store.getState().destinationFocus).toBeNull();
+  });
+
+  it('refuses mismatched worker track/focus echoes and maps overview caps honestly', async () => {
+    const mismatched = harness();
+    mismatched.port.publishSnapshot('g1', 's1', ['a']);
+    mismatched.store.getState().quickAdd('holmes, moriarty');
+    const company = mismatched.companies().at(-1)!;
+    const destinations = mismatched.destinations().at(-1)!;
+    const companyData = fakeCompanyResult(company);
+    if (companyData.op !== 'company') throw new Error('expected fake Company result');
+    company.resolve({
+      op: 'company',
+      company: {
+        ...companyData.company,
+        tracks: companyData.company.tracks.map((track, index) =>
+          index === 0 ? { ...track, seriesId: 'wrong-series' } : track),
+      },
+    });
+    const destinationsData = fakeDestinationsResult(destinations);
+    if (destinationsData.op !== 'destinations') throw new Error('expected fake Destinations result');
+    destinations.resolve({
+      op: 'destinations',
+      destinations: {
+        ...destinationsData.destinations,
+        focus: { a: 0, b: 1 },
+      },
+    });
+    await flush();
+    expect(mismatched.store.getState().company?.state).toEqual({
+      status: 'error',
+      message: 'worker returned mismatched Company data',
+    });
+    expect(mismatched.store.getState().destinations?.state).toEqual({
+      status: 'error',
+      message: 'worker returned mismatched Reading Destinations data',
+    });
+
+    const capped = harness();
+    capped.port.publishSnapshot('g1', 's1', ['a']);
+    capped.store.getState().quickAdd('holmes, moriarty');
+    capped.companies().at(-1)!.reject(
+      new WorkerClientError('WORKER_ERROR', 'cap', 'CAP_EXCEEDED'),
+    );
+    await flush();
+    expect(capped.store.getState().company?.state).toEqual({
+      status: 'error',
+      message: 'This overview is too large to analyse exactly — remove a tracked term or text.',
+    });
+  });
+
+  it('cancels overview work for a linked range and reuses exact ready residents on clear', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const companyQuery = f.companies().at(-1)!;
+    const destinationsQuery = f.destinations().at(-1)!;
+    companyQuery.resolve(fakeCompanyResult(companyQuery));
+    destinationsQuery.resolve(fakeDestinationsResult(destinationsQuery));
+    await flush();
+    const companyResident = f.store.getState().company;
+    const destinationsResident = f.store.getState().destinations;
+    const counts = {
+      company: f.companies().length,
+      destinations: f.destinations().length,
+    };
+
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 1, end: 3 } }],
+    });
+    expect(companyQuery.cancelled).toBe(true);
+    expect(destinationsQuery.cancelled).toBe(true);
+    expect(f.store.getState().company).toBe(companyResident);
+    expect(f.store.getState().destinations).toBe(destinationsResident);
+
+    f.store.getState().setLinkedSelection(null);
+    expect(f.companies()).toHaveLength(counts.company);
+    expect(f.destinations()).toHaveLength(counts.destinations);
+    expect(f.store.getState().company).toBe(companyResident);
+    expect(f.store.getState().destinations).toBe(destinationsResident);
+  });
+
+  it('clears cancelled pending states and reissues them on deselection', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes, moriarty');
+    const pendingCompany = f.companies().at(-1)!;
+    const pendingDestinations = f.destinations().at(-1)!;
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 1, end: 3 } }],
+    });
+    expect(pendingCompany.cancelled).toBe(true);
+    expect(pendingDestinations.cancelled).toBe(true);
+    expect(f.store.getState().company).toBeNull();
+    expect(f.store.getState().destinations).toBeNull();
+
+    f.store.getState().setLinkedSelection(null);
+    expect(f.companies()).toHaveLength(2);
+    expect(f.destinations()).toHaveLength(2);
+    expect(f.store.getState().company?.state.status).toBe('pending');
+    expect(f.store.getState().destinations?.state.status).toBe('pending');
+  });
+
+  it('shows Destinations but no Company for a single active term', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    expect(f.companies()).toHaveLength(0);
+    expect(f.store.getState().company).toBeNull();
+    expect(f.destinations()).toHaveLength(1);
+    expect(f.store.getState().destinations?.state.status).toBe('pending');
   });
 });
 

@@ -156,6 +156,8 @@ export async function collectDebugDiagnostics(
       selectedTrends: mapLanes(state.selectedTrends),
       matches: lane(state.kwic),
       dispersion: lane(state.dispersion),
+      company: lane(state.company),
+      destinations: lane(state.destinations),
       selectedDispersion: lane(state.selectedDispersion),
       inventory: lane(state.inventory),
       corpusInventory: lane(state.corpusInventory),
