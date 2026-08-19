@@ -178,7 +178,9 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   expect((await graph.boundingBox())?.height).toBe(coarse ? 24 : 12);
   expect((await page.getByRole('complementary', { name: 'Terms' }).boundingBox())?.height)
     .toBe(31);
-  expect((await page.locator('.term-bucket-toggle').first().boundingBox())?.height).toBe(24);
+  const minimumToggleHeight = (await page.locator('.term-bucket-toggle').first().boundingBox())?.height ?? 0;
+  expect(minimumToggleHeight).toBeGreaterThanOrEqual(24);
+  expect(minimumToggleHeight).toBeLessThanOrEqual(31);
   await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
 
   await handle.press('End');

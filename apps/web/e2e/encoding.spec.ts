@@ -23,8 +23,15 @@ test('a UTF-16LE BOM is detected and decoded (distinct encoding badge)', async (
 
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
+  await page.getByRole('table', { name: 'Text details' })
+    .locator('tr[data-catalog-book]')
+    .first()
+    .getByRole('button')
+    .first()
+    .click();
+  const source = page.getByRole('region', { name: 'Source details' });
   // The durable descriptor reports the BOM-detected encoding, not utf-8.
-  await expect(page.getByText(/encoding: utf-16le/)).toBeVisible();
+  await expect(source.getByText(/encoding:\s*utf-16le/)).toBeVisible();
 });
 
 test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a C1 control', async ({ page }) => {
@@ -47,8 +54,15 @@ test('an invalid-UTF-8 file falls back to Windows-1252 with 0 replacements and a
 
   await expect(page.getByRole('region', { name: 'Inputs', exact: true })).toBeVisible({ timeout: 30_000 });
   await awaitReadyCount(page, 1);
+  await page.getByRole('table', { name: 'Text details' })
+    .locator('tr[data-catalog-book]')
+    .first()
+    .getByRole('button')
+    .first()
+    .click();
+  const source = page.getByRole('region', { name: 'Source details' });
   // The inferred-encoding badge, exact wording.
-  await expect(page.getByText('Windows-1252 (inferred — no BOM/UTF-8)')).toBeVisible({ timeout: 30_000 });
+  await expect(source.getByText('Windows-1252 (inferred — no BOM/UTF-8)')).toBeVisible({ timeout: 30_000 });
   // A total decoder inserts ZERO replacements; the C1 byte is a suspicious control.
-  await expect(page.getByText(/0 replaced, [1-9]\d* control chars/)).toBeVisible();
+  await expect(source.getByText(/0 replaced, [1-9]\d* control chars/)).toBeVisible();
 });

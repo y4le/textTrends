@@ -19,6 +19,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await awaitReadyCount(page, 2);
 
   await gotoPlace(page, 'trends');
+  await page.getByRole('button', { name: 'combined', exact: true }).click();
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toBeVisible();
   const box = (await scrubber.boundingBox())!;

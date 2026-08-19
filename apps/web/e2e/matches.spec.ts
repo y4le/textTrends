@@ -221,11 +221,11 @@ test('Matches merges all terms in corpus order and toggles a term off', async ({
     && event.direction === 'to-worker'
     && event.t === 'query'
     && event.op === 'matches-window')).toEqual([]);
-  // Matches centers the nearest enabled mention and publishes that exact
-  // mention back to the shared scrubber.
+  // Matches centers the nearest enabled mention without rewriting an external
+  // cursor that falls after it in source text.
   await gotoPlace(page, 'trends');
   await expect(page.getByRole('slider', { name: /reading position/i }))
-    .toHaveAttribute('aria-valuetext', /^beasts · token 11\b/);
+    .toHaveAttribute('aria-valuetext', /^beasts · token 12\b/);
   await gotoPlace(page, 'matches');
   await expect
     .poll(async () => (await rowDetails(page)).map((r) => r.term), { message: 'wrong merged corpus order' })

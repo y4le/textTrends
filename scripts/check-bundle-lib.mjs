@@ -99,8 +99,7 @@ export function checkBundle(files, catalogSource) {
   const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
-  const methodSummaryPath = unique(files, /^assets\/MethodSummary-[^/]+\.js$/, 'Method summary', failures);
-  const methodSurfacePath = unique(files, /^assets\/MethodSurface-[^/]+\.js$/, 'Method region', failures);
+  const settingsSurfacePath = unique(files, /^assets\/SettingsSurface-[^/]+\.js$/, 'Settings region', failures);
   const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
   const footerPath = unique(files, /^assets\/WorkbenchFooter-[^/]+\.js$/, 'Reading footer', failures);
   const localLibraryPath = unique(files, /^assets\/local-library-[^/]+\.js$/, 'local library', failures);
@@ -128,7 +127,7 @@ export function checkBundle(files, catalogSource) {
       failures.push(`${entryPath}: gzip ${gz} B exceeds the ${ENTRY_GZIP_BUDGET_BYTES} B entry budget`);
     }
     for (const [path, role] of [
-      [methodSurfacePath, 'Method'],
+      [settingsSurfacePath, 'Settings'],
       [querySurfacePath, 'Query'],
       [footerPath, 'Reading footer'],
       [localLibraryPath, 'local library'],
@@ -142,18 +141,6 @@ export function checkBundle(files, catalogSource) {
       } else if (!references(entryText, name)) {
         failures.push(`${entryPath}: no reference to ${name} — the lazy ${role} region edge is gone`);
       }
-    }
-  }
-
-  // Method has a two-hop lazy boundary: the entry loads the responsive host,
-  // and only that host may load the heavier provenance summary.
-  if (methodSurfacePath && methodSummaryPath) {
-    const surfaceText = files.get(methodSurfacePath).toString('utf8');
-    const summaryName = methodSummaryPath.replace('assets/', '');
-    if (staticImports(surfaceText).has(summaryName)) {
-      failures.push(`${methodSurfacePath}: statically imports ${summaryName} — the Method summary must stay lazy`);
-    } else if (!references(surfaceText, summaryName)) {
-      failures.push(`${methodSurfacePath}: no reference to ${summaryName} — the lazy Method summary edge is gone`);
     }
   }
 

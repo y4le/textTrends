@@ -381,6 +381,14 @@ test('the horizontally overflowing Corpus and analysis status are keyboard-scrol
   await page.setViewportSize({ width: 320, height: 800 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  const firstText = page.getByRole('table', { name: 'Text details' })
+    .locator('tr[data-catalog-book]')
+    .first();
+  await firstText.getByRole('button').first().click();
+  await page.getByRole('region', { name: /Text detail:/ })
+    .getByRole('button', { name: 'select this text' })
+    .click();
   const details = page.getByRole('group', { name: 'Corpus and analysis status' });
   await expect(details).toHaveAttribute('tabindex', '0');
   expect(await details.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);

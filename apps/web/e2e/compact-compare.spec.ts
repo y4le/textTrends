@@ -127,7 +127,17 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   await expect(page.getByText('left side', { exact: true })).toHaveCount(0);
   await expect(page.getByText('right side', { exact: true })).toHaveCount(0);
   expect(leftInitial).not.toBe(rightInitial);
-  await expect(left.locator(`option[value="${rightInitial}"]`)).toHaveAttribute('disabled', '');
+  expect(leftInitial).not.toBe('__rest__');
+  expect(rightInitial).toBe('__rest__');
+
+  const rightDocument = await right
+    .locator('option:not([value="__rest__"]):not([disabled])')
+    .first()
+    .getAttribute('value');
+  expect(rightDocument).not.toBeNull();
+  await right.selectOption(rightDocument!);
+  await expect(right).toHaveValue(rightDocument!);
+  await expect(left.locator(`option[value="${rightDocument}"]`)).toHaveAttribute('disabled', '');
   await expect(right.locator(`option[value="${leftInitial}"]`)).toHaveAttribute('disabled', '');
 
   let mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -140,7 +150,7 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await left.selectOption('__rest__');
   await expect(left).toHaveValue('__rest__');
-  await expect(right).toHaveValue(rightInitial);
+  await expect(right).toHaveValue(rightDocument!);
   await expect.poll(async () => (await trace(page)).events.filter(
     (event) => event.seq > mark && event.direction === 'to-worker'
       && event.t === 'query' && event.op === 'keyness',
@@ -149,7 +159,7 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
 
   await left.selectOption(leftInitial);
   await expect(left).toHaveValue(leftInitial);
-  await expect(right).toHaveValue(rightInitial);
+  await expect(right).toHaveValue(rightDocument!);
   await expect(page.getByRole('button', { name: 'Swap keyness sides' })).toHaveCount(0);
 });
 
@@ -210,7 +220,8 @@ test('Compare settings preserve a draft through width changes and stage ranking 
 
   await expect(dialog.getByLabel('left ranking order')).toHaveValue('-1');
   await expect(dialog.getByLabel('right ranking order')).toHaveValue('1');
-  await dialog.getByRole('button', { name: 'reverse both rankings' }).click();
+  await dialog.getByLabel('left ranking order').selectOption('1');
+  await dialog.getByLabel('right ranking order').selectOption('-1');
   await expect(dialog.getByLabel('left ranking order')).toHaveValue('1');
   await expect(dialog.getByLabel('right ranking order')).toHaveValue('-1');
 
