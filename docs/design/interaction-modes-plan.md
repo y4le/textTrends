@@ -150,7 +150,7 @@ to run first.
 | Edit WPM | `W`, then numeric entry; `h`/`l` and arrows nudge only while speed owns focus | Click WPM or slower/faster | Tap WPM for numeric input or use 44px slower/faster buttons | Set pace and effective pace are distinguishable |
 | Freeze cursor | Space outside native controls | Click the footer pin/lock action | Tap the 44px footer pin/lock action | Persistent `position pinned` indicator and Unpin |
 | Recent positions | Visible Back/Forward controls; shortcut deferred | Click a breadcrumb or recent-position menu | Tap 44px Back/Forward or a recent-position row | Book, position, origin, and current marker |
-| Debug | `D` or `:debug` | **Debug** action in Help | **Debug** action in Help | Full utility pane with Copy and recovery actions |
+| Debug | `Shift+D` | **Debug** action in Help | **Debug** action in Help | Full utility pane with Copy and recovery actions |
 | Linked range from footer graph | Double-click clears; second-click-hold-drag replaces | Same | Enter visible **Select range**, then one-finger drag or anchor/end taps | Anchor/head, Cancel, Commit |
 
 The Help/Shortcuts pane becomes the universal discovery surface. Add a
@@ -384,7 +384,7 @@ as a discoverable palette.
 
 ## Debug menu and demo loading
 
-`D`, `:debug`, and the visible Debug action in Help open one utility pane. A
+`Shift+D` and the visible Debug action in Help open one utility pane. A
 shipped debug pane follows the trace privacy rule: metadata only, never source
 text, query surfaces, result arrays, KWIC rows, Reader passages, or imported
 bytes.
@@ -438,10 +438,10 @@ Keep these behind the existing dev/E2E compile-time seam:
 ### Demo policy
 
 The debug menu may expose the same additive demo loader, plus development-only
-synthetic fixtures. Do not automatically remove the ordinary public demo from
-Inputs: it is the only zero-friction first-run path and the shipped Inputs
-design explicitly treats demos as ordinary local acquisition. If the owner
-chooses to move it, update [inputs-workspace.md](inputs-workspace.md),
+synthetic fixtures. Keep the ordinary public Sherlock sample discoverable in
+Inputs as a secondary empty-state onboarding path; the shipped Inputs design
+still treats its texts as ordinary local acquisition. If the owner chooses to
+move it, update [inputs-workspace.md](inputs-workspace.md),
 [workbench-ux.md](workbench-ux.md), and [current-roadmap.md](current-roadmap.md)
 in the same decision series.
 
@@ -452,10 +452,8 @@ in the same decision series.
 - unknown or unavailable slugs produce a notice and are still removed;
 - it claims the shared library-operation lease;
 - it clears the active corpus and notebook, **not saved local-library bytes**,
-  before adding the preset;
-- it does not run again on reload, Back, or place navigation; and
-- a nonempty authored workspace requires a confirmation or an additional
-  explicit replacement signal before destructive replacement.
+  before adding the preset, including when the current workspace is nonempty;
+- it does not run again on reload, Back, or place navigation.
 
 Public deployments must use a rights-aware build allowlist. The repository
 currently documents LOTR and ASOIF as private corpora; a URL route must not make
@@ -561,9 +559,5 @@ Every implemented phase must demonstrate:
 
 1. Does global `S` replace the Trends range binding, or does the focused Trends
    surface retain local precedence?
-2. Must a nonempty workspace confirm `?demo=` replacement, or should destructive
-   automation require a second parameter such as `replace=1`?
-3. Does the first public demo remain visible in Inputs, with private/stress
-   corpora moved to Debug?
-4. Should ORP ship at all, or remain an experiment after the fixed-center RSVP
+2. Should ORP ship at all, or remain an experiment after the fixed-center RSVP
    slice is measured?

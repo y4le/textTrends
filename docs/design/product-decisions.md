@@ -4,6 +4,30 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-18 — Debug recovery surface and explicit demo boot links
+
+Debug is a production utility pane opened by the explicit `Shift+D` chord or a
+real button in Help, preserving touch discovery and the Help invoker's focus.
+Its copied report is an allowlisted metadata schema: it includes build,
+worker, snapshot, analysis-lane, recipe, storage, and presentation facts, but no
+source names, source/query text, result rows, passages, or imported bytes. It
+also exposes analysis/workspace retry, worker restart, disposable-cache clear,
+and a separately confirmed full reset. Both destructive paths first close the
+session, worker, and local-library connection; blocked IndexedDB deletion asks
+the user to close another app tab instead of reporting false success.
+
+Sherlock remains the public first-run sample in Inputs, but no longer occupies
+a full acquisition card: it is secondary to **Add your files** in the empty
+Active inputs state and collapses to an adaptive compact action after texts are
+present. The private LOTR and ASOIF loaders move to Debug, where every menu load
+stays additive. The allowlisted
+one-shot `?demo=sherlock`, `?demo=lotr`, and `?demo=asoif` boot parameters have
+deliberately different semantics: they are stripped before route writes, clear
+the active corpus and notebook without deleting saved library bytes, load the
+preset, and cannot repeat on reload or history navigation. This automatic
+replacement is the explicit contract of a shared preset URL, including for a
+nonempty workspace.
+
 ## 2026-08-17 — One explicit interaction mode and temporary corpus Find
 
 The workbench now permits one explicit primary interaction state, beginning

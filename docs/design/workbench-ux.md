@@ -362,7 +362,8 @@ registry is the source for event matching,
 the visible Shortcuts control. The reference interleaves keyboard and touch
 gestures under the surfaces they govern. Workbench help includes Terms, Trends,
 and its persistent reading footer, while Reader help contains only Reader-owned
-actions.
+actions. Its Tools section also exposes the Debug utility pane for touch; the
+same pane opens globally with the explicit `Shift+D` chord.
 
 Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable
@@ -452,6 +453,8 @@ cancelled or lost capture restores the committed width.
 - Full-screen forms and utility panes trap focus and inert the workbench.
 - Escape closes one transient pane and restores its invoking focus. Back closes
   exactly one governed history layer; utility panes do not participate in Back.
+- Help can hand off directly to Debug without losing the original invoking
+  control; closing Debug restores focus there.
 - Browser save shortcuts are not intercepted.
 - Reduced motion removes nonessential transitions without removing state.
 

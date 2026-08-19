@@ -21,31 +21,36 @@ The surface answers three questions in order:
 
 ## Shipped information architecture
 
-The acquisition area contains four bounded cards:
+The composition area contains three bounded cards:
 
 1. **Active inputs** — the ordered analysis corpus. OS-file drops and saved
    texts can be added here. Pointer drag and keyboard-accessible up/down actions
    use the same ordering command. Removing a text does not delete its saved
    bytes from the local library. A confirmed **Clear all** action resets every
-   active text and term together while retaining those saved bytes.
+   active text and term together while retaining those saved bytes. Its empty
+   state leads with **Add your files** and offers **Try the Sherlock Holmes
+   sample** as a secondary public-domain onboarding path. Once texts exist,
+   that sample control becomes a compact row and reflects whether Sherlock is
+   saved, partially active, or fully active.
 2. **Local library** — content-addressed browser-local storage. Files can be
    saved without activation, activated later, or deleted independently.
 3. **Load from Standard Ebooks** — public-domain acquisition through the
-   searchable catalog, saved locally before activation.
-4. **Load demo** — prepared corpora acquired as ordinary local texts. Demo
-   suggestions append terms without replacing authored terms; demo texts can be
-   reordered, removed, and reactivated exactly like any other text.
+   searchable catalog, saved locally before activation. The Sherlock sample is
+   acquired as ordinary local texts, and its suggestions append terms without
+   replacing authored terms. Private LOTR and ASOIF acquisition lives in the
+   Debug utility pane so the normal Inputs path remains publication-safe and
+   focused.
 
-The grid is three columns when space permits, two at intermediate widths, and
-one on compact screens. Active inputs spans the full grid because corpus order
-is the primary composition task. File selection remains a real focusable input;
+The grid is two columns when space permits and one on compact screens. Active
+inputs spans the full grid because corpus order is the primary composition
+task. File selection remains a real focusable input;
 all acquisition paths share one exclusive library-operation lane and report a
 losing race in the card where it occurred. Reordering pauses while an import is
 in flight, and pending or failed imports remain visible in Active inputs.
 
 ## Shipped per-text statistics
 
-A full-corpus statistics table sits directly below the four cards as a stable
+A full-corpus statistics table sits directly below the three cards as a stable
 full-corpus reference: a linked range selected in Trends may re-scope
 Vocabulary, Matches, and other analytical overlays, but it does not rewrite
 the facts shown for an input text.
