@@ -1,8 +1,5 @@
-# CI — Phase 1 Milestone 6 (M6 consult §11): a gate that is never run
-# automatically is only a script. Unit + typecheck + BOTH builds (the normal
-# production bundle proves deployability and must contain no e2e facade; the
-# e2e bundle feeds Playwright), then the real-browser functional suite and
-# the serial benchmark project.
+# Typecheck, test, and build every change. Successful builds from master are
+# uploaded and deployed through GitHub Pages' artifact-based workflow.
 
 name: ci
 
@@ -10,6 +7,7 @@ on:
   push:
     branches: [master]
   pull_request:
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -17,6 +15,7 @@ concurrency:
 
 permissions:
   contents: read
+  pages: read
 
 jobs:
   checks:
@@ -44,6 +43,18 @@ jobs:
       - name: Enforce the production bundle contract (budget, lazy chunks, no facade)
         run: pnpm check:bundle
 
+      # Playwright's web server builds e2e mode into the same dist directory,
+      # so capture the verified production bytes before browser tests run.
+      # The deploy job still waits for this entire checks job to pass.
+      - name: Configure GitHub Pages
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: actions/configure-pages@v6
+      - name: Upload production build for GitHub Pages
+        if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+        uses: actions/upload-pages-artifact@v5
+        with:
+          path: apps/web/dist
+
       - name: Install Playwright Chromium and WebKit
         run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium webkit
 
@@ -60,3 +71,19 @@ jobs:
             apps/web/test-results
           if-no-files-found: ignore
           retention-days: 14
+
+  deploy:
+    if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
+    needs: checks
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v5

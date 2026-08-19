@@ -23,8 +23,8 @@ downloads its source archive from GitHub. User-imported books and analysis
 results remain browser-local.
 
 **Status: active rewrite.** The current architecture is functional and covered
-by unit and browser suites, while publication hardening and a hermetic external
-dependency remain open. See the [current roadmap](docs/design/current-roadmap.md)
+by unit and browser suites, while publication hardening remains open. See the
+[current roadmap](docs/design/current-roadmap.md)
 for the shipped/in-progress/deferred boundary. The retained design documents
 describe current contracts and decisions rather than implementation history.
 
@@ -34,13 +34,20 @@ describe current contracts and decisions rather than implementation history.
   Playwright coverage
 - `packages/core` — environment-independent indexing and analysis kernels
 - `packages/extractors` — lazy TXT/Markdown/HTML/EPUB extraction boundary
+- `packages/standard-ebooks` — browser-first Standard Ebooks archive and
+  extraction client
 - `packages/cli` — Node portability and benchmark harness
 - `docs/design` — current contracts, decisions, benchmarks, and roadmap
 - `text` — development corpora; read `text/README.md` before redistribution
 
-The root workspace currently enrolls a sibling `../standard_ebooks` checkout.
-That is an acknowledged clean-checkout blocker, not an implicit npm
-dependency. See the roadmap before setting up CI or a public distribution.
+Every workspace dependency is contained in this repository, so a clean
+checkout is sufficient for local development and CI.
+`packages/standard-ebooks` remains an independent package boundary: consumers
+use only its declared `.`, `./extract`, and `./archive` exports, never its
+`src` internals.
+
+Pushes to `master` run the full CI suite and, after it passes, publish the web
+app to GitHub Pages. Pull requests run the same checks without deploying.
 
 ## Development
 

@@ -38,15 +38,16 @@ measurement gates, and method contracts.
   metadata-only copy report. Allowlisted one-shot `?demo=sherlock`,
   `?demo=lotr`, and `?demo=asoif` links replace active research state while
   preserving reusable local-library bytes.
+- **Hermetic builds and deployment:** every workspace package, including the
+  Standard Ebooks client, lives in this repository. Pull requests run the full
+  CI suite; successful pushes to `master` build and deploy the production
+  bundle to GitHub Pages.
 
 ## In progress
 
-- **Publication hardening:** corpus rights/provenance, repository licensing,
-  reproducible deployment, and a clean-checkout CI story still need an
-  owner-led publication cut. These are tracked in [the backlog](backlog.md).
-- **Hermetic Standard Ebooks dependency:** the workspace still requires the
-  sibling `../standard_ebooks` checkout. Publishing a pinned package or
-  vendoring a provenance-recorded copy is intentionally deferred to that cut.
+- **Publication hardening:** corpus rights/provenance and repository licensing
+  still need an owner-led publication cut. These are tracked in
+  [the backlog](backlog.md).
 - **Large-corpus validation:** the checked-in browser benchmark is below the
   formal 10M/50M-token tiers. Those tiers must be measured before making
   stronger residency or performance claims.
