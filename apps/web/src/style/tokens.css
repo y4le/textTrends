@@ -4254,8 +4254,7 @@ html.reader-open .find-bar--floating {
 }
 
 .trend-organ-header p,
-.trend-organ-note,
-.trend-matrix-home {
+.trend-organ-note {
   color: var(--fg-muted);
   font-size: var(--text-xs);
 }
@@ -4266,131 +4265,29 @@ html.reader-open .find-bar--floating {
   font-family: var(--font-mono);
 }
 
-.trend-organ[data-range-pending] .trend-matrix-port,
 .trend-organ[data-range-pending] .trend-overview-grid {
   opacity: 0.38;
 }
 
-.trend-matrix-port,
 .trend-range-port {
   max-inline-size: 100%;
   border-block: 1px solid var(--rule);
 }
 
-.trend-matrix-table,
 .trend-range-table {
   border-collapse: separate;
   border-spacing: 0;
   font-size: var(--text-xs);
 }
 
-.trend-matrix-table th,
-.trend-matrix-table td,
 .trend-range-table th,
 .trend-range-table td {
   border-inline-end: 1px solid var(--rule);
   border-block-end: 1px solid var(--rule);
 }
 
-.trend-matrix-table tr:last-child > *,
 .trend-range-table tr:last-child > * {
   border-block-end: 0;
-}
-
-.trend-matrix-table thead th {
-  inline-size: 92px;
-  min-inline-size: 92px;
-  max-inline-size: 92px;
-  block-size: 42px;
-  padding: var(--space-1);
-  color: var(--fg-muted);
-  font-weight: 400;
-  line-height: 1.2;
-  text-align: start;
-  vertical-align: bottom;
-}
-
-.trend-matrix-book-number,
-.trend-matrix-book-title {
-  display: block;
-}
-
-.trend-matrix-book-number {
-  color: var(--fg);
-  font-family: var(--font-mono);
-}
-
-.trend-matrix-book-title {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trend-matrix-table .trend-matrix-corner,
-.trend-matrix-table tbody th {
-  position: sticky;
-  z-index: 2;
-  inset-inline-start: 0;
-  inline-size: 168px;
-  min-inline-size: 168px;
-  max-inline-size: 168px;
-  padding: var(--space-1) var(--space-2);
-  background: var(--bg);
-  text-align: start;
-}
-
-.trend-matrix-table .trend-matrix-corner {
-  z-index: 3;
-}
-
-.trend-matrix-term {
-  display: flex;
-  min-inline-size: 0;
-  align-items: center;
-  gap: var(--space-1);
-  font-size: var(--text-sm);
-  font-weight: 600;
-}
-
-.trend-matrix-term svg {
-  flex: 0 0 24px;
-}
-
-.trend-matrix-term span,
-.trend-matrix-home {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.trend-matrix-home {
-  margin-block-start: 1px;
-  font-weight: 400;
-}
-
-.trend-matrix-cell {
-  inline-size: 92px;
-  min-inline-size: 92px;
-  block-size: 40px;
-  padding: 4px;
-  text-align: center;
-  vertical-align: middle;
-}
-
-.trend-matrix-cell svg {
-  display: block;
-  margin-inline: auto;
-  overflow: visible;
-}
-
-.trend-matrix-cell-status {
-  color: var(--fg-muted);
-  font-family: var(--font-mono);
-}
-
-.trend-matrix-cell-status[data-status='error'] {
-  color: var(--accent-text);
 }
 
 .trend-organ-note {
@@ -4738,24 +4635,6 @@ html.reader-open .find-bar--floating {
     align-items: flex-start;
     flex-direction: column;
     gap: var(--space-1);
-  }
-
-  .trend-matrix-table .trend-matrix-corner,
-  .trend-matrix-table tbody th {
-    inline-size: 132px;
-    min-inline-size: 132px;
-    max-inline-size: 132px;
-  }
-
-  .trend-matrix-table thead th,
-  .trend-matrix-cell {
-    inline-size: 82px;
-    min-inline-size: 82px;
-    max-inline-size: 82px;
-  }
-
-  .trend-matrix-cell svg {
-    inline-size: 74px;
   }
 
   .destination-list {
