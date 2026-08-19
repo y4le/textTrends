@@ -4224,6 +4224,263 @@ html.reader-open .find-bar--floating {
   min-block-size: 44px;
 }
 
+/* Trends' second analytical organ: a qualitative whole-corpus shape matrix,
+ * replaced by an exact range/rest comparison once selected lanes settle. */
+.trend-organ {
+  min-inline-size: 0;
+  margin-block-start: var(--space-4);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--rule-strong);
+}
+
+.trend-organ-header {
+  display: flex;
+  min-inline-size: 0;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-block-end: var(--space-2);
+}
+
+.trend-organ-header h2,
+.trend-organ-header p,
+.trend-organ-note {
+  margin: 0;
+}
+
+.trend-organ-header h2 {
+  font-size: var(--text-md);
+  font-weight: 600;
+}
+
+.trend-organ-header p,
+.trend-organ-note,
+.trend-matrix-home {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.trend-organ-pending {
+  flex: 0 0 auto;
+  color: var(--accent-text) !important;
+  font-family: var(--font-mono);
+}
+
+.trend-organ[data-range-pending] .trend-matrix-port {
+  opacity: 0.38;
+}
+
+.trend-matrix-port,
+.trend-range-port {
+  max-inline-size: 100%;
+  border-block: 1px solid var(--rule);
+}
+
+.trend-matrix-table,
+.trend-range-table {
+  border-collapse: separate;
+  border-spacing: 0;
+  font-size: var(--text-xs);
+}
+
+.trend-matrix-table th,
+.trend-matrix-table td,
+.trend-range-table th,
+.trend-range-table td {
+  border-inline-end: 1px solid var(--rule);
+  border-block-end: 1px solid var(--rule);
+}
+
+.trend-matrix-table tr:last-child > *,
+.trend-range-table tr:last-child > * {
+  border-block-end: 0;
+}
+
+.trend-matrix-table thead th {
+  inline-size: 92px;
+  min-inline-size: 92px;
+  max-inline-size: 92px;
+  block-size: 42px;
+  padding: var(--space-1);
+  color: var(--fg-muted);
+  font-weight: 400;
+  line-height: 1.2;
+  text-align: start;
+  vertical-align: bottom;
+}
+
+.trend-matrix-book-number,
+.trend-matrix-book-title {
+  display: block;
+}
+
+.trend-matrix-book-number {
+  color: var(--fg);
+  font-family: var(--font-mono);
+}
+
+.trend-matrix-book-title {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-matrix-table .trend-matrix-corner,
+.trend-matrix-table tbody th {
+  position: sticky;
+  z-index: 2;
+  inset-inline-start: 0;
+  inline-size: 168px;
+  min-inline-size: 168px;
+  max-inline-size: 168px;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg);
+  text-align: start;
+}
+
+.trend-matrix-table .trend-matrix-corner {
+  z-index: 3;
+}
+
+.trend-matrix-term {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.trend-matrix-term svg {
+  flex: 0 0 24px;
+}
+
+.trend-matrix-term span,
+.trend-matrix-home {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.trend-matrix-home {
+  margin-block-start: 1px;
+  font-weight: 400;
+}
+
+.trend-matrix-cell {
+  inline-size: 92px;
+  min-inline-size: 92px;
+  block-size: 40px;
+  padding: 4px;
+  text-align: center;
+  vertical-align: middle;
+}
+
+.trend-matrix-cell svg {
+  display: block;
+  margin-inline: auto;
+  overflow: visible;
+}
+
+.trend-matrix-cell-status {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+}
+
+.trend-matrix-cell-status[data-status='error'] {
+  color: var(--accent-text);
+}
+
+.trend-organ-note {
+  margin-block-start: var(--space-1);
+}
+
+.trend-range-table {
+  inline-size: 100%;
+  min-inline-size: 620px;
+}
+
+.trend-range-table th,
+.trend-range-table td {
+  padding: var(--space-1) var(--space-2);
+}
+
+.trend-range-table thead th {
+  color: var(--fg-muted);
+  font-weight: 400;
+  text-align: start;
+}
+
+.trend-range-table tbody th {
+  inline-size: 22%;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-align: start;
+}
+
+.trend-range-rate {
+  inline-size: 15%;
+  font-family: var(--font-mono);
+  text-align: end;
+  white-space: nowrap;
+}
+
+.trend-range-effect {
+  inline-size: 48%;
+  min-inline-size: 216px;
+  text-align: center;
+}
+
+.trend-range-direction {
+  display: inline-grid;
+  justify-items: center;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  line-height: 1.1;
+}
+
+.trend-range-direction svg {
+  display: block;
+}
+
+.trend-range-undefined,
+.trend-range-status {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.trend-range-status[data-error] {
+  color: var(--accent-text);
+}
+
+@media (max-width: 599.98px) {
+  .trend-organ-header {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+
+  .trend-matrix-table .trend-matrix-corner,
+  .trend-matrix-table tbody th {
+    inline-size: 132px;
+    min-inline-size: 132px;
+    max-inline-size: 132px;
+  }
+
+  .trend-matrix-table thead th,
+  .trend-matrix-cell {
+    inline-size: 82px;
+    min-inline-size: 82px;
+    max-inline-size: 82px;
+  }
+
+  .trend-matrix-cell svg {
+    inline-size: 74px;
+  }
+}
+
 @media (max-width: 599.98px) {
   .app-shell {
     padding-block-end:

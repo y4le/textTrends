@@ -14,6 +14,7 @@ test('double-click clears the linked range without selecting chart text', async 
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toBeVisible();
+  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
   expect(await scrubber.evaluate(userSelect)).toBe('none');
   expect(await page.getByRole('region', { name: 'Trends', exact: true }).evaluate(userSelect)).toBe('none');
 
@@ -23,11 +24,18 @@ test('double-click clears the linked range without selecting chart text', async 
   await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
   await expect(page.getByTestId('linked-selection')).toBeVisible();
+  await expect(page.locator('[data-trend-organ="range"]')).toBeVisible();
+  const holmes = page.locator('.trend-range-table tbody tr').filter({ hasText: 'Holmes' });
+  await expect(holmes.locator('.trend-range-rate').first()).toHaveText('0');
+  const direction = holmes.getByRole('img', { name: /absent in range.*direction toward rest/i });
+  await expect(direction).toBeVisible();
+  await expect(direction).toHaveAttribute('data-direction-side', 'rest');
 
   await scrubber.dblclick();
 
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
   await gotoPlace(page, 'inputs');

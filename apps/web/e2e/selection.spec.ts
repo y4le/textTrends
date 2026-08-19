@@ -167,6 +167,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await importCorpus(page, 'animals.txt', CORPUS);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
+  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
 
   await expect.poll(() => page.workers().length).toBe(1);
   const worker = page.workers()[0]!;
@@ -204,6 +205,9 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect.poll(() => gateHeld(worker)).toBe(2);
+  await expect(page.locator('[data-trend-organ="matrix"]'))
+    .toHaveAttribute('data-range-pending', 'true');
+  await expect(page.locator('[data-trend-organ="range"]')).toHaveCount(0);
 
   // Keyboard selection B: reset the reading cursor, announce selection mode,
   // extend twice, and commit [0,3). Its two overlay jobs flow while A remains held.
@@ -218,6 +222,9 @@ test('pointer and keyboard selections share detail results and stale results can
   await scrubber.press('Enter');
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await awaitDetailBurst(page, bMark);
+  await expect(page.locator('[data-trend-organ="range"]')).toBeVisible();
+  await expect(page.getByRole('table', { name: /rates for tracked terms inside/i }))
+    .toBeVisible();
 
   // Every selected consumer serves B: one wolf inside [0,3), versus three in
   // the corpus. Matches remains full-corpus and highlights the one row.
@@ -261,9 +268,12 @@ test('pointer and keyboard selections share detail results and stale results can
   for (let i = 0; i < 4; i += 1) await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
   await expect.poll(() => gateHeld(worker)).toBe(2);
+  await expect(page.locator('[data-trend-organ="matrix"]'))
+    .toHaveAttribute('data-range-pending', 'true');
   await page.getByRole('button', { name: 'clear selection' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
+  await expect(page.locator('[data-trend-organ="matrix"]')).not.toHaveAttribute('data-range-pending');
   await gateRelease(worker);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   termTotal = page.getByRole('list', { name: 'Term totals' })

@@ -102,6 +102,15 @@ for (const viewport of [
 
     await expect(page.getByRole('table', { name: /exact totals by book/i })).toHaveCount(0);
     await expect(page.getByText(/Exact totals by book are in/)).toHaveCount(0);
+    const matrix = page.getByRole('region', { name: 'Scrollable term by book distribution matrix' });
+    await expect(matrix).toBeVisible();
+    const matrixLayout = await matrix.evaluate((node) => ({
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
+      sticky: getComputedStyle(node.querySelector('tbody th')!).position,
+    }));
+    expect(matrixLayout.scrollWidth).toBeGreaterThan(matrixLayout.clientWidth);
+    expect(matrixLayout.sticky).toBe('sticky');
     const occurrenceRows = page.getByRole('list', { name: 'Term totals' })
       .getByRole('listitem');
     await expect(occurrenceRows).toHaveCount(3);
