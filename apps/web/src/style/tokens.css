@@ -4224,8 +4224,8 @@ html.reader-open .find-bar--floating {
   min-block-size: 44px;
 }
 
-/* Trends' second analytical organ: a qualitative whole-corpus shape matrix,
- * replaced by an exact range/rest comparison once selected lanes settle. */
+/* Trends' second analytical organ: whole-corpus orientation, replaced by an
+ * exact range/rest comparison once selected lanes settle. */
 .trend-organ {
   min-inline-size: 0;
   margin-block-start: var(--space-4);
@@ -4266,7 +4266,8 @@ html.reader-open .find-bar--floating {
   font-family: var(--font-mono);
 }
 
-.trend-organ[data-range-pending] .trend-matrix-port {
+.trend-organ[data-range-pending] .trend-matrix-port,
+.trend-organ[data-range-pending] .trend-overview-grid {
   opacity: 0.38;
 }
 
@@ -4396,6 +4397,277 @@ html.reader-open .find-bar--floating {
   margin-block-start: var(--space-1);
 }
 
+.trend-overview-grid {
+  display: grid;
+  grid-template-columns: minmax(250px, 0.82fr) minmax(360px, 1.5fr);
+  gap: var(--space-3);
+  transition: opacity 120ms ease-out;
+}
+
+.trend-overview-grid[data-single] {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.trend-overview-panel {
+  min-inline-size: 0;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  background: color-mix(in srgb, var(--bg) 95%, var(--fg) 5%);
+}
+
+.trend-overview-panel > header,
+.destinations-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-2);
+  margin-block-end: var(--space-2);
+}
+
+.trend-overview-panel h3,
+.trend-overview-panel h4,
+.trend-overview-panel header p,
+.trend-overview-status,
+.trend-overview-method-note,
+.destination-card blockquote,
+.destination-card footer {
+  margin: 0;
+}
+
+.trend-overview-panel h3 {
+  font-size: var(--text-sm);
+  font-weight: 650;
+  letter-spacing: 0.02em;
+  text-transform: lowercase;
+}
+
+.trend-overview-panel header p,
+.trend-overview-status,
+.trend-overview-method-note,
+.company-pair-note,
+.destination-card header p,
+.destination-evidence {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.trend-overview-status {
+  min-block-size: 5rem;
+  display: grid;
+  place-items: center;
+  padding: var(--space-3);
+  text-align: center;
+}
+
+.trend-overview-method-note {
+  margin-block-start: var(--space-2);
+  padding-block-start: var(--space-1);
+  border-block-start: 1px solid var(--rule);
+}
+
+.company-list,
+.destination-list {
+  display: grid;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.company-list {
+  max-block-size: 31rem;
+  overflow: auto;
+}
+
+.company-pair {
+  inline-size: 100%;
+  min-block-size: 44px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 3px;
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid var(--rule);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  text-align: start;
+}
+
+.company-pair:hover,
+.company-pair:focus-visible,
+.company-pair[data-focused] {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.company-pair[data-focused] {
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+}
+
+.company-pair-names,
+.company-pair-names > span,
+.destination-evidence,
+.destination-card footer {
+  display: flex;
+  align-items: center;
+}
+
+.company-pair-names {
+  min-inline-size: 0;
+  gap: var(--space-1);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.company-pair-names > span {
+  min-inline-size: 0;
+  gap: 3px;
+}
+
+.company-pair-names > span:not([aria-hidden]) {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.company-pair-coverage {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.company-coverage {
+  display: grid;
+  gap: 2px;
+}
+
+.company-coverage-label {
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.company-coverage-track {
+  block-size: 3px;
+  overflow: hidden;
+  background: var(--rule);
+}
+
+.company-coverage-fill {
+  display: block;
+  block-size: 100%;
+}
+
+.company-pair-note {
+  justify-self: end;
+}
+
+.trend-overview-action {
+  min-block-size: 44px;
+  padding: 2px 0.75ch;
+  border: 1px solid var(--rule-strong);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.trend-overview-action:hover,
+.trend-overview-action:focus-visible {
+  border-color: var(--accent);
+  outline: none;
+}
+
+.destination-list {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 290px), 1fr));
+}
+
+.destination-card {
+  min-inline-size: 0;
+  block-size: 100%;
+  display: grid;
+  grid-template-rows: auto 1fr auto auto;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  background: var(--bg);
+}
+
+.destination-list > li {
+  min-inline-size: 0;
+}
+
+.destination-card > header {
+  display: flex;
+  min-inline-size: 0;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.destination-card > header > div {
+  flex: 1 1 auto;
+  min-inline-size: 0;
+}
+
+.destination-card h4 {
+  min-inline-size: 0;
+}
+
+.destination-rank {
+  min-inline-size: 2ch;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+}
+
+.destination-card h4 {
+  overflow: hidden;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.destination-card blockquote {
+  padding-block: var(--space-1);
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
+
+.destination-card blockquote > span[aria-hidden] {
+  color: var(--fg-muted);
+}
+
+.destination-mark {
+  border-block-end: 2px solid;
+  color: inherit;
+}
+
+.destination-evidence {
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-2);
+}
+
+.destination-evidence span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.destination-evidence i {
+  inline-size: 6px;
+  block-size: 6px;
+  border-radius: 50%;
+}
+
+.destination-card footer {
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+
 .trend-range-table {
   inline-size: 100%;
   min-inline-size: 620px;
@@ -4455,6 +4727,12 @@ html.reader-open .find-bar--floating {
   color: var(--accent-text);
 }
 
+@media (max-width: 719.98px) {
+  .trend-overview-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 599.98px) {
   .trend-organ-header {
     align-items: flex-start;
@@ -4478,6 +4756,10 @@ html.reader-open .find-bar--floating {
 
   .trend-matrix-cell svg {
     inline-size: 74px;
+  }
+
+  .destination-list {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

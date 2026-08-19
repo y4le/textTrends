@@ -167,7 +167,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await importCorpus(page, 'animals.txt', CORPUS);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
-  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
+  await expect(page.locator('[data-trend-organ="overview"]')).toBeVisible();
 
   await expect.poll(() => page.workers().length).toBe(1);
   const worker = page.workers()[0]!;
@@ -205,7 +205,7 @@ test('pointer and keyboard selections share detail results and stale results can
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
   await expect(page.getByText(/^Selected /)).toHaveCount(0);
   await expect.poll(() => gateHeld(worker)).toBe(2);
-  await expect(page.locator('[data-trend-organ="matrix"]'))
+  await expect(page.locator('[data-trend-organ="overview"]'))
     .toHaveAttribute('data-range-pending', 'true');
   await expect(page.locator('[data-trend-organ="range"]')).toHaveCount(0);
 
@@ -268,12 +268,12 @@ test('pointer and keyboard selections share detail results and stale results can
   for (let i = 0; i < 4; i += 1) await scrubber.press('ArrowRight');
   await scrubber.press('Enter');
   await expect.poll(() => gateHeld(worker)).toBe(2);
-  await expect(page.locator('[data-trend-organ="matrix"]'))
+  await expect(page.locator('[data-trend-organ="overview"]'))
     .toHaveAttribute('data-range-pending', 'true');
   await page.getByRole('button', { name: 'clear selection' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.locator('[data-selected-overlay]')).toHaveCount(0);
-  await expect(page.locator('[data-trend-organ="matrix"]')).not.toHaveAttribute('data-range-pending');
+  await expect(page.locator('[data-trend-organ="overview"]')).not.toHaveAttribute('data-range-pending');
   await gateRelease(worker);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   termTotal = page.getByRole('list', { name: 'Term totals' })

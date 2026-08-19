@@ -14,7 +14,7 @@ test('double-click clears the linked range without selecting chart text', async 
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toBeVisible();
-  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
+  await expect(page.locator('[data-trend-organ="overview"]')).toBeVisible();
   expect(await scrubber.evaluate(userSelect)).toBe('none');
   expect(await page.getByRole('region', { name: 'Trends', exact: true }).evaluate(userSelect)).toBe('none');
 
@@ -35,7 +35,7 @@ test('double-click clears the linked range without selecting chart text', async 
 
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
-  await expect(page.locator('[data-trend-organ="matrix"]')).toBeVisible();
+  await expect(page.locator('[data-trend-organ="overview"]')).toBeVisible();
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
 
   await gotoPlace(page, 'inputs');

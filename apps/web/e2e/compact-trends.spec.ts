@@ -102,15 +102,18 @@ for (const viewport of [
 
     await expect(page.getByRole('table', { name: /exact totals by book/i })).toHaveCount(0);
     await expect(page.getByText(/Exact totals by book are in/)).toHaveCount(0);
-    const matrix = page.getByRole('region', { name: 'Scrollable term by book distribution matrix' });
-    await expect(matrix).toBeVisible();
-    const matrixLayout = await matrix.evaluate((node) => ({
+    const overview = page.locator('[data-trend-organ="overview"]');
+    await expect(overview).toBeVisible();
+    await expect(overview.locator('[data-trend-overview-section="company"]')).toBeVisible();
+    await expect(overview.locator('[data-trend-overview-section="destinations"]')).toBeVisible();
+    const overviewLayout = await overview.evaluate((node) => ({
       clientWidth: node.clientWidth,
       scrollWidth: node.scrollWidth,
-      sticky: getComputedStyle(node.querySelector('tbody th')!).position,
+      columns: getComputedStyle(node.querySelector('.trend-overview-grid')!).gridTemplateColumns,
     }));
-    expect(matrixLayout.scrollWidth).toBeGreaterThan(matrixLayout.clientWidth);
-    expect(matrixLayout.sticky).toBe('sticky');
+    expect(overviewLayout.scrollWidth).toBeLessThanOrEqual(overviewLayout.clientWidth + 1);
+    expect(overviewLayout.columns.trim().split(/\s+/)).toHaveLength(1);
+    expect((await overview.locator('.company-pair').first().boundingBox())?.height).toBeGreaterThanOrEqual(44);
     const occurrenceRows = page.getByRole('list', { name: 'Term totals' })
       .getByRole('listitem');
     await expect(occurrenceRows).toHaveCount(3);

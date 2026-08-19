@@ -91,7 +91,7 @@ export function TrendRangeCompare({ vm }: { readonly vm: TrendRangeCompareVM }) 
     >
       <header className="trend-organ-header">
         <div>
-          <h2 id="trend-range-heading">selected range / rest of corpus</h2>
+          <h2 id="trend-range-heading" tabIndex={-1}>selected range / rest of corpus</h2>
           <p>
             tracked terms only · rates per {integer.format(TREND_RATE_DENOMINATOR)} tokens · direction compares observed rates
           </p>
