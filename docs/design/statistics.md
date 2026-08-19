@@ -297,6 +297,47 @@ results). Bins partition each document's lexical tokens per the selected
 true `binTokens`, never padded. Occurrence de-duplication within a term group follows
 the group's `countOverlaps` (overlap identity = covered-token union).
 
+The Trends range comparison derives two sides from the resident baseline and
+ranged trend lanes. Selected trends contain only touched documents, so results
+are joined by document id before summing—not by parallel row index. For each
+tracked term:
+
+```
+insideCount  = Σ selected count rows
+insideTokens = Σ selected binTokens
+outsideCount = Σ baseline count rows − insideCount
+outsideTokens= Σ baseline binTokens − insideTokens
+```
+
+Rates on both sides use the formula above. Direction uses the bounded observed
+rate contrast `rate-contrast/1`:
+
+```
+C = (rateInside − rateOutside) / (rateInside + rateOutside)   // −1…+1
+```
+
+This is the monotone transform `(r−1)/(r+1) = tanh(ln(r)/2)` of the raw rate
+ratio, so its sign always agrees with the two printed rates. One-sided zeroes
+land honestly at the endpoints. A 21-token range with no occurrences against
+8 occurrences in the remaining 1,923 tokens gives rates 0 and 41.6 per 10,000
+and `C=−1`, toward the rest. A continuity-corrected log ratio would point the
+other way on this vector because its 0.5 pseudo-count implies 227.3 per 10,000
+inside; that estimand is deliberately not used for this observed-direction
+display.
+
+Mark weight is a coarse evidence channel. With pooled rate
+`p=(insideCount+outsideCount)/(insideTokens+outsideTokens)`, the mark is solid
+when `min(p·insideTokens, p·outsideTokens) ≥ 5` and a hairline otherwise. The
+example above has a minimum expected count of `8/1944·21 = 0.0864`, so its
+full-left mark is thin. Direction is undefined when the range leaves no
+remainder or the term occurs nowhere. Overlap-counted groups remain valid
+because a rate contrast does not require occurrence count to be at most the
+token denominator.
+
+Matches are admitted to a range only when fully contained in it. A multi-token
+match crossing a range edge therefore remains outside while the denominator is
+split at the edge; this can bias short-range phrase rates against the inside.
+
 ## Smoothing (overlay only)
 
 Default trend is the unsmoothed equal-token-bin rate. The overlay is a centered

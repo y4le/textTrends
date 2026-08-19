@@ -30,6 +30,7 @@ export {
 } from './stats/keyness.ts';
 export { logDice, pmi, tScore } from './stats/collocation.ts';
 export { dp, dpNorm } from './stats/dispersion.ts';
+export { rateContrast } from './stats/contrast.ts';
 export { jensenShannon, jsdContribution } from './stats/divergence.ts';
 export {
   automatedReadabilityIndex,

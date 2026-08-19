@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { automatedReadabilityIndex, colemanLiauIndex, dp, dpNorm, g2Keyness, jensenShannon, jsdContribution, logDice, logRatio, logRatioInterval, LOG_RATIO_Z_95, MATTR_MAX_TYPES, mattr, mattrIds, mtld, pmi, tScore } from '../src/index.ts';
+import { automatedReadabilityIndex, colemanLiauIndex, dp, dpNorm, g2Keyness, jensenShannon, jsdContribution, logDice, logRatio, logRatioInterval, LOG_RATIO_Z_95, MATTR_MAX_TYPES, mattr, mattrIds, mtld, pmi, rateContrast, tScore } from '../src/index.ts';
 
 // Published-value fixtures from docs/design/statistics.md — each vector is
 // hand-computed there and verified numerically; these tests pin the formulas.
@@ -81,6 +81,45 @@ describe('dispersion', () => {
     expect(() => dp([1], [1, 2])).toThrow(RangeError);
     expect(() => dp([0, 0], [1, 1])).toThrow(RangeError);
     expect(() => dpNorm([3], [100])).toThrow(RangeError); // one part: min share = 1 → 0/0
+  });
+});
+
+describe('rate contrast', () => {
+  it('is a bounded monotone transform of the raw rate ratio', () => {
+    for (const ratio of [0.5, 2, 10, 100]) {
+      const contrast = rateContrast(ratio * 10, 1_000, 10, 1_000);
+      expect(contrast).not.toBeNull();
+      expect(contrast).toBeCloseTo(Math.tanh(0.5 * Math.log(ratio)), 12);
+    }
+  });
+
+  it('pins one-sided zeroes to the observed direction', () => {
+    expect(rateContrast(0, 21, 8, 1_923)).toBe(-1);
+    expect(rateContrast(1, 21, 0, 1_923)).toBe(1);
+  });
+
+  it('keeps its sign aligned with observed rates over a scalar grid', () => {
+    for (const tokensA of [1, 21, 100, 5_000]) {
+      for (const tokensB of [1, 100, 1_923, 100_000]) {
+        for (const countA of [0, 1, 5, 100]) {
+          for (const countB of [0, 1, 8, 100]) {
+            const contrast = rateContrast(countA, tokensA, countB, tokensB);
+            if (countA + countB === 0) {
+              expect(contrast).toBeNull();
+              continue;
+            }
+            expect(Math.sign(contrast!)).toBe(Math.sign(countA / tokensA - countB / tokensB));
+          }
+        }
+      }
+    }
+  });
+
+  it('permits overlap counts above token totals and returns null for invalid sides', () => {
+    expect(rateContrast(5, 2, 1, 10)).toBeCloseTo(12 / 13, 12);
+    expect(rateContrast(1, 0, 1, 10)).toBeNull();
+    expect(rateContrast(0, 10, 0, 10)).toBeNull();
+    expect(rateContrast(Number.NaN, 10, 1, 10)).toBeNull();
   });
 });
 
