@@ -4,6 +4,53 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-19 — A plain-text-first Trends overview replaces the book matrix
+
+With no linked range, the second Trends organ is now an orientation-to-reading
+surface rather than another distribution chart. One tracked term shows Reading
+Destinations; two through five show Company beside Reading Destinations. A
+settled linked range still replaces the organ with the existing exact
+range-versus-rest comparison.
+
+Company reports nearest span-gap evidence in both directions for every tracked
+pair. Its UI derives “nearby” at the published gap-below-25-token edge and
+ranks bounded pairs by the weaker directional coverage, then shared-document
+count. It deliberately publishes no association score or modeled baseline:
+nearest variable spans with overlaps and document edges do not have a coherent
+closed-form expectation that would justify one. Pair activation is a strict
+Destinations filter and can therefore produce an honest empty state.
+
+Reading Destinations ranks occurrence-anchored windows of up to 400 indexed
+tokens and returns at most twelve. The score rewards track breadth, bounded
+rarity, and diminishing within-window counts; deterministic breadth-first
+document selection bounds how much one text can consume when several yield
+candidates. Read opens the
+exact winning occurrence, while Compare commits the full ranked window. The
+shorter excerpt and its highlights are transport-bounded. No feature depends
+on headings, chapters, paragraphs, or reliable source structure, so plain TXT
+retains the complete analysis.
+
+The operations are independent selection-free worker lanes over the canonical
+full-ready corpus. They share immutable cached occurrence vectors through an
+opaque prepared-track capability, have separate latest-wins state and failures,
+and are issued after the primary trend/dispersion burst. Company accepts two
+through five tracks; Destinations accepts one through five. Pair focus reissues
+only Destinations. A linked range cancels pending overview work but may retain
+matching ready residents for reuse after deselection.
+
+Dynamic programming is intentionally absent because the product consumes an
+ordered list whose first passages matter independently; a maximum-sum set can
+discard the best individual passage. Reconsider per-document weighted-interval
+DP plus cross-document knapsack only if the objective changes to set-level
+coverage, variable windows, or a shared token budget.
+
+The architecture was frozen with an explicitly pinned Claude Opus planner
+through Parley (request `req_consult_e5a3f4ce2992d395`, artifact
+`art_sha256_1367362e98a25d7c0e0d7bb824ad05cf5a758060d67b4cebde16406df9ae36f4`).
+The final UI and retirement diffs also received exact staged Opus reviews
+(`rev_sha256_95266a2f572e7e4399f6e9846bfc35bd55ec69e38de9abfb288fb8c2a1cd307b`
+and `rev_sha256_611acff53fbd16a87e3249612c750ceeb10b0dc6f11368e93250a8f78bb3e4c6`).
+
 ## 2026-08-18 — Debug recovery surface and explicit demo boot links
 
 Debug is a production utility pane opened by the explicit `Shift+D` chord or a

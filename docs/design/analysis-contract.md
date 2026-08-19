@@ -82,6 +82,12 @@ resident supplies stable text facts and Inputs provenance; a linked selection
 never cancels or relabels that baseline. Continuous `matches-window`, Reader
 paging, and exact occurrence stepping always use canonical full-corpus
 coordinates and are never clipped or reissued by that analytical selection.
+The selection-free Trends overview follows the same boundary: `company/1` and
+`destinations/1` carry no caller-supplied selection, and the engine constructs
+the canonical full-ready-corpus selection. Setting a linked range immediately
+cancels pending overview work; once the range comparison settles it replaces
+the overview. Matching ready overview residents may be reused after the range
+is cleared.
 
 ## Worker generation
 
@@ -104,6 +110,13 @@ Generation publication is monotone: ready sets grow in declared order, stale
 jobs cannot publish into a newer generation, and every query result is bound
 to the snapshot against which it ran.
 
+Occurrence-based operations acquire immutable numeric vectors through one
+prepared-track capability in the query executor. Within a query, matching
+identities resolve once even when track modes overlap; across queries the
+existing bounded occurrence cache is the only large shared primitive. Borrowed
+vectors are never mutated or transferred. Company and Destinations allocate
+only bounded operation-local numeric scratch and emit fresh plain values.
+
 ## Query operations
 
 The wire protocol has a closed query union:
@@ -113,6 +126,13 @@ The wire protocol has a closed query union:
   groups;
 - `matches-window` — exact bounded windows plus an optional sparse rank
   axis over enabled tracks in canonical full-corpus reading order;
+- `company` (`company/1`) — exact directional nearest-peer span-gap
+  histograms, same-document absence counts, and overlap/direction evidence for
+  every unordered pair of two through five tracked groups;
+- `destinations` (`destinations/1`) — at most twelve deterministically ranked
+  full-corpus reading windows for one through five tracked groups, optionally
+  requiring a strict pair, with bounded excerpts, marks, and one exact Reader
+  anchor per result;
 - `inventory` — corpus and per-document measurements plus sentence rhythm;
 - `freq-list` — bounded frequency, document-frequency, dispersion, and lexical
   diversity ranking;

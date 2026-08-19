@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type {
+  CompanyResultV1,
+  DestinationsResultV1,
   FrequencyListResultV1,
   InventoryResultV1,
   KeynessResultV1,
@@ -100,6 +102,28 @@ const keyness: KeynessResultV1 = {
   }],
 };
 
+const company: CompanyResultV1 = {
+  method: 'company/1',
+  gapEdges: [0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200],
+  tracks: [
+    { seriesId: 'holmes', groupId: 'g-holmes', total: 8, docCount: 2 },
+    { seriesId: 'watson', groupId: 'g-watson', total: 4, docCount: 2 },
+  ],
+  corpusTokens: 200,
+  pairs: [],
+};
+
+const destinations: DestinationsResultV1 = {
+  method: 'destinations/1',
+  windowTokens: 400,
+  focus: { a: 0, b: 1 },
+  tracks: [
+    { seriesId: 'holmes', groupId: 'g-holmes', total: 8, weight: 65_536 },
+    { seriesId: 'watson', groupId: 'g-watson', total: 4, weight: 131_072 },
+  ],
+  destinations: [],
+};
+
 function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
   return {
     documentTitles: new Map([['a', 'a'], ['b', 'b']]),
@@ -111,6 +135,7 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
     linkedSelection: null,
     inventory,
     trends: [{ label: 'Holmes', result: trend }],
+    overview: { company: null, destinations: null },
     trendMeasure: {
       kind: 'rate',
       denominator: 10_000,
@@ -151,6 +176,27 @@ describe('provenanceFor', () => {
     expect(value).toContain('presentation · smoothing: none');
     expect(value).toContain('resident series: Holmes');
     expect(value).toContain('Snapshot: snapshot-1');
+  });
+
+  it('records selection-free overview methods only without a linked selection', () => {
+    const whole = formatProvenanceText(provenanceFor(input({
+      overview: { company, destinations },
+    }), 'trends'));
+    expect(whole).toContain('Method: company/1');
+    expect(whole).toContain('displayed nearby threshold: gap below 25 indexed tokens');
+    expect(whole).toContain('Method: destinations/1');
+    expect(whole).toContain('strict pair focus: holmes + watson');
+    expect(whole).toContain('reader anchor: exact winning occurrence');
+
+    const selected = formatProvenanceText(provenanceFor(input({
+      overview: { company, destinations },
+      linkedSelection: {
+        snapshot: 'snapshot-1',
+        ranges: [{ doc: 'a', tokens: { start: 0, end: 10 } }],
+      },
+    }), 'trends'));
+    expect(selected).not.toContain('Method: company/1');
+    expect(selected).not.toContain('Method: destinations/1');
   });
 
   it('describes vocabulary and compare methods', () => {

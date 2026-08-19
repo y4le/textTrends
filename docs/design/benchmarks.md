@@ -65,6 +65,52 @@ the index build could already own the high-water mark, making that delta
 incapable of measuring occurrence memory. That number and its memory-based
 conclusion are superseded by the phase-signalled samples above.
 
+## Trends overview kernel gates
+
+These gates isolate the work added after cached occurrences are available.
+They are not end-to-end UI latency claims and do not include occurrence
+construction. Both harnesses use five logical tracks near the one-million-row
+cap, real snapshot document geometry, fresh bounded scratch on every measured
+run, one or two discarded warmups as reported by the command, and the median
+of five iterations on Linux with Node 24.14.1.
+
+- `bench-company`: median at most **100 ms**, encoded output at most **8 KiB**;
+- `bench-destinations`: planning median at most **100 ms**, bounded winner
+  materialization at most **5 ms**, candidate scratch at most **64 KiB**, and
+  encoded output at most **32 KiB**.
+
+Run:
+
+```text
+node --expose-gc packages/cli/src/main.ts bench-company <corpus-dir>
+node --expose-gc packages/cli/src/main.ts bench-destinations <corpus-dir>
+```
+
+### 2026-08-19 — Company and Destinations, dev machine
+
+The Company fixture uses shifted document-valid position vectors rather than
+duplicate logical tracks. That distinction is material: an earlier fixture
+sent every visit through the overlap fast path and could not support a timing
+claim. Offsets `[0,7,37,101,301]` exercise all thirteen histogram buckets and
+about 3.99 million directional source visits.
+
+| Corpus | Company median | Company JSON | Destinations planning | Materialization | Scratch | Destinations JSON |
+|---|---:|---:|---:|---:|---:|---:|
+| Sherlock (6 vols) | 42.3 ms | 3,818 B | 42.7 ms | 0.33 ms | 2,354 B | 24,862 B |
+| ASOIF (5 vols) | 39.8 ms | 3,766 B | 59.1 ms | 0.28 ms | 1,965 B | 24,901 B |
+
+The Destinations fixture uses five interleaved, cache-admissible 200,000-row
+tracks over real document boundaries, allowing up to one million distinct
+anchors instead of collapsing duplicate members. The output rows are the full
+twelve-destination / 192-mark shape. Additional mixed-script probes measured
+24.4--26.9 KiB and retained every Reader anchor while respecting the 48-token,
+400-UTF-16-unit, 512-UTF-8-byte, and 16-mark per-excerpt bounds. Both kernels
+therefore leave the slowest planning median at 59.1 ms against a 100 ms gate
+(a 1.69× gate/measured ratio), with substantial materialization and byte
+headroom. The ASOIF row was measured against a local, non-versioned corpus;
+only the bundled Sherlock row is reproducible from a clean checkout. These are
+machine-local promotion gates, not CI timing thresholds.
+
 ## WASM promotion gate
 
 Add a WebAssembly implementation only when all three conditions hold:

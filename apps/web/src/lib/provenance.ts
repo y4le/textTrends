@@ -1,4 +1,6 @@
 import type {
+  CompanyResultV1,
+  DestinationsResultV1,
   FrequencyListResultV1,
   InventoryResultV1,
   KeynessResultV1,
@@ -56,6 +58,10 @@ export interface ProvenanceInput {
   readonly linkedSelection: TokenRangeSelectionV1 | null;
   readonly inventory: InventoryResultV1 | null;
   readonly trends: readonly ProvenanceTrend[];
+  readonly overview: {
+    readonly company: CompanyResultV1 | null;
+    readonly destinations: DestinationsResultV1 | null;
+  };
   readonly trendMeasure: WorkspaceTrendMeasureV1;
   readonly frequency: {
     readonly view: FrequencyViewV1;
@@ -193,6 +199,49 @@ function trendMethod(input: ProvenanceInput): ProvenanceMethod {
   };
 }
 
+function companyMethod(result: CompanyResultV1): ProvenanceMethod {
+  return {
+    method: result.method,
+    parameters: [
+      parameter('scope', 'all ready documents; linked ranges do not apply'),
+      parameter('tracks', result.tracks.map((track) => track.seriesId).join(', ')),
+      parameter('distance', 'nearest span-to-span interval gap within each document'),
+      parameter('gap bucket edges', result.gapEdges.join(', ')),
+      parameter('displayed nearby threshold', 'gap below 25 indexed tokens'),
+      parameter('directionality', 'each track uses its own occurrences as denominator'),
+    ],
+    limitations: [
+      'Company reports exact directional proximity evidence, not association, significance, or causation.',
+      'Occurrences in a document with no peer are reported separately from the distance histogram.',
+      'Bucket zero includes touching spans; proper overlaps are also reported separately.',
+    ],
+  };
+}
+
+function destinationsMethod(result: DestinationsResultV1): ProvenanceMethod {
+  const focus = result.focus === null
+    ? 'none'
+    : [result.focus.a, result.focus.b]
+        .map((ordinal) => result.tracks[ordinal]?.seriesId ?? `track ${ordinal + 1}`)
+        .join(' + ');
+  return {
+    method: result.method,
+    parameters: [
+      parameter('scope', 'all ready documents; linked ranges do not apply'),
+      parameter('window', `up to ${result.windowTokens.toLocaleString()} indexed tokens`),
+      parameter('tracks', result.tracks.map((track) => track.seriesId).join(', ')),
+      parameter('strict pair focus', focus),
+      parameter('resident destinations', String(result.destinations.length)),
+      parameter('reader anchor', 'exact winning occurrence'),
+    ],
+    limitations: [
+      'The score is a deterministic reading heuristic, not document structure or passage importance.',
+      'The ordered list is selected greedily with bounded per-document candidates; it is not a set-level optimum.',
+      'Displayed excerpts are shorter than the ranked window and retain a bounded number of highlights.',
+    ],
+  };
+}
+
 function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, result } = input.frequency;
   return {
@@ -268,7 +317,15 @@ export function provenanceFor(input: ProvenanceInput, place: Place): ProvenanceV
   let resident = false;
 
   if (place === 'trends' && input.trends.length > 0) {
-    methods = [trendMethod(input)];
+    methods = [
+      trendMethod(input),
+      ...(input.linkedSelection === null && input.overview.company !== null
+        ? [companyMethod(input.overview.company)]
+        : []),
+      ...(input.linkedSelection === null && input.overview.destinations !== null
+        ? [destinationsMethod(input.overview.destinations)]
+        : []),
+    ];
     resident = true;
   } else if (place === 'vocabulary' && input.frequency.result) {
     methods = [

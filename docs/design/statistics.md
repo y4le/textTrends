@@ -338,6 +338,78 @@ Matches are admitted to a range only when fully contained in it. A multi-token
 match crossing a range edge therefore remains outside while the denominator is
 split at the edge; this can bias short-range phrase rates against the inside.
 
+## Company proximity (`company/1`)
+
+Company is exact descriptive evidence over two through five tracked term
+groups and the canonical full-ready corpus. An occurrence with start `p` and
+span `s` occupies the half-open interval `[p, p+s)`. For every unordered pair,
+the method performs both directional questions: for each A occurrence, how far
+is the nearest B interval in the same document, and independently for each B
+occurrence, how far is the nearest A interval? Proper overlap has gap zero;
+touching intervals also enter the zero-gap bucket but are excluded from the
+separate overlap count. If the peer has no occurrence in that document, the
+source occurrence increments `none` instead of a histogram bucket.
+
+The fixed lower edges are:
+
+```text
+0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200
+```
+
+Each bucket is `[edge_i, edge_(i+1))`; the final bucket is `[200, infinity)`.
+The Company panel's “nearby” value is therefore exactly the sum of buckets
+whose lower edge is below 25, divided by that direction's complete occurrence
+total (including same-document-absent occurrences). The two directions remain
+separate. Pair ordering uses the smaller directional coverage, then the number
+of documents containing both tracks, then canonical identity. This is not an
+association score, expected count, significance test, or causal claim.
+
+**Integer fixture**: documents have 30 and 20 tokens. A occurs at
+`d0:[0,2)`, `d0:[10,11)`, and `d1:[5,6)`; B occurs at `d0:[2,3)` and
+`d0:[8,12)`. A→B has bucket zero `2`, `none=1`, `forward=1`, and `overlap=1`.
+B→A has bucket zero `2`, `none=0`, `backward=1`, and `overlap=1`.
+`docsWithBoth=1`; displayed directional nearby coverage is `2/3` for A and
+`2/2` for B. This fixture pins touching, proper overlap, asymmetric
+denominators, and the no-peer document path.
+
+## Reading Destinations (`destinations/1`)
+
+Destinations is a deterministic reading heuristic over one through five
+tracked groups and the canonical full-ready corpus. Each distinct occurrence
+start can anchor a centered, document-clamped window of
+`min(400, documentTokens)` tokens. Counts use occurrence starts inside that
+half-open window. Let `n_t` be track `t`'s full-corpus occurrence total,
+`Rmax = max_t(n_t)`, and `c_t` its count in the window. Integer weights and the
+window score are:
+
+```text
+W_t    = min(16·65536, floor(65536·Rmax / max(n_t, 1)))
+root_t = floor(sqrt(65536·min(c_t, 4096)))
+score  = presentTracks · Σ_t(W_t · root_t)
+```
+
+Thus a one-term score is monotone in its count, while multiple-term breadth,
+bounded rarity, and diminishing returns can elevate a common-plus-rare
+passage. A pair focus is strict: both focused track counts must be positive
+before a candidate can survive. An empty result is meaningful.
+
+Nearby anchors collapse to deterministic runs, at most eight numeric
+candidates survive per document, and the final pass consumes candidate depths
+breadth-first across documents. It applies a derived per-document quota,
+suppresses overlapping windows in the same document, and returns at most
+twelve. This greedy ordering serves an independently consumed reading list; it
+is deliberately not weighted-interval DP or a maximum-coverage set. The exact
+winning occurrence is retained as the Reader anchor. Materialization touches
+only winners and bounds each excerpt to 48 tokens, 400 UTF-16 units, 512 UTF-8
+bytes, and 16 marks.
+
+**Integer fixture**: one 300-token document has one track at starts 10, 20,
+30, and 40. `Rmax=n_0=4`, so `W_0=65536`, `root_0=floor(sqrt(65536·4))=512`,
+`presentTracks=1`, and the sole clamped window scores exactly `33,554,432`
+with counts `[4]`. A separate strict-focus fixture places one track at token
+100 and another at 2,800 in a 3,000-token document; no 400-token window can
+contain both, so the result is exactly empty.
+
 ## Smoothing (overlay only)
 
 Default trend is the unsmoothed equal-token-bin rate. The overlay is a centered

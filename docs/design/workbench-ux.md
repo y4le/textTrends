@@ -3,7 +3,7 @@
 *Current product-design authority for the textTrends shell and cross-device
 presentation.*
 
-**STATUS: IMPLEMENTED (updated 2026-08-13).**
+**STATUS: IMPLEMENTED (updated 2026-08-19).**
 
 ## Product principle
 
@@ -33,7 +33,7 @@ There are five stable places:
 | Place | Governing question | Contents |
 |---|---|---|
 | Inputs | What texts make up this study? | active order, local library, acquisition, full-text measurements and term counts |
-| Trends | Where do tracked terms occur? | trend plate, dispersion, term-by-book distribution shape, linked-range density against the corpus remainder |
+| Trends | Where do tracked terms occur, which terms keep company, and where should I read? | trend plate, dispersion, Company, Reading Destinations, linked-range density against the corpus remainder |
 | Matches | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
 | Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
@@ -48,10 +48,19 @@ the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.
 
 Trends keeps the term set fixed to the at-most-five groups already being
-tracked. Its book matrix is qualitative shape, not a second exact-values table;
-Inputs remains the home of exact per-book counts. A linked range may show exact
-inside/rest rates for those tracked terms, but it never ranks vocabulary,
-discovers terms, or adds G² evidence columns—the Compare place owns those jobs.
+tracked. With no linked range, its second organ shows Reading Destinations for
+one term and Company plus Reading Destinations for two through five. Company
+keeps the two directional proximity rates separate and makes no association
+claim; selecting a pair strictly focuses only Reading Destinations. A
+destination exposes occurrence evidence, opens Reader at an exact winning
+occurrence, or commits its full ranked window as the linked range. These
+surfaces require only indexed tokens and occurrences, so TXT is not a degraded
+case and no inferred chapters or other document hierarchy are implied.
+
+Once a linked range settles, the same organ is replaced by exact inside/rest
+rates for the tracked terms. It never ranks vocabulary, discovers terms, or
+adds G² evidence columns—the Compare place owns those jobs. Inputs remains the
+home of exact per-document term counts.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only
@@ -94,17 +103,19 @@ their governed bottom or side dock without duplicating the navigation DOM.
 Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
 transient source position, passage, trend, progress, and dispersion context.
-**Method & settings** and the shortcut reference use the same full-screen pane frame;
+**Trend settings**, Debug, and the shortcut reference use the same full-screen pane frame;
 governed row details remain separate history layers.
 
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
-completeness. Its corpus label opens Inputs. **Method & settings** on Trends,
-and **Method** on Vocabulary and Compare, opens the same contextual pane;
-Inputs and Matches omit it. Compare keeps its immediate profile, divergence,
-intervals, dispersion, and row evidence in the governed analysis surface,
-while Method retains versioned provenance, limitations, and result export.
+completeness. Its corpus label opens Inputs. The adjacent control on Trends
+opens the implemented **Trend settings** pane; Inputs, Matches, Vocabulary, and
+Compare currently have no contextual Method pane. A versioned formatter
+contract exists for Trends, Vocabulary, and Compare provenance, limitations,
+and result export, but no production surface invokes it yet. Compare keeps its
+immediate profile, divergence, intervals, dispersion, and row evidence in the
+governed analysis surface.
 
 ### Terms rail
 
@@ -313,12 +324,12 @@ controls in Trends open Reader. The footer's barcode centers Matches in
 place, while its current passage and a footer double-click open Reader at the
 current or clicked position.
 
-## Method and trend settings
+## Trend settings and provenance contract
 
 The graph carries no settings caption or control. The Scope organ opens the
-full-screen Method & settings pane. Settings and an always-expanded analysis
-record share the pane without consuming permanent workbench space; provenance
-and resident results remain visible and copyable there.
+full-screen Trend settings pane. The versioned provenance and result-export
+formatter remains a tested library contract, not a visible or copyable pane in
+the current product.
 
 Changing result geometry reissues only baseline and selected trend lanes.
 Changing resident presentation performs no worker query. Smoothing never
@@ -329,8 +340,8 @@ explicit 10,000-token denominator; there is no denominator preference.
 Settings are a draft until Apply. A successful Apply closes the pane and
 restores focus to the Scope control; an unchanged or rejected draft remains
 open with an explicit status. Restore defaults changes only the draft, while
-close and Escape discard it. Method is transient UI state and never adds,
-replaces, or consumes a browser-history entry.
+close and Escape discard it. Settings are transient UI state and never add,
+replace, or consume a browser-history entry.
 
 ## Reader
 
@@ -454,6 +465,8 @@ cancelled or lost capture restores the committed width.
   targets to 44 pixels without inflating dense table rows.
 - Editable compact inputs render at least 16px text.
 - At 320px the page itself does not scroll horizontally; named data ports may.
+- The Trends overview uses one column below 720 CSS pixels, leaving classic
+  scrollbar headroom before its two bounded panels share a row.
 - Viewport changes never alter corpus, scope, notebook, linked range,
   comparison sides, persisted views, or Reader identity and issue no analysis.
 - Full-screen forms and utility panes trap focus and inert the workbench.
