@@ -141,6 +141,17 @@ export interface MatchesAxisCachePolicy {
   readonly maxEntries: number;
   readonly maxBytes: number;
 }
+
+/**
+ * A single-query occurrence-acquisition capability. The returned vectors are
+ * borrowed immutable references into the executor's bounded LRU: callers must
+ * not mutate, retain beyond the call, or transfer them. Keeping shards and
+ * resolvers behind this closure makes every current query operation acquire
+ * occurrences through one capped path.
+ */
+interface PreparedTracks {
+  readonly occurrences: (group: TermGroupSpec) => NumericOccurrences;
+}
 const DEFAULT_OCCURRENCE_CACHE_POLICY: OccurrenceCachePolicy = {
   maxEntries: MAX_OCCURRENCE_CACHE_ENTRIES,
   maxBytes: MAX_OCCURRENCE_CACHE_BYTES,
@@ -370,6 +381,34 @@ export class QueryExecutor {
     return shards;
   }
 
+  /**
+   * Resolve the union of match modes needed by one query, then expose only the
+   * shared capped occurrence acquisition path. The caller retains its existing
+   * per-track checkpoints so cancellation cadence stays operation-specific.
+   */
+  private async prepareTracks(
+    selection: ResolvedSelection,
+    groups: readonly TermGroupSpec[],
+    checkpoint: QueryCheckpoint,
+  ): Promise<PreparedTracks> {
+    const shards = this.shardsFor(selection);
+    const resolvers = new Map<string, Map<string, Resolver>>();
+    for (const id of selection.spec.docs) {
+      const byMode = new Map<string, Resolver>();
+      for (const group of groups) {
+        for (const member of group.members) {
+          const key = modeKey(member.match);
+          if (!byMode.has(key)) byMode.set(key, await this.resolverFor(id, member.match));
+        }
+      }
+      resolvers.set(id, byMode);
+    }
+    await checkpoint();
+    return {
+      occurrences: (group) => this.occurrencesFor(shards, resolvers, selection, group),
+    };
+  }
+
   /** Lookup/touch/compute/prune for the ONE aggregation cache. The key is
    * immutable because snapshot.id hashes the ref's IndexArtifactHash and the
    * per-doc range key is derived from canonical ResolvedSelection ranges.
@@ -504,15 +543,8 @@ export class QueryExecutor {
     checkpoint: QueryCheckpoint,
   ): Promise<NumericTrend> {
     const snapshot = this.published().snapshot;
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const member of group.members) byMode.set(modeKey(member.match), await this.resolverFor(id, member.match));
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
-    const occ = this.occurrencesFor(shards, resolvers, selection, group);
+    const prepared = await this.prepareTracks(selection, [group], checkpoint);
+    const occ = prepared.occurrences(group);
     await checkpoint();
     const data = trend(snapshot, selection, occ, request);
     // Final kernel checkpoint: a cancel queued during the trend kernel is
@@ -534,19 +566,7 @@ export class QueryExecutor {
     checkpoint: QueryCheckpoint,
   ): Promise<DispersionResultV1> {
     const snapshot = this.published().snapshot;
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
+    const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
 
     // Bridge SNAPSHOT ordinals (NumericOccurrences.docOrdinal) to SELECTED
     // slots — a subset selection must land in slot 0, never out of bounds.
@@ -554,7 +574,7 @@ export class QueryExecutor {
     let geometry: ReturnType<typeof planDispersionGeometry> | null = null;
     const out: DispersionTrackV1[] = [];
     for (const track of tracks) {
-      const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+      const occ = prepared.occurrences(track.group);
       await checkpoint(); // per-track gate, as in Matches
       const total = occ.pos.length;
       if (total <= DISPERSION_EXACT_MAX) {
@@ -582,22 +602,10 @@ export class QueryExecutor {
     const { snapshot, boundTexts, ready: readyMap } = this.published();
     const ready = readyMap.get(request.doc);
     if (!ready) throw new DependencyError('shard', request.doc);
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
+    const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
     const trackOccs = [];
     for (const track of tracks) {
-      trackOccs.push(this.occurrencesFor(shards, resolvers, selection, track.group));
+      trackOccs.push(prepared.occurrences(track.group));
       await checkpoint();
     }
     const plan = planReaderPage(snapshot, request.doc, ready.shard, request.cursor, request.maxTokens, trackOccs);
@@ -628,26 +636,14 @@ export class QueryExecutor {
   }> {
     if (tracks.length === 0) throw new RangeError('occurrence stepping requires an active track');
     const { snapshot } = this.published();
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
+    const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
     const candidates: {
       readonly track: (typeof tracks)[number];
       readonly occurrences: NumericOccurrences;
       readonly step: OccurrenceStepResultV1;
     }[] = [];
     for (const track of tracks) {
-      const occ = this.occurrencesFor(shards, resolvers, selection, track.group);
+      const occ = prepared.occurrences(track.group);
       candidates.push({
         track,
         occurrences: occ,
@@ -709,23 +705,11 @@ export class QueryExecutor {
     readonly axis?: MatchesAxisArraysV1;
   }> {
     const { snapshot, bound, boundTexts } = this.published();
-    const shards = this.shardsFor(selection);
-    const resolvers = new Map<string, Map<string, Resolver>>();
-    for (const id of selection.spec.docs) {
-      const byMode = new Map<string, Resolver>();
-      for (const track of tracks) {
-        for (const member of track.group.members) {
-          const mk = modeKey(member.match);
-          if (!byMode.has(mk)) byMode.set(mk, await this.resolverFor(id, member.match));
-        }
-      }
-      resolvers.set(id, byMode);
-    }
-    await checkpoint();
+    const prepared = await this.prepareTracks(selection, tracks.map((track) => track.group), checkpoint);
 
     const trackOccurrences: NumericOccurrences[] = [];
     for (const track of tracks) {
-      trackOccurrences.push(this.occurrencesFor(shards, resolvers, selection, track.group));
+      trackOccurrences.push(prepared.occurrences(track.group));
       await checkpoint();
     }
     const axis = this.matchesAxisFor(selection, tracks, trackOccurrences);

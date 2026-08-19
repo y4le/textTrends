@@ -73,6 +73,97 @@ describe('query semantics through the generation-bound executor', () => {
     if (trend.data.op === 'trend') expect(Array.from(trend.data.trend.count)).toEqual([1, 0, 1, 0]);
   });
 
+  it('keeps each existing occurrence operation checkpoint cadence explicit', async () => {
+    const { h, snap } = await ready();
+    const generation = (h.engine as unknown as {
+      generation: { executor: QueryExecutor; snapshot: CorpusSnapshotV1 } | null;
+    }).generation;
+    if (!generation) throw new Error('expected published generation');
+    const selection = await resolveSelection(generation.snapshot, { docs: ['a'] as never });
+    const tracks = [{ seriesId: 's-wolf', group: wolfGroup }];
+    const expectCheckpoints = async (
+      expected: number,
+      run: (checkpoint: () => Promise<void>) => Promise<unknown>,
+    ) => {
+      const checkpoint = vi.fn(async () => {});
+      await run(checkpoint);
+      expect(checkpoint).toHaveBeenCalledTimes(expected);
+    };
+
+    await expectCheckpoints(3, (checkpoint) => generation.executor.trend(
+      selection,
+      wolfGroup,
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      checkpoint,
+    ));
+    await expectCheckpoints(3, (checkpoint) => generation.executor.dispersion(
+      selection,
+      tracks,
+      checkpoint,
+    ));
+    await expectCheckpoints(4, (checkpoint) => generation.executor.readerPage(
+      selection,
+      tracks,
+      { doc: 'a', cursor: { kind: 'around', token: 1 }, maxTokens: 5 },
+      checkpoint,
+    ));
+    await expectCheckpoints(3, (checkpoint) => generation.executor.occurrenceStep(
+      selection,
+      tracks,
+      { method: 'occurrence-step/1', doc: 'a', token: 0, direction: 1 },
+      checkpoint,
+    ));
+    await expectCheckpoints(4, (checkpoint) => generation.executor.matchesWindow(
+      selection,
+      tracks,
+      { anchor: { kind: 'rank', rank: 0 }, before: 0, after: 0, contextTokens: 4 },
+      true,
+      checkpoint,
+    ));
+    expect(snap).toBe(generation.snapshot.id);
+  });
+
+  it('prepares the union of distinct match modes within and across tracks', async () => {
+    const { h } = await ready('Wolf wolf');
+    const generation = (h.engine as unknown as {
+      generation: { executor: QueryExecutor; snapshot: CorpusSnapshotV1 } | null;
+    }).generation;
+    if (!generation) throw new Error('expected published generation');
+    const selection = await resolveSelection(generation.snapshot, { docs: ['a'] as never });
+    const sensitive = { case: 'sensitive' as const, diacritics: 'sensitive' as const };
+    const sensitiveGroup = {
+      id: 'sensitive-wolf',
+      countOverlaps: false,
+      members: [{ id: 'sensitive', kind: 'token' as const, surface: 'Wolf', match: sensitive }],
+    };
+    const mixedGroup = {
+      id: 'mixed-wolf',
+      countOverlaps: true,
+      members: [
+        ...wolfGroup.members,
+        { id: 'sensitive', kind: 'token' as const, surface: 'Wolf', match: sensitive },
+      ],
+    };
+
+    const mixed = await generation.executor.trend(
+      selection,
+      mixedGroup,
+      { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      async () => {},
+    );
+    expect(Array.from(mixed.count).reduce((sum, count) => sum + count, 0)).toBe(3);
+
+    const across = await generation.executor.dispersion(
+      selection,
+      [
+        { seriesId: 'folded', group: wolfGroup },
+        { seriesId: 'sensitive', group: sensitiveGroup },
+      ],
+      async () => {},
+    );
+    expect(across.tracks.map((track) => track.total)).toEqual([2, 1]);
+  });
+
   it('maps an occurrence construction cap to recoverable CAP_EXCEEDED', async () => {
     const { h, snap } = await ready();
     vi.mocked(occurrences).mockImplementationOnce(() => {
