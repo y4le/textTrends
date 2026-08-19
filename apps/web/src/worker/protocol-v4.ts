@@ -34,6 +34,10 @@ export const PROTOCOL_VERSION_V4 = 4;
  *  Re-exported so worker-side modules keep one protocol import. */
 export type {
   BuildPhaseV4,
+  CompanyRequestV1,
+  CompanyResultV1,
+  DestinationsRequestV1,
+  DestinationsResultV1,
   MatchesWindowQueryRequestV1,
   MatchesWindowResultV1,
   GenerationDocSpecV4,

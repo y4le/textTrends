@@ -1032,6 +1032,50 @@ export class WorkerEngineV4 {
       return;
     }
 
+    if (q.op === 'company') {
+      const selection = await resolveSelection(snapshot, {
+        docs: snapshot.docs.map((doc) => doc.doc),
+      });
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const company = await gen.executor.company(
+        selection,
+        q.tracks,
+        q.request,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'company', company },
+      }, []);
+      return;
+    }
+
+    if (q.op === 'destinations') {
+      const selection = await resolveSelection(snapshot, {
+        docs: snapshot.docs.map((doc) => doc.doc),
+      });
+      await this.queryCheckpoint(job, gen, snapshotId);
+      const destinations = await gen.executor.destinations(
+        selection,
+        q.tracks,
+        q.request,
+        checkpoint,
+      );
+      this.queryGate(job, gen, snapshotId);
+      this.emit({
+        v: PROTOCOL_VERSION_V4,
+        t: 'result',
+        job,
+        snapshot: snapshot.id,
+        data: { op: 'destinations', destinations },
+      }, []);
+      return;
+    }
+
     if (q.op === 'keyness') {
       let selectionA;
       let selectionB;

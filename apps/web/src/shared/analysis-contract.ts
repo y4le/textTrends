@@ -11,6 +11,10 @@
  */
 
 import type {
+  CompanyRequestV1,
+  CompanyResultV1,
+  DestinationsRequestV1,
+  DestinationsResultV1,
   MatchesAnchorV1,
   MatchesAxisArraysV1,
   MatchesPositionBracketV1,
@@ -97,6 +101,12 @@ export type QueryOpV4 =
   // the narrower refuses any other values, so no component-local magic numbers
   // can drift the contract.
   | { readonly op: 'dispersion'; readonly selection: WireSelectionV4; readonly tracks: readonly KwicTrack[]; readonly request: DispersionRequestV1 }
+  // company/1 and destinations/1 are full-corpus overview lanes. Like other
+  // context surfaces, their wire requests have no caller-owned selection;
+  // the engine supplies one canonical full-ready-corpus selection so all
+  // occurrence consumers share the same prepared vectors.
+  | { readonly op: 'company'; readonly tracks: readonly KwicTrack[]; readonly request: CompanyRequestV1 }
+  | { readonly op: 'destinations'; readonly tracks: readonly KwicTrack[]; readonly request: DestinationsRequestV1 }
   // inventory/1: vocabulary-wide overview over the shared per-document
   // term-count cache. It consumes the same linked detail selection as the
   // frequency table; notebook groups are deliberately absent.
@@ -161,6 +171,12 @@ export interface ReaderPageResultV1 {
  *  and lib modules import from HERE, never the wire module). */
 export type { DispersionResultV1 } from '@texttrends/core';
 export type {
+  CompanyRequestV1,
+  CompanyResultV1,
+  DestinationsRequestV1,
+  DestinationsResultV1,
+} from '@texttrends/core';
+export type {
   OccurrenceStepHitV1,
   OccurrenceStepRequestV1,
   OccurrenceStepResultV1,
@@ -208,6 +224,8 @@ export type QueryResultDataV4 =
   | { readonly op: 'trend'; readonly trend: NumericTrend }
   | { readonly op: 'matches-window'; readonly window: MatchesWindowResultV1 }
   | { readonly op: 'dispersion'; readonly dispersion: DispersionResultV1 }
+  | { readonly op: 'company'; readonly company: CompanyResultV1 }
+  | { readonly op: 'destinations'; readonly destinations: DestinationsResultV1 }
   | { readonly op: 'inventory'; readonly inventory: InventoryResultV1 }
   | { readonly op: 'freq-list'; readonly frequency: FrequencyListResultV1 }
   | { readonly op: 'keyness'; readonly keyness: KeynessResultV1 }

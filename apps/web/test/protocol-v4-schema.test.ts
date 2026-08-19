@@ -10,6 +10,9 @@ import { PROTOCOL_VERSION_V4 } from '../src/worker/protocol-v4.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   defaultExtractionRecipes,
+  COMPANY_GAP_EDGES_V1,
+  DESTINATION_MAX_RESULTS,
+  DESTINATION_WINDOW_TOKENS_V1,
   SOURCE_FORMATS,
   SOURCE_FORMAT_IDS,
   TERM_GROUP_LIMITS_V1,
@@ -286,6 +289,67 @@ describe('narrowQueryV4', () => {
     expect(disp({}, [])).toBe(false);
     expect(disp({}, [{ seriesId: 'd', group: wolfGroup }, { seriesId: 'd', group: { ...wolfGroup, id: 'g2' } }])).toBe(false);
     expect(disp({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
+  });
+
+  it('company/1 is a closed, selection-free 2–5 track request with pinned gap edges', () => {
+    const tracks = [
+      { seriesId: 's1', group: wolfGroup },
+      { seriesId: 's2', group: { ...wolfGroup, id: 'g2' } },
+    ];
+    const request = {
+      method: 'company/1',
+      gapEdges: [...COMPANY_GAP_EDGES_V1],
+    };
+    const query = (
+      over: Record<string, unknown> = {},
+      nextTracks: unknown = tracks,
+      nextRequest: unknown = request,
+    ) => narrowQueryV4({ op: 'company', tracks: nextTracks, request: nextRequest, ...over });
+
+    expect(query()).toBe(true);
+    expect(query({ selection: { docs: ['a'] } })).toBe(false);
+    expect(query({}, [tracks[0]])).toBe(false);
+    expect(query({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
+    expect(query({}, tracks, { ...request, method: 'company/2' })).toBe(false);
+    expect(query({}, tracks, { ...request, gapEdges: [...COMPANY_GAP_EDGES_V1.slice(0, -1), 201] })).toBe(false);
+    expect(query({}, tracks, { ...request, extra: true })).toBe(false);
+    expect(query({ extra: true })).toBe(false);
+    const sparse = [...COMPANY_GAP_EDGES_V1];
+    delete sparse[2];
+    expect(query({}, tracks, { ...request, gapEdges: sparse })).toBe(false);
+  });
+
+  it('destinations/1 is a closed, selection-free 1–5 track request with bounded focus', () => {
+    const tracks = [
+      { seriesId: 's1', group: wolfGroup },
+      { seriesId: 's2', group: { ...wolfGroup, id: 'g2' } },
+    ];
+    const request = {
+      method: 'destinations/1',
+      windowTokens: DESTINATION_WINDOW_TOKENS_V1,
+      limit: DESTINATION_MAX_RESULTS,
+      focus: null,
+    };
+    const query = (
+      over: Record<string, unknown> = {},
+      nextTracks: unknown = tracks,
+      nextRequest: unknown = request,
+    ) => narrowQueryV4({ op: 'destinations', tracks: nextTracks, request: nextRequest, ...over });
+
+    expect(query()).toBe(true);
+    expect(query({}, [tracks[0]])).toBe(true);
+    expect(query({}, tracks, { ...request, focus: { a: 0, b: 1 } })).toBe(true);
+    expect(query({ selection: { docs: ['a'] } })).toBe(false);
+    expect(query({}, [])).toBe(false);
+    expect(query({}, Array.from({ length: 6 }, (_, i) => ({ seriesId: `s${i}`, group: wolfGroup })))).toBe(false);
+    expect(query({}, tracks, { ...request, method: 'destinations/2' })).toBe(false);
+    expect(query({}, tracks, { ...request, windowTokens: 300 })).toBe(false);
+    expect(query({}, tracks, { ...request, limit: DESTINATION_MAX_RESULTS - 1 })).toBe(false);
+    expect(query({}, tracks, { ...request, focus: { a: 1, b: 0 } })).toBe(false);
+    expect(query({}, tracks, { ...request, focus: { a: 0, b: 2 } })).toBe(false);
+    expect(query({}, tracks, { ...request, focus: { a: 0, b: 1, extra: true } })).toBe(false);
+    expect(query({}, tracks, { ...request, extra: true })).toBe(false);
+    expect(query({ extra: true })).toBe(false);
   });
 
   it('reader-page/1 narrows with zero tracks, closed cursor kinds, and before ≥ 1', () => {

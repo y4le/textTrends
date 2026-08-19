@@ -21,6 +21,9 @@
 import {
   buildMatchesAxis,
   buildResolver,
+  company as computeCompany,
+  createCompanyScratch,
+  createDestinationsScratch,
   matchesAxisPayloadBytes,
   copyMatchesAxis,
   documentTermCounts,
@@ -28,7 +31,9 @@ import {
   packDensityTrack,
   packExactTrack,
   planDispersionGeometry,
+  planDestinations,
   planReaderPage,
+  materializeDestinations,
   materializeReaderPage,
   materializeMatchesWindow,
   selectionSlotMap,
@@ -42,7 +47,13 @@ import {
   validateOccurrenceOrder,
   occurrencePayloadBytes,
   trend,
+  type CompanyRequestV1,
+  type CompanyResultV1,
+  type CompanyTrackInputV1,
   type CorpusSnapshotV1,
+  type DestinationsRequestV1,
+  type DestinationsResultV1,
+  type DestinationTrackInputV1,
   type MatchesAxisArraysV1,
   type MatchesAxisV1,
   type MatchesWindowRequestV1,
@@ -586,6 +597,85 @@ export class QueryExecutor {
       await checkpoint();
     }
     return { method: 'dispersion/1', geometry, tracks: out };
+  }
+
+  /** company/1: exact pairwise proximity over borrowed occurrence vectors.
+   * The result contains plain values only; no cache-owned buffer can escape. */
+  async company(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    request: CompanyRequestV1,
+    checkpoint: QueryCheckpoint,
+  ): Promise<CompanyResultV1> {
+    const { snapshot } = this.published();
+    const prepared = await this.prepareTracks(
+      selection,
+      tracks.map((track) => track.group),
+      checkpoint,
+    );
+    const inputs: CompanyTrackInputV1[] = [];
+    for (const track of tracks) {
+      inputs.push({
+        seriesId: track.seriesId,
+        groupId: track.group.id,
+        occurrences: prepared.occurrences(track.group),
+      });
+      await checkpoint();
+    }
+    const result = await computeCompany(
+      snapshot,
+      selection,
+      inputs,
+      request,
+      createCompanyScratch(inputs, snapshot.docs.length),
+      checkpoint,
+    );
+    await checkpoint();
+    return result;
+  }
+
+  /** destinations/1: bounded numeric planning followed by bounded text
+   * materialization for winners only. Occurrence vectors remain borrowed and
+   * are neither retained nor transferred. */
+  async destinations(
+    selection: ResolvedSelection,
+    tracks: readonly { readonly seriesId: string; readonly group: TermGroupSpec }[],
+    request: DestinationsRequestV1,
+    checkpoint: QueryCheckpoint,
+  ): Promise<DestinationsResultV1> {
+    const { snapshot, bound, boundTexts } = this.published();
+    const prepared = await this.prepareTracks(
+      selection,
+      tracks.map((track) => track.group),
+      checkpoint,
+    );
+    const inputs: DestinationTrackInputV1[] = [];
+    for (const track of tracks) {
+      inputs.push({
+        seriesId: track.seriesId,
+        groupId: track.group.id,
+        occurrences: prepared.occurrences(track.group),
+      });
+      await checkpoint();
+    }
+    const plan = await planDestinations(
+      snapshot,
+      selection,
+      inputs,
+      request,
+      createDestinationsScratch(inputs, snapshot.docs.length),
+      checkpoint,
+    );
+    await checkpoint();
+    const result = materializeDestinations(
+      snapshot,
+      plan,
+      bound,
+      boundTexts,
+      inputs,
+    );
+    await checkpoint();
+    return result;
   }
 
   /** reader-page/1: a bounded directional source slice over ONE

@@ -11,6 +11,11 @@
  */
 
 import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_REGEX_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import {
+  COMPANY_GAP_EDGES_V1,
+  DESTINATION_MAX_RESULTS,
+  DESTINATION_WINDOW_TOKENS_V1,
+} from '@texttrends/core';
 import { PROTOCOL_VERSION_V4, type ToWorkerV4 } from './protocol-v4.ts';
 
 const MATCH = new Set(['sensitive', 'folded']);
@@ -205,6 +210,49 @@ export function narrowQueryV4(q: unknown): boolean {
       return narrowSelection(q.selection) && narrowTracks(q.tracks, 1) &&
         isRecord(q.request) && r.method === 'dispersion/1' &&
         r.exactMax === DISPERSION_EXACT_MAX && r.bucketBudget === DISPERSION_BUCKET_BUDGET;
+    }
+    case 'company': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'tracks', 'request'])
+        || !narrowTracks(q.tracks, 2)
+        || !exactRecord(q.request, ['method', 'gapEdges'])
+        || r.method !== 'company/1'
+        || !denseBoundedArray(
+          r.gapEdges,
+          COMPANY_GAP_EDGES_V1.length,
+          COMPANY_GAP_EDGES_V1.length,
+          isCount,
+        )
+      ) {
+        return false;
+      }
+      return COMPANY_GAP_EDGES_V1.every(
+        (edge, index) => (r.gapEdges as unknown[])[index] === edge,
+      );
+    }
+    case 'destinations': {
+      const r = q.request as Record<string, unknown>;
+      if (
+        !exactRecord(q, ['op', 'tracks', 'request'])
+        || !narrowTracks(q.tracks, 1)
+        || !exactRecord(q.request, ['method', 'windowTokens', 'limit', 'focus'])
+        || r.method !== 'destinations/1'
+        || r.windowTokens !== DESTINATION_WINDOW_TOKENS_V1
+        || r.limit !== DESTINATION_MAX_RESULTS
+      ) {
+        return false;
+      }
+      if (r.focus === null) return true;
+      if (
+        !exactRecord(r.focus, ['a', 'b'])
+        || !isCount(r.focus.a)
+        || !isCount(r.focus.b)
+      ) {
+        return false;
+      }
+      const trackCount = (q.tracks as unknown[]).length;
+      return r.focus.a < r.focus.b && r.focus.b < trackCount;
     }
     case 'inventory': {
       const r = q.request as Record<string, unknown>;

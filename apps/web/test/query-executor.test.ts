@@ -16,7 +16,14 @@ import {
   QueryExecutor,
   type PublishedView,
 } from '../src/worker/query-executor.ts';
-import { CapError, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX } from '@texttrends/core';
+import {
+  CapError,
+  COMPANY_GAP_EDGES_V1,
+  DESTINATION_MAX_RESULTS,
+  DESTINATION_WINDOW_TOKENS_V1,
+  DISPERSION_BUCKET_BUDGET,
+  DISPERSION_EXACT_MAX,
+} from '@texttrends/core';
 import {
   buildResolver,
   DEFAULT_INDEX_RECIPE,
@@ -47,6 +54,12 @@ vi.mock('@texttrends/core', async (importOriginal) => {
  *  is admitted by ingest, not warm claims. */
 import { defaultExtractionRecipes, hashExtractionRecipe } from '@texttrends/core';
 import type { GenerationDocSpecV4 } from '../src/worker/protocol-v4.ts';
+const foxGroup = {
+  id: 'g-fox',
+  members: [{ id: 'm-fox', kind: 'token' as const, surface: 'fox', match: FOLD }],
+  countOverlaps: false,
+};
+
 async function freshTxtSpec(doc: string, byteLength: number): Promise<GenerationDocSpecV4> {
   const { txt } = await defaultExtractionRecipes();
   return {
@@ -81,6 +94,10 @@ describe('query semantics through the generation-bound executor', () => {
     if (!generation) throw new Error('expected published generation');
     const selection = await resolveSelection(generation.snapshot, { docs: ['a'] as never });
     const tracks = [{ seriesId: 's-wolf', group: wolfGroup }];
+    const overviewTracks = [
+      ...tracks,
+      { seriesId: 's-fox', group: foxGroup },
+    ];
     const expectCheckpoints = async (
       expected: number,
       run: (checkpoint: () => Promise<void>) => Promise<unknown>,
@@ -99,6 +116,23 @@ describe('query semantics through the generation-bound executor', () => {
     await expectCheckpoints(3, (checkpoint) => generation.executor.dispersion(
       selection,
       tracks,
+      checkpoint,
+    ));
+    await expectCheckpoints(5, (checkpoint) => generation.executor.company(
+      selection,
+      overviewTracks,
+      { method: 'company/1', gapEdges: COMPANY_GAP_EDGES_V1 },
+      checkpoint,
+    ));
+    await expectCheckpoints(6, (checkpoint) => generation.executor.destinations(
+      selection,
+      overviewTracks,
+      {
+        method: 'destinations/1',
+        windowTokens: DESTINATION_WINDOW_TOKENS_V1,
+        limit: DESTINATION_MAX_RESULTS,
+        focus: null,
+      },
       checkpoint,
     ));
     await expectCheckpoints(4, (checkpoint) => generation.executor.readerPage(
@@ -331,6 +365,135 @@ describe('query semantics through the generation-bound executor', () => {
     const internals = h.engine as unknown as { activeJobs: Set<number>; cancelledJobs: Set<number> };
     expect(internals.activeJobs.size).toBe(0);
     expect(internals.cancelledJobs.size).toBe(0);
+  });
+});
+
+describe('company/1 and destinations/1 through the shared executor', () => {
+  const tracks = [
+    { seriesId: 's-wolf', group: wolfGroup },
+    { seriesId: 's-fox', group: foxGroup },
+  ];
+  const companyRequest = {
+    method: 'company/1' as const,
+    gapEdges: COMPANY_GAP_EDGES_V1,
+  };
+  const destinationsRequest = {
+    method: 'destinations/1' as const,
+    windowTokens: DESTINATION_WINDOW_TOKENS_V1,
+    limit: DESTINATION_MAX_RESULTS,
+    focus: null,
+  };
+
+  async function ready() {
+    const h = harness();
+    const textA = 'wolf and fox waited. wolf followed fox.';
+    const textB = 'fox kept company with wolf.';
+    const [a, b] = await Promise.all([
+      docSpec('a', textA),
+      docSpec('b', textB),
+    ]);
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', textA, 10);
+    await coldIngest(h, 'g', 'b', textB, 11);
+    return { h, snap: h.last('snapshot-published').snapshot };
+  }
+
+  it('shares canonical full-corpus occurrences across trend, dispersion, company, and destinations', async () => {
+    const { h, snap } = await ready();
+    const occurrenceSpy = vi.mocked(occurrences);
+    occurrenceSpy.mockClear();
+
+    await h.send({
+      t: 'query', job: 20, snapshot: snap,
+      query: {
+        op: 'trend',
+        selection: { docs: ['a', 'b'] },
+        group: wolfGroup,
+        request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } },
+      },
+    });
+    await h.send({
+      t: 'query', job: 21, snapshot: snap,
+      query: {
+        op: 'dispersion',
+        selection: { docs: ['a', 'b'] },
+        tracks,
+        request: {
+          method: 'dispersion/1',
+          exactMax: DISPERSION_EXACT_MAX,
+          bucketBudget: DISPERSION_BUCKET_BUDGET,
+        },
+      },
+    });
+    expect(occurrenceSpy).toHaveBeenCalledTimes(2);
+
+    await h.send({
+      t: 'query', job: 22, snapshot: snap,
+      query: { op: 'company', tracks, request: companyRequest },
+    });
+    const companyMessage = h.last('result');
+    if (companyMessage.data.op !== 'company') throw new Error('expected company');
+    expect(companyMessage.data.company).toMatchObject({
+      method: 'company/1',
+      tracks: [
+        { seriesId: 's-wolf', groupId: wolfGroup.id, total: 3, docCount: 2 },
+        { seriesId: 's-fox', groupId: foxGroup.id, total: 3, docCount: 2 },
+      ],
+    });
+    expect(companyMessage.data.company.pairs).toHaveLength(1);
+    const companyIndex = h.messages.indexOf(companyMessage);
+    expect(h.transferLists[companyIndex]).toEqual([]);
+
+    await h.send({
+      t: 'query', job: 23, snapshot: snap,
+      query: { op: 'destinations', tracks, request: destinationsRequest },
+    });
+    const destinationsMessage = h.last('result');
+    if (destinationsMessage.data.op !== 'destinations') throw new Error('expected destinations');
+    expect(destinationsMessage.data.destinations.method).toBe('destinations/1');
+    expect(destinationsMessage.data.destinations.tracks.map((track) => track.total)).toEqual([3, 3]);
+    expect(destinationsMessage.data.destinations.destinations.length).toBeGreaterThan(0);
+    const destinationsIndex = h.messages.indexOf(destinationsMessage);
+    expect(h.transferLists[destinationsIndex]).toEqual([]);
+
+    expect(occurrenceSpy).toHaveBeenCalledTimes(2);
+    expect(h.all('error')).toEqual([]);
+  });
+
+  it('rejects legacy selections and gates cancellation after final materialization', async () => {
+    const invalid = await ready();
+    await invalid.h.send({
+      t: 'query', job: 30, snapshot: invalid.snap,
+      query: {
+        op: 'company',
+        selection: { docs: ['a'] },
+        tracks,
+        request: companyRequest,
+      },
+    });
+    expect(invalid.h.last('error')).toMatchObject({ job: 30, code: 'PARSE_FAILED' });
+    expect(invalid.h.all('result').some((message) => message.job === 30)).toBe(false);
+
+    for (const [op, cancelAtYield, request] of [
+      ['company', 6, companyRequest],
+      ['destinations', 8, destinationsRequest],
+    ] as const) {
+      const { h, snap } = await ready();
+      h.clear();
+      let yields = 0;
+      h.onYield(async () => {
+        yields++;
+        if (yields === cancelAtYield) await h.send({ t: 'cancel', job: 31 });
+      });
+      await h.send({
+        t: 'query', job: 31, snapshot: snap,
+        query: { op, tracks, request },
+      });
+      expect(yields, op).toBeGreaterThanOrEqual(cancelAtYield);
+      expect(h.all('cancelled').some((message) => message.job === 31), op).toBe(true);
+      expect(h.all('result').some((message) => message.job === 31), op).toBe(false);
+      expect(h.all('error'), op).toEqual([]);
+    }
   });
 });
 
