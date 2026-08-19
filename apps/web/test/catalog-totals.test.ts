@@ -2,6 +2,7 @@ import type { NumericTrend } from '@texttrends/core';
 import { describe, expect, it } from 'vitest';
 import { catalogTotals } from '../src/lib/catalog-totals.ts';
 import type { SeriesIntent, SeriesTrendState } from '../src/lib/store.ts';
+import { termBookTotals } from '../src/lib/term-book-totals.ts';
 
 const term: SeriesIntent = {
   id: 'term',
@@ -59,6 +60,25 @@ function trend(
 const ready = (value: NumericTrend): SeriesTrendState => ({ status: 'ready', trend: value });
 
 describe('catalogTotals', () => {
+  it('shares document-id totals with ranged consumers', () => {
+    const result = trend(
+      ['second', 'fourth'],
+      [
+        { tokens: [10, 15], counts: [1, 2] },
+        { tokens: [20], counts: [4] },
+      ],
+    );
+
+    expect(termBookTotals(result, 'fourth')).toEqual({
+      count: 4,
+      tokens: 20,
+      extent: 20,
+      rowStart: 2,
+      rowEnd: 3,
+    });
+    expect(termBookTotals(result, 'first')).toBeNull();
+  });
+
   it('sums counts and denominators within each book and across the corpus', () => {
     const result = catalogTotals({
       scope: 'full',

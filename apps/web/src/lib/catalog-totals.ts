@@ -1,6 +1,6 @@
-import { TREND_RATE_DENOMINATOR, type NumericTrend } from '@texttrends/core';
-import { trendRowsForDoc } from './trend-geometry.ts';
+import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
 import type { SeriesIntent, SeriesTrendState } from './store.ts';
+import { termBookTotals } from './term-book-totals.ts';
 
 export type CatalogTotalsScope = 'full' | 'range';
 
@@ -27,17 +27,6 @@ export interface CatalogTotalsVM {
   };
 }
 
-function countForDocument(trend: NumericTrend, doc: string): number | null {
-  const ordinal = trend.order.indexOf(doc);
-  if (ordinal < 0) return null;
-  const rows = trendRowsForDoc(trend, ordinal);
-  let count = 0;
-  for (let row = rows.start; row < rows.end; row++) {
-    count += trend.count[row] as number;
-  }
-  return count;
-}
-
 function valueFor(
   state: SeriesTrendState | undefined,
   doc: string,
@@ -45,12 +34,12 @@ function valueFor(
 ): CatalogTotalValue {
   if (!state || state.status === 'pending') return { status: 'pending' };
   if (state.status === 'error') return { status: 'error', message: state.message };
-  const count = countForDocument(state.trend, doc);
-  if (count === null) return { status: 'unavailable' };
+  const totals = termBookTotals(state.trend, doc);
+  if (totals === null) return { status: 'unavailable' };
   return {
     status: 'ready',
-    count,
-    rate: tokens === 0 ? 0 : (count / tokens) * TREND_RATE_DENOMINATOR,
+    count: totals.count,
+    rate: tokens === 0 ? 0 : (totals.count / tokens) * TREND_RATE_DENOMINATOR,
   };
 }
 
