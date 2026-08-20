@@ -6,13 +6,14 @@ choices otherwise visible only in an implementation thread.
 
 ## 2026-08-20 — Short viewports spend chrome before analytical space
 
-Workbench chrome responds to layout viewport height as well as width. Page
-block padding is capped at 4dvh. The automatic Reading Position footer may use
-at most one third of the viewport, spending its own padding and optional lanes
-before anything in the Terms rail; explicit footer resizing may still use the
-full available height. The persistent Terms rail therefore keeps its authored
-one-row controls when the automatic footer cap engages wherever the available
-height permits.
+Workbench chrome responds to layout viewport height as well as width. The page
+header's top gutter uses the 1rem edge spacing by default and is capped at 4dvh;
+remaining page block padding is capped at 4dvh. The automatic Reading Position
+footer may use at most one third of the viewport, spending its own padding and
+optional lanes before anything in the Terms rail; explicit footer resizing may
+still use the full available height. The persistent Terms rail therefore keeps
+its authored one-row controls when the automatic footer cap engages wherever
+the available height permits.
 
 Page-header actions and each place's leading controls interpolate from the
 ordinary 44px coarse target to a 32px floor in short viewports. Compact data

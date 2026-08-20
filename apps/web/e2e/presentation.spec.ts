@@ -77,6 +77,7 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
         height: box.height,
         top: box.top,
         bottom: box.bottom,
+        shellPaddingTop: Number.parseFloat(getComputedStyle(header.parentElement!).paddingTop),
         brand: childBox('h1'),
         scope: childBox('.scope-organ'),
         lens: childBox('.lens-organ'),
@@ -86,6 +87,7 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
     });
 
     expect(geometry.height).toBeLessThanOrEqual(56);
+    expect(geometry.shellPaddingTop).toBe(16);
     for (const child of [geometry.brand, geometry.scope, geometry.lens]) {
       expect(child.top).toBeGreaterThanOrEqual(geometry.top);
       expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);

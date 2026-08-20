@@ -57,6 +57,7 @@
    * landscape windows spend proportionally less room above the data. The
    * pixel floors keep text and controls usable at the smallest supported
    * heights; ordinary portrait and desktop viewports retain authored sizes. */
+  --page-shell-pad-block-start: min(var(--space-3), 4dvh);
   --page-shell-pad-block: min(var(--space-4), 4dvh);
   --chrome-target-block-size: clamp(32px, 8dvh, 44px);
   --data-header-block-size: clamp(28px, 8dvh, 36px);
@@ -174,7 +175,7 @@ canvas {
   width: 100%;
   min-width: 0;
   padding-block:
-    calc(var(--page-shell-pad-block) + env(safe-area-inset-top, 0px))
+    calc(var(--page-shell-pad-block-start) + env(safe-area-inset-top, 0px))
     calc(var(--page-shell-pad-block) + env(safe-area-inset-bottom, 0px));
   padding-inline:
     calc(var(--space-4) + env(safe-area-inset-left, 0px))
@@ -2505,7 +2506,7 @@ canvas {
 
   .app-shell {
     padding-block:
-      calc(var(--page-shell-pad-block) + env(safe-area-inset-top, 0px))
+      calc(var(--page-shell-pad-block-start) + env(safe-area-inset-top, 0px))
       calc(
         var(--lens-block-size)
         + env(safe-area-inset-bottom, 0px)
