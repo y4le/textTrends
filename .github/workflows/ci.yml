@@ -55,10 +55,28 @@ jobs:
         with:
           path: apps/web/dist
 
-      - name: Install Playwright Chromium and WebKit
-        run: pnpm --filter @texttrends/web exec playwright install --with-deps chromium webkit
+  browser:
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Keep browser binaries and native libraries out of the runner's mutable
+    # apt state. This image is pinned to the lockfile's Playwright version.
+    container:
+      image: mcr.microsoft.com/playwright:v1.61.1-noble
+      options: --user 1001
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
 
-      - name: Real-browser suites (functional, then the serial benchmark)
+      - name: Real-browser suites (functional, compact WebKit, then serial benchmarks)
         run: pnpm e2e
 
       - name: Upload Playwright report and benchmark artifacts
@@ -74,7 +92,7 @@ jobs:
 
   deploy:
     if: github.ref == 'refs/heads/master' && github.event_name != 'pull_request'
-    needs: checks
+    needs: [checks, browser]
     runs-on: ubuntu-latest
     permissions:
       contents: read
