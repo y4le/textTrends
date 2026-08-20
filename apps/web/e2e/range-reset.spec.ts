@@ -51,7 +51,11 @@ test('double-click clears the linked range without selecting chart text', async 
     .locator('.kwic-right-context')
     .filter({ hasText: /\S/ })
     .first();
-  await readableContext.dblclick();
+  const readableText = readableContext.locator(':scope > span > span')
+    .filter({ hasText: /\S/ })
+    .first();
+  expect(await readableText.evaluate(userSelect)).toBe('text');
+  await readableText.selectText();
   await expect.poll(() => page.evaluate(() => window.getSelection()?.toString().trim() ?? ''))
     .not.toBe('');
 });
