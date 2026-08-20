@@ -31,8 +31,13 @@ export interface DockSizingInput {
   /** The authored project needs a reading lane, even if its lazy contents have
    * not mounted yet. */
   readonly footerPresent: boolean;
-  /** `null` follows the presentation's authored default as its inputs change. */
+  /** `null` and non-finite values follow the presentation's viewport-aware
+   * default as its inputs change. */
   readonly targetBlockSize: number | null;
+  /** Layout viewport height. The automatic footer default is capped against
+   * this value; explicit user resizing can still use all available space.
+   * Non-positive or non-finite values disable the automatic cap. */
+  readonly viewportBlockSize: number;
   readonly availableBlockSize: number;
 }
 
@@ -54,6 +59,11 @@ export interface DockSizing {
  * visualization. Once each row reaches this height, every further resize
  * pixel belongs to the trend graph. */
 export const FOOTER_BARCODE_TRACK_MAX_HEIGHT = 16;
+
+/** The reading footer is useful context, not the primary surface. Its
+ * automatic size may occupy at most one third of the visible page; users can
+ * still deliberately expand it with the resize handle. */
+export const FOOTER_DEFAULT_MAX_VIEWPORT_RATIO = 1 / 3;
 
 export const DOCK_TERM_TARGET_MIN_HEIGHT = 24;
 const DOCK_RAIL_PAD_BASE = 3;
@@ -222,11 +232,12 @@ function withStrip(
 }
 
 /** Resolve one absolute dock-size request into rail and reading geometry.
- * Today's authored layout is the default rather than the minimum: below it,
- * the low-value terms rail compresses quickly to its WCAG 2.5.8 control floor
- * before footer whitespace is spent or status/barcode leave as whole lanes.
- * The visual strip is the residual, so every accepted pixel belongs to exactly
- * one lane. */
+ * Today's authored layout is the default rather than the minimum. Explicit
+ * resizing uses the established rail-first squeeze in uncapped viewports. When
+ * the viewport footer cap is active, automatic and explicit targets preserve
+ * that footer-first partition until the footer reaches its own design floor,
+ * avoiding a boundary jump on the first resize. The visual strip is the
+ * residual, so every accepted pixel belongs to exactly one lane. */
 export function dockSizing(input: DockSizingInput): DockSizing {
   const tracks = finiteTracks(input.trackCount);
   const railBase = railBaseFor(input.width, input.coarse);
@@ -267,11 +278,21 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   const designMin = railFloor + footerFloor;
   const maxBlockSize = Math.max(designMin, available);
   const minBlockSize = designMin;
-  const requested = input.targetBlockSize === null
-    ? baseBlockSize
-    : Number.isFinite(input.targetBlockSize)
-      ? Math.round(input.targetBlockSize)
-      : baseBlockSize;
+  const viewport = Number.isFinite(input.viewportBlockSize)
+    && input.viewportBlockSize > 0
+    ? Math.max(0, Math.floor(input.viewportBlockSize))
+    : Number.POSITIVE_INFINITY;
+  const defaultFooterMax = Math.max(
+    footerFloor,
+    Math.floor(viewport * FOOTER_DEFAULT_MAX_VIEWPORT_RATIO),
+  );
+  const defaultBlockSize = railBase + Math.min(baseFooterSize, defaultFooterMax);
+  const automaticDefault = input.targetBlockSize === null
+    || !Number.isFinite(input.targetBlockSize);
+  const footerCapActive = baseFooterSize > defaultFooterMax;
+  const requested = automaticDefault
+    ? defaultBlockSize
+    : Math.round(input.targetBlockSize!);
   const blockSize = Math.max(minBlockSize, Math.min(maxBlockSize, requested));
 
   if (blockSize >= baseBlockSize) {
@@ -304,7 +325,13 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   let termTargetBlockSize = termTargetBase;
 
   const railCapacity = railBase - railFloor;
-  const railTake = Math.min(deficit, railCapacity);
+  const footerCapacity = baseFooterSize - footerFloor;
+  // A viewport-capped footer keeps its partition as the user begins resizing,
+  // spending footer capacity first and borrowing from the rail only below the
+  // footer floor. Uncapped explicit resizing retains the rail-first squeeze.
+  const railTake = footerCapActive
+    ? Math.min(Math.max(0, deficit - footerCapacity), railCapacity)
+    : Math.min(deficit, railCapacity);
   const railProgress = railCapacity > 0 ? railTake / railCapacity : 1;
   railBlockSize -= railTake;
   railPadBlock -= railProgress * (DOCK_RAIL_PAD_BASE - DOCK_RAIL_PAD_MIN);
@@ -367,11 +394,11 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     base.barcodeBandGap,
     barcodeBandHeight(tracks, base.barcodeTrackHeight, base.barcodeTrackGap),
   );
-  const statusLast = railFloor
+  const statusLast = railBlockSize
     + 1 + 2 * FOOTER_PAD_MIN + passageFloor
     + 2 * FOOTER_LANE_GAP_MIN + base.statusHeight
     + barcodeExtent + graphFloor;
-  const barcodeLast = railFloor
+  const barcodeLast = railBlockSize
     + footerFloor + barcodeExtent;
 
   const showStatus = blockSize >= statusLast;

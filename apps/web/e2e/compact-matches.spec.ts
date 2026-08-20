@@ -238,14 +238,32 @@ test('short landscape Matches leaves a usable centered results viewport', async 
     const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
     const port = shell.querySelector<HTMLElement>('.kwic-virtual-grid')!.getBoundingClientRect();
     const dock = document.querySelector<HTMLElement>('.workbench-dock')!.getBoundingClientRect();
+    const footer = document.querySelector<HTMLElement>('.workbench-footer')!.getBoundingClientRect();
+    const appHeader = document.querySelector<HTMLElement>('.app-header')!.getBoundingClientRect();
+    const gridHeader = shell.querySelector<HTMLElement>('.kwic-grid-header')!.getBoundingClientRect();
     return {
       portHeight: port.height,
       midpointError: Math.abs(line.top - (port.top + port.height / 2)),
       portBottom: port.bottom,
       dockTop: dock.top,
+      footerHeight: footer.height,
+      appHeaderHeight: appHeader.height,
+      gridHeaderHeight: gridHeader.height,
+      termsRailHeight: Number.parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--terms-rail-block-size')),
+      termTargetBlockSize: Number.parseFloat(getComputedStyle(document.documentElement)
+        .getPropertyValue('--term-target-block-size')),
     };
   });
   expect(geometry.portHeight).toBeGreaterThan(0);
   expect(geometry.midpointError).toBeLessThanOrEqual(1);
   expect(geometry.portBottom).toBeLessThanOrEqual(geometry.dockTop + 1);
+  expect(geometry.footerHeight).toBeGreaterThanOrEqual(52);
+  expect(geometry.footerHeight).toBeLessThanOrEqual(Math.floor(320 / 3) + 1);
+  expect(geometry.appHeaderHeight).toBeGreaterThanOrEqual(32);
+  expect(geometry.appHeaderHeight).toBeLessThanOrEqual(33);
+  expect(geometry.gridHeaderHeight).toBeGreaterThanOrEqual(32);
+  expect(geometry.gridHeaderHeight).toBeLessThanOrEqual(33);
+  expect(geometry.termsRailHeight).toBe(50);
+  expect(geometry.termTargetBlockSize).toBe(36);
 });

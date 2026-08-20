@@ -464,7 +464,9 @@ cancelled or lost capture restores the committed width.
 
 - Compact is below 600 CSS pixels; regular is 600–1023; wide is at least 1024.
 - Pointer precision is orthogonal to width. Coarse input raises interactive
-  targets to 44 pixels without inflating dense table rows.
+  targets to 44 pixels without inflating dense table rows. In short viewports,
+  page and local-header chrome may interpolate to a 32px floor while the Terms
+  rail retains its authored one-row target geometry.
 - Editable compact inputs render at least 16px text.
 - At 320px the page itself does not scroll horizontally; named data ports may.
 - The Trends overview uses one column below 720 CSS pixels, leaving classic
@@ -491,7 +493,8 @@ The design remains complete while these gates hold:
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
 2. one Terms rail and one active place at every width;
 3. no persistent side rails beyond the transient corpus-reading instrument;
-4. 44px compact/coarse controls and keyboard-operable equivalents;
+4. 44px compact/coarse controls and keyboard-operable equivalents, with only
+   the documented short-viewport page/local-header exception down to 32px;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;
 7. direct Matches/barcode-to-Reader navigation stays snapshot-bound;

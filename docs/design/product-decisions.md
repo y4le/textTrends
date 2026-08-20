@@ -4,6 +4,24 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-20 — Short viewports spend chrome before analytical space
+
+Workbench chrome responds to layout viewport height as well as width. Page
+block padding is capped at 4dvh. The automatic Reading Position footer may use
+at most one third of the viewport, spending its own padding and optional lanes
+before anything in the Terms rail; explicit footer resizing may still use the
+full available height. The persistent Terms rail therefore keeps its authored
+one-row controls when the automatic footer cap engages wherever the available
+height permits.
+
+Page-header actions and each place's leading controls interpolate from the
+ordinary 44px coarse target to a 32px floor in short viewports. Compact data
+headers share the 32px floor; fine-pointer data headers may reach 28px. These
+are deliberate height-qualified exceptions to the general 44px compact/coarse
+contract and remain above the WCAG 2.5.8 minimum. Ordinary portrait and desktop
+viewports retain their authored sizes. Layout compression changes no query,
+selection, navigation, or persisted intent.
+
 ## 2026-08-19 — A plain-text-first Trends overview replaces the book matrix
 
 With no linked range, the second Trends organ is now an orientation-to-reading

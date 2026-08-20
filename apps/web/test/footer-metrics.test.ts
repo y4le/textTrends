@@ -6,6 +6,7 @@ import {
   DOCK_TERM_TARGET_MIN_HEIGHT,
   expandedFooterGeometry,
   FOOTER_BARCODE_TRACK_MAX_HEIGHT,
+  FOOTER_DEFAULT_MAX_VIEWPORT_RATIO,
   footerBlockSize,
   footerGeometryFor,
 } from '../src/lib/footer-metrics.ts';
@@ -73,6 +74,7 @@ describe('eager footer metrics', () => {
           trackCount: 3,
           footerPresent: true,
           targetBlockSize: null,
+          viewportBlockSize: 1_000,
           availableBlockSize: 1_000,
         });
         expect(sizing.blockSize).toBe(sizing.baseBlockSize);
@@ -83,6 +85,106 @@ describe('eager footer metrics', () => {
         ));
         expect(sizing.minBlockSize).toBeLessThan(sizing.baseBlockSize);
       }
+    }
+  });
+
+  it('caps only the automatic footer default at one third of a short viewport', () => {
+    const viewportBlockSize = 320;
+    const automatic = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize,
+      availableBlockSize: 276,
+    });
+    const footerCap = Math.floor(
+      viewportBlockSize * FOOTER_DEFAULT_MAX_VIEWPORT_RATIO,
+    );
+    expect(automatic.footerBlockSize).toBe(footerCap);
+    expect(automatic.blockSize).toBeLessThan(automatic.baseBlockSize);
+    expect(automatic.railBlockSize).toBe(50);
+    expect(automatic.termTargetBlockSize).toBe(36);
+
+    const firstGrowth = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: automatic.blockSize + 1,
+      viewportBlockSize,
+      availableBlockSize: 276,
+    });
+    expect(firstGrowth.blockSize).toBe(automatic.blockSize + 1);
+    expect(firstGrowth.railBlockSize).toBe(automatic.railBlockSize);
+    expect(firstGrowth.footerBlockSize).toBe(automatic.footerBlockSize + 1);
+    expect(firstGrowth.termTargetBlockSize).toBe(automatic.termTargetBlockSize);
+
+    const expanded = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: automatic.baseBlockSize,
+      viewportBlockSize,
+      availableBlockSize: 276,
+    });
+    expect(expanded.blockSize).toBe(expanded.baseBlockSize);
+    expect(expanded.footerBlockSize).toBeGreaterThan(footerCap);
+  });
+
+  it('engages the automatic cap continuously without collapsing the terms rail', () => {
+    const justCapped = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 404,
+      availableBlockSize: 360,
+    });
+    const justUncapped = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 405,
+      availableBlockSize: 360,
+    });
+
+    expect(justCapped.blockSize).toBe(justUncapped.blockSize - 1);
+    expect(justCapped.footerBlockSize).toBe(justUncapped.footerBlockSize - 1);
+    expect(justCapped.railBlockSize).toBe(50);
+    expect(justCapped.termTargetBlockSize).toBe(36);
+  });
+
+  it('keeps authored defaults when the viewport gives the footer enough room', () => {
+    const sizing = dockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    expect(sizing.blockSize).toBe(sizing.baseBlockSize);
+  });
+
+  it('disables the automatic cap for unavailable viewport measurements', () => {
+    for (const viewportBlockSize of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      const sizing = dockSizing({
+        width: 'compact',
+        coarse: true,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize,
+        availableBlockSize: 700,
+      });
+      expect(sizing.blockSize).toBe(sizing.baseBlockSize);
     }
   });
 
@@ -99,6 +201,7 @@ describe('eager footer metrics', () => {
         trackCount: 3,
         footerPresent: true,
         targetBlockSize: null,
+        viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
       const firstPixel = dockSizing({
@@ -107,6 +210,7 @@ describe('eager footer metrics', () => {
         trackCount: 3,
         footerPresent: true,
         targetBlockSize: base.baseBlockSize - 1,
+        viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
       expect(firstPixel.railBlockSize).toBe(railBase - 1);
@@ -122,6 +226,7 @@ describe('eager footer metrics', () => {
         trackCount: 3,
         footerPresent: true,
         targetBlockSize: base.baseBlockSize - railCapacity,
+        viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
       expect(tight.railBlockSize).toBe(31);
@@ -134,6 +239,7 @@ describe('eager footer metrics', () => {
         trackCount: 3,
         footerPresent: true,
         targetBlockSize: base.baseBlockSize - railCapacity - 1,
+        viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
       expect(afterRail.railBlockSize).toBe(31);
@@ -152,6 +258,7 @@ describe('eager footer metrics', () => {
             trackCount,
             footerPresent: true,
             targetBlockSize: null,
+            viewportBlockSize: 1_000,
             availableBlockSize: 1_000,
           });
           let priorStatus = false;
@@ -163,6 +270,7 @@ describe('eager footer metrics', () => {
               trackCount,
               footerPresent: true,
               targetBlockSize: target,
+              viewportBlockSize: 1_000,
               availableBlockSize: 1_000,
             });
             expect(sizing.blockSize).toBe(target);
@@ -185,6 +293,7 @@ describe('eager footer metrics', () => {
             trackCount,
             footerPresent: true,
             targetBlockSize: bounds.minBlockSize,
+            viewportBlockSize: 1_000,
             availableBlockSize: 1_000,
           });
           expect(smallest.termTargetBlockSize).toBe(DOCK_TERM_TARGET_MIN_HEIGHT);
@@ -206,6 +315,7 @@ describe('eager footer metrics', () => {
       trackCount: 3,
       footerPresent: true,
       targetBlockSize: null,
+      viewportBlockSize: 1_000,
       availableBlockSize: 1_000,
     });
     const visibleTargets = [];
@@ -216,6 +326,7 @@ describe('eager footer metrics', () => {
         trackCount: 3,
         footerPresent: true,
         targetBlockSize: target,
+        viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
       if (sizing.showBarcode) visibleTargets.push(target);
@@ -223,16 +334,17 @@ describe('eager footer metrics', () => {
     const firstVisible = visibleTargets[0]!;
     expect(dockSizing({
       width: 'regular', coarse: false, trackCount: 3, footerPresent: true,
-      targetBlockSize: firstVisible - 1, availableBlockSize: 1_000,
+      targetBlockSize: firstVisible - 1, viewportBlockSize: 1_000, availableBlockSize: 1_000,
     }).showBarcode).toBe(false);
     expect(dockSizing({
       width: 'regular', coarse: false, trackCount: 3, footerPresent: true,
-      targetBlockSize: firstVisible, availableBlockSize: 1_000,
+      targetBlockSize: firstVisible, viewportBlockSize: 1_000, availableBlockSize: 1_000,
     }).showBarcode).toBe(true);
 
     const maximized = dockSizing({
       width: 'regular', coarse: false, trackCount: 3, footerPresent: true,
-      targetBlockSize: bounds.baseBlockSize + 500, availableBlockSize: 1_000,
+      targetBlockSize: bounds.baseBlockSize + 500, viewportBlockSize: 1_000,
+      availableBlockSize: 1_000,
     });
     expect(maximized.footerGeometry.barcodeTrackHeight)
       .toBe(FOOTER_BARCODE_TRACK_MAX_HEIGHT);

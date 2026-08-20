@@ -23,13 +23,12 @@ export function TrendsPlace() {
     <>
       {series.length > 0 && activeTextCount > 1 && (
         <div
+          className="trend-view-switcher"
           role="group"
           aria-label="Trend view"
           style={{
             display: 'flex',
             alignItems: 'center',
-            gap: 'var(--space-2)',
-            marginTop: 'var(--space-2)',
             flexWrap: 'wrap',
           }}
         >
@@ -50,7 +49,6 @@ export function TrendsPlace() {
                 border: 'none',
                 borderBottom: trendView === view ? '1px solid var(--fg)' : '1px solid transparent',
                 cursor: 'pointer',
-                minHeight: 44,
                 padding: 'var(--space-1) var(--space-2)',
               }}
             >
@@ -59,7 +57,7 @@ export function TrendsPlace() {
           ))}
         </div>
       )}
-      <div className="analysis-stack" style={{ marginTop: 'var(--space-3)' }}>
+      <div className="analysis-stack">
         {series.length > 0 && (
           <>
             <Suspense

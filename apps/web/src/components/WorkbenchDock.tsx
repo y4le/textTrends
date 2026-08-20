@@ -50,6 +50,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
   const dockRef = useRef<HTMLDivElement | null>(null);
   const [targetBlockSize, setTargetBlockSize] = useState<number | null>(null);
   const [availableBlockSize, setAvailableBlockSize] = useState(() => window.innerHeight);
+  const [viewportBlockSize, setViewportBlockSize] = useState(() => window.innerHeight);
   const [resizing, setResizing] = useState(false);
   const footerPresent = documentCount > 0;
   const footerVisible = snapshot !== null
@@ -64,6 +65,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
     trackCount: displayedTrackCount,
     footerPresent,
     targetBlockSize,
+    viewportBlockSize,
     availableBlockSize,
   });
   const sizingRef = useRef(sizing);
@@ -82,6 +84,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
   const measureAvailable = useCallback(() => {
     const dock = dockRef.current;
     if (!dock) return;
+    setViewportBlockSize(Math.max(0, Math.floor(window.innerHeight)));
     const headerBottom = document.querySelector<HTMLElement>('.app-header')
       ?.getBoundingClientRect().bottom ?? 0;
     const dockBottomGap = Math.max(

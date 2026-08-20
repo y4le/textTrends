@@ -94,6 +94,39 @@ test('brand, Scope, and Lens share one header row where Lens is not docked', asy
   }
 });
 
+test('short landscape chrome yields height to each place surface', async ({ page }) => {
+  await page.setViewportSize({ width: 568, height: 320 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const pageChrome = await page.locator('.app-shell').evaluate((shell) => {
+    const header = shell.querySelector<HTMLElement>('.app-header')!;
+    return {
+      paddingTop: Number.parseFloat(getComputedStyle(shell).paddingTop),
+      headerHeight: header.getBoundingClientRect().height,
+    };
+  });
+  expect(pageChrome.paddingTop).toBeGreaterThanOrEqual(12.5);
+  expect(pageChrome.paddingTop).toBeLessThanOrEqual(13);
+  expect(pageChrome.headerHeight).toBeGreaterThanOrEqual(32);
+  expect(pageChrome.headerHeight).toBeLessThanOrEqual(33);
+
+  const trendSwitch = page.getByRole('group', { name: 'Trend view' });
+  await expect(trendSwitch).toBeVisible();
+  const trendSwitchHeight = (await trendSwitch.getByRole('button').first().boundingBox())?.height;
+  expect(trendSwitchHeight).toBeGreaterThanOrEqual(32);
+  expect(trendSwitchHeight).toBeLessThanOrEqual(33);
+
+  await gotoPlace(page, 'vocabulary');
+  const searchHeight = (await page.getByRole('search', { name: 'Filter vocabulary' })
+    .getByRole('searchbox').boundingBox())?.height;
+  expect(searchHeight).toBeGreaterThanOrEqual(32);
+  expect(searchHeight).toBeLessThanOrEqual(34);
+  const gridHeaderHeight = (await page.locator('.frequency-grid-header').boundingBox())?.height;
+  expect(gridHeaderHeight).toBeGreaterThanOrEqual(32);
+  expect(gridHeaderHeight).toBeLessThanOrEqual(33);
+});
+
 test('workbench regions use the governed layout at regular and wide widths', async ({ page }) => {
   for (const viewport of [
     { width: 768, height: 1024, areas: '"place"' },
