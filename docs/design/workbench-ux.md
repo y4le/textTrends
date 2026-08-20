@@ -49,11 +49,13 @@ can refine the filters for deeper ranks.
 
 Trends keeps the term set fixed to the at-most-five groups already being
 tracked. With no linked range, its second organ shows Reading Destinations for
-one term and Company plus Reading Destinations for two through five. Company
-keeps the two directional proximity rates separate and makes no association
-claim; selecting a pair strictly focuses only Reading Destinations. A
-destination exposes occurrence evidence, opens Reader at an exact winning
-occurrence, or commits its full ranked window as the linked range. These
+one term; with two through five it adds Company when any pair shares a text.
+Company keeps the two directional proximity rates separate and makes no association
+claim. Pairs that never occur in the same text are omitted; when none remain,
+the Company panel is omitted and Reading Destinations takes the full width.
+Selecting a presented pair strictly focuses only Reading Destinations. A
+destination exposes occurrence evidence and opens Reader at an exact winning
+occurrence. These
 surfaces require only indexed tokens and occurrences, so TXT is not a degraded
 case and no inferred chapters or other document hierarchy are implied.
 

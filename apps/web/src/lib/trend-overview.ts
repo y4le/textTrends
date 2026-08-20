@@ -83,6 +83,9 @@ export function companyPairs(
   const seriesById = new Map(series.map((item) => [item.id, item]));
   const out: CompanyPairVM[] = [];
   for (const pair of result.pairs) {
+    // A pair without a shared document has no same-document proximity evidence
+    // and cannot produce a useful strict-focus destination.
+    if (pair.docsWithBoth === 0) continue;
     const leftTrack = result.tracks[pair.a];
     const rightTrack = result.tracks[pair.b];
     const leftSeries = leftTrack && seriesById.get(leftTrack.seriesId);

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useMemo } from 'react';
 import { useApp } from '../../lib/store-instance.ts';
 import {
   selectedTrendsPending,
@@ -12,7 +12,6 @@ import { TrendOverview } from './TrendOverview.tsx';
  * interaction state: pointer motion must not rebuild overview projections.
  */
 export function TrendDistribution() {
-  const focusRangeWhenReady = useRef(false);
   const snapshot = useApp((state) => state.snapshot);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const series = useApp((state) => state.series);
@@ -23,7 +22,6 @@ export function TrendDistribution() {
   const destinations = useApp((state) => state.destinations);
   const destinationFocus = useApp((state) => state.destinationFocus);
   const setDestinationFocus = useApp((state) => state.setDestinationFocus);
-  const setLinkedSelection = useApp((state) => state.setLinkedSelection);
   const openReader = useApp((state) => state.openReader);
   const docs = snapshot?.readyDocs ?? [];
   const titleByDoc = useMemo(
@@ -35,29 +33,6 @@ export function TrendDistribution() {
     () => trendRangeCompare({ series, baseline: trends, ranged }),
     [ranged, series, trends],
   );
-  const compare = useCallback((
-    snapshotId: string,
-    doc: string,
-    tokens: { readonly start: number; readonly end: number },
-  ) => {
-    if (snapshot?.snapshot !== snapshotId) return;
-    focusRangeWhenReady.current = true;
-    setLinkedSelection({
-      snapshot: snapshotId,
-      ranges: [{ doc, tokens: { ...tokens } }],
-    });
-  }, [setLinkedSelection, snapshot]);
-
-  useEffect(() => {
-    if (selection === null) {
-      focusRangeWhenReady.current = false;
-      return;
-    }
-    if (rangePending || !focusRangeWhenReady.current) return;
-    focusRangeWhenReady.current = false;
-    document.getElementById('trend-range-heading')?.focus({ preventScroll: true });
-  }, [rangePending, selection]);
-
   if (series.length === 0 || docs.length === 0) return null;
   if (selection !== null && !rangePending) {
     return <TrendRangeCompare vm={comparison} />;
@@ -72,7 +47,6 @@ export function TrendDistribution() {
       pendingRange={rangePending}
       setFocus={setDestinationFocus}
       openReader={openReader}
-      compare={compare}
     />
   );
 }

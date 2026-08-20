@@ -40,7 +40,6 @@ export function ReadingDestinations({
   suspended,
   setFocus,
   openReader,
-  compare,
 }: {
   readonly destinations: DestinationsState | null;
   readonly series: readonly SeriesIntent[];
@@ -49,11 +48,6 @@ export function ReadingDestinations({
   readonly suspended: boolean;
   readonly setFocus: (value: readonly [string, string] | null) => void;
   readonly openReader: (intent: ReaderOpenIntent, returnFocusTo?: string) => void;
-  readonly compare: (
-    snapshot: string,
-    doc: string,
-    tokens: { readonly start: number; readonly end: number },
-  ) => void;
 }) {
   const cards = useMemo(
     () => destinations?.state.status === 'ready'
@@ -73,8 +67,15 @@ export function ReadingDestinations({
     : `windows of up to ${windowTokens.toLocaleString()} tokens`;
   const clearFocus = () => {
     const returnTo = document.querySelector<HTMLButtonElement>('.company-pair[aria-pressed="true"]');
+    const fallback = document.getElementById('trend-destinations-heading');
     setFocus(null);
-    requestAnimationFrame(() => returnTo?.isConnected && returnTo.focus({ preventScroll: true }));
+    requestAnimationFrame(() => {
+      if (returnTo?.isConnected) {
+        returnTo.focus({ preventScroll: true });
+      } else if (fallback?.isConnected) {
+        fallback.focus({ preventScroll: true });
+      }
+    });
   };
 
   return (
@@ -85,7 +86,7 @@ export function ReadingDestinations({
     >
       <header className="destinations-header">
         <div>
-          <h3 id="trend-destinations-heading">reading destinations</h3>
+          <h3 id="trend-destinations-heading" tabIndex={-1}>reading destinations</h3>
           <p>
             {focusLabel === null
               ? 'ranked passages · occurrence evidence · whole corpus'
@@ -158,14 +159,6 @@ export function ReadingDestinations({
                     >
                       read from here
                     </button>
-                    <button
-                      type="button"
-                      className="trend-overview-action"
-                      title="Use the ranked passage window as the selected range"
-                      onClick={() => compare(destinations.snapshot, card.doc, card.tokens)}
-                    >
-                      compare passage
-                    </button>
                   </footer>
                 </article>
               </li>
@@ -174,7 +167,7 @@ export function ReadingDestinations({
         </ol>
       )}
       <p className="trend-overview-method-note">
-        Destinations rank {windowDescription}, then show a shorter reading excerpt. Compare commits the full ranked window; Read opens the winning occurrence.
+        Destinations rank {windowDescription}, then show a shorter reading excerpt. Read opens the winning occurrence.
       </p>
     </section>
   );

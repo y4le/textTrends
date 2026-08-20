@@ -8,14 +8,18 @@ choices otherwise visible only in an implementation thread.
 
 With no linked range, the second Trends organ is now an orientation-to-reading
 surface rather than another distribution chart. One tracked term shows Reading
-Destinations; two through five show Company beside Reading Destinations. A
+Destinations; two through five add Company when at least one pair occurs in a
+shared text. A
 settled linked range still replaces the organ with the existing exact
 range-versus-rest comparison.
 
-Company reports nearest span-gap evidence in both directions for every tracked
-pair. Its UI derives “nearby” at the published gap-below-25-token edge and
-ranks bounded pairs by the weaker directional coverage, then shared-document
-count. It deliberately publishes no association score or modeled baseline:
+Company computes nearest span-gap evidence in both directions for every
+tracked pair. Its UI presents only pairs that occur in at least one shared
+text, derives “nearby” at the published gap-below-25-token edge, and ranks
+those bounded pairs by the weaker directional coverage, then shared-document
+count. When no pair shares a text, the Company panel is omitted and Reading
+Destinations occupies the organ alone. Company deliberately publishes no
+association score or modeled baseline:
 nearest variable spans with overlaps and document edges do not have a coherent
 closed-form expectation that would justify one. Pair activation is a strict
 Destinations filter and can therefore produce an honest empty state.
@@ -24,9 +28,8 @@ Reading Destinations ranks occurrence-anchored windows of up to 400 indexed
 tokens and returns at most twelve. The score rewards track breadth, bounded
 rarity, and diminishing within-window counts; deterministic breadth-first
 document selection bounds how much one text can consume when several yield
-candidates. Read opens the
-exact winning occurrence, while Compare commits the full ranked window. The
-shorter excerpt and its highlights are transport-bounded. No feature depends
+candidates. Read opens the exact winning occurrence. The shorter excerpt and
+its highlights are transport-bounded. No feature depends
 on headings, chapters, paragraphs, or reliable source structure, so plain TXT
 retains the complete analysis.
 

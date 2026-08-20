@@ -5,7 +5,7 @@ import {
   submitAndAwaitFreshResults,
 } from './helpers.ts';
 
-test('one term shows Reading Destinations whose passage can compare or open Reader', async ({ page }) => {
+test('one term shows Reading Destinations whose passage can open Reader', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'trends');
@@ -13,17 +13,14 @@ test('one term shows Reading Destinations whose passage can compare or open Read
 
   const overview = page.locator('[data-trend-organ="overview"]');
   await expect(overview).toBeVisible();
+  await expect(page.getByRole('region', { name: 'Trends overview' })).toBeVisible();
+  await expect(overview.locator('.trend-organ-pending')).toHaveText('');
   await expect(overview.getByRole('heading', { name: 'reading destinations', exact: true })).toBeVisible();
   await expect(overview.locator('[data-trend-overview-section="company"]')).toHaveCount(0);
   const cards = overview.locator('.destination-card');
   await expect(cards.first()).toBeVisible();
   await expect(cards.first().locator('.destination-mark').first()).toBeVisible();
-
-  await cards.first().getByRole('button', { name: 'compare passage' }).click();
-  await expect(page.locator('[data-trend-organ="range"]')).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByRole('heading', { name: 'selected range / rest of corpus' })).toBeFocused();
-  await page.getByRole('button', { name: 'clear selection' }).click();
-  await expect(overview).toBeVisible();
+  await expect(cards.first().getByRole('button', { name: 'compare passage' })).toHaveCount(0);
 
   await overview.locator('.destination-card').first()
     .getByRole('button', { name: /^read from here/ }).click();
@@ -40,6 +37,8 @@ test('multiple terms add Company and pair focus refreshes only Reading Destinati
   const overview = page.locator('[data-trend-organ="overview"]');
   const company = overview.locator('[data-trend-overview-section="company"]');
   const destinations = overview.locator('[data-trend-overview-section="destinations"]');
+  await expect(overview.locator('.trend-organ-header')).toHaveCount(0);
+  await expect(overview).not.toContainText('company & reading destinations');
   await expect(company).toBeVisible();
   await expect(destinations).toBeVisible();
   const pair = company.locator('.company-pair').first();
@@ -60,4 +59,23 @@ test('multiple terms add Company and pair focus refreshes only Reading Destinati
   }));
   expect(width.scroll).toBeLessThanOrEqual(width.client);
   expect(width.columns.trim().split(/\s+/)).toHaveLength(1);
+});
+
+test('multiple terms without a shared text omit Company without leaving a blank overview', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'holmes, qzxneveroccurs');
+
+  const overview = page.locator('[data-trend-organ="overview"]');
+  await expect(overview.locator('.trend-organ-header')).toHaveCount(0);
+  await expect(overview).not.toContainText('whole-corpus orientation');
+  await expect(overview.locator('[data-trend-overview-section="company"]')).toHaveCount(0);
+  await expect(overview.locator('.destination-card').first()).toBeVisible();
+  await expect(overview.locator('.destination-mark').first()).toContainText(/holmes/i);
+  await expect(overview.locator('.trend-overview-grid')).toHaveAttribute('data-single', 'true');
+
+  await submitAndAwaitFreshResults(page, 'qzxneveroccurs, qzyneveroccurs');
+  await expect(overview.locator('[data-trend-overview-section="company"]')).toHaveCount(0);
+  await expect(overview.getByText('No passage contains an occurrence of the tracked terms.')).toBeVisible();
 });

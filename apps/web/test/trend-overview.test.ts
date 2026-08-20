@@ -29,7 +29,7 @@ const moon: SeriesIntent = {
 const edges = [0, 1, 2, 3, 4, 5, 7, 10, 15, 25, 50, 100, 200];
 
 describe('Company overview projection', () => {
-  it('keeps directional coverage separate, ranks by the weaker side, and retains focus by series id', () => {
+  it('keeps directional coverage separate, ranks by the weaker side, retains focus, and omits pairs without a shared text', () => {
     const result: CompanyResultV1 = {
       method: 'company/1',
       gapEdges: edges,
@@ -58,6 +58,15 @@ describe('Company overview projection', () => {
           forwardB: 0, backwardB: 0, tiedB: 0, overlapB: 1,
           docsWithBoth: 1,
         },
+        {
+          a: 0, b: 2,
+          fromA: edges.map(() => 0),
+          fromB: edges.map(() => 0),
+          noneA: 10, noneB: 2,
+          forwardA: 0, backwardA: 0, tiedA: 0, overlapA: 0,
+          forwardB: 0, backwardB: 0, tiedB: 0, overlapB: 0,
+          docsWithBoth: 0,
+        },
       ],
     };
     const rows = companyPairs(result, [moon, wolf, fox], { seriesIds: ['fox', 'wolf'] });
@@ -75,29 +84,25 @@ describe('Company overview projection', () => {
     expect(rows[1]?.mutualCoverage).toBe(0.25);
   });
 
-  it('reports null rather than a fabricated zero rate for an absent track', () => {
+  it('omits a pair that never occurs in the same text', () => {
     const result: CompanyResultV1 = {
       method: 'company/1',
       gapEdges: edges,
       tracks: [
-        { seriesId: 'wolf', groupId: 'g-wolf', total: 0, docCount: 0 },
+        { seriesId: 'wolf', groupId: 'g-wolf', total: 2, docCount: 1 },
         { seriesId: 'fox', groupId: 'g-fox', total: 1, docCount: 1 },
       ],
       corpusTokens: 20,
       pairs: [{
         a: 0, b: 1,
         fromA: edges.map(() => 0), fromB: edges.map(() => 0),
-        noneA: 0, noneB: 1,
+        noneA: 2, noneB: 1,
         forwardA: 0, backwardA: 0, tiedA: 0, overlapA: 0,
         forwardB: 0, backwardB: 0, tiedB: 0, overlapB: 0,
         docsWithBoth: 0,
       }],
     };
-    expect(companyPairs(result, [wolf, fox], null)[0]).toMatchObject({
-      left: { coverage: null },
-      right: { coverage: 0 },
-      mutualCoverage: null,
-    });
+    expect(companyPairs(result, [wolf, fox], null)).toEqual([]);
   });
 
   it('keeps real near-zero and near-total coverage distinct from exact endpoints', () => {

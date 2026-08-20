@@ -1,15 +1,10 @@
-import { useMemo } from 'react';
 import { seriesColor } from '../../lib/series-style.ts';
-import type {
-  CompanyState,
-  DestinationFocusIntent,
-  SeriesIntent,
-} from '../../lib/store.ts';
+import type { CompanyState } from '../../lib/store.ts';
 import {
   COMPANY_NEARBY_GAP_EXCLUSIVE,
-  companyPairs,
   formatCompanyCoverage,
   type CompanyCoverageVM,
+  type CompanyPairVM,
 } from '../../lib/trend-overview.ts';
 import { SeriesLineSample } from '../chrome.tsx';
 
@@ -39,23 +34,15 @@ function Coverage({ value }: { readonly value: CompanyCoverageVM }) {
 
 export function CompanyPanel({
   company,
-  series,
-  focus,
+  pairs,
   suspended,
   setFocus,
 }: {
   readonly company: CompanyState | null;
-  readonly series: readonly SeriesIntent[];
-  readonly focus: DestinationFocusIntent | null;
+  readonly pairs: readonly CompanyPairVM[];
   readonly suspended: boolean;
   readonly setFocus: (value: readonly [string, string] | null) => void;
 }) {
-  const pairs = useMemo(
-    () => company?.state.status === 'ready'
-      ? companyPairs(company.state.result, series, focus)
-      : [],
-    [company, focus, series],
-  );
   return (
     <section
       className="trend-overview-panel company-panel"
@@ -72,8 +59,6 @@ export function CompanyPanel({
         <p className="trend-overview-status" role="status">measuring which terms keep company…</p>
       ) : company.state.status === 'error' ? (
         <p className="trend-overview-status" role="alert">Company unavailable: {company.state.message}</p>
-      ) : pairs.length === 0 ? (
-        <p className="trend-overview-status">No term pairs are available.</p>
       ) : (
         <ol className="company-list">
           {pairs.map((pair) => {
@@ -108,9 +93,7 @@ export function CompanyPanel({
                     <Coverage value={pair.right} />
                   </span>
                   <span className="company-pair-note">
-                    {pair.docsWithBoth === 0
-                      ? 'never occur in the same text'
-                      : `share ${pair.docsWithBoth.toLocaleString()} ${pair.docsWithBoth === 1 ? 'text' : 'texts'}`}
+                    share {pair.docsWithBoth.toLocaleString()} {pair.docsWithBoth === 1 ? 'text' : 'texts'}
                   </span>
                 </button>
               </li>

@@ -4265,6 +4265,15 @@ html.reader-open .find-bar--floating {
   font-family: var(--font-mono);
 }
 
+.trend-overview > .trend-organ-pending {
+  margin: 0 0 var(--space-2);
+  text-align: end;
+}
+
+.trend-overview > .trend-organ-pending:empty {
+  margin-block-end: 0;
+}
+
 .trend-organ[data-range-pending] .trend-overview-grid {
   opacity: 0.38;
 }
