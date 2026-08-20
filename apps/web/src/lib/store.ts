@@ -4955,7 +4955,8 @@ export function createAppRuntime(
           input.classes.some(
             (value) => value !== 'lexical' && value !== 'numeral',
           ) ||
-          !['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy) ||
+          !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
+            .includes(input.sortBy) ||
           (input.dirA !== 1 && input.dirA !== -1) ||
           (input.dirB !== 1 && input.dirB !== -1) ||
           typeof input.showConfidenceIntervals !== 'boolean'

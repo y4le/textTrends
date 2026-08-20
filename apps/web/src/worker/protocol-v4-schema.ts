@@ -32,7 +32,13 @@ const FREQUENCY_SORT_KEYS = new Set([
   'class',
   'key',
 ]);
-const KEYNESS_SORT_KEYS = new Set(['logRatio', 'g2', 'countA', 'countB']);
+const KEYNESS_SORT_KEYS = new Set([
+  'logRatio',
+  'logRatioLow',
+  'g2',
+  'countA',
+  'countB',
+]);
 const KEYNESS_SIDES = new Set(['a', 'b', 'both']);
 
 function narrowTrendBins(value: unknown): boolean {

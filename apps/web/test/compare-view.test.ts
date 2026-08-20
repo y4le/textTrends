@@ -9,6 +9,7 @@ import {
   compareSettingsError,
   compareSettingsInput,
   compareSideLabel,
+  compareSortLabel,
   compareTarget,
   compareTargetIsStale,
 } from '../src/lib/compare-view.ts';
@@ -180,6 +181,9 @@ describe('Compare view law', () => {
       .toMatch(/ranking direction/);
     expect(compareSettingsError({ ...draft, showConfidenceIntervals: null as never }))
       .toMatch(/confidence intervals/);
+    expect(compareSettingsError({ ...draft, sortBy: 'logRatioLow' }))
+      .toBeNull();
+    expect(compareSortLabel('logRatioLow')).toBe('lower 95% bound');
     expect(compareScale(null, null)).toEqual({ maximum: 1, provisional: false });
     expect(compareScale(state('a', 'ready'), state('b', 'pending')))
       .toEqual({ maximum: 3, provisional: true });

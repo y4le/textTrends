@@ -220,6 +220,9 @@ test('Compare settings preserve a draft through width changes and stage ranking 
 
   await expect(dialog.getByLabel('left ranking order')).toHaveValue('-1');
   await expect(dialog.getByLabel('right ranking order')).toHaveValue('1');
+  await expect(dialog.getByLabel('shared sort field'))
+    .toHaveValue('logRatio');
+  await dialog.getByLabel('shared sort field').selectOption('logRatioLow');
   await dialog.getByLabel('left ranking order').selectOption('1');
   await dialog.getByLabel('right ranking order').selectOption('-1');
   await expect(dialog.getByLabel('left ranking order')).toHaveValue('1');

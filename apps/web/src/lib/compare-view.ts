@@ -108,6 +108,7 @@ export const compareSortLabel = (sort: KeynessSortFieldV1): string => {
     case 'countA': return 'A count';
     case 'countB': return 'B count';
     case 'logRatio': return 'log₂ ratio';
+    case 'logRatioLow': return 'lower 95% bound';
     case 'g2': return 'signed G²';
   }
 };
@@ -151,7 +152,10 @@ export function compareSettingsError(
   ) {
     return 'Select at least one unique token class.';
   }
-  if (!['logRatio', 'g2', 'countA', 'countB'].includes(input.sortBy)) {
+  if (
+    !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
+      .includes(input.sortBy)
+  ) {
     return 'Choose an available shared sort field.';
   }
   if (

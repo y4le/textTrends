@@ -48,8 +48,9 @@ LR = log2( ((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)) )
 
 **Test vector**: same inputs → `LR = log2( (10.5/1001)/(2.5/2001) ) = 3.0697` (±1e-3).
 
-Display contract: rank by LR (effect), show G² (evidence), raw counts, and range;
-optional Benjamini–Hochberg q-values never drive ranking.
+Display contract: rank by LR (effect) by default, with the lower 95% bound as
+an optional precision-aware sort; show G² (evidence), raw counts, and range.
+Optional Benjamini–Hochberg q-values never drive ranking.
 
 ### Log-ratio confidence interval
 

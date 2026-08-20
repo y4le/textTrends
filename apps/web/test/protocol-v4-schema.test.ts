@@ -506,6 +506,7 @@ describe('narrowQueryV4', () => {
       sort: { by: 'countB', dir: 1 },
       page: { offset: FREQUENCY_WINDOW_MAX - 1, limit: 1 },
     })).toBe(true);
+    expect(query({ sort: { by: 'logRatioLow', dir: -1 } })).toBe(true);
     expect(query({ method: 'keyness-g2-2x2/2' })).toBe(false);
     expect(query({ effect: 'log-ratio/2' })).toBe(false);
     expect(query({ a: { docs: new Array(1) } })).toBe(false);

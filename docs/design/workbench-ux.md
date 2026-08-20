@@ -43,7 +43,9 @@ profile above streamed log-ratio rankings. A gear at the top right opens one
 settings page for sorting, per-side ranking direction, filters, and optional
 95% effect-interval whiskers (hidden by default). Exact intervals remain in
 term detail alongside signed G², the underlying counts, document ranges, and
-per-side dispersion. A browser view retains at most the first 50,000 ranks;
+per-side dispersion. Sort fields include the log-ratio point estimate and its
+lower 95% confidence bound, as well as evidence and counts. A browser view
+retains at most the first 50,000 ranks;
 the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.
 
