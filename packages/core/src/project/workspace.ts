@@ -384,7 +384,8 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     || !isNonNegSafeInt(value.minCountTotal) || value.minCountTotal < 1
     || !isNonNegSafeInt(value.minDocFreqTotal) || value.minDocFreqTotal < 1
     || !exactRecord(value.sort, ['by', 'dirA', 'dirB'])
-    || !['logRatio', 'g2', 'countA', 'countB'].includes(value.sort.by as string)
+    || !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
+      .includes(value.sort.by as string)
     || (value.sort.dirA !== 1 && value.sort.dirA !== -1)
     || (value.sort.dirB !== 1 && value.sort.dirB !== -1)
     || typeof showConfidenceIntervals !== 'boolean'

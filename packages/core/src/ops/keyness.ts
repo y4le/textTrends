@@ -43,7 +43,12 @@ import {
 
 export const KEYNESS_SCAN_CHUNK = 65_536;
 
-export type KeynessSortFieldV1 = 'logRatio' | 'g2' | 'countA' | 'countB';
+export type KeynessSortFieldV1 =
+  | 'logRatio'
+  | 'logRatioLow'
+  | 'g2'
+  | 'countA'
+  | 'countB';
 export type KeynessSideV1 = 'a' | 'b' | 'both';
 
 export interface KeynessTableRequestV1 {
@@ -156,7 +161,8 @@ function validateRequest(request: KeynessTableRequestV1): void {
     throw new RangeError('keyness classes must be a nonempty unique class list');
   }
   if (
-    !['logRatio', 'g2', 'countA', 'countB'].includes(request.sort.by) ||
+    !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
+      .includes(request.sort.by) ||
     (request.sort.dir !== 1 && request.sort.dir !== -1)
   ) {
     throw new RangeError('invalid keyness sort');
@@ -356,6 +362,7 @@ function dispersionOf(term: SideTerm | undefined, positiveParts: number): number
 function primary(row: KeynessRowV1, by: KeynessSortFieldV1): number {
   switch (by) {
     case 'logRatio': return row.logRatio;
+    case 'logRatioLow': return row.logRatioLow;
     case 'g2': return row.g2;
     case 'countA': return row.countA;
     case 'countB': return row.countB;

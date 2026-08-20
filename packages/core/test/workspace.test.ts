@@ -109,6 +109,18 @@ describe('workspace admission', () => {
     expect(parsed.views.compare.showConfidenceIntervals).toBe(false);
   });
 
+  it('round-trips the lower confidence-bound Compare sort', () => {
+    const value = validWorkspace();
+    const compare = {
+      ...value.views.compare,
+      sort: { ...value.views.compare.sort, by: 'logRatioLow' as const },
+    };
+    expect(parseWorkspace({
+      ...value,
+      views: { ...value.views, compare },
+    }).views.compare.sort.by).toBe('logRatioLow');
+  });
+
   it('round-trips a query-notebook/3 workspace with an authored custom color', () => {
     const value = validWorkspace();
     const custom: WorkspaceV1 = {

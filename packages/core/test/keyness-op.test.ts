@@ -326,6 +326,35 @@ describe('keyness-g2-2x2/1', () => {
     expect(positive).toBeLessThan(negative);
   });
 
+  it('can rank by the lower 95% log-ratio bound', async () => {
+    const tokens = (...runs: readonly (readonly [string, number])[]) =>
+      runs.flatMap(([token, count]) => Array<string>(count).fill(token)).join(' ');
+    const world = await fixture([
+      ['a', tokens(['rare', 10], ['supported', 300], ['common', 690])],
+      ['b', tokens(['supported', 20], ['common', 980])],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const run = (by: 'logRatio' | 'logRatioLow') => keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      { ...REQUEST, side: 'a', sort: { by, dir: -1 } },
+      async () => {},
+    );
+
+    const byEffect = await run('logRatio');
+    const byLowerBound = await run('logRatioLow');
+    expect(byEffect.rows.map((candidate) => candidate.key))
+      .toEqual(['rare', 'supported']);
+    expect(byLowerBound.rows.map((candidate) => candidate.key))
+      .toEqual(['supported', 'rare']);
+    expect(byLowerBound.rows[0]!.logRatioLow)
+      .toBeGreaterThan(byLowerBound.rows[1]!.logRatioLow);
+  });
+
   it('applies each combined minimum before ranking and paging', async () => {
     const world = await fixture([
       ['a', 'apple apple rare'],
