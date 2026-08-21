@@ -88,6 +88,10 @@ import {
   TERM_COUNT_CACHE_MAX_BYTES,
   TERM_COUNT_CACHE_MAX_ENTRIES,
 } from '@texttrends/core';
+import {
+  buildStoplistRanks,
+  type StoplistRanksV1,
+} from '@texttrends/core/worker-stoplist';
 import { DependencyError, termGroupIdentity } from '@texttrends/core';
 
 /** The occurrence-cache hard cap — one entry per possible concurrent track. */
@@ -222,6 +226,8 @@ export class QueryExecutor {
    * mutate these cached buffers. */
   private readonly termCountCache = new Map<string, TermCountCacheEntry>();
   private termCountCacheBytes = 0;
+  /** One snapshot-wide rank vector, independent of the selected prefix depth. */
+  private stoplistRanks: StoplistRanksV1 | null = null;
   private view: PublishedView | null = null;
 
   constructor(
@@ -269,6 +275,7 @@ export class QueryExecutor {
    *  distinctly and age out of the bounded LRU. */
   publish(view: PublishedView, replacedDocs: Iterable<string>): void {
     this.view = view;
+    if (this.stoplistRanks?.snapshot !== view.snapshot.id) this.stoplistRanks = null;
     for (const [key, entry] of this.occurrenceCache) {
       if (entry.snapshot === view.snapshot.id) continue;
       this.occurrenceCache.delete(key);
@@ -295,6 +302,14 @@ export class QueryExecutor {
   private published(): PublishedView {
     if (!this.view) throw new Error('query executed before any publication');
     return this.view;
+  }
+
+  private commonWordRanks(): StoplistRanksV1 {
+    const { snapshot } = this.published();
+    if (this.stoplistRanks?.snapshot !== snapshot.id) {
+      this.stoplistRanks = buildStoplistRanks(snapshot, this.indexRecipe);
+    }
+    return this.stoplistRanks;
   }
 
   private async resolverFor(doc: string, mode: MatchMode): Promise<Resolver> {
@@ -524,7 +539,14 @@ export class QueryExecutor {
   ): Promise<FrequencyListResultV1> {
     const { snapshot } = this.published();
     const inputs = await this.aggregationInputs(selection, checkpoint);
-    return computeFrequencyList(snapshot, selection, inputs, request, checkpoint);
+    return computeFrequencyList(
+      snapshot,
+      selection,
+      inputs,
+      request,
+      checkpoint,
+      request.filter.stoplist === undefined ? null : this.commonWordRanks(),
+    );
   }
 
   async keyness(
@@ -544,6 +566,7 @@ export class QueryExecutor {
       inputsB,
       request,
       checkpoint,
+      request.filter.stoplist === undefined ? null : this.commonWordRanks(),
     );
   }
 

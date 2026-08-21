@@ -43,6 +43,8 @@ import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
   DEFAULT_INDEX_RECIPE,
   parseWorkspace,
+  STOPLIST_EN_ID,
+  STOPLIST_EN_VERSION,
   TERM_GROUP_LIMITS_V1,
   type NumericTrend,
   type WorkspaceV1,
@@ -5031,6 +5033,33 @@ describe('corpus dashboard query intent (slice-3)', () => {
     }).request.page).toEqual({ offset: 5_000, limit: 100 });
   });
 
+  it('applies common-word depth live, resets paging, and omits the disabled filter', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setFrequencyPage(5_000);
+    const before = f.frequencies().length;
+    f.store.getState().setFrequencyStoplistTopN(500);
+    expect(f.frequencies()).toHaveLength(before + 1);
+    expect(f.store.getState().frequencyView).toMatchObject({
+      stoplistTopN: 500,
+      page: { offset: 0, limit: 100 },
+    });
+    const enabled = (f.frequencies().at(-1)!.query as {
+      request: { filter: Record<string, unknown> };
+    }).request.filter;
+    expect(enabled.stoplist).toEqual({
+      id: STOPLIST_EN_ID,
+      version: STOPLIST_EN_VERSION,
+      topN: 500,
+    });
+
+    f.store.getState().setFrequencyStoplistTopN(0);
+    const disabled = (f.frequencies().at(-1)!.query as {
+      request: { filter: Record<string, unknown> };
+    }).request.filter;
+    expect(disabled).not.toHaveProperty('stoplist');
+  });
+
   it('restores a legacy literal frequency prefix as an anchored regex', () => {
     const f = harness();
     const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
@@ -5279,6 +5308,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: 8,
       minDocFreqTotal: 3,
       classes: ['lexical', 'numeral'],
+      stoplistTopN: before.stoplistTopN,
       sortBy: 'countA',
       dirA: before.sort.dirA,
       dirB: before.sort.dirB,
@@ -5307,6 +5337,33 @@ describe('dueling keyness query intent (slice-4)', () => {
     expect(f.store.getState().keynessInventoryB?.state.status).toBe('ready');
   });
 
+  it('reissues both Compare rankings when common-word depth changes', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    const view = f.store.getState().keynessView;
+    const before = f.keynesses().length;
+    f.store.getState().applyKeynessSettings({
+      minCountTotal: view.minCountTotal,
+      minDocFreqTotal: view.minDocFreqTotal,
+      classes: view.classes,
+      stoplistTopN: 500,
+      sortBy: view.sort.by,
+      dirA: view.sort.dirA,
+      dirB: view.sort.dirB,
+      showConfidenceIntervals: view.showConfidenceIntervals,
+    });
+    expect(f.keynesses()).toHaveLength(before + 2);
+    for (const issued of f.keynesses().slice(-2)) {
+      expect((issued.query as {
+        request: { filter: Record<string, unknown> };
+      }).request.filter.stoplist).toEqual({
+        id: STOPLIST_EN_ID,
+        version: STOPLIST_EN_VERSION,
+        topN: 500,
+      });
+    }
+  });
+
   it('applies only one changed direction and refuses invalid shared settings', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
@@ -5317,6 +5374,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: initial.minCountTotal,
       minDocFreqTotal: initial.minDocFreqTotal,
       classes: initial.classes,
+      stoplistTopN: initial.stoplistTopN,
       sortBy: initial.sort.by,
       dirA: 1,
       dirB: initial.sort.dirB,
@@ -5341,6 +5399,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: 0,
       minDocFreqTotal: 1,
       classes: ['lexical'],
+      stoplistTopN: view.stoplistTopN,
       sortBy: 'g2',
       dirA: view.sort.dirA,
       dirB: view.sort.dirB,
@@ -5401,6 +5460,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: 9,
       minDocFreqTotal: 4,
       classes: ['numeral'],
+      stoplistTopN: 750,
       sortBy: 'g2',
       dirA: 1,
       dirB: -1,
@@ -5414,6 +5474,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: 9,
       minDocFreqTotal: 4,
       classes: ['numeral'],
+      stoplistTopN: 750,
       sort: { by: 'g2', dirA: 1, dirB: -1 },
       showConfidenceIntervals: true,
       pageLimit: 100,
@@ -5430,6 +5491,7 @@ describe('dueling keyness query intent (slice-4)', () => {
       minCountTotal: view.minCountTotal,
       minDocFreqTotal: view.minDocFreqTotal,
       classes: view.classes,
+      stoplistTopN: view.stoplistTopN,
       sortBy: view.sort.by,
       dirA: view.sort.dirA,
       dirB: view.sort.dirB,

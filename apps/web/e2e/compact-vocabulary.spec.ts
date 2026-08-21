@@ -108,6 +108,33 @@ test('Vocabulary regex filter updates live, reports invalid input, and clears', 
   await expectNoBodyOverflow(page);
 });
 
+test('Vocabulary common-word filtering is off by default and updates live', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'vocabulary');
+
+  const slider = page.getByRole('slider', { name: 'remove common words' });
+  await expect(slider).toHaveAccessibleName('remove common words');
+  await expect(slider).toHaveValue('0');
+  await expect(slider).toHaveAttribute('aria-valuetext', /off/);
+  expect((await slider.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  await expect(page.locator('.frequency-term-label', { hasText: /^the$/iu }).first())
+    .toBeVisible();
+
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await slider.fill('100');
+  await expect(slider).toHaveValue('100');
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > mark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  ).length).toBe(1);
+  await expect(page.locator('.frequency-term-label', { hasText: /^the$/iu }))
+    .toHaveCount(0);
+  await expect(page.locator('.common-words-control output')).toContainText(/top 100.*rows hidden/);
+  await expectNoBodyOverflow(page);
+});
+
 test('wide Vocabulary keeps six columns and an in-flow regex bar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');

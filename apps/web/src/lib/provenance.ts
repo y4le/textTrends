@@ -244,6 +244,7 @@ function destinationsMethod(result: DestinationsResultV1): ProvenanceMethod {
 
 function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, result } = input.frequency;
+  const commonWords = result?.stoplist;
   return {
     method: result?.method ?? 'freq-list/1',
     parameters: [
@@ -251,6 +252,14 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('minimum document frequency', String(view.minDocFreq)),
       parameter('token classes', view.classes.join(', ')),
       parameter('regular expression', view.regex ?? 'none'),
+      parameter(
+        'common-word filter',
+        view.stoplistTopN === 0
+          ? 'off'
+          : commonWords
+            ? `top ${commonWords.topN} of ${commonWords.id} v${commonWords.version} (through “${commonWords.boundaryKey}”); ${commonWords.removedRows} rows removed`
+            : `top ${view.stoplistTopN} reference words`,
+      ),
       parameter('sort', `${view.sort.by} ${view.sort.dir === 1 ? 'ascending' : 'descending'}`),
       parameter(
         'resident page',
@@ -262,6 +271,7 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
     ],
     limitations: [
       'DP treats selected documents as its parts.',
+      'The common-word filter removes ranked rows only; counts, rates, and denominators are unchanged.',
       'The ranked result window is bounded to 5,000 rows.',
     ],
   };
@@ -270,6 +280,15 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
 function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, sideA, sideB, resultA, resultB } = input.keyness;
   const divergence = resultA?.divergence ?? resultB?.divergence ?? null;
+  const commonWords = resultA?.stoplist ?? resultB?.stoplist;
+  const removedRows = [
+    ...(resultA?.stoplist === undefined
+      ? []
+      : [`A ${resultA.stoplist.removedRows}`]),
+    ...(resultB?.stoplist === undefined
+      ? []
+      : [`B ${resultB.stoplist.removedRows}`]),
+  ];
   return {
     method: resultA?.method ?? resultB?.method ?? 'keyness-g2-2x2/1',
     parameters: [
@@ -279,6 +298,14 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('minimum combined count', String(view.minCountTotal)),
       parameter('minimum combined document range', String(view.minDocFreqTotal)),
       parameter('token classes', view.classes.join(', ')),
+      parameter(
+        'common-word filter',
+        view.stoplistTopN === 0
+          ? 'off'
+          : commonWords
+            ? `top ${commonWords.topN} of ${commonWords.id} v${commonWords.version} (through “${commonWords.boundaryKey}”); removed rows by projection: ${removedRows.join(', ')}`
+            : `top ${view.stoplistTopN} reference words`,
+      ),
       parameter('shared sort field', view.sort.by),
       parameter('A direction', view.sort.dirA === 1 ? 'ascending' : 'descending'),
       parameter('B direction', view.sort.dirB === 1 ? 'ascending' : 'descending'),
@@ -301,6 +328,7 @@ function keynessMethod(input: ProvenanceInput): ProvenanceMethod {
       'Confidence intervals are per-term and carry no multiple-comparison correction.',
       'Dispersion is null for a side holding fewer than two documents with tokens.',
       'Divergence covers the selected token classes only, before the count filter.',
+      'The common-word filter removes ranked rows only; statistics and divergence are unchanged.',
       'Terms with exactly zero log ratio are in neither ranked projection.',
       'Display bars use a shared scale over the currently loaded ranks.',
       ...(view.showConfidenceIntervals

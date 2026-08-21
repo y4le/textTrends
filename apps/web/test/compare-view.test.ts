@@ -27,6 +27,7 @@ const view: KeynessViewV1 = {
   minCountTotal: 5,
   minDocFreqTotal: 2,
   classes: ['lexical'],
+  stoplistTopN: 0,
   sort: { by: 'logRatio', dirA: -1, dirB: 1 },
   showConfidenceIntervals: false,
   pageLimit: 100,
@@ -159,6 +160,7 @@ describe('Compare view law', () => {
       minCountTotal: 5,
       minDocFreqTotal: 2,
       classes: ['lexical'],
+      stoplistTopN: 0,
       sortBy: 'logRatio',
       dirA: -1,
       dirB: 1,
@@ -175,6 +177,8 @@ describe('Compare view law', () => {
       .toMatch(/combined documents/);
     expect(compareSettingsError({ ...draft, classes: [] }))
       .toMatch(/token class/);
+    expect(compareSettingsError({ ...draft, stoplistTopN: 2_001 }))
+      .toMatch(/common-word depth/i);
     expect(compareSettingsError({ ...draft, sortBy: 'foreign' as never }))
       .toMatch(/sort field/);
     expect(compareSettingsError({ ...draft, dirA: 0 as never }))

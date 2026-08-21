@@ -72,6 +72,7 @@ export function ComparePanel() {
     view.minCountTotal,
     view.minDocFreqTotal,
     view.classes,
+    view.stoplistTopN,
     view.sort.by,
     view.sort.dirA,
     view.sort.dirB,

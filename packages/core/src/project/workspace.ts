@@ -15,6 +15,7 @@ import {
 } from '../ops/frequency.ts';
 import { MAX_KWIC_TRACKS } from '../ops/kwic.ts';
 import { type KeynessSortFieldV1 } from '../ops/keyness.ts';
+import { STOPLIST_MAX_TOP_N } from '../ops/stoplist-contract.ts';
 import {
   TREND_FIXED_TOKENS_MAX,
   TREND_FIXED_TOKENS_MIN,
@@ -87,6 +88,7 @@ export interface WorkspaceFrequencyViewV1 {
   readonly minCount: number;
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  readonly stoplistTopN: number;
   /** Legacy prefix settings are admitted so workspace/1 files remain readable. */
   readonly prefixNfc?: string;
   readonly regex?: string;
@@ -103,6 +105,7 @@ export interface WorkspaceCompareViewV1 {
   readonly minCountTotal: number;
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  readonly stoplistTopN: number;
   readonly sort: {
     readonly by: KeynessSortFieldV1;
     readonly dirA: 1 | -1;
@@ -302,24 +305,35 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
 }
 
 function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
+  const hasStoplist = value !== null
+    && typeof value === 'object'
+    && Object.prototype.hasOwnProperty.call(value, 'stoplistTopN');
+  const stoplistKey = hasStoplist ? ['stoplistTopN'] as const : [];
   const hasPrefix = exactRecord(
     value,
-    ['minCount', 'minDocFreq', 'classes', 'prefixNfc', 'sort', 'pageSize'],
+    ['minCount', 'minDocFreq', 'classes', 'prefixNfc', ...stoplistKey, 'sort', 'pageSize'],
   );
   const hasRegex = exactRecord(
     value,
-    ['minCount', 'minDocFreq', 'classes', 'regex', 'sort', 'pageSize'],
+    ['minCount', 'minDocFreq', 'classes', 'regex', ...stoplistKey, 'sort', 'pageSize'],
   );
   if (
     !hasPrefix
     && !hasRegex
-    && !exactRecord(value, ['minCount', 'minDocFreq', 'classes', 'sort', 'pageSize'])
+    && !exactRecord(
+      value,
+      ['minCount', 'minDocFreq', 'classes', ...stoplistKey, 'sort', 'pageSize'],
+    )
   ) {
     throw new RangeError('frequency view must be exact');
   }
   if (
     !isNonNegSafeInt(value.minCount) || value.minCount < 1
     || !isNonNegSafeInt(value.minDocFreq) || value.minDocFreq < 1
+    || (hasStoplist && (
+      !isNonNegSafeInt(value.stoplistTopN)
+      || value.stoplistTopN > STOPLIST_MAX_TOP_N
+    ))
     || !exactRecord(value.sort, ['by', 'dir'])
     || !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
       .includes(value.sort.by as string)
@@ -351,6 +365,7 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     minCount: value.minCount,
     minDocFreq: value.minDocFreq,
     classes: parseClasses(value.classes, 'frequency classes'),
+    stoplistTopN: hasStoplist ? value.stoplistTopN as number : 0,
     ...(prefixNfc === undefined ? {} : { prefixNfc }),
     ...(regex === undefined ? {} : { regex }),
     sort: value.sort as unknown as WorkspaceFrequencyViewV1['sort'],
@@ -363,13 +378,18 @@ function nullableDocument(value: unknown, what: string): string | null {
 }
 
 function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
+  const hasStoplist = value !== null
+    && typeof value === 'object'
+    && Object.prototype.hasOwnProperty.call(value, 'stoplistTopN');
+  const stoplistKey = hasStoplist ? ['stoplistTopN'] as const : [];
   const currentKeys = [
     'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
-    'minDocFreqTotal', 'classes', 'sort', 'showConfidenceIntervals', 'pageSize',
+    'minDocFreqTotal', 'classes', ...stoplistKey, 'sort',
+    'showConfidenceIntervals', 'pageSize',
   ] as const;
   const legacyKeys = [
     'mode', 'documentA', 'documentB', 'restOn', 'minCountTotal',
-    'minDocFreqTotal', 'classes', 'sort', 'pageSize',
+    'minDocFreqTotal', 'classes', ...stoplistKey, 'sort', 'pageSize',
   ] as const;
   const current = exactRecord(value, currentKeys);
   if (!current && !exactRecord(value, legacyKeys)) {
@@ -383,6 +403,10 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     || (value.restOn !== 'a' && value.restOn !== 'b')
     || !isNonNegSafeInt(value.minCountTotal) || value.minCountTotal < 1
     || !isNonNegSafeInt(value.minDocFreqTotal) || value.minDocFreqTotal < 1
+    || (hasStoplist && (
+      !isNonNegSafeInt(value.stoplistTopN)
+      || value.stoplistTopN > STOPLIST_MAX_TOP_N
+    ))
     || !exactRecord(value.sort, ['by', 'dirA', 'dirB'])
     || !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
       .includes(value.sort.by as string)
@@ -401,6 +425,7 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     minCountTotal: value.minCountTotal,
     minDocFreqTotal: value.minDocFreqTotal,
     classes: parseClasses(value.classes, 'compare classes'),
+    stoplistTopN: hasStoplist ? value.stoplistTopN as number : 0,
     sort: value.sort as unknown as WorkspaceCompareViewV1['sort'],
     showConfidenceIntervals,
     pageSize: value.pageSize,

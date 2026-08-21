@@ -24,6 +24,9 @@ import {
   FREQUENCY_REGEX_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
   KWIC_CONTEXT_MAX_TOKENS,
+  STOPLIST_EN_ID,
+  STOPLIST_EN_VERSION,
+  STOPLIST_MAX_TOP_N,
 } from '@texttrends/core';
 
 const extractionRecipes = await defaultExtractionRecipes();
@@ -465,6 +468,18 @@ describe('narrowQueryV4', () => {
     sparse.length = 2;
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: sparse } })).toBe(false);
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '^Holmes$' } })).toBe(true);
+    expect(query({ filter: {
+      minCount: 1,
+      minDocFreq: 1,
+      classes: ['lexical'],
+      stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 500 },
+    } })).toBe(true);
+    expect(query({ filter: {
+      minCount: 1,
+      minDocFreq: 1,
+      classes: ['lexical'],
+      stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 0 },
+    } })).toBe(false);
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'e\u0301' } })).toBe(false);
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '[' } })).toBe(false);
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } })).toBe(false);
@@ -507,6 +522,22 @@ describe('narrowQueryV4', () => {
       page: { offset: FREQUENCY_WINDOW_MAX - 1, limit: 1 },
     })).toBe(true);
     expect(query({ sort: { by: 'logRatioLow', dir: -1 } })).toBe(true);
+    expect(query({ filter: {
+      minCountTotal: 1,
+      minDocFreqTotal: 1,
+      classes: ['lexical'],
+      stoplist: {
+        id: STOPLIST_EN_ID,
+        version: STOPLIST_EN_VERSION,
+        topN: STOPLIST_MAX_TOP_N,
+      },
+    } })).toBe(true);
+    expect(query({ filter: {
+      minCountTotal: 1,
+      minDocFreqTotal: 1,
+      classes: ['lexical'],
+      stoplist: { id: 'other', version: 1, topN: 10 },
+    } })).toBe(false);
     expect(query({ method: 'keyness-g2-2x2/2' })).toBe(false);
     expect(query({ effect: 'log-ratio/2' })).toBe(false);
     expect(query({ a: { docs: new Array(1) } })).toBe(false);

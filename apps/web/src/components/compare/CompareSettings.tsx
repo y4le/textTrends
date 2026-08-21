@@ -1,6 +1,7 @@
-import type {
-  FrequencyTokenClassV1,
-  KeynessSortFieldV1,
+import {
+  STOPLIST_MAX_TOP_N,
+  type FrequencyTokenClassV1,
+  type KeynessSortFieldV1,
 } from '@texttrends/core';
 import type { KeynessSettingsInputV1 } from '../../lib/store.ts';
 import { toggleCompareClass } from '../../lib/compare-view.ts';
@@ -139,7 +140,36 @@ export function CompareSettings({
                 </label>
               ))}
             </fieldset>
+            <div className="common-words-field">
+              <label htmlFor="compare-common-words">remove common words</label>
+              <span className="common-words-control">
+                <input
+                  id="compare-common-words"
+                  type="range"
+                  min={0}
+                  max={STOPLIST_MAX_TOP_N}
+                  step={5}
+                  value={draft.stoplistTopN}
+                  aria-valuetext={draft.stoplistTopN === 0
+                    ? 'off — no reference words removed'
+                    : `top ${draft.stoplistTopN} reference words`}
+                  aria-describedby="compare-common-words-note"
+                  onChange={(event) => onDraft({
+                    ...draft,
+                    stoplistTopN: event.currentTarget.valueAsNumber,
+                  })}
+                />
+                <output htmlFor="compare-common-words">
+                  {draft.stoplistTopN === 0 ? 'off' : `top ${draft.stoplistTopN}`}
+                </output>
+              </span>
+            </div>
           </div>
+          <p id="compare-common-words-note" className="compare-settings-note">
+            Removes ranked rows that match the bundled English common-word reference.
+            Counts, statistics, and divergence stay unchanged. Frequent
+            function words can be meaningful comparison evidence.
+          </p>
         </section>
 
         <section aria-labelledby="compare-display-settings">

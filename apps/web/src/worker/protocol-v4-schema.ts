@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_REGEX_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isStoplistSpecV1, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_REGEX_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import {
   COMPANY_GAP_EDGES_V1,
   DESTINATION_MAX_RESULTS,
@@ -300,10 +300,19 @@ export function narrowQueryV4(q: unknown): boolean {
       const filter = r.filter as Record<string, unknown>;
       const sort = r.sort as Record<string, unknown>;
       const page = r.page as Record<string, unknown>;
-      const filterKeys = isRecord(r.filter) &&
-        Object.prototype.hasOwnProperty.call(r.filter, 'regex')
-        ? ['minCount', 'minDocFreq', 'classes', 'regex']
-        : ['minCount', 'minDocFreq', 'classes'];
+      const filterKeys = [
+        'minCount',
+        'minDocFreq',
+        'classes',
+        ...(isRecord(r.filter)
+          && Object.prototype.hasOwnProperty.call(r.filter, 'regex')
+          ? ['regex']
+          : []),
+        ...(isRecord(r.filter)
+          && Object.prototype.hasOwnProperty.call(r.filter, 'stoplist')
+          ? ['stoplist']
+          : []),
+      ];
       if (
         r.method !== 'freq-list/1' ||
         !exactRecord(r.filter, filterKeys) ||
@@ -316,6 +325,7 @@ export function narrowQueryV4(q: unknown): boolean {
         (filter.minDocFreq as number) < 1 ||
         !denseBoundedArray(filter.classes, 1, 2, (value) => FREQUENCY_CLASSES.has(value as string)) ||
         new Set(filter.classes as unknown[]).size !== (filter.classes as unknown[]).length ||
+        (filter.stoplist !== undefined && !isStoplistSpecV1(filter.stoplist)) ||
         !FREQUENCY_SORT_KEYS.has(sort.by as string) ||
         (sort.dir !== 1 && sort.dir !== -1) ||
         (
@@ -373,7 +383,15 @@ export function narrowQueryV4(q: unknown): boolean {
       const sort = r.sort as Record<string, unknown>;
       const page = r.page as Record<string, unknown>;
       if (
-        !exactRecord(r.filter, ['minCountTotal', 'minDocFreqTotal', 'classes']) ||
+        !exactRecord(r.filter, [
+          'minCountTotal',
+          'minDocFreqTotal',
+          'classes',
+          ...(isRecord(r.filter)
+            && Object.prototype.hasOwnProperty.call(r.filter, 'stoplist')
+            ? ['stoplist']
+            : []),
+        ]) ||
         !exactRecord(r.sort, ['by', 'dir']) ||
         !exactRecord(r.page, ['offset', 'limit']) ||
         !isCount(filter.minCountTotal) ||
@@ -384,6 +402,7 @@ export function narrowQueryV4(q: unknown): boolean {
           FREQUENCY_CLASSES.has(value as string)) ||
         new Set(filter.classes as unknown[]).size !==
           (filter.classes as unknown[]).length ||
+        (filter.stoplist !== undefined && !isStoplistSpecV1(filter.stoplist)) ||
         !KEYNESS_SORT_KEYS.has(sort.by as string) ||
         (sort.dir !== 1 && sort.dir !== -1) ||
         !isCount(page.offset) ||

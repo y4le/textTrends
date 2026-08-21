@@ -7,6 +7,7 @@ import type {
   KeynessResultV1,
   NumericTrend,
 } from '@texttrends/core';
+import { STOPLIST_EN_ID, STOPLIST_EN_VERSION } from '@texttrends/core';
 import {
   formatProvenanceText,
   formatResultTsv,
@@ -148,6 +149,7 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
         minCount: 2,
         minDocFreq: 1,
         classes: ['lexical'],
+        stoplistTopN: 0,
         regex: '^H',
         sort: { by: 'count', dir: -1 },
         page: { offset: 0, limit: 100 },
@@ -233,6 +235,45 @@ describe('provenanceFor', () => {
     }), 'compare'));
     expect(shown).toContain('ranking interval whiskers: shown');
     expect(shown).toContain('Interval whiskers clamp at the axis edge');
+  });
+
+  it('records the exact common-word resource, boundary, and row-only semantics', () => {
+    const stoplistA = {
+      id: STOPLIST_EN_ID,
+      version: STOPLIST_EN_VERSION,
+      topN: 100,
+      removedRows: 2,
+      boundaryKey: 'from',
+    } as const;
+    const stoplistB = { ...stoplistA, removedRows: 1 } as const;
+    const base = input();
+    const vocabulary = formatProvenanceText(provenanceFor(input({
+      frequency: {
+        view: { ...base.frequency.view, stoplistTopN: 100 },
+        result: { ...frequency, stoplist: stoplistA },
+      },
+    }), 'vocabulary'));
+    expect(vocabulary).toContain(
+      `common-word filter: top 100 of ${STOPLIST_EN_ID} v${STOPLIST_EN_VERSION} (through “from”); 2 rows removed`,
+    );
+    expect(vocabulary).toContain(
+      'common-word filter removes ranked rows only; counts, rates, and denominators are unchanged',
+    );
+
+    const compare = formatProvenanceText(provenanceFor(input({
+      keyness: {
+        ...base.keyness,
+        view: { ...base.keyness.view, stoplistTopN: 100 },
+        resultA: { ...keyness, stoplist: stoplistA },
+        resultB: { ...keyness, stoplist: stoplistB },
+      },
+    }), 'compare'));
+    expect(compare).toContain(
+      `common-word filter: top 100 of ${STOPLIST_EN_ID} v${STOPLIST_EN_VERSION} (through “from”); removed rows by projection: A 2, B 1`,
+    );
+    expect(compare).toContain(
+      'common-word filter removes ranked rows only; statistics and divergence are unchanged',
+    );
   });
 
   it('is deterministic and honest about waiting and partial results', () => {

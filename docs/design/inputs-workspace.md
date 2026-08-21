@@ -168,9 +168,11 @@ The following are proposals, not claims about the shipped worker results.
   contracts in [statistics.md](statistics.md), including declared language,
   sentence/token rules, and fixtures. Unsupported languages show no score.
 - Lexical-density or stopword measures require a versioned resource and
-  transparent token-class policy. The current common-word list has unrecorded
-  origin and unknown rights, an open blocker in
-  [corpus-inventory.md](corpus-inventory.md); it cannot become method evidence.
+  transparent token-class policy. The locked `english-common-words/1` row-
+  filter resource affects lexical rows only. It remains private because its
+  source provenance is not sufficient for public redistribution.
+  It therefore cannot become lexical-density method evidence until that
+  provenance is resolved; see [corpus-inventory.md](corpus-inventory.md).
 - Automatic language detection may be offered as a suggestion with confidence
   and an override. It must not silently change tokenization or analysis.
 - Distinctive vocabulary belongs on the existing Compare/keyness foundation;

@@ -60,6 +60,9 @@ import {
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
+  STOPLIST_EN_ID,
+  STOPLIST_EN_VERSION,
+  STOPLIST_MAX_TOP_N,
   TREND_MAX_ROWS,
   TREND_RATE_DENOMINATOR,
   termGroupIdentity,
@@ -406,6 +409,7 @@ export interface FrequencyViewV1 {
   readonly minCount: number;
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  readonly stoplistTopN: number;
   readonly regex?: string;
   readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
   readonly page: { readonly offset: number; readonly limit: number };
@@ -433,6 +437,7 @@ export interface KeynessViewV1 {
   readonly minCountTotal: number;
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  readonly stoplistTopN: number;
   readonly sort: {
     readonly by: KeynessSortFieldV1;
     readonly dirA: 1 | -1;
@@ -446,6 +451,7 @@ export interface KeynessSettingsInputV1 {
   readonly minCountTotal: number;
   readonly minDocFreqTotal: number;
   readonly classes: readonly FrequencyTokenClassV1[];
+  readonly stoplistTopN: number;
   readonly sortBy: KeynessSortFieldV1;
   readonly dirA: 1 | -1;
   readonly dirB: 1 | -1;
@@ -483,6 +489,7 @@ export const DEFAULT_KEYNESS_VIEW: KeynessViewV1 = Object.freeze({
   minCountTotal: 5,
   minDocFreqTotal: 2,
   classes: Object.freeze(['lexical'] as const),
+  stoplistTopN: 0,
   sort: Object.freeze({
     by: 'logRatio' as const,
     dirA: -1 as const,
@@ -560,6 +567,7 @@ function keynessTableIntentKey(
     view.minCountTotal,
     view.minDocFreqTotal,
     view.classes,
+    view.stoplistTopN,
     { by: view.sort.by, dir: side === 'a' ? view.sort.dirA : view.sort.dirB },
     view.pageLimit,
     side,
@@ -880,6 +888,7 @@ export interface AppState {
   loadMoreFrequency(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
   setFrequencyRegex(pattern: string): void;
+  setFrequencyStoplistTopN(topN: number): void;
   setFrequencyPage(offset: number): void;
   addFrequencyTerm(key: string): void;
   showFrequencyTermInKwic(key: string): void;
@@ -1151,6 +1160,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         minCount: frequency.minCount,
         minDocFreq: frequency.minDocFreq,
         classes: frequency.classes,
+        stoplistTopN: frequency.stoplistTopN,
         ...(regex === undefined ? {} : { regex }),
         sort: frequency.sort,
         pageSize: frequency.page.limit,
@@ -1163,6 +1173,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         minCountTotal: state.keynessView.minCountTotal,
         minDocFreqTotal: state.keynessView.minDocFreqTotal,
         classes: state.keynessView.classes,
+        stoplistTopN: state.keynessView.stoplistTopN,
         sort: state.keynessView.sort,
         showConfidenceIntervals: state.keynessView.showConfidenceIntervals,
         pageSize: state.keynessView.pageLimit,
@@ -1190,6 +1201,7 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
         minCount: 1,
         minDocFreq: 1,
         classes: ['lexical'],
+        stoplistTopN: 0,
         sort: { by: 'count', dir: -1 },
         pageSize: 100,
       },
@@ -1201,6 +1213,7 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
         minCountTotal: DEFAULT_KEYNESS_VIEW.minCountTotal,
         minDocFreqTotal: DEFAULT_KEYNESS_VIEW.minDocFreqTotal,
         classes: DEFAULT_KEYNESS_VIEW.classes,
+        stoplistTopN: DEFAULT_KEYNESS_VIEW.stoplistTopN,
         sort: DEFAULT_KEYNESS_VIEW.sort,
         showConfidenceIntervals: DEFAULT_KEYNESS_VIEW.showConfidenceIntervals,
         pageSize: DEFAULT_KEYNESS_VIEW.pageLimit,
@@ -1630,6 +1643,13 @@ export function createAppRuntime(
               minCountTotal: issuedView.minCountTotal,
               minDocFreqTotal: issuedView.minDocFreqTotal,
               classes: issuedView.classes,
+              ...(issuedView.stoplistTopN === 0 ? {} : {
+                stoplist: {
+                  id: STOPLIST_EN_ID,
+                  version: STOPLIST_EN_VERSION,
+                  topN: issuedView.stoplistTopN,
+                },
+              }),
             },
             sort,
             page,
@@ -2946,6 +2966,7 @@ export function createAppRuntime(
         minCount: 1,
         minDocFreq: 1,
         classes: ['lexical'],
+        stoplistTopN: 0,
         sort: { by: 'count', dir: -1 },
         page: { offset: 0, limit: 100 },
       },
@@ -4483,6 +4504,13 @@ export function createAppRuntime(
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,
                 classes: issuedView.classes,
+                ...(issuedView.stoplistTopN === 0 ? {} : {
+                  stoplist: {
+                    id: STOPLIST_EN_ID,
+                    version: STOPLIST_EN_VERSION,
+                    topN: issuedView.stoplistTopN,
+                  },
+                }),
                 ...(issuedView.regex === undefined
                   ? {}
                   : { regex: issuedView.regex }),
@@ -4566,6 +4594,13 @@ export function createAppRuntime(
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,
                 classes: issuedView.classes,
+                ...(issuedView.stoplistTopN === 0 ? {} : {
+                  stoplist: {
+                    id: STOPLIST_EN_ID,
+                    version: STOPLIST_EN_VERSION,
+                    topN: issuedView.stoplistTopN,
+                  },
+                }),
                 ...(issuedView.regex === undefined
                   ? {}
                   : { regex: issuedView.regex }),
@@ -4712,6 +4747,13 @@ export function createAppRuntime(
                 minCountTotal: issuedView.minCountTotal,
                 minDocFreqTotal: issuedView.minDocFreqTotal,
                 classes: issuedView.classes,
+                ...(issuedView.stoplistTopN === 0 ? {} : {
+                  stoplist: {
+                    id: STOPLIST_EN_ID,
+                    version: STOPLIST_EN_VERSION,
+                    topN: issuedView.stoplistTopN,
+                  },
+                }),
               },
               sort,
               page: { offset, limit },
@@ -4955,6 +4997,9 @@ export function createAppRuntime(
           input.classes.some(
             (value) => value !== 'lexical' && value !== 'numeral',
           ) ||
+          !Number.isSafeInteger(input.stoplistTopN) ||
+          input.stoplistTopN < 0 ||
+          input.stoplistTopN > STOPLIST_MAX_TOP_N ||
           !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
             .includes(input.sortBy) ||
           (input.dirA !== 1 && input.dirA !== -1) ||
@@ -4969,6 +5014,7 @@ export function createAppRuntime(
           view.minDocFreqTotal !== input.minDocFreqTotal ||
           view.classes.length !== input.classes.length ||
           view.classes.some((value, index) => value !== input.classes[index]) ||
+          view.stoplistTopN !== input.stoplistTopN ||
           view.sort.by !== input.sortBy;
         const queryAChanged = sharedQueryChanged || view.sort.dirA !== input.dirA;
         const queryBChanged = sharedQueryChanged || view.sort.dirB !== input.dirB;
@@ -4985,6 +5031,7 @@ export function createAppRuntime(
             minCountTotal: input.minCountTotal,
             minDocFreqTotal: input.minDocFreqTotal,
             classes: [...input.classes],
+            stoplistTopN: input.stoplistTopN,
             sort: {
               by: input.sortBy,
               dirA: input.dirA,
@@ -5036,6 +5083,26 @@ export function createAppRuntime(
                 regex: normalized,
                 page: { ...current.page, offset: 0 },
               },
+        });
+        get().runFrequency(true);
+      },
+
+      setFrequencyStoplistTopN(topN) {
+        if (
+          !Number.isSafeInteger(topN)
+          || topN < 0
+          || topN > STOPLIST_MAX_TOP_N
+        ) {
+          return;
+        }
+        const current = get().frequencyView;
+        if (current.stoplistTopN === topN) return;
+        set({
+          frequencyView: {
+            ...current,
+            stoplistTopN: topN,
+            page: { ...current.page, offset: 0 },
+          },
         });
         get().runFrequency(true);
       },
@@ -5313,6 +5380,7 @@ export function createAppRuntime(
             minCount: workspace.views.frequency.minCount,
             minDocFreq: workspace.views.frequency.minDocFreq,
             classes: workspace.views.frequency.classes,
+            stoplistTopN: workspace.views.frequency.stoplistTopN,
             ...(frequencyRegex === undefined
               ? {}
               : { regex: frequencyRegex }),
@@ -5328,6 +5396,7 @@ export function createAppRuntime(
             minCountTotal: compare.minCountTotal,
             minDocFreqTotal: compare.minDocFreqTotal,
             classes: compare.classes,
+            stoplistTopN: compare.stoplistTopN,
             sort: compare.sort,
             showConfidenceIntervals: compare.showConfidenceIntervals,
             pageLimit: compare.pageSize,

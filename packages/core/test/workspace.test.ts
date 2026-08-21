@@ -35,6 +35,7 @@ function validWorkspace(): WorkspaceV1 {
         minCount: 2,
         minDocFreq: 1,
         classes: ['lexical', 'numeral'],
+        stoplistTopN: 0,
         regex: '^é|ère$',
         sort: { by: 'count', dir: -1 },
         pageSize: 100,
@@ -47,6 +48,7 @@ function validWorkspace(): WorkspaceV1 {
         minCountTotal: 2,
         minDocFreqTotal: 1,
         classes: ['lexical'],
+        stoplistTopN: 0,
         sort: { by: 'g2', dirA: -1, dirB: 1 },
         showConfidenceIntervals: true,
         pageSize: 50,
@@ -92,6 +94,39 @@ describe('workspace admission', () => {
       ...value.views.compare,
       showConfidenceIntervals: true,
     });
+  });
+
+  it('defaults legacy common-word filter depths to off', () => {
+    const value = validWorkspace();
+    const { stoplistTopN: _frequencyStoplist, ...frequency } = value.views.frequency;
+    const { stoplistTopN: _compareStoplist, ...compare } = value.views.compare;
+    const parsed = parseWorkspace({
+      ...value,
+      views: { ...value.views, frequency, compare },
+    });
+    expect(parsed.views.frequency.stoplistTopN).toBe(0);
+    expect(parsed.views.compare.stoplistTopN).toBe(0);
+  });
+
+  it('round-trips bounded common-word filter depths', () => {
+    const value = validWorkspace();
+    const parsed = parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        frequency: { ...value.views.frequency, stoplistTopN: 500 },
+        compare: { ...value.views.compare, stoplistTopN: 750 },
+      },
+    });
+    expect(parsed.views.frequency.stoplistTopN).toBe(500);
+    expect(parsed.views.compare.stoplistTopN).toBe(750);
+    expect(() => parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        compare: { ...value.views.compare, stoplistTopN: 2_001 },
+      },
+    })).toThrow(/compare view/u);
   });
 
   it('round-trips a current workspace with interval whiskers hidden', () => {

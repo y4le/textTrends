@@ -9,7 +9,11 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { FREQUENCY_REGEX_MAX_UNITS, type FrequencyListRowV1 } from '@texttrends/core';
+import {
+  FREQUENCY_REGEX_MAX_UNITS,
+  STOPLIST_MAX_TOP_N,
+  type FrequencyListRowV1,
+} from '@texttrends/core';
 import { usePresentation } from '../PresentationProvider.tsx';
 import {
   renderedRowDetailLayer,
@@ -173,6 +177,9 @@ export function FrequencyTable({
   const layers = useApp((store) => store.layers);
   const setSort = useApp((store) => store.setFrequencySort);
   const setFrequencyRegex = useApp((store) => store.setFrequencyRegex);
+  const setFrequencyStoplistTopN = useApp(
+    (store) => store.setFrequencyStoplistTopN,
+  );
   const loadMore = useApp((store) => store.loadMoreFrequency);
   const addTerm = useApp((store) => store.addTerm);
   const showInKwic = useApp((store) => store.showFrequencyTermInKwic);
@@ -180,6 +187,7 @@ export function FrequencyTable({
   const replaceLayer = useApp((store) => store.replaceLayer);
   const popLayer = useApp((store) => store.popLayer);
   const [regexDraft, setRegexDraft] = useState(view.regex ?? '');
+  const [stoplistDraft, setStoplistDraft] = useState(view.stoplistTopN);
   const [columns, setColumns] = useState<VocabularyColumnSettings>(() =>
     loadVocabularyColumnSettings(vocabularySessionStorage(window))
       ?? VOCABULARY_COLUMN_DEFAULTS);
@@ -383,6 +391,10 @@ export function FrequencyTable({
     setRegexDraft(view.regex ?? '');
   }, [view.regex]);
 
+  useEffect(() => {
+    setStoplistDraft(view.stoplistTopN);
+  }, [view.stoplistTopN]);
+
   const regexError = frequencyRegexError(regexDraft);
   useEffect(() => {
     if (regexError !== null) return undefined;
@@ -391,6 +403,15 @@ export function FrequencyTable({
     const timer = window.setTimeout(() => setFrequencyRegex(normalized), 150);
     return () => window.clearTimeout(timer);
   }, [regexDraft, regexError, setFrequencyRegex, view.regex]);
+
+  useEffect(() => {
+    if (stoplistDraft === view.stoplistTopN) return undefined;
+    const timer = window.setTimeout(
+      () => setFrequencyStoplistTopN(stoplistDraft),
+      150,
+    );
+    return () => window.clearTimeout(timer);
+  }, [setFrequencyStoplistTopN, stoplistDraft, view.stoplistTopN]);
 
   useEffect(() => {
     if (columnDragRef.current !== null) return;
@@ -627,6 +648,10 @@ export function FrequencyTable({
   };
   const regexApplied = regexError === null
     && regexDraft.normalize('NFC') === (view.regex ?? '');
+  const stoplistApplied = stoplistDraft === view.stoplistTopN;
+  const filtersPending = !regexApplied
+    || !stoplistApplied
+    || state?.state.status === 'pending';
 
   return (
     <section
@@ -689,16 +714,53 @@ export function FrequencyTable({
           aria-live="polite"
         >
           {regexError
-            ?? (!regexApplied || state?.state.status === 'pending'
+            ?? (filtersPending
               ? 'Filtering vocabulary.'
               : `${readyResult?.total ?? 0} matching vocabulary rows.`)}
         </span>
+        <div className="common-words-field frequency-common-words">
+          <label htmlFor="vocabulary-common-words">remove common words</label>
+          <div className="common-words-control">
+            <input
+              id="vocabulary-common-words"
+              type="range"
+              min={0}
+              max={STOPLIST_MAX_TOP_N}
+              step={5}
+              value={stoplistDraft}
+              aria-valuetext={stoplistDraft === 0
+                ? 'off — no reference words removed'
+                : `top ${stoplistDraft} reference words`}
+              aria-describedby="vocabulary-common-words-note vocabulary-regex-status"
+              onChange={(event) => setStoplistDraft(event.currentTarget.valueAsNumber)}
+            />
+            <output htmlFor="vocabulary-common-words">
+              {stoplistDraft === 0
+                ? 'off'
+                : readyResult?.stoplist?.topN === stoplistDraft
+                  ? `top ${stoplistDraft} · ${readyResult.stoplist.removedRows} rows hidden`
+                  : `top ${stoplistDraft}`}
+            </output>
+          </div>
+          <p id="vocabulary-common-words-note">
+            Bundled English common-word reference; remaining counts and rates do not change.
+          </p>
+        </div>
       </form>
       {state?.state.status === 'pending' && readyResult === null && <p>ranking vocabulary…</p>}
       {state?.state.status === 'error' && (
         <p style={{ color: 'var(--accent-text)' }}>{state.state.message}</p>
       )}
-      {readyResult !== null && (
+      {readyResult !== null && readyResult.total === 0 && (
+        <p className="frequency-empty-state">
+          {filtersPending
+            ? 'Filtering vocabulary…'
+            : readyResult.stoplist && readyResult.stoplist.removedRows > 0
+            ? `The common-word filter removed all ${readyResult.stoplist.removedRows} matching rows. Lower it to see terms.`
+            : 'No vocabulary rows meet the filters.'}
+        </p>
+      )}
+      {readyResult !== null && readyResult.total > 0 && (
         <>
           <div
             className="frequency-table-shell"

@@ -200,19 +200,27 @@ test('Compare settings preserve a draft through width changes and stage ranking 
   await open.click();
   const dialog = page.getByRole('dialog', { name: 'Compare settings' });
   const minimum = page.getByLabel('combined documents ≥');
+  const commonWords = dialog.getByRole('slider', { name: 'remove common words' });
   await expect(dialog).toBeVisible();
+  await expect(commonWords).toHaveAccessibleName('remove common words');
+  await expect(commonWords).toHaveValue('0');
+  await expect(commonWords).toHaveAttribute('aria-valuetext', /off/);
+  expect((await commonWords.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   const quietMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await minimum.fill('1');
+  await commonWords.fill('100');
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await open.click();
   await expect(minimum).toHaveValue('1');
+  await expect(commonWords).toHaveValue('100');
 
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(dialog).toBeVisible();
   await expect(page.getByRole('form', { name: 'Compare settings' })).toBeVisible();
   await page.setViewportSize({ width: 390, height: 844 });
   await expect(dialog).toBeVisible();
+  await expect(commonWords).toHaveValue('100');
   expect((await trace(page)).events.filter(
     (event) => event.seq > quietMark && event.direction === 'to-worker'
       && event.t === 'query',

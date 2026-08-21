@@ -1,4 +1,5 @@
 import {
+  STOPLIST_MAX_TOP_N,
   type FrequencyTokenClassV1,
   type KeynessDivergenceV1,
   type KeynessRowV1,
@@ -123,6 +124,7 @@ export function compareSettingsInput(
     minCountTotal: view.minCountTotal,
     minDocFreqTotal: view.minDocFreqTotal,
     classes: [...view.classes],
+    stoplistTopN: view.stoplistTopN,
     sortBy: view.sort.by,
     dirA: view.sort.dirA,
     dirB: view.sort.dirB,
@@ -151,6 +153,13 @@ export function compareSettingsError(
     )
   ) {
     return 'Select at least one unique token class.';
+  }
+  if (
+    !Number.isSafeInteger(input.stoplistTopN)
+    || input.stoplistTopN < 0
+    || input.stoplistTopN > STOPLIST_MAX_TOP_N
+  ) {
+    return `Common-word depth must be a whole number from 0 to ${STOPLIST_MAX_TOP_N}.`;
   }
   if (
     !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']

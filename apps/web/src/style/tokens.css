@@ -1034,6 +1034,45 @@ canvas {
   color: var(--accent-text);
 }
 
+.common-words-control {
+  display: flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.common-words-control input[type='range'] {
+  min-inline-size: 6rem;
+  flex: 1 1 auto;
+  accent-color: var(--accent-text);
+}
+
+.common-words-control output {
+  min-inline-size: 7ch;
+  color: var(--fg);
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  text-align: end;
+}
+
+.frequency-common-words {
+  display: grid;
+  grid-column: 1 / -1;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.frequency-common-words > p {
+  grid-column: 2;
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.frequency-empty-state {
+  color: var(--fg-muted);
+}
+
 .frequency-panel {
   min-block-size: 0;
 }
@@ -1393,6 +1432,16 @@ canvas {
 .compare-settings-fields > label {
   display: flex;
   min-inline-size: 0;
+  flex-direction: column;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.compare-settings-fields > .common-words-field {
+  display: flex;
+  min-inline-size: 0;
+  flex: 1 1 100%;
   flex-direction: column;
   gap: var(--space-1);
   color: var(--fg-muted);
@@ -2539,6 +2588,19 @@ canvas {
 
   .frequency-regex-status {
     grid-column: 1;
+  }
+
+  .frequency-common-words {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .frequency-common-words > p {
+    grid-column: 1;
+  }
+
+  .common-words-control input[type='range'] {
+    min-block-size: 44px;
   }
 
   .frequency-table-shell {

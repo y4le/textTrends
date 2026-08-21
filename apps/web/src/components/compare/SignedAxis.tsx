@@ -122,11 +122,14 @@ function SideStatus({
   readonly state: KeynessTableState | null;
   readonly side: 'a' | 'b';
 }) {
+  const result = compareResidentResult(state);
   const message = !state || state.state.status === 'pending'
     ? 'ranking…'
     : state.state.status === 'error'
       ? state.state.message
-      : 'No terms meet the filters.';
+      : result?.stoplist && result.stoplist.removedRows > 0
+        ? `The common-word filter removed all ${result.stoplist.removedRows} matching rows. Lower it to see terms.`
+        : 'No terms meet the filters.';
   return (
     <p className="compare-pyramid-status" data-error={state?.state.status === 'error' || undefined}>
       <span className="visually-hidden">Side {side.toUpperCase()}: </span>
