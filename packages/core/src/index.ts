@@ -293,6 +293,18 @@ export {
   type FrequencyTokenClassV1,
 } from './ops/frequency.ts';
 export {
+  STOPLIST_EN_ID,
+  STOPLIST_EN_VERSION,
+  STOPLIST_MAX_TOP_N,
+  isStoplistSpecV1,
+  type StoplistResultV1,
+  type StoplistSpecV1,
+} from './ops/stoplist-contract.ts';
+export {
+  validateStoplistRanks,
+  type StoplistRanksV1,
+} from './ops/stoplist-ranks.ts';
+export {
   firstSelectionOverlap,
   keyness,
   KEYNESS_SCAN_CHUNK,

@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Environment-agnostic text analysis engine: tokenizer, positional index, analysis passes. No DOM, no worker, no filesystem assumptions.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./worker-stoplist": "./src/ops/stoplist.ts"
   },
   "scripts": {
     "test": "vitest run",

@@ -7,6 +7,8 @@ import {
   keyness,
   type KeynessTableRequestV1,
 } from '../src/ops/keyness.ts';
+import { buildStoplistRanks } from '../src/ops/stoplist.ts';
+import { STOPLIST_EN_ID, STOPLIST_EN_VERSION } from '../src/ops/stoplist-contract.ts';
 import {
   type InventoryDocumentInputV1,
 } from '../src/ops/inventory.ts';
@@ -605,5 +607,58 @@ describe('keyness-g2-2x2/1 divergence and dispersion', () => {
         12,
       );
     }
+  });
+
+  it('filters common-word rows without changing statistics or divergence', async () => {
+    const world = await fixture([
+      ['a', 'the the quokka quokka quokka'],
+      ['b', 'the xylophone xylophone'],
+    ]);
+    const a = await resolveSelection(world.snapshot, { docs: ['a' as ProjectDocId] });
+    const b = await resolveSelection(world.snapshot, { docs: ['b' as ProjectDocId] });
+    const run = (request: KeynessTableRequestV1) => keyness(
+      world.snapshot,
+      a,
+      b,
+      inputsFor(world, a),
+      inputsFor(world, b),
+      request,
+      async () => {},
+      request.filter.stoplist === undefined ? null : buildStoplistRanks(world.snapshot),
+    );
+    const unfiltered = await run(REQUEST);
+    const stoplistRequest: KeynessTableRequestV1 = {
+      ...REQUEST,
+      filter: {
+        ...REQUEST.filter,
+        stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 2 },
+      },
+    };
+    const filtered = await run(stoplistRequest);
+    const filteredA = await run({ ...stoplistRequest, side: 'a' });
+    const filteredB = await run({ ...stoplistRequest, side: 'b' });
+    expect(filtered.rows).toEqual(
+      unfiltered.rows.filter((row) => row.key !== 'the'),
+    );
+    expect(filtered.total + filtered.stoplist!.removedRows).toBe(unfiltered.total);
+    expect(filtered.totalsA).toEqual(unfiltered.totalsA);
+    expect(filtered.totalsB).toEqual(unfiltered.totalsB);
+    expect(filtered.divergence).toEqual(unfiltered.divergence);
+    expect(filtered.stoplist).toEqual({
+      id: STOPLIST_EN_ID,
+      version: STOPLIST_EN_VERSION,
+      topN: 2,
+      removedRows: 1,
+      boundaryKey: 'a',
+    });
+    expect(filteredA.stoplist?.removedRows).toBe(1);
+    expect(filteredB.stoplist?.removedRows).toBe(0);
+    expect(filteredA.rows.some((row) => row.key === 'the')).toBe(false);
+    expect(filteredB.rows.some((row) => row.key === 'the')).toBe(false);
+    const thresholded = await run({
+      ...stoplistRequest,
+      filter: { ...stoplistRequest.filter, minCountTotal: 4 },
+    });
+    expect(thresholded.stoplist?.removedRows).toBe(0);
   });
 });

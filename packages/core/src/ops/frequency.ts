@@ -15,6 +15,16 @@ import {
   INVENTORY_MAX_VOCAB_TYPES,
   type InventoryDocumentInputV1,
 } from './inventory.ts';
+import {
+  stoplistResult,
+  validateStoplistRanks,
+  type StoplistRanksV1,
+} from './stoplist-ranks.ts';
+import {
+  isStoplistSpecV1,
+  type StoplistResultV1,
+  type StoplistSpecV1,
+} from './stoplist-contract.ts';
 
 export const FREQUENCY_PAGE_MAX = 200;
 export const FREQUENCY_WINDOW_MAX = 5_000;
@@ -38,6 +48,7 @@ export interface FrequencyListRequestV1 {
     readonly minDocFreq: number;
     readonly classes: readonly FrequencyTokenClassV1[];
     readonly regex?: string;
+    readonly stoplist?: StoplistSpecV1;
   };
   readonly sort: {
     readonly by: FrequencySortFieldV1;
@@ -69,6 +80,7 @@ export interface FrequencyListResultV1 {
   /** Number of selected document parts (including zero-token parts). */
   readonly parts: number;
   readonly rows: readonly FrequencyListRowV1[];
+  readonly stoplist?: StoplistResultV1;
 }
 
 export type FrequencyCheckpoint = () => Promise<void>;
@@ -114,6 +126,12 @@ function validateRequest(request: FrequencyListRequestV1): void {
     } catch {
       throw new RangeError('frequency regex must be a valid Unicode regular expression');
     }
+  }
+  if (
+    request.filter.stoplist !== undefined
+    && !isStoplistSpecV1(request.filter.stoplist)
+  ) {
+    throw new RangeError('invalid common-word filter');
   }
   if (
     !['count', 'docFreq', 'dp', 'dpNorm', 'ratePer10k', 'class', 'key']
@@ -166,6 +184,7 @@ export async function frequencyList(
   inputs: readonly InventoryDocumentInputV1[],
   request: FrequencyListRequestV1,
   checkpoint: FrequencyCheckpoint,
+  suppliedStoplistRanks?: StoplistRanksV1 | null,
 ): Promise<FrequencyListResultV1> {
   validateRequest(request);
   if (selection.snapshot !== snapshot.id) {
@@ -181,6 +200,15 @@ export async function frequencyList(
     inputs.some((input, i) => input.ref.doc !== selection.spec.docs[i])
   ) {
     throw new RangeError('frequency inputs must follow exact selection order');
+  }
+  const stoplist = request.filter.stoplist;
+  let stoplistRanks: StoplistRanksV1 | null = null;
+  if (stoplist !== undefined) {
+    if (suppliedStoplistRanks == null) {
+      throw new RangeError('common-word ranks are required when the filter is enabled');
+    }
+    validateStoplistRanks(snapshot, suppliedStoplistRanks);
+    stoplistRanks = suppliedStoplistRanks;
   }
 
   const vocabularySize = snapshot.vocabulary.keys.length;
@@ -276,6 +304,7 @@ export async function frequencyList(
     ? 0
     : Math.min(...partShares);
   const candidates: FrequencyListRowV1[] = [];
+  let removedRows = 0;
   for (let typeId = 0; typeId < vocabularySize; typeId++) {
     if ((typeId + 1) % FREQUENCY_SCAN_CHUNK === 0) await checkpoint();
     const count = counts[typeId] as number;
@@ -294,6 +323,11 @@ export async function frequencyList(
     }
     const key = snapshot.vocabulary.keys[typeId] as string;
     if (regex !== null && !regex.test(key)) {
+      continue;
+    }
+    const stopRank = stoplistRanks?.ranks[typeId] ?? 0;
+    if (cls === 'lexical' && stoplist !== undefined && stopRank > 0 && stopRank <= stoplist.topN) {
+      removedRows++;
       continue;
     }
     let dispersion: number | null = null;
@@ -354,5 +388,8 @@ export async function frequencyList(
       request.page.offset,
       request.page.offset + request.page.limit,
     ),
+    ...(stoplist === undefined
+      ? {}
+      : { stoplist: stoplistResult(stoplist, stoplistRanks!, removedRows) }),
   };
 }

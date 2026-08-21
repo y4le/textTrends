@@ -8,6 +8,8 @@ import {
   FREQUENCY_REGEX_MAX_UNITS,
   type FrequencyListRequestV1,
 } from '../src/ops/frequency.ts';
+import { buildStoplistRanks } from '../src/ops/stoplist.ts';
+import { STOPLIST_EN_ID, STOPLIST_EN_VERSION } from '../src/ops/stoplist-contract.ts';
 import { documentTermCounts } from '../src/ops/term-counts.ts';
 import { segment } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument } from '../src/snapshot/compose.ts';
@@ -72,7 +74,14 @@ async function run(
       ),
     };
   });
-  return frequencyList(world.snapshot, selection, inputs, request, async () => {});
+  return frequencyList(
+    world.snapshot,
+    selection,
+    inputs,
+    request,
+    async () => {},
+    request.filter.stoplist === undefined ? null : buildStoplistRanks(world.snapshot),
+  );
 }
 
 describe('freq-list/1', () => {
@@ -232,6 +241,49 @@ describe('freq-list/1', () => {
     expect(result.rows[1]!.dpNorm).toBeCloseTo(2 / 3, 12);
   });
 
+  it('removes a ranked common-word prefix without changing surviving measures', async () => {
+    const world = await fixture([
+      ['a', 'the The quokka quokka 12'],
+      ['b', 'the quokka 12'],
+    ]);
+    const baseRequest: FrequencyListRequestV1 = {
+      ...REQUEST,
+      filter: { ...REQUEST.filter, classes: ['lexical', 'numeral'] },
+      sort: { by: 'key', dir: 1 },
+    };
+    const unfiltered = await run(world, baseRequest);
+    const filtered = await run(world, {
+      ...baseRequest,
+      filter: {
+        ...baseRequest.filter,
+        stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 2 },
+      },
+    });
+    expect(filtered.rows.map((row) => row.key)).toEqual(['12', 'quokka']);
+    expect(filtered.rows).toEqual(
+      unfiltered.rows.filter((row) => row.key === '12' || row.key === 'quokka'),
+    );
+    expect(filtered.total + filtered.stoplist!.removedRows).toBe(unfiltered.total);
+    expect(filtered.totalTokens).toBe(unfiltered.totalTokens);
+    expect(filtered.parts).toBe(unfiltered.parts);
+    expect(filtered.stoplist).toEqual({
+      id: STOPLIST_EN_ID,
+      version: STOPLIST_EN_VERSION,
+      topN: 2,
+      removedRows: 2,
+      boundaryKey: 'a',
+    });
+    const thresholded = await run(world, {
+      ...baseRequest,
+      filter: {
+        ...baseRequest.filter,
+        minCount: 3,
+        stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 2 },
+      },
+    });
+    expect(thresholded.stoplist?.removedRows).toBe(0);
+  });
+
   it('rejects invalid chunk/filter/regex bounds without imposing a result window', async () => {
     const world = await fixture([['a', 'one two']]);
     await expect(run(world, {
@@ -246,6 +298,10 @@ describe('freq-list/1', () => {
       { ...REQUEST, filter: { ...REQUEST.filter, regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } },
       { ...REQUEST, filter: { ...REQUEST.filter, regex: 'e\u0301' } },
       { ...REQUEST, filter: { ...REQUEST.filter, regex: '[' } },
+      { ...REQUEST, filter: {
+        ...REQUEST.filter,
+        stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 0 },
+      } },
       { ...REQUEST, page: { offset: 0, limit: FREQUENCY_PAGE_MAX + 1 } },
       { ...REQUEST, page: { offset: Number.MAX_SAFE_INTEGER, limit: 1 } },
       { ...REQUEST, sort: { by: 'dp', dir: -1 }, dispersion: false },

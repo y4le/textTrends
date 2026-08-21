@@ -52,6 +52,15 @@ Display contract: rank by LR (effect) by default, with the lower 95% bound as
 an optional precision-aware sort; show G² (evidence), raw counts, and range.
 Optional Benjamini–Hochberg q-values never drive ranking.
 
+Compare and Vocabulary may apply the versioned `english-common-words/1`
+common-word row filter. The resource contains the first 2,000 matchable lexical
+types from the locked 6,690-entry English common-word ranking. Entries are
+NFC-normalized, apostrophe-normalized, and lowercased under English.
+A selected top-N prefix removes matching rows before ranking and paging. It does
+not remove tokens from the selection: counts, rates, dispersion, log ratio, G²,
+confidence intervals, and Jensen–Shannon divergence keep their unfiltered
+denominators and values.
+
 ### Log-ratio confidence interval
 
 A Wald interval on the same corrected quantity. The variance is the standard

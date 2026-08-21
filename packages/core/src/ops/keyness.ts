@@ -40,6 +40,16 @@ import {
   INVENTORY_MAX_VOCAB_TYPES,
   type InventoryDocumentInputV1,
 } from './inventory.ts';
+import {
+  stoplistResult,
+  validateStoplistRanks,
+  type StoplistRanksV1,
+} from './stoplist-ranks.ts';
+import {
+  isStoplistSpecV1,
+  type StoplistResultV1,
+  type StoplistSpecV1,
+} from './stoplist-contract.ts';
 
 export const KEYNESS_SCAN_CHUNK = 65_536;
 
@@ -58,6 +68,7 @@ export interface KeynessTableRequestV1 {
     readonly minCountTotal: number;
     readonly minDocFreqTotal: number;
     readonly classes: readonly FrequencyTokenClassV1[];
+    readonly stoplist?: StoplistSpecV1;
   };
   readonly sort: {
     readonly by: KeynessSortFieldV1;
@@ -130,6 +141,7 @@ export interface KeynessResultV1 {
   /** Passing rows after side projection, before paging. */
   readonly total: number;
   readonly rows: readonly KeynessRowV1[];
+  readonly stoplist?: StoplistResultV1;
 }
 
 export type KeynessCheckpoint = () => Promise<void>;
@@ -159,6 +171,12 @@ function validateRequest(request: KeynessTableRequestV1): void {
     )
   ) {
     throw new RangeError('keyness classes must be a nonempty unique class list');
+  }
+  if (
+    request.filter.stoplist !== undefined
+    && !isStoplistSpecV1(request.filter.stoplist)
+  ) {
+    throw new RangeError('invalid common-word filter');
   }
   if (
     !['logRatio', 'logRatioLow', 'g2', 'countA', 'countB']
@@ -377,6 +395,7 @@ export async function keyness(
   inputsB: readonly InventoryDocumentInputV1[],
   request: KeynessTableRequestV1,
   checkpoint: KeynessCheckpoint,
+  suppliedStoplistRanks?: StoplistRanksV1 | null,
 ): Promise<KeynessResultV1> {
   validateRequest(request);
   if (
@@ -394,6 +413,15 @@ export async function keyness(
       `keyness vocabulary exceeds ${INVENTORY_MAX_VOCAB_TYPES} types`,
     );
   }
+  const stoplist = request.filter.stoplist;
+  let stoplistRanks: StoplistRanksV1 | null = null;
+  if (stoplist !== undefined) {
+    if (suppliedStoplistRanks == null) {
+      throw new RangeError('common-word ranks are required when the filter is enabled');
+    }
+    validateStoplistRanks(snapshot, suppliedStoplistRanks);
+    stoplistRanks = suppliedStoplistRanks;
+  }
   const wanted = new Set(request.filter.classes);
   const a = await foldSide(snapshot, selectionA, inputsA, wanted, checkpoint);
   const b = await foldSide(snapshot, selectionB, inputsB, wanted, checkpoint);
@@ -407,6 +435,7 @@ export async function keyness(
   let scanned = 0;
   let divergenceBits = 0;
   let divergenceTypes = 0;
+  let removedRows = 0;
   while (i < a.ids.length || j < b.ids.length) {
     const aid = a.ids[i] ?? Number.POSITIVE_INFINITY;
     const bid = b.ids[j] ?? Number.POSITIVE_INFINITY;
@@ -436,23 +465,34 @@ export async function keyness(
         (request.side === 'a' && effect > 0) ||
         (request.side === 'b' && effect < 0)
       ) {
-        rows.push({
-          key: snapshot.vocabulary.keys[typeId] as string,
-          typeId,
-          class: className((left ?? right)!.tokenClass),
-          countA,
-          countB,
-          rateAper10k: countA / a.tokens * 10_000,
-          rateBper10k: countB / b.tokens * 10_000,
-          logRatio: effect,
-          logRatioLow: interval.low,
-          logRatioHigh: interval.high,
-          g2: evidence,
-          rangeA,
-          rangeB,
-          dpA: dispersionOf(left, a.positiveParts),
-          dpB: dispersionOf(right, b.positiveParts),
-        });
+        const cls = className((left ?? right)!.tokenClass);
+        const stopRank = stoplistRanks?.ranks[typeId] ?? 0;
+        if (
+          cls === 'lexical'
+          && stoplist !== undefined
+          && stopRank > 0
+          && stopRank <= stoplist.topN
+        ) {
+          removedRows++;
+        } else {
+          rows.push({
+            key: snapshot.vocabulary.keys[typeId] as string,
+            typeId,
+            class: cls,
+            countA,
+            countB,
+            rateAper10k: countA / a.tokens * 10_000,
+            rateBper10k: countB / b.tokens * 10_000,
+            logRatio: effect,
+            logRatioLow: interval.low,
+            logRatioHigh: interval.high,
+            g2: evidence,
+            rangeA,
+            rangeB,
+            dpA: dispersionOf(left, a.positiveParts),
+            dpB: dispersionOf(right, b.positiveParts),
+          });
+        }
       }
     }
     if (aid === typeId) i++;
@@ -498,5 +538,8 @@ export async function keyness(
     },
     total: rows.length,
     rows: rows.slice(request.page.offset, request.page.offset + request.page.limit),
+    ...(stoplist === undefined
+      ? {}
+      : { stoplist: stoplistResult(stoplist, stoplistRanks!, removedRows) }),
   };
 }
