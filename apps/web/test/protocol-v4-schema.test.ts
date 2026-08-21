@@ -442,12 +442,12 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('freq-list/1 pins dense classes, a valid NFC regex, sort, and chunk bounds', () => {
+  it('freq-list/2 pins dense classes, a valid NFC regex, sort, and chunk bounds', () => {
     const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
       op: 'freq-list',
       selection: { docs: ['a'] },
       request: {
-        method: 'freq-list/1',
+        method: 'freq-list/2',
         filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'] },
         sort: { by: 'count', dir: -1 },
         page: { offset: 0, limit: FREQUENCY_PAGE_MAX },
@@ -456,6 +456,7 @@ describe('narrowQueryV4', () => {
       },
     });
     expect(query()).toBe(true);
+    expect(query({ method: 'freq-list/1' })).toBe(false);
     expect(query({ sort: { by: 'ratePer10k', dir: 1 } })).toBe(true);
     expect(query({ sort: { by: 'class', dir: 1 } })).toBe(true);
     expect(query({ page: { offset: 50_000, limit: 1 } })).toBe(true);

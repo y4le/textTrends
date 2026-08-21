@@ -73,7 +73,7 @@ const COLUMN_EXPLANATIONS: Readonly<Partial<Record<VocabularyColumn, string>>> =
   docFreq: 'Document frequency: the number of selected documents in which the term occurs at least once.',
   dp: 'Deviation of proportions (DP): how unevenly the term is distributed across selected documents. Zero is even; values nearer one are more concentrated.',
   dpNorm: 'Normalized DP adjusts deviation of proportions for the smallest selected document share, making results from unequal document sizes easier to compare.',
-  ratePer10k: 'Occurrences per 10,000 selected tokens in the enabled lexical and numeral classes.',
+  ratePer10k: 'Occurrences per 10,000 selected tokens in the enabled lexical and numeral classes whose terms contain a Unicode letter or number.',
 });
 const vocabularyColumnLabel = (column: VocabularyColumn) =>
   SORTS.find((candidate) => candidate.by === column)?.label ?? column;

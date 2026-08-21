@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BuildGeneration, ProjectDocId } from '../src/contract/brands.ts';
-import { DEFAULT_INDEX_RECIPE } from '../src/contract/recipes.ts';
+import { DEFAULT_INDEX_RECIPE, TOKEN_CLASS } from '../src/contract/recipes.ts';
 import { createDocumentIndex } from '../src/index/build.ts';
 import {
   frequencyList,
@@ -11,13 +11,13 @@ import {
 import { buildStoplistRanks } from '../src/ops/stoplist.ts';
 import { STOPLIST_EN_ID, STOPLIST_EN_VERSION } from '../src/ops/stoplist-contract.ts';
 import { documentTermCounts } from '../src/ops/term-counts.ts';
-import { segment } from '../src/segment/intl.ts';
+import { segment, type SegmentationBatch } from '../src/segment/intl.ts';
 import { composeSnapshot, makeReadyDocument } from '../src/snapshot/compose.ts';
 import { resolveSelection } from '../src/snapshot/selection.ts';
 
 const GEN = 'frequency' as BuildGeneration;
 const REQUEST: FrequencyListRequestV1 = {
-  method: 'freq-list/1',
+  method: 'freq-list/2',
   filter: {
     minCount: 1,
     minDocFreq: 1,
@@ -28,13 +28,13 @@ const REQUEST: FrequencyListRequestV1 = {
   dispersion: true,
 };
 
-async function fixture(texts: readonly [string, string][]) {
+async function fixture(texts: readonly [string, string, SegmentationBatch?][]) {
   const shards = new Map<string, Awaited<ReturnType<typeof createDocumentIndex>>>();
   const ready = new Map();
-  for (const [doc, text] of texts) {
+  for (const [doc, text, suppliedSegmentation] of texts) {
     const shard = await createDocumentIndex(
       text,
-      await segment(text, 'en'),
+      suppliedSegmentation ?? await segment(text, 'en'),
       DEFAULT_INDEX_RECIPE,
     );
     shards.set(doc, shard);
@@ -84,7 +84,7 @@ async function run(
   );
 }
 
-describe('freq-list/1', () => {
+describe('freq-list/2', () => {
   it('matches hand-computed counts, document frequency, rates, DP, and DPnorm', async () => {
     const world = await fixture([
       ['a', 'x x x y'],
@@ -136,6 +136,58 @@ describe('freq-list/1', () => {
     });
     expect(filtered.total).toBe(1);
     expect(filtered.rows.map((row) => row.key)).toEqual(['word']);
+  });
+
+  it('excludes punctuation-only keys from rows, totals, rates, and paging', async () => {
+    const text = 'word . ! 12';
+    const normal = await segment(text, 'en');
+    const punctuationAdmittingBatch: SegmentationBatch = {
+      ...normal,
+      startsUtf16: Uint32Array.from([0, 5, 7, 9]),
+      endsUtf16: Uint32Array.from([4, 6, 8, 11]),
+      classes: Uint8Array.from([
+        TOKEN_CLASS.lexical,
+        TOKEN_CLASS.lexical,
+        TOKEN_CLASS.lexical,
+        TOKEN_CLASS.numeral,
+      ]),
+    };
+    const world = await fixture([['a', text, punctuationAdmittingBatch]]);
+    const result = await run(world, {
+      ...REQUEST,
+      filter: { ...REQUEST.filter, classes: ['lexical', 'numeral'] },
+      sort: { by: 'key', dir: 1 },
+      page: { offset: 0, limit: 1 },
+    });
+
+    expect(result.totalTokens).toBe(2);
+    expect(result.total).toBe(2);
+    expect(result.rows).toHaveLength(1);
+    expect(result.rows[0]).toMatchObject({ key: '12', ratePer10k: 5_000 });
+  });
+
+  it('excludes word-like punctuation from normal segmentation but keeps punctuation within terms', async () => {
+    const world = await fixture([['a', 'word ___ Ⓐ _word_ word']]);
+    const result = await run(world);
+
+    expect(result.totalTokens).toBe(3);
+    expect(result.rows.map((row) => row.key)).toEqual(['word', '_word_']);
+  });
+
+  it('uses punctuation-free document sizes for multi-part dispersion', async () => {
+    const world = await fixture([
+      ['a', 'x x ___'],
+      ['b', 'x y ___ ___ ___'],
+    ]);
+    const result = await run(world, {
+      ...REQUEST,
+      sort: { by: 'key', dir: 1 },
+    });
+
+    expect(result.totalTokens).toBe(4);
+    const x = result.rows.find((row) => row.key === 'x');
+    expect(x?.dp).toBeCloseTo(1 / 6, 12);
+    expect(x?.dpNorm).toBeCloseTo(1 / 3, 12);
   });
 
   it('pins deterministic ties to count descending then corpus type id', async () => {
@@ -309,5 +361,9 @@ describe('freq-list/1', () => {
     for (const request of invalid) {
       await expect(run(world, request)).rejects.toThrow(RangeError);
     }
+    await expect(run(world, {
+      ...REQUEST,
+      method: 'freq-list/1',
+    } as unknown as FrequencyListRequestV1)).rejects.toThrow(RangeError);
   });
 });

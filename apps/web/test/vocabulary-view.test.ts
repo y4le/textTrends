@@ -72,7 +72,7 @@ describe('vocabulary view law', () => {
       state: {
         status: 'ready' as const,
         result: {
-          method: 'freq-list/1' as const,
+          method: 'freq-list/2' as const,
           selection: 'all' as never,
           total: rows.length,
           totalTokens: 1,

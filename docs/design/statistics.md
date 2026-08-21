@@ -16,6 +16,27 @@ and provenance.*
 Notation: `ln` natural log, `log2` binary log. All counts are raw integers from the
 positional index; all rates use explicitly named denominators.
 
+## Vocabulary
+
+A `freq-list/2` Vocabulary term must contain at least one Unicode letter or
+number. Punctuation and symbols may remain within a term, but punctuation-only
+and symbol-only keys are excluded before denominators, ranking, and paging.
+This includes symbol-category enclosed alphanumerics that have no Unicode
+letter or number property. The rule is specific to Vocabulary: Inventory
+measures every selected token, while Compare measures every selected token in
+its enabled classes.
+
+## Shared Vocabulary and Compare row filter
+
+Compare and Vocabulary may apply the versioned `english-common-words/1`
+common-word row filter. The resource contains the first 2,000 matchable lexical
+types from the locked 6,690-entry English common-word ranking. Entries are
+NFC-normalized, apostrophe-normalized, and lowercased under English.
+A selected common-word top-N prefix removes matching rows before ranking and
+paging. It does not remove tokens from the selection: counts, rates, dispersion,
+log ratio, G², confidence intervals, and Jensen–Shannon divergence keep their
+unfiltered denominators and values.
+
 ## Keyness
 
 ### Log-likelihood G² (evidence)
@@ -51,15 +72,6 @@ LR = log2( ((a+0.5)/(N1+1)) / ((b+0.5)/(N2+1)) )
 Display contract: rank by LR (effect) by default, with the lower 95% bound as
 an optional precision-aware sort; show G² (evidence), raw counts, and range.
 Optional Benjamini–Hochberg q-values never drive ranking.
-
-Compare and Vocabulary may apply the versioned `english-common-words/1`
-common-word row filter. The resource contains the first 2,000 matchable lexical
-types from the locked 6,690-entry English common-word ranking. Entries are
-NFC-normalized, apostrophe-normalized, and lowercased under English.
-A selected top-N prefix removes matching rows before ranking and paging. It does
-not remove tokens from the selection: counts, rates, dispersion, log ratio, G²,
-confidence intervals, and Jensen–Shannon divergence keep their unfiltered
-denominators and values.
 
 ### Log-ratio confidence interval
 

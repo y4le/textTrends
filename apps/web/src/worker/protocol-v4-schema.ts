@@ -314,7 +314,7 @@ export function narrowQueryV4(q: unknown): boolean {
           : []),
       ];
       if (
-        r.method !== 'freq-list/1' ||
+        r.method !== 'freq-list/2' ||
         !exactRecord(r.filter, filterKeys) ||
         !exactRecord(r.sort, ['by', 'dir']) ||
         !exactRecord(r.page, ['offset', 'limit']) ||

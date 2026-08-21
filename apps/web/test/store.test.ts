@@ -488,7 +488,7 @@ function fakeFrequencyResult(marker: number): QueryResultDataV4 {
   return {
     op: 'freq-list',
     frequency: {
-      method: 'freq-list/1',
+      method: 'freq-list/2',
       selection: `selection-${marker}`,
       total: marker,
       totalTokens: marker,
@@ -506,7 +506,7 @@ function fakeFrequencyPage(
   return {
     op: 'freq-list',
     frequency: {
-      method: 'freq-list/1',
+      method: 'freq-list/2',
       selection,
       total,
       totalTokens: 12,

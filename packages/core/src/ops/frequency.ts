@@ -1,5 +1,5 @@
 /**
- * freq-list/1 — chunked, selection-scoped ranked vocabulary.
+ * freq-list/2 — chunked, selection-scoped ranked vocabulary.
  *
  * Counts come exclusively from the shared sparse per-document vectors.
  * Dispersion uses selected documents as parts without retaining a dense
@@ -42,7 +42,7 @@ export type FrequencySortFieldV1 =
   | 'key';
 
 export interface FrequencyListRequestV1 {
-  readonly method: 'freq-list/1';
+  readonly method: 'freq-list/2';
   readonly filter: {
     readonly minCount: number;
     readonly minDocFreq: number;
@@ -73,7 +73,7 @@ export interface FrequencyListRowV1 {
 }
 
 export interface FrequencyListResultV1 {
-  readonly method: 'freq-list/1';
+  readonly method: 'freq-list/2';
   readonly selection: ResolvedSelection['hash'];
   readonly total: number;
   readonly totalTokens: number;
@@ -86,7 +86,7 @@ export interface FrequencyListResultV1 {
 export type FrequencyCheckpoint = () => Promise<void>;
 
 function validateRequest(request: FrequencyListRequestV1): void {
-  if (request.method !== 'freq-list/1') {
+  if (request.method !== 'freq-list/2') {
     throw new RangeError(`unknown frequency method '${String(request.method)}'`);
   }
   if (
@@ -167,15 +167,14 @@ function className(value: number): FrequencyTokenClassV1 {
   throw new RangeError(`unknown token class ${value}`);
 }
 
-function selectedClassTokens(
-  input: InventoryDocumentInputV1,
-  lexical: boolean,
-  numeral: boolean,
-): number {
-  return (
-    (lexical ? input.counts.lexicalTokens : 0) +
-    (numeral ? input.counts.numeralTokens : 0)
-  );
+// Vocabulary is a word/number surface, not a dump of every admitted index
+// key. Keep punctuation within real terms, but exclude punctuation-only and
+// symbol-only keys even when a stale or external shard classified them as
+// lexical tokens.
+const VOCABULARY_TERM_RE = /[\p{L}\p{N}]/u;
+
+function isVocabularyTermKey(key: string): boolean {
+  return VOCABULARY_TERM_RE.test(key);
 }
 
 export async function frequencyList(
@@ -215,6 +214,17 @@ export async function frequencyList(
   const counts = new Uint32Array(vocabularySize);
   const docFreq = new Uint32Array(vocabularySize);
   const classes = new Uint8Array(vocabularySize);
+  const vocabularyTerms = new Uint8Array(vocabularySize);
+  for (let typeId = 0; typeId < vocabularySize; typeId++) {
+    vocabularyTerms[typeId] = isVocabularyTermKey(
+      snapshot.vocabulary.keys[typeId] as string,
+    ) ? 1 : 0;
+    if ((typeId + 1) % FREQUENCY_SCAN_CHUNK === 0) await checkpoint();
+  }
+  await checkpoint();
+  const wantLexical = request.filter.classes.includes('lexical');
+  const wantNumeral = request.filter.classes.includes('numeral');
+  const partSizes: number[] = [];
   let scanned = 0;
   for (const input of inputs) {
     if (
@@ -236,6 +246,7 @@ export async function frequencyList(
       }
       classes[corpus] = cls;
     }
+    let partSize = 0;
     for (let i = 0; i < input.counts.typeIds.length; i++) {
       const typeId = input.counts.typeIds[i] as number;
       const count = input.counts.counts[i] as number;
@@ -246,18 +257,22 @@ export async function frequencyList(
       if (next > 0xffff_ffff) throw new RangeError('frequency count exceeds Uint32');
       counts[typeId] = next;
       docFreq[typeId] = (docFreq[typeId] as number) + 1;
+      const cls = className(classes[typeId] as number);
+      if (
+        ((cls === 'lexical' && wantLexical) || (cls === 'numeral' && wantNumeral))
+        && vocabularyTerms[typeId] === 1
+      ) {
+        partSize += count;
+      }
       if (++scanned >= FREQUENCY_SCAN_CHUNK) {
         scanned = 0;
         await checkpoint();
       }
     }
+    partSizes.push(partSize);
     await checkpoint();
   }
 
-  const wantLexical = request.filter.classes.includes('lexical');
-  const wantNumeral = request.filter.classes.includes('numeral');
-  const partSizes = inputs.map((input) =>
-    selectedClassTokens(input, wantLexical, wantNumeral));
   const totalTokens = partSizes.reduce((sum, value) => sum + value, 0);
   const partShares = totalTokens === 0
     ? []
@@ -279,7 +294,8 @@ export async function frequencyList(
         const cls = className(classes[typeId] as number);
         if (
           (cls === 'lexical' && !wantLexical) ||
-          (cls === 'numeral' && !wantNumeral)
+          (cls === 'numeral' && !wantNumeral) ||
+          vocabularyTerms[typeId] === 0
         ) {
           continue;
         }
@@ -322,6 +338,9 @@ export async function frequencyList(
       continue;
     }
     const key = snapshot.vocabulary.keys[typeId] as string;
+    if (vocabularyTerms[typeId] === 0) {
+      continue;
+    }
     if (regex !== null && !regex.test(key)) {
       continue;
     }
@@ -379,7 +398,7 @@ export async function frequencyList(
   await checkpoint();
 
   return {
-    method: 'freq-list/1',
+    method: 'freq-list/2',
     selection: selection.hash,
     total: candidates.length,
     totalTokens,

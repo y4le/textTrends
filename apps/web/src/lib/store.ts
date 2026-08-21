@@ -4517,7 +4517,7 @@ export function createAppRuntime(
             op: 'freq-list',
             selection: detailSelection(snapshot.readyDocs, issuedSelection),
             request: {
-              method: 'freq-list/1',
+              method: 'freq-list/2',
               filter: {
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,
@@ -4607,7 +4607,7 @@ export function createAppRuntime(
             op: 'freq-list',
             selection: detailSelection(snapshot.readyDocs, issuedSelection),
             request: {
-              method: 'freq-list/1',
+              method: 'freq-list/2',
               filter: {
                 minCount: issuedView.minCount,
                 minDocFreq: issuedView.minDocFreq,

@@ -58,7 +58,7 @@ const trend: NumericTrend = {
 };
 
 const frequency: FrequencyListResultV1 = {
-  method: 'freq-list/1',
+  method: 'freq-list/2',
   selection: 'sha256:frequency' as FrequencyListResultV1['selection'],
   total: 1,
   totalTokens: 180,
@@ -205,8 +205,14 @@ describe('provenanceFor', () => {
     const vocabulary = formatProvenanceText(provenanceFor(input(), 'vocabulary'));
     expect(vocabulary).toContain('Method: inventory/1');
     expect(vocabulary).toContain('MATTR window: 500');
-    expect(vocabulary).toContain('Method: freq-list/1');
+    expect(vocabulary).toContain('Method: freq-list/2');
     expect(vocabulary).toContain('token classes: lexical');
+    expect(vocabulary).toContain(
+      'denominator: rate per 10,000 selected class tokens in letter/number terms',
+    );
+    expect(vocabulary).toContain(
+      'Vocabulary excludes keys without Unicode letters or numbers',
+    );
     const compare = formatProvenanceText(provenanceFor(input(), 'compare'));
     expect(compare).toContain('side A: a');
     expect(compare).toContain('side B: b');

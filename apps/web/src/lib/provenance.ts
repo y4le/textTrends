@@ -246,7 +246,7 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
   const { view, result } = input.frequency;
   const commonWords = result?.stoplist;
   return {
-    method: result?.method ?? 'freq-list/1',
+    method: result?.method ?? 'freq-list/2',
     parameters: [
       parameter('minimum count', String(view.minCount)),
       parameter('minimum document frequency', String(view.minDocFreq)),
@@ -267,10 +267,14 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
           ? 'no rows'
           : `${view.page.offset + 1}–${view.page.offset + result.rows.length}`,
       ),
-      parameter('denominator', 'rate per 10,000 selected class tokens'),
+      parameter(
+        'denominator',
+        'rate per 10,000 selected class tokens in letter/number terms',
+      ),
     ],
     limitations: [
       'DP treats selected documents as its parts.',
+      'Vocabulary excludes keys without Unicode letters or numbers from rows and its rate and dispersion denominator.',
       'The common-word filter removes ranked rows only; counts, rates, and denominators are unchanged.',
       'The ranked result window is bounded to 5,000 rows.',
     ],

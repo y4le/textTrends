@@ -1129,7 +1129,7 @@ describe('inventory/1 through the executor and engine', () => {
 
 
 describe('frequency through the executor and engine', () => {
-  it('freq-list/1 shares the Slice-3 document vector with inventory', async () => {
+  it('freq-list/2 shares the Slice-3 document vector with inventory', async () => {
     const h = harness();
     const a = await docSpec('a', 'x x y z');
     await begin(h, [a]);
@@ -1162,7 +1162,7 @@ describe('frequency through the executor and engine', () => {
         op: 'freq-list',
         selection,
         request: {
-          method: 'freq-list/1',
+          method: 'freq-list/2',
           filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'] },
           sort: { by: 'count', dir: -1 },
           page: { offset: 0, limit: 200 },
