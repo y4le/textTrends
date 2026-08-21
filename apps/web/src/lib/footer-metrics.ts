@@ -28,6 +28,9 @@ export interface DockSizingInput {
   readonly width: WidthClass;
   readonly coarse: boolean;
   readonly trackCount: number;
+  /** Reader's transient Find composer needs a full coarse pointer target;
+   * the ordinary Terms rail deliberately uses its squished target. */
+  readonly readerRail?: 'terms' | 'find';
   /** The authored project needs a reading lane, even if its lazy contents have
    * not mounted yet. */
   readonly footerPresent: boolean;
@@ -175,10 +178,12 @@ export function footerBlockSize(
   geometry: FooterGeometry,
   trackCount: number,
   lanes: {
+    readonly showPassage?: boolean;
     readonly showStatus?: boolean;
     readonly showBarcode?: boolean;
   } = {},
 ): number {
+  const showPassage = lanes.showPassage ?? true;
   const showStatus = lanes.showStatus ?? true;
   const showBarcode = lanes.showBarcode ?? trackCount > 0;
   const barcodeHeight = barcodeBandHeight(
@@ -190,8 +195,7 @@ export function footerBlockSize(
     + barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
   return 1 // border-block-start is inside the border-box block size
     + 2 * geometry.padBlock
-    + geometry.passageHeight
-    + geometry.laneGap
+    + (showPassage ? geometry.passageHeight + geometry.laneGap : 0)
     + (showStatus ? geometry.statusHeight + geometry.laneGap : 0)
     + Math.max(geometry.stripMinHeight, visualStripHeight);
 }
@@ -435,6 +439,123 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     footerBlockSize: footerSize,
     footerGeometry,
     showStatus,
+    showBarcode,
+  });
+}
+
+/** Reader keeps the shared analytical footer but gives source text to the
+ * page itself. Its automatic state starts with a deliberately compressed
+ * Terms row plus the smallest authored graph/barcode. Downward resizing then
+ * spends Terms, barcode, and graph in that order until only the two-pixel
+ * progress line remains. */
+export function readerDockSizing(input: DockSizingInput): DockSizing {
+  if (!input.footerPresent) return dockSizing(input);
+
+  const tracks = finiteTracks(input.trackCount);
+  const available = Number.isFinite(input.availableBlockSize)
+    ? Math.max(0, Math.floor(input.availableBlockSize))
+    : 0;
+  const source = footerGeometryFor(input.width, input.coarse);
+  const termsRailSize = 1 + 2 * DOCK_RAIL_PAD_MIN + DOCK_TERM_TARGET_MIN_HEIGHT + 2;
+  const findTargetSize = input.coarse ? 44 : DOCK_TERM_TARGET_MIN_HEIGHT;
+  const railSize = input.readerRail === 'find'
+    ? 1 + findTargetSize
+    : termsRailSize;
+  const barcodeExtent = barcodeBandExtent(
+    source.barcodeBandGap,
+    barcodeBandHeight(tracks, source.barcodeTrackHeight, source.barcodeTrackGap),
+  );
+  const seriesHeight = graphFloorFor(input.coarse);
+  const stripHeight = seriesHeight + barcodeExtent;
+  const base = withStrip(Object.freeze({
+    ...source,
+    passageHeight: 0,
+    statusHeight: 0,
+    laneGap: 0,
+    padBlock: 0,
+  }), stripHeight, seriesHeight);
+  const baseFooterSize = footerBlockSize(base, tracks, {
+    showPassage: false,
+    showStatus: false,
+    showBarcode: tracks > 0,
+  });
+  const baseBlockSize = railSize + baseFooterSize;
+  const minBlockSize = 3; // one border pixel + the two-pixel progress line
+  const maxBlockSize = Math.max(minBlockSize, available);
+  const automaticDefault = input.targetBlockSize === null
+    || !Number.isFinite(input.targetBlockSize);
+  const requested = automaticDefault
+    ? baseBlockSize
+    : Math.round(input.targetBlockSize!);
+  const blockSize = Math.max(minBlockSize, Math.min(maxBlockSize, requested));
+  if (blockSize >= baseBlockSize) {
+    const footerGeometry = expandedFooterGeometry(
+      base,
+      tracks,
+      blockSize - baseBlockSize,
+    );
+    return Object.freeze({
+      blockSize,
+      baseBlockSize,
+      minBlockSize,
+      maxBlockSize,
+      railBlockSize: railSize,
+      railPadBlock: DOCK_RAIL_PAD_MIN,
+      termTargetBlockSize: input.readerRail === 'find'
+        ? findTargetSize
+        : DOCK_TERM_TARGET_MIN_HEIGHT,
+      footerBlockSize: footerBlockSize(footerGeometry, tracks, {
+        showPassage: false,
+        showStatus: false,
+        showBarcode: tracks > 0,
+      }),
+      footerGeometry,
+      showStatus: false,
+      showBarcode: tracks > 0,
+    });
+  }
+
+  const deficit = baseBlockSize - blockSize;
+  const railBlockSize = Math.max(0, railSize - deficit);
+  const footerTarget = blockSize - railBlockSize;
+  const stripTarget = Math.max(2, footerTarget - 1);
+  const remainingBarcodeExtent = Math.max(
+    0,
+    Math.min(barcodeExtent, stripTarget - seriesHeight),
+  );
+  const barcodeScale = barcodeExtent > 0
+    ? remainingBarcodeExtent / barcodeExtent
+    : 0;
+  const showBarcode = tracks > 0 && remainingBarcodeExtent > 0;
+  const graphHeight = showBarcode || stripTarget >= seriesHeight
+    ? seriesHeight
+    : stripTarget;
+  const footerGeometry = withStrip(Object.freeze({
+    ...base,
+    seriesHeight: graphHeight,
+    barcodeTrackHeight: source.barcodeTrackHeight * barcodeScale,
+    barcodeTrackGap: source.barcodeTrackGap * barcodeScale,
+    barcodeBandGap: source.barcodeBandGap * barcodeScale,
+  }), stripTarget, graphHeight);
+  const footerSize = footerBlockSize(footerGeometry, tracks, {
+    showPassage: false,
+    showStatus: false,
+    showBarcode,
+  });
+
+  return Object.freeze({
+    blockSize,
+    baseBlockSize,
+    minBlockSize,
+    maxBlockSize,
+    railBlockSize,
+    railPadBlock: DOCK_RAIL_PAD_MIN,
+    termTargetBlockSize: input.readerRail === 'find'
+      ? findTargetSize
+      : DOCK_TERM_TARGET_MIN_HEIGHT,
+    footerBlockSize: footerSize,
+    footerGeometry,
+    showStatus: false,
     showBarcode,
   });
 }

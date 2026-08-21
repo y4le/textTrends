@@ -166,7 +166,8 @@ contrast against either supported background.
 
 The Terms rail persists across all five places, including before a usable
 snapshot exists; with no corpus the dock honestly collapses to the Terms-only
-rail. Reader hides the complete dock while occupying the full viewport.
+rail. Reader keeps a compact Terms rail above its minimal analytical footer
+while hiding the rest of the workbench chrome.
 
 ## Analysis plate
 
@@ -196,9 +197,11 @@ Clicking an exact occurrence centers Matches; opening source text is an
 explicit action from Matches or the global reading footer.
 
 The fixed reading footer is the lower lane of the dock in all five workbench
-places and is absent in Reader. Its one corpus-order axis aligns a clipped
-current passage, thin all-book sparkline for every shown query, corpus progress,
-document boundaries, and the resident multi-track dispersion barcode. The
+places and in Reader. Its one corpus-order axis aligns a thin all-book
+sparkline for every shown query, corpus progress, document boundaries, and the
+resident multi-track dispersion barcode. Workbench places add a clipped
+current passage and position-status lane; Reader omits both because its fitted
+page already owns the source text. The
 complete dock sits above the compact portrait Workbench sections dock and to the right of the
 compact-landscape rail. The source line is a transient `reader-page/1` window.
 Pointer samples are frame-coalesced;
@@ -358,11 +361,17 @@ replace, or consume a browser-history entry.
 ## Reader
 
 Reader is a full-viewport reading surface at every width. It hides the
-workbench chrome and Terms bar, locks both prose and the outer document against
-vertical scrolling, and fits one visual page from the real rendered text. It
-retains one identity and DOM across viewport changes and exposes page
-navigation, occurrence navigation, page status, query highlights, and an
-explicit Back path.
+workbench header, place, and Lens chrome while keeping a resizable dock with a
+compressed Terms row, the all-book graph, progress, and the dispersion
+barcode. Downward resizing drops Terms first, then the barcode, then compresses
+the graph to the thin progress line. It locks
+both prose and the outer document against vertical scrolling and fits one
+visual page from the real rendered text above that dock. It retains one
+identity and DOM across viewport changes and exposes page navigation,
+occurrence navigation, page status, query highlights, and an explicit Back
+path. The highlighted prose has no duplicate legend; the retained Terms rail
+is its visible query key. A compact notice remains only when marks were capped
+or retain a query identity that has since changed.
 
 Reader position and highlights are transient. The workspace contains notebook
 and analysis-view settings, not reading position.
@@ -372,6 +381,9 @@ Reader owns the reading keys while it is open: `h`/Left/PageUp and
 request the document boundaries, and Escape follows the same governed Back path
 as the visible control. Resize and font settlement preserve the current start
 token and deliberately recompute later boundaries for the new geometry.
+Each settled page also publishes the shared reading position: an initial
+around-token request retains its exact anchor, while ordinary page turns use
+the fitted page's first token.
 
 `w` and `b` move to the next and previous exact occurrence of any shown term
 across the full declared corpus. Overlapping raw matches at one token start are
@@ -430,8 +442,8 @@ one-based match and exact total as `x/y`; the indicator is absent while a seek
 is pending. The ready explainer is actionable: Enter opens Reader at that hit.
 Save promotes the submitted aliases into one durable, active term and is
 disabled when the active comparison or saved notebook is at capacity.
-Escape or × clears the transient query and restores invoking focus. Reader has
-no Terms rail, so the same controls use the keyboard-safe floating placement.
+Escape or × clears the transient query and restores invoking focus. In Reader,
+the same controls replace Terms in the retained dock rail.
 While Find is already open, `Ctrl/Cmd-F` focuses the query field and selects
 its complete draft so a replacement can be typed immediately.
 

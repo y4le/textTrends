@@ -1473,6 +1473,9 @@ export function createAppRuntime(
             ? null
             : state.readerNavigation,
       }));
+      if (current.readerPlace !== null && readerPlace === null && current.scrub !== null) {
+        scheduleFooterPassage(current.scrub);
+      }
     };
 
     const replaceReaderTarget = (target: ReaderNavigationTarget): void => {
@@ -3977,6 +3980,14 @@ export function createAppRuntime(
         const previousStart = readerWalk.index > 0
           ? readerWalk.boundaries[readerWalk.index - 1]
           : null;
+        const selectionToken = place.cursor.kind === 'around'
+          && place.cursor.token >= range.tokens.start
+          && place.cursor.token < range.tokens.end
+          ? place.cursor.token
+          : range.tokens.start;
+        const selectionChanged = state.scrub?.doc !== source.doc
+          || state.scrub.token !== selectionToken;
+        if (selectionChanged) occurrenceLane.supersede();
         set({
           readerVisibleRange: range,
           readerNavigation: {
@@ -3989,6 +4000,13 @@ export function createAppRuntime(
               ? adjacentReaderDocument(state, source.doc, 1)
               : { doc: source.doc, cursor: { kind: 'from', token: range.tokens.end } },
           },
+          ...(selectionChanged
+            ? {
+                scrub: { doc: source.doc, token: selectionToken },
+                occurrenceNavigation: null,
+                matchesReveal: null,
+              }
+            : {}),
         });
       },
 
@@ -5456,6 +5474,9 @@ export function createAppRuntime(
       readerVisibleRange: readerChanged ? null : state.readerVisibleRange,
       readerNavigation: readerChanged ? null : state.readerNavigation,
     }));
+    if (previous.readerPlace !== null && readerPlace === null && previous.scrub !== null) {
+      store.getState().runFooterPassage();
+    }
     const normalizedUrl = urlWithRoute(historyPort.url, { place: routePlace });
     if (
       !parsed.valid

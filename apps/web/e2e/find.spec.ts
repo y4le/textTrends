@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, DOC_COUNT, simulateKeyboard } from './helpers.ts';
 
-test('temporary Find cycles exact corpus matches and preserves focus priority', async ({ page }) => {
+test('temporary Find cycles exact corpus matches and preserves focus priority', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
@@ -226,10 +226,34 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await input.fill('moriarty');
   await input.press('Enter');
   await expect(status).not.toContainText('Searching');
+  await expect(status).toBeVisible();
   await expect(reader).toBeVisible();
-  const highlights = reader.getByLabel('Reader query highlights');
-  await expect(highlights).toContainText('moriarty');
-  await expect(highlights).not.toContainText('query changed');
+  await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
+  await expect(reader.locator('[data-reader-mark]').filter({ hasText: 'moriarty' }).first())
+    .toBeVisible();
+  await expect(reader.getByText('query changed', { exact: false })).toHaveCount(0);
+  if (testInfo.project.name === 'webkit-compact') {
+    for (const name of [
+      'Submit find',
+      'Save Find as term',
+      'Previous match',
+      'Next match',
+      'Clear and close find',
+    ]) {
+      const box = await find.getByRole('button', { name }).boundingBox();
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+    await simulateKeyboard(page, 280);
+    const [box, viewport] = await Promise.all([
+      find.boundingBox(),
+      page.evaluate(() => ({ height: innerHeight, inset: Number.parseFloat(
+        getComputedStyle(document.documentElement).getPropertyValue('--keyboard-inset'),
+      ) })),
+    ]);
+    expect(box ? box.y + box.height : Number.POSITIVE_INFINITY)
+      .toBeLessThanOrEqual(viewport.height - viewport.inset);
+    await simulateKeyboard(page, 0);
+  }
   const nextFindMatch = reader.getByRole('button', { name: 'next find match', exact: true });
   await expect(nextFindMatch).toBeEnabled();
   await expect(nextFindMatch).toHaveAttribute('title', 'Next exact Find match');

@@ -125,8 +125,11 @@ test('the workbench footer shares one corpus axis and opens the current passage'
   }
 
   await page.getByRole('button', { name: /Open reader at .* token/ }).click();
-  await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
-  await expect(footer).toHaveCount(0);
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await expect(reader.getByRole('complementary', { name: 'Reading position' }))
+    .toBeVisible();
+  await expect(reader.locator('.footer-passage')).toHaveCount(0);
   await page.getByRole('button', { name: 'back' }).click();
   await expect(footer).toBeVisible();
 });

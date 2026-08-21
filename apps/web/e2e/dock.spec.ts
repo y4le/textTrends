@@ -75,9 +75,11 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await slider.focus();
   await slider.press('ArrowRight');
   await slider.press('Enter');
-  await expect(page.getByRole('main', { name: /Reader:/ })).toBeVisible();
-  await expect(dock).toHaveCount(0);
-  await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await expect(reader).toBeVisible();
+  await expect(reader.locator('.workbench-dock[data-mode="reader"]')).toBeVisible();
+  await expect(reader.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  await expect(reader.locator('.footer-passage')).toHaveCount(0);
 });
 
 test('the reading dock resizes through its full range and caps barcode growth', async ({

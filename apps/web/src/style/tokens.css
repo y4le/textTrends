@@ -305,6 +305,15 @@ canvas {
   color: var(--fg);
 }
 
+.reader-region[data-reader-footer='true'] {
+  padding-block-end:
+    calc(
+      var(--keyboard-inset)
+      + var(--dock-block-size)
+      + env(safe-area-inset-bottom, 0px)
+    );
+}
+
 .reader-header {
   grid-area: reader-header;
   display: flex;
@@ -323,7 +332,6 @@ canvas {
 }
 
 .reader-header-actions,
-.reader-highlights,
 .reader-pages {
   display: flex;
   align-items: center;
@@ -344,17 +352,25 @@ canvas {
   padding-block: var(--space-2);
 }
 
-.reader-prose-pane .source-text,
-.reader-highlights {
+.reader-prose-pane .source-text {
   max-inline-size: 75ch;
   margin-inline: auto;
 }
 
-.reader-highlights {
-  margin-block-end: var(--space-2);
+.reader-feedback {
+  grid-area: reader-feedback;
+  display: flex;
+  max-inline-size: 75ch;
+  margin-inline: auto;
+  padding-block-start: var(--space-2);
+  gap: var(--space-2);
   color: var(--fg-muted);
   font-family: var(--font-mono);
   font-size: var(--text-xs);
+}
+
+.reader-feedback > span + span::before {
+  content: '· ';
 }
 
 .reader-pages {
@@ -369,7 +385,13 @@ canvas {
     calc(var(--space-2) + env(safe-area-inset-bottom, 0px));
 }
 
-.reader-region button {
+.reader-region[data-reader-footer='true'] .reader-pages {
+  padding-block-end: var(--space-2);
+}
+
+.reader-header button,
+.reader-prose-pane button,
+.reader-pages button {
   min-block-size: 44px;
 }
 
@@ -378,11 +400,6 @@ canvas {
     padding-inline:
       calc(var(--space-2) + env(safe-area-inset-left, 0px))
       calc(var(--space-2) + env(safe-area-inset-right, 0px));
-  }
-
-  .reader-highlights {
-    max-block-size: 3lh;
-    overflow: hidden;
   }
 
   .reader-pages {
@@ -3667,8 +3684,8 @@ canvas {
   }
 }
 
-/* Find owns the Terms rail on the workbench. Reader has no rail, so its same
- * interaction surface remains a compact floating composer. */
+/* Find owns the Terms row in either retained workbench dock. The floating
+ * variant remains available to standalone hosts outside the dock. */
 .find-bar--floating {
   position: fixed;
   z-index: 79;
@@ -4986,6 +5003,10 @@ html.reader-open .find-bar--floating {
   overflow: hidden;
 }
 
+.footer-interactive:not([data-passage='true']) .footer-strip {
+  margin-block-start: 0;
+}
+
 .footer-resize-handle {
   position: absolute;
   z-index: 8;
@@ -5360,6 +5381,33 @@ html[data-footer-resizing='true'] * {
   .footer-resize-handle {
     inset-block-start: -12px;
     block-size: 24px;
+  }
+}
+
+.workbench-dock[data-mode='reader'] {
+  inset-inline:
+    calc(var(--space-3) + env(safe-area-inset-left, 0px))
+    calc(var(--space-3) + env(safe-area-inset-right, 0px));
+  inset-block-end:
+    calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+}
+
+.workbench-dock[data-mode='reader'] > .query-region:not(.find-bar) {
+  overflow: hidden;
+}
+
+.workbench-dock[data-mode='reader'][data-terms-dropped='true'] > .query-region {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+@media (max-width: 599.98px) {
+  .workbench-dock[data-mode='reader'] {
+    inset-inline:
+      calc(var(--space-2) + env(safe-area-inset-left, 0px))
+      calc(var(--space-2) + env(safe-area-inset-right, 0px));
+    inset-block-end:
+      calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
   }
 }
 

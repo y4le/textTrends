@@ -1,7 +1,7 @@
 /**
- * Global corpus-order reading instrument. Passage, sparkline, progress, and
- * barcode share one declared-sequence token axis. It is absent in Reader and
- * keeps reading position transient.
+ * Global corpus-order reading instrument. Passage (when present), sparkline,
+ * progress, and barcode share one declared-sequence token axis. Reader keeps
+ * the analytical lanes but gives its source-text lane to the fitted page.
  */
 
 import {
@@ -226,6 +226,7 @@ function FooterInteractive({
   containerRef,
   globalShortcuts,
   showStatus,
+  showPassage,
   foregroundBarcodeOverlay,
 }: {
   readonly docs: readonly string[];
@@ -242,6 +243,7 @@ function FooterInteractive({
   readonly containerRef: (element: HTMLDivElement | null) => void;
   readonly globalShortcuts: boolean;
   readonly showStatus: boolean;
+  readonly showPassage: boolean;
   readonly foregroundBarcodeOverlay: boolean;
 }) {
   const presentation = usePresentation();
@@ -627,12 +629,12 @@ function FooterInteractive({
       }
       return;
     }
-    if (shortcutMatches(event, 'footer-page-previous')) {
+    if (showPassage && shortcutMatches(event, 'footer-page-previous')) {
       event.preventDefault();
       stepPassagePage(-1);
       return;
     }
-    if (shortcutMatches(event, 'footer-page-next')) {
+    if (showPassage && shortcutMatches(event, 'footer-page-next')) {
       event.preventDefault();
       stepPassagePage(1);
       return;
@@ -687,6 +689,7 @@ function FooterInteractive({
   return (
     <div
       className="footer-interactive"
+      data-passage={showPassage || undefined}
       data-shortcut-context="footer"
       onDoubleClick={(event) => {
         if (Date.now() - lastDirectPointerAt.current < 700) return;
@@ -731,18 +734,20 @@ function FooterInteractive({
         }, 'corpus-footer-position');
       }}
     >
-      <FooterPassage
-        passage={passage}
-        scrub={scrub}
-        snapshot={snapshot?.snapshot ?? ''}
-        title={title}
-        crosshairXForToken={passageCrosshairX}
-        coarse={presentation.coarseAvailable}
-        widthClass={presentation.width}
-        onPassageMarginChange={setFooterPassageMargin}
-        onVisibleTokensChange={setVisiblePassageTokens}
-        onPassageWindowChange={publishPassageWindow}
-      />
+      {showPassage && (
+        <FooterPassage
+          passage={passage}
+          scrub={scrub}
+          snapshot={snapshot?.snapshot ?? ''}
+          title={title}
+          crosshairXForToken={passageCrosshairX}
+          coarse={presentation.coarseAvailable}
+          widthClass={presentation.width}
+          onPassageMarginChange={setFooterPassageMargin}
+          onVisibleTokensChange={setVisiblePassageTokens}
+          onPassageWindowChange={publishPassageWindow}
+        />
+      )}
       {showStatus && (
         <div className="footer-reading-status" title={status}>{status}</div>
       )}
@@ -1026,6 +1031,7 @@ export function WorkbenchFooter({
   trackCount,
   showStatus,
   showBarcode,
+  showPassage = true,
 }: {
   readonly globalShortcuts?: boolean;
   readonly geometry: FooterGeometry;
@@ -1033,6 +1039,7 @@ export function WorkbenchFooter({
   readonly trackCount: number;
   readonly showStatus: boolean;
   readonly showBarcode: boolean;
+  readonly showPassage?: boolean;
 }) {
   const presentation = usePresentation();
   const snapshot = useApp((state) => state.snapshot);
@@ -1264,6 +1271,7 @@ export function WorkbenchFooter({
         containerRef={setContainer}
         globalShortcuts={globalShortcuts}
         showStatus={showStatus}
+        showPassage={showPassage}
         foregroundBarcodeOverlay={findMode && find !== null}
       />
     </aside>

@@ -10,7 +10,7 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { dockSizing } from '../lib/footer-metrics.ts';
+import { dockSizing, readerDockSizing } from '../lib/footer-metrics.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -35,9 +35,10 @@ function TermsRailFallback() {
 /** Fixed layout host for the authored query state and transient reading
  * instrument. The two named asides remain independent accessibility regions;
  * this wrapper owns only viewport placement and the pre-mount reservation. */
-export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
+export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench' }: {
   readonly globalShortcuts: boolean;
   readonly onCloseFind: () => void;
+  readonly mode?: 'workbench' | 'reader';
 }) {
   const presentation = usePresentation();
   const seriesCount = useApp((state) => state.series.length);
@@ -59,15 +60,19 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
   const displayedTrackCount = interaction.kind === 'find'
     ? Math.max(seriesCount, interaction.find === null ? 0 : 1)
     : seriesCount;
-  const sizing = dockSizing({
+  const sizingInput = {
     width: presentation.width,
     coarse: presentation.coarseAvailable,
     trackCount: displayedTrackCount,
+    readerRail: interaction.kind === 'find' ? 'find' : 'terms',
     footerPresent,
     targetBlockSize,
     viewportBlockSize,
     availableBlockSize,
-  });
+  } as const;
+  const sizing = mode === 'reader'
+    ? readerDockSizing(sizingInput)
+    : dockSizing(sizingInput);
   const sizingRef = useRef(sizing);
   sizingRef.current = sizing;
   const targetRef = useRef(targetBlockSize);
@@ -125,14 +130,16 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
     root.setProperty('--terms-rail-pad-block', `${sizing.railPadBlock}px`);
     root.setProperty('--term-target-block-size', `${sizing.termTargetBlockSize}px`);
     root.setProperty('--footer-block-size', `${sizing.footerBlockSize}px`);
-    return () => {
-      root.removeProperty('--dock-block-size');
-      root.removeProperty('--terms-rail-block-size');
-      root.removeProperty('--terms-rail-pad-block');
-      root.removeProperty('--term-target-block-size');
-      root.removeProperty('--footer-block-size');
-    };
   }, [sizing]);
+
+  useLayoutEffect(() => () => {
+    const root = document.documentElement.style;
+    root.removeProperty('--dock-block-size');
+    root.removeProperty('--terms-rail-block-size');
+    root.removeProperty('--terms-rail-pad-block');
+    root.removeProperty('--term-target-block-size');
+    root.removeProperty('--footer-block-size');
+  }, []);
 
   useEffect(() => () => {
     if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
@@ -218,10 +225,14 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
   };
 
   const laneText = [
-    interaction.kind === 'find' ? 'find' : 'terms',
-    footerVisible ? 'passage' : '',
+    sizing.railBlockSize > 0
+      ? interaction.kind === 'find' ? 'find' : 'terms'
+      : '',
+    footerVisible && mode === 'workbench' ? 'passage' : '',
     footerVisible && sizing.showStatus ? 'status' : '',
-    footerVisible ? 'graph' : '',
+    footerVisible
+      ? sizing.footerGeometry.seriesHeight > 2 ? 'graph' : 'progress'
+      : '',
     footerVisible && sizing.showBarcode ? 'occurrences' : '',
   ].filter(Boolean).join(', ');
 
@@ -230,7 +241,11 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
       id="workbench-dock"
       ref={dockRef}
       className="workbench-dock"
-      data-terms-compressed={sizing.blockSize < sizing.baseBlockSize || undefined}
+      data-mode={mode}
+      data-terms-compressed={mode === 'reader'
+        || sizing.blockSize < sizing.baseBlockSize
+        || undefined}
+      data-terms-dropped={sizing.railBlockSize === 0 || undefined}
       style={{
         '--dock-local-block-size': `${sizing.blockSize}px`,
         '--terms-local-block-size': `${sizing.railBlockSize}px`,
@@ -311,6 +326,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind }: {
           trackCount={displayedTrackCount}
           showStatus={sizing.showStatus}
           showBarcode={sizing.showBarcode}
+          showPassage={mode === 'workbench'}
         />
       </Suspense>
     </div>

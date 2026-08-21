@@ -124,13 +124,17 @@ test('the lazy Reader fallback is titled, nonblank, and can go back', async ({ p
   gate.release?.();
 });
 
-test('Reader has one full-viewport presentation without mode or background work', async ({ page }) => {
+test('Reader has one full-viewport presentation with its compressed analytical footer', async ({ page }) => {
   const { grid, reader } = await openReader(page);
 
   await expect(reader).not.toHaveAttribute('role', 'dialog');
   await expect(reader.getByRole('group', { name: 'Reader width' })).toHaveCount(0);
-  await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(0);
-  await expect(page.locator('.workbench-dock')).toHaveCount(0);
+  await expect(reader.getByRole('complementary', { name: 'Terms' })).toBeVisible();
+  await expect(reader.locator('.workbench-dock[data-mode="reader"]')).toBeVisible();
+  await expect(reader.getByRole('complementary', { name: 'Reading position' }))
+    .toBeVisible();
+  await expect(reader.locator('.footer-passage')).toHaveCount(0);
+  await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
   await expect(page.getByRole('navigation', { name: 'Workbench sections' })).toHaveCount(0);
   await expect(page.locator('.app-header')).toHaveCount(0);
   await expect(reader.getByRole('button', { name: 'back', exact: true })).toBeVisible();

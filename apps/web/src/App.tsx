@@ -28,7 +28,6 @@ import {
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
-import { FindBar } from './components/FindBar.tsx';
 import { FIND_INPUT_ID } from './lib/interaction.ts';
 
 const ReaderDrawer = lazy(() =>
@@ -586,6 +585,7 @@ export function App() {
       <main
         id="reader-region"
         className="reader-region"
+        data-reader-footer="true"
         data-shortcut-context="reader"
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
@@ -678,9 +678,13 @@ export function App() {
             onOpenShortcuts={() => openShortcutHelp('reader')}
           />
         </Suspense>
+        <WorkbenchDock
+          mode="reader"
+          globalShortcuts={false}
+          onCloseFind={closeFind}
+        />
       </main>
       {utilityPaneSurface}
-      {interaction.kind === 'find' && <FindBar onClose={closeFind} />}
       </>
     );
   }

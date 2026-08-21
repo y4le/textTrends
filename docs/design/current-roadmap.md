@@ -23,7 +23,11 @@ measurement gates, and method contracts.
   [Inputs workspace proposal and decision record](inputs-workspace.md).
 - **Direct reading paths:** all workbench places share a transient corpus-order
   footer with current source, all-book trends, progress, and adaptive
-  dispersion. It shares token geometry with KWIC and the full-page Reader.
+  dispersion. Reader retains its Terms, trend, progress, and dispersion lanes
+  in a compressed default while omitting the redundant footer source line and
+  prose highlights legend. Conditional notices still disclose capped marks and
+  marks retained from a superseded query. The footer shares token geometry with
+  KWIC and the fitted Reader page.
 - **Bounded analysis results:** occurrence construction now has typed hard
   caps, the worker cache has simultaneous entry/byte ceilings, and publishing
   a new snapshot releases old occurrence entries. Cap failures remain visible

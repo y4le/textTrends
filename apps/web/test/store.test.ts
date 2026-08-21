@@ -4424,8 +4424,17 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(history.state).toEqual(serialized);
     expect(history.url).toBe(url);
 
+    store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 2, end: 4 }, geometry: '800x600',
+    });
+    expect(store.getState().scrub).toEqual({ doc: 'a', token: 2 });
+    const readerRequestsBeforeClose = q.readers().length;
     store.getState().closeReader();
     expect(store.getState().readerPlace).toBeNull();
+    expect(q.readers()).toHaveLength(readerRequestsBeforeClose + 1);
+    expect((q.readers().at(-1)!.query as {
+      request: { cursor: { token: number } };
+    }).request.cursor.token).toBe(2);
     history.forward();
     expect(store.getState().layers.at(-1)?.kind).toBe('reader');
 
@@ -4568,6 +4577,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
     });
     expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 40 },
       readerVisibleRange: { tokens: { start: 20, end: 60 } },
       readerNavigation: {
         previous: { doc: 'a', cursor: { kind: 'before', token: 20 } },
@@ -4581,6 +4591,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     f.store.getState().setReaderVisibleRange({
       snapshot: 's1', doc: 'a', tokens: { start: 60, end: 105 }, geometry: '800x600',
     });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 60 });
     expect(f.store.getState().readerNavigation?.previous)
       .toEqual({ doc: 'a', cursor: { kind: 'from', token: 20 } });
 
@@ -4590,6 +4601,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     f.store.getState().setReaderVisibleRange({
       snapshot: 's1', doc: 'a', tokens: { start: 20, end: 60 }, geometry: '800x600',
     });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 20 });
     expect(f.store.getState().readerNavigation?.next)
       .toEqual({ doc: 'a', cursor: { kind: 'from', token: 60 } });
 

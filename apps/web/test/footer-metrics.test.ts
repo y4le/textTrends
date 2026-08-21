@@ -9,6 +9,7 @@ import {
   FOOTER_DEFAULT_MAX_VIEWPORT_RATIO,
   footerBlockSize,
   footerGeometryFor,
+  readerDockSizing,
 } from '../src/lib/footer-metrics.ts';
 import {
   footerBlockSize as footerViewBlockSize,
@@ -348,5 +349,103 @@ describe('eager footer metrics', () => {
     });
     expect(maximized.footerGeometry.barcodeTrackHeight)
       .toBe(FOOTER_BARCODE_TRACK_MAX_HEIGHT);
+  });
+
+  it('collapses Reader through Terms, barcode, and graph to its progress line', () => {
+    for (const [width, coarse] of [
+      ['compact', false],
+      ['compact', true],
+      ['regular', false],
+      ['regular', true],
+    ] as const) {
+      const defaultSizing = readerDockSizing({
+        width,
+        coarse,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(defaultSizing.blockSize).toBe(defaultSizing.baseBlockSize);
+      expect(defaultSizing.blockSize).toBeGreaterThan(defaultSizing.minBlockSize);
+      expect(defaultSizing.railBlockSize).toBe(31);
+      expect(defaultSizing.termTargetBlockSize).toBe(DOCK_TERM_TARGET_MIN_HEIGHT);
+      expect(defaultSizing.footerGeometry.passageHeight).toBe(0);
+      expect(defaultSizing.showStatus).toBe(false);
+      expect(defaultSizing.showBarcode).toBe(true);
+      expect(defaultSizing.railBlockSize + defaultSizing.footerBlockSize)
+        .toBe(defaultSizing.blockSize);
+
+      const expanded = readerDockSizing({
+        width,
+        coarse,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: defaultSizing.blockSize + 48,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(expanded.blockSize).toBe(defaultSizing.blockSize + 48);
+      expect(expanded.railBlockSize).toBe(defaultSizing.railBlockSize);
+      expect(expanded.footerBlockSize).toBe(defaultSizing.footerBlockSize + 48);
+      expect(expanded.showBarcode).toBe(true);
+
+      const noTerms = readerDockSizing({
+        width,
+        coarse,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: defaultSizing.footerBlockSize,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(noTerms.railBlockSize).toBe(0);
+      expect(noTerms.showBarcode).toBe(true);
+      expect(noTerms.footerGeometry.seriesHeight).toBe(coarse ? 24 : 12);
+
+      const graphOnly = readerDockSizing({
+        width,
+        coarse,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: 1 + (coarse ? 24 : 12),
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(graphOnly.railBlockSize).toBe(0);
+      expect(graphOnly.showBarcode).toBe(false);
+      expect(graphOnly.footerGeometry.seriesHeight).toBe(coarse ? 24 : 12);
+
+      const progressOnly = readerDockSizing({
+        width,
+        coarse,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: 3,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(progressOnly.blockSize).toBe(progressOnly.minBlockSize);
+      expect(progressOnly.railBlockSize).toBe(0);
+      expect(progressOnly.footerBlockSize).toBe(3);
+      expect(progressOnly.showBarcode).toBe(false);
+      expect(progressOnly.footerGeometry.seriesHeight).toBe(2);
+    }
+
+    const coarseFind = readerDockSizing({
+      width: 'compact',
+      coarse: true,
+      trackCount: 1,
+      readerRail: 'find',
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    expect(coarseFind.railBlockSize).toBe(45);
+    expect(coarseFind.termTargetBlockSize).toBe(44);
+    expect(coarseFind.railBlockSize + coarseFind.footerBlockSize)
+      .toBe(coarseFind.blockSize);
   });
 });

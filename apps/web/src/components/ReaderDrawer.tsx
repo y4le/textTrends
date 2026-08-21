@@ -24,7 +24,7 @@ import {
 } from '../lib/reader-fit.ts';
 import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
-import { SMALL_BUTTON_STYLE, SeriesLineSample } from './chrome.tsx';
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { shortcutAria } from '../lib/shortcuts.ts';
 
 function ReaderProse({
@@ -369,6 +369,11 @@ export function ReaderDrawer({
     };
     const observer = new ResizeObserver(remeasure);
     observer.observe(pane);
+    // A sibling layout effect publishes the Reader footer reservation on the
+    // opening commit. Sample once after all layout effects so that same-commit
+    // custom-property change cannot leave the first fitted page one dock delta
+    // taller than its actual pane.
+    remeasure();
     return () => {
       observer.disconnect();
       cancelAnimationFrame(frame);
@@ -397,6 +402,7 @@ export function ReaderDrawer({
     liveIdentityOf,
     presentedSeries,
   );
+  const hasStaleMarks = legend.some((entry) => entry.stale);
   const hasPresentedTerms = findMode ? find !== null : series.length > 0;
   const occurrencePending = findMode
     ? find?.state.status === 'pending'
@@ -446,24 +452,22 @@ export function ReaderDrawer({
           </button>
         </div>
       </header>
+      {(hasStaleMarks || ready?.marksTruncated) && (
+        <div className="reader-feedback" role="status" aria-label="Reader mark notices">
+          {hasStaleMarks && (
+            <span>Query changed; marked text retains the query that opened Reader.</span>
+          )}
+          {ready?.marksTruncated && (
+            <span>Some query marks were omitted from this bounded source window.</span>
+          )}
+        </div>
+      )}
       <div
         ref={paneRef}
         className="reader-prose-pane"
         data-reader-fitting={!fitSettled || undefined}
         data-reader-saturated={activeFit?.saturated || undefined}
       >
-        <div className="reader-highlights" aria-label="Reader query highlights">
-          <span>highlights</span>
-          {legend.length === 0 && <span>none</span>}
-          {legend.map((entry) => (
-            <span key={entry.seriesId} style={{ display: 'inline-flex', alignItems: 'center', gap: '0.5ch' }}>
-              <SeriesLineSample style={entry.style} emphasized />
-              {entry.label}{entry.stale ? ' (query changed)' : ''}
-            </span>
-          ))}
-          {ready?.marksTruncated && <span>highlight cap reached in this source window</span>}
-        </div>
-
         <div
           aria-busy={current?.state.status === 'pending' || !fitSettled || undefined}
         >

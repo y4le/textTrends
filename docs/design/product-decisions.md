@@ -4,6 +4,26 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-21 — Reader keeps a minimal analytical footer
+
+Reader now retains the shared Terms, all-book graph, progress cursor, and
+dispersion barcode in a footer that opens with its Terms row already
+compressed. The Reader page already supplies source text, so this state omits
+the footer's clipped passage and position-status lanes. Terms is also the
+visible query key; Reader prose no longer repeats a highlights legend. The dock
+remains explicitly resizable. Conditional prose notices preserve the two facts
+Terms cannot represent: a bounded mark cap and marks from a query that has
+since changed.
+Shrinking spends the Terms row first, then the barcode, then the graph until
+only the thin corpus-progress line remains; expansion grows the graph and
+barcode from the authored compact state.
+
+Each authenticated browser-fitted page publishes its reading position to the
+shared corpus cursor. An initial around-token page preserves that exact anchor;
+forward, backward, endpoint, and cross-document page turns publish the fitted
+page's first token. Returning to the workbench therefore restores the same
+position that the Reader most recently displayed.
+
 ## 2026-08-20 — Short viewports spend chrome before analytical space
 
 Workbench chrome responds to layout viewport height as well as width. The page
