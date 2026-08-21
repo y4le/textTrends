@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BUILTIN_LOTR_ID, BUILTIN_SHERLOCK_ID } from '../src/lib/project.ts';
+import { BUILTIN_AUSTEN_ID, BUILTIN_LOTR_ID, BUILTIN_SHERLOCK_ID } from '../src/lib/project.ts';
 import { consumeDemoBootRequest, parseDemoBootRequest } from '../src/lib/demo-query.ts';
 
 describe('demo boot query', () => {
@@ -7,6 +7,10 @@ describe('demo boot query', () => {
     expect(parseDemoBootRequest('?demo=sherlock')).toEqual({
       slug: 'sherlock',
       id: BUILTIN_SHERLOCK_ID,
+    });
+    expect(parseDemoBootRequest('?demo=austen')).toEqual({
+      slug: 'austen',
+      id: BUILTIN_AUSTEN_ID,
     });
     expect(parseDemoBootRequest('?demo=LOTR&demo=sherlock')).toEqual({
       slug: 'LOTR',

@@ -29,17 +29,18 @@ The composition area contains three bounded cards:
    bytes from the local library. A confirmed **Clear all** action resets every
    active text and term together while retaining those saved bytes. Its empty
    state leads with **Add your files** and offers **Try the Sherlock Holmes
-   sample** as a secondary public-domain onboarding path. Once texts exist,
-   that sample control becomes a compact row and reflects whether Sherlock is
-   saved, partially active, or fully active.
+   sample** and **Try the Jane Austen sample** as secondary public-domain
+   onboarding paths. Once texts exist, those sample controls become a compact
+   row and each reflects whether its corpus is saved, partially active, or
+   fully active.
 2. **Local library** — content-addressed browser-local storage. Files can be
    saved without activation, activated later, or deleted independently.
 3. **Load from Standard Ebooks** — public-domain acquisition through the
-   searchable catalog, saved locally before activation. The Sherlock sample is
-   acquired as ordinary local texts, and its suggestions append terms without
-   replacing authored terms. Private LOTR and ASOIF acquisition lives in the
-   Debug utility pane so the normal Inputs path remains publication-safe and
-   focused.
+   searchable catalog, saved locally before activation. The Sherlock and Austen
+   samples are acquired as ordinary local texts, and their suggestions append
+   terms without replacing authored terms. Private LOTR and ASOIF acquisition
+   lives in the Debug utility pane so the normal Inputs path remains
+   publication-safe and focused.
 
 The grid is two columns when space permits and one on compact screens. Active
 inputs spans the full grid because corpus order is the primary composition

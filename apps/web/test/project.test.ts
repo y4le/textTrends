@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { workspaceState } from './support/workspace-fixtures.ts';
 import {
   ASOIF,
+  AUSTEN,
+  BUILTIN_AUSTEN_ID,
   BUILTIN_ASOIF_ID,
   BUILTIN_CORPORA,
   BUILTIN_LOTR_ID,
@@ -24,9 +26,15 @@ describe('bundled corpora', () => {
     expect(sherlock?.defaultTerms).toBe('Holmes, Watson, Moriarty');
   });
 
+  it('starts Austen with the cross-novel terms selected from corpus evidence', () => {
+    const austen = BUILTIN_CORPORA.find((corpus) => corpus.id === BUILTIN_AUSTEN_ID);
+    expect(austen?.defaultTerms).toBe('family, friend, heart');
+  });
+
   it('builds every demo in declared order with bundled TXT sources', async () => {
     const fixtures = {
       [BUILTIN_SHERLOCK_ID]: SHERLOCK,
+      [BUILTIN_AUSTEN_ID]: AUSTEN,
       [BUILTIN_ASOIF_ID]: ASOIF,
       [BUILTIN_LOTR_ID]: LOTR,
     } as const;

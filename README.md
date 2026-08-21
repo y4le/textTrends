@@ -8,7 +8,7 @@ service.
 The current workbench supports:
 
 - TXT, Markdown, HTML/XHTML, and EPUB corpora, plus the bundled Sherlock
-  Holmes corpus;
+  Holmes and Jane Austen corpora;
 - a persistent local file catalog with ordered active corpora;
 - vocabulary frequency, document dispersion, comparison, and keyness;
 - term-group trends, exact-or-density dispersion barcodes, linked ranges, and

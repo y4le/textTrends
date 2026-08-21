@@ -21,6 +21,7 @@
     "update:supplemental-corpus": "pnpm build:se && node scripts/update-supplemental-corpus.mjs",
     "update:stoplist": "node scripts/update-stoplist.mjs",
     "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs",
+    "update:austen-corpus": "pnpm build:se && node scripts/update-austen-corpus.mjs",
     "update:sherlock-corpus": "pnpm build:se && node scripts/update-sherlock-corpus.mjs"
   }
 }

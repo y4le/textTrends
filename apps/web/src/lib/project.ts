@@ -67,26 +67,30 @@ export function builtinProject(data: ProjectDataV1): CurrentProject {
 
 /** Stable ids for the read-only bundled corpora. */
 export const BUILTIN_SHERLOCK_ID = 'builtin/sherlock';
+export const BUILTIN_AUSTEN_ID = 'builtin/austen';
 export const BUILTIN_ASOIF_ID = 'builtin/asoif';
 export const BUILTIN_LOTR_ID = 'builtin/lotr';
 
 export type BuiltinCorpusId =
   | typeof BUILTIN_SHERLOCK_ID
+  | typeof BUILTIN_AUSTEN_ID
   | typeof BUILTIN_ASOIF_ID
   | typeof BUILTIN_LOTR_ID;
 
 export interface BuiltinCorpusOption {
   readonly id: BuiltinCorpusId;
-  readonly sourceDirectory: 'sherlock' | 'asoif' | 'lotr';
+  readonly sourceDirectory: 'sherlock' | 'austen' | 'asoif' | 'lotr';
   readonly label: string;
+  readonly shortLabel: string;
   readonly defaultTerms: string;
 }
 
 /** Presentation + bootstrap vocabulary for the bundled demo picker. */
 export const BUILTIN_CORPORA: readonly BuiltinCorpusOption[] = [
-  { id: BUILTIN_SHERLOCK_ID, sourceDirectory: 'sherlock', label: 'Sherlock Holmes', defaultTerms: 'Holmes, Watson, Moriarty' },
-  { id: BUILTIN_ASOIF_ID, sourceDirectory: 'asoif', label: 'A Song of Ice and Fire', defaultTerms: 'Jon, Tyrion, Daenerys' },
-  { id: BUILTIN_LOTR_ID, sourceDirectory: 'lotr', label: 'The Lord of the Rings', defaultTerms: 'Frodo, Gandalf, Sauron' },
+  { id: BUILTIN_SHERLOCK_ID, sourceDirectory: 'sherlock', label: 'Sherlock Holmes', shortLabel: 'Sherlock', defaultTerms: 'Holmes, Watson, Moriarty' },
+  { id: BUILTIN_AUSTEN_ID, sourceDirectory: 'austen', label: 'Jane Austen', shortLabel: 'Austen', defaultTerms: 'family, friend, heart' },
+  { id: BUILTIN_ASOIF_ID, sourceDirectory: 'asoif', label: 'A Song of Ice and Fire', shortLabel: 'ASOIF', defaultTerms: 'Jon, Tyrion, Daenerys' },
+  { id: BUILTIN_LOTR_ID, sourceDirectory: 'lotr', label: 'The Lord of the Rings', shortLabel: 'LOTR', defaultTerms: 'Frodo, Gandalf, Sauron' },
 ];
 
 export function builtinCorpusOption(id: string): BuiltinCorpusOption | undefined {
@@ -286,6 +290,15 @@ export const SHERLOCK: readonly { doc: string; title: string; bytes: number; tex
   { doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle', title: 'The Return of Sherlock Holmes', bytes: 623869, textLengthUtf16: 609845, sourceHash: '939525ae69ffadc5c545ca9249007b31099ca225582d0187809c0f2d0476200b', textHash: '939525ae69ffadc5c545ca9249007b31099ca225582d0187809c0f2d0476200b' },
 ];
 
+export const AUSTEN: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
+  { doc: '1 - Sense and Sensibility - Jane Austen', title: 'Sense and Sensibility', bytes: 680078, textLengthUtf16: 668537, sourceHash: '28af5a66ce42d4404597b69a0515b898b135d1a62002b356a3903cfc6870f3cd', textHash: '28af5a66ce42d4404597b69a0515b898b135d1a62002b356a3903cfc6870f3cd' },
+  { doc: '2 - Pride and Prejudice - Jane Austen', title: 'Pride and Prejudice', bytes: 695888, textLengthUtf16: 684097, sourceHash: '40c27855a8dc3ba6db2a7d9c819902ce538d4be1f5c69d81c693cbc912774545', textHash: '40c27855a8dc3ba6db2a7d9c819902ce538d4be1f5c69d81c693cbc912774545' },
+  { doc: '3 - Mansfield Park - Jane Austen', title: 'Mansfield Park', bytes: 893089, textLengthUtf16: 881543, sourceHash: '35b87fc0d15ca145478655dd54022b3b0471d12b7b95a3437d41c0eb40ac057c', textHash: '35b87fc0d15ca145478655dd54022b3b0471d12b7b95a3437d41c0eb40ac057c' },
+  { doc: '4 - Emma - Jane Austen', title: 'Emma', bytes: 905802, textLengthUtf16: 880580, sourceHash: '3b62bf84995b427381cdb2537deb71125320c2dad9ed36ccda29aaec69f350e6', textHash: '3b62bf84995b427381cdb2537deb71125320c2dad9ed36ccda29aaec69f350e6' },
+  { doc: '5 - Northanger Abbey - Jane Austen', title: 'Northanger Abbey', bytes: 438994, textLengthUtf16: 431617, sourceHash: '2cc65a0d9e39ea4f4cf5ee52675db1b76a3c3c882477800762552a7637a0350b', textHash: '2cc65a0d9e39ea4f4cf5ee52675db1b76a3c3c882477800762552a7637a0350b' },
+  { doc: '6 - Persuasion - Jane Austen', title: 'Persuasion', bytes: 470176, textLengthUtf16: 464737, sourceHash: '86336fa710a623600f88e0e4a4a1bc25ec8363f47c651b1d0e4834d8033979f3', textHash: '86336fa710a623600f88e0e4a4a1bc25ec8363f47c651b1d0e4834d8033979f3' },
+];
+
 export const ASOIF: readonly { doc: string; title: string; bytes: number; textLengthUtf16: number; sourceHash: string; textHash: string }[] = [
   { doc: '1 - A Game of Thrones - George R. R. Martin', title: 'A Game of Thrones', bytes: 1589135, textLengthUtf16: 1589135, sourceHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef', textHash: '0c18548fd97bc83cf9c6e62c73443595b002e1babeccc60888df0aec5bb858ef' },
   { doc: '2 - A Clash of Kings - George R. R. Martin', title: 'A Clash of Kings', bytes: 1732896, textLengthUtf16: 1732892, sourceHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6', textHash: 'f6f3816664d419adf436b25837d2cf172da028c4fb3423e66c9627ff683ddfe6' },
@@ -308,6 +321,7 @@ export const LOTR: readonly { doc: string; title: string; bytes: number; textLen
  *  built-in vocabulary — the state container is not the authority for assets. */
 const FIXTURES: Readonly<Record<BuiltinCorpusId, readonly BuiltinDocFixture[]>> = {
   [BUILTIN_SHERLOCK_ID]: SHERLOCK,
+  [BUILTIN_AUSTEN_ID]: AUSTEN,
   [BUILTIN_ASOIF_ID]: ASOIF,
   [BUILTIN_LOTR_ID]: LOTR,
 };

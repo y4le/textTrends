@@ -9,10 +9,12 @@ Default demo corpora for textTrends.
   serialized to UTF-8 plain text with the same `xhtml-block-collapse-v1`
   extraction used by app EPUB imports. Standard Ebooks releases its editorial
   work under CC0. Refresh with `pnpm update:sherlock-corpus`.
-- `austen/` — six Jane Austen novels as an author corpus (comparison/keyness demos).
-  Public domain. Sourced from Project Gutenberg plain-text editions (IDs 1342,
-  161, 158, 105, 121, 141) with Gutenberg boilerplate removed and line endings
-  normalized; the texts themselves are unmodified.
+- `austen/` — Jane Austen's six novels in publication order, exposed as a
+  built-in author corpus beside the Sherlock demo. Public domain in the US.
+  Sourced from official Standard Ebooks release EPUBs; body matter is serialized
+  to UTF-8 plain text with the same `xhtml-block-collapse-v1` extraction used by
+  app EPUB imports. Standard Ebooks releases its editorial work under CC0.
+  Refresh with `pnpm update:austen-corpus`.
 - `standard-ebooks/` — ten supplemental public-domain novels downloaded from
   official Standard Ebooks release EPUBs and serialized with the same
   `xhtml-block-collapse-v1` body-matter extraction as app imports. They are

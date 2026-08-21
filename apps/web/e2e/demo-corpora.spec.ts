@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { ASOIF, LOTR, SHERLOCK } from '../src/lib/project.ts';
+import { ASOIF, AUSTEN, LOTR, SHERLOCK } from '../src/lib/project.ts';
 import { workspaceState } from '../test/support/workspace-fixtures.ts';
 import { awaitReadyCount, openQuickAdd, trackCorpusRequests } from './helpers.ts';
 
@@ -26,6 +26,25 @@ async function savedResearchCounts(page: import('@playwright/test').Page): Promi
     }
   }, LOCAL_LIBRARY_DB_NAME);
 }
+
+test('the Austen sample sits beside Sherlock and loads all six novels with evidence-based terms', async ({ page }) => {
+  const requests = trackCorpusRequests(page);
+  await page.goto('./');
+
+  await expect(page.getByRole('button', { name: 'Try the Sherlock Holmes sample' })).toBeVisible();
+  await page.getByRole('button', { name: 'Try the Jane Austen sample' }).click();
+  await awaitReadyCount(page, AUSTEN.length);
+
+  await expect(page.getByRole('button', { name: 'Pride and Prejudice', exact: true })).toBeVisible();
+  for (const term of ['family', 'friend', 'heart']) {
+    await expect(page.getByRole('button', { name: `Edit term: ${term}` })).toBeVisible();
+  }
+  const austenFiles = requests
+    .filter((url) => new URL(url).pathname.includes('/corpora/austen/'))
+    .map((url) => decodeURIComponent(new URL(url).pathname.split('/').at(-1)!))
+    .sort();
+  expect(austenFiles).toEqual(AUSTEN.map(({ doc }) => `${doc}.txt`).sort());
+});
 
 test('demos load as additive local texts and merge useful starter terms', async ({ page }) => {
   const requests = trackCorpusRequests(page);

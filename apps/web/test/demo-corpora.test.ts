@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { fetchDemoCorpus } from '../src/lib/demo-corpora.ts';
-import { BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
+import { AUSTEN, BUILTIN_AUSTEN_ID, BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
 
 const originalFetch = globalThis.fetch;
 
@@ -31,6 +31,14 @@ describe('fetchDemoCorpus', () => {
     expect(demo.files.map((file) => file.name)).toEqual(SHERLOCK.map((book) => `${book.title}.txt`));
     expect(demo.files.map((file) => file.size)).toEqual(SHERLOCK.map((book) => book.bytes));
     expect(await demo.files[0]!.arrayBuffer()).not.toBe(await demo.files[0]!.arrayBuffer());
+  });
+
+  it('fetches the complete six-novel Austen corpus', async () => {
+    serveCorpusBytes();
+    const demo = await fetchDemoCorpus(BUILTIN_AUSTEN_ID);
+
+    expect(demo.files.map((file) => file.name)).toEqual(AUSTEN.map((book) => `${book.title}.txt`));
+    expect(demo.files.map((file) => file.size)).toEqual(AUSTEN.map((book) => book.bytes));
   });
 
   it('rejects a damaged response before returning a partial acquisition', async () => {

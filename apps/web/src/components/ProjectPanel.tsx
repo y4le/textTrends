@@ -18,9 +18,10 @@ import {
   type LocalLibraryItem,
 } from '../lib/local-library.ts';
 import {
+  BUILTIN_AUSTEN_ID,
   BUILTIN_SHERLOCK_ID,
-  SHERLOCK,
   builtinCorpusOption,
+  demoCorpusFixtures,
   SOURCE_FILE_ACCEPT,
   type BuiltinCorpusId,
 } from '../lib/project.ts';
@@ -31,9 +32,12 @@ import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
 const ACTIVE_DRAG = 'application/x-texttrends-active-document';
-const SHERLOCK_CORPUS = builtinCorpusOption(BUILTIN_SHERLOCK_ID)!;
-const SHERLOCK_LIBRARY_IDS = new Set(
-  SHERLOCK.map((document) => localFileIdentity('txt', document.sourceHash)),
+const FEATURED_DEMO_IDS: readonly BuiltinCorpusId[] = [BUILTIN_SHERLOCK_ID, BUILTIN_AUSTEN_ID];
+const FEATURED_LIBRARY_IDS = new Map(
+  FEATURED_DEMO_IDS.map((id) => [
+    id,
+    new Set(demoCorpusFixtures(id).map((document) => localFileIdentity('txt', document.sourceHash))),
+  ]),
 );
 
 function sourceLabel(status: SourceStatus | undefined): string {
@@ -156,24 +160,36 @@ export function ProjectPanel() {
     pendingActivationRef.current.clear();
     sawPendingImportsRef.current = false;
   }
-  const activeSherlockIds = new Set([
+  const activeLibraryIds = [
     ...finalizedDocs.flatMap((document) => document.library === undefined ? [] : [document.library]),
     ...pendingImports.map((item) => item.library),
-  ].filter((id) => SHERLOCK_LIBRARY_IDS.has(id)));
-  const savedSherlockCount = library.filter((item) => SHERLOCK_LIBRARY_IDS.has(item.id)).length;
-  const allSherlockActive = activeSherlockIds.size === SHERLOCK.length;
-  const sherlockActionLabel = demoLoading !== null
-    ? 'Adding Sherlock sample…'
-    : allSherlockActive
-      ? 'All Sherlock texts are active'
-      : savedSherlockCount === SHERLOCK.length
-        ? 'Activate saved Sherlock texts'
-        : activeSherlockIds.size > 0 || savedSherlockCount > 0
-          ? 'Add missing Sherlock texts'
-          : inputCount === 0
-            ? 'Try the Sherlock Holmes sample'
-            : 'Add Sherlock sample';
-  const sherlockActionUnavailable = demoLoading !== null || libraryBusy || allSherlockActive;
+  ];
+  const demoActions = FEATURED_DEMO_IDS.map((id) => {
+    const option = builtinCorpusOption(id)!;
+    const fixtures = demoCorpusFixtures(id);
+    const fixtureIds = FEATURED_LIBRARY_IDS.get(id)!;
+    const activeCount = new Set(activeLibraryIds.filter((libraryId) => fixtureIds.has(libraryId))).size;
+    const savedCount = library.filter((item) => fixtureIds.has(item.id)).length;
+    const allActive = activeCount === fixtures.length;
+    const shortName = option.shortLabel;
+    const label = demoLoading === id
+      ? `Adding ${shortName} sample…`
+      : allActive
+        ? `All ${shortName} texts are active`
+        : savedCount === fixtures.length
+          ? `Activate saved ${shortName} texts`
+          : activeCount > 0 || savedCount > 0
+            ? `Add missing ${shortName} texts`
+            : inputCount === 0
+              ? `Try the ${option.label} sample`
+              : `Add ${shortName} sample`;
+    return {
+      id,
+      label,
+      unavailable: demoLoading !== null || libraryBusy || allActive,
+    };
+  });
+  const loadingDemoLabel = demoLoading === null ? null : builtinCorpusOption(demoLoading)?.label ?? 'demo';
 
   const activateUnique = (
     files: readonly LocalLibraryFile[],
@@ -549,7 +565,7 @@ export function ProjectPanel() {
               <span>
                 {inputCount === 0
                   ? 'Add your own files, or explore with prepared public-domain texts and suggested terms.'
-                  : 'Sherlock can be added without replacing your active texts or authored terms.'}
+                  : 'Prepared samples can be added without replacing your active texts or authored terms.'}
               </span>
             </p>
             <div className="input-sample-actions">
@@ -566,22 +582,24 @@ export function ProjectPanel() {
                   <span aria-hidden="true">or</span>
                 </>
               )}
-              <button
-                key="sherlock-sample"
-                type="button"
-                aria-disabled={sherlockActionUnavailable}
-                aria-busy={demoLoading === BUILTIN_SHERLOCK_ID || undefined}
-                onClick={() => {
-                  if (!sherlockActionUnavailable) void loadDemo(BUILTIN_SHERLOCK_ID);
-                }}
-                style={SMALL_BUTTON_STYLE}
-              >
-                {sherlockActionLabel}
-              </button>
+              {demoActions.map((action) => (
+                <button
+                  key={`${action.id}-sample`}
+                  type="button"
+                  aria-disabled={action.unavailable}
+                  aria-busy={demoLoading === action.id || undefined}
+                  onClick={() => {
+                    if (!action.unavailable) void loadDemo(action.id);
+                  }}
+                  style={SMALL_BUTTON_STYLE}
+                >
+                  {action.label}
+                </button>
+              ))}
             </div>
             {demoError && <p role="alert" className="input-card-error input-sample-message">{demoError}</p>}
             <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status input-sample-message">
-              {demoLoading ? `Adding the ${SHERLOCK_CORPUS.label} sample…` : demoNotice ?? ''}
+              {loadingDemoLabel ? `Adding the ${loadingDemoLabel} sample…` : demoNotice ?? ''}
             </p>
           </div>
         </section>

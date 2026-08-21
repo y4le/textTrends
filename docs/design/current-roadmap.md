@@ -36,8 +36,8 @@ measurement gates, and method contracts.
   presentation diagnostics. The pane owns additive private demo loaders,
   explicit cache eviction, full browser-data reset, worker/retry actions, and a
   metadata-only copy report. Allowlisted one-shot `?demo=sherlock`,
-  `?demo=lotr`, and `?demo=asoif` links replace active research state while
-  preserving reusable local-library bytes.
+  `?demo=austen`, `?demo=lotr`, and `?demo=asoif` links replace active research
+  state while preserving reusable local-library bytes.
 - **Hermetic builds and deployment:** every workspace package, including the
   Standard Ebooks client, lives in this repository. Pull requests run the full
   CI suite; successful pushes to `master` build and deploy the production

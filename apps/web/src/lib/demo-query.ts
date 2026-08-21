@@ -1,4 +1,5 @@
 import {
+  BUILTIN_AUSTEN_ID,
   BUILTIN_ASOIF_ID,
   BUILTIN_LOTR_ID,
   BUILTIN_SHERLOCK_ID,
@@ -9,6 +10,7 @@ export const DEMO_QUERY_PARAMETER = 'demo';
 
 const DEMO_BY_SLUG: Readonly<Record<string, BuiltinCorpusId>> = Object.freeze({
   sherlock: BUILTIN_SHERLOCK_ID,
+  austen: BUILTIN_AUSTEN_ID,
   asoif: BUILTIN_ASOIF_ID,
   lotr: BUILTIN_LOTR_ID,
 });
