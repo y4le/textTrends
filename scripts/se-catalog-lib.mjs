@@ -6,12 +6,12 @@
  *
  * HTML scraping (site-specific, brittle by nature) stays here; the stable
  * Standard Ebooks contracts — the path→repository-name mapping and OPF
- * parsing (identifier, code repository, collections) — come from
+ * parsing (identifier and code repository) — come from
  * @texttrends/standard-ebooks, so this module holds drift POLICY over the
  * library's parsed facts rather than its own OPF regexes.
  */
 
-import { ebookPathToRepositoryName, parsePackage } from '@texttrends/standard-ebooks';
+import { ebookPathToRepositoryName, parsePackage, validateRepositoryName } from '@texttrends/standard-ebooks';
 
 export const ORIGIN = 'https://standardebooks.org';
 export const RAW_ORIGIN = 'https://raw.githubusercontent.com';
@@ -52,9 +52,8 @@ function decodedNonEmpty(value, what) {
 
 /**
  * Parse every `<li typeof="schema:Book" …>` entry. The browse list keys the
- * ebook path off `about=`, a collection off `resource=`; both carry the title
- * as the first plain-paragraph schema:name span and the author(s) inside
- * `<p class="author">` blocks. Collections add a schema:position meta.
+ * ebook path off `about=` and carries the title as the first plain-paragraph
+ * schema:name span and the author(s) inside `<p class="author">` blocks.
  */
 export function parseBookEntries(html, label) {
   const chunks = html.split(/<li typeof="schema:Book"/u).slice(1);
@@ -64,18 +63,20 @@ export function parseBookEntries(html, label) {
     const liTag = body.slice(0, body.indexOf('>'));
     const path = /(?:about|resource)="(\/ebooks\/[^"]+)"/u.exec(liTag)?.[1];
     assert(path !== undefined, `${where}: no ebook path`);
-    // Any ribbon class marks an entry that is not a plain downloadable ebook
-    // ("not-pd", "wanted" = not yet produced, …).
-    const ribbon = /class="[^"]*ribbon[^"]*"/u.test(liTag);
-    const position = /<meta property="schema:position" content="([^"]+)"\/>/u.exec(body)?.[1];
     const title = /<p><a [^>]*property="schema:url"><span property="schema:name">([^<]+)<\/span>/u.exec(body)?.[1];
     assert(title !== undefined, `${where}: no title`);
-    const authors = [...body.matchAll(/<p class="author"[^>]*>.*?<span property="schema:name">([^<]+)<\/span>/gsu)].map((m) => m[1]);
-    assert(authors.length > 0, `${where}: no author`);
+    const authorBlocks = [...body.matchAll(/<p class="author"(?<attributes>[^>]*)>(?<content>.*?)<\/p>/gsu)];
+    assert(authorBlocks.length > 0, `${where}: no author`);
+    const authors = authorBlocks.map((match) => {
+      const name = /<span property="schema:name">([^<]+)<\/span>/su.exec(match.groups.content)?.[1];
+      if (name !== undefined) return name;
+      // Standard Ebooks represents anonymous authors as an empty Person
+      // element whose resource is the canonical anonymous author page.
+      assert(/\bresource="\/ebooks\/anonymous"/u.test(match.groups.attributes), `${where}: author has no name`);
+      return 'Anonymous';
+    });
     return {
       path,
-      ribbon,
-      position: position === undefined ? null : Number(position),
       title: decodedNonEmpty(title, `${where} title`),
       author: authors.map((a) => decodedNonEmpty(a, `${where} author`)).join(' and '),
     };
@@ -89,7 +90,10 @@ export function parseBookEntries(html, label) {
  */
 export function pathToRepositoryName(path) {
   try {
-    return ebookPathToRepositoryName(path);
+    // GitHub repository names are capped at 100 characters. Standard Ebooks
+    // truncates only the final slug when its otherwise-mechanical mapping
+    // exceeds that limit; the OPF repository link below proves the result.
+    return validateRepositoryName(ebookPathToRepositoryName(path).slice(0, 100));
   } catch (error) {
     throw new DriftError(error instanceof Error ? error.message : String(error));
   }
@@ -108,35 +112,15 @@ export function parsePopularityPage(html, { page, perPage, minimumCount }) {
   return entries;
 }
 
-/** One collection page: a COMPLETE series — every member positioned, none flagged. */
-export function parseSeriesPage(html, slug) {
-  const label = `collection ${slug}`;
-  assert(html.includes(`typeof="schema:BookSeries" about="/collections/${slug}"`), `${label}: no BookSeries markup`);
-  const title = /typeof="schema:BookSeries"[^>]*>\s*<meta property="schema:name" content="([^"]+)"\/>/u.exec(html)?.[1];
-  assert(title !== undefined, `${label}: no series title`);
-  const entries = parseBookEntries(html, label);
-  assert(entries.length > 1, `${label}: a series needs at least two members`);
-  for (const entry of entries) {
-    assert(!entry.ribbon, `${label}: ${entry.path} is flagged (not-pd/wanted/…) — series is not a complete downloadable showcase`);
-    assert(entry.position !== null && Number.isFinite(entry.position) && entry.position > 0, `${label}: ${entry.path} has no valid position`);
-  }
-  assert(new Set(entries.map((e) => e.position)).size === entries.length, `${label}: duplicate positions`);
-  const members = [...entries]
-    .sort((a, b) => a.position - b.position)
-    .map((entry) => ({ ...entry, name: pathToRepositoryName(entry.path) }));
-  return { slug, title: decodedNonEmpty(title, `${label} title`), sourceUrl: `${ORIGIN}/collections/${slug}`, members };
-}
-
 /**
  * The OPF is the per-book source of truth: require the identifier and the
- * `rel="schema:codeRepository"` link to agree with the derived name, and each
- * claimed series membership to be declared with the same position, so markup
+ * `rel="schema:codeRepository"` link to agree with the mapped name, so markup
  * or mapping drift fails at generation instead of producing bad downloads at
  * add-time. The facts come from the library's real XML parse (parsePackage:
  * comments ignored, attribute/element identity exact); only the drift policy
  * lives here.
  */
-export function validateOpfDocument(opf, book, seriesMemberships) {
+export function validateOpfDocument(opf, book) {
   const label = `OPF ${book.name}`;
   let metadata;
   try {
@@ -152,47 +136,24 @@ export function validateOpfDocument(opf, book, seriesMemberships) {
     metadata.repositoryUrl === `https://github.com/${ORGANIZATION}/${book.name}`,
     `${label}: schema:codeRepository "${metadata.repositoryUrl ?? '(none)'}" does not match the derived repository name`,
   );
-  for (const { seriesTitle, position } of seriesMemberships) {
-    const collection = metadata.collections.find((c) => c.title === seriesTitle);
-    assert(collection !== undefined, `${label}: no belongs-to-collection for "${seriesTitle}"`);
-    assert(collection.type === 'series', `${label}: "${seriesTitle}" is not declared collection-type=series`);
-    assert(
-      collection.position === position,
-      `${label}: group-position ${collection.position ?? '(none)'} disagrees with collection position ${position}`,
-    );
-  }
 }
 
-/**
- * The canonical artifact content (everything except generatedAt): ranked
- * books 1..N first, then series-only books in configured-series order and
- * position order, each book exactly once.
- */
-export function canonicalContent(popular, series, popularityUrl) {
-  const books = [...popular.map(({ name, title, author, popularityRank }) => ({ name, title, author, popularityRank }))];
-  const seen = new Set(books.map((b) => b.name));
-  for (const s of series) {
-    for (const { name, title, author } of s.members) {
-      if (seen.has(name)) continue;
-      seen.add(name);
-      books.push({ name, title, author });
-    }
-  }
+/** Canonical artifact content (everything except generatedAt). */
+export function canonicalContent(popular, popularityUrl) {
   return {
-    schemaVersion: 1,
+    schemaVersion: 2,
     source: { popularityUrl },
-    books,
-    series: series.map(({ slug, title, sourceUrl, members }) => ({
-      slug,
+    books: popular.map(({ name, title, author, popularityRank }) => ({
+      name,
       title,
-      sourceUrl,
-      members: members.map(({ name, position }) => ({ name, position })),
+      author,
+      popularityRank,
     })),
   };
 }
 
 /**
- * Fetch one of the KNOWN catalog/collection/raw URLs (never crawled links).
+ * Fetch one of the known catalog/raw URLs (never crawled links).
  * Status, final origin, AND media type are all part of the fail-closed gate:
  * a same-origin 200 with an unexpected representation must never reach the
  * parsers.

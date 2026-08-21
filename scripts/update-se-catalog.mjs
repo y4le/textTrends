@@ -4,24 +4,19 @@
  * (apps/web/src/lib/standard-ebooks-catalog.json). Run ad hoc via
  * `pnpm update:se-catalog` — never in CI and never from the app itself.
  *
- * The catalog is the top {@link TOP_COUNT} ebooks by the standardebooks.org
- * "Popularity (most → least)" sort plus the complete members of an explicit
- * allowlist of series collections. Every fact baked into the artifact is
- * cross-checked before anything is written (the gates live in
+ * The catalog is a frozen index of the top {@link TOP_COUNT} ebooks by the
+ * standardebooks.org "Popularity (most → least)" sort. Every fact baked into
+ * the artifact is cross-checked before anything is written (the gates live in
  * se-catalog-lib.mjs and are covered by its offline fixture suite):
  *
  * - every response must carry the expected status, final origin, AND media
- *   type; browse/collection pages must carry the expected schema.org RDFa
- *   markup and the expected selected sort/per-page options (an unknown sort
+ *   type; browse pages must carry the expected schema.org RDFa markup and the
+ *   expected selected sort/per-page options (an unknown sort
  *   value is silently ignored server-side, so this is the only way to detect
  *   drift);
- * - a series must be COMPLETE: every collection entry positioned and plainly
- *   downloadable (no not-pd/wanted ribbon) — fail rather than silently omit
- *   members;
  * - each unique repository's raw `src/epub/content.opf` must exist on
  *   `master` and agree with the derived repository name (dc:identifier +
- *   rel="schema:codeRepository"), and series members must carry the matching
- *   belongs-to-collection / collection-type=series / group-position metadata.
+ *   rel="schema:codeRepository").
  *
  * Fails closed: any drift aborts with a nonzero exit and the existing JSON
  * untouched (the output is written to a temporary sibling and renamed only
@@ -41,15 +36,12 @@ import {
   canonicalContent,
   fetchText,
   parsePopularityPage,
-  parseSeriesPage,
   pathToRepositoryName,
   validateOpfDocument,
 } from './se-catalog-lib.mjs';
 
-const TOP_COUNT = 100;
+const TOP_COUNT = 1_000;
 const PER_PAGE = 48;
-/** Ordered allowlist: which SE collections ship as complete series showcases. */
-const SERIES_SLUGS = ['sherlock-holmes', 'palliser'];
 const OPF_CONCURRENCY = 6;
 const USER_AGENT = 'textTrends-catalog-updater (ad-hoc dev script; contact: repo owner)';
 const PAGE_TYPES = ['application/xhtml+xml', 'text/html'];
@@ -75,14 +67,14 @@ async function scrapePopularBooks() {
   return top.map((entry, index) => ({ ...entry, name: pathToRepositoryName(entry.path), popularityRank: index + 1 }));
 }
 
-async function validateAgainstOpf(book, seriesMemberships) {
+async function validateAgainstOpf(book) {
   const opf = await fetchText(`${RAW_ORIGIN}/${ORGANIZATION}/${book.name}/master/src/epub/content.opf`, {
     origin: RAW_ORIGIN,
     types: OPF_TYPES,
     label: `OPF ${book.name}`,
     userAgent: USER_AGENT,
   });
-  validateOpfDocument(opf, book, seriesMemberships);
+  validateOpfDocument(opf, book);
 }
 
 async function inPool(items, limit, run) {
@@ -97,32 +89,10 @@ async function inPool(items, limit, run) {
 async function main() {
   const popular = await scrapePopularBooks();
   console.log(`popularity: ${popular.length} books over ${Math.ceil(TOP_COUNT / PER_PAGE)} pages`);
-  const series = [];
-  for (const slug of SERIES_SLUGS) {
-    const html = await fetchPage(`${ORIGIN}/collections/${slug}`, `collection ${slug}`);
-    const one = parseSeriesPage(html, slug);
-    console.log(`series ${slug}: ${one.members.length} members, all positioned and public domain`);
-    series.push(one);
-  }
+  await inPool(popular, OPF_CONCURRENCY, validateAgainstOpf);
+  console.log(`OPF-validated ${popular.length} repositories`);
 
-  const byName = new Map();
-  for (const book of [...popular, ...series.flatMap((s) => s.members)]) {
-    const existing = byName.get(book.name);
-    assert(existing === undefined || existing.path === book.path, `Repository ${book.name} maps to two paths`);
-    byName.set(book.name, book);
-  }
-  const memberships = new Map();
-  for (const s of series) {
-    for (const member of s.members) {
-      const list = memberships.get(member.name) ?? [];
-      list.push({ seriesTitle: s.title, position: member.position });
-      memberships.set(member.name, list);
-    }
-  }
-  await inPool([...byName.values()], OPF_CONCURRENCY, (book) => validateAgainstOpf(book, memberships.get(book.name) ?? []));
-  console.log(`OPF-validated ${byName.size} unique repositories`);
-
-  const content = canonicalContent(popular, series, `${ORIGIN}/ebooks?sort=popularity&per-page=${PER_PAGE}`);
+  const content = canonicalContent(popular, `${ORIGIN}/ebooks?sort=popularity&per-page=${PER_PAGE}`);
   let previous = null;
   try {
     previous = JSON.parse(readFileSync(OUTPUT_PATH, 'utf8'));
@@ -145,7 +115,7 @@ async function main() {
     rmSync(staging, { force: true });
     throw error;
   }
-  console.log(`wrote ${OUTPUT_PATH}: ${content.books.length} books, ${content.series.length} series`);
+  console.log(`wrote ${OUTPUT_PATH}: ${content.books.length} ranked books`);
 }
 
 main().catch((error) => {

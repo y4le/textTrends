@@ -1,9 +1,9 @@
 /**
  * The baked Standard Ebooks library in the real browser: browsing makes NO
  * external network requests (no api.github.com, no standardebooks.org — the
- * snapshot is fetched as a hashed same-origin JSON asset when Inputs mounts), a
- * complete series renders in position order from the checked-in snapshot,
- * and adding a book downloads its source ONLY from raw.githubusercontent.com
+ * snapshot is fetched as a hashed same-origin JSON asset when Inputs mounts),
+ * the frozen popularity index renders in order, and adding a book downloads
+ * its source ONLY from raw.githubusercontent.com
  * — fulfilled here from fixtures, so the whole proof runs offline — and
  * ingests it through the same import path as an uploaded file. Build-shape
  * tests prove payload separation (the snapshot bytes live outside every
@@ -45,7 +45,7 @@ const part = (title: string, text: string) => `<?xml version="1.0" encoding="utf
   <body epub:type="bodymatter"><section><h2>${title}</h2><p>${text}</p></section></body>
 </html>`;
 
-test('the baked catalog browses offline, renders series in order, and adds from raw fixtures', async ({ page }) => {
+test('the baked catalog browses offline, preserves popularity order, and adds from raw fixtures', async ({ page }) => {
   const apiRequests: string[] = [];
   const rawRequests: string[] = [];
   await page.route('https://api.github.com/**', (route) => {
@@ -74,25 +74,36 @@ test('the baked catalog browses offline, renders series in order, and adds from 
   await gotoPlace(page, 'inputs');
   await clearDemoInputs(page);
 
-  // Browsing is purely the baked snapshot: the catalog is already open and a series
-  // render complete and position-ordered with NO external catalog traffic
+  // Browsing is purely the baked snapshot: the catalog is already open and
+  // renders in popularity order with NO external catalog traffic
   // (the snapshot itself is a same-origin JSON asset, invisible to these
   // external-route interceptors; its on-demand timing is asserted in the
   // retry test and its payload separation in the build-shape test).
-  const series = page.getByRole('list', { name: 'Sherlock Holmes series' });
-  await expect(series).toBeVisible();
-  const rows = series.getByRole('listitem');
-  await expect(rows).toHaveCount(9);
-  await expect(rows.nth(0)).toContainText('1. A Study in Scarlet');
-  await expect(rows.nth(1)).toContainText('2. The Sign of the Four');
-  await expect(rows.nth(8)).toContainText('9. The Casebook of Sherlock Holmes');
-  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' })).toBeVisible();
+  const popular = page.getByRole('list', { name: 'Popular Standard Ebooks' });
+  await expect(popular).toBeVisible();
+  await expect(popular.getByRole('listitem')).toHaveCount(100);
+  await expect(page.locator('.standard-ebooks-catalog-content').getByRole('status'))
+    .toContainText('showing 100 of 1000 matches');
+  await page.getByRole('button', { name: 'show 100 more' }).click();
+  await expect(popular.getByRole('listitem')).toHaveCount(200);
+  await expect(popular.getByRole('listitem').nth(100).getByRole('button', { name: 'add' })).toBeFocused();
+
+  // Exhausting the final partial window moves focus into the newly revealed
+  // rows instead of dropping it to document.body when the disclosure unmounts.
+  const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
+  await filter.fill('and');
+  await page.getByRole('button', { name: 'show 24 more' }).click();
+  await expect(page.getByRole('button', { name: /show \d+ more/ })).toHaveCount(0);
+  await expect(popular.getByRole('listitem').nth(100).getByRole('button', { name: 'add' })).toBeFocused();
+  await filter.fill('');
+  const row = popular.getByRole('listitem').filter({ hasText: 'A Study in Scarlet' });
+  await expect(row).toHaveCount(1);
   expect(apiRequests).toEqual([]);
   expect(rawRequests).toEqual([]);
 
   // Adding downloads the source from raw.githubusercontent.com only (here:
   // fixtures), repackages it, and ingests it like an uploaded .epub.
-  await rows.nth(0).getByRole('button', { name: 'add' }).click();
+  await row.getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
   await expect(page.getByText('A Study in Scarlet', { exact: true })).toBeVisible();
   await expect(page.getByRole('list', { name: 'Saved texts' })).toContainText(`${BOOK}.epub`);
@@ -104,7 +115,7 @@ test('the baked catalog browses offline, renders series in order, and adds from 
 
   // Re-acquiring the same deterministic archive neither duplicates the local
   // record nor activates a second copy of the same source.
-  await rows.nth(0).getByRole('button', { name: 'add' }).click();
+  await row.getByRole('button', { name: 'add' }).click();
   await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(7);
   await expect(page.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(1);
   await expect(page.getByText(/already saved.*already active/)).toBeVisible();
@@ -133,9 +144,9 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
   await page
-    .getByRole('list', { name: 'Sherlock Holmes series' })
+    .getByRole('list', { name: 'Popular Standard Ebooks' })
     .getByRole('listitem')
-    .first()
+    .filter({ hasText: 'A Study in Scarlet' })
     .getByRole('button', { name: 'add' })
     .click();
   await expect.poll(() => page.evaluate(() => (
@@ -153,13 +164,13 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
 test('build shape: the catalog snapshot bytes live outside every script', () => {
   // PAYLOAD SEPARATION half of the lazy-load guard (Phase A ruling): the
   // webServer command builds dist/ before any spec runs, so the emitted
-  // output is on disk. The marker is a catalog-only string: a series
-  // sourceUrl prefix that appears nowhere in application code. This proves
-  // the ~20 kB snapshot is not embedded in any script or the HTML — the
+  // output is on disk. The marker is a catalog-only string: the repository
+  // name of the rank-1000 book, which appears nowhere in application code.
+  // This proves the snapshot is not embedded in any script or the HTML — the
   // MOUNT TIMING half (Inputs fetches the asset when its always-open catalog
   // appears) is a runtime property, asserted in the retry test below.
   const dist = fileURLToPath(new URL('../dist/', import.meta.url));
-  const marker = 'standardebooks.org/collections/';
+  const marker = 'frederik-pohl_plague-of-pythons';
   expect(readFileSync(`${dist}index.html`, 'utf8').includes(marker)).toBe(false);
   const assets = readdirSync(`${dist}assets/`);
   for (const script of assets.filter((f) => f.endsWith('.js') || f.endsWith('.css'))) {
@@ -240,5 +251,5 @@ test('the catalog asset loads with Inputs, and a failed fetch shows a genuinely 
   await page.unroute(catalogAsset);
   await page.getByRole('button', { name: 'retry' }).click();
   await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Sherlock Holmes series' })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' }).getByRole('listitem')).toHaveCount(100);
 });

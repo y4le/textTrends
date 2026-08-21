@@ -2,57 +2,42 @@
  * Schema/version invariants of the CHECKED-IN baked catalog artifact
  * (standard-ebooks-catalog.json). The adapter pins only the compile-time
  * shape; everything the app and the update script promise about the data —
- * exactly 100 popularity ranks, globally unique repository names in the
- * client's grammar, resolvable ordered series, canonical ordering, and no
- * unexpected keys (so book text/descriptions/covers can never leak into the
- * artifact) — is proven here against the real file.
+ * exactly 1,000 popularity ranks, globally unique repository names in the
+ * client's grammar, canonical ordering, and no unexpected keys (so book
+ * text/descriptions/covers can never leak into the artifact) — is proven
+ * here against the real file.
  */
 import { REPOSITORY_NAME } from '@texttrends/standard-ebooks';
 import { describe, expect, it } from 'vitest';
 import catalogJson from '../src/lib/standard-ebooks-catalog.json';
-import type { CatalogBook, StandardEbooksCatalog } from '../src/lib/standard-ebooks-catalog.ts';
+import type { StandardEbooksCatalog } from '../src/lib/standard-ebooks-catalog.ts';
 
 // The typed assignment IS the compile-time shape pin over the real artifact —
 // the adapter now ships only the asset URL (fetched on demand), so the static
 // structural check lives here instead.
 const catalog: StandardEbooksCatalog = catalogJson;
-const TOP_COUNT = 100;
+const TOP_COUNT = 1_000;
 
 const isTrimmedNonEmpty = (value: string) => value !== '' && value === value.trim();
 
 describe('baked Standard Ebooks catalog artifact', () => {
-  it('carries schema version 1, a valid ISO timestamp, and only expected sources', () => {
-    expect(catalog.schemaVersion).toBe(1);
+  it('carries schema version 2, a valid ISO timestamp, and the expected source', () => {
+    expect(catalog.schemaVersion).toBe(2);
     expect(new Date(catalog.generatedAt).toISOString()).toBe(catalog.generatedAt);
     expect(catalog.source.popularityUrl).toBe('https://standardebooks.org/ebooks?sort=popularity&per-page=48');
-    for (const series of catalog.series) {
-      expect(series.sourceUrl).toBe(`https://standardebooks.org/collections/${series.slug}`);
-    }
   });
 
   it('has no unexpected keys anywhere (no text/descriptions/covers can leak in)', () => {
-    expect(Object.keys(catalog).sort()).toEqual(['books', 'generatedAt', 'schemaVersion', 'series', 'source']);
+    expect(Object.keys(catalog).sort()).toEqual(['books', 'generatedAt', 'schemaVersion', 'source']);
     expect(Object.keys(catalog.source)).toEqual(['popularityUrl']);
     for (const book of catalog.books) {
-      const keys = Object.keys(book).sort();
-      expect(['author', 'name', 'popularityRank', 'title'].filter((k) => keys.includes(k))).toEqual(keys);
-      expect(keys).toContain('name');
-      expect(keys).toContain('title');
-      expect(keys).toContain('author');
-    }
-    for (const series of catalog.series) {
-      expect(Object.keys(series).sort()).toEqual(['members', 'slug', 'sourceUrl', 'title']);
-      for (const member of series.members) {
-        expect(Object.keys(member).sort()).toEqual(['name', 'position']);
-      }
+      expect(Object.keys(book).sort()).toEqual(['author', 'name', 'popularityRank', 'title']);
     }
   });
 
-  it('holds exactly 100 distinct popularity ranks covering 1..100, first and in rank order', () => {
-    const ranked = catalog.books.filter((b) => b.popularityRank !== undefined);
-    expect(ranked.length).toBe(TOP_COUNT);
-    expect(catalog.books.slice(0, TOP_COUNT)).toEqual(ranked);
-    ranked.forEach((book, index) => expect(book.popularityRank).toBe(index + 1));
+  it('holds exactly 1,000 books with distinct ranks covering 1..1,000 in order', () => {
+    expect(catalog.books).toHaveLength(TOP_COUNT);
+    catalog.books.forEach((book, index) => expect(book.popularityRank).toBe(index + 1));
   });
 
   it('lists globally unique repository names in the client grammar with real labels', () => {
@@ -65,43 +50,4 @@ describe('baked Standard Ebooks catalog artifact', () => {
     }
   });
 
-  it('ships exactly the configured series, in allowlist order', () => {
-    // The generator's SERIES_SLUGS allowlist, pinned so a configuration
-    // change is review-visible here rather than only in the script.
-    expect(catalog.series.map((s) => s.slug)).toEqual(['sherlock-holmes', 'palliser']);
-  });
-
-  it('resolves every series member to exactly one book, uniquely positioned per series', () => {
-    expect(catalog.series.length).toBeGreaterThan(0);
-    const byName = new Map(catalog.books.map((b) => [b.name, b]));
-    const slugs = new Set(catalog.series.map((s) => s.slug));
-    expect(slugs.size).toBe(catalog.series.length);
-    for (const series of catalog.series) {
-      expect(isTrimmedNonEmpty(series.title)).toBe(true);
-      expect(series.members.length).toBeGreaterThan(1);
-      const positions = new Set(series.members.map((m) => m.position));
-      expect(positions.size).toBe(series.members.length);
-      for (const member of series.members) {
-        expect(byName.has(member.name)).toBe(true);
-        expect(Number.isFinite(member.position)).toBe(true);
-        expect(member.position).toBeGreaterThan(0);
-      }
-      const sorted = [...series.members].sort((a, b) => a.position - b.position);
-      expect(series.members).toEqual(sorted);
-    }
-  });
-
-  it('orders series-only books canonically after the top 100', () => {
-    const topNames = new Set(catalog.books.slice(0, TOP_COUNT).map((b) => b.name));
-    const expected: string[] = [];
-    for (const series of catalog.series) {
-      for (const member of series.members) {
-        if (!topNames.has(member.name) && !expected.includes(member.name)) expected.push(member.name);
-      }
-    }
-    expect(catalog.books.slice(TOP_COUNT).map((b: CatalogBook) => b.name)).toEqual(expected);
-    for (const book of catalog.books.slice(TOP_COUNT)) {
-      expect('popularityRank' in book).toBe(false);
-    }
-  });
 });

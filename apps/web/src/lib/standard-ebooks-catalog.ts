@@ -12,9 +12,9 @@
  *
  * The JSON is first-party build input in the same trust class as source, so
  * this adapter only pins the compile-time shape — the schema/version
- * invariants (exactly 100 popularity ranks, unique names, resolvable series
- * members, canonical ordering, no unexpected keys) are enforced by the unit
- * test over the real artifact.
+ * invariants (exactly 1,000 popularity ranks, unique names, canonical
+ * ordering, no unexpected keys) are enforced by the unit test over the real
+ * artifact.
  */
 
 import catalogUrl from './standard-ebooks-catalog.json?url';
@@ -23,21 +23,8 @@ export type CatalogBook = {
   readonly name: string;
   readonly title: string;
   readonly author: string;
-  /** 1-based standardebooks.org popularity rank; absent for series-only books. */
-  readonly popularityRank?: number;
-};
-
-export type CatalogSeriesMember = {
-  readonly name: string;
-  /** Reading-order position within the series (finite, positive). */
-  readonly position: number;
-};
-
-export type CatalogSeries = {
-  readonly slug: string;
-  readonly title: string;
-  readonly sourceUrl: string;
-  readonly members: readonly CatalogSeriesMember[];
+  /** 1-based standardebooks.org popularity rank. */
+  readonly popularityRank: number;
 };
 
 export type StandardEbooksCatalog = {
@@ -45,7 +32,6 @@ export type StandardEbooksCatalog = {
   readonly generatedAt: string;
   readonly source: { readonly popularityUrl: string };
   readonly books: readonly CatalogBook[];
-  readonly series: readonly CatalogSeries[];
 };
 
 /** Lazily fetch the baked catalog asset. The in-flight promise is memoized at

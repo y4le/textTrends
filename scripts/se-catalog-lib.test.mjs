@@ -1,9 +1,9 @@
 /**
  * Offline fixture suite for the catalog updater's fail-closed gates: media
  * types, entity decoding (including residue rejection), label normalization,
- * ribbon/position series completeness, the rel="schema:codeRepository" OPF
- * cross-check, and canonical content assembly. No network: fetchText takes a
- * stubbed fetch. Runs via `node --test scripts/` (part of `pnpm test`).
+ * the rel="schema:codeRepository" OPF cross-check, and canonical content
+ * assembly. No network: fetchText takes a stubbed fetch. Runs via
+ * `node --test scripts/` (part of `pnpm test`).
  */
 
 import assert from 'node:assert/strict';
@@ -16,14 +16,12 @@ import {
   fetchText,
   parseBookEntries,
   parsePopularityPage,
-  parseSeriesPage,
   pathToRepositoryName,
   validateOpfDocument,
 } from './se-catalog-lib.mjs';
 
-const bookLi = ({ path, title, author, position = null, liClass = null }) => `
-  <li typeof="schema:Book" about="${path}"${liClass === null ? '' : ` class="${liClass}"`}>
-    ${position === null ? '' : `<meta property="schema:position" content="${position}"/>`}
+const bookLi = ({ path, title, author }) => `
+  <li typeof="schema:Book" about="${path}">
     <div class="thumbnail-container"><a href="${path}" property="schema:url"><picture></picture></a></div>
     <p><a href="${path}" property="schema:url"><span property="schema:name">${title}</span></a></p>
     <p class="author" typeof="schema:Person" property="schema:author"><a href="x" property="schema:url"><span property="schema:name">${author}</span></a></p>
@@ -34,22 +32,13 @@ const browsePage = (entries, { sortSelected = true, perPageSelected = true } = {
   <select name="per-page"><option value="2"${perPageSelected ? ' selected="selected"' : ''}>2</option></select>
   <ol class="ebooks-list grid">${entries.join('')}</ol>`;
 
-const seriesPage = (slug, title, entries) => `
-  <ol class="ebooks-list grid" typeof="schema:BookSeries" about="/collections/${slug}">
-    <meta property="schema:name" content="${title}"/>${entries.join('')}
-  </ol>`;
-
 /** A minimal but REAL package: the validator parses it with the library's
  *  parsePackage (title, manifest, and an XHTML spine are required). */
-const opfFor = ({ path, name, collections = [] }) => `<?xml version="1.0"?>
+const opfFor = ({ path, name }) => `<?xml version="1.0"?>
 <package xmlns="http://www.idpf.org/2007/opf" unique-identifier="uid" version="3.0">
   <metadata xmlns:dc="http://purl.org/dc/elements/1.1/">
     <dc:identifier id="uid">${ORIGIN}${path}</dc:identifier>
     <dc:title>A Fixture</dc:title>
-    ${collections.map(({ id, title, type, position }) => `
-      <meta id="${id}" property="belongs-to-collection">${title}</meta>
-      <meta property="collection-type" refines="#${id}">${type}</meta>
-      ${position === null ? '' : `<meta property="group-position" refines="#${id}">${position}</meta>`}`).join('')}
     <meta property="se:url.vcs.github" id="vcs-repository">https://github.com/standardebooks/${name}</meta>
     <link href="https://github.com/standardebooks/${name}" refines="#vcs-repository" rel="schema:codeRepository"/>
   </metadata>
@@ -75,6 +64,12 @@ describe('pathToRepositoryName', () => {
     assert.equal(pathToRepositoryName('/ebooks/homer/the-odyssey/william-cullen-bryant'), 'homer_the-odyssey_william-cullen-bryant');
     assert.equal(pathToRepositoryName('/ebooks/leo-tolstoy/war-and-peace/louise-maude_aylmer-maude'), 'leo-tolstoy_war-and-peace_louise-maude_aylmer-maude');
   });
+  it('applies Standard Ebooks\' GitHub-limit truncation to long repository names', () => {
+    assert.equal(
+      pathToRepositoryName('/ebooks/hans-jakob-christoffel-von-grimmelshausen/the-adventurous-simplicissimus/alfred-thomas-scrope-goodrick'),
+      'hans-jakob-christoffel-von-grimmelshausen_the-adventurous-simplicissimus_alfred-thomas-scrope-goodri',
+    );
+  });
   it('rejects single-segment and empty-segment paths as DriftError', () => {
     throws(() => pathToRepositoryName('/ebooks/only-author'), /Not a Standard Ebooks ebook URL path/u);
     throws(() => pathToRepositoryName('/ebooks/a//b'), /Not a Standard Ebooks ebook URL path/u);
@@ -83,11 +78,17 @@ describe('pathToRepositoryName', () => {
 
 describe('parseBookEntries', () => {
   const good = { path: '/ebooks/a/b', title: 'Book &amp; Title', author: 'An Author' };
-  it('decodes labels and flags ribbons', () => {
-    const [entry] = parseBookEntries(bookLi(good) + bookLi({ ...good, path: '/ebooks/a/c', liClass: 'ribbon not-pd' }), 't');
+  it('decodes labels', () => {
+    const [entry] = parseBookEntries(bookLi(good), 't');
     assert.equal(entry.title, 'Book & Title');
-    assert.equal(entry.ribbon, false);
-    assert.equal(parseBookEntries(bookLi({ ...good, path: '/ebooks/a/c', liClass: 'ribbon wanted' }), 't')[0].ribbon, true);
+  });
+  it('labels the site\'s empty canonical anonymous author', () => {
+    const anonymous = bookLi(good).replace(
+      /<p class="author"[^>]*>.*?<\/p>/su,
+      '<p class="author" typeof="schema:Person" property="schema:author" resource="/ebooks/anonymous"></p>',
+    );
+    const [entry] = parseBookEntries(anonymous, 't');
+    assert.equal(entry.author, 'Anonymous');
   });
   it('rejects whitespace-only labels before anything can be written', () => {
     throws(() => parseBookEntries(bookLi({ ...good, title: '  ' }), 't'), /title is empty after normalization/u);
@@ -96,6 +97,8 @@ describe('parseBookEntries', () => {
   it('rejects entries missing a path, title, or author', () => {
     throws(() => parseBookEntries('<li typeof="schema:Book" about="/other/x"><p>x</p></li>', 't'), /no ebook path/u);
     throws(() => parseBookEntries('<li typeof="schema:Book" about="/ebooks/a/b"><p>x</p></li>', 't'), /no title/u);
+    const unnamed = bookLi(good).replace(/<span property="schema:name">An Author<\/span>/u, '');
+    throws(() => parseBookEntries(unnamed, 't'), /author has no name/u);
   });
 });
 
@@ -111,73 +114,54 @@ describe('parsePopularityPage', () => {
   it('rejects a short full page', () => {
     throws(() => parsePopularityPage(browsePage(entries.slice(0, 1)), { page: 1, perPage: 2, minimumCount: 2 }), /expected 2 books/u);
   });
-});
-
-describe('parseSeriesPage', () => {
-  const member = (path, position, extra = {}) => bookLi({ path, title: `T${position}`, author: 'A', position, ...extra });
-  it('orders members by position and derives repository names', () => {
-    const html = seriesPage('s', 'The Series', [member('/ebooks/a/two', 2), member('/ebooks/a/one', 1)]);
-    const series = parseSeriesPage(html, 's');
-    assert.deepEqual(series.members.map((m) => m.name), ['a_one', 'a_two']);
-    assert.equal(series.title, 'The Series');
-  });
-  it('rejects flagged, unpositioned, or duplicate-position members (incompleteness)', () => {
-    throws(() => parseSeriesPage(seriesPage('s', 'S', [member('/ebooks/a/x', 1, { liClass: 'ribbon wanted' }), member('/ebooks/a/y', 2)]), 's'), /flagged/u);
-    throws(() => parseSeriesPage(seriesPage('s', 'S', [member('/ebooks/a/x', 1), bookLi({ path: '/ebooks/a/y', title: 'T', author: 'A' })]), 's'), /no valid position/u);
-    throws(() => parseSeriesPage(seriesPage('s', 'S', [member('/ebooks/a/x', 1), member('/ebooks/a/y', 1)]), 's'), /duplicate positions/u);
-  });
-  it('rejects a page without BookSeries markup or with a single member', () => {
-    throws(() => parseSeriesPage('<ol class="ebooks-list"></ol>', 's'), /no BookSeries markup/u);
-    throws(() => parseSeriesPage(seriesPage('s', 'S', [member('/ebooks/a/x', 1)]), 's'), /at least two members/u);
-  });
-  it('rejects a whitespace-only series title', () => {
-    throws(() => parseSeriesPage(seriesPage('s', '&#32;', [member('/ebooks/a/x', 1), member('/ebooks/a/y', 2)]), 's'), /title is empty after normalization/u);
+  it('accepts a partial final page that reaches its requested tail count', () => {
+    assert.equal(parsePopularityPage(browsePage(entries), { page: 2, perPage: 2, minimumCount: 1 }).length, 2);
+    throws(() => parsePopularityPage(browsePage([]), { page: 2, perPage: 2, minimumCount: 1 }), /expected at least 1 book/u);
   });
 });
 
 describe('validateOpfDocument', () => {
   const book = { path: '/ebooks/a/b', name: 'a_b' };
-  it('accepts a matching OPF including series membership', () => {
-    const opf = opfFor({ ...book, collections: [{ id: 'c1', title: 'The Series', type: 'series', position: 3 }] });
-    validateOpfDocument(opf, book, [{ seriesTitle: 'The Series', position: 3 }]);
+  it('accepts a matching OPF', () => {
+    validateOpfDocument(opfFor(book), book);
   });
   it('rejects identifier or code-repository drift', () => {
-    throws(() => validateOpfDocument(opfFor({ path: '/ebooks/a/OTHER', name: 'a_b' }), book, []), /dc:identifier .* does not match/u);
+    throws(() => validateOpfDocument(opfFor({ path: '/ebooks/a/OTHER', name: 'a_b' }), book), /dc:identifier .* does not match/u);
     // An unqualified link to the right URL must NOT satisfy the check: the
     // rel="schema:codeRepository" declaration itself is what is validated.
     const noRel = opfFor(book).replace(' rel="schema:codeRepository"', '');
-    throws(() => validateOpfDocument(noRel, book, []), /schema:codeRepository .* does not match/u);
-    throws(() => validateOpfDocument('<not-a-package/>', book, []), /root is not an OPF package element/u);
+    throws(() => validateOpfDocument(noRel, book), /schema:codeRepository .* does not match/u);
+    throws(() => validateOpfDocument('<not-a-package/>', book), /root is not an OPF package element/u);
   });
   it('requires element and attribute IDENTITY via the real XML parse', () => {
     const realLink = /<link [^>]*rel="schema:codeRepository"[^>]*>/u;
     const withLink = (replacement) => opfFor(book).replace(realLink, replacement);
     // data-rel/data-href carry the right VALUES under near-name attributes.
     throws(
-      () => validateOpfDocument(withLink('<link data-rel="schema:codeRepository" data-href="https://github.com/standardebooks/a_b"/>'), book, []),
+      () => validateOpfDocument(withLink('<link data-rel="schema:codeRepository" data-href="https://github.com/standardebooks/a_b"/>'), book),
       /schema:codeRepository .* does not match/u,
     );
     // The correct relation pointing at the wrong repository.
     throws(
-      () => validateOpfDocument(withLink('<link href="https://github.com/standardebooks/other_repo" rel="schema:codeRepository"/>'), book, []),
+      () => validateOpfDocument(withLink('<link href="https://github.com/standardebooks/other_repo" rel="schema:codeRepository"/>'), book),
       /schema:codeRepository .* does not match/u,
     );
     // A commented-out declaration must not satisfy the check.
     throws(
-      () => validateOpfDocument(opfFor(book).replace(realLink, (m) => `<!-- ${m} -->`), book, []),
+      () => validateOpfDocument(opfFor(book).replace(realLink, (m) => `<!-- ${m} -->`), book),
       /schema:codeRepository .* does not match/u,
     );
     // A near-name ELEMENT with the right attributes must not satisfy it either.
     throws(
-      () => validateOpfDocument(withLink('<link-other href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []),
+      () => validateOpfDocument(withLink('<link-other href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book),
       /schema:codeRepository .* does not match/u,
     );
     // Attribute order stays free: href-before-rel with the right values passes.
-    validateOpfDocument(withLink('<link href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []);
+    validateOpfDocument(withLink('<link href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book);
     // A foreign-NAMESPACE link with the right local name, attributes, and
     // values must not satisfy the check (XML identity = namespace + name).
     throws(
-      () => validateOpfDocument(withLink('<evil:link xmlns:evil="urn:not-opf" href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book, []),
+      () => validateOpfDocument(withLink('<evil:link xmlns:evil="urn:not-opf" href="https://github.com/standardebooks/a_b" rel="schema:codeRepository"/>'), book),
       /schema:codeRepository .* does not match/u,
     );
   });
@@ -188,14 +172,7 @@ describe('validateOpfDocument', () => {
       `<dc:identifier id="uid">${ORIGIN}${book.path}</dc:identifier>`,
       `<dc:identifier id="decoy">${ORIGIN}${book.path}</dc:identifier><dc:identifier id="uid">urn:wrong-unique-id</dc:identifier>`,
     );
-    throws(() => validateOpfDocument(decoyed, book, []), /dc:identifier .* does not match/u);
-  });
-  it('rejects set-typed, absent, or mispositioned series membership', () => {
-    const set = opfFor({ ...book, collections: [{ id: 'c1', title: 'S', type: 'set', position: 1 }] });
-    throws(() => validateOpfDocument(set, book, [{ seriesTitle: 'S', position: 1 }]), /not declared collection-type=series/u);
-    throws(() => validateOpfDocument(opfFor(book), book, [{ seriesTitle: 'S', position: 1 }]), /no belongs-to-collection/u);
-    const wrongPos = opfFor({ ...book, collections: [{ id: 'c1', title: 'S', type: 'series', position: 2 }] });
-    throws(() => validateOpfDocument(wrongPos, book, [{ seriesTitle: 'S', position: 1 }]), /group-position 2 disagrees/u);
+    throws(() => validateOpfDocument(decoyed, book), /dc:identifier .* does not match/u);
   });
 });
 
@@ -225,22 +202,16 @@ describe('fetchText', () => {
 });
 
 describe('canonicalContent', () => {
-  it('emits ranked books first, then deduped series-only members, in order', () => {
+  it('emits only ranked books in order under schema version 2', () => {
     const popular = [
       { name: 'p1', title: 'P1', author: 'A', popularityRank: 1, path: '/ebooks/p/1' },
       { name: 's2', title: 'S2', author: 'A', popularityRank: 2, path: '/ebooks/s/2' },
     ];
-    const series = [{
-      slug: 's', title: 'S', sourceUrl: 'u',
-      members: [
-        { name: 's1', title: 'S1', author: 'A', position: 1 },
-        { name: 's2', title: 'S2', author: 'A', position: 2 },
-      ],
-    }];
-    const content = canonicalContent(popular, series, 'pop-url');
-    assert.deepEqual(content.books.map((b) => b.name), ['p1', 's2', 's1']);
-    assert.deepEqual(content.books.map((b) => b.popularityRank), [1, 2, undefined]);
-    assert.deepEqual(content.series[0].members, [{ name: 's1', position: 1 }, { name: 's2', position: 2 }]);
+    const content = canonicalContent(popular, 'pop-url');
+    assert.equal(content.schemaVersion, 2);
+    assert.deepEqual(content.books.map((b) => b.name), ['p1', 's2']);
+    assert.deepEqual(content.books.map((b) => b.popularityRank), [1, 2]);
+    assert.equal('series' in content, false);
     assert.equal(content.source.popularityUrl, 'pop-url');
   });
 });

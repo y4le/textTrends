@@ -2,20 +2,27 @@
  * Standard Ebooks catalog: a BAKED snapshot (standard-ebooks-catalog.json,
  * regenerated ad hoc via `pnpm update:se-catalog`) — browsing makes no
  * external/live-catalog requests; the snapshot is fetched as a hashed
- * same-origin static asset when Inputs mounts, keeping ~20 kB of JSON out of
- * the entry bundle. Adding a book downloads its source from GitHub
- * (raw.githubusercontent.com, CORS-clean, by repository name) and repackages
- * it into a `.epub` in the browser, ingested through the same import path as
- * an uploaded file. Series render as ordered groups (showcasing series-based
- * analysis); the popular list follows, minus books already shown in a series.
+ * same-origin static asset when Inputs mounts, keeping ~165 kB of JSON
+ * (~35 kB gzipped) out of the entry bundle. Adding a book downloads its
+ * source from GitHub (raw.githubusercontent.com, CORS-clean, by repository
+ * name) and repackages it into a `.epub` in the browser, ingested through the
+ * same import path as an uploaded file. Books render in their frozen
+ * popularity order.
  */
 
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import { catalogSections, type CatalogSectionBook } from '../lib/catalog-view.ts';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
+import { catalogBooks } from '../lib/catalog-view.ts';
 import { libraryOperation } from '../lib/library-operation.ts';
 import type { LocalFileInput } from '../lib/local-library.ts';
-import { loadStandardEbooksCatalog, type StandardEbooksCatalog } from '../lib/standard-ebooks-catalog.ts';
+import {
+  loadStandardEbooksCatalog,
+  type CatalogBook,
+  type StandardEbooksCatalog,
+} from '../lib/standard-ebooks-catalog.ts';
 import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
+import { SMALL_BUTTON_STYLE } from './chrome.tsx';
+
+const INITIAL_VISIBLE_BOOKS = 100;
 
 export function CatalogPanel({
   onAcquire,
@@ -27,6 +34,7 @@ export function CatalogPanel({
   ) => Promise<boolean>;
 }) {
   const [q, setQ] = useState('');
+  const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_BOOKS);
   const [adding, setAdding] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [catalog, setCatalog] = useState<StandardEbooksCatalog | null>(null);
@@ -34,6 +42,8 @@ export function CatalogPanel({
   // Bumping retries a failed asset fetch (the loader's memo clears on rejection).
   const [loadAttempt, setLoadAttempt] = useState(0);
   const addController = useRef<AbortController | null>(null);
+  const resultsRef = useRef<HTMLDivElement | null>(null);
+  const pendingFocusIndex = useRef<number | null>(null);
   const mounted = useRef(true);
   const libraryBusy = useSyncExternalStore(
     libraryOperation.subscribe,
@@ -66,9 +76,20 @@ export function CatalogPanel({
     };
   }, [catalog, loadError, loadAttempt]);
 
-  const sections = useMemo(() => (catalog === null ? [] : catalogSections(catalog, q)), [catalog, q]);
+  const books = useMemo(() => (catalog === null ? [] : catalogBooks(catalog, q)), [catalog, q]);
+  const visibleBooks = books.slice(0, visibleCount);
 
-  const add = async (book: CatalogSectionBook) => {
+  useLayoutEffect(() => {
+    const index = pendingFocusIndex.current;
+    if (index === null) return;
+    pendingFocusIndex.current = null;
+    const target = resultsRef.current?.querySelectorAll<HTMLButtonElement>('ul button')[index]
+      ?? resultsRef.current;
+    target?.focus();
+    target?.scrollIntoView({ block: 'nearest' });
+  }, [visibleCount]);
+
+  const add = async (book: CatalogBook) => {
     const lease = libraryOperation.claim();
     if (lease === null) {
       setError('Another input is being saved. Try this ebook again when it finishes.');
@@ -106,10 +127,10 @@ export function CatalogPanel({
 
   const label = { fontSize: 'var(--text-xs)', fontFamily: 'var(--font-mono)', color: 'var(--fg-muted)' } as const;
 
-  const row = (book: CatalogSectionBook) => (
+  const row = (book: CatalogBook) => (
     <li key={book.name} style={{ display: 'flex', gap: 'var(--space-2)', alignItems: 'baseline', justifyContent: 'space-between' }}>
       <span style={{ fontSize: 'var(--text-xs)' }}>
-        {book.position !== undefined && <span style={{ color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{book.position}. </span>}
+        <span style={{ color: 'var(--fg-muted)', fontFamily: 'var(--font-mono)' }}>{book.popularityRank}. </span>
         <span style={{ color: 'var(--fg)' }}>{book.title}</span>
         {book.author ? <span style={{ color: 'var(--fg-muted)' }}> — {book.author}</span> : null}
       </span>
@@ -152,28 +173,45 @@ export function CatalogPanel({
             className="standard-ebooks-filter"
             type="search"
             value={q}
-            onChange={(e) => setQ(e.target.value)}
-            placeholder="filter by title, author, or series"
+            onChange={(e) => {
+              setQ(e.target.value);
+              setVisibleCount(INITIAL_VISIBLE_BOOKS);
+            }}
+            placeholder="filter by title or author"
             aria-label="Filter the Standard Ebooks library"
           />
 
           {error && <p style={{ ...label, color: 'var(--accent-text)' }}>{error}</p>}
 
-          <div className="standard-ebooks-results" role="region" aria-label="Standard Ebooks results" tabIndex={0}>
-            {sections.map((section) => (
-              <div key={section.key}>
-                <h5 style={{ ...label, margin: 'var(--space-2) 0 var(--space-1)' }}>
-                  {section.title === null ? 'Popular' : `${section.title} (series)`}
-                </h5>
+          <p role="status" aria-live="polite" style={label}>
+            showing {visibleBooks.length} of {books.length} match{books.length === 1 ? '' : 'es'}
+            {books.length === catalog.books.length ? '' : ` (${catalog.books.length} total)`}
+          </p>
+
+          <div ref={resultsRef} className="standard-ebooks-results" role="region" aria-label="Standard Ebooks results" tabIndex={0}>
+            {books.length > 0 ? (
+              <>
+                <h5 style={{ ...label, margin: 'var(--space-2) 0 var(--space-1)' }}>Popular</h5>
                 <ul
-                  aria-label={section.title === null ? 'Popular Standard Ebooks' : `${section.title} series`}
+                  aria-label="Popular Standard Ebooks"
                   style={{ listStyle: 'none', padding: 0, margin: 0, display: 'flex', flexDirection: 'column', gap: '2px' }}
                 >
-                  {section.books.map(row)}
+                  {visibleBooks.map(row)}
                 </ul>
-              </div>
-            ))}
-            {sections.length === 0 && <p style={label}>no matches</p>}
+                {visibleBooks.length < books.length && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      pendingFocusIndex.current = visibleBooks.length;
+                      setVisibleCount((count) => Math.min(count + INITIAL_VISIBLE_BOOKS, books.length));
+                    }}
+                    style={{ ...SMALL_BUTTON_STYLE, marginTop: 'var(--space-2)' }}
+                  >
+                    show {Math.min(INITIAL_VISIBLE_BOOKS, books.length - visibleBooks.length)} more
+                  </button>
+                )}
+              </>
+            ) : <p style={label}>no matches</p>}
           </div>
 
           <p style={{ ...label, marginTop: 'var(--space-2)' }}>
