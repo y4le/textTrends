@@ -7,28 +7,33 @@ strategy must cover git HISTORY — either a one-time rewrite at branch freeze
 or a clean public export whose history never carried them. Decide now,
 execute exactly once at the freeze.
 
-| Path | Size | Content | Source | Rights basis | Redistributable? | Recommendation |
-|---|---:|---|---|---|---|---|
-| `text/sherlock/` | 2.5M | 6 Doyle volumes, publication order | Official Standard Ebooks release EPUBs; body matter serialized to UTF-8 plain text with the app's `xhtml-block-collapse-v1` extractor | Public domain (US); Standard Ebooks editorial work is CC0 | **Yes** — keep source and rights note | Keep; preserve the Standard Ebooks source note in `text/README.md` and future notices |
-| `text/austen/` | 4.0M | 6 Austen novels (author-corpus demos) | Project Gutenberg etexts 1342, 161, 158, 105, 121, 141; same treatment | Public domain | **Yes** | Keep; same notice |
-| `text/ASOIF/` | 9.2M | A Song of Ice and Fire full texts; private built-in demo | Undocumented | **In copyright** (G.R.R. Martin, 1996–2011) | **Private deployment only** | Keep in the private build; exclude before publication via the history/export strategy |
-| `text/lotr/` | 2.5M | The Lord of the Rings full texts; private built-in demo | Undocumented | **In copyright** (Tolkien estate) | **Private deployment only** | Keep in the private build; exclude before publication via the history/export strategy |
-| `text/other/common_word_list.txt` | 954 B | Common-word list | **Unrecorded** | Unknown — word-frequency lists vary from uncopyrightable facts to licensed databases depending on origin | Unknown | Owner: identify the origin. If it cannot be established, regenerate one from the public-domain corpora (trivially derivable) and document that |
+| Path                                         |           Size | Content                                                  | Source                                                                                                                                | Rights basis                                                       | Redistributable?                      | Recommendation                                                                                           |
+|----------------------------------------------|---------------:|----------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------|---------------------------------------|----------------------------------------------------------------------------------------------------------|
+| `text/sherlock/`                             |           2.5M | 6 Doyle volumes, publication order                       | Official Standard Ebooks release EPUBs; body matter serialized to UTF-8 plain text with the app's `xhtml-block-collapse-v1` extractor | Public domain (US); Standard Ebooks editorial work is CC0          | **Yes** — keep source and rights note | Keep; preserve the Standard Ebooks source note in `text/README.md` and future notices                    |
+| `text/austen/`                               |           4.0M | 6 Austen novels (author-corpus demos)                    | Project Gutenberg etexts 1342, 161, 158, 105, 121, 141; same treatment                                                                | Public domain                                                      | **Yes**                               | Keep; same notice                                                                                        |
+| `text/standard-ebooks/`                      |           7.5M | 10 supplemental novels for local comparisons            | Official Standard Ebooks release EPUBs; body matter serialized with the app's `xhtml-block-collapse-v1` extractor                      | Public domain (US); Standard Ebooks editorial work is CC0          | **Yes** — keep source and rights note | Keep; refresh with `pnpm update:supplemental-corpus`                                                      |
+| `text/ASOIF/`                                |           9.2M | A Song of Ice and Fire full texts; private built-in demo | Undocumented                                                                                                                          | **In copyright** (G.R.R. Martin, 1996–2011)                        | **Private deployment only**           | Keep in the private build; exclude before publication via the history/export strategy                    |
+| `text/lotr/`                                 |           2.5M | The Lord of the Rings full texts; private built-in demo  | Undocumented                                                                                                                          | **In copyright** (Tolkien estate)                                  | **Private deployment only**           | Keep in the private build; exclude before publication via the history/export strategy                    |
+| `text/other/wordlists/common_words.txt`      |      Locked, 50K | 6,690-entry common-word ranking                         | Locked private reference; no repository regeneration path                                                                             | Provenance insufficient for public redistribution                  | **Private deployment only**           | Keep in the private build                                                                                 |
+| `packages/core/src/ops/stoplist-en-data.ts`  |      Generated | Ranked 2,000-type common-word reference                  | First 2,000 default-tokenizer-compatible entries from the ranking above                                                               | Same as ranked source                                              | **Private deployment only**           | Keep in the private build                                                                                 |
 
 ## Decisions the owner must make (nothing below is executed yet)
 
 1. **History strategy** — pick one:
    - (a) One-time `git filter-repo` (or equivalent) at the publication freeze
-     removing `text/ASOIF/`, `text/lotr/`, and (if unresolvable)
-     `text/other/common_word_list.txt` from all history. Destructive;
-     coordinate any clones; do exactly once.
+     removing `text/ASOIF/`, `text/lotr/`,
+     `text/other/wordlists/common_words.txt`, and its generated derivative
+     `packages/core/src/ops/stoplist-en-data.ts`. Destructive; coordinate any
+     clones; do exactly once. The public build must also disable or replace
+     code and tests that import those paths.
    - (b) Clean public export: publish a fresh repository whose initial commit
      is the freeze state minus the removed paths; the private repo keeps its
      history. Zero rewrite risk; loses public history continuity.
-2. **`common_word_list.txt` origin** — identify, replace, or remove.
-3. **Working-tree removal timing** — the private app intentionally ships these
-   corpora as demos. Remove or exclude them when producing a public artifact;
-   the history question is independent and governed by decision 1.
+2. **Working-tree removal timing** — the private app intentionally ships the
+   restricted corpora and common-word resource. Remove or exclude every
+   private-only row above, including generated derivatives, when producing a
+   public artifact; the history question is independent and governed by
+   decision 1.
 
 ## Facts relevant to risk
 

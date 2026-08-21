@@ -13,6 +13,11 @@ Default demo corpora for textTrends.
   Public domain. Sourced from Project Gutenberg plain-text editions (IDs 1342,
   161, 158, 105, 121, 141) with Gutenberg boilerplate removed and line endings
   normalized; the texts themselves are unmodified.
+- `standard-ebooks/` — ten supplemental public-domain novels downloaded from
+  official Standard Ebooks release EPUBs and serialized with the same
+  `xhtml-block-collapse-v1` body-matter extraction as app imports. They are
+  retained for local comparisons; refresh them with
+  `pnpm update:supplemental-corpus`.
 - `ASOIF/` — five A Song of Ice and Fire volumes in publication order. Private
   built-in demo; UTF-8/LF text with normalized `.txt` filenames. POV headings
   are serialized as `Chapter N. Name` so the conservative TXT structure scan
@@ -24,4 +29,10 @@ Default demo corpora for textTrends.
   lines so all 62 chapters have useful detected labels.
 - The ASOIF and LOTR source texts are in copyright and intentionally available
   only in this private deployment. Exclude them from any future public build.
-- `other/` — miscellaneous supporting files (e.g. common word list).
+- `other/wordlists/common_words.txt` — the locked ranked English common-word
+  source. It is intentionally not regenerated; see
+  `docs/design/corpus-inventory.md` for its private-deployment status.
+- The checked-in worker module takes the first 2,000
+  default-tokenizer-compatible entries from the locked ranking. It lives at
+  `packages/core/src/ops/stoplist-en-data.ts`; refresh it with
+  `pnpm update:stoplist`.
