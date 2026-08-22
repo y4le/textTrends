@@ -52,7 +52,10 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('aria-label="Set pace in words per minute"');
     expect(html).toContain('min="100" max="900" step="25"');
     expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
-    expect(html).toContain('aria-label="Words at once"');
+    expect(html).toContain('Words at once (maximum)');
+    expect(html).toContain('type="radio" aria-label="1 word at once"');
+    expect(html).toContain('name="reader-rsvp-words-at-once" checked="" value="1"');
+    expect(html).not.toContain('<span>words at once</span><select');
     expect(html).toContain('aria-label="Sentence rest in milliseconds"');
     expect(html).toContain('aria-label="Paragraph rest in milliseconds"');
     expect(html).toContain('aria-label="Length emphasis in percent"');

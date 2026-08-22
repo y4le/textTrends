@@ -554,6 +554,41 @@ export function RsvpReader({
           >
             faster
           </button>
+          <fieldset className="reader-rsvp-words" data-rsvp-control="true">
+            <legend className="visually-hidden">
+              {presentation.width === 'compact'
+                ? 'Words at once (maximum; 3 is limited to 2 on this narrow screen)'
+                : 'Words at once (maximum)'}
+            </legend>
+            <span className="reader-rsvp-words-caption" aria-hidden="true">
+              words at once
+              <span>
+                {presentation.width === 'compact' ? 'max · 3 becomes 2 here' : 'maximum'}
+              </span>
+            </span>
+            <span className="reader-rsvp-words-options">
+              {[1, 2, 3].map((value) => (
+                <label className="reader-rsvp-words-option" key={value} data-rsvp-control="true">
+                  <input
+                    data-rsvp-control="true"
+                    type="radio"
+                    name="reader-rsvp-words-at-once"
+                    value={value}
+                    checked={mode.wordsPerFrame === value}
+                    aria-label={`${value} ${value === 1 ? 'word' : 'words'} at once`}
+                    onChange={() => {
+                      updatePacing(
+                        { wordsPerFrame: value },
+                        `${effectiveRsvpWordsPerFrame(value, presentation.width === 'compact')} words at once`,
+                      );
+                    }}
+                    onKeyDown={stopControlSpace}
+                  />
+                  <span aria-hidden="true">{value}</span>
+                </label>
+              ))}
+            </span>
+          </fieldset>
         </nav>
 
         <details
@@ -583,29 +618,6 @@ export function RsvpReader({
                 <option value="even">Even</option>
                 <option value="study">Study</option>
                 <option value="custom" disabled>Custom</option>
-              </select>
-            </label>
-
-            <label data-rsvp-control="true">
-              <span>words at once</span>
-              <select
-                data-rsvp-control="true"
-                aria-label="Words at once"
-                value={mode.wordsPerFrame}
-                onChange={(event) => {
-                  const value = Number(event.currentTarget.value);
-                  updatePacing(
-                    { wordsPerFrame: value },
-                    `${effectiveRsvpWordsPerFrame(value, presentation.width === 'compact')} words at once`,
-                  );
-                }}
-                onKeyDown={stopControlSpace}
-              >
-                <option value="1">1</option>
-                <option value="2">2</option>
-                <option value="3">
-                  {presentation.width === 'compact' ? '3 (2 on narrow screens)' : '3'}
-                </option>
               </select>
             </label>
 

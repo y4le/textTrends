@@ -34,6 +34,10 @@ async function enterRsvp(reader: Locator): Promise<void> {
   await expect(reader).toHaveAttribute('data-shortcut-context', 'rsvp');
 }
 
+async function chooseWordsAtOnce(group: Locator, value: 1 | 2 | 3): Promise<void> {
+  await group.locator(`.reader-rsvp-words-option:has(input[value="${value}"])`).click();
+}
+
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 
@@ -165,7 +169,7 @@ test('Escape and a consumed click elsewhere return to the exact Reader token', a
   );
 });
 
-test('rhythm controls preserve pace, presets, responsive grouping, and exact exit', async ({ page }) => {
+test('display and rhythm controls preserve pace, responsive grouping, and exact exit', async ({ page }) => {
   const reader = await openReader(page);
   await enterRsvp(reader);
   const status = reader.locator('.reader-rsvp-shell [role="status"]');
@@ -185,7 +189,22 @@ test('rhythm controls preserve pace, presets, responsive grouping, and exact exi
   const preset = reader.getByRole('combobox', { name: 'Rhythm preset' });
   const sentence = reader.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
   const paragraph = reader.getByRole('spinbutton', { name: 'Paragraph rest in milliseconds' });
-  const words = reader.getByRole('combobox', { name: 'Words at once' });
+  const words = reader.getByRole('group', { name: /^Words at once/ });
+  const oneWord = words.getByRole('radio', { name: '1 word at once' });
+  const twoWords = words.getByRole('radio', { name: '2 words at once' });
+  const threeWords = words.getByRole('radio', { name: '3 words at once' });
+  await page.setViewportSize({ width: 900, height: 800 });
+  await oneWord.focus();
+  await expect.poll(() => oneWord.evaluate((input) => (
+    getComputedStyle(input.closest('.reader-rsvp-words-option')!).outlineStyle
+  ))).toBe('solid');
+  await oneWord.press('ArrowRight');
+  await expect(twoWords).toBeChecked();
+  await expect(position).toContainText('425 WPM');
+  await twoWords.press('Space');
+  await expect(status).toContainText('paused');
+  await chooseWordsAtOnce(words, 3);
+  await expect(stage).toHaveAttribute('data-rsvp-words', '3');
   await preset.selectOption('study');
   await expect(sentence).toHaveValue('500');
   await expect(paragraph).toHaveValue('900');
@@ -203,14 +222,13 @@ test('rhythm controls preserve pace, presets, responsive grouping, and exact exi
   await reader.getByRole('button', { name: 'reset', exact: true }).click();
   await expect(preset).toHaveValue('natural');
   await expect(position).toContainText('300 WPM');
+  await expect(threeWords).toBeChecked();
 
-  await page.setViewportSize({ width: 900, height: 800 });
-  await words.selectOption('3');
   await expect(stage).toHaveAttribute('data-rsvp-words', '3');
   await page.setViewportSize({ width: 390, height: 800 });
   await expect(stage).toHaveAttribute('data-rsvp-words', '2');
-  await expect(words).toHaveValue('3');
-  await expect(words.locator('option[value="3"]')).toContainText('2 on narrow screens');
+  await expect(threeWords).toBeChecked();
+  await expect(words.locator('.reader-rsvp-words-caption')).toContainText('3 becomes 2 here');
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(stage).toHaveAttribute('data-rsvp-words', '3');
 
@@ -218,6 +236,21 @@ test('rhythm controls preserve pace, presets, responsive grouping, and exact exi
   const play = reader.getByRole('button', { name: 'play', exact: true });
   const frameText = stage.locator('.reader-rsvp-word');
   const anchor = stage.locator('.reader-rsvp-anchor');
+  const stageBox = await stage.boundingBox();
+  expect(stageBox).not.toBeNull();
+  const columns: number[] = [];
+  for (const [value, expected] of [[1, 0.5], [2, 0.42], [3, 0.36]] as const) {
+    await chooseWordsAtOnce(words, value);
+    await expect(stage).toHaveAttribute('data-rsvp-words', String(value));
+    const box = await anchor.boundingBox();
+    expect(box).not.toBeNull();
+    const column = (box!.x + box!.width / 2 - stageBox!.x) / stageBox!.width;
+    columns.push(column);
+    expect(column).toBeCloseTo(expected, 2);
+  }
+  expect(columns[0]).toBeGreaterThan(columns[1]!);
+  expect(columns[1]).toBeGreaterThan(columns[2]!);
+
   const anchorCenters: number[] = [];
   const initialAnchor = await anchor.boundingBox();
   expect(initialAnchor).not.toBeNull();
@@ -258,7 +291,7 @@ test('migrates the session pace and restores the full local rhythm', async ({ pa
   await expect(reader.locator('.reader-position')).toContainText('425 WPM');
   const rhythm = reader.locator('.reader-rsvp-rhythm');
   await rhythm.locator('summary').click();
-  await reader.getByRole('combobox', { name: 'Words at once' }).selectOption('2');
+  await chooseWordsAtOnce(reader.getByRole('group', { name: /^Words at once/ }), 2);
   const sentence = reader.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });
   await sentence.fill('250');
   await sentence.press('Enter');

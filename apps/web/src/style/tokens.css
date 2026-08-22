@@ -404,7 +404,7 @@ canvas {
 
 .reader-rsvp-stage {
   --rsvp-anchor-column: 50%;
-  --rsvp-anchor-shift: 0%;
+  --rsvp-anchor-shift: calc(var(--rsvp-anchor-column) - 50%);
   grid-area: reader-prose;
   position: relative;
   display: grid;
@@ -439,9 +439,12 @@ canvas {
   white-space: nowrap;
 }
 
-.reader-rsvp-stage:is([data-rsvp-words='2'], [data-rsvp-words='3']) {
-  --rsvp-anchor-column: 32%;
-  --rsvp-anchor-shift: -18%;
+.reader-rsvp-stage[data-rsvp-words='2'] {
+  --rsvp-anchor-column: 42%;
+}
+
+.reader-rsvp-stage[data-rsvp-words='3'] {
+  --rsvp-anchor-column: 36%;
 }
 
 .reader-rsvp-stage[data-rsvp-words='2'] .reader-rsvp-word {
@@ -515,6 +518,73 @@ canvas {
   align-items: center;
   justify-content: center;
   gap: var(--space-2);
+}
+
+.reader-rsvp-words {
+  display: inline-flex;
+  min-inline-size: 0;
+  align-items: center;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-rsvp-words-caption {
+  display: grid;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+.reader-rsvp-words-caption > span {
+  font-size: 0.9em;
+}
+
+.reader-rsvp-words-options {
+  display: grid;
+  min-inline-size: 8.25rem;
+  grid-template-columns: repeat(3, minmax(44px, 1fr));
+  border: 1px solid var(--rule-strong);
+}
+
+.reader-rsvp-words-option {
+  position: relative;
+  display: grid;
+  min-block-size: 44px;
+  min-inline-size: 44px;
+  place-items: center;
+  color: var(--fg);
+  cursor: pointer;
+}
+
+.reader-rsvp-words-option + .reader-rsvp-words-option {
+  border-inline-start: 1px solid var(--rule-strong);
+}
+
+.reader-rsvp-words-option input {
+  position: absolute;
+  inline-size: 1px;
+  block-size: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.reader-rsvp-words-option:has(input:checked) {
+  box-shadow: inset 0 0 0 2px currentColor;
+  background: var(--accent);
+  color: var(--bg);
+  font-weight: 700;
+}
+
+.reader-rsvp-words-option:has(input:focus-visible) {
+  z-index: 1;
+  outline: 2px solid var(--accent-text);
+  outline-offset: 2px;
 }
 
 .reader-rsvp-pace {
@@ -637,6 +707,20 @@ canvas {
 
   .reader-rsvp-pace {
     justify-content: center;
+  }
+
+  .reader-rsvp-words {
+    display: grid;
+    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .reader-rsvp-words-caption {
+    text-align: center;
+  }
+
+  .reader-rsvp-words-options {
+    inline-size: 100%;
   }
 
   .reader-rsvp-rhythm-body {
