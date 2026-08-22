@@ -1,7 +1,7 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: IMPLEMENTED (2026-08-22).** This record
-supersedes the RSVP recommendations in
+**STATUS: BASE MODE IMPLEMENTED (2026-08-22); RHYTHM AMENDMENT ACCEPTED,
+IMPLEMENTATION PENDING.** This record supersedes the RSVP recommendations in
 [interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
 describes the shipped interaction and pacing contract.
 
@@ -16,6 +16,9 @@ followed by a pinned Opus design consultation (request
 and a targeted window-continuity correction (request
 `req_rsvp_design_followup_001`, artifact
 `art_sha256_1ea7639e5ac1ca920587717b1c4dd573312cfd6c97cd36a0782c67e76d5c3a84`).
+The tweakable rhythm model was decided in a further pinned Opus consultation
+(request `req_consult_03af216bd1d38185`, artifact
+`art_sha256_0db71c5ff6052266713531ae920071cc06d0ae953c0d58db59eb73585ddb13d8`).
 
 ## Outcome
 
@@ -25,8 +28,8 @@ remains mounted and follows the displayed token.
 
 RSVP is framed as a focus-reading aid with a configurable **set pace**, not as
 a promise that comprehension remains unchanged at the displayed WPM. The
-mode uses one fixed focal word, a stable anchor glyph whose index is left of
-centre in longer words,
+mode defaults to one fixed focal word, with an optional two- or three-word
+frame and a stable anchor glyph in its first word whose index is left of centre,
 deterministic word-length timing, and explicit integration pauses at sentence
 and paragraph boundaries.
 
@@ -85,24 +88,27 @@ The bounded WPM contract is:
 - maximum: 900 WPM; and
 - keyboard/button step: 25 WPM.
 
-The last accepted value survives subsequent RSVP entries in the browser
-session. The UI calls it **set pace** because linguistic pauses and long-word
-holds make effective throughput lower.
+The shipped WPM preference currently survives subsequent RSVP entries in the
+browser tab's session storage. The rhythm amendment migrates a valid v1 WPM
+into a strict v2 record in local storage. The resulting rhythm survives browser
+sessions on the device and remains a local reading preference, never project,
+URL, or history state. The UI calls WPM **set pace** because linguistic pauses
+and long-word holds make effective throughput lower.
 
 The active mode is visually unmistakable even though entry is semi-hidden. It
-shows the existing Reader title and position idiom, a central focal word, and
-visible 44px Play/Pause, Slower, set-pace, Faster, and Reader controls. The
-shortcuts surface switches to an RSVP-specific context after entry; the
-ordinary Reader shortcut list does not advertise the entry chord.
+shows the existing Reader title and position idiom, a central focal frame, and
+visible 44px Play/Pause, Slower, set-pace, Faster, rhythm-disclosure, and Reader
+controls. The shortcuts surface switches to an RSVP-specific context after
+entry; the ordinary Reader shortcut list does not advertise the entry chord.
 
 The experimental entry is intentionally keyboard-only in this version. Touch
 target sizing applies to the controls available after keyboard entry; it does
 not imply a visible Speed read entry action.
 
-Pointer clicks on the focal word, surrounding stage, header backdrop, or
-analytical footer exit RSVP. RSVP's own buttons and complete WPM editor are the
-only exempt targets. The exit click is consumed so it cannot also seek,
-resize, or close a second surface.
+Pointer clicks on the focal frame, surrounding stage, header backdrop, or
+analytical footer exit RSVP. RSVP's own buttons, fields, labels, and rhythm
+disclosure are exempt targets. The exit click is consumed so it cannot also
+seek, resize, or close a second surface.
 
 Entry is available only from an authenticated ready Reader source. While the
 source is pending or errored, `S` is consumed without entering RSVP; the
@@ -132,36 +138,94 @@ words. The before span is right-aligned and the after span left-aligned. The
 anchor has both accent color and an underline/guide; color is not its only cue.
 Words do not tween, fade, or insert blank frames.
 
-### Timing
+### Timing and rhythm controls
 
 The baseline hold is deterministic:
 
 ```text
 baseMs = 60,000 / setWpm
-weight = clamp(wordGraphemeCount / 4.7, 0.75, 1.75)
+lengthWeight = clamp(wordGraphemeCount / 4.7, 0.75, 1.75)
+weight = 1 + lengthEmphasis * (lengthWeight - 1)
 wordMs = max(60, baseMs * weight)
 ```
 
-Boundary time is additive, not a temporary WPM change:
+At 100% this is the original length weighting. At 0%, all words receive the
+same baseline exposure. There is no lexical or readability “complexity”
+control because the browser has no grounded signal for it and adaptive
+complexity pacing has not shown a reliable benefit.
+
+Boundary time remains additive and rate-invariant, but the product defaults
+are reduced in response to the visibly stuck sentence-final word:
 
 ```text
-paragraph end ->   +900 ms
-sentence end  ->   +500 ms
+paragraph end ->   +700 ms
+sentence end  ->   +350 ms
 ```
 
-A paragraph pause replaces the sentence pause at the same boundary rather
-than stacking with it. Sentence and paragraph boundaries are index-authored:
-`sentenceBounds` come from the existing Intl sentence segmenter and
-`paragraphBounds` from the indexer's paragraph rules. The RSVP browser view
-does not guess either from the displayed punctuation. A
-comma/clause pause remains an unbuilt seam because no RSVP experiment in the
-reviewed evidence isolates it. All pauses hold the current word on screen.
+The word remains fully emphasized for `wordMs`, then enters a visibly muted
+rest phase for boundary time. The frame is never blank. Rest has no fade or
+other transition and is only shown for configured rests of at least 150ms.
+This makes the boundary pause read as a pause rather than as extra time needed
+to recognize the final word.
 
-Masson (1983) supports the direction of this feature: a fixed
-inter-sentence pause improved RSVP comprehension while keeping word exposure
-unchanged. The 500ms duration is a conservative product choice, not a value
-claimed by this record to have been isolated by that experiment. It remains
-500ms at every set pace.
+A paragraph rest replaces the sentence rest at the same boundary rather than
+stacking with it, and the preference model enforces paragraph rest greater
+than or equal to sentence rest. Sentence and paragraph boundaries are
+index-authored: `sentenceBounds` come from the existing Intl sentence
+segmenter and `paragraphBounds` from the indexer's paragraph rules. The RSVP
+browser view does not guess either from the displayed punctuation. A
+comma/clause pause remains an unbuilt seam because no RSVP experiment in the
+reviewed evidence isolates it.
+
+Masson (1983) supports the direction of this feature: a fixed inter-sentence
+pause improved RSVP comprehension while keeping word exposure unchanged. The
+350ms and 700ms defaults are product choices, not experimentally isolated
+values. The Study preset retains the previously shipped 500ms and 900ms rests.
+
+The control model deliberately stays small:
+
+| Control | Default | Range | Step |
+|---|---:|---:|---:|
+| set pace | 300 WPM | 100–900 | 25 WPM |
+| words at once | 1 | 1–3 | 1 |
+| sentence rest | 350ms | 0–800ms | 50ms |
+| paragraph rest | 700ms | 0–1500ms | 100ms |
+| length emphasis | 100% | 0–100% | 25% |
+
+Set pace remains in the primary control row. The other settings live behind a
+native **rhythm** disclosure; opening it pauses playback and closing it never
+auto-resumes. Changes commit live and affect the next frame after playback
+resumes. No new global shortcuts are introduced. Every disclosure control
+participates in the RSVP focus trap and keeps its native Space and arrow-key
+behavior from reaching the document shortcuts. On compact viewports an
+authored three-word setting is presented as two words at once, while the
+authored preference is retained for the next wider viewport. Type ramps down
+at two and three words so ordinary frames fit; pathological long source tokens
+retain the shipped visible-overflow behavior.
+
+Presets change rhythm without moving set pace: **Even** is one word with no
+length emphasis or rests; **Natural** is the default row above; **Study** uses
+one word, 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any
+divergence selects **Custom**. Reset is the explicit exception: it restores
+Natural and 300 WPM.
+
+### Multi-word frames
+
+Two- and three-word display is a presentation preference, not a speed claim.
+A frame starts at the live cursor and takes up to the configured number of
+consecutive tokens, stopping before a sentence start, paragraph start, or
+served-window boundary. Its display is the authenticated source slice with
+internal whitespace collapsed, preserving attached punctuation without
+synthetic spaces. Its fixed anchor is always the first member word's ORP
+grapheme; later words extend to the right of it.
+
+The frame word time is the sum of the individual member-word times. Its
+boundary rest is derived only from its last word and is added once. With rests
+zeroed, a token range therefore takes identical total time at one, two, or
+three words per frame. The live cursor and exact-token exit position are always
+the first token of the displayed frame, and the next cursor advances by the
+number of words actually shown. Frames never skip, repeat, or cross a sentence
+or paragraph boundary.
 
 ## State and source ownership
 
@@ -243,7 +307,7 @@ suspended Find interaction.
 
 ## Delivery and acceptance
 
-Implementation is divided into five reviewable commits:
+The base implementation was divided into five reviewable commits:
 
 1. this research-backed decision record;
 2. Reader boundary transport plus a pure RSVP unit/anchor/timing library and
@@ -254,6 +318,14 @@ Implementation is divided into five reviewable commits:
    tests; and
 5. shortcut context, Reader/footer integration, and browser acceptance.
 
+The rhythm amendment adds three focused commits:
+
+6. this amended decision record;
+7. pure pacing/frame primitives, strict v2 local preference migration, store
+   state, and unit tests; and
+8. the disclosure controls, responsive multi-word presentation, two-phase
+   playback timer, and cross-browser acceptance.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -262,7 +334,13 @@ Acceptance requires:
   wire transport, and browser slicing;
 - NFC/NFD, astral characters, punctuation, and long tokens never split the
   focal grapheme or move the anchor beyond the right-middle grapheme;
-- the 500ms sentence pause is additive and independent of WPM;
+- boundary rests are additive and independent of WPM, and configured rests of
+  at least 150ms appear as a distinct muted phase after word exposure;
+- one-, two-, and three-word frames partition the source without crossing a
+  sentence or paragraph boundary, and take identical aggregate word time;
+- the first member's anchor stays on the pixel guide for every frame size;
+- strict local-storage preference validation, session-storage v1 pace
+  migration, presets, compact clamping, and reset behavior are covered;
 - `S`, `W`, the WPM nudges, Space, nested Escape, backdrop exit, reduced
   motion, and typing-focus priority are covered;
 - Space on a focused RSVP button activates exactly one action, and the WPM
