@@ -4,10 +4,12 @@ import {
   compileFindQuery,
   findBarModel,
   findMatchProgress,
+  findScope,
   findStatusText,
   findWrapped,
   NO_INTERACTION,
   type FindState,
+  type InteractionState,
 } from '../src/lib/interaction.ts';
 
 function ids(): () => string {
@@ -16,6 +18,25 @@ function ids(): () => string {
 }
 
 describe('temporary corpus Find model', () => {
+  it('keeps a suspended Find effective for presentation without widening the interaction kind', () => {
+    const find = { kind: 'find', find: null } as const;
+    const interaction: InteractionState = {
+      kind: 'rsvp',
+      rsvp: {
+        snapshot: 's1',
+        doc: 'a',
+        docTokenCount: 20,
+        startToken: 4,
+        wpm: 300,
+        playing: true,
+      },
+      suspended: find,
+    };
+    expect(findScope(interaction)).toBe(find);
+    expect(interaction.kind).toBe('rsvp');
+    expect(findScope(NO_INTERACTION)).toBeNull();
+  });
+
   it('compiles comma-authored aliases through the Terms dialect as one group', () => {
     const composed = compileFindQuery('  Cafe\u0301 noir, café, New Yo*, café  ', ids());
     expect(composed.ok).toBe(true);

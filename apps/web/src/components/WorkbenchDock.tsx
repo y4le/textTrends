@@ -11,6 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { dockSizing, readerDockSizing } from '../lib/footer-metrics.ts';
+import { findScope } from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { usePresentation } from './PresentationProvider.tsx';
@@ -43,6 +44,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench'
   const presentation = usePresentation();
   const seriesCount = useApp((state) => state.series.length);
   const interaction = useApp((state) => state.interaction);
+  const scopedFind = findScope(interaction);
   const snapshot = useApp((state) => state.snapshot);
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const documentCount = useApp(
@@ -57,14 +59,14 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench'
   const footerVisible = snapshot !== null
     && snapshot.readyDocs.length > 0
     && snapshot.readyDocs.some((doc) => (corpusTokenCounts.get(doc) ?? 0) > 0);
-  const displayedTrackCount = interaction.kind === 'find'
-    ? Math.max(seriesCount, interaction.find === null ? 0 : 1)
+  const displayedTrackCount = scopedFind !== null
+    ? Math.max(seriesCount, scopedFind.find === null ? 0 : 1)
     : seriesCount;
   const sizingInput = {
     width: presentation.width,
     coarse: presentation.coarseAvailable,
     trackCount: displayedTrackCount,
-    readerRail: interaction.kind === 'find' ? 'find' : 'terms',
+    readerRail: scopedFind !== null ? 'find' : 'terms',
     footerPresent,
     targetBlockSize,
     viewportBlockSize,
@@ -226,7 +228,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench'
 
   const laneText = [
     sizing.railBlockSize > 0
-      ? interaction.kind === 'find' ? 'find' : 'terms'
+      ? scopedFind !== null ? 'find' : 'terms'
       : '',
     footerVisible && mode === 'workbench' ? 'passage' : '',
     footerVisible && sizing.showStatus ? 'status' : '',
@@ -311,7 +313,7 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench'
           <span aria-hidden="true" />
         </div>
       )}
-      {interaction.kind === 'find'
+      {scopedFind !== null
         ? <FindBar placement="rail" onClose={onCloseFind} />
         : (
             <Suspense fallback={<TermsRailFallback />}>

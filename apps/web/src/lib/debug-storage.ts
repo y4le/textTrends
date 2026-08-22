@@ -1,11 +1,13 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
 import { MATCHES_COLUMN_STORAGE_KEY } from './matches-column-storage.ts';
 import { VOCABULARY_COLUMN_STORAGE_KEY } from './vocabulary-column-storage.ts';
+import { RSVP_WPM_STORAGE_KEY } from './rsvp-storage.ts';
 import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
   MATCHES_COLUMN_STORAGE_KEY,
   VOCABULARY_COLUMN_STORAGE_KEY,
+  RSVP_WPM_STORAGE_KEY,
 ]);
 
 export type DatabaseBlockedHandler = (name: string) => void;

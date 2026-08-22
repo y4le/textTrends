@@ -28,7 +28,7 @@ import {
 import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
-import { FIND_INPUT_ID } from './lib/interaction.ts';
+import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -176,6 +176,7 @@ export function App() {
   const enterFind = useApp((s) => s.enterFind);
   const stepFind = useApp((s) => s.stepFind);
   const exitInteraction = useApp((s) => s.exitInteraction);
+  const setRsvpPlaying = useApp((s) => s.setRsvpPlaying);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
@@ -198,7 +199,7 @@ export function App() {
   const utilityPaneReturnFocus = useRef<HTMLElement | null>(null);
   const findReturnFocus = useRef<HTMLElement | null>(null);
   const restoreFindFocus = useRef(false);
-  const previousInteractionKind = useRef(interaction.kind);
+  const previousFindScope = useRef(findScope(interaction) !== null);
   const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -235,6 +236,7 @@ export function App() {
         ? document.activeElement
         : null;
     if (interaction.kind === 'find') exitInteraction();
+    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'shortcuts', context });
   };
   const openSettings = () => {
@@ -247,6 +249,7 @@ export function App() {
         ? document.activeElement
         : null;
     if (interaction.kind === 'find') exitInteraction();
+    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'settings' });
   };
   const openDebug = (fromUtilityPane = false) => {
@@ -260,6 +263,7 @@ export function App() {
           : null;
     }
     if (interaction.kind === 'find') exitInteraction();
+    if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'debug' });
   };
   const focusFindInput = (selectAll = false) => {
@@ -271,6 +275,7 @@ export function App() {
     });
   };
   const openFind = (fromUtilityPane = false, selectAll = false) => {
+    if (interaction.kind === 'rsvp') return;
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
     if (interaction.kind !== 'find') {
@@ -459,9 +464,10 @@ export function App() {
   }, [interaction.kind, readerOpen, utilityPane]);
 
   useEffect(() => {
-    const previous = previousInteractionKind.current;
-    previousInteractionKind.current = interaction.kind;
-    if (previous !== 'find' || interaction.kind === 'find') return;
+    const current = findScope(interaction) !== null;
+    const previous = previousFindScope.current;
+    previousFindScope.current = current;
+    if (!previous || current) return;
     const shouldRestore = restoreFindFocus.current;
     restoreFindFocus.current = false;
     const target = findReturnFocus.current;

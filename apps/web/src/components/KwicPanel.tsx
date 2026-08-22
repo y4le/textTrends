@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import { findScope } from '../lib/interaction.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
   matchesRows,
@@ -148,8 +149,9 @@ export function KwicPanel({
   const [announcement, setAnnouncement] = useState('');
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
 
-  const findMode = interaction.kind === 'find';
-  const findQuery = findMode ? interaction.find?.query ?? null : null;
+  const scopedFind = findScope(interaction);
+  const findMode = scopedFind !== null;
+  const findQuery = scopedFind?.find?.query ?? null;
   const displayedSeries = useMemo(
     () => findMode
       ? findQuery === null

@@ -4,6 +4,7 @@ import {
   FIND_INPUT_ID,
   findBarModel,
   findMatchProgress,
+  findScope,
   findStatusText,
 } from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
@@ -31,7 +32,8 @@ export function FindBar({
   const stepFind = useApp((state) => state.stepFind);
   const openReader = useApp((state) => state.openReader);
   const project = useApp((state) => state.projectSession?.project ?? null);
-  const find = interaction.kind === 'find' ? interaction.find : null;
+  const scopedFind = findScope(interaction);
+  const find = scopedFind?.find ?? null;
   const submittedRaw = find?.query.raw ?? '';
   const [draft, setDraft] = useState(submittedRaw);
   const nextRef = useRef<HTMLButtonElement | null>(null);
@@ -51,7 +53,7 @@ export function FindBar({
 
   useEffect(() => setDraft(submittedRaw), [submittedRaw]);
 
-  if (interaction.kind !== 'find') return null;
+  if (scopedFind === null) return null;
 
   const titleFor = (doc: string) =>
     project?.data.docs.find((candidate) => candidate.doc === doc)?.meta.title ?? doc;

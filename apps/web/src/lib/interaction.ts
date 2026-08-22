@@ -68,13 +68,43 @@ export interface FindState {
   readonly dispersion: FindDispersionState;
 }
 
-/** The one primary interaction state. Future command and speed modes extend
- * this union instead of adding independently-owned component flags. */
-export type InteractionState =
+export interface RsvpState {
+  readonly snapshot: string;
+  readonly doc: string;
+  readonly docTokenCount: number;
+  /** Immutable entry position. The presentation owns the later live cursor. */
+  readonly startToken: number;
+  readonly wpm: number;
+  readonly playing: boolean;
+}
+
+export type PrimaryInteraction =
   | { readonly kind: 'none' }
   | { readonly kind: 'find'; readonly find: FindState | null };
 
-export const NO_INTERACTION: InteractionState = Object.freeze({ kind: 'none' });
+/** The one primary interaction state. Future command and speed modes extend
+ * this union instead of adding independently-owned component flags. */
+export type InteractionState =
+  | PrimaryInteraction
+  | {
+      readonly kind: 'rsvp';
+      readonly rsvp: RsvpState;
+      readonly suspended: PrimaryInteraction;
+    };
+
+export const NO_INTERACTION: PrimaryInteraction = Object.freeze({ kind: 'none' });
+
+export type FindInteraction = Extract<PrimaryInteraction, { readonly kind: 'find' }>;
+
+/** Presentation, track derivation, and non-navigating analysis see a suspended
+ * Find as still effective. Navigation leases and seek writers must continue to
+ * fence on the literal kind so a late result cannot move RSVP. */
+export function findScope(interaction: InteractionState): FindInteraction | null {
+  const primary = interaction.kind === 'rsvp'
+    ? interaction.suspended
+    : interaction;
+  return primary.kind === 'find' ? primary : null;
+}
 
 export type CompileFindResult =
   | { readonly ok: true; readonly query: FindQuery }
@@ -238,7 +268,7 @@ export function findMatchProgress(
 export function findBarModel(
   interaction: InteractionState,
 ): FindBarModel {
-  const find = interaction.kind === 'find' ? interaction.find : null;
+  const find = findScope(interaction)?.find ?? null;
   return {
     hasSubmittedQuery: find !== null,
     busy: find?.state.status === 'pending'

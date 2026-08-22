@@ -20,6 +20,7 @@ import {
 } from 'react';
 import type { NumericTrend, SeriesStyleV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { findScope } from '../lib/interaction.ts';
 import { occurrenceNavigationText } from '../lib/store.ts';
 import {
   advanceFooterShuttle,
@@ -1054,8 +1055,9 @@ export function WorkbenchFooter({
   const measure = useApp((state) => state.trendMeasure);
   const coarse = presentation.coarseAvailable;
   const docs = snapshot?.readyDocs ?? [];
-  const findMode = interaction.kind === 'find';
-  const find = findMode ? interaction.find : null;
+  const scopedFind = findScope(interaction);
+  const findMode = scopedFind !== null;
+  const find = scopedFind?.find ?? null;
   const displayedSeries = useMemo<readonly {
     readonly id: string;
     readonly label: string;

@@ -563,13 +563,18 @@ function fakeKeynessPage(
 }
 
 /** A runtime with a fresh fake QueryClient + an attached fake SessionPort. */
-function harness(initial?: SessionState, opts?: { seed?: boolean; workspace?: FakeWorkspaceStore }) {
+function harness(initial?: SessionState, opts?: {
+  seed?: boolean;
+  workspace?: FakeWorkspaceStore;
+  rsvpWpm?: number;
+}) {
   const q = fakeQueryClient();
   // Deterministic injected UUIDs: u1, u2, … (creation order).
   let n = 0;
   const runtime = createAppRuntime(q.client, {
     newId: () => `u${++n}`,
     ...(opts?.workspace === undefined ? {} : { workspace: opts.workspace }),
+    ...(opts?.rsvpWpm === undefined ? {} : { rsvpWpm: opts.rsvpWpm }),
   });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
@@ -4377,6 +4382,234 @@ describe('exact any-term occurrence navigation', () => {
       status: 'error', message: 'worker returned an invalid reference',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2 });
+  });
+});
+
+describe('RSVP interaction ownership', () => {
+  const stepResultFor = (
+    entry: Issued,
+    hit: {
+      readonly doc: string;
+      readonly token: number;
+      readonly spanTokens: number;
+      readonly members: readonly number[];
+    } | null,
+  ): QueryResultDataV4 => {
+    const track = (entry.query as {
+      tracks: readonly { seriesId: string; group: { id: string } }[];
+    }).tracks[0]!;
+    return {
+      op: 'occurrence-step',
+      seriesId: track.seriesId,
+      groupId: track.group.id,
+      step: { method: 'occurrence-step/1', hit, atEdge: hit === null },
+    };
+  };
+
+  function latestReaderSource(f: ReturnType<typeof harness>): Issued {
+    const request = f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).at(-1);
+    if (request === undefined) throw new Error('expected a full Reader source request');
+    return request;
+  }
+
+  async function readyReader(
+    f: ReturnType<typeof harness>,
+    anchorToken = 4,
+  ): Promise<void> {
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: anchorToken, from: 'occurrence',
+    });
+    latestReaderSource(f).resolve(fakeReaderPage(2, 8, 12, 'a', anchorToken));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 3, end: 7 }, geometry: '800x600:fit',
+    });
+  }
+
+  it('enters only from a ready source at the published anchor and remembers accepted pace', async () => {
+    const f = harness(undefined, { rsvpWpm: 375 });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 4, from: 'occurrence',
+    });
+    f.store.getState().enterRsvp(true);
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+
+    latestReaderSource(f).resolve(fakeReaderPage(2, 8, 12, 'a', 4));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 3, end: 7 }, geometry: '800x600:fit',
+    });
+    f.store.getState().enterRsvp(true);
+    expect(f.store.getState().interaction).toEqual({
+      kind: 'rsvp',
+      rsvp: {
+        snapshot: 's1', doc: 'a', docTokenCount: 12, startToken: 4,
+        wpm: 375, playing: true,
+      },
+      suspended: { kind: 'none' },
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+
+    f.store.getState().setRsvpWpm(425);
+    f.store.getState().setRsvpPlaying(false);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp', rsvp: { wpm: 425, playing: false },
+    });
+    f.store.getState().exitRsvp(5);
+    latestReaderSource(f).resolve(fakeReaderPage(5, 12, 12));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 5, end: 9 }, geometry: '800x600:fit',
+    });
+    f.store.getState().enterRsvp(false);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp', rsvp: { startToken: 5, wpm: 425, playing: false },
+    });
+    f.store.getState().closeReader();
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    expect(f.store.getState().readerPlace).toBeNull();
+    f.runtime.dispose();
+  });
+
+  it('refuses an unfitted backward source and drops RSVP only when navigation lands', async () => {
+    const f = harness();
+    await readyReader(f);
+    const previous = f.store.getState().readerNavigation?.previous;
+    if (previous === null || previous === undefined) throw new Error('expected a previous page');
+    f.store.getState().navigateReader(previous);
+    latestReaderSource(f).resolve(fakeReaderPage(0, 3, 12));
+    await flush();
+    expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'before', token: 3 });
+    expect(f.store.getState().readerPage?.state.status).toBe('ready');
+    expect(f.store.getState().readerVisibleRange).toBeNull();
+
+    f.store.getState().enterRsvp(true);
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 1, end: 3 }, geometry: '800x600:back',
+    });
+    f.store.getState().enterRsvp(true);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp', rsvp: { startToken: 1 },
+    });
+
+    expect(f.store.getState().popLayer()).toBe(true);
+    expect(f.store.getState().readerPlace).toBeNull();
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    f.runtime.dispose();
+  });
+
+  it('publishes without touching fitted navigation and exits exactly during a seek', async () => {
+    const f = harness();
+    await readyReader(f);
+    const navigation = f.store.getState().readerNavigation;
+    const issued = f.issued.length;
+    f.store.getState().enterRsvp(true);
+    const interaction = f.store.getState().interaction;
+    const place = f.store.getState().readerPlace;
+    f.store.getState().publishRsvpPosition(-1);
+    f.store.getState().rsvpSeek(12);
+    f.store.getState().exitRsvp(1.5);
+    expect(f.store.getState().interaction).toBe(interaction);
+    expect(f.store.getState().readerPlace).toBe(place);
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+    f.store.getState().publishRsvpPosition(5);
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 5 });
+    f.store.getState().setScrub({ doc: 'a', token: 9 });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 5 });
+    expect(f.store.getState().readerNavigation).toBe(navigation);
+    expect(f.issued).toHaveLength(issued);
+
+    f.store.getState().rsvpSeek(5);
+    expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'from', token: 5 });
+    expect(f.store.getState().readerPage?.state.status).toBe('pending');
+    f.store.getState().publishRsvpPosition(6);
+    f.store.getState().exitRsvp(6);
+    expect(f.store.getState().interaction).toEqual({ kind: 'none' });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 6 });
+    expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'from', token: 6 });
+    expect(f.store.getState().readerNavigation).toBe(navigation);
+    f.runtime.dispose();
+  });
+
+  it('cancels an ordinary occurrence result already in flight before suspension', async () => {
+    const f = harness();
+    await readyReader(f);
+    f.store.getState().quickAdd('holmes');
+    latestReaderSource(f).resolve(fakeReaderPage(2, 8, 12, 'a', 4));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 3, end: 7 }, geometry: '800x600:term',
+    });
+    f.store.getState().stepOccurrence(1);
+    const pending = f.occurrenceSteps().at(-1)!;
+    f.store.getState().enterRsvp(true);
+    expect(pending.cancelled).toBe(true);
+    expect(f.store.getState().occurrenceNavigation).toBeNull();
+
+    pending.resolve(stepResultFor(pending, {
+      doc: 'a', token: 10, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState().interaction.kind).toBe('rsvp');
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+    expect(f.store.getState().readerPlace).toMatchObject({
+      doc: 'a', cursor: { kind: 'around', token: 4 },
+    });
+    f.runtime.dispose();
+  });
+
+  it('settles a pending Find before suspension and restores its exact query', async () => {
+    const f = harness();
+    await readyReader(f);
+    expect(f.store.getState().submitFind('moriarty')).toBe(true);
+    const pendingFind = f.occurrenceSteps().at(-1)!;
+    latestReaderSource(f).resolve(fakeReaderPage(2, 8, 12, 'a', 4));
+    await flush();
+    f.store.getState().setReaderVisibleRange({
+      snapshot: 's1', doc: 'a', tokens: { start: 3, end: 7 }, geometry: '800x600:find',
+    });
+    const findTrendCount = f.trends().filter((entry) => entry.term === 'moriarty').length;
+    const pendingTrend = f.trends().filter((entry) => entry.term === 'moriarty').at(-1)!;
+    expect(f.store.getState().readerPage?.state.status).toBe('ready');
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { state: { status: 'pending' } },
+    });
+    f.store.getState().enterRsvp(true);
+    expect(pendingFind.cancelled).toBe(true);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp',
+      suspended: {
+        kind: 'find',
+        find: { query: { raw: 'moriarty' }, state: { status: 'idle' } },
+      },
+    });
+    expect(f.store.getState().readerPage?.tracks).toMatchObject([
+      { label: 'moriarty' },
+    ]);
+    pendingTrend.resolve({ op: 'trend', trend: fakeTrend(7) });
+    await flush();
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp',
+      suspended: { kind: 'find', find: { trend: { status: 'ready' } } },
+    });
+
+    pendingFind.resolve(stepResultFor(pendingFind, {
+      doc: 'a', token: 10, spanTokens: 1, members: [0],
+    }));
+    await flush();
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
+    f.store.getState().exitRsvp(4);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'find', find: { query: { raw: 'moriarty' }, state: { status: 'idle' } },
+    });
+    expect(f.trends().filter((entry) => entry.term === 'moriarty').length)
+      .toBe(findTrendCount);
+    f.runtime.dispose();
   });
 });
 

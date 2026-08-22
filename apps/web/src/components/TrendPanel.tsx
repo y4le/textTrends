@@ -26,6 +26,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { NumericTrend, WorkspaceTrendMeasureV1 } from '@texttrends/core';
 import { useApp } from '../lib/store-instance.ts';
+import { findScope } from '../lib/interaction.ts';
 import { BarcodeBand, BarcodeLegend } from './BarcodeStrip.tsx';
 import {
   barcodeReaderActivation,
@@ -190,8 +191,9 @@ export function TrendPanel() {
     return () => observer.disconnect();
   }, [containerEl]);
 
-  const findMode = interaction.kind === 'find';
-  const find = findMode ? interaction.find : null;
+  const scopedFind = findScope(interaction);
+  const findMode = scopedFind !== null;
+  const find = scopedFind?.find ?? null;
   const activeSeries = useMemo<readonly SeriesIntent[]>(
     () => findMode
       ? find === null

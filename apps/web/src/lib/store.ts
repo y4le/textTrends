@@ -115,13 +115,16 @@ import { isCancelled, WorkerClientError } from './client.ts';
 import type { SnapshotInfo } from './client.ts';
 import {
   compileFindQuery,
+  findScope,
   findWrapped,
   NO_INTERACTION,
   type FindDispersionState,
   type FindSeekState,
   type FindTrendState,
   type InteractionState,
+  type PrimaryInteraction,
 } from './interaction.ts';
+import { clampRsvpWpm, RSVP_DEFAULT_WPM } from './rsvp.ts';
 import {
   LatestOperation,
   OperationScope,
@@ -699,6 +702,12 @@ export interface AppState {
   stepFind(direction: 1 | -1): void;
   exitInteraction(): void;
   clearInteractionError(): void;
+  enterRsvp(playing: boolean): void;
+  setRsvpPlaying(playing: boolean): void;
+  setRsvpWpm(wpm: number): void;
+  publishRsvpPosition(token: number): void;
+  rsvpSeek(token: number): void;
+  exitRsvp(token: number): void;
 
   // ── Route/layer state: session presentation, never research data. ──
   place: Place;
@@ -1310,11 +1319,14 @@ export function createAppRuntime(
     workspace?: WorkspaceStorePort;
     /** Session-restored presentation geometry, separate from workspace semantics. */
     matchesColumns?: MatchesColumnSettings;
+    /** Session-restored RSVP pace, separate from workspace semantics. */
+    rsvpWpm?: number;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
   const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
   const historyPort = opts?.history ?? null;
+  let lastRsvpWpm = clampRsvpWpm(opts?.rsvpWpm ?? RSVP_DEFAULT_WPM);
   let workspaceStore = opts?.workspace ?? null;
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
@@ -1464,6 +1476,14 @@ export function createAppRuntime(
         place,
         routeStatus: options.resolveRoute === true ? 'resolved' : state.routeStatus,
         layers,
+        interaction: state.interaction.kind === 'rsvp'
+          && (
+            readerPlace === null
+            || readerPlace.snapshot !== state.interaction.rsvp.snapshot
+            || readerPlace.doc !== state.interaction.rsvp.doc
+          )
+          ? state.interaction.suspended
+          : state.interaction,
         notebookError: place === state.place ? state.notebookError : null,
         readerPlace,
         readerPage: readerChanged ? null : state.readerPage,
@@ -1763,8 +1783,7 @@ export function createAppRuntime(
      *  (ruling invariant 4) — a member edit under the same UUID must reject
      *  the old semantics' late result even if a reissue was somehow missed. */
     const identityOf = (id: string): string | null => {
-      const interaction = get().interaction;
-      const find = interaction.kind === 'find' ? interaction.find : null;
+      const find = findScope(get().interaction)?.find ?? null;
       if (find?.query.seriesId === id) return find.query.identity;
       const g = get().notebook.groups.find((x) => x.id === id);
       return g ? groupIdentity(g) : null;
@@ -1816,9 +1835,9 @@ export function createAppRuntime(
     const effectiveTrackSpecs = (
       series: readonly SeriesIntent[],
     ): ReturnType<typeof trackSpecs> => {
-      const interaction = get().interaction;
-      if (interaction.kind !== 'find') return trackSpecs(series);
-      const find = interaction.find;
+      const scoped = findScope(get().interaction);
+      if (scoped === null) return trackSpecs(series);
+      const find = scoped.find;
       if (find === null) {
         return { wire: [], identities: [], captured: Object.freeze([]) };
       }
@@ -2235,27 +2254,31 @@ export function createAppRuntime(
     };
 
     const writeFindTrend = (identity: string, state: FindTrendState): void => {
-      const live = get().interaction;
-      if (live.kind !== 'find' || live.find?.query.identity !== identity) return;
-      set({
-        interaction: {
-          kind: 'find',
-          find: { ...live.find, trend: state },
-        },
-        ...(state.status === 'ready'
-          ? { corpusTokenCounts: retainTrendTokenCounts(get().corpusTokenCounts, state.trend) }
-          : {}),
+      set((live) => {
+        const scoped = findScope(live.interaction);
+        if (scoped?.find?.query.identity !== identity) return live;
+        const find = { ...scoped.find, trend: state };
+        return {
+          interaction: live.interaction.kind === 'rsvp'
+            ? { ...live.interaction, suspended: { kind: 'find', find } }
+            : { kind: 'find', find },
+          ...(state.status === 'ready'
+            ? { corpusTokenCounts: retainTrendTokenCounts(live.corpusTokenCounts, state.trend) }
+            : {}),
+        };
       });
     };
 
     const writeFindDispersion = (identity: string, state: FindDispersionState): void => {
-      const live = get().interaction;
-      if (live.kind !== 'find' || live.find?.query.identity !== identity) return;
-      set({
-        interaction: {
-          kind: 'find',
-          find: { ...live.find, dispersion: state },
-        },
+      set((live) => {
+        const scoped = findScope(live.interaction);
+        if (scoped?.find?.query.identity !== identity) return live;
+        const find = { ...scoped.find, dispersion: state };
+        return {
+          interaction: live.interaction.kind === 'rsvp'
+            ? { ...live.interaction, suspended: { kind: 'find', find } }
+            : { kind: 'find', find },
+        };
       });
     };
 
@@ -2264,7 +2287,7 @@ export function createAppRuntime(
     const runFindTrend = (): void => {
       findTrendLane.supersede();
       const { snapshot, interaction, trendBins } = get();
-      const find = interaction.kind === 'find' ? interaction.find : null;
+      const find = findScope(interaction)?.find ?? null;
       if (!snapshot || !find || find.snapshot !== snapshot.snapshot) return;
       const issuedKey = snapKey(snapshot);
       const issuedIdentity = find.query.identity;
@@ -2272,8 +2295,7 @@ export function createAppRuntime(
       const lease = findTrendLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => {
-          const live = get().interaction;
-          return live.kind === 'find' && live.find?.query.identity === issuedIdentity;
+          return findScope(get().interaction)?.find?.query.identity === issuedIdentity;
         },
         () => {
           const live = get().trendBins;
@@ -2308,7 +2330,7 @@ export function createAppRuntime(
     const runFindDispersion = (): void => {
       findDispersionLane.supersede();
       const { snapshot, interaction } = get();
-      const find = interaction.kind === 'find' ? interaction.find : null;
+      const find = findScope(interaction)?.find ?? null;
       if (!snapshot || !find || find.snapshot !== snapshot.snapshot) return;
       const issuedKey = snapKey(snapshot);
       const issuedIdentity = find.query.identity;
@@ -2317,8 +2339,7 @@ export function createAppRuntime(
       const lease = findDispersionLane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => {
-          const live = get().interaction;
-          return live.kind === 'find' && live.find?.query.identity === issuedIdentity;
+          return findScope(get().interaction)?.find?.query.identity === issuedIdentity;
         },
       );
       writeFindDispersion(issuedIdentity, { status: 'pending' });
@@ -3409,6 +3430,7 @@ export function createAppRuntime(
       },
 
       setScrub(target) {
+        if (get().interaction.kind === 'rsvp') return;
         const { snapshot, corpusTokenCounts } = get();
         const tokenCount = corpusTokenCounts.get(target.doc);
         if (
@@ -3429,6 +3451,7 @@ export function createAppRuntime(
       },
 
       clearScrub() {
+        if (get().interaction.kind === 'rsvp') return;
         occurrenceLane.supersede();
         set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
         resetFooterPassage();
@@ -3437,6 +3460,7 @@ export function createAppRuntime(
 
       enterFind() {
         const current = get().interaction;
+        if (current.kind === 'rsvp') return;
         set({
           interaction: current.kind === 'find'
             ? current
@@ -3452,6 +3476,9 @@ export function createAppRuntime(
       },
 
       submitFind(raw) {
+        // Defensive only: active RSVP owns focus/shortcuts, so no authoring
+        // surface treats this refusal as a validation error.
+        if (get().interaction.kind === 'rsvp') return false;
         const compiled = compileFindQuery(raw, newId);
         if (!compiled.ok) {
           set({ interactionError: compiled.message });
@@ -3668,6 +3695,7 @@ export function createAppRuntime(
       },
 
       exitInteraction() {
+        if (get().interaction.kind === 'rsvp') return;
         findLane.supersede();
         findTrendLane.supersede();
         findDispersionLane.supersede();
@@ -3682,7 +3710,158 @@ export function createAppRuntime(
         set({ interactionError: null });
       },
 
+      enterRsvp(playing) {
+        const state = get();
+        if (state.interaction.kind === 'rsvp') return;
+        const place = state.readerPlace;
+        const pageState = state.readerPage;
+        const source = pageState
+          && place
+          && sameReaderPlace(pageState.place, place)
+          && pageState.state.status === 'ready'
+          ? pageState.state.page
+          : null;
+        if (
+          source === null
+          || place === null
+          || pageState === null
+          || pageState.snapshot !== state.snapshot?.snapshot
+          || place.snapshot !== state.snapshot?.snapshot
+          || source.doc !== place.doc
+          || source.tokens.start >= source.tokens.end
+        ) return;
+        const visible = state.readerVisibleRange;
+        const published = visible !== null
+          && visible.snapshot === pageState.snapshot
+          && visible.doc === source.doc
+          && visible.tokens.start >= source.tokens.start
+          && visible.tokens.start < source.tokens.end
+          ? visible.tokens.start
+          : null;
+        const startToken = source.anchor?.token ?? published;
+        if (
+          startToken === null
+          || startToken < source.tokens.start
+          || startToken >= source.tokens.end
+        ) return;
+
+        occurrenceLane.supersede();
+        let suspended: PrimaryInteraction = state.interaction;
+        if (suspended.kind === 'find' && suspended.find?.state.status === 'pending') {
+          findLane.supersede();
+          suspended = {
+            kind: 'find',
+            find: { ...suspended.find, state: { status: 'idle' } },
+          };
+        }
+        set({
+          interaction: {
+            kind: 'rsvp',
+            rsvp: {
+              snapshot: pageState.snapshot,
+              doc: source.doc,
+              docTokenCount: source.docTokenCount,
+              startToken,
+              wpm: lastRsvpWpm,
+              playing,
+            },
+            suspended,
+          },
+          scrub: { doc: source.doc, token: startToken },
+          occurrenceNavigation: null,
+          matchesReveal: null,
+          interactionError: null,
+        });
+      },
+
+      setRsvpPlaying(playing) {
+        set((state) => state.interaction.kind !== 'rsvp'
+          || state.interaction.rsvp.playing === playing
+          ? state
+          : {
+              interaction: {
+                ...state.interaction,
+                rsvp: { ...state.interaction.rsvp, playing },
+              },
+            });
+      },
+
+      setRsvpWpm(wpm) {
+        if (get().interaction.kind !== 'rsvp') return;
+        const bounded = clampRsvpWpm(wpm);
+        lastRsvpWpm = bounded;
+        set((state) => state.interaction.kind !== 'rsvp'
+          || state.interaction.rsvp.wpm === bounded
+          ? state
+          : {
+              interaction: {
+                ...state.interaction,
+                rsvp: { ...state.interaction.rsvp, wpm: bounded },
+              },
+            });
+      },
+
+      publishRsvpPosition(token) {
+        const state = get();
+        const mode = state.interaction.kind === 'rsvp'
+          ? state.interaction.rsvp
+          : null;
+        if (
+          mode === null
+          || mode.snapshot !== state.snapshot?.snapshot
+          || !Number.isSafeInteger(token)
+          || token < 0
+          || token >= mode.docTokenCount
+        ) return;
+        const changed = state.scrub?.doc !== mode.doc || state.scrub.token !== token;
+        if (!changed && state.occurrenceNavigation === null && state.matchesReveal === null) return;
+        if (changed) occurrenceLane.supersede();
+        set({
+          ...(changed ? { scrub: { doc: mode.doc, token } } : {}),
+          occurrenceNavigation: null,
+          matchesReveal: null,
+        });
+      },
+
+      rsvpSeek(token) {
+        const state = get();
+        const mode = state.interaction.kind === 'rsvp'
+          ? state.interaction.rsvp
+          : null;
+        if (
+          mode === null
+          || mode.snapshot !== state.snapshot?.snapshot
+          || !Number.isSafeInteger(token)
+          || token < 0
+          || token >= mode.docTokenCount
+        ) return;
+        replaceReaderTarget({ doc: mode.doc, cursor: { kind: 'from', token } });
+      },
+
+      exitRsvp(token) {
+        const state = get();
+        if (
+          state.interaction.kind !== 'rsvp'
+          || state.interaction.rsvp.snapshot !== state.snapshot?.snapshot
+          || !Number.isSafeInteger(token)
+          || token < 0
+          || token >= state.interaction.rsvp.docTokenCount
+        ) return;
+        const { doc } = state.interaction.rsvp;
+        const suspended = state.interaction.suspended;
+        occurrenceLane.supersede();
+        set({
+          interaction: suspended,
+          scrub: { doc, token },
+          occurrenceNavigation: null,
+          matchesReveal: null,
+          interactionError: null,
+        });
+        replaceReaderTarget({ doc, cursor: { kind: 'from', token } });
+      },
+
       stepOccurrence(direction) {
+        if (get().interaction.kind === 'rsvp') return;
         if (get().interaction.kind === 'find') {
           get().stepFind(direction);
           return;
@@ -3893,6 +4072,7 @@ export function createAppRuntime(
       },
 
       openReader(intent, returnFocusTo = `place-${get().place}-heading`) {
+        if (get().interaction.kind === 'rsvp') return;
         const snapshot = get().snapshot;
         const place = readerPlaceFor(
           intent,
@@ -3917,6 +4097,7 @@ export function createAppRuntime(
 
       setReaderVisibleRange(range) {
         const state = get();
+        if (state.interaction.kind === 'rsvp') return;
         const place = state.readerPlace;
         const source = state.readerPage
           && place
@@ -4012,6 +4193,7 @@ export function createAppRuntime(
 
       refitReaderAt(token) {
         const state = get();
+        if (state.interaction.kind === 'rsvp') return;
         const visible = state.readerVisibleRange;
         const source = state.readerPage?.state.status === 'ready'
           ? state.readerPage.state.page
@@ -4029,6 +4211,7 @@ export function createAppRuntime(
       },
 
       navigateReader(target) {
+        if (get().interaction.kind === 'rsvp') return;
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
         const destination: ReaderNavigationTarget | null = place === null
           ? null
@@ -5468,6 +5651,14 @@ export function createAppRuntime(
       place: routePlace,
       routeStatus: 'resolved',
       layers,
+      interaction: state.interaction.kind === 'rsvp'
+        && (
+          readerPlace === null
+          || readerPlace.snapshot !== state.interaction.rsvp.snapshot
+          || readerPlace.doc !== state.interaction.rsvp.doc
+        )
+        ? state.interaction.suspended
+        : state.interaction,
       notebookError: routePlace === state.place ? state.notebookError : null,
       readerPlace,
       readerPage: readerChanged ? null : state.readerPage,

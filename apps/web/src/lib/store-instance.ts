@@ -37,6 +37,9 @@ import {
 } from './matches-column-storage.ts';
 import { consumeDemoBootRequest } from './demo-query.ts';
 import { demoLoadNotice, loadDemoCorpus } from './demo-loader.ts';
+import { findScope } from './interaction.ts';
+import { RSVP_DEFAULT_WPM } from './rsvp.ts';
+import { loadRsvpWpm, saveRsvpWpm } from './rsvp-storage.ts';
 
 // Consume the one-shot parameter before createAppRuntime performs any route
 // replace. Otherwise the route layer correctly preserves this foreign key and
@@ -47,11 +50,13 @@ const trace = __TT_E2E__ ? new RingTrace() : undefined;
 const client = new WorkerClient(trace);
 const matchesStorage = browserSessionStorage(window);
 const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
+const restoredRsvpWpm = loadRsvpWpm(matchesStorage);
 const runtime = createAppRuntime(client, {
   history: browserHistoryPort(window),
   ...(restoredMatchesColumns === null
     ? {}
     : { matchesColumns: restoredMatchesColumns }),
+  rsvpWpm: restoredRsvpWpm ?? RSVP_DEFAULT_WPM,
 });
 
 /** The single React-facing store. */
@@ -82,7 +87,7 @@ function pendingAnalyses(): number {
       state.footerPassage?.state,
       state.readerPage?.state,
       state.occurrenceNavigation?.state,
-      state.interaction.kind === 'find' ? state.interaction.find?.state : null,
+      findScope(state.interaction)?.find?.state ?? null,
     ],
     maps: [state.trends, state.selectedTrends],
   });
@@ -104,6 +109,13 @@ const unsubscribeMatchesColumns = runtime.useApp.subscribe((state) => {
   if (columns === savedMatchesColumns) return;
   savedMatchesColumns = columns;
   saveMatchesColumnSettings(matchesStorage, columns);
+});
+let savedRsvpWpm = restoredRsvpWpm;
+const unsubscribeRsvpWpm = runtime.useApp.subscribe((state) => {
+  const wpm = state.interaction.kind === 'rsvp' ? state.interaction.rsvp.wpm : null;
+  if (wpm === null || wpm === savedRsvpWpm) return;
+  savedRsvpWpm = wpm;
+  saveRsvpWpm(matchesStorage, wpm);
 });
 
 /** Built-in byte acquisition: fetch a bundled document by its corpus-qualified
@@ -325,6 +337,7 @@ export async function shutdownAppForReload(options: { readonly preserveWorkspace
     try {
       unsubscribeResumeState();
       unsubscribeMatchesColumns();
+      unsubscribeRsvpWpm();
       resumeMonitor.dispose();
       runtime.dispose();
     } finally {

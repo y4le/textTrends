@@ -11,6 +11,7 @@ import {
   useState,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import { findScope } from '../lib/interaction.ts';
 import { groupIdentity, groupTitle } from '../lib/notebook.ts';
 import { trackLegend, type TrackLegendEntry } from '../lib/track-legend.ts';
 import { segmentMarks, type MarkSegment } from '../lib/marks-view.ts';
@@ -191,8 +192,9 @@ export function ReaderDrawer({
   const stepOccurrence = useApp((state) => state.stepOccurrence);
   const series = useApp((state) => state.series);
   const interaction = useApp((state) => state.interaction);
-  const findMode = interaction.kind === 'find';
-  const find = findMode ? interaction.find : null;
+  const scopedFind = findScope(interaction);
+  const findMode = scopedFind !== null;
+  const find = scopedFind?.find ?? null;
   const findQuery = find?.query ?? null;
   const presentedSeries = findMode
     ? findQuery === null
