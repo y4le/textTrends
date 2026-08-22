@@ -4,6 +4,32 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-21 — Reader gains a semi-hidden RSVP mode
+
+The full-screen Reader may enter a second, in-place RSVP presentation with
+uppercase `S`. The mode retains the Reader's analytical footer and returns to
+normal fitted prose at the exact displayed token when `S`, Escape, or a
+pointer action outside its controls exits. Uppercase `W` opens a bounded set-
+pace input; `h`/`l` and Left/Right adjust that pace only while RSVP is active.
+Space and a visible control pause or resume. Explicit entry plays immediately
+unless reduced motion is requested, in which case it enters paused.
+
+The implementation uses a stable, subtly highlighted left-of-centre focal
+letter, deterministic word-length weighting, and index-authored sentence and
+paragraph boundaries. A sentence boundary adds a fixed 500ms integration
+pause. It makes no equivalent-comprehension claim, and deliberately excludes
+Bionic prefixes, randomized “chaos” pacing, automatic speed ramps, and
+readability-driven complexity scoring. RSVP extends the existing one-primary-
+interaction state inside the Reader rather than creating a nested history
+layer. All query and presentation consumers derive effective Find state
+through one interaction helper. If RSVP displaces Find, the exact Find
+query and resident analytical state remain effective; any pending seek settles
+to idle, and that settled Find interaction is restored on exit.
+Reader navigation and Find-open commands are suppressed while RSVP owns the
+source, and utility panes pause RSVP before taking its controls. The complete
+interaction, pacing, architecture, evidence, and test contract is recorded in
+[rsvp-reader.md](rsvp-reader.md).
+
 ## 2026-08-21 — Reader keeps a minimal analytical footer
 
 Reader now retains the shared Terms, all-book graph, progress cursor, and
