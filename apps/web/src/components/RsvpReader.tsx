@@ -10,14 +10,14 @@ import { rsvpCursorStep, rsvpNeedsContinuation } from '../lib/rsvp-playback.ts';
 import {
   RSVP_MAX_WPM,
   RSVP_MIN_WPM,
+  RSVP_WPM_INPUT_ID,
   RSVP_WPM_STEP,
   rsvpHoldMs,
   rsvpWordFrame,
 } from '../lib/rsvp.ts';
+import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
-
-export const RSVP_WPM_INPUT_ID = 'reader-rsvp-wpm';
 
 export type RsvpReaderSource =
   | { readonly status: 'pending' }
@@ -28,6 +28,7 @@ export interface RsvpReaderProps {
   readonly title: string;
   readonly mode: RsvpState;
   readonly source: RsvpReaderSource;
+  /** Playback effects depend on these bare, store-lifetime-stable actions. */
   readonly onSetPlaying: (playing: boolean) => void;
   readonly onSetWpm: (wpm: number) => void;
   readonly onPublish: (token: number) => void;
@@ -73,6 +74,7 @@ export function RsvpReader({
   const requestedSource = useRef<string | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
+  const exitRef = useRef<HTMLButtonElement | null>(null);
   const cursorRef = useRef(cursor);
   cursorRef.current = cursor;
 
@@ -89,6 +91,10 @@ export function RsvpReader({
   useEffect(() => {
     playRef.current?.focus({ preventScroll: true });
   }, []);
+
+  useEffect(() => {
+    if (completed) exitRef.current?.focus({ preventScroll: true });
+  }, [completed]);
 
   useEffect(() => {
     const pauseWhenHidden = () => {
@@ -188,6 +194,11 @@ export function RsvpReader({
       event.stopPropagation();
       resumeAfterEdit.current = false;
       exit();
+    } else if (shortcutMatches(event, 'reader-rsvp-toggle')) {
+      event.preventDefault();
+      event.stopPropagation();
+      resumeAfterEdit.current = false;
+      exit();
     }
   };
   const trapTab = (event: KeyboardEvent<HTMLDivElement>) => {
@@ -233,6 +244,7 @@ export function RsvpReader({
           <button
             type="button"
             data-rsvp-control="true"
+            aria-keyshortcuts={shortcutAria(['show-help'])}
             onClick={onOpenShortcuts}
             onKeyDown={stopControlSpace}
             style={SMALL_BUTTON_STYLE}
@@ -240,8 +252,10 @@ export function RsvpReader({
             shortcuts
           </button>
           <button
+            ref={exitRef}
             type="button"
             data-rsvp-control="true"
+            aria-keyshortcuts={shortcutAria(['reader-rsvp-toggle', 'rsvp-exit'])}
             onClick={exit}
             onKeyDown={stopControlSpace}
             style={SMALL_BUTTON_STYLE}
@@ -286,6 +300,7 @@ export function RsvpReader({
           data-rsvp-control="true"
           disabled={completed}
           aria-pressed={mode.playing}
+          aria-keyshortcuts={shortcutAria(['rsvp-toggle-play'])}
           onClick={togglePlaying}
           onKeyDown={stopControlSpace}
           style={SMALL_BUTTON_STYLE}
@@ -296,13 +311,18 @@ export function RsvpReader({
           type="button"
           data-rsvp-control="true"
           aria-label={`Slower, ${RSVP_WPM_STEP} words per minute`}
+          aria-keyshortcuts={shortcutAria(['rsvp-pace-down'])}
           onClick={() => onSetWpm(mode.wpm - RSVP_WPM_STEP)}
           onKeyDown={stopControlSpace}
           style={SMALL_BUTTON_STYLE}
         >
           slower
         </button>
-        <label className="reader-rsvp-pace" htmlFor={RSVP_WPM_INPUT_ID}>
+        <label
+          className="reader-rsvp-pace"
+          data-rsvp-control="true"
+          htmlFor={RSVP_WPM_INPUT_ID}
+        >
           <span>set pace</span>
           <input
             id={RSVP_WPM_INPUT_ID}
@@ -314,6 +334,7 @@ export function RsvpReader({
             step={RSVP_WPM_STEP}
             value={paceDraft}
             aria-label="Set pace in words per minute"
+            aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
             onFocus={(event) => {
               beginPaceEdit();
               event.currentTarget.select();
@@ -328,6 +349,7 @@ export function RsvpReader({
           type="button"
           data-rsvp-control="true"
           aria-label={`Faster, ${RSVP_WPM_STEP} words per minute`}
+          aria-keyshortcuts={shortcutAria(['rsvp-pace-up'])}
           onClick={() => onSetWpm(mode.wpm + RSVP_WPM_STEP)}
           onKeyDown={stopControlSpace}
           style={SMALL_BUTTON_STYLE}

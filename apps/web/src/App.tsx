@@ -29,6 +29,8 @@ import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
+import { RSVP_WPM_INPUT_ID, RSVP_WPM_STEP } from './lib/rsvp.ts';
+import { usePresentation } from './components/PresentationProvider.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -157,6 +159,7 @@ function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) 
 }
 
 export function App() {
+  const presentation = usePresentation();
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
@@ -177,6 +180,8 @@ export function App() {
   const stepFind = useApp((s) => s.stepFind);
   const exitInteraction = useApp((s) => s.exitInteraction);
   const setRsvpPlaying = useApp((s) => s.setRsvpPlaying);
+  const enterRsvp = useApp((s) => s.enterRsvp);
+  const setRsvpWpm = useApp((s) => s.setRsvpWpm);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
@@ -201,6 +206,7 @@ export function App() {
   const restoreFindFocus = useRef(false);
   const previousFindScope = useRef(findScope(interaction) !== null);
   const readerEdgePointer = useRef<ReaderEdgePointer | null>(null);
+  const consumeRsvpClick = useRef(false);
   const shortcutSequence = useRef<ShortcutSequenceState | null>(null);
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
@@ -301,6 +307,18 @@ export function App() {
     requestAnimationFrame(() => {
       if (target?.isConnected) target.focus({ preventScroll: true });
     });
+  };
+  const exitActiveRsvp = (): boolean => {
+    const state = useApp.getState();
+    if (state.interaction.kind !== 'rsvp') return false;
+    const mode = state.interaction.rsvp;
+    const token = state.scrub?.doc === mode.doc
+      && state.scrub.token >= 0
+      && state.scrub.token < mode.docTokenCount
+      ? state.scrub.token
+      : mode.startToken;
+    state.exitRsvp(token);
+    return true;
   };
   const focusAfterRender = (id: string) => {
     requestAnimationFrame(() => {
@@ -414,12 +432,64 @@ export function App() {
     event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
   ): boolean => {
     if (utilityPane !== null || !interactionShortcutAllowed(event)) return false;
+    const active = useApp.getState().interaction;
+    if (active.kind === 'rsvp') {
+      if (
+        shortcutMatches(event, 'reader-rsvp-toggle')
+        || shortcutMatches(event, 'rsvp-exit')
+      ) {
+        event.preventDefault();
+        exitActiveRsvp();
+        return true;
+      }
+      if (shortcutMatches(event, 'rsvp-toggle-play')) {
+        event.preventDefault();
+        setRsvpPlaying(!active.rsvp.playing);
+        return true;
+      }
+      if (shortcutMatches(event, 'rsvp-pace-editor')) {
+        event.preventDefault();
+        const input = document.getElementById(RSVP_WPM_INPUT_ID);
+        if (input instanceof HTMLInputElement) {
+          input.focus({ preventScroll: true });
+          input.select();
+        }
+        return true;
+      }
+      if (shortcutMatches(event, 'rsvp-pace-down')) {
+        event.preventDefault();
+        setRsvpWpm(active.rsvp.wpm - RSVP_WPM_STEP);
+        return true;
+      }
+      if (shortcutMatches(event, 'rsvp-pace-up')) {
+        event.preventDefault();
+        setRsvpWpm(active.rsvp.wpm + RSVP_WPM_STEP);
+        return true;
+      }
+      if (
+        shortcutMatches(event, 'find-open')
+        || shortcutMatches(event, 'reader-page-previous')
+        || shortcutMatches(event, 'reader-page-next')
+        || shortcutMatches(event, 'reader-occurrence-previous')
+        || shortcutMatches(event, 'reader-occurrence-next')
+        || shortcutMatches(event, 'reader-book-start')
+        || shortcutMatches(event, 'reader-book-end')
+      ) {
+        event.preventDefault();
+        return true;
+      }
+      return false;
+    }
     if (shortcutMatches(event, 'find-open')) {
       event.preventDefault();
       openFind(false, event.ctrlKey || event.metaKey);
       return true;
     }
-    const active = useApp.getState().interaction;
+    if (readerOpen && shortcutMatches(event, 'reader-rsvp-toggle')) {
+      event.preventDefault();
+      enterRsvp(!presentation.reducedMotion);
+      return true;
+    }
     if (active.kind !== 'find') return false;
     if (shortcutMatches(event, 'find-close')) {
       event.preventDefault();
@@ -457,11 +527,15 @@ export function App() {
       // focus still rests on <body>.
       if (utilityPane !== null) return;
       if (handleInteractionShortcut(event)) return;
-      handleRootShortcut(event, readerOpen ? 'reader' : 'workbench', true);
+      handleRootShortcut(
+        event,
+        readerOpen ? interaction.kind === 'rsvp' ? 'rsvp' : 'reader' : 'workbench',
+        true,
+      );
     };
     document.addEventListener('keydown', onDocumentKeyDown);
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
-  }, [interaction.kind, readerOpen, utilityPane]);
+  }, [interaction.kind, presentation.reducedMotion, readerOpen, utilityPane]);
 
   useEffect(() => {
     const current = findScope(interaction) !== null;
@@ -518,6 +592,27 @@ export function App() {
     }
     setReaderKeyboardStatus('');
     navigateReader(cursor);
+  };
+  const onReaderPointerDownCapture = (event: ReactPointerEvent<HTMLElement>) => {
+    if (useApp.getState().interaction.kind !== 'rsvp') return;
+    const target = event.target instanceof Element ? event.target : null;
+    if (target?.closest('[data-rsvp-control]')) return;
+    consumeRsvpClick.current = true;
+    event.preventDefault();
+    event.stopPropagation();
+    exitActiveRsvp();
+  };
+  const onReaderPointerUpCapture = (event: ReactPointerEvent<HTMLElement>) => {
+    if (!consumeRsvpClick.current) return;
+    event.preventDefault();
+    event.stopPropagation();
+    window.setTimeout(() => { consumeRsvpClick.current = false; }, 0);
+  };
+  const onReaderClickCapture = (event: React.MouseEvent<HTMLElement>) => {
+    if (!consumeRsvpClick.current) return;
+    consumeRsvpClick.current = false;
+    event.preventDefault();
+    event.stopPropagation();
   };
   const onReaderPointerDown = (event: ReactPointerEvent<HTMLElement>) => {
     readerEdgePointer.current = null;
@@ -592,13 +687,19 @@ export function App() {
         id="reader-region"
         className="reader-region"
         data-reader-footer="true"
-        data-shortcut-context="reader"
+        data-shortcut-context={interaction.kind === 'rsvp' ? 'rsvp' : 'reader'}
         data-reader-fit-size={readerVisibleRange?.geometry.split(':', 1)[0]}
         aria-labelledby="reader-title"
         tabIndex={-1}
+        onPointerDownCapture={onReaderPointerDownCapture}
+        onPointerUpCapture={onReaderPointerUpCapture}
+        onClickCapture={onReaderClickCapture}
         onPointerDown={onReaderPointerDown}
         onPointerUp={onReaderPointerUp}
-        onPointerCancel={() => { readerEdgePointer.current = null; }}
+        onPointerCancel={() => {
+          readerEdgePointer.current = null;
+          consumeRsvpClick.current = false;
+        }}
         onKeyDown={(event) => {
           if (handleInteractionShortcut(event)) return;
           if (!rootShortcutAllowed(event)) return;
@@ -644,7 +745,7 @@ export function App() {
             }
             return;
           }
-          handleRootShortcut(event, 'reader');
+          handleRootShortcut(event, interaction.kind === 'rsvp' ? 'rsvp' : 'reader');
         }}
       >
         <span
@@ -681,12 +782,15 @@ export function App() {
           )}
         >
           <ReaderDrawer
-            onOpenShortcuts={() => openShortcutHelp('reader')}
+            onOpenShortcuts={() => openShortcutHelp(
+              interaction.kind === 'rsvp' ? 'rsvp' : 'reader',
+            )}
           />
         </Suspense>
         <WorkbenchDock
           mode="reader"
           globalShortcuts={false}
+          inactive={interaction.kind === 'rsvp'}
           onCloseFind={closeFind}
         />
       </main>

@@ -1,7 +1,7 @@
 import { FIND_SURFACE_SELECTOR } from './interaction.ts';
 import type { Place } from './places.ts';
 
-export type ShortcutHelpContext = 'workbench' | 'reader';
+export type ShortcutHelpContext = 'workbench' | 'reader' | 'rsvp';
 
 export type ShortcutId =
   | 'show-help'
@@ -68,7 +68,13 @@ export type ShortcutId =
   | 'reader-occurrence-next'
   | 'reader-book-start'
   | 'reader-book-end'
-  | 'reader-close';
+  | 'reader-close'
+  | 'reader-rsvp-toggle'
+  | 'rsvp-exit'
+  | 'rsvp-toggle-play'
+  | 'rsvp-pace-editor'
+  | 'rsvp-pace-down'
+  | 'rsvp-pace-up';
 
 interface ShortcutStroke {
   readonly key: string;
@@ -83,7 +89,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'Global' | 'Find' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader';
+  readonly group: 'Global' | 'Find' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -112,6 +118,7 @@ export interface ShortcutHelpSection {
 
 export type ShortcutHelpScope =
   | { readonly context: 'reader' }
+  | { readonly context: 'rsvp' }
   | {
       readonly context: 'workbench';
       readonly place: Place;
@@ -135,14 +142,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
   {
     id: 'show-help',
     group: 'Global',
-    helpContexts: ['workbench', 'reader'],
+    helpContexts: ['workbench', 'reader', 'rsvp'],
     label: 'Toggle keyboard shortcuts',
     strokes: [{ key: '?', shift: true }],
   },
   {
     id: 'show-debug',
     group: 'Global',
-    helpContexts: ['workbench', 'reader'],
+    helpContexts: ['workbench', 'reader', 'rsvp'],
     label: 'Open debug menu',
     strokes: [{ key: 'D', shift: true, explicitShift: true }],
   },
@@ -598,6 +605,48 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     label: 'Return to the workbench',
     strokes: [{ key: 'Escape' }],
   },
+  {
+    id: 'reader-rsvp-toggle',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Return to normal Reader',
+    strokes: [{ key: 'S', shift: true, explicitShift: true }],
+  },
+  {
+    id: 'rsvp-exit',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Return to normal Reader',
+    strokes: [{ key: 'Escape' }],
+  },
+  {
+    id: 'rsvp-toggle-play',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Pause or resume',
+    strokes: [{ key: ' ' }],
+  },
+  {
+    id: 'rsvp-pace-editor',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Edit set pace',
+    strokes: [{ key: 'W', shift: true, explicitShift: true }],
+  },
+  {
+    id: 'rsvp-pace-down',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Reduce set pace',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'rsvp-pace-up',
+    group: 'Speed reader',
+    helpContexts: ['rsvp'],
+    label: 'Increase set pace',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
 ]);
 
 const byId = new Map(SHORTCUTS.map((shortcut) => [shortcut.id, shortcut] as const));
@@ -783,7 +832,9 @@ const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
     ? ['Global', 'Find', 'Reader']
-    : [
+    : scope.context === 'rsvp'
+      ? ['Global', 'Speed reader']
+      : [
         'Global',
         'Find',
         'Navigation',
@@ -800,7 +851,7 @@ export function shortcutHelpSections(scope: ShortcutHelpScope): readonly Shortcu
           shortcut.group !== group
           || !shortcut.helpContexts.includes(scope.context)
         ) return false;
-        if (scope.context === 'reader') return true;
+        if (scope.context !== 'workbench') return true;
         if (GO_PLACE[shortcut.id] === scope.place) return false;
         if (shortcut.id === 'go-compare' && scope.activeTextCount < 2) return false;
         if (shortcut.id === 'go-footer' && !scope.footerAvailable) return false;

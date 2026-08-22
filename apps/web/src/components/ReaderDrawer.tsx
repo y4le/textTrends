@@ -27,6 +27,7 @@ import { sameReaderPlace } from '../lib/reader-intent.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { shortcutAria } from '../lib/shortcuts.ts';
+import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
 
 function ReaderProse({
   page,
@@ -172,7 +173,7 @@ function readerSourceKey(page: ReaderPageResultV1): string {
   return `${page.doc}:${page.tokens.start}:${page.tokens.end}:${page.anchor?.token ?? '-'}`;
 }
 
-export function ReaderDrawer({
+function ReaderProseDrawer({
   onOpenShortcuts,
 }: {
   readonly onOpenShortcuts: () => void;
@@ -548,5 +549,54 @@ export function ReaderDrawer({
         </button>
       </nav>
     </>
+  );
+}
+
+export function ReaderDrawer({
+  onOpenShortcuts,
+}: {
+  readonly onOpenShortcuts: () => void;
+}) {
+  const interaction = useApp((state) => state.interaction);
+  const place = useApp((state) => state.readerPlace);
+  const result = useApp((state) => state.readerPage);
+  const project = useApp((state) => state.projectSession?.project ?? null);
+  const setPlaying = useApp((state) => state.setRsvpPlaying);
+  const setWpm = useApp((state) => state.setRsvpWpm);
+  const publish = useApp((state) => state.publishRsvpPosition);
+  const seek = useApp((state) => state.rsvpSeek);
+  const exit = useApp((state) => state.exitRsvp);
+  const retry = useApp((state) => state.retryReader);
+
+  if (
+    interaction.kind !== 'rsvp'
+    || place === null
+    || place.snapshot !== interaction.rsvp.snapshot
+    || place.doc !== interaction.rsvp.doc
+  ) return <ReaderProseDrawer onOpenShortcuts={onOpenShortcuts} />;
+
+  const current = result && sameReaderPlace(result.place, place) ? result : null;
+  const source: RsvpReaderSource = !current || current.state.status === 'pending'
+    ? { status: 'pending' }
+    : current.state.status === 'error'
+      ? { status: 'error', message: current.state.message }
+      : { status: 'ready', page: current.state.page };
+  const title = project?.data.docs.find((entry) => entry.doc === place.doc)?.meta.title
+    ?? place.doc;
+  const mode = interaction.rsvp;
+  return (
+    <RsvpReader
+      key={`${mode.snapshot}:${mode.doc}:${mode.startToken}`}
+      title={title}
+      mode={mode}
+      source={source}
+      onSetPlaying={setPlaying}
+      onSetWpm={setWpm}
+      onPublish={publish}
+      onSeek={seek}
+      onExit={exit}
+      onRetry={retry}
+      onOpenShortcuts={onOpenShortcuts}
+    />
   );
 }

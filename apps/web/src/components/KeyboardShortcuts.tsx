@@ -37,7 +37,7 @@ export function KeyboardShortcuts({
     && state.snapshot.readyDocs.length > 0
     && state.snapshot.readyDocs.some((doc) =>
       (state.corpusTokenCounts.get(doc) ?? 0) > 0));
-  const sections = shortcutHelpSections(context === 'reader'
+  const sections = shortcutHelpSections(context !== 'workbench'
     ? { context }
     : { context, place, activeTextCount, footerAvailable });
   return (
@@ -64,14 +64,16 @@ export function KeyboardShortcuts({
       <div className="shortcut-help-sections">
         <section className="shortcut-help-tools" aria-labelledby="shortcut-help-tools">
           <h3 id="shortcut-help-tools">Tools</h3>
-          <button
-            type="button"
-            className="coarse-target"
-            aria-keyshortcuts={shortcutAria(['find-open'])}
-            onClick={onFind}
-          >
-            Find in corpus <kbd aria-hidden="true">/</kbd>
-          </button>
+          {context !== 'rsvp' && (
+            <button
+              type="button"
+              className="coarse-target"
+              aria-keyshortcuts={shortcutAria(['find-open'])}
+              onClick={onFind}
+            >
+              Find in corpus <kbd aria-hidden="true">/</kbd>
+            </button>
+          )}
           <button
             type="button"
             className="coarse-target"

@@ -36,8 +36,9 @@ function TermsRailFallback() {
 /** Fixed layout host for the authored query state and transient reading
  * instrument. The two named asides remain independent accessibility regions;
  * this wrapper owns only viewport placement and the pre-mount reservation. */
-export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench' }: {
+export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, mode = 'workbench' }: {
   readonly globalShortcuts: boolean;
+  readonly inactive?: boolean;
   readonly onCloseFind: () => void;
   readonly mode?: 'workbench' | 'reader';
 }) {
@@ -243,7 +244,9 @@ export function WorkbenchDock({ globalShortcuts, onCloseFind, mode = 'workbench'
       id="workbench-dock"
       ref={dockRef}
       className="workbench-dock"
+      inert={inactive || undefined}
       data-mode={mode}
+      data-inactive={inactive || undefined}
       data-terms-compressed={mode === 'reader'
         || sizing.blockSize < sizing.baseBlockSize
         || undefined}

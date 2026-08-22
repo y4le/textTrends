@@ -1,9 +1,9 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: DECISION — implementation pending (2026-08-21).** This record
+**STATUS: IMPLEMENTED (2026-08-22).** This record
 supersedes the RSVP recommendations in
 [interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
-does not claim that the implementation has shipped.
+describes the shipped interaction and pacing contract.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -71,7 +71,7 @@ Enter accepts the bounded value and restores the prior play state. Escape
 always exits RSVP, including while the editor is focused. `h`, `l`, Left, and
 Right nudge pace while RSVP owns non-editing focus. While the number input is
 focused, normal text editing and caret keys take priority; only Enter and
-Escape have mode-specific meanings.
+Escape plus the mode-exit `Shift+S` chord have mode-specific meanings.
 
 Document-level Space handling ignores buttons and other editing/control
 targets. RSVP controls handle their native Space activation locally and stop
@@ -100,9 +100,9 @@ target sizing applies to the controls available after keyboard entry; it does
 not imply a visible Speed read entry action.
 
 Pointer clicks on the focal word, surrounding stage, header backdrop, or
-analytical footer exit RSVP. Buttons and the WPM editor are the only exempt
-targets. The exit click is consumed so it cannot also seek, resize, or close a
-second surface.
+analytical footer exit RSVP. RSVP's own buttons and complete WPM editor are the
+only exempt targets. The exit click is consumed so it cannot also seek,
+resize, or close a second surface.
 
 Entry is available only from an authenticated ready Reader source. While the
 source is pending or errored, `S` is consumed without entering RSVP; the

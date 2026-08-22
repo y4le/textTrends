@@ -4,6 +4,7 @@ export const RSVP_DEFAULT_WPM = 300;
 export const RSVP_MIN_WPM = 100;
 export const RSVP_MAX_WPM = 900;
 export const RSVP_WPM_STEP = 25;
+export const RSVP_WPM_INPUT_ID = 'reader-rsvp-wpm';
 export const RSVP_SENTENCE_PAUSE_MS = 500;
 export const RSVP_PARAGRAPH_PAUSE_MS = 900;
 export const RSVP_MIN_HOLD_MS = 60;

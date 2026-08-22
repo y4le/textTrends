@@ -43,6 +43,14 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('b'), 'reader-occurrence-previous')).toBe(true);
     expect(shortcutMatches(key('W'), 'reader-occurrence-previous')).toBe(false);
     expect(shortcutMatches(key('w'), 'reader-occurrence-next')).toBe(true);
+    expect(shortcutMatches(key('S', { shiftKey: true }), 'reader-rsvp-toggle')).toBe(true);
+    expect(shortcutMatches(key('S'), 'reader-rsvp-toggle')).toBe(false);
+    expect(shortcutMatches(key('s'), 'reader-rsvp-toggle')).toBe(false);
+    expect(shortcutMatches(key('W', { shiftKey: true }), 'rsvp-pace-editor')).toBe(true);
+    expect(shortcutMatches(key('W'), 'rsvp-pace-editor')).toBe(false);
+    expect(shortcutMatches(key('w'), 'rsvp-pace-editor')).toBe(false);
+    expect(shortcutMatches(key('h'), 'rsvp-pace-down')).toBe(true);
+    expect(shortcutMatches(key('ArrowRight'), 'rsvp-pace-up')).toBe(true);
     expect(shortcutMatches(key(' '), 'term-toggle')).toBe(true);
     expect(shortcutMatches(key('x'), 'term-delete')).toBe(true);
     expect(shortcutMatches(key('Enter'), 'term-open-menu')).toBe(true);
@@ -240,6 +248,25 @@ describe('shortcut registry', () => {
     expect(readerIds).toContain('reader-page-next');
     expect(readerIds).toContain('find-open');
     expect(readerIds).not.toContain('footer-page-next');
+    expect(readerIds).not.toContain('reader-rsvp-toggle');
+
+    const rsvp = shortcutHelpSections({ context: 'rsvp' });
+    expect(rsvp.map((section) => section.title)).toEqual(['Global', 'Speed reader']);
+    const rsvpIds = rsvp.flatMap((section) => section.entries.map((entry) => entry.id));
+    expect(rsvpIds).toEqual([
+      'show-help',
+      'show-debug',
+      'reader-rsvp-toggle',
+      'rsvp-exit',
+      'rsvp-toggle-play',
+      'rsvp-pace-editor',
+      'rsvp-pace-down',
+      'rsvp-pace-up',
+    ]);
+    expect(rsvpIds).not.toContain('find-open');
+    expect(rsvpIds).not.toContain('reader-page-next');
+    expect(shortcutAria(['reader-rsvp-toggle', 'rsvp-exit']))
+      .toBe('Shift+S Escape');
   });
 
   it('advances bounded two-key sequences without entering a persistent mode', () => {
@@ -268,6 +295,8 @@ describe('shortcut registry', () => {
     expect(advanceShortcutSequence(null, key('g', { ctrlKey: true }), 'workbench', 100))
       .toEqual({ kind: 'none' });
     expect(advanceShortcutSequence(null, key('g'), 'reader', 100))
+      .toEqual({ kind: 'none' });
+    expect(advanceShortcutSequence(null, key('g'), 'rsvp', 100))
       .toEqual({ kind: 'none' });
   });
 });
