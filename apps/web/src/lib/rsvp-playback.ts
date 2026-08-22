@@ -1,5 +1,9 @@
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
-import { rsvpHoldMs, rsvpWordFrame } from './rsvp.ts';
+import {
+  rsvpFrameAt,
+  rsvpFrameHoldMs,
+  type RsvpPacing,
+} from './rsvp.ts';
 
 export type RsvpCursorStep =
   | { readonly kind: 'next'; readonly token: number }
@@ -9,13 +13,17 @@ export type RsvpCursorStep =
 export function rsvpCursorStep(
   page: Pick<ReaderPageResultV1, 'tokens' | 'docTokenCount'>,
   token: number,
+  wordCount = 1,
 ): RsvpCursorStep {
   if (
     !Number.isSafeInteger(token)
     || token < page.tokens.start
     || token >= page.tokens.end
   ) throw new RangeError('RSVP cursor is outside its resident source');
-  const next = token + 1;
+  if (!Number.isSafeInteger(wordCount) || wordCount < 1) {
+    throw new RangeError('RSVP frame word count must be a positive integer');
+  }
+  const next = token + wordCount;
   if (next < page.tokens.end) return { kind: 'next', token: next };
   return next >= page.docTokenCount
     ? { kind: 'document-end' }
@@ -28,7 +36,7 @@ export function rsvpCursorStep(
 export function rsvpNeedsContinuation(
   page: ReaderPageResultV1,
   token: number,
-  wpm: number,
+  pacing: RsvpPacing,
   leadMs = 3_000,
 ): boolean {
   if (!Number.isFinite(leadMs) || leadMs < 0) {
@@ -40,9 +48,11 @@ export function rsvpNeedsContinuation(
     throw new RangeError('RSVP cursor is outside its resident source');
   }
   let runway = 0;
-  for (let relative = start; relative < page.tokens.end - page.tokens.start; relative++) {
-    runway += rsvpHoldMs(wpm, rsvpWordFrame(page, relative));
+  for (let relative = start; relative < page.tokens.end - page.tokens.start;) {
+    const frame = rsvpFrameAt(page, relative, pacing.wordsPerFrame);
+    runway += rsvpFrameHoldMs(pacing, frame);
     if (runway > leadMs) return false;
+    relative += frame.words.length;
   }
   return true;
 }

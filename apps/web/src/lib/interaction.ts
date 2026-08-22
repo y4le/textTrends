@@ -14,6 +14,7 @@ import {
   validateNotebookGroup,
 } from './notebook.ts';
 import type { OccurrenceStepHitV1 } from '../shared/analysis-contract.ts';
+import type { RsvpPacing } from './rsvp.ts';
 
 export const FIND_INPUT_ID = 'corpus-find-input';
 export const FIND_SURFACE_SELECTOR = '[data-interaction-surface="find"]';
@@ -68,13 +69,12 @@ export interface FindState {
   readonly dispersion: FindDispersionState;
 }
 
-export interface RsvpState {
+export interface RsvpState extends RsvpPacing {
   readonly snapshot: string;
   readonly doc: string;
   readonly docTokenCount: number;
   /** Immutable entry position. The presentation owns the later live cursor. */
   readonly startToken: number;
-  readonly wpm: number;
   readonly playing: boolean;
 }
 

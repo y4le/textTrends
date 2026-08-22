@@ -125,12 +125,12 @@ export function RsvpReader({
     const key = `${resident.doc}:${resident.tokens.start}:${resident.tokens.end}`;
     if (
       requestedSource.current !== key
-      && rsvpNeedsContinuation(resident, cursor, mode.wpm)
+      && rsvpNeedsContinuation(resident, cursor, mode)
     ) {
       requestedSource.current = key;
       onSeek(cursor);
     }
-  }, [completed, cursor, frame, mode.wpm, onSeek, resident]);
+  }, [completed, cursor, frame, mode, onSeek, resident]);
 
   useEffect(() => {
     if (!mode.playing || !resident || !frame || completed) return undefined;

@@ -35,6 +35,14 @@ function sessionStorageOrNull(): Storage | null {
   }
 }
 
+function localStorageOrNull(): Storage | null {
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
 async function copyText(value: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     await navigator.clipboard.writeText(value);
@@ -120,9 +128,14 @@ export function DebugSurface({ onClose }: { readonly onClose: () => void }) {
     setStatus('Closing the app and deleting browser data…');
     try {
       await shutdownAppForReload();
-      await clearAllApplicationStorage(indexedDB, sessionStorageOrNull(), () => {
-        setStatus('Another textTrends tab is holding browser data open. Close it; the reset will then continue automatically.');
-      });
+      await clearAllApplicationStorage(
+        indexedDB,
+        sessionStorageOrNull(),
+        () => {
+          setStatus('Another textTrends tab is holding browser data open. Close it; the reset will then continue automatically.');
+        },
+        localStorageOrNull(),
+      );
       window.location.reload();
     } catch (error) {
       setStatus(`The full reset could not finish: ${error instanceof Error ? error.message : String(error)}. Reload the page to resume.`);

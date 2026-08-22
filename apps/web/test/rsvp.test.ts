@@ -2,12 +2,21 @@ import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
   RSVP_MIN_HOLD_MS,
+  RSVP_PACING_DEFAULTS,
   RSVP_PARAGRAPH_PAUSE_MS,
+  RSVP_RHYTHM_PRESETS,
   RSVP_SENTENCE_PAUSE_MS,
+  clampRsvpPacing,
   clampRsvpWpm,
+  effectiveRsvpWordsPerFrame,
   rsvpAnchorIndex,
+  rsvpFrameAt,
+  rsvpFrameHoldMs,
+  rsvpFrameTiming,
   rsvpGraphemes,
   rsvpHoldMs,
+  rsvpPresetSelection,
+  rsvpWordMs,
   rsvpWordFrame,
 } from '../src/lib/rsvp.ts';
 
@@ -78,6 +87,46 @@ describe('RSVP focal presentation', () => {
     expect(() => rsvpWordFrame(page(), -1)).toThrow(RangeError);
     expect(() => rsvpWordFrame(page(), 5)).toThrow(RangeError);
   });
+
+  it('builds exact-source multi-word frames without crossing authored boundaries', () => {
+    const first = rsvpFrameAt(page(), 0, 3);
+    expect(first.words.map((word) => word.token)).toEqual([10, 11, 12]);
+    expect(first).toMatchObject({
+      startToken: 10,
+      text: 'he said, “Yes.”',
+      before: 'h',
+      anchor: 'e',
+      after: ' said, “Yes.”',
+      sentenceEnd: true,
+      paragraphEnd: false,
+    });
+    expect(first.before + first.anchor + first.after).toBe(first.text);
+
+    const sentenceTail = rsvpFrameAt(page(), 1, 3);
+    expect(sentenceTail.words.map((word) => word.token)).toEqual([11, 12]);
+    expect(sentenceTail.text).toBe('said, “Yes.”');
+
+    const paragraph = rsvpFrameAt(page(), 3, 3);
+    expect(paragraph.words.map((word) => word.token)).toEqual([13, 14]);
+    expect(paragraph.text).toBe('Then—left');
+    expect(paragraph.paragraphEnd).toBe(true);
+  });
+
+  it('partitions every token exactly once for each supported frame size', () => {
+    for (const wordsPerFrame of [1, 2, 3]) {
+      const tokens: number[] = [];
+      let relative = 0;
+      while (relative < 5) {
+        const frame = rsvpFrameAt(page(), relative, wordsPerFrame);
+        tokens.push(...frame.words.map((word) => word.token));
+        expect(frame.words.slice(0, -1).every(
+          (word) => !word.sentenceEnd && !word.paragraphEnd,
+        )).toBe(true);
+        relative += frame.words.length;
+      }
+      expect(tokens).toEqual([10, 11, 12, 13, 14]);
+    }
+  });
 });
 
 describe('RSVP pacing', () => {
@@ -86,6 +135,33 @@ describe('RSVP pacing', () => {
     expect(clampRsvpWpm(450.6)).toBe(451);
     expect(clampRsvpWpm(901)).toBe(900);
     expect(clampRsvpWpm(Number.NaN)).toBe(300);
+  });
+
+  it('clamps rhythm fields and raises paragraph rest to the authored sentence rest', () => {
+    expect(clampRsvpPacing({
+      wpm: 950,
+      wordsPerFrame: 7,
+      sentencePauseMs: 750,
+      paragraphPauseMs: 200,
+      lengthEmphasis: -5,
+    })).toEqual({
+      wpm: 900,
+      wordsPerFrame: 3,
+      sentencePauseMs: 750,
+      paragraphPauseMs: 750,
+      lengthEmphasis: 0,
+    });
+    expect(effectiveRsvpWordsPerFrame(3, true)).toBe(2);
+    expect(effectiveRsvpWordsPerFrame(3, false)).toBe(3);
+  });
+
+  it('recognizes rhythm presets without allowing them to alter set pace', () => {
+    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wpm: 725 })).toBe('natural');
+    expect(rsvpPresetSelection({
+      ...RSVP_PACING_DEFAULTS,
+      ...RSVP_RHYTHM_PRESETS.study,
+    })).toBe('study');
+    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 2 })).toBe('custom');
   });
 
   it('holds longer words longer and respects the minimum frame time', () => {
@@ -98,6 +174,27 @@ describe('RSVP pacing', () => {
     expect(rsvpHoldMs(900, {
       graphemeCount: 1, sentenceEnd: false, paragraphEnd: false,
     })).toBeGreaterThanOrEqual(RSVP_MIN_HOLD_MS);
+  });
+
+  it('makes zero length emphasis exactly even while Study pins shipped timing', () => {
+    const even = {
+      ...RSVP_PACING_DEFAULTS,
+      ...RSVP_RHYTHM_PRESETS.even,
+      wpm: 300,
+    };
+    for (const graphemeCount of [1, 5, 40]) {
+      expect(rsvpWordMs(even, { graphemeCount })).toBe(200);
+    }
+
+    const study = {
+      ...RSVP_PACING_DEFAULTS,
+      ...RSVP_RHYTHM_PRESETS.study,
+      wpm: 300,
+    };
+    const frame = rsvpFrameAt(page(), 2, 1);
+    const timing = rsvpFrameTiming(study, frame);
+    expect(timing).toEqual({ wordMs: 150, pauseMs: 500 });
+    expect(rsvpFrameHoldMs(study, frame)).toBe(650);
   });
 
   it('adds absolute, rate-invariant sentence and paragraph integration time', () => {
@@ -114,5 +211,25 @@ describe('RSVP pacing', () => {
       expect(sentence - base).toBe(RSVP_SENTENCE_PAUSE_MS);
       expect(paragraph - base).toBe(RSVP_PARAGRAPH_PAUSE_MS);
     }
+  });
+
+  it('keeps aggregate word time identical across frame sizes', () => {
+    const pacing = {
+      ...RSVP_PACING_DEFAULTS,
+      sentencePauseMs: 0,
+      paragraphPauseMs: 0,
+    };
+    const totalFor = (wordsPerFrame: number) => {
+      let total = 0;
+      let relative = 0;
+      while (relative < 5) {
+        const frame = rsvpFrameAt(page(), relative, wordsPerFrame);
+        total += rsvpFrameHoldMs({ ...pacing, wordsPerFrame }, frame);
+        relative += frame.words.length;
+      }
+      return total;
+    };
+    expect(totalFor(2)).toBe(totalFor(1));
+    expect(totalFor(3)).toBe(totalFor(1));
   });
 });

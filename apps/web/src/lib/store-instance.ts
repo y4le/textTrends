@@ -38,8 +38,14 @@ import {
 import { consumeDemoBootRequest } from './demo-query.ts';
 import { demoLoadNotice, loadDemoCorpus } from './demo-loader.ts';
 import { findScope } from './interaction.ts';
-import { RSVP_DEFAULT_WPM } from './rsvp.ts';
-import { loadRsvpWpm, saveRsvpWpm } from './rsvp-storage.ts';
+import { RSVP_PACING_DEFAULTS, type RsvpPacing } from './rsvp.ts';
+import {
+  browserLocalStorage,
+  loadRsvpPacing,
+  loadRsvpWpm,
+  pacingFromLegacyWpm,
+  saveRsvpPacing,
+} from './rsvp-storage.ts';
 
 // Consume the one-shot parameter before createAppRuntime performs any route
 // replace. Otherwise the route layer correctly preserves this foreign key and
@@ -50,13 +56,20 @@ const trace = __TT_E2E__ ? new RingTrace() : undefined;
 const client = new WorkerClient(trace);
 const matchesStorage = browserSessionStorage(window);
 const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
-const restoredRsvpWpm = loadRsvpWpm(matchesStorage);
+const rsvpStorage = browserLocalStorage(window);
+const storedRsvpPacing = loadRsvpPacing(rsvpStorage);
+const legacyRsvpWpm = storedRsvpPacing === null ? loadRsvpWpm(matchesStorage) : null;
+const restoredRsvpPacing = storedRsvpPacing
+  ?? (legacyRsvpWpm === null ? RSVP_PACING_DEFAULTS : pacingFromLegacyWpm(legacyRsvpWpm));
+if (storedRsvpPacing === null && legacyRsvpWpm !== null) {
+  saveRsvpPacing(rsvpStorage, restoredRsvpPacing);
+}
 const runtime = createAppRuntime(client, {
   history: browserHistoryPort(window),
   ...(restoredMatchesColumns === null
     ? {}
     : { matchesColumns: restoredMatchesColumns }),
-  rsvpWpm: restoredRsvpWpm ?? RSVP_DEFAULT_WPM,
+  rsvpPacing: restoredRsvpPacing,
 });
 
 /** The single React-facing store. */
@@ -110,12 +123,21 @@ const unsubscribeMatchesColumns = runtime.useApp.subscribe((state) => {
   savedMatchesColumns = columns;
   saveMatchesColumnSettings(matchesStorage, columns);
 });
-let savedRsvpWpm = restoredRsvpWpm;
-const unsubscribeRsvpWpm = runtime.useApp.subscribe((state) => {
-  const wpm = state.interaction.kind === 'rsvp' ? state.interaction.rsvp.wpm : null;
-  if (wpm === null || wpm === savedRsvpWpm) return;
-  savedRsvpWpm = wpm;
-  saveRsvpWpm(matchesStorage, wpm);
+let savedRsvpPacing = JSON.stringify(restoredRsvpPacing);
+const unsubscribeRsvpPacing = runtime.useApp.subscribe((state) => {
+  if (state.interaction.kind !== 'rsvp') return;
+  const source = state.interaction.rsvp;
+  const pacing: RsvpPacing = {
+    wpm: source.wpm,
+    wordsPerFrame: source.wordsPerFrame,
+    sentencePauseMs: source.sentencePauseMs,
+    paragraphPauseMs: source.paragraphPauseMs,
+    lengthEmphasis: source.lengthEmphasis,
+  };
+  const serialized = JSON.stringify(pacing);
+  if (serialized === savedRsvpPacing) return;
+  savedRsvpPacing = serialized;
+  saveRsvpPacing(rsvpStorage, pacing);
 });
 
 /** Built-in byte acquisition: fetch a bundled document by its corpus-qualified
@@ -337,7 +359,7 @@ export async function shutdownAppForReload(options: { readonly preserveWorkspace
     try {
       unsubscribeResumeState();
       unsubscribeMatchesColumns();
-      unsubscribeRsvpWpm();
+      unsubscribeRsvpPacing();
       resumeMonitor.dispose();
       runtime.dispose();
     } finally {

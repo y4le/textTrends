@@ -53,6 +53,7 @@ import { workspaceState } from './support/workspace-fixtures.ts';
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 import { coreGroupOf, groupTitle, type NotebookGroupV1 } from '../src/lib/notebook.ts';
 import { COMPARE_MAX_RESIDENT_ROWS } from '../src/lib/compare-scroll.ts';
+import type { RsvpPacing } from '../src/lib/rsvp.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -566,7 +567,7 @@ function fakeKeynessPage(
 function harness(initial?: SessionState, opts?: {
   seed?: boolean;
   workspace?: FakeWorkspaceStore;
-  rsvpWpm?: number;
+  rsvpPacing?: RsvpPacing;
 }) {
   const q = fakeQueryClient();
   // Deterministic injected UUIDs: u1, u2, … (creation order).
@@ -574,7 +575,7 @@ function harness(initial?: SessionState, opts?: {
   const runtime = createAppRuntime(q.client, {
     newId: () => `u${++n}`,
     ...(opts?.workspace === undefined ? {} : { workspace: opts.workspace }),
-    ...(opts?.rsvpWpm === undefined ? {} : { rsvpWpm: opts.rsvpWpm }),
+    ...(opts?.rsvpPacing === undefined ? {} : { rsvpPacing: opts.rsvpPacing }),
   });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
@@ -4430,7 +4431,15 @@ describe('RSVP interaction ownership', () => {
   }
 
   it('enters only from a ready source at the published anchor and remembers accepted pace', async () => {
-    const f = harness(undefined, { rsvpWpm: 375 });
+    const f = harness(undefined, {
+      rsvpPacing: {
+        wpm: 375,
+        wordsPerFrame: 2,
+        sentencePauseMs: 250,
+        paragraphPauseMs: 800,
+        lengthEmphasis: 50,
+      },
+    });
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().openReader({
       snapshot: 's1', doc: 'a', token: 4, from: 'occurrence',
@@ -4448,16 +4457,31 @@ describe('RSVP interaction ownership', () => {
       kind: 'rsvp',
       rsvp: {
         snapshot: 's1', doc: 'a', docTokenCount: 12, startToken: 4,
-        wpm: 375, playing: true,
+        wpm: 375, wordsPerFrame: 2, sentencePauseMs: 250,
+        paragraphPauseMs: 800, lengthEmphasis: 50, playing: true,
       },
       suspended: { kind: 'none' },
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
 
-    f.store.getState().setRsvpWpm(425);
+    f.store.getState().setRsvpPacing({
+      wpm: 425,
+      wordsPerFrame: 9,
+      sentencePauseMs: 750,
+      paragraphPauseMs: 100,
+      lengthEmphasis: -10,
+    });
     f.store.getState().setRsvpPlaying(false);
     expect(f.store.getState().interaction).toMatchObject({
-      kind: 'rsvp', rsvp: { wpm: 425, playing: false },
+      kind: 'rsvp',
+      rsvp: {
+        wpm: 425,
+        wordsPerFrame: 3,
+        sentencePauseMs: 750,
+        paragraphPauseMs: 750,
+        lengthEmphasis: 0,
+        playing: false,
+      },
     });
     f.store.getState().exitRsvp(5);
     latestReaderSource(f).resolve(fakeReaderPage(5, 12, 12));
@@ -4467,7 +4491,16 @@ describe('RSVP interaction ownership', () => {
     });
     f.store.getState().enterRsvp(false);
     expect(f.store.getState().interaction).toMatchObject({
-      kind: 'rsvp', rsvp: { startToken: 5, wpm: 425, playing: false },
+      kind: 'rsvp',
+      rsvp: {
+        startToken: 5,
+        wpm: 425,
+        wordsPerFrame: 3,
+        sentencePauseMs: 750,
+        paragraphPauseMs: 750,
+        lengthEmphasis: 0,
+        playing: false,
+      },
     });
     f.store.getState().closeReader();
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });

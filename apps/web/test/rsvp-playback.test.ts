@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import { rsvpCursorStep, rsvpNeedsContinuation } from '../src/lib/rsvp-playback.ts';
+import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
 
 function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
   const count = end;
@@ -40,16 +41,19 @@ function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
 describe('RSVP playback boundaries', () => {
   it('distinguishes an ordinary step, source exhaustion, and document completion', () => {
     expect(rsvpCursorStep(page(), 2)).toEqual({ kind: 'next', token: 3 });
+    expect(rsvpCursorStep(page(), 1, 3)).toEqual({ kind: 'next', token: 4 });
     expect(rsvpCursorStep(page(), 4)).toEqual({ kind: 'source-end' });
+    expect(rsvpCursorStep(page(5, 5), 2, 3)).toEqual({ kind: 'document-end' });
     expect(rsvpCursorStep(page(5, 5), 4)).toEqual({ kind: 'document-end' });
     expect(() => rsvpCursorStep(page(), 5)).toThrow(RangeError);
+    expect(() => rsvpCursorStep(page(), 2, 0)).toThrow(RangeError);
   });
 
   it('requests continuation only when the authenticated runway is within the lead', () => {
     const source = page();
-    expect(rsvpNeedsContinuation(source, 0, 300, 500)).toBe(false);
-    expect(rsvpNeedsContinuation(source, 3, 300, 500)).toBe(true);
-    expect(rsvpNeedsContinuation(page(5, 5), 4, 300, 3_000)).toBe(false);
-    expect(() => rsvpNeedsContinuation(source, 5, 300)).toThrow(RangeError);
+    expect(rsvpNeedsContinuation(source, 0, RSVP_PACING_DEFAULTS, 500)).toBe(false);
+    expect(rsvpNeedsContinuation(source, 3, RSVP_PACING_DEFAULTS, 500)).toBe(true);
+    expect(rsvpNeedsContinuation(page(5, 5), 4, RSVP_PACING_DEFAULTS, 3_000)).toBe(false);
+    expect(() => rsvpNeedsContinuation(source, 5, RSVP_PACING_DEFAULTS)).toThrow(RangeError);
   });
 });

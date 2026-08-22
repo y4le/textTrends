@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   clearAllApplicationStorage,
   deleteDatabase,
+  OWNED_LOCAL_STORAGE_KEYS,
   OWNED_SESSION_STORAGE_KEYS,
 } from '../src/lib/debug-storage.ts';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
@@ -20,25 +21,32 @@ function open(factory: IDBFactory, name: string): Promise<void> {
 }
 
 describe('debug storage recovery', () => {
-  it('deletes both app databases and only the allowlisted session keys', async () => {
+  it('deletes both app databases and only the allowlisted web-storage keys', async () => {
     const factory = new FakeIDBFactory();
     await Promise.all([
       open(factory as unknown as IDBFactory, LOCAL_LIBRARY_DB_NAME),
       open(factory as unknown as IDBFactory, ARTIFACT_DB_NAME),
       open(factory as unknown as IDBFactory, 'unrelated-owner'),
     ]);
-    const values = new Map([
+    const sessionValues = new Map([
       ...OWNED_SESSION_STORAGE_KEYS.map((key) => [key, 'owned'] as const),
       ['unrelated-owner-key', 'keep'] as const,
+    ]);
+    const localValues = new Map([
+      ...OWNED_LOCAL_STORAGE_KEYS.map((key) => [key, 'owned'] as const),
+      ['unrelated-local-key', 'keep'] as const,
     ]);
 
     await clearAllApplicationStorage(
       factory as unknown as IDBFactory,
-      { removeItem: (key) => { values.delete(key); } },
+      { removeItem: (key) => { sessionValues.delete(key); } },
+      undefined,
+      { removeItem: (key) => { localValues.delete(key); } },
     );
 
     expect((await factory.databases()).map(({ name }) => name).sort()).toEqual(['unrelated-owner']);
-    expect(values).toEqual(new Map([['unrelated-owner-key', 'keep']]));
+    expect(sessionValues).toEqual(new Map([['unrelated-owner-key', 'keep']]));
+    expect(localValues).toEqual(new Map([['unrelated-local-key', 'keep']]));
   });
 
   it('turns a synchronous IndexedDB refusal into a rejected promise', async () => {

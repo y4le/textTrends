@@ -11,6 +11,7 @@ import {
   type FindState,
   type InteractionState,
 } from '../src/lib/interaction.ts';
+import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
 
 function ids(): () => string {
   let next = 0;
@@ -27,7 +28,7 @@ describe('temporary corpus Find model', () => {
         doc: 'a',
         docTokenCount: 20,
         startToken: 4,
-        wpm: 300,
+        ...RSVP_PACING_DEFAULTS,
         playing: true,
       },
       suspended: find,

@@ -124,7 +124,11 @@ import {
   type InteractionState,
   type PrimaryInteraction,
 } from './interaction.ts';
-import { clampRsvpWpm, RSVP_DEFAULT_WPM } from './rsvp.ts';
+import {
+  clampRsvpPacing,
+  RSVP_PACING_DEFAULTS,
+  type RsvpPacing,
+} from './rsvp.ts';
 import {
   LatestOperation,
   OperationScope,
@@ -704,6 +708,7 @@ export interface AppState {
   clearInteractionError(): void;
   enterRsvp(playing: boolean): void;
   setRsvpPlaying(playing: boolean): void;
+  setRsvpPacing(patch: Partial<RsvpPacing>): void;
   setRsvpWpm(wpm: number): void;
   publishRsvpPosition(token: number): void;
   rsvpSeek(token: number): void;
@@ -1319,14 +1324,14 @@ export function createAppRuntime(
     workspace?: WorkspaceStorePort;
     /** Session-restored presentation geometry, separate from workspace semantics. */
     matchesColumns?: MatchesColumnSettings;
-    /** Session-restored RSVP pace, separate from workspace semantics. */
-    rsvpWpm?: number;
+    /** Device-local RSVP rhythm, separate from workspace semantics. */
+    rsvpPacing?: RsvpPacing;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
   const newLayerId = opts?.newLayerId ?? (() => crypto.randomUUID());
   const historyPort = opts?.history ?? null;
-  let lastRsvpWpm = clampRsvpWpm(opts?.rsvpWpm ?? RSVP_DEFAULT_WPM);
+  let lastRsvpPacing = clampRsvpPacing(opts?.rsvpPacing ?? RSVP_PACING_DEFAULTS);
   let workspaceStore = opts?.workspace ?? null;
   // Ownership: ONE scope for the runtime lifetime (closed on dispose) and one
   // lane per query intent. A lease carries the fences the old hand-rolled
@@ -3762,7 +3767,7 @@ export function createAppRuntime(
               doc: source.doc,
               docTokenCount: source.docTokenCount,
               startToken,
-              wpm: lastRsvpWpm,
+              ...lastRsvpPacing,
               playing,
             },
             suspended,
@@ -3786,19 +3791,22 @@ export function createAppRuntime(
             });
       },
 
-      setRsvpWpm(wpm) {
+      setRsvpPacing(patch) {
         if (get().interaction.kind !== 'rsvp') return;
-        const bounded = clampRsvpWpm(wpm);
-        lastRsvpWpm = bounded;
+        const bounded = clampRsvpPacing({ ...lastRsvpPacing, ...patch });
+        lastRsvpPacing = bounded;
         set((state) => state.interaction.kind !== 'rsvp'
-          || state.interaction.rsvp.wpm === bounded
           ? state
           : {
               interaction: {
                 ...state.interaction,
-                rsvp: { ...state.interaction.rsvp, wpm: bounded },
+                rsvp: { ...state.interaction.rsvp, ...bounded },
               },
             });
+      },
+
+      setRsvpWpm(wpm) {
+        get().setRsvpPacing({ wpm });
       },
 
       publishRsvpPosition(token) {

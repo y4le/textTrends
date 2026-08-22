@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { RsvpReader } from '../src/components/RsvpReader.tsx';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
+import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
 
 const page: ReaderPageResultV1 = {
   method: 'reader-page/1',
@@ -31,7 +32,7 @@ describe('RSVP Reader presentation', () => {
       title: 'Book A',
       mode: {
         snapshot: 's1', doc: 'a', docTokenCount: 40, startToken: 10,
-        wpm: 300, playing: true,
+        ...RSVP_PACING_DEFAULTS, playing: true,
       },
       source: { status: 'ready', page },
       onSetPlaying: vi.fn(),

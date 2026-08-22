@@ -1,13 +1,17 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
 import { MATCHES_COLUMN_STORAGE_KEY } from './matches-column-storage.ts';
 import { VOCABULARY_COLUMN_STORAGE_KEY } from './vocabulary-column-storage.ts';
-import { RSVP_WPM_STORAGE_KEY } from './rsvp-storage.ts';
+import { RSVP_PACING_STORAGE_KEY, RSVP_WPM_STORAGE_KEY } from './rsvp-storage.ts';
 import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
   MATCHES_COLUMN_STORAGE_KEY,
   VOCABULARY_COLUMN_STORAGE_KEY,
   RSVP_WPM_STORAGE_KEY,
+]);
+
+export const OWNED_LOCAL_STORAGE_KEYS = Object.freeze([
+  RSVP_PACING_STORAGE_KEY,
 ]);
 
 export type DatabaseBlockedHandler = (name: string) => void;
@@ -44,6 +48,7 @@ export async function clearAllApplicationStorage(
   factory: IDBFactory = indexedDB,
   session: Pick<Storage, 'removeItem'> | null = null,
   onBlocked?: DatabaseBlockedHandler,
+  local: Pick<Storage, 'removeItem'> | null = null,
 ): Promise<void> {
   await Promise.all([
     deleteDatabase(factory, ARTIFACT_DB_NAME, onBlocked),
@@ -51,5 +56,8 @@ export async function clearAllApplicationStorage(
   ]);
   if (session !== null) {
     for (const key of OWNED_SESSION_STORAGE_KEYS) session.removeItem(key);
+  }
+  if (local !== null) {
+    for (const key of OWNED_LOCAL_STORAGE_KEYS) local.removeItem(key);
   }
 }
