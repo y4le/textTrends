@@ -25,6 +25,8 @@ import {
   effectiveRsvpWordsPerFrame,
   rsvpFrameAt,
   rsvpFrameTiming,
+  rsvpPausedContext,
+  rsvpPreviousFrameStart,
   rsvpPresetSelection,
   type RsvpPacing,
   type RsvpRhythmPreset,
@@ -216,6 +218,23 @@ export function RsvpReader({
     () => frame ? rsvpFrameTiming(playbackPacing, frame) : null,
     [frame, playbackPacing],
   );
+  const previousRelative = useMemo(
+    () => resident
+      && relative >= 0
+      && relative < resident.tokens.end - resident.tokens.start
+      ? rsvpPreviousFrameStart(resident, relative, effectiveWords)
+      : relative,
+    [effectiveWords, relative, resident],
+  );
+  const pausedContext = useMemo(
+    () => resident && frame && source.status !== 'error' && !mode.playing && !completed
+      ? rsvpPausedContext(resident, frame)
+      : null,
+    [completed, frame, mode.playing, resident, source.status],
+  );
+  const canGoBack = resident !== null
+    && previousRelative >= 0
+    && previousRelative < relative;
   const frameKey = frame
     ? `${frame.startToken}:${frame.words.map((word) => word.token).join(',')}:${frame.text}`
     : '';
@@ -301,6 +320,15 @@ export function RsvpReader({
     if (completed) return;
     onPublish(cursor);
     onSetPlaying(!mode.playing);
+  };
+  const goBack = () => {
+    if (!resident || !canGoBack) return;
+    const next = resident.tokens.start + previousRelative;
+    onSetPlaying(false);
+    setCompleted(false);
+    setCursor(next);
+    onPublish(next);
+    setSettingStatus('back one frame');
   };
   const beginPaceEdit = () => {
     if (editingPaceRef.current) return;
@@ -388,7 +416,7 @@ export function RsvpReader({
     if (event.key !== 'Tab') return;
     const controls = Array.from(
       shellRef.current?.querySelectorAll<HTMLElement>(
-        '[data-rsvp-control]:is(button,input,select,summary):not(:disabled)',
+        '[data-rsvp-control]:is(button,input,select,summary,[tabindex]):not(:disabled)',
       ) ?? [],
     ).filter((control) => {
       const details = control.closest('details');
@@ -478,6 +506,24 @@ export function RsvpReader({
             <span className="reader-rsvp-loading">loading source text…</span>
           )}
         </div>
+        <div className="reader-rsvp-context-slot">
+          {pausedContext && (
+            <div
+              className="reader-rsvp-context"
+              data-rsvp-control="true"
+              role="note"
+              aria-label="Paused sentence context"
+              tabIndex={0}
+              onKeyDown={stopControlSpace}
+            >
+              {pausedContext.leadingEllipsis && '… '}
+              {pausedContext.before}
+              <mark>{pausedContext.current}</mark>
+              {pausedContext.after}
+              {pausedContext.trailingEllipsis && ' …'}
+            </div>
+          )}
+        </div>
         {source.status === 'error' && (
           <p className="reader-rsvp-error" role="alert">
             reader failed: {source.message}{' '}
@@ -496,6 +542,16 @@ export function RsvpReader({
 
       <div className="reader-rsvp-controls-region">
         <nav className="reader-rsvp-controls" aria-label="Speed reading controls">
+          <button
+            type="button"
+            data-rsvp-control="true"
+            disabled={!canGoBack}
+            onClick={goBack}
+            onKeyDown={stopControlSpace}
+            style={SMALL_BUTTON_STYLE}
+          >
+            back
+          </button>
           <button
             ref={playRef}
             type="button"

@@ -488,6 +488,40 @@ canvas {
   text-decoration-line: none;
 }
 
+.reader-rsvp-context-slot {
+  position: absolute;
+  z-index: 2;
+  inset-inline: 4%;
+  inset-block-end: var(--space-3);
+  display: grid;
+  block-size: clamp(4.5rem, 20%, 7rem);
+  align-items: end;
+  pointer-events: none;
+}
+
+.reader-rsvp-context {
+  max-block-size: 100%;
+  max-inline-size: 60rem;
+  justify-self: center;
+  overflow: auto;
+  padding: var(--space-2);
+  border-block: 1px solid var(--rule-strong);
+  background: color-mix(in srgb, var(--bg) 94%, transparent);
+  color: var(--fg-muted);
+  font-family: var(--font-serif);
+  font-size: clamp(var(--text-sm), 2.5vw, var(--text-md));
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  pointer-events: auto;
+  white-space: pre-wrap;
+}
+
+.reader-rsvp-context mark {
+  background: color-mix(in srgb, var(--accent) 20%, var(--bg));
+  color: var(--fg);
+  font-weight: 700;
+}
+
 .reader-rsvp-loading {
   inline-size: 100%;
   color: var(--fg-muted);

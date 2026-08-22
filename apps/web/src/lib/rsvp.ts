@@ -21,6 +21,7 @@ export const RSVP_LENGTH_EMPHASIS_STEP = 25;
 export const RSVP_REST_CUE_MIN_MS = 150;
 export const RSVP_MIN_HOLD_MS = 60;
 export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
+export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
 
 export const RSVP_CLAUSE_MARKS = Object.freeze([
   ',', '、', '，',
@@ -113,6 +114,15 @@ export interface RsvpFrame {
 export interface RsvpFrameTiming {
   readonly wordMs: number;
   readonly pauseMs: number;
+}
+
+export interface RsvpPausedContext {
+  readonly text: string;
+  readonly before: string;
+  readonly current: string;
+  readonly after: string;
+  readonly leadingEllipsis: boolean;
+  readonly trailingEllipsis: boolean;
 }
 
 export function rsvpGraphemes(value: string): readonly string[] {
@@ -417,6 +427,63 @@ export function rsvpPreviousFrameStart(
     index += frame.words.length;
   }
   return previous;
+}
+
+/** Return an exact, resident-only sentence slice around the current frame.
+ * Missing sentence bounds mean the served window truncated that side. */
+export function rsvpPausedContext(
+  page: RsvpFramePage,
+  frame: RsvpFrame,
+  contextTokensPerSide = RSVP_CONTEXT_TOKENS_PER_SIDE,
+): RsvpPausedContext {
+  if (!Number.isSafeInteger(contextTokensPerSide) || contextTokensPerSide < 0) {
+    throw new RangeError('RSVP context limit must be a non-negative integer');
+  }
+  const tokenCount = page.tokens.end - page.tokens.start;
+  const frameStart = frame.startToken - page.tokens.start;
+  const frameEnd = frameStart + frame.words.length;
+  if (
+    frame.words.length < 1
+    || frameStart < 0
+    || frameEnd > tokenCount
+    || frame.words.some((word, index) => word.token !== frame.startToken + index)
+  ) throw new RangeError('RSVP frame is outside the served reader page');
+
+  let sentenceStart = 0;
+  let hasSentenceStart = false;
+  let sentenceEnd = tokenCount;
+  let hasSentenceEnd = false;
+  for (const boundary of page.sentenceBounds) {
+    if (boundary <= frameStart) {
+      sentenceStart = boundary;
+      hasSentenceStart = true;
+      continue;
+    }
+    if (boundary >= frameEnd) {
+      sentenceEnd = boundary;
+      hasSentenceEnd = true;
+      break;
+    }
+  }
+
+  const contextStart = Math.max(sentenceStart, frameStart - contextTokensPerSide);
+  const contextEnd = Math.min(sentenceEnd, frameEnd + contextTokensPerSide);
+  const first = rsvpWordFrame(page, contextStart);
+  const last = rsvpWordFrame(page, contextEnd - 1);
+  const currentFirst = rsvpWordFrame(page, frameStart);
+  const currentLast = rsvpWordFrame(page, frameEnd - 1);
+  const sourceStart = first.displayStartUtf16;
+  const sourceEnd = last.displayEndUtf16;
+  const currentStart = currentFirst.displayStartUtf16;
+  const currentEnd = currentLast.displayEndUtf16;
+  return {
+    text: page.text.slice(sourceStart, sourceEnd),
+    before: page.text.slice(sourceStart, currentStart),
+    current: page.text.slice(currentStart, currentEnd),
+    after: page.text.slice(currentEnd, sourceEnd),
+    leadingEllipsis: !hasSentenceStart || contextStart > sentenceStart,
+    trailingEllipsis: !hasSentenceEnd || contextEnd < sentenceEnd,
+  };
 }
 
 export function rsvpWordMs(

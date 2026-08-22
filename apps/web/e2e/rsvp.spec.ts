@@ -56,7 +56,9 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
 
   const initialWord = await word.textContent();
   const initialAnchor = await anchor.boundingBox();
+  const playingWordBox = await word.boundingBox();
   expect(initialAnchor).not.toBeNull();
+  expect(playingWordBox).not.toBeNull();
   await expect.poll(() => word.textContent()).not.toBe(initialWord);
   const nextAnchor = await anchor.boundingBox();
   const readerBox = await reader.boundingBox();
@@ -70,6 +72,16 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   await page.keyboard.press('Space');
   const status = reader.locator('.reader-rsvp-shell [role="status"]');
   await expect(status).toContainText('paused');
+  const context = reader.getByRole('note', { name: 'Paused sentence context' });
+  await expect(context).toBeVisible();
+  await expect(context).not.toHaveAttribute('aria-live');
+  await expect(context.locator('mark')).toHaveText(await word.textContent() ?? '');
+  const pausedWordBox = await word.boundingBox();
+  expect(pausedWordBox).not.toBeNull();
+  expect(pausedWordBox!.y).toBeCloseTo(playingWordBox!.y, 1);
+  await context.click();
+  await expect(stage).toBeVisible();
+  await expect(context).toBeFocused();
   const position = reader.locator('.reader-position');
   await expect(position).toContainText('300 WPM');
   await reader.press('h');
@@ -83,7 +95,8 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
     await expect(position).toHaveText(protectedPosition!);
   }
 
-  const play = reader.locator('.reader-rsvp-controls button').first();
+  const back = reader.getByRole('button', { name: 'back', exact: true });
+  const play = reader.locator('.reader-rsvp-controls > button').nth(1);
   const firstControl = reader.getByRole('button', { name: 'shortcuts', exact: true });
   const rhythm = reader.locator('.reader-rsvp-rhythm > summary');
   await firstControl.focus();
@@ -94,8 +107,14 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   await play.focus();
   await play.press('Space');
   await expect(status).toContainText('playing');
-  await play.press('Space');
+  await expect(context).toHaveCount(0);
+  await expect(back).toBeEnabled();
+  const tokenBeforeBack = displayedToken(await position.textContent());
+  await back.click();
   await expect(status).toContainText('paused');
+  await expect.poll(async () => displayedToken(await position.textContent()))
+    .toBeLessThan(tokenBeforeBack);
+  await expect(context).toBeVisible();
 
   await reader.press('Shift+W');
   const pace = reader.getByRole('spinbutton', { name: 'Set pace in words per minute' });
@@ -340,9 +359,17 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
 
   const status = reader.locator('.reader-rsvp-shell [role="status"]');
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
+  const back = reader.getByRole('button', { name: 'back', exact: true });
+  await expect(back).toBeDisabled();
   await expect(stage).toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
   await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
   await expect(status).toContainText('End of document', { timeout: 5_000 });
   await expect(reader.getByRole('button', { name: 'completed', exact: true })).toBeDisabled();
   await expect(reader.getByRole('button', { name: 'return to Reader', exact: true })).toBeFocused();
+  await expect(back).toBeEnabled();
+  await back.click();
+  await expect(status).toContainText('paused');
+  await expect(status).not.toContainText('End of document');
+  await expect(reader.getByRole('button', { name: 'play', exact: true })).toBeEnabled();
+  await expect(reader.getByRole('note', { name: 'Paused sentence context' })).toBeVisible();
 });

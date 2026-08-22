@@ -1,10 +1,9 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: BASE AND RHYTHM IMPLEMENTED; PHRASE-AWARE AMENDMENT ACCEPTED,
-IMPLEMENTATION PENDING (2026-08-22).** This record supersedes the RSVP
+**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
 recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
 they differ. It describes the shipped interaction and pacing contract plus the
-accepted phrase-aware amendment implemented by commits 9–13 below.
+phrase-aware amendment implemented by commits 9–13 below.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an

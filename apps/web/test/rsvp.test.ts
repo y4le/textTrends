@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
+  RSVP_CONTEXT_TOKENS_PER_SIDE,
   RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD,
   RSVP_MIN_HOLD_MS,
   RSVP_PACING_DEFAULTS,
@@ -17,6 +18,7 @@ import {
   rsvpFrameTiming,
   rsvpGraphemes,
   rsvpHasClauseMark,
+  rsvpPausedContext,
   rsvpPreviousFrameStart,
   rsvpPresetSelection,
   rsvpWordMs,
@@ -229,6 +231,59 @@ describe('RSVP focal presentation', () => {
     const clauses = textPage('one two, three four');
     expect(rsvpPreviousFrameStart(clauses, 2, 3)).toBe(0);
     expect(() => rsvpPreviousFrameStart(source, 7, 3)).toThrow(RangeError);
+  });
+
+  it('cuts paused context from the exact enclosing resident sentence', () => {
+    expect(RSVP_CONTEXT_TOKENS_PER_SIDE).toBe(40);
+    const source = textPage(
+      'Lead. “One   two, three four five.” Tail.',
+      [0, 1, 6, 7],
+    );
+    const context = rsvpPausedContext(source, rsvpFrameAt(source, 2, 3));
+    expect(context).toEqual({
+      text: '“One   two, three four five.”',
+      before: '“One   ',
+      current: 'two,',
+      after: ' three four five.”',
+      leadingEllipsis: false,
+      trailingEllipsis: false,
+    });
+    expect(context.before + context.current + context.after).toBe(context.text);
+  });
+
+  it('caps paused context at forty tokens per side and marks resident truncation', () => {
+    const source = textPage(Array.from({ length: 90 }, (_, index) => `w${index}`).join(' '));
+    const context = rsvpPausedContext(source, rsvpFrameAt(source, 45, 1));
+    expect(context.before.match(/\bw\d+\b/gu)).toHaveLength(40);
+    expect(context.current).toBe('w45');
+    expect(context.after.match(/\bw\d+\b/gu)).toHaveLength(40);
+    expect(context.leadingEllipsis).toBe(true);
+    expect(context.trailingEllipsis).toBe(true);
+
+    const window = {
+      ...textPage('middle sentence words', [], []),
+      tokens: { start: 50, end: 53 },
+      docTokenCount: 100,
+      atStart: false,
+      atEnd: false,
+      previous: { kind: 'before' as const, token: 50 },
+      next: { kind: 'from' as const, token: 53 },
+      cappedBy: 'tokens' as const,
+    };
+    expect(rsvpPausedContext(window, rsvpFrameAt(window, 1, 1))).toMatchObject({
+      text: 'middle sentence words',
+      current: 'sentence',
+      leadingEllipsis: true,
+      trailingEllipsis: true,
+    });
+    const frame = rsvpFrameAt(window, 0, 3);
+    const nonconsecutive = {
+      ...frame,
+      words: [frame.words[0]!, frame.words[2]!, frame.words[2]!],
+    };
+    expect(() => rsvpPausedContext(window, nonconsecutive)).toThrow(RangeError);
+    expect(() => rsvpPausedContext(window, rsvpFrameAt(window, 1, 1), -1))
+      .toThrow(RangeError);
   });
 
   it('is deterministic when called cold at every token in a phrase-shaped page', () => {
