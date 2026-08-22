@@ -15,9 +15,9 @@ import {
   RSVP_MAX_WPM,
   RSVP_MIN_WPM,
   RSVP_PARAGRAPH_PAUSE_STEP_MS,
-  RSVP_PACING_DEFAULTS,
   RSVP_REST_CUE_MIN_MS,
   RSVP_RHYTHM_PRESETS,
+  RSVP_RHYTHM_RESET,
   RSVP_SENTENCE_PAUSE_STEP_MS,
   RSVP_WPM_INPUT_ID,
   RSVP_WPM_STEP,
@@ -382,7 +382,7 @@ export function RsvpReader({
     updatePacing(RSVP_RHYTHM_PRESETS[preset], `rhythm preset ${preset}`);
   };
   const resetRhythm = () => {
-    updatePacing(RSVP_PACING_DEFAULTS, 'rhythm reset to Natural at 300 words per minute');
+    updatePacing(RSVP_RHYTHM_RESET, 'rhythm reset to Natural at 300 words per minute');
   };
   const trapTab = (event: KeyboardEvent<HTMLDivElement>) => {
     if (event.key !== 'Tab') return;

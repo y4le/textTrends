@@ -46,7 +46,8 @@ export interface RsvpPacing {
   readonly lengthEmphasis: number;
 }
 
-export type RsvpRhythm = Omit<RsvpPacing, 'wpm'>;
+export type RsvpRhythm = Omit<RsvpPacing, 'wpm' | 'wordsPerFrame'>;
+export type RsvpRhythmReset = RsvpRhythm & Pick<RsvpPacing, 'wpm'>;
 export type RsvpRhythmPreset = 'even' | 'natural' | 'study';
 export type RsvpRhythmPresetSelection = RsvpRhythmPreset | 'custom';
 
@@ -60,23 +61,27 @@ export const RSVP_PACING_DEFAULTS: RsvpPacing = Object.freeze({
 
 export const RSVP_RHYTHM_PRESETS: Readonly<Record<RsvpRhythmPreset, RsvpRhythm>> = Object.freeze({
   even: Object.freeze({
-    wordsPerFrame: 1,
     sentencePauseMs: 0,
     paragraphPauseMs: 0,
     lengthEmphasis: 0,
   }),
   natural: Object.freeze({
-    wordsPerFrame: 1,
     sentencePauseMs: 350,
     paragraphPauseMs: 700,
     lengthEmphasis: 100,
   }),
   study: Object.freeze({
-    wordsPerFrame: 1,
     sentencePauseMs: 500,
     paragraphPauseMs: 900,
     lengthEmphasis: 100,
   }),
+});
+
+/** A rhythm reset also restores set pace, but deliberately leaves the
+ * independent words-at-once display preference untouched. */
+export const RSVP_RHYTHM_RESET: Readonly<RsvpRhythmReset> = Object.freeze({
+  wpm: RSVP_DEFAULT_WPM,
+  ...RSVP_RHYTHM_PRESETS.natural,
 });
 
 export interface RsvpWordFrame {
@@ -193,8 +198,7 @@ export function rsvpPresetSelection(pacing: RsvpPacing): RsvpRhythmPresetSelecti
   for (const name of ['even', 'natural', 'study'] as const) {
     const preset = RSVP_RHYTHM_PRESETS[name];
     if (
-      pacing.wordsPerFrame === preset.wordsPerFrame
-      && pacing.sentencePauseMs === preset.sentencePauseMs
+      pacing.sentencePauseMs === preset.sentencePauseMs
       && pacing.paragraphPauseMs === preset.paragraphPauseMs
       && pacing.lengthEmphasis === preset.lengthEmphasis
     ) return name;

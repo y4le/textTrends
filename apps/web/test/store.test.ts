@@ -53,7 +53,11 @@ import { workspaceState } from './support/workspace-fixtures.ts';
 import type { LocalLibraryFile } from '../src/lib/local-library.ts';
 import { coreGroupOf, groupTitle, type NotebookGroupV1 } from '../src/lib/notebook.ts';
 import { COMPARE_MAX_RESIDENT_ROWS } from '../src/lib/compare-scroll.ts';
-import type { RsvpPacing } from '../src/lib/rsvp.ts';
+import {
+  RSVP_RHYTHM_PRESETS,
+  RSVP_RHYTHM_RESET,
+  type RsvpPacing,
+} from '../src/lib/rsvp.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -4505,6 +4509,45 @@ describe('RSVP interaction ownership', () => {
     f.store.getState().closeReader();
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });
     expect(f.store.getState().readerPlace).toBeNull();
+    f.runtime.dispose();
+  });
+
+  it('preserves words at once when applying a rhythm preset or reset', async () => {
+    const f = harness(undefined, {
+      rsvpPacing: {
+        wpm: 425,
+        wordsPerFrame: 3,
+        sentencePauseMs: 250,
+        paragraphPauseMs: 800,
+        lengthEmphasis: 50,
+      },
+    });
+    await readyReader(f);
+    f.store.getState().enterRsvp(false);
+
+    f.store.getState().setRsvpPacing(RSVP_RHYTHM_PRESETS.study);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp',
+      rsvp: {
+        wpm: 425,
+        wordsPerFrame: 3,
+        sentencePauseMs: 500,
+        paragraphPauseMs: 900,
+        lengthEmphasis: 100,
+      },
+    });
+
+    f.store.getState().setRsvpPacing(RSVP_RHYTHM_RESET);
+    expect(f.store.getState().interaction).toMatchObject({
+      kind: 'rsvp',
+      rsvp: {
+        wpm: 300,
+        wordsPerFrame: 3,
+        sentencePauseMs: 350,
+        paragraphPauseMs: 700,
+        lengthEmphasis: 100,
+      },
+    });
     f.runtime.dispose();
   });
 

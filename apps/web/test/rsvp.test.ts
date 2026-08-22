@@ -6,6 +6,7 @@ import {
   RSVP_PACING_DEFAULTS,
   RSVP_PARAGRAPH_PAUSE_MS,
   RSVP_RHYTHM_PRESETS,
+  RSVP_RHYTHM_RESET,
   RSVP_SENTENCE_PAUSE_MS,
   clampRsvpPacing,
   clampRsvpWpm,
@@ -276,13 +277,22 @@ describe('RSVP pacing', () => {
     expect(effectiveRsvpWordsPerFrame(3, false)).toBe(3);
   });
 
-  it('recognizes rhythm presets without allowing them to alter set pace', () => {
+  it('recognizes rhythm presets independently of set pace and words at once', () => {
     expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wpm: 725 })).toBe('natural');
     expect(rsvpPresetSelection({
       ...RSVP_PACING_DEFAULTS,
       ...RSVP_RHYTHM_PRESETS.study,
     })).toBe('study');
-    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 2 })).toBe('custom');
+    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 2 })).toBe('natural');
+    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 3 })).toBe('natural');
+    expect(RSVP_RHYTHM_PRESETS.natural).not.toHaveProperty('wordsPerFrame');
+    expect(RSVP_RHYTHM_RESET).toEqual({
+      wpm: 300,
+      sentencePauseMs: 350,
+      paragraphPauseMs: 700,
+      lengthEmphasis: 100,
+    });
+    expect(RSVP_RHYTHM_RESET).not.toHaveProperty('wordsPerFrame');
   });
 
   it('holds longer words longer and respects the minimum frame time', () => {
