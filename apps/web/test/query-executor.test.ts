@@ -1614,7 +1614,7 @@ describe('reader-page/1 through the executor (slice-2 commit G)', () => {
 
   it('ZERO-track paging tiles the document with exact cursors (no gap, no client arithmetic)', async () => {
     const h = harness();
-    const text = 'one two three. four five six. seven eight nine ten eleven twelve.';
+    const text = 'one two three. Four five six. Seven eight nine ten eleven twelve.';
     const spec = await docSpec('a', text);
     await begin(h, [spec]);
     await coldIngest(h, 'g', 'a', text, 10);
@@ -1625,6 +1625,8 @@ describe('reader-page/1 through the executor (slice-2 commit G)', () => {
     expect(p1.tokens.start).toBe(0);
     expect(p1.atStart).toBe(true);
     expect(p1.marks).toEqual([]);
+    expect(p1.sentenceBounds).toEqual([0, 3]);
+    expect(p1.paragraphBounds).toEqual([0]);
     // Next page starts EXACTLY where this one ended.
     await h.send({ t: 'query', job: 21, snapshot: snap, query: rp('a', p1.next! as unknown as Record<string, unknown>) });
     const p2 = pageOf(h);

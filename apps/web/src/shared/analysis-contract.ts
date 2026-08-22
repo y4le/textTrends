@@ -156,6 +156,10 @@ export interface ReaderPageResultV1 {
   readonly text: string;
   readonly tokenStartsUtf16: readonly number[];
   readonly tokenEndsUtf16: readonly number[];
+  /** Index-authored unit boundaries relative to `tokens.start`. A terminal
+   *  boundary equal to the page token length is retained when genuine. */
+  readonly sentenceBounds: readonly number[];
+  readonly paragraphBounds: readonly number[];
   readonly anchor: { readonly token: number; readonly relToken: number; readonly charsUtf16: { readonly start: number; readonly end: number } } | null;
   readonly previous: { readonly kind: 'before'; readonly token: number } | null;
   readonly next: { readonly kind: 'from'; readonly token: number } | null;

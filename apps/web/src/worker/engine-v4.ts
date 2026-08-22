@@ -994,6 +994,7 @@ export class WorkerEngineV4 {
             doc: page.doc, tokens: page.tokens, docCharsUtf16: page.docCharsUtf16,
             text: page.text,
             tokenStartsUtf16: page.tokenStartsUtf16, tokenEndsUtf16: page.tokenEndsUtf16,
+            sentenceBounds: page.sentenceBounds, paragraphBounds: page.paragraphBounds,
             anchor: page.anchor, previous: page.previous, next: page.next,
             atStart: page.atStart, atEnd: page.atEnd, docTokenCount: page.docTokenCount,
             cappedBy: page.cappedBy, marks: page.marks, marksTruncated: page.marksTruncated,

@@ -28,6 +28,8 @@ function page(start = 10, end = 20): ReaderPageResultV1 {
     text: 'x'.repeat(end - start),
     tokenStartsUtf16: Array.from({ length: end - start }, (_, i) => i),
     tokenEndsUtf16: Array.from({ length: end - start }, (_, i) => i + 1),
+    sentenceBounds: [0, end - start],
+    paragraphBounds: [0, end - start],
     anchor: null,
     previous: null,
     next: null,

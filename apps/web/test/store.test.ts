@@ -431,6 +431,8 @@ function fakeReaderPage(
       text: 'x'.repeat(count),
       tokenStartsUtf16: Array.from({ length: count }, (_, index) => index),
       tokenEndsUtf16: Array.from({ length: count }, (_, index) => index + 1),
+      sentenceBounds: [0, count],
+      paragraphBounds: [0, count],
       anchor: anchorToken === undefined
         ? null
         : {

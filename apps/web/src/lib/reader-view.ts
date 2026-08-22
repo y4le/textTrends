@@ -104,6 +104,12 @@ export function sliceReaderPage(
     tokenEndsUtf16: source.tokenEndsUtf16
       .slice(relStart, relEnd)
       .map((offset) => offset - charStart),
+    sentenceBounds: source.sentenceBounds
+      .filter((boundary) => boundary >= relStart && boundary <= relEnd)
+      .map((boundary) => boundary - relStart),
+    paragraphBounds: source.paragraphBounds
+      .filter((boundary) => boundary >= relStart && boundary <= relEnd)
+      .map((boundary) => boundary - relStart),
     anchor,
     previous: tokens.start === 0 ? null : { kind: 'before', token: tokens.start },
     next: tokens.end === source.docTokenCount ? null : { kind: 'from', token: tokens.end },

@@ -97,6 +97,30 @@ describe('reader paging (zero tracks)', () => {
     expect(p.marksTruncated).toBe(false);
   });
 
+  it('projects index-authored sentence and paragraph boundaries relative to each served slice', async () => {
+    const w = await world({
+      a: 'First sentence ends. Second one ends.\n\nNext paragraph.',
+    });
+    const shard = w.shards.get('a')!;
+    expect(Array.from(shard.sentenceBounds)).toEqual([0, 3, 6, 8]);
+    expect(Array.from(shard.paragraphBounds)).toEqual([0, 6, 8]);
+
+    const from = pageOf(w, 'a', { kind: 'from', token: 2 }, 6);
+    expect(from.tokens).toEqual({ start: 2, end: 8 });
+    expect(from.sentenceBounds).toEqual([1, 4, 6]);
+    expect(from.paragraphBounds).toEqual([4, 6]);
+
+    const before = pageOf(w, 'a', { kind: 'before', token: 8 }, 6);
+    expect(before.tokens).toEqual({ start: 2, end: 8 });
+    expect(before.sentenceBounds).toEqual([1, 4, 6]);
+    expect(before.paragraphBounds).toEqual([4, 6]);
+
+    const around = pageOf(w, 'a', { kind: 'around', token: 4 }, 5);
+    expect(around.tokens).toEqual({ start: 2, end: 7 });
+    expect(around.sentenceBounds).toEqual([1, 4]);
+    expect(around.paragraphBounds).toEqual([4]);
+  });
+
   it('a before slice ends exactly at its cursor', async () => {
     const w = await world({ a: 'one two three four five six seven eight' });
     const p = pageOf(w, 'a', { kind: 'before', token: 6 }, 3);
@@ -150,6 +174,17 @@ describe('reader paging (zero tracks)', () => {
       const prev = pageOf(w, 'a', pages[i]!.previous!, 4);
       expect(prev.tokens.end).toBe(pages[i]!.tokens.start);
       expect(prev.tokens).toEqual(pages[i - 1]!.tokens);
+    }
+  });
+
+  it('a cursor-anchored forward continuation retains the old window suffix', async () => {
+    const w = await world({ a: words(100, 900) });
+    const source = pageOf(w, 'a', { kind: 'around', token: 50 }, READER_MAX_TOKENS);
+    expect(source.cappedBy).toBe('text');
+    for (let cursor = source.tokens.start; cursor < source.tokens.end; cursor++) {
+      const continuation = pageOf(w, 'a', { kind: 'from', token: cursor }, READER_MAX_TOKENS);
+      expect(continuation.tokens.start).toBe(cursor);
+      expect(continuation.tokens.end).toBeGreaterThanOrEqual(source.tokens.end);
     }
   });
 

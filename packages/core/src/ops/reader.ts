@@ -35,7 +35,7 @@
  */
 
 import type { DocumentIndexV1 } from '../index/build.ts';
-import { tokenEndChar } from '../index/build.ts';
+import { lowerBound, tokenEndChar } from '../index/build.ts';
 import type { CorpusSnapshotV1 } from '../snapshot/compose.ts';
 import { internalTextOf, type BoundTexts } from './binding.ts';
 import { MAX_KWIC_TRACKS } from './kwic.ts';
@@ -83,6 +83,11 @@ export interface ReaderPageResult {
   /** Per served token, RELATIVE to `text`; length = tokens.end - tokens.start. */
   readonly tokenStartsUtf16: readonly number[];
   readonly tokenEndsUtf16: readonly number[];
+  /** Index-authored unit boundaries relative to this page's token start. A
+   *  boundary equal to the page length is retained when the page ends at a
+   *  real unit edge, so a presentation can dwell on the preceding token. */
+  readonly sentenceBounds: readonly number[];
+  readonly paragraphBounds: readonly number[];
   /** Present exactly for `around` cursors: the retained anchor's absolute
    *  token, page-relative token index, and relative char span. */
   readonly anchor: {
@@ -113,6 +118,8 @@ export interface NumericReaderPagePlan {
   readonly charEndUtf16: number;
   readonly tokenStartsUtf16: Uint32Array; // relative to charStartUtf16
   readonly tokenEndsUtf16: Uint32Array;
+  readonly sentenceBounds: Uint32Array; // relative to tokenStart
+  readonly paragraphBounds: Uint32Array;
   readonly docTokenCount: number;
   readonly cappedBy: ReaderCappedBy;
   /** Parallel mark arrays; track identity by request ordinal only. */
@@ -142,6 +149,20 @@ function charExtent(
   end: number,
 ): number {
   return tokenEndChar(shard, end - 1) - (shard.startsUtf16[start] as number);
+}
+
+function projectUnitBounds(
+  bounds: Uint32Array,
+  start: number,
+  end: number,
+): Uint32Array {
+  const projected: number[] = [];
+  for (let i = lowerBound(bounds, start); i < bounds.length; i++) {
+    const boundary = bounds[i] as number;
+    if (boundary > end) break;
+    projected.push(boundary - start);
+  }
+  return Uint32Array.from(projected);
 }
 
 function forwardSlice(
@@ -367,6 +388,8 @@ export function planReaderPage(
     charEndUtf16: charEnd,
     tokenStartsUtf16: tokenStarts,
     tokenEndsUtf16: tokenEnds,
+    sentenceBounds: projectUnitBounds(shard.sentenceBounds, start, end),
+    paragraphBounds: projectUnitBounds(shard.paragraphBounds, start, end),
     docTokenCount: tokenCount,
     cappedBy,
     markTrackOrdinal,
@@ -446,6 +469,8 @@ export function materializeReaderPage(
     text,
     tokenStartsUtf16: Array.from(plan.tokenStartsUtf16),
     tokenEndsUtf16: Array.from(plan.tokenEndsUtf16),
+    sentenceBounds: Array.from(plan.sentenceBounds),
+    paragraphBounds: Array.from(plan.paragraphBounds),
     anchor,
     previous: atStart ? null : { kind: 'before', token: plan.tokenStart },
     next: atEnd ? null : { kind: 'from', token: plan.tokenEnd },
