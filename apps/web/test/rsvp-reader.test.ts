@@ -36,7 +36,7 @@ describe('RSVP Reader presentation', () => {
       },
       source: { status: 'ready', page },
       onSetPlaying: vi.fn(),
-      onSetWpm: vi.fn(),
+      onSetPacing: vi.fn(),
       onPublish: vi.fn(),
       onSeek: vi.fn(),
       onExit: vi.fn(),
@@ -51,6 +51,11 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('return to Reader');
     expect(html).toContain('aria-label="Set pace in words per minute"');
     expect(html).toContain('min="100" max="900" step="25"');
+    expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
+    expect(html).toContain('aria-label="Words at once"');
+    expect(html).toContain('aria-label="Sentence rest in milliseconds"');
+    expect(html).toContain('aria-label="Paragraph rest in milliseconds"');
+    expect(html).toContain('aria-label="Length emphasis in percent"');
     const status = html.match(/<p class="visually-hidden" role="status"[^>]*>(.*?)<\/p>/)?.[1];
     expect(status).toContain('Speed reading playing at a set pace of 300');
     expect(status).not.toContain('token');

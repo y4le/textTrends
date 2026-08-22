@@ -562,7 +562,7 @@ export function ReaderDrawer({
   const result = useApp((state) => state.readerPage);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const setPlaying = useApp((state) => state.setRsvpPlaying);
-  const setWpm = useApp((state) => state.setRsvpWpm);
+  const setPacing = useApp((state) => state.setRsvpPacing);
   const publish = useApp((state) => state.publishRsvpPosition);
   const seek = useApp((state) => state.rsvpSeek);
   const exit = useApp((state) => state.exitRsvp);
@@ -591,7 +591,7 @@ export function ReaderDrawer({
       mode={mode}
       source={source}
       onSetPlaying={setPlaying}
-      onSetWpm={setWpm}
+      onSetPacing={setPacing}
       onPublish={publish}
       onSeek={seek}
       onExit={exit}

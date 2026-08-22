@@ -181,7 +181,7 @@ export function App() {
   const exitInteraction = useApp((s) => s.exitInteraction);
   const setRsvpPlaying = useApp((s) => s.setRsvpPlaying);
   const enterRsvp = useApp((s) => s.enterRsvp);
-  const setRsvpWpm = useApp((s) => s.setRsvpWpm);
+  const setRsvpPacing = useApp((s) => s.setRsvpPacing);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
@@ -458,12 +458,12 @@ export function App() {
       }
       if (shortcutMatches(event, 'rsvp-pace-down')) {
         event.preventDefault();
-        setRsvpWpm(active.rsvp.wpm - RSVP_WPM_STEP);
+        setRsvpPacing({ wpm: active.rsvp.wpm - RSVP_WPM_STEP });
         return true;
       }
       if (shortcutMatches(event, 'rsvp-pace-up')) {
         event.preventDefault();
-        setRsvpWpm(active.rsvp.wpm + RSVP_WPM_STEP);
+        setRsvpPacing({ wpm: active.rsvp.wpm + RSVP_WPM_STEP });
         return true;
       }
       if (

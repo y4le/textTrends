@@ -351,19 +351,3 @@ export function rsvpFrameHoldMs(pacing: RsvpPacing, frame: RsvpFrame): number {
   const timing = rsvpFrameTiming(pacing, frame);
   return timing.wordMs + timing.pauseMs;
 }
-
-/** Single-word compatibility helper retained for isolated consumers while all
- * production playback is migrated to `rsvpFrameTiming`. */
-export function rsvpHoldMs(
-  wpm: number,
-  word: Pick<RsvpWordFrame, 'graphemeCount' | 'sentenceEnd' | 'paragraphEnd'>,
-): number {
-  const pacing = { ...RSVP_PACING_DEFAULTS, wpm };
-  const wordMs = rsvpWordMs(pacing, word);
-  const pauseMs = word.paragraphEnd
-    ? pacing.paragraphPauseMs
-    : word.sentenceEnd
-      ? pacing.sentencePauseMs
-      : 0;
-  return wordMs + pauseMs;
-}

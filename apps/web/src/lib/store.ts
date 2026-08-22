@@ -709,7 +709,6 @@ export interface AppState {
   enterRsvp(playing: boolean): void;
   setRsvpPlaying(playing: boolean): void;
   setRsvpPacing(patch: Partial<RsvpPacing>): void;
-  setRsvpWpm(wpm: number): void;
   publishRsvpPosition(token: number): void;
   rsvpSeek(token: number): void;
   exitRsvp(token: number): void;
@@ -3803,10 +3802,6 @@ export function createAppRuntime(
                 rsvp: { ...state.interaction.rsvp, ...bounded },
               },
             });
-      },
-
-      setRsvpWpm(wpm) {
-        get().setRsvpPacing({ wpm });
       },
 
       publishRsvpPosition(token) {

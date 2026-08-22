@@ -14,7 +14,6 @@ import {
   rsvpFrameHoldMs,
   rsvpFrameTiming,
   rsvpGraphemes,
-  rsvpHoldMs,
   rsvpPresetSelection,
   rsvpWordMs,
   rsvpWordFrame,
@@ -165,15 +164,15 @@ describe('RSVP pacing', () => {
   });
 
   it('holds longer words longer and respects the minimum frame time', () => {
-    const short = rsvpHoldMs(300, { graphemeCount: 2, sentenceEnd: false, paragraphEnd: false });
-    const ordinary = rsvpHoldMs(300, { graphemeCount: 5, sentenceEnd: false, paragraphEnd: false });
-    const long = rsvpHoldMs(300, { graphemeCount: 14, sentenceEnd: false, paragraphEnd: false });
+    const pacing = RSVP_PACING_DEFAULTS;
+    const short = rsvpWordMs(pacing, { graphemeCount: 2 });
+    const ordinary = rsvpWordMs(pacing, { graphemeCount: 5 });
+    const long = rsvpWordMs(pacing, { graphemeCount: 14 });
     expect(short).toBe(150);
     expect(ordinary).toBe(213);
     expect(long).toBe(350);
-    expect(rsvpHoldMs(900, {
-      graphemeCount: 1, sentenceEnd: false, paragraphEnd: false,
-    })).toBeGreaterThanOrEqual(RSVP_MIN_HOLD_MS);
+    expect(rsvpWordMs({ ...pacing, wpm: 900 }, { graphemeCount: 1 }))
+      .toBeGreaterThanOrEqual(RSVP_MIN_HOLD_MS);
   });
 
   it('makes zero length emphasis exactly even while Study pins shipped timing', () => {
@@ -198,15 +197,17 @@ describe('RSVP pacing', () => {
   });
 
   it('adds absolute, rate-invariant sentence and paragraph integration time', () => {
+    const source = rsvpFrameAt(page(), 2, 1);
     for (const wpm of [300, 600]) {
-      const base = rsvpHoldMs(wpm, {
-        graphemeCount: 5, sentenceEnd: false, paragraphEnd: false,
+      const pacing = { ...RSVP_PACING_DEFAULTS, wpm };
+      const base = rsvpFrameHoldMs(pacing, {
+        ...source, sentenceEnd: false, paragraphEnd: false,
       });
-      const sentence = rsvpHoldMs(wpm, {
-        graphemeCount: 5, sentenceEnd: true, paragraphEnd: false,
+      const sentence = rsvpFrameHoldMs(pacing, {
+        ...source, sentenceEnd: true, paragraphEnd: false,
       });
-      const paragraph = rsvpHoldMs(wpm, {
-        graphemeCount: 5, sentenceEnd: true, paragraphEnd: true,
+      const paragraph = rsvpFrameHoldMs(pacing, {
+        ...source, sentenceEnd: true, paragraphEnd: true,
       });
       expect(sentence - base).toBe(RSVP_SENTENCE_PAUSE_MS);
       expect(paragraph - base).toBe(RSVP_PARAGRAPH_PAUSE_MS);

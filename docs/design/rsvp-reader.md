@@ -1,9 +1,9 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: BASE MODE IMPLEMENTED (2026-08-22); RHYTHM AMENDMENT ACCEPTED,
-IMPLEMENTATION PENDING.** This record supersedes the RSVP recommendations in
+**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP recommendations in
 [interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
-describes the shipped interaction and pacing contract.
+describes the shipped interaction and pacing contract, including the rhythm
+amendment.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -194,8 +194,9 @@ The control model deliberately stays small:
 
 Set pace remains in the primary control row. The other settings live behind a
 native **rhythm** disclosure; opening it pauses playback and closing it never
-auto-resumes. Changes commit live and affect the next frame after playback
-resumes. No new global shortcuts are introduced. Every disclosure control
+auto-resumes. Selections commit immediately; numeric rest and emphasis edits
+commit on Enter or blur. Changes affect the next frame after playback resumes.
+No new global shortcuts are introduced. Every disclosure control
 participates in the RSVP focus trap and keeps its native Space and arrow-key
 behavior from reaching the document shortcuts. On compact viewports an
 authored three-word setting is presented as two words at once, while the
