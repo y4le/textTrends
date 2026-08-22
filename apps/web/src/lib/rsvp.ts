@@ -20,6 +20,14 @@ export const RSVP_MAX_LENGTH_EMPHASIS = 100;
 export const RSVP_LENGTH_EMPHASIS_STEP = 25;
 export const RSVP_REST_CUE_MIN_MS = 150;
 export const RSVP_MIN_HOLD_MS = 60;
+export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
+
+export const RSVP_CLAUSE_MARKS = Object.freeze([
+  ',', '、', '，',
+  ';', ':', '；', '：',
+  '–', '—', '…',
+  ')', ']', '}', '）',
+] as const);
 
 /** Compatibility names for the active Natural defaults. */
 export const RSVP_SENTENCE_PAUSE_MS = RSVP_DEFAULT_SENTENCE_PAUSE_MS;
@@ -79,6 +87,7 @@ export interface RsvpWordFrame {
   readonly anchor: string;
   readonly after: string;
   readonly graphemeCount: number;
+  readonly trailing: string;
   readonly sentenceEnd: boolean;
   readonly paragraphEnd: boolean;
   readonly displayStartUtf16: number;
@@ -103,6 +112,15 @@ export interface RsvpFrameTiming {
 
 export function rsvpGraphemes(value: string): readonly string[] {
   return Array.from(graphemeSegmenter.segment(value), (part) => part.segment);
+}
+
+const rsvpClauseMarkSet: ReadonlySet<string> = new Set(RSVP_CLAUSE_MARKS);
+
+export function rsvpHasClauseMark(value: string): boolean {
+  for (const part of graphemeSegmenter.segment(value)) {
+    if (rsvpClauseMarkSet.has(part.segment)) return true;
+  }
+  return false;
 }
 
 /** Stable, centre-left anchor convention. The optimal-viewing-position
@@ -270,6 +288,7 @@ export function rsvpWordFrame(
     anchor,
     after,
     graphemeCount: graphemes.length,
+    trailing,
     sentenceEnd: includesBoundary(page.sentenceBounds, boundary),
     paragraphEnd: includesBoundary(page.paragraphBounds, boundary),
     displayStartUtf16: displayStart,
@@ -281,28 +300,70 @@ function collapseFrameWhitespace(value: string): string {
   return value.replace(/\s+/gu, ' ');
 }
 
+export type RsvpFramePage = Pick<
+  ReaderPageResultV1,
+  | 'text'
+  | 'tokens'
+  | 'tokenStartsUtf16'
+  | 'tokenEndsUtf16'
+  | 'sentenceBounds'
+  | 'paragraphBounds'
+>;
+
+function rsvpIsFrameStop(
+  page: RsvpFramePage,
+  relativeToken: number,
+  word: RsvpWordFrame,
+): boolean {
+  return word.sentenceEnd
+    || word.paragraphEnd
+    || rsvpHasClauseMark(word.trailing)
+    || relativeToken + 1 >= page.tokens.end - page.tokens.start;
+}
+
+function renderedFrameText(
+  page: RsvpFramePage,
+  first: RsvpWordFrame,
+  last: RsvpWordFrame,
+): string {
+  return collapseFrameWhitespace(
+    page.text.slice(first.displayStartUtf16, last.displayEndUtf16),
+  );
+}
+
 /** Build a consecutive frame without crossing an authored integration
  * boundary or the resident source window. The first word always owns the ORP. */
 export function rsvpFrameAt(
-  page: Pick<
-    ReaderPageResultV1,
-    | 'text'
-    | 'tokens'
-    | 'tokenStartsUtf16'
-    | 'tokenEndsUtf16'
-    | 'sentenceBounds'
-    | 'paragraphBounds'
-  >,
+  page: RsvpFramePage,
   relativeToken: number,
   wordsPerFrame: number,
 ): RsvpFrame {
   const maximum = effectiveRsvpWordsPerFrame(wordsPerFrame, false);
+  const budget = RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD * maximum;
   const words: RsvpWordFrame[] = [];
   for (let index = relativeToken; words.length < maximum; index++) {
     const word = rsvpWordFrame(page, index);
+    const first = words[0];
+    if (
+      first !== undefined
+      && rsvpGraphemes(renderedFrameText(page, first, word)).length > budget
+    ) break;
     words.push(word);
-    if (word.sentenceEnd || word.paragraphEnd) break;
-    if (index + 1 >= page.tokens.end - page.tokens.start) break;
+    if (rsvpIsFrameStop(page, index, word)) break;
+  }
+
+  if (words.length === RSVP_MAX_WORDS_PER_FRAME) {
+    const lastRelativeToken = relativeToken + words.length - 1;
+    const last = words.at(-1)!;
+    const nextRelativeToken = lastRelativeToken + 1;
+    const tokenCount = page.tokens.end - page.tokens.start;
+    if (
+      !rsvpIsFrameStop(page, lastRelativeToken, last)
+      && nextRelativeToken < tokenCount
+    ) {
+      const next = rsvpWordFrame(page, nextRelativeToken);
+      if (rsvpIsFrameStop(page, nextRelativeToken, next)) words.pop();
+    }
   }
   const first = words[0]!;
   const last = words.at(-1)!;
@@ -320,6 +381,38 @@ export function rsvpFrameAt(
     sentenceEnd: last.sentenceEnd,
     paragraphEnd: last.paragraphEnd,
   };
+}
+
+/** Return a page-relative resident frame start strictly before the live
+ * page-relative token. The canonical forward partition begins after the
+ * nearest hard stop, so reverse navigation cannot disagree with framing. */
+export function rsvpPreviousFrameStart(
+  page: RsvpFramePage,
+  relativeToken: number,
+  wordsPerFrame: number,
+): number {
+  const tokenCount = page.tokens.end - page.tokens.start;
+  if (!Number.isSafeInteger(relativeToken) || relativeToken < 0 || relativeToken >= tokenCount) {
+    throw new RangeError('RSVP token is outside the served reader page');
+  }
+
+  let partitionStart = 0;
+  for (let index = relativeToken - 1; index >= 0; index--) {
+    const word = rsvpWordFrame(page, index);
+    if (rsvpIsFrameStop(page, index, word)) {
+      if (index + 1 === relativeToken) continue;
+      partitionStart = index + 1;
+      break;
+    }
+  }
+
+  let previous = relativeToken;
+  for (let index = partitionStart; index < relativeToken;) {
+    previous = index;
+    const frame = rsvpFrameAt(page, index, wordsPerFrame);
+    index += frame.words.length;
+  }
+  return previous;
 }
 
 export function rsvpWordMs(

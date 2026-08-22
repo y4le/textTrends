@@ -301,13 +301,15 @@ users a stable recovery path without a second changing stream or a new fetch.
 
 Back-one-frame derives the prior start by replaying the same pure forward frame
 partition from the token after the nearest resident hard stop before the live
-cursor, or from the window start when none exists. When mid-sentence entry is
-not itself a start in that replay, regression chooses the greatest replayed
-frame start strictly below the live cursor. It never invents a reverse grouping
-algorithm, never leaves the resident source, pauses before moving, and
-publishes the regressed cursor immediately. A dedicated regression key,
-backward source fetching, context while playing, and a clause rest remain
-explicitly deferred.
+cursor, or from the window start when none exists. When a hard stop immediately
+precedes the live cursor, the search continues past it to the preceding stop so
+regression can cross that boundary; only the resident window's first token has
+no prior frame. When mid-sentence entry is not itself a start in the replay,
+regression chooses the greatest replayed frame start strictly below the live
+cursor. It never invents a reverse grouping algorithm, never leaves the
+resident source, pauses before moving, and publishes the regressed cursor
+immediately. A dedicated regression key, backward source fetching, context
+while playing, and a clause rest remain explicitly deferred.
 
 ## State and source ownership
 
@@ -440,8 +442,9 @@ Acceptance requires:
   row or update while playing, is pointer-exempt, and is exposed as focusable,
   trapped, stable non-live content;
 - back-one-frame pauses, stays within the resident source, follows the forward
-  partition to the greatest start strictly below the live cursor, and preserves
-  exact exit position;
+  partition across an immediately preceding hard stop to the greatest start
+  strictly below the live cursor, is inert only at the window start, and
+  preserves exact exit position;
 - `S`, `W`, the WPM nudges, Space, nested Escape, backdrop exit, reduced
   motion, and typing-focus priority are covered;
 - Space on a focused RSVP button activates exactly one action, and the WPM
