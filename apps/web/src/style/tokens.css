@@ -389,9 +389,121 @@ canvas {
   padding-block-end: var(--space-2);
 }
 
+.reader-rsvp-shell {
+  display: contents;
+}
+
+.reader-rsvp-stage {
+  grid-area: reader-prose;
+  position: relative;
+  display: grid;
+  min-block-size: 0;
+  place-items: center;
+  overflow: visible;
+  padding: var(--space-4) 0;
+}
+
+.reader-rsvp-stage::before {
+  position: absolute;
+  inset-block: 18%;
+  inset-inline-start: 50%;
+  border-inline-start: 1px solid color-mix(in srgb, var(--accent) 28%, transparent);
+  content: '';
+  pointer-events: none;
+}
+
+.reader-rsvp-word {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: baseline;
+  inline-size: 100%;
+  overflow: visible;
+  color: var(--fg);
+  font-family: var(--font-serif);
+  font-size: clamp(2rem, 8vw, 6rem);
+  font-weight: 500;
+  line-height: 1.15;
+  white-space: nowrap;
+}
+
+.reader-rsvp-before,
+.reader-rsvp-after {
+  flex: 1 1 0;
+  min-inline-size: 0;
+  overflow: visible;
+}
+
+.reader-rsvp-before {
+  text-align: end;
+}
+
+.reader-rsvp-after {
+  text-align: start;
+}
+
+.reader-rsvp-anchor {
+  flex: 0 0 auto;
+  color: var(--accent-text);
+  text-decoration-line: underline;
+  text-decoration-color: var(--accent);
+  text-decoration-thickness: 0.08em;
+  text-underline-offset: 0.16em;
+}
+
+.reader-rsvp-loading {
+  inline-size: 100%;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-sm);
+  text-align: center;
+}
+
+.reader-rsvp-error {
+  position: absolute;
+  inset-block-end: var(--space-3);
+  margin: 0;
+  color: var(--accent-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-rsvp-controls {
+  grid-area: reader-pages;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding-block: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+
+.reader-rsvp-pace {
+  display: inline-flex;
+  min-block-size: 44px;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-rsvp-pace input {
+  inline-size: 6ch;
+  min-block-size: 44px;
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  text-align: end;
+}
+
 .reader-header button,
 .reader-prose-pane button,
-.reader-pages button {
+.reader-pages button,
+.reader-rsvp-stage button,
+.reader-rsvp-controls button {
   min-block-size: 44px;
 }
 
@@ -413,6 +525,16 @@ canvas {
 
   .reader-pages button {
     min-inline-size: 0;
+  }
+
+  .reader-rsvp-controls {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: var(--space-1);
+  }
+
+  .reader-rsvp-pace {
+    justify-content: center;
   }
 
   .reader-page-previous { grid-area: page-previous; }
