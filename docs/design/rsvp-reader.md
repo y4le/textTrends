@@ -1,9 +1,10 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP recommendations in
-[interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
-describes the shipped interaction and pacing contract, including the rhythm
-amendment.
+**STATUS: BASE AND RHYTHM IMPLEMENTED; PHRASE-AWARE AMENDMENT ACCEPTED,
+IMPLEMENTATION PENDING (2026-08-22).** This record supersedes the RSVP
+recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
+they differ. It describes the shipped interaction and pacing contract plus the
+accepted phrase-aware amendment implemented by commits 9–13 below.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -19,6 +20,10 @@ and a targeted window-continuity correction (request
 The tweakable rhythm model was decided in a further pinned Opus consultation
 (request `req_consult_03af216bd1d38185`, artifact
 `art_sha256_0db71c5ff6052266713531ae920071cc06d0ae953c0d58db59eb73585ddb13d8`).
+The phrase-aware frame amendment followed a focused product/research review
+and a decision pass by the same explicitly pinned Opus planner (request
+`req_consult_7a5b33ad6ce0e175`, artifact
+`art_sha256_ca674f91e5847e40f6c387304acdfe1cc1d58e0e6e48fc190ff0f9a69605feac`).
 
 ## Outcome
 
@@ -81,6 +86,12 @@ targets. RSVP controls handle their native Space activation locally and stop
 it from reaching the document shortcut, so Play/Pause toggles exactly once
 and Slower/Faster perform only their labelled action.
 
+An explicit **back** control regresses to the previous resident RSVP frame and
+pauses. It replays only authenticated text already in the current source
+window, never fetches backward, and has no global shortcut. At the resident
+window's first frame it is disabled. Regression publishes the new frame start
+immediately, so Return to Reader and every other exit remain exact.
+
 The bounded WPM contract is:
 
 - default: 300 WPM;
@@ -97,9 +108,10 @@ and long-word holds make effective throughput lower.
 
 The active mode is visually unmistakable even though entry is semi-hidden. It
 shows the existing Reader title and position idiom, a central focal frame, and
-visible 44px Play/Pause, Slower, set-pace, Faster, rhythm-disclosure, and Reader
-controls. The shortcuts surface switches to an RSVP-specific context after
-entry; the ordinary Reader shortcut list does not advertise the entry chord.
+visible 44px Back, Play/Pause, Slower, set-pace, Faster, words-at-once,
+rhythm-disclosure, and Reader controls. The shortcuts surface switches to an
+RSVP-specific context after entry; the ordinary Reader shortcut list does not
+advertise the entry chord.
 
 The experimental entry is intentionally keyboard-only in this version. Touch
 target sizing applies to the controls available after keyboard entry; it does
@@ -107,8 +119,8 @@ not imply a visible Speed read entry action.
 
 Pointer clicks on the focal frame, surrounding stage, header backdrop, or
 analytical footer exit RSVP. RSVP's own buttons, fields, labels, and rhythm
-disclosure are exempt targets. The exit click is consumed so it cannot also
-seek, resize, or close a second surface.
+disclosure are exempt targets, as is the paused context strip. The exit click
+is consumed so it cannot also seek, resize, or close a second surface.
 
 Entry is available only from an authenticated ready Reader source. While the
 source is pending or errored, `S` is consumed without entering RSVP; the
@@ -192,33 +204,81 @@ The control model deliberately stays small:
 | paragraph rest | 700ms | 0–1500ms | 100ms |
 | length emphasis | 100% | 0–100% | 25% |
 
-Set pace remains in the primary control row. The other settings live behind a
-native **rhythm** disclosure; opening it pauses playback and closing it never
-auto-resumes. Selections commit immediately; numeric rest and emphasis edits
-commit on Enter or blur. Changes affect the next frame after playback resumes.
-No new global shortcuts are introduced. Every disclosure control
-participates in the RSVP focus trap and keeps its native Space and arrow-key
-behavior from reaching the document shortcuts. On compact viewports an
-authored three-word setting is presented as two words at once, while the
-authored preference is retained for the next wider viewport. Type ramps down
-at two and three words so ordinary frames fit; pathological long source tokens
-retain the shipped visible-overflow behavior.
+Set pace and **words at once** remain in the primary control row. Words at once
+is a native radio group labelled as an upper bound: phrases may break early at
+punctuation or the internal width guard. It is a display preference rather
+than part of `RsvpRhythm`; choosing two or three words therefore does not turn
+an otherwise Natural rhythm into Custom, and reset does not erase the choice.
+On compact viewports an authored three-word setting is presented as two words
+at once, while the authored preference is retained for the next wider
+viewport. The radio fieldset spans a full compact control row and divides its
+three 44px choices evenly; it does not compete with transport or pace controls
+for the same two-column row.
 
-Presets change rhythm without moving set pace: **Even** is one word with no
-length emphasis or rests; **Natural** is the default row above; **Study** uses
-one word, 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any
-divergence selects **Custom**. Reset is the explicit exception: it restores
-Natural and 300 WPM.
+The remaining settings live behind a native **rhythm** disclosure; opening it
+pauses playback and closing it never auto-resumes. Selections commit
+immediately; numeric rest and emphasis edits commit on Enter or blur. Changes
+affect the next frame after playback resumes. No new global shortcuts are
+introduced. Every control participates in the RSVP focus trap and keeps its
+native Space and arrow-key behavior from reaching the document shortcuts.
+
+Presets change rhythm without moving set pace or words at once: **Even** has no
+length emphasis or rests; **Natural** is the default timing row above; **Study**
+uses 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any timing
+divergence selects **Custom**. Reset restores Natural timing and 300 WPM while
+preserving words at once. This regrouping does not change the strict v2 storage
+record's keys, ranges, or defaults, so it does not require a storage migration.
 
 ### Multi-word frames
 
 Two- and three-word display is a presentation preference, not a speed claim.
-A frame starts at the live cursor and takes up to the configured number of
-consecutive tokens, stopping before a sentence start, paragraph start, or
-served-window boundary. Its display is the authenticated source slice with
-internal whitespace collapsed, preserving attached punctuation without
-synthetic spaces. Its fixed anchor is always the first member word's ORP
-grapheme; later words extend to the right of it.
+A frame starts at the live cursor and greedily takes up to the configured
+number of consecutive tokens. Sentence end, paragraph end, served-window end,
+and a trailing clause mark are hard stops after their owning word. The closed
+clause-mark list is exactly comma (`,`, `、`, `，`), semicolon/colon (`;`, `:`,
+`；`, `：`), en/em dash (`–`, `—`), the single-glyph ellipsis (`…`), and closing
+brackets (`)`, `]`, `}`, `）`). A trailing punctuation run is a stop when it
+contains any listed grapheme, so `said,"` stops on its comma even though the
+quote follows it. ASCII dots, full stops, question marks, and exclamation marks
+remain exclusively the authored sentence segmenter's responsibility so
+abbreviations and `...` are not split. Quotes and all unlisted bracket forms
+are not clause marks; quotes frequently close a quotation inside a larger
+clause, and the browser does not infer new families beyond the enumerated set.
+
+The configured count is an upper bound. A candidate after the first member is
+accepted only when the exact rendered frame, including collapsed internal
+whitespace and attached punctuation, remains within a `10 × effective-count`
+Unicode-grapheme budget. Effective count is the presented count after the
+compact clamp, so authored three-word mode uses a budget of twenty when it is
+presented as two. The first word is unconditional, so pathological source
+tokens remain whole and retain visible overflow.
+
+Budget admission happens while greedily adding members and therefore precedes
+orphan handling. Only when three members were admitted, the third did not end
+on a hard stop, and the immediately following word is itself a hard stop does
+the builder drop the already-admissible third member. That normally produces
+`2 + 2` rather than `3 + 1`; a following frame shortened by its own width
+budget may instead produce `2 + 1 + 1`. A budget-shortened frame is never
+expanded or rebalanced. The rule performs one look-ahead only. Two-word mode
+keeps an unavoidable `2 + 1` rather than merely moving the singleton.
+
+The builder remains stateless in the authenticated page, live start token, and
+effective count. Entering mid-sentence and re-entering with the same page and
+token therefore reproduce the same forward partition without a whole-sentence
+parser. A continuation source can change grouping at the former served-window
+edge because window end is a hard stop and new look-ahead becomes available.
+The live cursor remains authoritative and the replacement partition starts
+from it, so the changed grouping still cannot skip or repeat a token. Frame
+display is the exact authenticated source slice with internal whitespace
+collapsed, preserving attached punctuation without synthetic spaces.
+
+The fixed anchor remains the first member word's ORP grapheme; later words
+extend to its right. The anchor column is authored once per frame size and the
+word-row shift is derived from that value, so the visible guide and focal
+grapheme cannot drift apart. One-, two-, and three-word columns are
+monotonically farther left while the focal x-coordinate stays invariant within
+each size. Type continues to ramp down by size; the grapheme budget and type
+ramp bound different parts of the layout.
 
 The frame word time is the sum of the individual member-word times. Its
 boundary rest is derived only from its last word and is added once. With rests
@@ -227,6 +287,27 @@ three words per frame. The live cursor and exact-token exit position are always
 the first token of the displayed frame, and the next cursor advances by the
 number of words actually shown. Frames never skip, repeat, or cross a sentence
 or paragraph boundary.
+
+### Paused context
+
+Pausing reserves the focal word's position and reveals a static, labelled
+context strip containing the enclosing resident sentence. The exact current
+frame is highlighted inside an exact source slice; at most forty authenticated
+tokens of context are retained on either side, with a plain ellipsis when the
+resident sentence or cap truncates the slice. It is never an `aria-live`
+region and never appears while playback is running. The strip is focusable and
+participates in the RSVP focus trap, giving visual and assistive-technology
+users a stable recovery path without a second changing stream or a new fetch.
+
+Back-one-frame derives the prior start by replaying the same pure forward frame
+partition from the token after the nearest resident hard stop before the live
+cursor, or from the window start when none exists. When mid-sentence entry is
+not itself a start in that replay, regression chooses the greatest replayed
+frame start strictly below the live cursor. It never invents a reverse grouping
+algorithm, never leaves the resident source, pauses before moving, and
+publishes the regressed cursor immediately. A dedicated regression key,
+backward source fetching, context while playing, and a clause rest remain
+explicitly deferred.
 
 ## State and source ownership
 
@@ -327,6 +408,17 @@ The rhythm amendment adds three focused commits:
 8. the disclosure controls, responsive multi-word presentation, two-phase
    playback timer, and cross-browser acceptance.
 
+The phrase-aware amendment adds five focused commits:
+
+9. this amended decision record;
+10. deterministic clause-, width-, and orphan-aware frame primitives plus
+    backward-frame derivation and unit tests;
+11. separation of the words-at-once display preference from rhythm presets and
+    reset semantics without a storage migration;
+12. the primary words-at-once control and per-size fixed-anchor presentation;
+    and
+13. paused sentence context, resident frame regression, and browser acceptance.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -338,10 +430,18 @@ Acceptance requires:
 - boundary rests are additive and independent of WPM, and configured rests of
   at least 150ms appear as a distinct muted phase after word exposure;
 - one-, two-, and three-word frames partition the source without crossing a
-  sentence or paragraph boundary, and take identical aggregate word time;
+  sentence, paragraph, clause, or served-window boundary, respect the rendered
+  grapheme budget and orphan rule, and take identical aggregate word time;
 - the first member's anchor stays on the pixel guide for every frame size;
 - strict local-storage preference validation, session-storage v1 pace
-  migration, presets, compact clamping, and reset behavior are covered;
+  migration, rhythm-only presets, compact clamping, and display-preserving
+  reset behavior are covered;
+- paused context is an exact resident sentence slice, does not move the focal
+  row or update while playing, is pointer-exempt, and is exposed as focusable,
+  trapped, stable non-live content;
+- back-one-frame pauses, stays within the resident source, follows the forward
+  partition to the greatest start strictly below the live cursor, and preserves
+  exact exit position;
 - `S`, `W`, the WPM nudges, Space, nested Escape, backdrop exit, reduced
   motion, and typing-focus priority are covered;
 - Space on a focused RSVP button activates exactly one action, and the WPM
@@ -368,6 +468,7 @@ Acceptance requires:
 - [Rayner et al. (2016), *So Much to Read, So Little Time*](https://doi.org/10.1177/1529100615623267): speed and comprehension trade off; RSVP removes useful regressions.
 - [Masson (1983), *Conceptual processing of text during skimming and rapid sequential reading*](https://doi.org/10.3758/BF03196973): fixed sentence pauses improve RSVP comprehension without changing word exposure.
 - [Rahman & Muter (1999), *Designing an interface to optimize reading with small display windows*](https://pubmed.ncbi.nlm.nih.gov/10354807/): self-pacing, regressions, sentence pauses, and completion meters improve the usable RSVP interface.
+- [Cocklin et al. (1984), *Factors influencing readability of rapidly presented text segments*](https://doi.org/10.3758/BF03198304): comprehension peaked around twelve-character segments and was better for short idea units than random segments of equal average length; the product uses this as support for bounded, punctuation-shaped frames rather than as a literal modern CSS width.
 - [Benedetto et al. (2015), *Rapid serial visual presentation in reading: The case of Spritz*](https://doi.org/10.1016/j.chb.2014.12.043): Spritz produced worse literal comprehension, no speed advantage, and more visual fatigue than traditional reading.
 - [Di Nocera, Ricciardi & Juola (2018), RSVP comprehension by speed](https://doi.org/10.1504/IJHFE.2018.096118): comprehension held at 250–350 WPM in their experiment and declined above that band.
 - [O'Regan et al. (1984), convenient fixation location in isolated words](https://doi.org/10.1037/0096-1523.10.2.250): word recognition is best slightly left of center; applying that position to fixed RSVP alignment remains a product extrapolation.
