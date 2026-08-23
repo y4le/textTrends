@@ -1,8 +1,10 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
-recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
-they differ. It describes the shipped interaction and pacing contract.
+**STATUS: BASE IMPLEMENTED; STANDALONE/2,000 WPM AMENDMENT DECIDED
+(2026-08-22).** This record supersedes the RSVP recommendations in
+[interaction-modes-plan.md](interaction-modes-plan.md) where they differ. The
+package boundary and 30ms pacing sections specify commits 19–21 below and do
+not yet describe the shipped tree.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -26,6 +28,9 @@ The honest-WPM follow-up was hammered out with that pinned Opus planner after
 the shipped mode exposed visually collapsed frame joins and slower-than-stated
 throughput (request `req_consult_14f52f6a9c7da913`, artifact
 `art_sha256_c2f63db45f8913d946d9d089a0e24473d53c4ce47be969da81b1802f39fed3c6`).
+The standalone-foundation and 2,000 WPM amendment was then decided with the
+same pinned Opus planner (request `req_consult_89a758dc12ea553f`, artifact
+`art_sha256_45fb556a3f68f8419da0cf7d1f94be683f2de7859e13fa3664da900cd5353515`).
 
 ## Outcome
 
@@ -99,7 +104,7 @@ The bounded WPM contract is:
 
 - default: 300 WPM;
 - minimum: 100 WPM;
-- maximum: 1,200 WPM; and
+- maximum: 2,000 WPM; and
 - keyboard/button step: 25 WPM.
 
 The shipped WPM preference currently survives subsequent RSVP entries in the
@@ -172,37 +177,50 @@ targetMs = round(n * 60,000 / paceWpm)
 weight   = 1 + lengthEmphasis *
                  (clamp(wordGraphemeCount / 4.7, 0.75, 1.75) - 1)
 restMs   = min(configuredRestMs, floor(targetMs * 0.25),
-               targetMs - n * 50)
+               targetMs - n * 30)
 wordPool = targetMs - restMs
 ```
 
-The word pool is distributed proportionally to the length weights with a 50ms
+The word pool is distributed proportionally to the length weights with a 30ms
 floor per word. Water-filling protects words that reach the floor, then
 largest-remainder apportionment produces deterministic integer milliseconds
 whose sum equals the pool exactly, with ties broken in token order. At 0%
 length emphasis, exposures are equal within the unavoidable one-millisecond
 rounding residue. At 100%, the original length weighting remains, but it
 redistributes a fixed span budget rather than silently extending it.
-This replaces the shipped 60ms per-word hold floor with the load-bearing 50ms
-exposure floor used to derive the new maximum pace.
+The load-bearing 30ms exposure floor derives the maximum pace.
 
-The rest caps establish a deliberate priority: no word drops below 50ms; the
+The rest caps establish a deliberate priority: no word drops below 30ms; the
 planned span total always matches the displayed pace; and the configured rest
 is kept where that budget permits. The 25% cap guarantees that words retain at
 least 75% of a span's nominal time, especially for very short sentences. The
-absolute floor cap takes over above 900 WPM. Because the maximum pace is
-derived as `60,000 / 50 = 1,200 WPM`, an impossible span budget is not
-reachable. At exactly 1,200 WPM every word receives 50ms, every rest is zero,
-and length emphasis has no room to operate.
+absolute floor cap takes over above 1,500 WPM. Because the maximum pace is
+derived as `60,000 / 30 = 2,000 WPM`, an impossible span budget is not
+reachable. At exactly 2,000 WPM every word receives 30ms, every rest is zero,
+and length emphasis has no room to operate. For an eighteen-word sentence with
+a configured 350ms rest, the effective rest is 350ms at 300 WPM, 300ms at
+900 WPM, 225ms at 1,200 WPM, 180ms at the 1,500 WPM cap crossover, and zero at
+2,000 WPM.
 
 Playback advances against the planned deadline rather than re-anchoring every
 new frame to a late `setTimeout` callback. At most 25ms of callback lateness is
-absorbed by the next word phase, never below 50ms times that frame's word
+absorbed by the next word phase, never below 30ms times that frame's word
 count; any larger delay is forgiven instead of becoming unbounded pace debt.
 Pausing, editing pace or rhythm, seeking, and explicit regression re-anchor the
 deadline. This bounded correction addresses ordinary browser timer jitter
 without making a word's plan depend on playback history or creating catch-up
-bursts.
+bursts. At 2,000 WPM no exposure headroom remains, so bounded catch-up
+self-disables rather than cutting a frame below its floor.
+
+A 30ms one-word exposure spans only 1.8 refresh intervals on a 60Hz display.
+The scheduled elapsed throughput remains exact, but an individual word may be
+painted for one or two refreshes. This physical display limit is why the UI
+factually suggests two or three words at once above 1,200 WPM: the same honest
+word throughput then produces a longer-lived visual frame. Above 1,500 WPM it
+also states that boundary rests may be capped by the 30ms word floor; the
+current span continues to disclose its exact effective rest. These are
+explanations of the active timing model, not comprehension claims, warnings,
+or confirmation gates.
 
 The final frame remains fully emphasized for its planned word time, then
 enters a visibly muted rest phase for the effective boundary time. The frame is
@@ -233,7 +251,7 @@ The control model deliberately stays small:
 
 | Control | Default | Range | Step |
 |---|---:|---:|---:|
-| pace | 300 WPM | 100–1,200 | 25 WPM |
+| pace | 300 WPM | 100–2,000 | 25 WPM |
 | words at once | 1 | 1–3 | 1 |
 | sentence rest | 350ms | 0–800ms | 50ms |
 | paragraph rest | 700ms | 0–1500ms | 100ms |
@@ -349,6 +367,66 @@ cursor. It never invents a reverse grouping algorithm, never leaves the
 resident source, pauses before moving, and publishes the regressed cursor
 immediately. A dedicated regression key, backward source fetching, context
 while playing, and a clause rest remain explicitly deferred.
+
+## Standalone engine boundary
+
+The reusable RSVP domain belongs in a private workspace package named
+`@texttrends/rsvp`. Private status is deliberate: a publishable package would
+also need compiled output, versioning, licensing, and a release contract. None
+is necessary to prove the dependency boundary or to host a second application.
+The package has no imports from another workspace package and does not depend
+on React, DOM APIs, storage, fetch, workers, or filesystem APIs. Its TypeScript
+configuration does not add the DOM library, making part of that boundary
+compiler-enforced. It exports pure functions and frozen data; each host owns
+playback state and side effects.
+
+The root package surface owns framing, pacing, span planning, paused context,
+cursor stepping, continuation decisions, and bounded-deadline helpers. It
+accepts two structural source types:
+
+```ts
+interface RsvpSource {
+  readonly text: string;
+  readonly tokens: { readonly start: number; readonly end: number };
+  readonly tokenStartsUtf16: readonly number[];
+  readonly tokenEndsUtf16: readonly number[];
+  readonly sentenceBounds: readonly number[];
+  readonly paragraphBounds: readonly number[];
+}
+
+interface RsvpPlaybackSource extends RsvpSource {
+  readonly docTokenCount: number;
+}
+```
+
+Framing does not need to know where a document ends, so `docTokenCount` appears
+only in the playback extension. `tokens` are global document indices; the
+UTF-16 offsets and unit bounds are local to `text`. The start and end arrays
+have `tokens.end - tokens.start` members. Token spans are strictly increasing,
+non-overlapping, and satisfy `0 <= start < end <= text.length`. Sentence and
+paragraph bounds are ascending, deduplicated local token indices in
+`[0, tokenCount]`. Terminal bounds are optional to package consumers; planning
+falls back to the source edges when they are absent.
+
+TextTrends' `ReaderPageResultV1` satisfies `RsvpPlaybackSource` structurally.
+A compile-time assertion at the web boundary pins that relationship so drift
+requires a deliberate adapter rather than a cast. The DOM input id, React
+presentation, local preference persistence, source fetching, and windowed
+reader integration remain in the web host.
+
+The separate `@texttrends/rsvp/source` subpath owns one convenient standalone
+adapter, `createRsvpSource(text, options?)`. It creates a whole-document
+`RsvpPlaybackSource` with `Intl.Segmenter`: word-like word segments, sentence
+segments mapped onto emitted tokens, and a documented paragraph policy based
+on blank-line gaps and Unicode paragraph separators. A paragraph begins after
+two line terminators, including CRLF pairs, or one Unicode paragraph separator.
+This is deliberately the builder's own policy rather than a claim of parity
+with TextTrends' indexer. The builder includes source terminal bounds.
+Consumers with another tokenizer or authenticated index construct the
+structural source directly; that data boundary is the injection seam, so there
+is no speculative segmentation interface or exported validator. The root
+surface never imports the source-builder subpath, and TextTrends does not
+import it, keeping unused segmentation policy out of the app bundle.
 
 ## State and source ownership
 
@@ -470,6 +548,15 @@ The honest-WPM follow-up adds four focused commits:
 17. honest pace/rest copy, planned-deadline playback, capped-rest disclosure,
     and cross-browser acceptance.
 
+The standalone-foundation amendment adds four focused commits:
+
+18. this amended decision record;
+19. behavior-preserving extraction of the pure engine into
+    `@texttrends/rsvp`, including the structural host contract and drift guard;
+20. the inert plain-text source builder on `@texttrends/rsvp/source`; and
+21. the 30ms exposure floor, derived 2,000 WPM ceiling, factual high-speed
+    guidance, and updated unit/browser acceptance.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -479,8 +566,8 @@ Acceptance requires:
 - NFC/NFD, astral characters, punctuation, and long tokens never split the
   focal grapheme or move the anchor beyond the right-middle grapheme;
 - every resident span's plan totals `round(words * 60,000 / WPM)`, every word
-  retains at least 50ms, configured rests are capped at 25% of the span and by
-  the word floor, and impossible budgets are excluded by the derived 1,200 WPM
+  retains at least 30ms, configured rests are capped at 25% of the span and by
+  the word floor, and impossible budgets are excluded by the derived 2,000 WPM
   ceiling;
 - effective rests of at least 150ms appear as a distinct muted phase after
   word exposure, while any capped rest discloses configured and effective time;
@@ -491,6 +578,15 @@ Acceptance requires:
 - timer jitter correction carries the planned deadline across frames, absorbs
   no more than 25ms without violating the per-frame word floor, and never banks
   unbounded pace debt;
+- the engine package typechecks without DOM libraries or other workspace
+  dependencies, and `ReaderPageResultV1` remains structurally assignable to
+  its playback source contract;
+- the plain-text source builder returns exact UTF-16 token slices and sorted,
+  deduplicated terminal sentence/paragraph bounds for empty, punctuation-only,
+  Unicode, and mixed-line-ending sources;
+- at 2,000 WPM every word receives exactly 30ms, rests collapse to zero,
+  length emphasis has no residual budget, and timer catch-up cannot reduce an
+  exposure;
 - the first member's anchor stays on the pixel guide for every frame size;
 - strict local-storage preference validation, session-storage v1 pace
   migration, rhythm-only presets, compact clamping, and display-preserving
