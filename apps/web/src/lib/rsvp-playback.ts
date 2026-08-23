@@ -1,7 +1,6 @@
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import {
-  rsvpFrameAt,
-  rsvpFrameHoldMs,
+  rsvpSpanPlan,
   type RsvpPacing,
 } from './rsvp.ts';
 
@@ -49,10 +48,13 @@ export function rsvpNeedsContinuation(
   }
   let runway = 0;
   for (let relative = start; relative < page.tokens.end - page.tokens.start;) {
-    const frame = rsvpFrameAt(page, relative, pacing.wordsPerFrame);
-    runway += rsvpFrameHoldMs(pacing, frame);
+    const plan = rsvpSpanPlan(page, relative, pacing);
+    const offset = page.tokens.start + relative - plan.startToken;
+    runway += plan.wordMs
+      .slice(offset)
+      .reduce((total, wordMs) => total + wordMs, 0) + plan.restMs;
     if (runway > leadMs) return false;
-    relative += frame.words.length;
+    relative = plan.endToken - page.tokens.start;
   }
   return true;
 }

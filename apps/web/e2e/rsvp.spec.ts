@@ -363,8 +363,9 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   const back = reader.getByRole('button', { name: 'back', exact: true });
   await expect(back).toBeDisabled();
-  await expect(stage).toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
-  await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
+  // This two-word paragraph budgets a 100ms effective rest, below the 150ms
+  // visual-rest cue threshold, instead of adding the configured 700ms.
+  await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true');
   await expect(status).toContainText('End of document', { timeout: 5_000 });
   await expect(reader.getByRole('button', { name: 'completed', exact: true })).toBeDisabled();
   await expect(reader.getByRole('button', { name: 'return to Reader', exact: true })).toBeFocused();

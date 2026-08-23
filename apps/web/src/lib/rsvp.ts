@@ -2,7 +2,8 @@ import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 
 export const RSVP_DEFAULT_WPM = 300;
 export const RSVP_MIN_WPM = 100;
-export const RSVP_MAX_WPM = 900;
+export const RSVP_MIN_EXPOSURE_MS = 50;
+export const RSVP_MAX_WPM = 60_000 / RSVP_MIN_EXPOSURE_MS;
 export const RSVP_WPM_STEP = 25;
 export const RSVP_WPM_INPUT_ID = 'reader-rsvp-wpm';
 export const RSVP_DEFAULT_WORDS_PER_FRAME = 1;
@@ -19,7 +20,7 @@ export const RSVP_DEFAULT_LENGTH_EMPHASIS = 100;
 export const RSVP_MAX_LENGTH_EMPHASIS = 100;
 export const RSVP_LENGTH_EMPHASIS_STEP = 25;
 export const RSVP_REST_CUE_MIN_MS = 150;
-export const RSVP_MIN_HOLD_MS = 60;
+export const RSVP_MAX_REST_SHARE = 0.25;
 export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
 export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
 
@@ -114,6 +115,21 @@ export interface RsvpFrame {
 export interface RsvpFrameTiming {
   readonly wordMs: number;
   readonly pauseMs: number;
+}
+
+export type RsvpSpanBoundary = 'sentence' | 'paragraph' | 'window';
+
+export interface RsvpSpan {
+  readonly startToken: number;
+  readonly endToken: number;
+  readonly boundary: RsvpSpanBoundary;
+}
+
+export interface RsvpSpanPlan extends RsvpSpan {
+  readonly targetMs: number;
+  readonly configuredRestMs: number;
+  readonly restMs: number;
+  readonly wordMs: readonly number[];
 }
 
 export interface RsvpPausedContext {
@@ -486,32 +502,154 @@ export function rsvpPausedContext(
   };
 }
 
-export function rsvpWordMs(
-  pacing: RsvpPacing,
+function rsvpLengthWeight(
+  lengthEmphasis: number,
   word: Pick<RsvpWordFrame, 'graphemeCount'>,
 ): number {
-  const bounded = clampRsvpPacing(pacing);
   const lengthWeight = Math.min(
     MAX_LENGTH_WEIGHT,
     Math.max(MIN_LENGTH_WEIGHT, word.graphemeCount / MEAN_WORD_GRAPHEMES),
   );
-  const emphasis = bounded.lengthEmphasis / 100;
-  const weight = 1 + emphasis * (lengthWeight - 1);
-  return Math.max(RSVP_MIN_HOLD_MS, Math.round((60_000 / bounded.wpm) * weight));
+  const emphasis = lengthEmphasis / 100;
+  return 1 + emphasis * (lengthWeight - 1);
 }
 
-export function rsvpFrameTiming(pacing: RsvpPacing, frame: RsvpFrame): RsvpFrameTiming {
+function nextBoundAfter(bounds: readonly number[], relativeToken: number, fallback: number): number {
+  for (const bound of bounds) {
+    if (bound > relativeToken) return bound;
+  }
+  return fallback;
+}
+
+function greatestBoundAtOrBefore(bounds: readonly number[], relativeToken: number): number {
+  let found = 0;
+  for (const bound of bounds) {
+    if (bound > relativeToken) break;
+    found = bound;
+  }
+  return found;
+}
+
+/** Return the stable sentence-sized accounting unit that owns a resident
+ * token. Missing authored bounds clamp the unit to the served source window. */
+export function rsvpSpanAt(page: RsvpFramePage, relativeToken: number): RsvpSpan {
+  const tokenCount = page.tokens.end - page.tokens.start;
+  if (!Number.isSafeInteger(relativeToken) || relativeToken < 0 || relativeToken >= tokenCount) {
+    throw new RangeError('RSVP token is outside the served reader page');
+  }
+  const start = Math.max(
+    greatestBoundAtOrBefore(page.sentenceBounds, relativeToken),
+    greatestBoundAtOrBefore(page.paragraphBounds, relativeToken),
+  );
+  const end = Math.min(
+    nextBoundAfter(page.sentenceBounds, relativeToken, tokenCount),
+    nextBoundAfter(page.paragraphBounds, relativeToken, tokenCount),
+  );
+  const boundary: RsvpSpanBoundary = includesBoundary(page.paragraphBounds, end)
+    ? 'paragraph'
+    : includesBoundary(page.sentenceBounds, end)
+      ? 'sentence'
+      : 'window';
+  return {
+    startToken: page.tokens.start + start,
+    endToken: page.tokens.start + end,
+    boundary,
+  };
+}
+
+function apportionWordMs(poolMs: number, weights: readonly number[]): readonly number[] {
+  const exact = new Array<number>(weights.length).fill(0);
+  let active = weights.map((_, index) => index);
+  let remainingPool = poolMs;
+  let remainingWeight = weights.reduce((total, weight) => total + weight, 0);
+
+  while (active.length > 0) {
+    const belowFloor = active.filter(
+      (index) => remainingPool * weights[index]! / remainingWeight < RSVP_MIN_EXPOSURE_MS,
+    );
+    if (belowFloor.length === 0) {
+      for (const index of active) {
+        exact[index] = remainingPool * weights[index]! / remainingWeight;
+      }
+      break;
+    }
+    const pinned = new Set(belowFloor);
+    for (const index of belowFloor) exact[index] = RSVP_MIN_EXPOSURE_MS;
+    remainingPool -= belowFloor.length * RSVP_MIN_EXPOSURE_MS;
+    remainingWeight -= belowFloor.reduce((total, index) => total + weights[index]!, 0);
+    active = active.filter((index) => !pinned.has(index));
+  }
+
+  const apportioned = exact.map(Math.floor);
+  const remainder = poolMs - apportioned.reduce((total, value) => total + value, 0);
+  const byRemainder = exact
+    .map((value, index) => ({ index, remainder: value - Math.floor(value) }))
+    .sort((left, right) => right.remainder - left.remainder || left.index - right.index);
+  for (let index = 0; index < remainder; index++) {
+    const slot = byRemainder[index]!.index;
+    apportioned[slot] = apportioned[slot]! + 1;
+  }
+  return apportioned;
+}
+
+/** Plan exact integer exposure and integration-rest time for one resident
+ * span. The result is stable for every cursor inside that span. */
+export function rsvpSpanPlan(
+  page: RsvpFramePage,
+  relativeToken: number,
+  pacing: RsvpPacing,
+): RsvpSpanPlan {
   const bounded = clampRsvpPacing(pacing);
-  const wordMs = frame.words.reduce((total, word) => total + rsvpWordMs(bounded, word), 0);
-  const pauseMs = frame.paragraphEnd
+  const span = rsvpSpanAt(page, relativeToken);
+  const relativeStart = span.startToken - page.tokens.start;
+  const relativeEnd = span.endToken - page.tokens.start;
+  const wordCount = relativeEnd - relativeStart;
+  const targetMs = Math.round(wordCount * 60_000 / bounded.wpm);
+  const configuredRestMs = span.boundary === 'paragraph'
     ? bounded.paragraphPauseMs
-    : frame.sentenceEnd
+    : span.boundary === 'sentence'
       ? bounded.sentencePauseMs
       : 0;
-  return { wordMs, pauseMs };
+  const restMs = Math.max(0, Math.min(
+    configuredRestMs,
+    Math.floor(targetMs * RSVP_MAX_REST_SHARE),
+    targetMs - wordCount * RSVP_MIN_EXPOSURE_MS,
+  ));
+  const weights = Array.from(
+    { length: wordCount },
+    (_, index) => rsvpLengthWeight(
+      bounded.lengthEmphasis,
+      rsvpWordFrame(page, relativeStart + index),
+    ),
+  );
+  return {
+    ...span,
+    targetMs,
+    configuredRestMs,
+    restMs,
+    wordMs: apportionWordMs(targetMs - restMs, weights),
+  };
 }
 
-export function rsvpFrameHoldMs(pacing: RsvpPacing, frame: RsvpFrame): number {
-  const timing = rsvpFrameTiming(pacing, frame);
+export function rsvpFrameTiming(plan: RsvpSpanPlan, frame: RsvpFrame): RsvpFrameTiming {
+  const offset = frame.startToken - plan.startToken;
+  if (
+    frame.words.length < 1
+    || offset < 0
+    || offset + frame.words.length > plan.wordMs.length
+    || frame.words.some((word, index) => word.token !== frame.startToken + index)
+  ) throw new RangeError('RSVP frame is outside its timing span');
+  const frameEnd = offset + frame.words.length;
+  const wordMs = plan.wordMs
+    .slice(offset, frameEnd)
+    .reduce((total, value) => total + value, 0);
+  return {
+    wordMs,
+    pauseMs: frame.startToken + frame.words.length === plan.endToken ? plan.restMs : 0,
+  };
+}
+
+export function rsvpFrameHoldMs(plan: RsvpSpanPlan, frame: RsvpFrame): number {
+  const timing = rsvpFrameTiming(plan, frame);
   return timing.wordMs + timing.pauseMs;
 }

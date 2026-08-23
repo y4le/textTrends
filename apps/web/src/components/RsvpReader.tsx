@@ -28,6 +28,7 @@ import {
   rsvpPausedContext,
   rsvpPreviousFrameStart,
   rsvpPresetSelection,
+  rsvpSpanPlan,
   type RsvpPacing,
   type RsvpRhythmPreset,
 } from '../lib/rsvp.ts';
@@ -214,9 +215,15 @@ export function RsvpReader({
       : null,
     [effectiveWords, relative, resident],
   );
+  const spanPlan = useMemo(
+    () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
+      ? rsvpSpanPlan(resident, relative, playbackPacing)
+      : null,
+    [playbackPacing, relative, resident],
+  );
   const timing = useMemo(
-    () => frame ? rsvpFrameTiming(playbackPacing, frame) : null,
-    [frame, playbackPacing],
+    () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
+    [frame, spanPlan],
   );
   const previousRelative = useMemo(
     () => resident

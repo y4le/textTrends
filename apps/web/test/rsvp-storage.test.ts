@@ -49,6 +49,8 @@ describe('RSVP rhythm local storage', () => {
       paragraphPauseMs: 500,
     })).toBeNull();
     expect(read({ ...RSVP_PACING_DEFAULTS, lengthEmphasis: 101 })).toBeNull();
+    expect(read({ ...RSVP_PACING_DEFAULTS, wpm: 1_200 })).toMatchObject({ wpm: 1_200 });
+    expect(read({ ...RSVP_PACING_DEFAULTS, wpm: 1_201 })).toBeNull();
   });
 
   it('reads the v1 session pace and seeds all new fields from Natural', () => {

@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import { rsvpCursorStep, rsvpNeedsContinuation } from '../src/lib/rsvp-playback.ts';
-import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
+import {
+  RSVP_PACING_DEFAULTS,
+  rsvpFrameAt,
+  rsvpFrameHoldMs,
+  rsvpSpanPlan,
+} from '../src/lib/rsvp.ts';
 
 function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
   const count = end;
@@ -55,5 +60,22 @@ describe('RSVP playback boundaries', () => {
     expect(rsvpNeedsContinuation(source, 3, RSVP_PACING_DEFAULTS, 500)).toBe(true);
     expect(rsvpNeedsContinuation(page(5, 5), 4, RSVP_PACING_DEFAULTS, 3_000)).toBe(false);
     expect(() => rsvpNeedsContinuation(source, 5, RSVP_PACING_DEFAULTS)).toThrow(RangeError);
+  });
+
+  it('matches frame-by-frame planned runway at every resident cursor', () => {
+    const source = page();
+    for (const wordsPerFrame of [1, 2, 3]) {
+      const pacing = { ...RSVP_PACING_DEFAULTS, wordsPerFrame };
+      for (let token = source.tokens.start; token < source.tokens.end; token++) {
+        let total = 0;
+        for (let relative = token - source.tokens.start; relative < source.tokens.end;) {
+          const frame = rsvpFrameAt(source, relative, wordsPerFrame);
+          total += rsvpFrameHoldMs(rsvpSpanPlan(source, relative, pacing), frame);
+          relative += frame.words.length;
+        }
+        expect(rsvpNeedsContinuation(source, token, pacing, total - 1)).toBe(false);
+        expect(rsvpNeedsContinuation(source, token, pacing, total)).toBe(true);
+      }
+    }
   });
 });

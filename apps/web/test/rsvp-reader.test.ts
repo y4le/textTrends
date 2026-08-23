@@ -52,7 +52,7 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('return to Reader');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>back<\/button>/u);
     expect(html).toContain('aria-label="Set pace in words per minute"');
-    expect(html).toContain('min="100" max="900" step="25"');
+    expect(html).toContain('min="100" max="1200" step="25"');
     expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
     expect(html).toContain('Words at once (maximum)');
     expect(html).toContain('type="radio" aria-label="1 word at once"');

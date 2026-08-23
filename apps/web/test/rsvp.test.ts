@@ -3,12 +3,12 @@ import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
   RSVP_CONTEXT_TOKENS_PER_SIDE,
   RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD,
-  RSVP_MIN_HOLD_MS,
+  RSVP_MAX_REST_SHARE,
+  RSVP_MAX_WPM,
+  RSVP_MIN_EXPOSURE_MS,
   RSVP_PACING_DEFAULTS,
-  RSVP_PARAGRAPH_PAUSE_MS,
   RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
-  RSVP_SENTENCE_PAUSE_MS,
   clampRsvpPacing,
   clampRsvpWpm,
   effectiveRsvpWordsPerFrame,
@@ -21,7 +21,8 @@ import {
   rsvpPausedContext,
   rsvpPreviousFrameStart,
   rsvpPresetSelection,
-  rsvpWordMs,
+  rsvpSpanAt,
+  rsvpSpanPlan,
   rsvpWordFrame,
 } from '../src/lib/rsvp.ts';
 
@@ -320,19 +321,21 @@ describe('RSVP pacing', () => {
   it('clamps configured WPM to the supported integer range', () => {
     expect(clampRsvpWpm(99)).toBe(100);
     expect(clampRsvpWpm(450.6)).toBe(451);
-    expect(clampRsvpWpm(901)).toBe(900);
+    expect(clampRsvpWpm(901)).toBe(901);
+    expect(clampRsvpWpm(1_201)).toBe(1_200);
     expect(clampRsvpWpm(Number.NaN)).toBe(300);
+    expect(RSVP_MAX_WPM * RSVP_MIN_EXPOSURE_MS).toBe(60_000);
   });
 
   it('clamps rhythm fields and raises paragraph rest to the authored sentence rest', () => {
     expect(clampRsvpPacing({
-      wpm: 950,
+      wpm: 1_250,
       wordsPerFrame: 7,
       sentencePauseMs: 750,
       paragraphPauseMs: 200,
       lengthEmphasis: -5,
     })).toEqual({
-      wpm: 900,
+      wpm: 1_200,
       wordsPerFrame: 3,
       sentencePauseMs: 750,
       paragraphPauseMs: 750,
@@ -360,74 +363,147 @@ describe('RSVP pacing', () => {
     expect(RSVP_RHYTHM_RESET).not.toHaveProperty('wordsPerFrame');
   });
 
-  it('holds longer words longer and respects the minimum frame time', () => {
-    const pacing = RSVP_PACING_DEFAULTS;
-    const short = rsvpWordMs(pacing, { graphemeCount: 2 });
-    const ordinary = rsvpWordMs(pacing, { graphemeCount: 5 });
-    const long = rsvpWordMs(pacing, { graphemeCount: 14 });
-    expect(short).toBe(150);
-    expect(ordinary).toBe(213);
-    expect(long).toBe(350);
-    expect(rsvpWordMs({ ...pacing, wpm: 900 }, { graphemeCount: 1 }))
-      .toBeGreaterThanOrEqual(RSVP_MIN_HOLD_MS);
+  it('finds stable resident spans and treats a truncated window as no boundary', () => {
+    expect(rsvpSpanAt(page(), 0)).toEqual({
+      startToken: 10, endToken: 13, boundary: 'sentence',
+    });
+    expect(rsvpSpanAt(page(), 2)).toEqual(rsvpSpanAt(page(), 0));
+    expect(rsvpSpanAt(page(), 3)).toEqual({
+      startToken: 13, endToken: 15, boundary: 'paragraph',
+    });
+
+    const truncated = textPage('one two three', [0], [0]);
+    const plan = rsvpSpanPlan(truncated, 1, RSVP_PACING_DEFAULTS);
+    expect(plan).toMatchObject({
+      startToken: 0,
+      endToken: 3,
+      boundary: 'window',
+      configuredRestMs: 0,
+      restMs: 0,
+      targetMs: 600,
+    });
+    expect(plan.wordMs.reduce((total, value) => total + value, 0)).toBe(600);
   });
 
-  it('makes zero length emphasis exactly even while Study pins shipped timing', () => {
-    const even = {
+  it('plans every reachable pace exactly with a deterministic exposure floor', () => {
+    for (const wpm of [100, 300, 600, 900, 901, 1_200]) {
+      for (const lengthEmphasis of [0, 100]) {
+        for (const relative of [0, 3]) {
+          const pacing = { ...RSVP_PACING_DEFAULTS, wpm, lengthEmphasis };
+          const plan = rsvpSpanPlan(page(), relative, pacing);
+          const wordCount = plan.endToken - plan.startToken;
+          const wordTotal = plan.wordMs.reduce((total, value) => total + value, 0);
+          expect(wordTotal + plan.restMs).toBe(plan.targetMs);
+          expect(plan.targetMs).toBe(Math.round(wordCount * 60_000 / wpm));
+          expect(plan.wordMs.every((value) => value >= RSVP_MIN_EXPOSURE_MS)).toBe(true);
+          expect(plan.restMs).toBeLessThanOrEqual(plan.configuredRestMs);
+          expect(plan.restMs).toBeLessThanOrEqual(
+            Math.floor(plan.targetMs * RSVP_MAX_REST_SHARE),
+          );
+          expect(plan.restMs).toBeLessThanOrEqual(
+            plan.targetMs - wordCount * RSVP_MIN_EXPOSURE_MS,
+          );
+          expect(rsvpSpanPlan(page(), relative + 1, pacing)).toEqual(plan);
+          if (wpm === RSVP_MAX_WPM) {
+            expect(plan.wordMs.every((value) => value === RSVP_MIN_EXPOSURE_MS)).toBe(true);
+            expect(plan.restMs).toBe(0);
+          }
+        }
+      }
+    }
+  });
+
+  it('preserves exact allocation across every selectable pace and emphasis', () => {
+    const source = textPage(Array.from(
+      { length: 32 },
+      (_, index) => 'x'.repeat(1 + (index * 7) % 20),
+    ).join(' '));
+    for (let wpm = 100; wpm <= RSVP_MAX_WPM; wpm += 25) {
+      for (let lengthEmphasis = 0; lengthEmphasis <= 100; lengthEmphasis += 25) {
+        for (const paragraphPauseMs of [0, 700, 1_500]) {
+          const plan = rsvpSpanPlan(source, 17, {
+            ...RSVP_PACING_DEFAULTS,
+            wpm,
+            lengthEmphasis,
+            sentencePauseMs: 0,
+            paragraphPauseMs,
+          });
+          expect(plan.wordMs.reduce((total, value) => total + value, plan.restMs))
+            .toBe(plan.targetMs);
+          expect(Math.min(...plan.wordMs)).toBeGreaterThanOrEqual(RSVP_MIN_EXPOSURE_MS);
+          expect(rsvpSpanPlan(source, 0, {
+            ...RSVP_PACING_DEFAULTS,
+            wpm,
+            lengthEmphasis,
+            sentencePauseMs: 0,
+            paragraphPauseMs,
+          })).toEqual(plan);
+        }
+      }
+    }
+
+    const tied = rsvpSpanPlan(textPage('one two six ten'), 0, {
       ...RSVP_PACING_DEFAULTS,
       ...RSVP_RHYTHM_PRESETS.even,
-      wpm: 300,
-    };
-    for (const graphemeCount of [1, 5, 40]) {
-      expect(rsvpWordMs(even, { graphemeCount })).toBe(200);
-    }
+      wpm: 397,
+    });
+    expect(tied.wordMs).toEqual([152, 151, 151, 151]);
+  });
 
-    const study = {
+  it('keeps configured rests when affordable and caps them by share or floor', () => {
+    const tenWordSentence = textPage(
+      'one two three four five six seven eight nine ten next',
+      [0, 10, 11],
+      [0, 11],
+    );
+    expect(rsvpSpanPlan(tenWordSentence, 0, RSVP_PACING_DEFAULTS).restMs).toBe(350);
+    expect(rsvpSpanPlan(tenWordSentence, 0, {
       ...RSVP_PACING_DEFAULTS,
-      ...RSVP_RHYTHM_PRESETS.study,
-      wpm: 300,
-    };
-    const frame = rsvpFrameAt(page(), 2, 1);
-    const timing = rsvpFrameTiming(study, frame);
-    expect(timing).toEqual({ wordMs: 150, pauseMs: 500 });
-    expect(rsvpFrameHoldMs(study, frame)).toBe(650);
+      wpm: 600,
+    }).restMs).toBe(250);
+
+    const oneWordSentence = textPage('One next', [0, 1, 2], [0, 2]);
+    expect(rsvpSpanPlan(oneWordSentence, 0, RSVP_PACING_DEFAULTS).restMs).toBe(50);
+    expect(rsvpSpanPlan(page(), 3, RSVP_PACING_DEFAULTS).restMs).toBe(100);
   });
 
-  it('adds absolute, rate-invariant sentence and paragraph integration time', () => {
-    const source = rsvpFrameAt(page(), 2, 1);
-    for (const wpm of [300, 600]) {
-      const pacing = { ...RSVP_PACING_DEFAULTS, wpm };
-      const base = rsvpFrameHoldMs(pacing, {
-        ...source, sentenceEnd: false, paragraphEnd: false,
-      });
-      const sentence = rsvpFrameHoldMs(pacing, {
-        ...source, sentenceEnd: true, paragraphEnd: false,
-      });
-      const paragraph = rsvpFrameHoldMs(pacing, {
-        ...source, sentenceEnd: true, paragraphEnd: true,
-      });
-      expect(sentence - base).toBe(RSVP_SENTENCE_PAUSE_MS);
-      expect(paragraph - base).toBe(RSVP_PARAGRAPH_PAUSE_MS);
-    }
-  });
+  it('apportions even timing within one millisecond and preserves length emphasis', () => {
+    const source = textPage('I ordinary extraordinarily word');
+    const even = rsvpSpanPlan(source, 0, {
+      ...RSVP_PACING_DEFAULTS,
+      ...RSVP_RHYTHM_PRESETS.even,
+    });
+    expect(Math.max(...even.wordMs) - Math.min(...even.wordMs)).toBeLessThanOrEqual(1);
 
-  it('keeps aggregate word time identical across frame sizes', () => {
-    const pacing = {
+    const natural = rsvpSpanPlan(source, 0, {
       ...RSVP_PACING_DEFAULTS,
       sentencePauseMs: 0,
       paragraphPauseMs: 0,
-    };
+    });
+    expect(natural.wordMs[2]).toBeGreaterThan(natural.wordMs[0]!);
+  });
+
+  it('keeps aggregate span time identical across frame sizes, including rests', () => {
+    const pacing = RSVP_PACING_DEFAULTS;
     const totalFor = (wordsPerFrame: number) => {
       let total = 0;
       let relative = 0;
       while (relative < 5) {
         const frame = rsvpFrameAt(page(), relative, wordsPerFrame);
-        total += rsvpFrameHoldMs({ ...pacing, wordsPerFrame }, frame);
+        const plan = rsvpSpanPlan(page(), relative, { ...pacing, wordsPerFrame });
+        total += rsvpFrameHoldMs(plan, frame);
         relative += frame.words.length;
       }
       return total;
     };
+    expect(totalFor(1)).toBe(1_000);
     expect(totalFor(2)).toBe(totalFor(1));
     expect(totalFor(3)).toBe(totalFor(1));
+  });
+
+  it('rejects a frame outside its timing span', () => {
+    const firstPlan = rsvpSpanPlan(page(), 0, RSVP_PACING_DEFAULTS);
+    expect(() => rsvpFrameTiming(firstPlan, rsvpFrameAt(page(), 3, 1)))
+      .toThrow(RangeError);
   });
 });
