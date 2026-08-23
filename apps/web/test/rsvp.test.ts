@@ -345,7 +345,7 @@ describe('RSVP pacing', () => {
     expect(effectiveRsvpWordsPerFrame(3, false)).toBe(3);
   });
 
-  it('recognizes rhythm presets independently of set pace and words at once', () => {
+  it('recognizes rhythm presets independently of pace and words at once', () => {
     expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wpm: 725 })).toBe('natural');
     expect(rsvpPresetSelection({
       ...RSVP_PACING_DEFAULTS,

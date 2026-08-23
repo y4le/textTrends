@@ -1,8 +1,31 @@
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import {
+  RSVP_MAX_CATCHUP_MS,
+  RSVP_MIN_EXPOSURE_MS,
   rsvpSpanPlan,
   type RsvpPacing,
 } from './rsvp.ts';
+
+/** Preserve a planned frame deadline while absorbing only bounded callback
+ * lateness and never cutting below the frame's per-word exposure floor. */
+export function rsvpBoundedFrameStart(
+  plannedStart: number,
+  now: number,
+  plannedWordMs: number,
+  frameWordCount: number,
+): number {
+  if (
+    !Number.isFinite(plannedStart)
+    || !Number.isFinite(now)
+    || !Number.isFinite(plannedWordMs)
+    || !Number.isSafeInteger(frameWordCount)
+    || frameWordCount < 1
+    || plannedWordMs < frameWordCount * RSVP_MIN_EXPOSURE_MS
+  ) throw new RangeError('RSVP frame timing is invalid');
+  const available = plannedWordMs - frameWordCount * RSVP_MIN_EXPOSURE_MS;
+  const catchup = Math.min(RSVP_MAX_CATCHUP_MS, available);
+  return Math.max(plannedStart, now - catchup);
+}
 
 export type RsvpCursorStep =
   | { readonly kind: 'next'; readonly token: number }

@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
-import { rsvpCursorStep, rsvpNeedsContinuation } from '../src/lib/rsvp-playback.ts';
+import {
+  rsvpBoundedFrameStart,
+  rsvpCursorStep,
+  rsvpNeedsContinuation,
+} from '../src/lib/rsvp-playback.ts';
 import {
   RSVP_PACING_DEFAULTS,
   rsvpFrameAt,
@@ -44,6 +48,15 @@ function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
 }
 
 describe('RSVP playback boundaries', () => {
+  it('absorbs bounded lateness without violating the frame exposure floor', () => {
+    expect(rsvpBoundedFrameStart(990, 1_000, 200, 1)).toBe(990);
+    expect(rsvpBoundedFrameStart(950, 1_000, 200, 1)).toBe(975);
+    expect(rsvpBoundedFrameStart(950, 1_000, 50, 1)).toBe(1_000);
+    expect(rsvpBoundedFrameStart(950, 1_000, 170, 3)).toBe(980);
+    expect(rsvpBoundedFrameStart(1_010, 1_000, 200, 1)).toBe(1_010);
+    expect(() => rsvpBoundedFrameStart(950, 1_000, 149, 3)).toThrow(RangeError);
+  });
+
   it('distinguishes an ordinary step, source exhaustion, and document completion', () => {
     expect(rsvpCursorStep(page(), 2)).toEqual({ kind: 'next', token: 3 });
     expect(rsvpCursorStep(page(), 1, 3)).toEqual({ kind: 'next', token: 4 });

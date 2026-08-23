@@ -51,7 +51,8 @@ describe('RSVP Reader presentation', () => {
     expect(html).not.toContain('role="note"');
     expect(html).toContain('return to Reader');
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>back<\/button>/u);
-    expect(html).toContain('aria-label="Set pace in words per minute"');
+    expect(html).toContain('aria-label="Pace in words per minute"');
+    expect(html).toContain('including rests');
     expect(html).toContain('min="100" max="1200" step="25"');
     expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
     expect(html).toContain('Words at once (maximum)');
@@ -61,8 +62,10 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('aria-label="Sentence rest in milliseconds"');
     expect(html).toContain('aria-label="Paragraph rest in milliseconds"');
     expect(html).toContain('aria-label="Length emphasis in percent"');
+    expect(html).toContain('Rest values are maxima taken from the current sentence');
+    expect(html).toContain('paragraph rest 700 ms (100 ms here)');
     const status = html.match(/<p class="visually-hidden" role="status"[^>]*>(.*?)<\/p>/)?.[1];
-    expect(status).toContain('Speed reading playing at a set pace of 300');
+    expect(status).toContain('Speed reading playing at 300 words per minute including rests');
     expect(status).not.toContain('token');
 
     const pausedHtml = renderToStaticMarkup(createElement(RsvpReader, {

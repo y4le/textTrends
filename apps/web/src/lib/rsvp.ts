@@ -20,6 +20,7 @@ export const RSVP_DEFAULT_LENGTH_EMPHASIS = 100;
 export const RSVP_MAX_LENGTH_EMPHASIS = 100;
 export const RSVP_LENGTH_EMPHASIS_STEP = 25;
 export const RSVP_REST_CUE_MIN_MS = 150;
+export const RSVP_MAX_CATCHUP_MS = 25;
 export const RSVP_MAX_REST_SHARE = 0.25;
 export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
 export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
@@ -30,10 +31,6 @@ export const RSVP_CLAUSE_MARKS = Object.freeze([
   '–', '—', '…',
   ')', ']', '}', '）',
 ] as const);
-
-/** Compatibility names for the active Natural defaults. */
-export const RSVP_SENTENCE_PAUSE_MS = RSVP_DEFAULT_SENTENCE_PAUSE_MS;
-export const RSVP_PARAGRAPH_PAUSE_MS = RSVP_DEFAULT_PARAGRAPH_PAUSE_MS;
 
 const MEAN_WORD_GRAPHEMES = 4.7;
 const MIN_LENGTH_WEIGHT = 0.75;
@@ -79,7 +76,7 @@ export const RSVP_RHYTHM_PRESETS: Readonly<Record<RsvpRhythmPreset, RsvpRhythm>>
   }),
 });
 
-/** A rhythm reset also restores set pace, but deliberately leaves the
+/** A rhythm reset also restores pace, but deliberately leaves the
  * independent words-at-once display preference untouched. */
 export const RSVP_RHYTHM_RESET: Readonly<RsvpRhythmReset> = Object.freeze({
   wpm: RSVP_DEFAULT_WPM,

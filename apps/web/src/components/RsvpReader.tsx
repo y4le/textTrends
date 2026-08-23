@@ -6,7 +6,11 @@ import {
   type KeyboardEvent,
 } from 'react';
 import type { RsvpState } from '../lib/interaction.ts';
-import { rsvpCursorStep, rsvpNeedsContinuation } from '../lib/rsvp-playback.ts';
+import {
+  rsvpBoundedFrameStart,
+  rsvpCursorStep,
+  rsvpNeedsContinuation,
+} from '../lib/rsvp-playback.ts';
 import {
   RSVP_LENGTH_EMPHASIS_STEP,
   RSVP_MAX_LENGTH_EMPHASIS,
@@ -28,6 +32,7 @@ import {
   rsvpPausedContext,
   rsvpPreviousFrameStart,
   rsvpPresetSelection,
+  rsvpSpanAt,
   rsvpSpanPlan,
   type RsvpPacing,
   type RsvpRhythmPreset,
@@ -63,6 +68,10 @@ interface PlaybackPhase {
 }
 
 type RhythmNumberKey = 'sentencePauseMs' | 'paragraphPauseMs' | 'lengthEmphasis';
+
+const RSVP_PACE_HELP_ID = 'reader-rsvp-pace-help';
+const RSVP_SENTENCE_REST_HELP_ID = 'reader-rsvp-sentence-rest-help';
+const RSVP_PARAGRAPH_REST_HELP_ID = 'reader-rsvp-paragraph-rest-help';
 
 const RHYTHM_NUMBER_LABEL: Readonly<Record<RhythmNumberKey, string>> = Object.freeze({
   sentencePauseMs: 'sentence rest',
@@ -126,6 +135,7 @@ export function RsvpReader({
   const editingPaceRef = useRef(false);
   const editingRhythmRef = useRef<RhythmNumberKey | null>(null);
   const requestedSource = useRef<string | null>(null);
+  const nextFrameStart = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
   const playRef = useRef<HTMLButtonElement | null>(null);
   const exitRef = useRef<HTMLButtonElement | null>(null);
@@ -215,11 +225,18 @@ export function RsvpReader({
       : null,
     [effectiveWords, relative, resident],
   );
-  const spanPlan = useMemo(
+  const span = useMemo(
     () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpSpanPlan(resident, relative, playbackPacing)
+      ? rsvpSpanAt(resident, relative)
       : null,
-    [playbackPacing, relative, resident],
+    [relative, resident],
+  );
+  const spanStartToken = span?.startToken ?? -1;
+  const spanPlan = useMemo(
+    () => resident && spanStartToken >= resident.tokens.start
+      ? rsvpSpanPlan(resident, spanStartToken - resident.tokens.start, playbackPacing)
+      : null,
+    [playbackPacing, resident, spanStartToken],
   );
   const timing = useMemo(
     () => frame && spanPlan ? rsvpFrameTiming(spanPlan, frame) : null,
@@ -247,11 +264,23 @@ export function RsvpReader({
     : '';
 
   useEffect(() => {
-    if (frameKey === '') return;
+    if (frameKey === '' || !frame || !timing) {
+      nextFrameStart.current = null;
+      return;
+    }
     // Pausing and resuming both restart the displayed frame. This is the
     // forgiving recovery path and prevents paused wall time counting as read.
-    setPhase({ frameKey, kind: 'word', startedAt: clockNow() });
-  }, [frameKey, mode.playing]);
+    const now = clockNow();
+    const plannedStart = mode.playing ? nextFrameStart.current : null;
+    nextFrameStart.current = null;
+    setPhase({
+      frameKey,
+      kind: 'word',
+      startedAt: plannedStart === null
+        ? now
+        : rsvpBoundedFrameStart(plannedStart, now, timing.wordMs, frame.words.length),
+    });
+  }, [frame, frameKey, mode.playing, timing]);
 
   useEffect(() => {
     if (!resident || !frame || completed) return;
@@ -275,13 +304,15 @@ export function RsvpReader({
       || phase.frameKey !== frameKey
     ) return undefined;
 
-    const advance = () => {
+    const advance = (scheduledDeadline: number) => {
       const step = rsvpCursorStep(resident, cursor, frame.words.length);
       if (step.kind === 'next') {
+        nextFrameStart.current = scheduledDeadline;
         setCursor(step.token);
         onPublish(step.token);
         return;
       }
+      nextFrameStart.current = null;
       onPublish(cursor);
       onSetPlaying(false);
       if (step.kind === 'document-end') {
@@ -291,7 +322,8 @@ export function RsvpReader({
       }
     };
     const duration = phase.kind === 'word' ? timing.wordMs : timing.pauseMs;
-    const remaining = Math.max(0, phase.startedAt + duration - clockNow());
+    const scheduledDeadline = phase.startedAt + duration;
+    const remaining = Math.max(0, scheduledDeadline - clockNow());
     const timer = window.setTimeout(() => {
       if (phase.kind === 'word' && timing.pauseMs > 0) {
         setPhase({
@@ -300,7 +332,7 @@ export function RsvpReader({
           startedAt: phase.startedAt + timing.wordMs,
         });
       } else {
-        advance();
+        advance(scheduledDeadline);
       }
     }, remaining);
     return () => window.clearTimeout(timer);
@@ -443,13 +475,18 @@ export function RsvpReader({
     }
   };
   const wordsStatus = effectiveWords > 1 ? ` with ${effectiveWords} words at once` : '';
+  const restSummary = spanPlan !== null
+    && spanPlan.boundary !== 'window'
+    && spanPlan.restMs < spanPlan.configuredRestMs
+    ? `${spanPlan.boundary} rest ${spanPlan.configuredRestMs} ms (${spanPlan.restMs} ms here)`
+    : '';
   const stableStatus = completed
     ? 'End of document. Speed reading paused.'
     : source.status === 'error'
       ? 'Speed reading paused because the source failed.'
       : mode.playing
-        ? `Speed reading playing at a set pace of ${mode.wpm} words per minute${wordsStatus}.`
-        : `Speed reading paused at a set pace of ${mode.wpm} words per minute${wordsStatus}.`;
+        ? `Speed reading playing at ${mode.wpm} words per minute including rests${wordsStatus}.`
+        : `Speed reading paused at ${mode.wpm} words per minute including rests${wordsStatus}.`;
   const restCue = phase.frameKey === frameKey
     && phase.kind === 'rest'
     && (timing?.pauseMs ?? 0) >= RSVP_REST_CUE_MIN_MS;
@@ -464,12 +501,14 @@ export function RsvpReader({
           </h2>
           <p className="reader-position" aria-hidden="true">
             token {(cursor + 1).toLocaleString()} of {mode.docTokenCount.toLocaleString()}
-            {' · '}{mode.wpm.toLocaleString()} WPM set pace
+            {' · '}{mode.wpm.toLocaleString()} WPM pace
             {effectiveWords > 1 ? ` · ${effectiveWords} words at once` : ''}
+            {restSummary === '' ? '' : ` · ${restSummary}`}
           </p>
           <p className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
             {settingStatus === '' ? stableStatus : `${stableStatus} ${settingStatus}.`}
           </p>
+          {restSummary !== '' && <p className="visually-hidden">{restSummary}</p>}
         </div>
         <div className="reader-header-actions">
           <button
@@ -584,7 +623,10 @@ export function RsvpReader({
             slower
           </button>
           <label className="reader-rsvp-pace" data-rsvp-control="true" htmlFor={RSVP_WPM_INPUT_ID}>
-            <span>set pace</span>
+            <span className="reader-rsvp-pace-caption">
+              <span>pace</span>
+              <span id={RSVP_PACE_HELP_ID}>including rests</span>
+            </span>
             <input
               id={RSVP_WPM_INPUT_ID}
               data-rsvp-control="true"
@@ -594,7 +636,8 @@ export function RsvpReader({
               max={RSVP_MAX_WPM}
               step={RSVP_WPM_STEP}
               value={paceDraft}
-              aria-label="Set pace in words per minute"
+              aria-label="Pace in words per minute"
+              aria-describedby={RSVP_PACE_HELP_ID}
               aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
               onFocus={(event) => {
                 beginPaceEdit();
@@ -665,6 +708,10 @@ export function RsvpReader({
         >
           <summary data-rsvp-control="true" onKeyDown={stopControlSpace}>rhythm</summary>
           <div className="reader-rsvp-rhythm-body">
+            <p className="reader-rsvp-rhythm-note">
+              Rest values are maxima taken from the current sentence&rsquo;s time.
+              {restSummary === '' ? '' : ` Current ${restSummary}.`}
+            </p>
             <label data-rsvp-control="true">
               <span>rhythm preset</span>
               <select
@@ -685,7 +732,10 @@ export function RsvpReader({
             </label>
 
             <label data-rsvp-control="true">
-              <span>sentence rest</span>
+              <span className="reader-rsvp-setting-label">
+                sentence rest
+                <span id={RSVP_SENTENCE_REST_HELP_ID}>at most · from sentence time</span>
+              </span>
               <span className="reader-rsvp-setting-input">
                 <input
                   data-rsvp-control="true"
@@ -696,6 +746,7 @@ export function RsvpReader({
                   step={RSVP_SENTENCE_PAUSE_STEP_MS}
                   value={rhythmDrafts.sentencePauseMs}
                   aria-label="Sentence rest in milliseconds"
+                  aria-describedby={RSVP_SENTENCE_REST_HELP_ID}
                   onFocus={(event) => {
                     editingRhythmRef.current = 'sentencePauseMs';
                     event.currentTarget.select();
@@ -712,7 +763,10 @@ export function RsvpReader({
             </label>
 
             <label data-rsvp-control="true">
-              <span>paragraph rest</span>
+              <span className="reader-rsvp-setting-label">
+                paragraph rest
+                <span id={RSVP_PARAGRAPH_REST_HELP_ID}>at most · from sentence time</span>
+              </span>
               <span className="reader-rsvp-setting-input">
                 <input
                   data-rsvp-control="true"
@@ -723,6 +777,7 @@ export function RsvpReader({
                   step={RSVP_PARAGRAPH_PAUSE_STEP_MS}
                   value={rhythmDrafts.paragraphPauseMs}
                   aria-label="Paragraph rest in milliseconds"
+                  aria-describedby={RSVP_PARAGRAPH_REST_HELP_ID}
                   onFocus={(event) => {
                     editingRhythmRef.current = 'paragraphPauseMs';
                     event.currentTarget.select();

@@ -117,7 +117,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   await expect(context).toBeVisible();
 
   await reader.press('Shift+W');
-  const pace = reader.getByRole('spinbutton', { name: 'Set pace in words per minute' });
+  const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
   await expect(pace).toBeFocused();
   await pace.fill('425');
   await pace.press('Enter');
@@ -200,7 +200,11 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await expect(rhythm).toHaveAttribute('open', '');
   await expect(status).toContainText('paused');
 
-  const pace = reader.getByRole('spinbutton', { name: 'Set pace in words per minute' });
+  const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
+  await expect(pace).toHaveAttribute('max', '1200');
+  await pace.fill('1200');
+  await pace.press('Enter');
+  await expect(position).toContainText('1,200 WPM');
   await pace.fill('425');
   await pace.press('Enter');
   await expect(position).toContainText('425 WPM');
@@ -347,7 +351,10 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
   await page.getByLabel('Add files').setInputFiles({
     name: 'short-rsvp.txt',
     mimeType: 'text/plain',
-    buffer: Buffer.from('Alpha beta.', 'utf-8'),
+    buffer: Buffer.from(
+      'Alpha beta gamma delta epsilon zeta eta theta iota kappa.',
+      'utf-8',
+    ),
   });
   await awaitReadyCount(page, 1);
   await gotoPlace(page, 'trends');
@@ -363,9 +370,10 @@ test('document completion pauses and keeps focus inside RSVP', async ({ page }) 
   const stage = reader.getByRole('region', { name: 'Speed reading word' });
   const back = reader.getByRole('button', { name: 'back', exact: true });
   await expect(back).toBeDisabled();
-  // This two-word paragraph budgets a 100ms effective rest, below the 150ms
-  // visual-rest cue threshold, instead of adding the configured 700ms.
-  await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true');
+  await expect(reader.locator('.reader-position'))
+    .toContainText('paragraph rest 700 ms (500 ms here)');
+  await expect(stage).toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
+  await expect(stage).not.toHaveAttribute('data-rsvp-rest', 'true', { timeout: 3_000 });
   await expect(status).toContainText('End of document', { timeout: 5_000 });
   await expect(reader.getByRole('button', { name: 'completed', exact: true })).toBeDisabled();
   await expect(reader.getByRole('button', { name: 'return to Reader', exact: true })).toBeFocused();

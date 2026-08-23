@@ -1,10 +1,8 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: BASE, RHYTHM, PHRASE-AWARE, AND SPACING FIX IMPLEMENTED;
-HONEST-WPM CONTRACT ACCEPTED, IMPLEMENTATION PENDING (commits 16–17).** This
-record supersedes the RSVP recommendations in
-[interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
-describes the shipped interaction plus the accepted pacing contract.
+**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
+recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
+they differ. It describes the shipped interaction and pacing contract.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -189,9 +187,9 @@ This replaces the shipped 60ms per-word hold floor with the load-bearing 50ms
 exposure floor used to derive the new maximum pace.
 
 The rest caps establish a deliberate priority: no word drops below 50ms; the
-span total always matches the displayed pace; and the configured rest is kept
-where that budget permits. The 25% cap guarantees that words retain at least
-75% of a span's nominal time, especially for very short sentences. The
+planned span total always matches the displayed pace; and the configured rest
+is kept where that budget permits. The 25% cap guarantees that words retain at
+least 75% of a span's nominal time, especially for very short sentences. The
 absolute floor cap takes over above 900 WPM. Because the maximum pace is
 derived as `60,000 / 50 = 1,200 WPM`, an impossible span budget is not
 reachable. At exactly 1,200 WPM every word receives 50ms, every rest is zero,

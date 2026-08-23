@@ -631,6 +631,18 @@ canvas {
   font-size: var(--text-xs);
 }
 
+.reader-rsvp-pace-caption,
+.reader-rsvp-setting-label {
+  display: grid;
+  gap: 2px;
+  line-height: 1.1;
+}
+
+.reader-rsvp-pace-caption > span:last-child,
+.reader-rsvp-setting-label > span {
+  font-size: 0.9em;
+}
+
 .reader-rsvp-pace input {
   inline-size: 6ch;
   min-block-size: 44px;
@@ -669,6 +681,12 @@ canvas {
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: var(--space-2);
   overflow: auto;
+}
+
+.reader-rsvp-rhythm-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  text-align: center;
 }
 
 .reader-rsvp-rhythm-body > label {
