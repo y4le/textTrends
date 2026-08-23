@@ -53,7 +53,7 @@ describe('RSVP Reader presentation', () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*>back<\/button>/u);
     expect(html).toContain('aria-label="Pace in words per minute"');
     expect(html).toContain('including rests');
-    expect(html).toContain('min="100" max="1200" step="25"');
+    expect(html).toContain('min="100" max="2000" step="25"');
     expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
     expect(html).toContain('Words at once (maximum)');
     expect(html).toContain('type="radio" aria-label="1 word at once"');
@@ -88,5 +88,39 @@ describe('RSVP Reader presentation', () => {
     const contextTag = pausedHtml.match(/<div class="reader-rsvp-context"[^>]*>/u)?.[0];
     expect(contextTag).toBeDefined();
     expect(contextTag).not.toContain('aria-live');
+
+    const renderAt = (wpm: number, wordsPerFrame = 1) => renderToStaticMarkup(
+      createElement(RsvpReader, {
+        title: 'Book A',
+        mode: {
+          snapshot: 's1', doc: 'a', docTokenCount: 40, startToken: 10,
+          ...RSVP_PACING_DEFAULTS, wpm, wordsPerFrame, playing: false,
+        },
+        source: { status: 'ready', page },
+        onSetPlaying: vi.fn(),
+        onSetPacing: vi.fn(),
+        onPublish: vi.fn(),
+        onSeek: vi.fn(),
+        onExit: vi.fn(),
+        onRetry: vi.fn(),
+        onOpenShortcuts: vi.fn(),
+      }),
+    );
+    const highSpeedHtml = renderAt(2_000);
+    expect(highSpeedHtml).toContain(
+      'Showing 2 or 3 words at once keeps each frame on screen longer.',
+    );
+    expect(highSpeedHtml).toContain(
+      'Boundary rests are zero at this pace to preserve the 30 ms word floor.',
+    );
+    expect(highSpeedHtml).toContain('paragraph rest 700 ms (0 ms here)');
+    expect(highSpeedHtml).toContain(
+      'aria-describedby="reader-rsvp-pace-help reader-rsvp-high-speed-help"',
+    );
+    expect(renderAt(1_200)).not.toContain('Showing 2 or 3 words at once');
+    expect(renderAt(1_201)).toContain('Showing 2 or 3 words at once');
+    expect(renderAt(1_500)).not.toContain('Boundary rests may be capped');
+    expect(renderAt(1_501)).toContain('Boundary rests may be capped');
+    expect(renderAt(2_000, 2)).not.toContain('Showing 2 or 3 words at once');
   });
 });

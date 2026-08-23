@@ -1,6 +1,6 @@
 export const RSVP_DEFAULT_WPM = 300;
 export const RSVP_MIN_WPM = 100;
-export const RSVP_MIN_EXPOSURE_MS = 50;
+export const RSVP_MIN_EXPOSURE_MS = 30;
 export const RSVP_MAX_WPM = 60_000 / RSVP_MIN_EXPOSURE_MS;
 export const RSVP_WPM_STEP = 25;
 export const RSVP_DEFAULT_WORDS_PER_FRAME = 1;
@@ -19,6 +19,8 @@ export const RSVP_LENGTH_EMPHASIS_STEP = 25;
 export const RSVP_REST_CUE_MIN_MS = 150;
 export const RSVP_MAX_CATCHUP_MS = 25;
 export const RSVP_MAX_REST_SHARE = 0.25;
+export const RSVP_REST_FLOOR_CROSSOVER_WPM =
+  60_000 * (1 - RSVP_MAX_REST_SHARE) / RSVP_MIN_EXPOSURE_MS;
 export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
 export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
 

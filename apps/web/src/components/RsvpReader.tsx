@@ -15,9 +15,11 @@ import {
   RSVP_MAX_PARAGRAPH_PAUSE_MS,
   RSVP_MAX_SENTENCE_PAUSE_MS,
   RSVP_MAX_WPM,
+  RSVP_MIN_EXPOSURE_MS,
   RSVP_MIN_WPM,
   RSVP_PARAGRAPH_PAUSE_STEP_MS,
   RSVP_REST_CUE_MIN_MS,
+  RSVP_REST_FLOOR_CROSSOVER_WPM,
   RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
   RSVP_SENTENCE_PAUSE_STEP_MS,
@@ -68,6 +70,8 @@ interface PlaybackPhase {
 type RhythmNumberKey = 'sentencePauseMs' | 'paragraphPauseMs' | 'lengthEmphasis';
 
 const RSVP_PACE_HELP_ID = 'reader-rsvp-pace-help';
+const RSVP_HIGH_SPEED_HELP_ID = 'reader-rsvp-high-speed-help';
+const RSVP_MULTI_WORD_HINT_WPM = 1_200;
 const RSVP_SENTENCE_REST_HELP_ID = 'reader-rsvp-sentence-rest-help';
 const RSVP_PARAGRAPH_REST_HELP_ID = 'reader-rsvp-paragraph-rest-help';
 
@@ -478,6 +482,16 @@ export function RsvpReader({
     && spanPlan.restMs < spanPlan.configuredRestMs
     ? `${spanPlan.boundary} rest ${spanPlan.configuredRestMs} ms (${spanPlan.restMs} ms here)`
     : '';
+  const highSpeedNote = [
+    mode.wpm > RSVP_MULTI_WORD_HINT_WPM && effectiveWords === 1
+      ? 'Showing 2 or 3 words at once keeps each frame on screen longer.'
+      : '',
+    mode.wpm === RSVP_MAX_WPM
+      ? `Boundary rests are zero at this pace to preserve the ${RSVP_MIN_EXPOSURE_MS} ms word floor.`
+      : mode.wpm > RSVP_REST_FLOOR_CROSSOVER_WPM
+        ? `Boundary rests may be capped by the ${RSVP_MIN_EXPOSURE_MS} ms word floor.`
+        : '',
+  ].filter(Boolean).join(' ');
   const stableStatus = completed
     ? 'End of document. Speed reading paused.'
     : source.status === 'error'
@@ -635,7 +649,9 @@ export function RsvpReader({
               step={RSVP_WPM_STEP}
               value={paceDraft}
               aria-label="Pace in words per minute"
-              aria-describedby={RSVP_PACE_HELP_ID}
+              aria-describedby={highSpeedNote === ''
+                ? RSVP_PACE_HELP_ID
+                : `${RSVP_PACE_HELP_ID} ${RSVP_HIGH_SPEED_HELP_ID}`}
               aria-keyshortcuts={shortcutAria(['rsvp-pace-editor'])}
               onFocus={(event) => {
                 beginPaceEdit();
@@ -694,6 +710,11 @@ export function RsvpReader({
             </span>
           </fieldset>
         </nav>
+        {highSpeedNote !== '' && (
+          <p id={RSVP_HIGH_SPEED_HELP_ID} className="reader-rsvp-speed-note">
+            {highSpeedNote}
+          </p>
+        )}
 
         <details
           className="reader-rsvp-rhythm"

@@ -1,10 +1,9 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: BASE IMPLEMENTED; STANDALONE/2,000 WPM AMENDMENT DECIDED
-(2026-08-22).** This record supersedes the RSVP recommendations in
-[interaction-modes-plan.md](interaction-modes-plan.md) where they differ. The
-package boundary and 30ms pacing sections specify commits 19–21 below and do
-not yet describe the shipped tree.
+**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
+recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
+they differ. It describes the shipped interaction, package, and pacing
+contracts.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -188,7 +187,8 @@ whose sum equals the pool exactly, with ties broken in token order. At 0%
 length emphasis, exposures are equal within the unavoidable one-millisecond
 rounding residue. At 100%, the original length weighting remains, but it
 redistributes a fixed span budget rather than silently extending it.
-The load-bearing 30ms exposure floor derives the maximum pace.
+The load-bearing 30ms exposure floor derives the maximum pace and replaces the
+previously shipped 50ms floor.
 
 The rest caps establish a deliberate priority: no word drops below 30ms; the
 planned span total always matches the displayed pace; and the configured rest
@@ -218,7 +218,8 @@ painted for one or two refreshes. This physical display limit is why the UI
 factually suggests two or three words at once above 1,200 WPM: the same honest
 word throughput then produces a longer-lived visual frame. Above 1,500 WPM it
 also states that boundary rests may be capped by the 30ms word floor; the
-current span continues to disclose its exact effective rest. These are
+current span continues to disclose its exact effective rest. At 2,000 WPM the
+note states the exact outcome that boundary rests are zero. These are
 explanations of the active timing model, not comprehension claims, warnings,
 or confirmation gates.
 
@@ -419,14 +420,14 @@ adapter, `createRsvpSource(text, options?)`. It creates a whole-document
 `RsvpPlaybackSource` with `Intl.Segmenter`: word-like word segments, sentence
 segments mapped onto emitted tokens, and a documented paragraph policy based
 on blank-line gaps and Unicode paragraph separators. A paragraph begins after
-two line terminators, including CRLF pairs, or one Unicode paragraph separator.
-This is deliberately the builder's own policy rather than a claim of parity
-with TextTrends' indexer. The builder includes source terminal bounds.
-Consumers with another tokenizer or authenticated index construct the
+two line terminators, with CRLF treated as one terminator, or one Unicode
+paragraph separator. This is deliberately the builder's own policy rather than
+a claim of parity with TextTrends' indexer. The builder includes source terminal
+bounds. Consumers with another tokenizer or authenticated index construct the
 structural source directly; that data boundary is the injection seam, so there
 is no speculative segmentation interface or exported validator. The root
-surface never imports the source-builder subpath, and TextTrends does not
-import it, keeping unused segmentation policy out of the app bundle.
+surface never imports the source-builder subpath, and TextTrends does not import
+it, keeping unused segmentation policy out of the app bundle.
 
 ## State and source ownership
 

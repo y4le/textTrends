@@ -5,9 +5,12 @@ import {
   RSVP_MAX_REST_SHARE,
   RSVP_MAX_WPM,
   RSVP_MIN_EXPOSURE_MS,
+  RSVP_MIN_WPM,
   RSVP_PACING_DEFAULTS,
   RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
+  RSVP_REST_FLOOR_CROSSOVER_WPM,
+  RSVP_WPM_STEP,
   clampRsvpPacing,
   clampRsvpWpm,
   effectiveRsvpWordsPerFrame,
@@ -298,20 +301,21 @@ describe('RSVP pacing', () => {
     expect(clampRsvpWpm(99)).toBe(100);
     expect(clampRsvpWpm(450.6)).toBe(451);
     expect(clampRsvpWpm(901)).toBe(901);
-    expect(clampRsvpWpm(1_201)).toBe(1_200);
+    expect(clampRsvpWpm(2_001)).toBe(2_000);
     expect(clampRsvpWpm(Number.NaN)).toBe(300);
     expect(RSVP_MAX_WPM * RSVP_MIN_EXPOSURE_MS).toBe(60_000);
+    expect(RSVP_REST_FLOOR_CROSSOVER_WPM).toBe(1_500);
   });
 
   it('clamps rhythm fields and raises paragraph rest to the authored sentence rest', () => {
     expect(clampRsvpPacing({
-      wpm: 1_250,
+      wpm: 2_250,
       wordsPerFrame: 7,
       sentencePauseMs: 750,
       paragraphPauseMs: 200,
       lengthEmphasis: -5,
     })).toEqual({
-      wpm: 1_200,
+      wpm: 2_000,
       wordsPerFrame: 3,
       sentencePauseMs: 750,
       paragraphPauseMs: 750,
@@ -362,7 +366,7 @@ describe('RSVP pacing', () => {
   });
 
   it('plans every reachable pace exactly with a deterministic exposure floor', () => {
-    for (const wpm of [100, 300, 600, 900, 901, 1_200]) {
+    for (const wpm of [100, 300, 600, 900, 1_200, 1_500, 1_501, 2_000]) {
       for (const lengthEmphasis of [0, 100]) {
         for (const relative of [0, 3]) {
           const pacing = { ...RSVP_PACING_DEFAULTS, wpm, lengthEmphasis };
@@ -441,6 +445,55 @@ describe('RSVP pacing', () => {
     const oneWordSentence = textPage('One next', [0, 1, 2], [0, 2]);
     expect(rsvpSpanPlan(oneWordSentence, 0, RSVP_PACING_DEFAULTS).restMs).toBe(50);
     expect(rsvpSpanPlan(page(), 3, RSVP_PACING_DEFAULTS).restMs).toBe(100);
+  });
+
+  it('shrinks rests monotonically and reaches the 30ms floor at 2,000 WPM', () => {
+    const sentence = textPage(
+      Array.from({ length: 18 }, (_, index) => `word${index}`).join(' '),
+      [0, 18],
+      [0],
+    );
+    const restAt = (wpm: number) => rsvpSpanPlan(sentence, 0, {
+      ...RSVP_PACING_DEFAULTS,
+      wpm,
+    }).restMs;
+    expect([300, 900, 1_200, 1_500, 2_000].map(restAt))
+      .toEqual([350, 300, 225, 180, 0]);
+
+    let previous = Number.POSITIVE_INFINITY;
+    for (let wpm = RSVP_MIN_WPM; wpm <= RSVP_MAX_WPM; wpm += RSVP_WPM_STEP) {
+      const rest = restAt(wpm);
+      expect(rest).toBeLessThanOrEqual(previous);
+      previous = rest;
+    }
+
+    const ceiling = rsvpSpanPlan(sentence, 0, {
+      ...RSVP_PACING_DEFAULTS,
+      wpm: RSVP_MAX_WPM,
+    });
+    expect(ceiling.targetMs).toBe(18 * RSVP_MIN_EXPOSURE_MS);
+    expect(ceiling.restMs).toBe(0);
+    expect(ceiling.wordMs).toEqual(new Array(18).fill(RSVP_MIN_EXPOSURE_MS));
+  });
+
+  it('keeps multi-sentence scheduled throughput exact at the ceiling', () => {
+    const source = textPage(
+      'one two three four five six seven eight nine',
+      [0, 3, 7, 9],
+      [0, 9],
+    );
+    let totalMs = 0;
+    for (let relative = 0; relative < 9;) {
+      const plan = rsvpSpanPlan(source, relative, {
+        ...RSVP_PACING_DEFAULTS,
+        wpm: RSVP_MAX_WPM,
+      });
+      expect(plan.restMs).toBe(0);
+      expect(plan.wordMs.every((wordMs) => wordMs === RSVP_MIN_EXPOSURE_MS)).toBe(true);
+      totalMs += plan.wordMs.reduce((total, wordMs) => total + wordMs, plan.restMs);
+      relative = plan.endToken - source.tokens.start;
+    }
+    expect(totalMs).toBe(Math.round(9 * 60_000 / RSVP_MAX_WPM));
   });
 
   it('apportions even timing within one millisecond and preserves length emphasis', () => {

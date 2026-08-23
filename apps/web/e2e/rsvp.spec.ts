@@ -201,13 +201,17 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   await expect(status).toContainText('paused');
 
   const pace = reader.getByRole('spinbutton', { name: 'Pace in words per minute' });
-  await expect(pace).toHaveAttribute('max', '1200');
-  await pace.fill('1200');
+  await expect(pace).toHaveAttribute('max', '2000');
+  await pace.fill('2000');
   await pace.press('Enter');
-  await expect(position).toContainText('1,200 WPM');
+  await expect(position).toContainText('2,000 WPM');
+  const speedNote = reader.locator('.reader-rsvp-speed-note');
+  await expect(speedNote).toContainText('Showing 2 or 3 words at once');
+  await expect(speedNote).toContainText('Boundary rests are zero at this pace');
   await pace.fill('425');
   await pace.press('Enter');
   await expect(position).toContainText('425 WPM');
+  await expect(speedNote).toHaveCount(0);
 
   const preset = reader.getByRole('combobox', { name: 'Rhythm preset' });
   const sentence = reader.getByRole('spinbutton', { name: 'Sentence rest in milliseconds' });

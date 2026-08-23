@@ -7,6 +7,7 @@ import {
   rsvpFrameAt,
   rsvpFrameHoldMs,
   rsvpSpanPlan,
+  RSVP_MIN_EXPOSURE_MS,
   type RsvpPlaybackSource,
 } from '../src/index.ts';
 
@@ -38,10 +39,16 @@ describe('RSVP playback boundaries', () => {
   it('absorbs bounded lateness without violating the frame exposure floor', () => {
     expect(rsvpBoundedFrameStart(990, 1_000, 200, 1)).toBe(990);
     expect(rsvpBoundedFrameStart(950, 1_000, 200, 1)).toBe(975);
-    expect(rsvpBoundedFrameStart(950, 1_000, 50, 1)).toBe(1_000);
-    expect(rsvpBoundedFrameStart(950, 1_000, 170, 3)).toBe(980);
+    expect(rsvpBoundedFrameStart(950, 1_000, 30, 1)).toBe(1_000);
+    expect(rsvpBoundedFrameStart(950, 1_000, 110, 3)).toBe(980);
     expect(rsvpBoundedFrameStart(1_010, 1_000, 200, 1)).toBe(1_010);
-    expect(() => rsvpBoundedFrameStart(950, 1_000, 149, 3)).toThrow(RangeError);
+    expect(() => rsvpBoundedFrameStart(950, 1_000, 89, 3)).toThrow(RangeError);
+    expect(rsvpBoundedFrameStart(
+      950,
+      1_000,
+      RSVP_MIN_EXPOSURE_MS,
+      1,
+    )).toBe(1_000);
   });
 
   it('distinguishes an ordinary step, source exhaustion, and document completion', () => {

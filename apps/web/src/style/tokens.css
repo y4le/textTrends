@@ -554,6 +554,15 @@ canvas {
   gap: var(--space-2);
 }
 
+.reader-rsvp-speed-note {
+  max-inline-size: 68ch;
+  margin: var(--space-1) auto 0;
+  padding-inline: var(--space-2);
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+  text-align: center;
+}
+
 .reader-rsvp-words {
   display: inline-flex;
   min-inline-size: 0;
