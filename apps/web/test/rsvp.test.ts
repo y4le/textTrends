@@ -128,6 +128,16 @@ describe('RSVP focal presentation', () => {
     });
   });
 
+  it('keeps a collapsed source space at the split-span join', () => {
+    for (const source of [textPage('I\n am ready'), textPage('to\tgo now')]) {
+      const frame = rsvpFrameAt(source, 0, 3);
+      expect(frame.after.startsWith(' ')).toBe(true);
+      expect(frame.text).toBe(source.text.replace(/\s+/gu, ' '));
+      expect(frame.text).not.toMatch(/[\n\r\t]/u);
+      expect(frame.before + frame.anchor + frame.after).toBe(frame.text);
+    }
+  });
+
   it('rejects a token outside the authenticated page', () => {
     expect(() => rsvpWordFrame(page(), -1)).toThrow(RangeError);
     expect(() => rsvpWordFrame(page(), 5)).toThrow(RangeError);

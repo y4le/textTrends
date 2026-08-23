@@ -255,6 +255,8 @@ test('display and rhythm controls preserve pace, responsive grouping, and exact 
   const play = reader.getByRole('button', { name: 'play', exact: true });
   const frameText = stage.locator('.reader-rsvp-word');
   const anchor = stage.locator('.reader-rsvp-anchor');
+  await expect.poll(() => frameText.evaluate((element) => getComputedStyle(element).whiteSpace))
+    .toBe('pre');
   const stageBox = await stage.boundingBox();
   expect(stageBox).not.toBeNull();
   const columns: number[] = [];

@@ -436,7 +436,7 @@ canvas {
   font-weight: 500;
   line-height: 1.15;
   transform: translateX(var(--rsvp-anchor-shift));
-  white-space: nowrap;
+  white-space: pre;
 }
 
 .reader-rsvp-stage[data-rsvp-words='2'] {
