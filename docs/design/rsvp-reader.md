@@ -1,9 +1,10 @@
 # Semi-hidden RSVP Reader
 
-**STATUS: IMPLEMENTED (2026-08-22).** This record supersedes the RSVP
-recommendations in [interaction-modes-plan.md](interaction-modes-plan.md) where
-they differ. It describes the shipped interaction and pacing contract plus the
-phrase-aware amendment implemented by commits 9–13 below.
+**STATUS: BASE, RHYTHM, PHRASE-AWARE, AND SPACING FIX IMPLEMENTED;
+HONEST-WPM CONTRACT ACCEPTED, IMPLEMENTATION PENDING (commits 16–17).** This
+record supersedes the RSVP recommendations in
+[interaction-modes-plan.md](interaction-modes-plan.md) where they differ. It
+describes the shipped interaction plus the accepted pacing contract.
 
 The decision was informed by repository inspection, direct inspection of
 [Appnull](https://www.appnull.com/), primary-source web research, and an
@@ -23,6 +24,10 @@ The phrase-aware frame amendment followed a focused product/research review
 and a decision pass by the same explicitly pinned Opus planner (request
 `req_consult_7a5b33ad6ce0e175`, artifact
 `art_sha256_ca674f91e5847e40f6c387304acdfe1cc1d58e0e6e48fc190ff0f9a69605feac`).
+The honest-WPM follow-up was hammered out with that pinned Opus planner after
+the shipped mode exposed visually collapsed frame joins and slower-than-stated
+throughput (request `req_consult_14f52f6a9c7da913`, artifact
+`art_sha256_c2f63db45f8913d946d9d089a0e24473d53c4ce47be969da81b1802f39fed3c6`).
 
 ## Outcome
 
@@ -30,11 +35,12 @@ Add RSVP as a semi-hidden presentation mode inside the existing full-screen
 Reader. It is not a new browser-history layer. The analytical Reader footer
 remains mounted and follows the displayed token.
 
-RSVP is framed as a focus-reading aid with a configurable **set pace**, not as
-a promise that comprehension remains unchanged at the displayed WPM. The
-mode defaults to one fixed focal word, with an optional two- or three-word
+RSVP is framed as a focus-reading aid with a configurable **pace**, not as a
+promise that comprehension remains unchanged at the displayed WPM. The pace
+is an honest scheduled-throughput contract that includes integration rests.
+The mode defaults to one fixed focal word, with an optional two- or three-word
 frame and a stable anchor glyph in its first word whose index is left of centre,
-deterministic word-length timing, and explicit integration pauses at sentence
+deterministic word-length timing, and explicit integration rests at sentence
 and paragraph boundaries.
 
 Do not add Bionic Reading prefixes, randomized pacing, automatic speed ramps,
@@ -56,8 +62,8 @@ lowercase Vim row unambiguous.
 | `S` | Enter RSVP at the Reader's published reading position | Exit to prose at the displayed token |
 | `Esc` | Close Reader | Exit to prose at the displayed token |
 | `W` | Existing Reader behavior is unchanged | Pause and focus the WPM number input |
-| `h` / `←` | Previous prose page | Reduce set pace by 25 WPM |
-| `l` / `→` | Next prose page | Increase set pace by 25 WPM |
+| `h` / `←` | Previous prose page | Reduce pace by 25 WPM |
+| `l` / `→` | Next prose page | Increase pace by 25 WPM |
 | `Space` | No Reader command | Pause or resume RSVP |
 | pointer outside an RSVP control | Existing Reader behavior | Exit to prose at the displayed token; consume that pointer action |
 
@@ -95,19 +101,19 @@ The bounded WPM contract is:
 
 - default: 300 WPM;
 - minimum: 100 WPM;
-- maximum: 900 WPM; and
+- maximum: 1,200 WPM; and
 - keyboard/button step: 25 WPM.
 
 The shipped WPM preference currently survives subsequent RSVP entries in the
 browser tab's session storage. The rhythm amendment migrates a valid v1 WPM
 into a strict v2 record in local storage. The resulting rhythm survives browser
 sessions on the device and remains a local reading preference, never project,
-URL, or history state. The UI calls WPM **set pace** because linguistic pauses
-and long-word holds make effective throughput lower.
+URL, or history state. The widened range does not change that record's shape or
+invalidate an existing value, so it needs no storage-version migration.
 
 The active mode is visually unmistakable even though entry is semi-hidden. It
 shows the existing Reader title and position idiom, a central focal frame, and
-visible 44px Back, Play/Pause, Slower, set-pace, Faster, words-at-once,
+visible 44px Back, Play/Pause, Slower, pace, Faster, words-at-once,
 rhythm-disclosure, and Reader controls. The shortcuts surface switches to an
 RSVP-specific context after entry; the ordinary Reader shortcut list does not
 advertise the entry chord.
@@ -143,67 +149,102 @@ heuristic over Unicode grapheme clusters in the bare word token:
 The index never lies beyond the right-middle grapheme and stays left of centre
 for longer words. Attached punctuation is displayed but does not move the
 anchor. Before/anchor/after spans use symmetric flex space,
-`white-space: nowrap`, and visible overflow, so the anchor glyph stays fixed at
+`white-space: pre`, and visible overflow, so the anchor glyph stays fixed at
 the stage guide without measuring proportional text, including for long
-words. The before span is right-aligned and the after span left-aligned. The
-anchor has both accent color and an underline/guide; color is not its only cue.
-Words do not tween, fade, or insert blank frames.
+words. Frame construction collapses every source-whitespace run to one ordinary
+space before those spans render; preserving it at the split flex-item join
+therefore cannot introduce a newline or double-width gap. The before span is
+right-aligned and the after span left-aligned. The anchor has both accent color
+and an underline/guide; color is not its only cue. Words do not tween, fade, or
+insert blank frames.
 
 ### Timing and rhythm controls
 
-The baseline hold is deterministic:
+Pacing is budgeted over a stable resident **span**: the complete sentence
+containing the cursor, clamped to the current source window. The span starts at
+the greatest sentence or paragraph bound at or before the cursor, or the
+window start when that authored start is not resident. It ends at the least
+sentence or paragraph bound after the cursor, or the window end. A
+window-truncated span has no synthetic rest.
+
+For a span of `n` words, the scheduled budget is exact:
 
 ```text
-baseMs = 60,000 / setWpm
-lengthWeight = clamp(wordGraphemeCount / 4.7, 0.75, 1.75)
-weight = 1 + lengthEmphasis * (lengthWeight - 1)
-wordMs = max(60, baseMs * weight)
+targetMs = round(n * 60,000 / paceWpm)
+weight   = 1 + lengthEmphasis *
+                 (clamp(wordGraphemeCount / 4.7, 0.75, 1.75) - 1)
+restMs   = min(configuredRestMs, floor(targetMs * 0.25),
+               targetMs - n * 50)
+wordPool = targetMs - restMs
 ```
 
-At 100% this is the original length weighting. At 0%, all words receive the
-same baseline exposure. There is no lexical or readability “complexity”
-control because the browser has no grounded signal for it and adaptive
-complexity pacing has not shown a reliable benefit.
+The word pool is distributed proportionally to the length weights with a 50ms
+floor per word. Water-filling protects words that reach the floor, then
+largest-remainder apportionment produces deterministic integer milliseconds
+whose sum equals the pool exactly, with ties broken in token order. At 0%
+length emphasis, exposures are equal within the unavoidable one-millisecond
+rounding residue. At 100%, the original length weighting remains, but it
+redistributes a fixed span budget rather than silently extending it.
+This replaces the shipped 60ms per-word hold floor with the load-bearing 50ms
+exposure floor used to derive the new maximum pace.
 
-Boundary time remains additive and rate-invariant, but the product defaults
-are reduced in response to the visibly stuck sentence-final word:
+The rest caps establish a deliberate priority: no word drops below 50ms; the
+span total always matches the displayed pace; and the configured rest is kept
+where that budget permits. The 25% cap guarantees that words retain at least
+75% of a span's nominal time, especially for very short sentences. The
+absolute floor cap takes over above 900 WPM. Because the maximum pace is
+derived as `60,000 / 50 = 1,200 WPM`, an impossible span budget is not
+reachable. At exactly 1,200 WPM every word receives 50ms, every rest is zero,
+and length emphasis has no room to operate.
 
-```text
-paragraph end ->   +700 ms
-sentence end  ->   +350 ms
-```
+Playback advances against the planned deadline rather than re-anchoring every
+new frame to a late `setTimeout` callback. At most 25ms of callback lateness is
+absorbed by the next word phase, never below 50ms times that frame's word
+count; any larger delay is forgiven instead of becoming unbounded pace debt.
+Pausing, editing pace or rhythm, seeking, and explicit regression re-anchor the
+deadline. This bounded correction addresses ordinary browser timer jitter
+without making a word's plan depend on playback history or creating catch-up
+bursts.
 
-The word remains fully emphasized for `wordMs`, then enters a visibly muted
-rest phase for boundary time. The frame is never blank. Rest has no fade or
-other transition and is only shown for configured rests of at least 150ms.
-This makes the boundary pause read as a pause rather than as extra time needed
-to recognize the final word.
+The final frame remains fully emphasized for its planned word time, then
+enters a visibly muted rest phase for the effective boundary time. The frame is
+never blank. Rest has no fade or other transition and is only shown for
+effective rests of at least 150ms. This makes the boundary rest read as a rest
+rather than as extra time needed to recognize the final word.
 
 A paragraph rest replaces the sentence rest at the same boundary rather than
 stacking with it, and the preference model enforces paragraph rest greater
-than or equal to sentence rest. Sentence and paragraph boundaries are
-index-authored: `sentenceBounds` come from the existing Intl sentence
+than or equal to sentence rest. Both configured values are maxima taken from
+the enclosing span's time, not additive delays. Sentence and paragraph
+boundaries are index-authored: `sentenceBounds` come from the existing Intl sentence
 segmenter and `paragraphBounds` from the indexer's paragraph rules. The RSVP
 browser view does not guess either from the displayed punctuation. A
 comma/clause pause remains an unbuilt seam because no RSVP experiment in the
 reviewed evidence isolates it.
 
-Masson (1983) supports the direction of this feature: a fixed inter-sentence
-pause improved RSVP comprehension while keeping word exposure unchanged. The
-350ms and 700ms defaults are product choices, not experimentally isolated
-values. The Study preset retains the previously shipped 500ms and 900ms rests.
+Masson (1983) found that a fixed inter-sentence pause improved RSVP
+comprehension while keeping word exposure unchanged. The product retains the
+integration-rest direction but deliberately diverges from that manipulation:
+it holds total span time fixed, so a rest reallocates rather than adds time.
+The 350ms and 700ms maxima are product choices, not experimentally isolated
+values. The Study preset retains the previously shipped 500ms and 900ms
+maxima. When a maximum is capped for the current span, the surface discloses
+both the configured and effective values.
 
 The control model deliberately stays small:
 
 | Control | Default | Range | Step |
 |---|---:|---:|---:|
-| set pace | 300 WPM | 100–900 | 25 WPM |
+| pace | 300 WPM | 100–1,200 | 25 WPM |
 | words at once | 1 | 1–3 | 1 |
 | sentence rest | 350ms | 0–800ms | 50ms |
 | paragraph rest | 700ms | 0–1500ms | 100ms |
 | length emphasis | 100% | 0–100% | 25% |
 
-Set pace and **words at once** remain in the primary control row. Words at once
+Pace and **words at once** remain in the primary control row. The pace helper
+states “words per minute, including rests.” Rest helpers state “at most, taken
+from this sentence's time,” so increasing a rest is not presented as extending
+the total. Words at once
 is a native radio group labelled as an upper bound: phrases may break early at
 punctuation or the internal width guard. It is a display preference rather
 than part of `RsvpRhythm`; choosing two or three words therefore does not turn
@@ -221,7 +262,7 @@ affect the next frame after playback resumes. No new global shortcuts are
 introduced. Every control participates in the RSVP focus trap and keeps its
 native Space and arrow-key behavior from reaching the document shortcuts.
 
-Presets change rhythm without moving set pace or words at once: **Even** has no
+Presets change rhythm without moving pace or words at once: **Even** has no
 length emphasis or rests; **Natural** is the default timing row above; **Study**
 uses 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any timing
 divergence selects **Custom**. Reset restores Natural timing and 300 WPM while
@@ -279,13 +320,14 @@ monotonically farther left while the focal x-coordinate stays invariant within
 each size. Type continues to ramp down by size; the grapheme budget and type
 ramp bound different parts of the layout.
 
-The frame word time is the sum of the individual member-word times. Its
-boundary rest is derived only from its last word and is added once. With rests
-zeroed, a token range therefore takes identical total time at one, two, or
-three words per frame. The live cursor and exact-token exit position are always
-the first token of the displayed frame, and the next cursor advances by the
-number of words actually shown. Frames never skip, repeat, or cross a sentence
-or paragraph boundary.
+The frame word time is the sum of its members' planned exposures. Its boundary
+rest comes from the enclosing span and is emitted only after the final frame.
+Because both planning inputs are independent of frame size, a span takes
+identical total scheduled time at one, two, or three words per frame, including
+rests. The live cursor and exact-token exit position are always the first token
+of the displayed frame, and the next cursor advances by the number of words
+actually shown. Frames never skip, repeat, or cross a sentence or paragraph
+boundary.
 
 ### Paused context
 
@@ -314,7 +356,7 @@ while playing, and a clause rest remain explicitly deferred.
 
 RSVP extends the store's one-primary-interaction union; it does not add an
 independent component mode or an `rsvp` layer. Its snapshot-bound interaction
-state owns playing/paused and set pace. It also suspends the exact `none` or
+state owns playing/paused and pace. It also suspends the exact `none` or
 Find interaction it displaced. All presentation and query consumers use one
 `findScope(interaction)` derivation to obtain the effective Find state through
 that suspended value. Exiting RSVP restores the identical settled interaction,
@@ -420,6 +462,16 @@ The phrase-aware amendment adds five focused commits:
     and
 13. paused sentence context, resident frame regression, and browser acceptance.
 
+The honest-WPM follow-up adds four focused commits:
+
+14. preserve ordinary spaces at the split flex-span join and pin the browser
+    whitespace contract;
+15. this amended decision record;
+16. deterministic resident-span timing plans, exact integer apportionment,
+    widened pace validation, and pure-model coverage; and
+17. honest pace/rest copy, planned-deadline playback, capped-rest disclosure,
+    and cross-browser acceptance.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -428,11 +480,19 @@ Acceptance requires:
   wire transport, and browser slicing;
 - NFC/NFD, astral characters, punctuation, and long tokens never split the
   focal grapheme or move the anchor beyond the right-middle grapheme;
-- boundary rests are additive and independent of WPM, and configured rests of
-  at least 150ms appear as a distinct muted phase after word exposure;
+- every resident span's plan totals `round(words * 60,000 / WPM)`, every word
+  retains at least 50ms, configured rests are capped at 25% of the span and by
+  the word floor, and impossible budgets are excluded by the derived 1,200 WPM
+  ceiling;
+- effective rests of at least 150ms appear as a distinct muted phase after
+  word exposure, while any capped rest discloses configured and effective time;
 - one-, two-, and three-word frames partition the source without crossing a
   sentence, paragraph, clause, or served-window boundary, respect the rendered
-  grapheme budget and orphan rule, and take identical aggregate word time;
+  grapheme budget and orphan rule, and take identical aggregate span time
+  including rests;
+- timer jitter correction carries the planned deadline across frames, absorbs
+  no more than 25ms without violating the per-frame word floor, and never banks
+  unbounded pace debt;
 - the first member's anchor stays on the pixel guide for every frame size;
 - strict local-storage preference validation, session-storage v1 pace
   migration, rhythm-only presets, compact clamping, and display-preserving
@@ -468,7 +528,7 @@ Acceptance requires:
 ## Research basis
 
 - [Rayner et al. (2016), *So Much to Read, So Little Time*](https://doi.org/10.1177/1529100615623267): speed and comprehension trade off; RSVP removes useful regressions.
-- [Masson (1983), *Conceptual processing of text during skimming and rapid sequential reading*](https://doi.org/10.3758/BF03196973): fixed sentence pauses improve RSVP comprehension without changing word exposure.
+- [Masson (1983), *Conceptual processing of text during skimming and rapid sequential reading*](https://doi.org/10.3758/BF03196973): fixed sentence pauses improved RSVP comprehension without changing word exposure; this product adopts the integration-rest direction but instead reallocates a fixed span budget to keep displayed WPM honest.
 - [Rahman & Muter (1999), *Designing an interface to optimize reading with small display windows*](https://pubmed.ncbi.nlm.nih.gov/10354807/): self-pacing, regressions, sentence pauses, and completion meters improve the usable RSVP interface.
 - [Cocklin et al. (1984), *Factors influencing readability of rapidly presented text segments*](https://doi.org/10.3758/BF03198304): comprehension peaked around twelve-character segments and was better for short idea units than random segments of equal average length; the product uses this as support for bounded, punctuation-shaped frames rather than as a literal modern CSS width.
 - [Benedetto et al. (2015), *Rapid serial visual presentation in reading: The case of Spritz*](https://doi.org/10.1016/j.chb.2014.12.043): Spritz produced worse literal comprehension, no speed advantage, and more visual fatigue than traditional reading.
