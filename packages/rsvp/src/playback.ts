@@ -1,9 +1,9 @@
-import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import {
   RSVP_MAX_CATCHUP_MS,
   RSVP_MIN_EXPOSURE_MS,
   rsvpSpanPlan,
   type RsvpPacing,
+  type RsvpPlaybackSource,
 } from './rsvp.ts';
 
 /** Preserve a planned frame deadline while absorbing only bounded callback
@@ -33,7 +33,7 @@ export type RsvpCursorStep =
   | { readonly kind: 'document-end' };
 
 export function rsvpCursorStep(
-  page: Pick<ReaderPageResultV1, 'tokens' | 'docTokenCount'>,
+  page: Pick<RsvpPlaybackSource, 'tokens' | 'docTokenCount'>,
   token: number,
   wordCount = 1,
 ): RsvpCursorStep {
@@ -56,7 +56,7 @@ export function rsvpCursorStep(
  * look-ahead duration. The loop stops as soon as the threshold is exceeded,
  * so a 4,096-token source does bounded work at ordinary paces. */
 export function rsvpNeedsContinuation(
-  page: ReaderPageResultV1,
+  page: RsvpPlaybackSource,
   token: number,
   pacing: RsvpPacing,
   leadMs = 3_000,

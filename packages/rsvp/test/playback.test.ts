@@ -1,18 +1,16 @@
 import { describe, expect, it } from 'vitest';
-import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
   rsvpBoundedFrameStart,
   rsvpCursorStep,
   rsvpNeedsContinuation,
-} from '../src/lib/rsvp-playback.ts';
-import {
   RSVP_PACING_DEFAULTS,
   rsvpFrameAt,
   rsvpFrameHoldMs,
   rsvpSpanPlan,
-} from '../src/lib/rsvp.ts';
+  type RsvpPlaybackSource,
+} from '../src/index.ts';
 
-function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
+function page(end = 5, docTokenCount = 8): RsvpPlaybackSource {
   const count = end;
   const words = Array.from({ length: count }, (_, index) => `word${index}`);
   const text = words.join(' ');
@@ -26,24 +24,13 @@ function page(end = 5, docTokenCount = 8): ReaderPageResultV1 {
     cursor += 1;
   }
   return {
-    method: 'reader-page/1',
-    doc: 'a',
     tokens: { start: 0, end },
-    docCharsUtf16: { start: 0, end: text.length },
     text,
     tokenStartsUtf16: starts,
     tokenEndsUtf16: ends,
     sentenceBounds: [0],
     paragraphBounds: [0],
-    anchor: null,
-    previous: null,
-    next: end < docTokenCount ? { kind: 'from', token: end } : null,
-    atStart: true,
-    atEnd: end === docTokenCount,
     docTokenCount,
-    cappedBy: end < docTokenCount ? 'tokens' : null,
-    marks: [],
-    marksTruncated: false,
   };
 }
 

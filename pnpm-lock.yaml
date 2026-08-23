@@ -23,6 +23,9 @@ importers:
       '@texttrends/extractors':
         specifier: workspace:*
         version: link:../../packages/extractors
+      '@texttrends/rsvp':
+        specifier: workspace:*
+        version: link:../../packages/rsvp
       '@texttrends/standard-ebooks':
         specifier: workspace:*
         version: link:../../packages/standard-ebooks
@@ -100,6 +103,15 @@ importers:
       parse5:
         specifier: 7.3.0
         version: 7.3.0
+    devDependencies:
+      typescript:
+        specifier: ^5.9.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.0
+        version: 4.1.10(@types/node@24.13.3)(vite@8.1.5(@types/node@24.13.3))
+
+  packages/rsvp:
     devDependencies:
       typescript:
         specifier: ^5.9.0

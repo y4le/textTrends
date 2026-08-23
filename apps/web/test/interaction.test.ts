@@ -11,7 +11,7 @@ import {
   type FindState,
   type InteractionState,
 } from '../src/lib/interaction.ts';
-import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
+import { RSVP_PACING_DEFAULTS } from '@texttrends/rsvp';
 
 function ids(): () => string {
   let next = 0;

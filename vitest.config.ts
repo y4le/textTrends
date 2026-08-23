@@ -1,5 +1,5 @@
 /**
- * Root Vitest orchestration: the four in-repo suites run under one
+ * Root Vitest orchestration: the five in-repo suites run under one
  * vitest process with shared reporting and project/file parallelism. Each
  * project keeps its own config (apps/web's vite.config.ts stays authoritative
  * for its include and compile-time seams).
@@ -12,6 +12,7 @@ export default defineConfig({
     projects: [
       'packages/core',
       'packages/extractors',
+      'packages/rsvp',
       'packages/standard-ebooks',
       'apps/web',
     ],

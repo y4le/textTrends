@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
 import {
   RSVP_CONTEXT_TOKENS_PER_SIDE,
   RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD,
@@ -24,28 +23,17 @@ import {
   rsvpSpanAt,
   rsvpSpanPlan,
   rsvpWordFrame,
-} from '../src/lib/rsvp.ts';
+  type RsvpSource,
+} from '../src/index.ts';
 
-function page(text = 'he said, “Yes.” Then—left'): ReaderPageResultV1 {
+function page(text = 'he said, “Yes.” Then—left'): RsvpSource {
   return {
-    method: 'reader-page/1',
-    doc: 'a',
     tokens: { start: 10, end: 15 },
-    docCharsUtf16: { start: 100, end: 125 },
     text,
     tokenStartsUtf16: [0, 3, 10, 16, 21],
     tokenEndsUtf16: [2, 7, 13, 20, 25],
     sentenceBounds: [0, 3, 5],
     paragraphBounds: [0, 5],
-    anchor: null,
-    previous: { kind: 'before', token: 10 },
-    next: { kind: 'from', token: 15 },
-    atStart: false,
-    atEnd: false,
-    docTokenCount: 40,
-    cappedBy: 'tokens',
-    marks: [],
-    marksTruncated: false,
   };
 }
 
@@ -53,32 +41,20 @@ function textPage(
   text: string,
   sentenceBounds?: readonly number[],
   paragraphBounds?: readonly number[],
-): ReaderPageResultV1 {
+): RsvpSource {
   const matches = Array.from(text.matchAll(/[\p{L}\p{M}\p{N}]+/gu));
   const tokenCount = matches.length;
   return {
-    method: 'reader-page/1',
-    doc: 'phrase',
     tokens: { start: 0, end: tokenCount },
-    docCharsUtf16: { start: 0, end: text.length },
     text,
     tokenStartsUtf16: matches.map((match) => match.index),
     tokenEndsUtf16: matches.map((match) => match.index + match[0].length),
     sentenceBounds: sentenceBounds ?? [0, tokenCount],
     paragraphBounds: paragraphBounds ?? [0, tokenCount],
-    anchor: null,
-    previous: null,
-    next: null,
-    atStart: true,
-    atEnd: true,
-    docTokenCount: tokenCount,
-    cappedBy: null,
-    marks: [],
-    marksTruncated: false,
   };
 }
 
-function frameSizes(source: ReaderPageResultV1, wordsPerFrame: number): number[] {
+function frameSizes(source: RsvpSource, wordsPerFrame: number): number[] {
   const sizes: number[] = [];
   let relative = 0;
   while (relative < source.tokens.end - source.tokens.start) {

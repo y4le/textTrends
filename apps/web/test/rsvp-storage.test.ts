@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
+import { RSVP_PACING_DEFAULTS } from '@texttrends/rsvp';
 import {
   RSVP_PACING_STORAGE_KEY,
   RSVP_WPM_STORAGE_KEY,

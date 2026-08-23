@@ -14,7 +14,7 @@ import {
   validateNotebookGroup,
 } from './notebook.ts';
 import type { OccurrenceStepHitV1 } from '../shared/analysis-contract.ts';
-import type { RsvpPacing } from './rsvp.ts';
+import type { RsvpPacing } from '@texttrends/rsvp';
 
 export const FIND_INPUT_ID = 'corpus-find-input';
 export const FIND_SURFACE_SELECTOR = '[data-interaction-surface="find"]';

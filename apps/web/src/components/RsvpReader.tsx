@@ -10,8 +10,6 @@ import {
   rsvpBoundedFrameStart,
   rsvpCursorStep,
   rsvpNeedsContinuation,
-} from '../lib/rsvp-playback.ts';
-import {
   RSVP_LENGTH_EMPHASIS_STEP,
   RSVP_MAX_LENGTH_EMPHASIS,
   RSVP_MAX_PARAGRAPH_PAUSE_MS,
@@ -23,7 +21,6 @@ import {
   RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
   RSVP_SENTENCE_PAUSE_STEP_MS,
-  RSVP_WPM_INPUT_ID,
   RSVP_WPM_STEP,
   clampRsvpPacing,
   effectiveRsvpWordsPerFrame,
@@ -36,7 +33,8 @@ import {
   rsvpSpanPlan,
   type RsvpPacing,
   type RsvpRhythmPreset,
-} from '../lib/rsvp.ts';
+} from '@texttrends/rsvp';
+import { RSVP_WPM_INPUT_ID } from '../lib/rsvp-ui.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
 import { usePresentation } from './PresentationProvider.tsx';

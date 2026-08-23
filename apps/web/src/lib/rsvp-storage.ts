@@ -8,7 +8,7 @@ import {
   RSVP_MIN_WPM,
   RSVP_PACING_DEFAULTS,
   type RsvpPacing,
-} from './rsvp.ts';
+} from '@texttrends/rsvp';
 
 export const RSVP_WPM_STORAGE_KEY = 'texttrends/rsvp-pace/1';
 export const RSVP_PACING_STORAGE_KEY = 'texttrends/rsvp-rhythm/2';

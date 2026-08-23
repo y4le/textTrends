@@ -57,7 +57,7 @@ import {
   RSVP_RHYTHM_PRESETS,
   RSVP_RHYTHM_RESET,
   type RsvpPacing,
-} from '../src/lib/rsvp.ts';
+} from '@texttrends/rsvp';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {

@@ -38,7 +38,7 @@ import {
 import { consumeDemoBootRequest } from './demo-query.ts';
 import { demoLoadNotice, loadDemoCorpus } from './demo-loader.ts';
 import { findScope } from './interaction.ts';
-import { RSVP_PACING_DEFAULTS, type RsvpPacing } from './rsvp.ts';
+import { RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
 import {
   browserLocalStorage,
   loadRsvpPacing,

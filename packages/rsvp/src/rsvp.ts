@@ -1,11 +1,8 @@
-import type { ReaderPageResultV1 } from '../shared/analysis-contract.ts';
-
 export const RSVP_DEFAULT_WPM = 300;
 export const RSVP_MIN_WPM = 100;
 export const RSVP_MIN_EXPOSURE_MS = 50;
 export const RSVP_MAX_WPM = 60_000 / RSVP_MIN_EXPOSURE_MS;
 export const RSVP_WPM_STEP = 25;
-export const RSVP_WPM_INPUT_ID = 'reader-rsvp-wpm';
 export const RSVP_DEFAULT_WORDS_PER_FRAME = 1;
 export const RSVP_MIN_WORDS_PER_FRAME = 1;
 export const RSVP_MAX_WORDS_PER_FRAME = 3;
@@ -24,6 +21,22 @@ export const RSVP_MAX_CATCHUP_MS = 25;
 export const RSVP_MAX_REST_SHARE = 0.25;
 export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
 export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
+
+/** A window of authenticated source, or a whole document. UTF-16 offsets and
+ * unit bounds are local to `text`; token indices are global to the document. */
+export interface RsvpSource {
+  readonly text: string;
+  readonly tokens: { readonly start: number; readonly end: number };
+  readonly tokenStartsUtf16: readonly number[];
+  readonly tokenEndsUtf16: readonly number[];
+  readonly sentenceBounds: readonly number[];
+  readonly paragraphBounds: readonly number[];
+}
+
+/** Cursor stepping and continuation need the document extent; framing does not. */
+export interface RsvpPlaybackSource extends RsvpSource {
+  readonly docTokenCount: number;
+}
 
 export const RSVP_CLAUSE_MARKS = Object.freeze([
   ',', '、', '，',
@@ -272,15 +285,7 @@ function attachedLeadingStart(text: string, previousEnd: number, tokenStart: num
  * Attached punctuation is visible but the anchor and timing length are
  * derived from the bare word-like token. */
 export function rsvpWordFrame(
-  page: Pick<
-    ReaderPageResultV1,
-    | 'text'
-    | 'tokens'
-    | 'tokenStartsUtf16'
-    | 'tokenEndsUtf16'
-    | 'sentenceBounds'
-    | 'paragraphBounds'
-  >,
+  page: RsvpSource,
   relativeToken: number,
 ): RsvpWordFrame {
   const tokenCount = page.tokens.end - page.tokens.start;
@@ -327,18 +332,8 @@ function collapseFrameWhitespace(value: string): string {
   return value.replace(/\s+/gu, ' ');
 }
 
-export type RsvpFramePage = Pick<
-  ReaderPageResultV1,
-  | 'text'
-  | 'tokens'
-  | 'tokenStartsUtf16'
-  | 'tokenEndsUtf16'
-  | 'sentenceBounds'
-  | 'paragraphBounds'
->;
-
 function rsvpIsFrameStop(
-  page: RsvpFramePage,
+  page: RsvpSource,
   relativeToken: number,
   word: RsvpWordFrame,
 ): boolean {
@@ -349,7 +344,7 @@ function rsvpIsFrameStop(
 }
 
 function renderedFrameText(
-  page: RsvpFramePage,
+  page: RsvpSource,
   first: RsvpWordFrame,
   last: RsvpWordFrame,
 ): string {
@@ -361,7 +356,7 @@ function renderedFrameText(
 /** Build a consecutive frame without crossing an authored integration
  * boundary or the resident source window. The first word always owns the ORP. */
 export function rsvpFrameAt(
-  page: RsvpFramePage,
+  page: RsvpSource,
   relativeToken: number,
   wordsPerFrame: number,
 ): RsvpFrame {
@@ -414,7 +409,7 @@ export function rsvpFrameAt(
  * page-relative token. The canonical forward partition begins after the
  * nearest hard stop, so reverse navigation cannot disagree with framing. */
 export function rsvpPreviousFrameStart(
-  page: RsvpFramePage,
+  page: RsvpSource,
   relativeToken: number,
   wordsPerFrame: number,
 ): number {
@@ -445,7 +440,7 @@ export function rsvpPreviousFrameStart(
 /** Return an exact, resident-only sentence slice around the current frame.
  * Missing sentence bounds mean the served window truncated that side. */
 export function rsvpPausedContext(
-  page: RsvpFramePage,
+  page: RsvpSource,
   frame: RsvpFrame,
   contextTokensPerSide = RSVP_CONTEXT_TOKENS_PER_SIDE,
 ): RsvpPausedContext {
@@ -529,7 +524,7 @@ function greatestBoundAtOrBefore(bounds: readonly number[], relativeToken: numbe
 
 /** Return the stable sentence-sized accounting unit that owns a resident
  * token. Missing authored bounds clamp the unit to the served source window. */
-export function rsvpSpanAt(page: RsvpFramePage, relativeToken: number): RsvpSpan {
+export function rsvpSpanAt(page: RsvpSource, relativeToken: number): RsvpSpan {
   const tokenCount = page.tokens.end - page.tokens.start;
   if (!Number.isSafeInteger(relativeToken) || relativeToken < 0 || relativeToken >= tokenCount) {
     throw new RangeError('RSVP token is outside the served reader page');
@@ -592,7 +587,7 @@ function apportionWordMs(poolMs: number, weights: readonly number[]): readonly n
 /** Plan exact integer exposure and integration-rest time for one resident
  * span. The result is stable for every cursor inside that span. */
 export function rsvpSpanPlan(
-  page: RsvpFramePage,
+  page: RsvpSource,
   relativeToken: number,
   pacing: RsvpPacing,
 ): RsvpSpanPlan {

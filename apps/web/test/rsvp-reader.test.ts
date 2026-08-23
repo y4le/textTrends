@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 import { RsvpReader } from '../src/components/RsvpReader.tsx';
 import type { ReaderPageResultV1 } from '../src/shared/analysis-contract.ts';
-import { RSVP_PACING_DEFAULTS } from '../src/lib/rsvp.ts';
+import { RSVP_PACING_DEFAULTS } from '@texttrends/rsvp';
 
 const page: ReaderPageResultV1 = {
   method: 'reader-page/1',

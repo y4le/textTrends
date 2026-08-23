@@ -29,7 +29,8 @@ import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
-import { RSVP_WPM_INPUT_ID, RSVP_WPM_STEP } from './lib/rsvp.ts';
+import { RSVP_WPM_STEP } from '@texttrends/rsvp';
+import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
 
 const ReaderDrawer = lazy(() =>

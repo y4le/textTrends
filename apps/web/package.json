@@ -19,6 +19,7 @@
   "dependencies": {
     "@texttrends/core": "workspace:*",
     "@texttrends/extractors": "workspace:*",
+    "@texttrends/rsvp": "workspace:*",
     "@texttrends/standard-ebooks": "workspace:*",
     "fflate": "0.8.3",
     "idb": "^8.0.3",

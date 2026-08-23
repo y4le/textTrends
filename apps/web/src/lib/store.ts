@@ -128,7 +128,7 @@ import {
   clampRsvpPacing,
   RSVP_PACING_DEFAULTS,
   type RsvpPacing,
-} from './rsvp.ts';
+} from '@texttrends/rsvp';
 import {
   LatestOperation,
   OperationScope,
