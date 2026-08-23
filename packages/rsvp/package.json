@@ -5,7 +5,8 @@
   "type": "module",
   "description": "Framework-free RSVP framing and honest-throughput playback planning for TextTrends and future reading hosts.",
   "exports": {
-    ".": "./src/index.ts"
+    ".": "./src/index.ts",
+    "./source": "./src/source/index.ts"
   },
   "scripts": {
     "test": "vitest run",
