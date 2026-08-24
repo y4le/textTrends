@@ -11,7 +11,7 @@ import {
   validateBatch,
   validateShardStructure,
 } from '../src/index/build.ts';
-import { fingerprint, segment } from '../src/segment/intl.ts';
+import { fingerprint, SEGMENTER_PROBE, segment } from '../src/segment/intl.ts';
 
 const R = DEFAULT_INDEX_RECIPE;
 
@@ -160,6 +160,66 @@ describe('boundary arrays carry terminal sentinels', () => {
     expect(b[0]).toBe(0);
     expect(b[b.length - 1]).toBe(ix.tokenTypeIds.length);
     expect(b).toEqual([0, 2, 4, 5]);
+  });
+
+  it('suppresses false English prefix-title boundaries', async () => {
+    for (const title of [
+      'Mr', 'Mrs', 'Ms', 'Mx', 'Messrs', 'Mmes', 'Mme', 'Mlle',
+      'Dr', 'Prof', 'Rev', 'Fr', 'Hon',
+      'Capt', 'Cmdr', 'Col', 'Cpl', 'Gen', 'Lt', 'Maj', 'Sgt', 'Adm',
+      'Gov', 'Sen', 'Rep',
+    ]) {
+      const ix = await build(`I met ${title}. Smith yesterday. Then we left.`);
+      expect(Array.from(ix.sentenceBounds)).toEqual([0, 5, 8]);
+    }
+  });
+
+  it('accepts horizontal Unicode separators after a prefix title', async () => {
+    for (const separator of [' ', '\u00a0', '\u202f', '\u2009', '\u3000', '\t']) {
+      const ix = await build(`I met Mr.${separator}Smith yesterday. Then we left.`);
+      expect(Array.from(ix.sentenceBounds)).toEqual([0, 5, 8]);
+    }
+  });
+
+  it('keeps real sentence ends after titles and ambiguous abbreviations', async () => {
+    const cases: readonly [string, readonly number[]][] = [
+      ['I could not reach Mr. Then I gave up.', [0, 5, 9]],
+      ['Ask Mr. Then leave.', [0, 2, 4]],
+      ['We met Dr. Next sentence here.', [0, 3, 6]],
+      ['He is a Jr. Next sentence here.', [0, 4, 7]],
+      ['He is retiring as Sr. Next sentence here.', [0, 5, 8]],
+      ['Turn left on Main St. Then walk north.', [0, 5, 8]],
+      ['Item No. Then the next line.', [0, 2, 6]],
+    ];
+    for (const [text, bounds] of cases) {
+      expect(Array.from((await build(text)).sentenceBounds), text).toEqual(bounds);
+    }
+  });
+
+  it('does not suppress title boundaries across line terminators', async () => {
+    for (const separator of ['\n', '\r\n', '\n\n', '\u0085', '\u2028', '\u2029']) {
+      const ix = await build(`Mr.${separator}Jones went home.`);
+      expect(Array.from(ix.sentenceBounds), JSON.stringify(separator)).toEqual([0, 1, 4]);
+    }
+  });
+
+  it('supports canonical and all-caps titles without matching word suffixes', async () => {
+    expect(Array.from((await build('MR. JONES went home. Next one.')).sentenceBounds))
+      .toEqual([0, 4, 6]);
+    expect(Array.from((await build('Ask mr. Then leave.')).sentenceBounds))
+      .toEqual([0, 2, 4]);
+    expect(Array.from((await build('I met Dmr. Jones yesterday. Then left.')).sentenceBounds))
+      .toEqual([0, 3, 5, 7]);
+  });
+
+  it('does not apply the English title policy to another resolved locale', async () => {
+    const text = 'Mr. Jones ging heim.';
+    const rawBounds = Array.from(
+      new Intl.Segmenter('de', { granularity: 'sentence' }).segment(text),
+      (item) => item.index,
+    );
+    rawBounds.push(text.length);
+    expect(Array.from((await segment(text, 'de')).sentenceBoundsUtf16)).toEqual(rawBounds);
   });
 
   it('paragraph bounds split on blank lines: CRLF, CR-only, and LS forms', async () => {
@@ -320,5 +380,12 @@ describe('segmenter fingerprint', () => {
     const c = await fingerprint('EN-us');
     expect(c.locale).toBe('en-US'); // resolvedOptions, not caller spelling
     expect((await segment('hello world', 'en')).provenance.probeHash).toBe(a.probeHash);
+  });
+
+  it('probes the English title-boundary correction', async () => {
+    const bounds = Array.from((await segment(SEGMENTER_PROBE, 'en')).sentenceBoundsUtf16);
+    expect(bounds).not.toContain(SEGMENTER_PROBE.indexOf('Dr.') + 'Dr. '.length);
+    expect(bounds).not.toContain(SEGMENTER_PROBE.indexOf('Mr.') + 'Mr. '.length);
+    expect(bounds.at(-1)).toBe(SEGMENTER_PROBE.length);
   });
 });

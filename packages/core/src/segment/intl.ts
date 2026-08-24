@@ -53,9 +53,37 @@ export const SEGMENTER_PROBE =
   'Mr. Jones went home. \ud83d\ude00 emoji!';
 
 const ADAPTER = 'intl-segmenter';
-const ADAPTER_VERSION = '3'; // bumped: probe content changed (decomposed forms)
+const ADAPTER_VERSION = '5'; // bumped: suppress false English prefix-title boundaries
 /** Versioned numeral classifier - identity recorded in recipe and fingerprint. */
 const NUMERAL_RE = /^\p{N}+(?:[.,\u00b7]\p{N}+)*$/u;
+
+// Deliberately mirrored in @texttrends/rsvp/source. Core's copy participates
+// in the segmenter fingerprint while RSVP's dependency-free copy does not;
+// apps/web/test/segmentation-parity.test.ts pins their public behavior.
+const ENGLISH_PREFIX_TITLES = [
+  'Mr', 'Mrs', 'Ms', 'Mx', 'Messrs', 'Mmes', 'Mme', 'Mlle',
+  'Dr', 'Prof', 'Rev', 'Fr', 'Hon',
+  'Capt', 'Cmdr', 'Col', 'Cpl', 'Gen', 'Lt', 'Maj', 'Sgt', 'Adm',
+  'Gov', 'Sen', 'Rep',
+] as const;
+const ENGLISH_TITLE_FORMS = ENGLISH_PREFIX_TITLES.flatMap((title) => [title, title.toUpperCase()]);
+const ENGLISH_TITLE_BEFORE_RE = new RegExp(
+  String.raw`(?:${ENGLISH_TITLE_FORMS.join('|')})\.[\p{Zs}\t]*$`,
+  'u',
+);
+const WORD_FORMING_RE = /[\p{L}\p{N}_'’]/u;
+const FOLLOWING_WORD_RE = /^[\p{L}\p{N}'’-]+/u;
+const SENTENCE_STARTERS: ReadonlySet<string> = new Set(`
+  the then this that there these those here
+  he she it they we you i his her their our my your its
+  but and however yet so nor or thus hence still
+  after before when while if though although because since once
+  now next later a an as at in on for from by with to of
+  no not never nothing all both each every some such
+  what who why how where which
+  do did does is was were are be been have has had
+  let perhaps indeed well yes oh ah
+`.trim().split(/\s+/u));
 
 /** The adapter-owned numeral classifier shared with authored alias
  * compilation. Keeping one authority prevents a query unit from surviving
@@ -72,6 +100,22 @@ interface RawSegmentation {
   resolvedLocale: string;
 }
 
+/** True when Intl's boundary follows a bound English prefix title rather than
+ * a sentence end. Ambiguous postfix forms such as Jr., Sr., and St. are
+ * intentionally excluded. The following-word guard preserves real endings
+ * such as "Ask Mr. Then leave." */
+function isFalseTitleBoundary(text: string, start: number, locale: string): boolean {
+  if (locale.toLowerCase().split('-')[0] !== 'en') return false;
+
+  const before = text.slice(Math.max(0, start - 24), start);
+  const title = ENGLISH_TITLE_BEFORE_RE.exec(before);
+  if (title === null) return false;
+  if (title.index > 0 && WORD_FORMING_RE.test(before[title.index - 1]!)) return false;
+
+  const following = FOLLOWING_WORD_RE.exec(text.slice(start, start + 32));
+  return following !== null && !SENTENCE_STARTERS.has(following[0].toLowerCase());
+}
+
 function segmentRaw(text: string, locale: string): RawSegmentation {
   const words = new Intl.Segmenter(locale, { granularity: 'word' });
   const resolvedLocale = words.resolvedOptions().locale;
@@ -86,8 +130,11 @@ function segmentRaw(text: string, locale: string): RawSegmentation {
     }
   }
   const sentences = new Intl.Segmenter(locale, { granularity: 'sentence' });
+  const resolvedSentenceLocale = sentences.resolvedOptions().locale;
   const sentenceStarts: number[] = [];
-  for (const seg of sentences.segment(text)) sentenceStarts.push(seg.index);
+  for (const seg of sentences.segment(text)) {
+    if (!isFalseTitleBoundary(text, seg.index, resolvedSentenceLocale)) sentenceStarts.push(seg.index);
+  }
   return { starts, ends, classes, sentenceStarts, resolvedLocale };
 }
 

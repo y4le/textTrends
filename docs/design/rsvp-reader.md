@@ -233,8 +233,9 @@ A paragraph rest replaces the sentence rest at the same boundary rather than
 stacking with it, and the preference model enforces paragraph rest greater
 than or equal to sentence rest. Both configured values are maxima taken from
 the enclosing span's time, not additive delays. Sentence and paragraph
-boundaries are index-authored: `sentenceBounds` come from the existing Intl sentence
-segmenter and `paragraphBounds` from the indexer's paragraph rules. The RSVP
+boundaries are index-authored: `sentenceBounds` come from the Intl sentence
+segmenter with the indexer's conservative English prefix-title correction, and
+`paragraphBounds` from the indexer's paragraph rules. The RSVP
 browser view does not guess either from the displayed punctuation. A
 comma/clause pause remains an unbuilt seam because no RSVP experiment in the
 reviewed evidence isolates it.

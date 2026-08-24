@@ -68,6 +68,76 @@ describe('plain-text RSVP source', () => {
     expect(source.sentenceBounds).toEqual([0, 2, 4]);
   });
 
+  it('suppresses false English prefix-title boundaries', () => {
+    for (const title of [
+      'Mr', 'Mrs', 'Ms', 'Mx', 'Messrs', 'Mmes', 'Mme', 'Mlle',
+      'Dr', 'Prof', 'Rev', 'Fr', 'Hon',
+      'Capt', 'Cmdr', 'Col', 'Cpl', 'Gen', 'Lt', 'Maj', 'Sgt', 'Adm',
+      'Gov', 'Sen', 'Rep',
+    ]) {
+      const source = createRsvpSource(
+        `I met ${title}. Smith yesterday. Then we left.`,
+        { locale: 'en-US' },
+      );
+      expect(source.sentenceBounds).toEqual([0, 5, 8]);
+    }
+  });
+
+  it('accepts horizontal Unicode separators after a prefix title', () => {
+    for (const separator of [' ', '\u00a0', '\u202f', '\u2009', '\u3000', '\t']) {
+      const source = createRsvpSource(
+        `I met Mr.${separator}Smith yesterday. Then we left.`,
+        { locale: 'en-US' },
+      );
+      expect(source.sentenceBounds).toEqual([0, 5, 8]);
+    }
+  });
+
+  it('keeps real sentence ends after titles and ambiguous abbreviations', () => {
+    const cases: readonly [string, readonly number[]][] = [
+      ['I could not reach Mr. Then I gave up.', [0, 5, 9]],
+      ['Ask Mr. Then leave.', [0, 2, 4]],
+      ['We met Dr. Next sentence here.', [0, 3, 6]],
+      ['He is a Jr. Next sentence here.', [0, 4, 7]],
+      ['He is retiring as Sr. Next sentence here.', [0, 5, 8]],
+      ['Turn left on Main St. Then walk north.', [0, 5, 8]],
+      ['Item No. Then the next line.', [0, 2, 6]],
+    ];
+    for (const [text, bounds] of cases) {
+      expect(createRsvpSource(text, { locale: 'en-US' }).sentenceBounds, text).toEqual(bounds);
+    }
+  });
+
+  it('does not suppress title boundaries across line terminators', () => {
+    for (const separator of ['\n', '\r\n', '\n\n', '\u0085', '\u2028', '\u2029']) {
+      const source = createRsvpSource(`Mr.${separator}Jones went home.`, { locale: 'en-US' });
+      expect(source.sentenceBounds, JSON.stringify(separator)).toEqual([0, 1, 4]);
+      if (separator === '\n\n') expect(source.paragraphBounds).toEqual([0, 1, 4]);
+    }
+  });
+
+  it('supports canonical and all-caps titles without matching word suffixes', () => {
+    expect(createRsvpSource('MR. JONES went home. Next one.', { locale: 'en' }).sentenceBounds)
+      .toEqual([0, 4, 6]);
+    expect(createRsvpSource('Ask mr. Then leave.', { locale: 'en' }).sentenceBounds)
+      .toEqual([0, 2, 4]);
+    expect(createRsvpSource('I met Dmr. Jones yesterday. Then left.', { locale: 'en' }).sentenceBounds)
+      .toEqual([0, 3, 5, 7]);
+  });
+
+  it('does not apply the English title policy to another resolved locale', () => {
+    const text = 'Mr. Jones ging heim.';
+    const rawStarts = Array.from(
+      new Intl.Segmenter('de', { granularity: 'sentence' }).segment(text),
+      (item) => item.index,
+    );
+    const source = createRsvpSource(text, { locale: 'de' });
+    const sourceStarts = source.sentenceBounds.map((bound) =>
+      bound === source.docTokenCount ? text.length : source.tokenStartsUtf16[bound]!,
+    );
+    expect(sourceStarts).toEqual([...rawStarts, text.length]);
+  });
+
   it('uses blank lines and paragraph separators, not an ordinary line wrap', () => {
     expect(createRsvpSource('one\ntwo', { locale: 'en' }).paragraphBounds).toEqual([0, 2]);
     expect(createRsvpSource('one\r\ntwo', { locale: 'en' }).paragraphBounds).toEqual([0, 2]);
