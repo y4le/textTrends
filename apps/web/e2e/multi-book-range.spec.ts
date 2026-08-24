@@ -19,7 +19,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await awaitReadyCount(page, 2);
 
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   await expect(scrubber).toBeVisible();
   const box = (await scrubber.boundingBox())!;
@@ -36,7 +36,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
   await expect(scrubber.locator('canvas[data-selected-layer="ready"]'))
     .toBeVisible({ timeout: 30_000 });
 
-  await page.getByRole('button', { name: 'separate', exact: true }).click();
+  await page.getByRole('button', { name: 'Separate rows, equal width', exact: true }).click();
   await expect(page.locator('[data-range-selection-segment="true"]')).toHaveCount(2);
 
   await gotoPlace(page, 'inputs');

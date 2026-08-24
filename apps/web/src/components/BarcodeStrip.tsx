@@ -19,13 +19,18 @@ import {
   type BarcodeTrackVM,
 } from '../lib/barcode-view.ts';
 import { barcodeStepperFor } from '../lib/barcode-stepper.ts';
-import { GHOST_BARCODE_OPACITY, seriesColor } from '../lib/series-style.ts';
+import {
+  GHOST_BARCODE_OPACITY,
+  seriesColor,
+  seriesDash,
+  seriesLinecap,
+} from '../lib/series-style.ts';
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
-import { SeriesLineSample } from './chrome.tsx';
 import { usePresentation } from './PresentationProvider.tsx';
+import type { TrendView } from '../lib/trend-view.ts';
 
 interface BarcodeBandProps {
-  readonly view: 'series' | 'by-book';
+  readonly view: TrendView;
   readonly docs: readonly string[];
   readonly tracks: readonly BarcodeTrackVM[];
   readonly backgroundTracks?: readonly BarcodeTrackVM[];
@@ -77,6 +82,7 @@ export function BarcodeBand({
   if (view === 'series') {
     return (
       <BarcodeCanvas
+        band="series"
         docs={docs}
         tracks={tracks}
         backgroundTracks={backgroundTracks}
@@ -100,6 +106,7 @@ export function BarcodeBand({
   return docs.map((doc, d) => (
     <BarcodeCanvas
       key={doc}
+      band={view}
       docs={docs}
       docOrdinal={d}
       tracks={tracks}
@@ -123,6 +130,7 @@ export function BarcodeBand({
 }
 
 function BarcodeCanvas({
+  band,
   docs,
   docOrdinal,
   tracks,
@@ -141,6 +149,7 @@ function BarcodeCanvas({
   colorScheme,
   docOrdinalById,
 }: Omit<BarcodeBandProps, 'view' | 'plotHeight' | 'rowPitch' | 'bandGap'> & {
+  readonly band: TrendView;
   readonly docOrdinal?: number;
   readonly height: number;
   readonly top: number;
@@ -227,7 +236,7 @@ function BarcodeCanvas({
   return (
     <canvas
       ref={canvasRef}
-      data-barcode-band={docOrdinal === undefined ? 'series' : 'by-book'}
+      data-barcode-band={band}
       data-barcode-doc={docOrdinal}
       data-barcode-series={tracks.map((track) => track.seriesId).join(' ')}
       data-barcode-background-series={backgroundTracks.map((track) => track.seriesId).join(' ')}
@@ -291,62 +300,81 @@ export function BarcodeLegend({
   });
 
   return (
-    <div style={{ position: 'relative', width: '100%', minWidth: 0 }}>
+    <div className="trend-term-navigation">
       <ul
         aria-label="Term totals"
-        style={{
-          display: 'grid',
-          gap: 'var(--space-1)',
-          listStyle: 'none',
-          margin: 'var(--space-2) 0 0',
-          padding: 0,
-          width: '100%',
-          fontFamily: 'var(--font-mono)',
-          fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)',
-        }}
+        className="trend-term-list"
+        style={{ fontSize: presentation.width === 'compact' ? 'var(--text-sm)' : 'var(--text-xs)' }}
       >
-        {tracks.map((track) => (
-          <li
-            key={track.seriesId}
-            data-term-occurrences={track.seriesId}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              flexWrap: 'wrap',
-              gap: 'var(--space-2)',
-              minWidth: 0,
-              color: 'var(--fg-muted)',
-            }}
-          >
-            <SeriesLineSample
-              style={styleOf(track.seriesId)}
-              emphasized
-            />
-            <span data-term-occurrence-label style={{ color: 'var(--fg)' }}>
-              {labelOf(track.seriesId)}
-            </span>
-            <span aria-hidden="true">·</span>
-            <span data-term-occurrence-count>
-              {occurrenceText(track)}
-            </span>
-            {!coarse && track.total > 0 && (
-              <>
-                <button type="button" style={navBtn} aria-label={`Previous ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'reference' : 'bucket'}`} onClick={() => step(track, -1)}>‹</button>
-                <button type="button" style={navBtn} aria-label={`Next ${labelOf(track.seriesId)} ${track.representation === 'exact' ? 'reference' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
-              </>
-            )}
-            {coarse && stepper.track?.seriesId === track.seriesId && (
-              <span
-                role="group"
-                aria-label={`Barcode ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'} navigation`}
-                style={{ display: 'inline-flex', gap: 'var(--space-2)' }}
+        {tracks.map((track) => {
+          const label = labelOf(track.seriesId);
+          const unit = track.representation === 'exact' ? 'reference' : 'bucket';
+          const enabled = track.total > 0 && track.segments.length > 0;
+          const isPrimaryCoarseStepper = coarse && stepper.track?.seriesId === track.seriesId;
+          const navigation = (
+            <>
+              <button
+                type="button"
+                className="trend-term-arrow"
+                style={coarse ? coarseNavBtn : navBtn}
+                disabled={!enabled}
+                aria-label={isPrimaryCoarseStepper ? `Previous ${unit}` : `Previous ${label} ${unit}`}
+                onClick={() => step(track, -1)}
               >
-                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Previous ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'}`} onClick={() => step(track, -1)}>‹</button>
-                <button type="button" style={coarseNavBtn} disabled={!stepper.enabled} aria-label={`Next ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'}`} onClick={() => step(track, 1)}>›</button>
+                ‹
+              </button>
+              <span className="trend-term-summary">
+                <span data-term-occurrence-label>{label}</span>
+                <span aria-hidden="true">·</span>
+                <span data-term-occurrence-count>{occurrenceText(track)}</span>
+                <svg
+                  className="trend-term-underline"
+                  width="100%"
+                  height="4"
+                  aria-hidden="true"
+                >
+                  <line
+                    x1="0"
+                    y1="2"
+                    x2="100%"
+                    y2="2"
+                    stroke={seriesColor(styleOf(track.seriesId))}
+                    strokeWidth="2"
+                    strokeDasharray={seriesDash(styleOf(track.seriesId))}
+                    strokeLinecap={seriesLinecap(styleOf(track.seriesId))}
+                  />
+                </svg>
               </span>
-            )}
-          </li>
-        ))}
+              <button
+                type="button"
+                className="trend-term-arrow"
+                style={coarse ? coarseNavBtn : navBtn}
+                disabled={!enabled}
+                aria-label={isPrimaryCoarseStepper ? `Next ${unit}` : `Next ${label} ${unit}`}
+                onClick={() => step(track, 1)}
+              >
+                ›
+              </button>
+            </>
+          );
+          return (
+            <li
+              key={track.seriesId}
+              data-term-occurrences={track.seriesId}
+              className="trend-term-item"
+            >
+              {isPrimaryCoarseStepper ? (
+                <span
+                  role="group"
+                  aria-label={`Barcode ${stepper.unit === 'occurrence' ? 'reference' : 'bucket'} navigation`}
+                  className="trend-term-item-controls"
+                >
+                  {navigation}
+                </span>
+              ) : navigation}
+            </li>
+          );
+        })}
       </ul>
     </div>
   );
@@ -356,9 +384,9 @@ const navBtn = {
   font: 'inherit',
   color: 'var(--fg)',
   background: 'none',
-  border: '1px solid var(--rule)',
+  border: 'none',
   cursor: 'pointer',
-  padding: '0 0.5ch',
+  padding: 'var(--space-1) 0.5ch',
 } as const;
 
 const coarseNavBtn = {

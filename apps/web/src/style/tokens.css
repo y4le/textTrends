@@ -1228,12 +1228,93 @@ canvas {
 /* Each place's leading controls form its local header. They share the page
  * chrome's height budget so short viewports preserve the analytical surface. */
 .trend-view-switcher {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
   gap: var(--tab-header-space-2);
-  margin-block-start: var(--tab-header-space-2);
+  font-family: var(--font-mono);
 }
 
 .trend-view-switcher button {
   min-block-size: var(--chrome-target-block-size);
+  padding: var(--space-1) var(--space-2);
+  border: 0;
+  border-bottom: 1px solid transparent;
+  background: none;
+  color: var(--fg-muted);
+  font: inherit;
+  cursor: pointer;
+}
+
+.trend-view-switcher button[aria-pressed='true'] {
+  border-bottom-color: var(--fg);
+  color: var(--fg);
+}
+
+.trend-panel-header {
+  display: flex;
+  max-inline-size: 100%;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-end: var(--tab-header-space-3);
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-width: thin;
+}
+
+.trend-term-navigation {
+  flex: 0 0 auto;
+  min-inline-size: 0;
+}
+
+.trend-term-list {
+  display: flex;
+  inline-size: max-content;
+  align-items: center;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  list-style: none;
+}
+
+.trend-term-item,
+.trend-term-item-controls {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5ch;
+}
+
+.trend-term-item {
+  flex: 0 0 auto;
+}
+
+.trend-term-summary {
+  position: relative;
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.75ch;
+  padding-block: var(--space-1) 5px;
+  color: var(--fg);
+  white-space: nowrap;
+}
+
+.trend-term-underline {
+  position: absolute;
+  inset: auto 0 1px;
+  display: block;
+  overflow: visible;
+}
+
+.trend-term-arrow {
+  line-height: 1;
+}
+
+.trend-term-arrow:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+  opacity: 0.45;
 }
 
 .analysis-stack {
@@ -4717,7 +4798,7 @@ html.reader-open .find-bar--floating {
  * exact range/rest comparison once selected lanes settle. */
 .trend-organ {
   min-inline-size: 0;
-  margin-block-start: var(--space-4);
+  margin-block-start: var(--space-2);
   padding-block-start: var(--space-3);
   border-block-start: 1px solid var(--rule-strong);
 }

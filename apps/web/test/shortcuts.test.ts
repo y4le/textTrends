@@ -201,7 +201,7 @@ describe('shortcut registry', () => {
         'term-exit',
       ]);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
-      entry.id === 'trend-toggle-view')?.label).toBe('Toggle combined / separate view');
+      entry.id === 'trend-toggle-view')?.label).toBe('Cycle combined / equal / to scale views');
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'footer-occurrence-previous')).toEqual({
         id: 'footer-occurrence-previous',

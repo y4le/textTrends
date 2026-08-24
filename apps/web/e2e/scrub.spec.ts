@@ -22,7 +22,7 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'holmes');
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const seriesChart = page.locator('svg[data-trend-view="series"]');
@@ -66,9 +66,12 @@ test('scrubbing moves the cursor without re-committing the chart', async ({ page
   expect(await commits(page, 'series')).toBe(seriesBaseline);
 
   // Probe liveness 1: switching views really commits the other chart.
-  await page.getByRole('button', { name: 'separate' }).click();
+  await page.getByRole('button', { name: 'Separate rows, equal width' }).click();
   await expect.poll(() => commits(page, 'by-book')).toBeGreaterThan(0);
-  await expect(page.locator('svg[data-trend-view="by-book"] text')).toHaveCount(0);
+  const byBookChart = page.locator('svg[data-trend-view="by-book"]');
+  const titleCount = await byBookChart.locator('[data-trend-row-title]').count();
+  expect(titleCount).toBeGreaterThan(0);
+  await expect(byBookChart.locator('[data-trend-row-axis]')).toHaveCount(titleCount);
   const byBookBaseline = await commits(page, 'by-book');
 
   // Cursor stays frozen-chart in the by-book view too.

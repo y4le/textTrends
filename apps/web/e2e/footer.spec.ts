@@ -272,7 +272,7 @@ test('Trends exposes footer reading keys without requiring footer focus', async 
   await expect.poll(async () => Number(await footerSlider.getAttribute('aria-valuenow')))
     .toBeGreaterThan(beforeArrow + 1);
 
-  const presentation = page.getByRole('button', { name: 'separate', exact: true });
+  const presentation = page.getByRole('button', { name: 'Separate rows, equal width', exact: true });
   await presentation.focus();
   await presentation.press('Enter');
   await expect(presentation).toHaveAttribute('aria-pressed', 'true');

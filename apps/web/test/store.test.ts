@@ -1730,6 +1730,10 @@ describe('store query intent discipline', () => {
     f.store.getState().setTrendView('series');
     expect(f.store.getState().trendView).toBe('series');
     expect(f.issued.length).toBe(count);
+    f.store.getState().setTrendView('by-book-scaled');
+    expect(f.store.getState().trendView).toBe('by-book-scaled');
+    expect(workspaceFromApp(f.store.getState())?.views.trend.mode).toBe('by-book-scaled');
+    expect(f.issued.length).toBe(count);
 
     f.port.emit(sessionState(snap('g2', 's2', ['a']), {
       project: project(['a']),

@@ -187,7 +187,7 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await expect(shortcuts.getByText('Go to Trends', { exact: true })).toHaveCount(0);
   await expect(shortcuts.getByText('Go to Inputs', { exact: true })).toBeVisible();
   await expect(shortcuts.getByText('Go to Compare', { exact: true })).toHaveCount(0);
-  await expect(shortcuts.getByText('Toggle combined / separate view', { exact: true }))
+  await expect(shortcuts.getByText('Cycle combined / equal / to scale views', { exact: true }))
     .toHaveCount(0);
   await shortcuts.getByRole('button', { name: 'close', exact: true }).click();
 
@@ -201,8 +201,26 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await expect(compare).toBeVisible();
   await gotoPlace(page, 'trends');
   const view = page.getByRole('group', { name: 'Trend view' });
-  await expect(view.getByRole('button')).toHaveText(['combined', 'separate']);
-  await expect(view.getByRole('button', { name: 'separate' }))
+  const termTotals = page.getByRole('list', { name: 'Term totals' });
+  await expect(view.getByRole('button')).toHaveText(['combined', 'equal', 'to scale']);
+  await expect(termTotals).toBeVisible();
+  await expect(view.getByRole('button', { name: 'Separate rows, equal width' }))
+    .toHaveAttribute('aria-pressed', 'true');
+  const [viewBox, termsBox] = await Promise.all([
+    view.boundingBox(),
+    termTotals.boundingBox(),
+  ]);
+  expect(viewBox && termsBox
+    ? Math.abs((viewBox.y + viewBox.height / 2) - (termsBox.y + termsBox.height / 2))
+    : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(1);
+  await scrubber.focus();
+  await scrubber.press('v');
+  await expect(view.getByRole('button', { name: 'To scale — separate rows, same token scale' }))
+    .toHaveAttribute('aria-pressed', 'true');
+  await expect(page.locator('.visually-hidden[role="status"]')
+    .filter({ hasText: /same token scale/i })).toHaveText(/same token scale/i);
+  await scrubber.press('v');
+  await expect(view.getByRole('button', { name: 'Combined sequence' }))
     .toHaveAttribute('aria-pressed', 'true');
 });
 

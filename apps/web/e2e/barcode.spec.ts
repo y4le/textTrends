@@ -71,17 +71,21 @@ test('the barcode summarizes exact occurrences, steps into Matches, and never qu
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
 
-  // Each term gets its own row, with the line sample preceding its exact total.
+  // Each term gets one arrow-surrounded summary whose full label + total is
+  // underlined with the same series style as the chart.
   const occurrenceRow = page.getByRole('list', { name: 'Term totals' })
     .getByRole('listitem').filter({ hasText: 'wolf' });
   await expect(occurrenceRow).toBeVisible();
   await expect(occurrenceRow.locator('[data-term-occurrence-count]')).toHaveText('2');
-  const [sampleBox, labelBox] = await Promise.all([
-    occurrenceRow.locator('svg').boundingBox(),
-    occurrenceRow.locator('[data-term-occurrence-label]').boundingBox(),
+  await expect(occurrenceRow.getByRole('button')).toHaveCount(2);
+  const [summaryBox, underlineBox] = await Promise.all([
+    occurrenceRow.locator('.trend-term-summary').boundingBox(),
+    occurrenceRow.locator('.trend-term-underline').boundingBox(),
   ]);
-  expect(sampleBox && labelBox ? sampleBox.x : Number.POSITIVE_INFINITY)
-    .toBeLessThan(labelBox?.x ?? Number.NEGATIVE_INFINITY);
+  expect(underlineBox && summaryBox ? Math.abs(underlineBox.x - summaryBox.x) : Number.POSITIVE_INFINITY)
+    .toBeLessThanOrEqual(1);
+  expect(underlineBox && summaryBox ? Math.abs(underlineBox.width - summaryBox.width) : Number.POSITIVE_INFINITY)
+    .toBeLessThanOrEqual(1);
 
   // Next-occurrence: a fresh bounded Matches window centered at wolf@1.
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -158,6 +162,60 @@ test('the barcode summarizes exact occurrences, steps into Matches, and never qu
   expect(after).toHaveLength(0);
 });
 
+test('to-scale rows share a token ruler, end at their real lengths, and leave blank tails inert', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles([
+    {
+      name: 'short.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('target one two three four', 'utf-8'),
+    },
+    {
+      name: 'long.txt',
+      mimeType: 'text/plain',
+      buffer: Buffer.from('target one two three four five six seven eight nine ten', 'utf-8'),
+    },
+  ]);
+  await awaitReadyCount(page, 2);
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'target');
+  await page.getByRole('button', { name: 'To scale — separate rows, same token scale' }).click();
+
+  const chart = page.locator('svg[data-trend-view="by-book-scaled"]');
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await expect(chart).toBeVisible();
+  await expect(chart).toHaveAttribute('aria-label', /shared token scale, shorter books end early/i);
+  await expect(chart.locator('[data-trend-row-title]')).toHaveText(['short', 'long']);
+  await expect(scrubber.locator('canvas[data-barcode-band="by-book-scaled"]')).toHaveCount(2);
+  const [shortAxis, longAxis] = await Promise.all([
+    chart.locator('[data-trend-row-axis="0"]').getAttribute('x2').then(Number),
+    chart.locator('[data-trend-row-axis="1"]').getAttribute('x2').then(Number),
+  ]);
+  expect(shortAxis / longAxis).toBeCloseTo(5 / 11, 2);
+  await expect(chart.locator('[data-trend-row-end="0"]')).toHaveCount(1);
+  await expect(chart.locator('[data-trend-row-end="1"]')).toHaveCount(0);
+
+  await expect(scrubber).toHaveAttribute('aria-valuetext', 'no position');
+  const box = (await scrubber.boundingBox())!;
+  await page.mouse.move(box.x + box.width * 0.75, box.y + 20);
+  await expect(scrubber).toHaveAttribute('aria-valuetext', 'no position');
+  await page.mouse.down();
+  await page.mouse.up();
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await page.mouse.move(box.x + box.width * 0.25, box.y + 20);
+  await expect(scrubber).toHaveAttribute('aria-valuetext', /short · token \d+ of 5/i);
+  await page.mouse.down();
+  await page.mouse.move(box.x + box.width * 0.75, box.y + 20);
+  await page.mouse.up();
+  const selectionBox = await page.getByTestId('linked-selection').boundingBox();
+  expect(selectionBox
+    ? Math.abs((selectionBox.x + selectionBox.width) - (box.x + shortAxis))
+    : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(2);
+});
+
 test('embedded barcode hover snaps exact evidence in series and by-book views without activating it', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -171,7 +229,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   await awaitReadyCount(page, 2);
   await gotoPlace(page, 'trends');
   await submitAndAwaitFreshResults(page, 'wolf');
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
 
   const scrubber = page.getByRole('slider', { name: /reading position/i });
   const shown = page.getByRole('button', { name: 'Shown in analysis: wolf' });
@@ -205,7 +263,7 @@ test('embedded barcode hover snaps exact evidence in series and by-book views wi
   await assertHoverOnly();
   expect(await commits('series')).toBe(seriesCommits);
 
-  await page.getByRole('button', { name: 'separate' }).click();
+  await page.getByRole('button', { name: 'Separate rows, equal width' }).click();
   const bookBands = scrubber.locator('canvas[data-barcode-band="by-book"]');
   await expect(bookBands).toHaveCount(2);
   const bookBandPixels = await bookBands.evaluateAll((nodes) => nodes.map((node) => {

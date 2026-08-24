@@ -93,7 +93,24 @@ describe('trend stage projection and geometry', () => {
       view: 'by-book',
       plotWidth: 240,
       tokenCounts: projected.tokenCounts,
+      rowDomain: projected.tokenCounts,
     });
+  });
+
+  it('gives to-scale rows one shared token domain without changing their extents', () => {
+    const projected = projection();
+    const stage = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book-scaled',
+    });
+    expect(stage.rowDomain).toEqual([20, 20]);
+    expect(stage.hitSpec).toMatchObject({
+      view: 'by-book-scaled',
+      tokenCounts: [10, 20],
+      rowDomain: [20, 20],
+    });
+    expect(stage.edgeX(0, 10)).toBe(120);
+    expect(stage.edgeX(1, 10)).toBe(120);
   });
 
   it('projects selected dispersion across every selected book', () => {
@@ -137,6 +154,7 @@ describe('trend stage projection and geometry', () => {
       100,
       geometry.seriesHeight + geometry.barcodeBandGap + expectedHeight - 0.1,
       stage.hitSpec,
+      'locate',
     )).toMatchObject({ zone: 'barcode', trackRow: 0 });
   });
 

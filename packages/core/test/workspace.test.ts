@@ -292,6 +292,10 @@ describe('workspace admission', () => {
   it('validates the live trend settings contract directly', () => {
     const trend = validWorkspace().views.trend;
     expect(parseWorkspaceTrendView(trend)).toEqual(trend);
+    expect(parseWorkspaceTrendView({ ...trend, mode: 'by-book-scaled' })).toEqual({
+      ...trend,
+      mode: 'by-book-scaled',
+    });
     expect(parseWorkspaceTrendView({ ...trend, focusedDoc: 'one' })).toEqual(trend);
     expect(() => parseWorkspaceTrendView({
       ...trend,

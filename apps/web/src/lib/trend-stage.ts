@@ -18,6 +18,7 @@ import {
   type SequenceLayout,
   type TrendStageSpec,
 } from './trend-geometry.ts';
+import { trendRowDomain, type TrendView } from './trend-view.ts';
 
 const trackProjectionCache = new WeakMap<
   DispersionResultV1,
@@ -145,7 +146,7 @@ export function trendStageSnapIndexes(
 
 export interface TrendStageGeometryInput {
   readonly plotWidth: number;
-  readonly view: 'series' | 'by-book';
+  readonly view: TrendView;
 }
 
 export interface TrendStageGeometryModel {
@@ -153,6 +154,7 @@ export interface TrendStageGeometryModel {
   readonly projection: TrendStageProjection;
   readonly edgeX: (docOrdinal: number, token: number) => number;
   readonly hitSpec: TrendStageSpec;
+  readonly rowDomain: readonly number[];
 }
 
 /** Add only viewport-dependent geometry to an existing projection. */
@@ -169,9 +171,10 @@ export function trendStageGeometry(
     tracks,
     foregroundBarcodeOverlay,
   } = projection;
+  const rowDomain = trendRowDomain(view, tokenCounts);
   const edgeX = view === 'series'
     ? (d: number, token: number) => seriesXFromTokenEdge(d, token, plotWidth, layout)
-    : (d: number, token: number) => bookXFromTokenEdge(token, plotWidth, tokenCounts[d] ?? 0);
+    : (d: number, token: number) => bookXFromTokenEdge(token, plotWidth, rowDomain[d] ?? 0);
   const band = foregroundBarcodeOverlay
     ? {
         trackCount: tracks.length > 0 ? 1 : 0,
@@ -194,7 +197,7 @@ export function trendStageGeometry(
         layout,
       }
     : {
-        view: 'by-book',
+        view,
         plotWidth,
         rowHeight: geometry.rowHeight,
         rowGap: geometry.rowGap,
@@ -202,10 +205,12 @@ export function trendStageGeometry(
         barcodeHeight,
         band,
         tokenCounts,
+        rowDomain,
       };
   return {
     projection,
     edgeX,
     hitSpec,
+    rowDomain,
   };
 }

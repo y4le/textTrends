@@ -178,6 +178,7 @@ import {
 import { parseRoute, routeSearch, type RouteV1 } from './route.ts';
 import type { HistoryPort } from './history-port.ts';
 import { PLACES, type Place } from './places.ts';
+import { DEFAULT_TREND_VIEW, type TrendView } from './trend-view.ts';
 
 /** Source budgets are call-site intent, not the worker's protocol ceiling.
  * The footer is latency-sensitive and only renders one clipped passage; the
@@ -581,8 +582,7 @@ function keynessTableIntentKey(
   ]);
 }
 
-export type TrendView = 'series' | 'by-book';
-export const DEFAULT_TREND_VIEW: TrendView = 'by-book';
+export type { TrendView } from './trend-view.ts';
 
 export interface TrendSettingsInput {
   readonly bins: TrendBinsSpecV1;
@@ -809,7 +809,7 @@ export interface AppState {
   keynessB: KeynessTableState | null;
   keynessInventoryA: KeynessInventoryState | null;
   keynessInventoryB: KeynessInventoryState | null;
-  /** Durable choice restored when the corpus has enough texts to expose both
+  /** Durable choice restored when the corpus has enough texts to expose all
    * presentations. `trendView` may temporarily be `series` for one text. */
   trendViewPreference: TrendView;
   trendView: TrendView;

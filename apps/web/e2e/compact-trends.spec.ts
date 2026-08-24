@@ -32,7 +32,7 @@ test('an all-zero rate series labels its data maximum rather than its geometry f
   await awaitAllReady(page, { loadDemo: true });
   await submitAndAwaitFreshResults(page, 'absentterm');
   await gotoPlace(page, 'trends');
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
 
   const seriesChart = page.locator('svg[data-trend-view="series"]');
   await expect(seriesChart).toBeVisible();
@@ -50,7 +50,7 @@ for (const viewport of [
     await page.goto('./');
     await awaitAllReady(page, { loadDemo: true });
     await gotoPlace(page, 'trends');
-    await page.getByRole('button', { name: 'combined', exact: true }).click();
+    await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
 
     const footer = page.getByRole('complementary', { name: 'Reading position' });
     const dock = page.locator('.workbench-dock');
@@ -80,6 +80,9 @@ for (const viewport of [
     const scrubber = page.getByRole('slider', { name: /reading position/i });
     const seriesChart = page.locator('svg[data-trend-view="series"]');
     await expect(seriesChart).toBeVisible();
+    expect(await seriesChart.locator('[data-series-path]').first().evaluate(
+      (path) => (path as SVGGraphicsElement).getBBox().x,
+    )).toBe(0);
     // 132px plot + 3px band gap + three 7px compact barcode rows + 8px tail.
     expect((await seriesChart.boundingBox())?.height).toBe(164);
     const barcodeBand = scrubber.locator('canvas[data-barcode-band="series"]');
@@ -104,6 +107,13 @@ for (const viewport of [
     await expect(page.getByText(/Exact totals by book are in/)).toHaveCount(0);
     const overview = page.locator('[data-trend-organ="overview"]');
     await expect(overview).toBeVisible();
+    const [scrubberBox, overviewBox] = await Promise.all([
+      scrubber.boundingBox(),
+      overview.boundingBox(),
+    ]);
+    expect(scrubberBox && overviewBox
+      ? overviewBox.y - (scrubberBox.y + scrubberBox.height)
+      : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(8);
     await expect(overview.locator('[data-trend-overview-section="company"]')).toBeVisible();
     await expect(overview.locator('[data-trend-overview-section="destinations"]')).toBeVisible();
     const overviewLayout = await overview.evaluate((node) => ({
@@ -118,10 +128,14 @@ for (const viewport of [
       .getByRole('listitem');
     await expect(occurrenceRows).toHaveCount(3);
 
-    await page.getByRole('button', { name: 'separate', exact: true }).click();
+    await page.getByRole('button', { name: 'Separate rows, equal width', exact: true }).click();
     const byBook = page.locator('svg[data-trend-view="by-book"]');
     await expect(byBook).toBeVisible();
+    const firstTitle = await byBook.locator('[data-trend-row-title="0"]').boundingBox();
     const firstRow = await byBook.locator('[data-trend-hit-row="0"]').first().boundingBox();
+    expect(firstTitle?.y).toBeGreaterThanOrEqual(
+      firstRow ? firstRow.y + firstRow.height : Number.POSITIVE_INFINITY,
+    );
     expect(firstRow?.height).toBe(28);
 
     const overflow = await page.evaluate(() => ({

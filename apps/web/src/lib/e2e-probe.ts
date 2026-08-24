@@ -8,7 +8,9 @@
  * layer, not the protocol trace.
  */
 
-export function recordChartCommit(view: 'series' | 'by-book'): void {
+import type { TrendView } from './trend-view.ts';
+
+export function recordChartCommit(view: TrendView): void {
   const w = window as unknown as { __ttChartCommits?: Record<string, number> };
   const counts = (w.__ttChartCommits ??= {});
   counts[view] = (counts[view] ?? 0) + 1;

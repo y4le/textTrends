@@ -6,10 +6,11 @@
  *   One line per term. Paths BREAK at every book boundary — a slope from the
  *   last bin of one book into the first bin of the next would fabricate a
  *   trend across a structural discontinuity.
- * - 'by-book': one row per book on a normalized 0–100% axis, all terms in
- *   each row.
+ * - 'by-book': one equal-width row per book on a normalized 0–100% axis.
+ * - 'by-book-scaled': one row per book on a shared token-count axis, so short
+ *   books end before the longest book's right edge.
  *
- * Both views share one y-scale across every term and book so magnitude
+ * All views share one y-scale across every term and book so magnitude
  * comparison stays honest. Optional within-book smoothing is a presentation
  * setting; count is a separate unsmoothed view. Series identity
  * is color + dash in the Terms footer — never color alone. The plot holds
@@ -65,9 +66,17 @@ import {
   trendRowsForDoc,
   trendStageHit,
   type SequenceLayout,
+  type TrendStagePointerIntent,
   type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
 import type { ScrubTarget, SeriesIntent } from '../lib/store.ts';
+import {
+  nextTrendView,
+  TREND_VIEW_ORDER,
+  trendViewAccessibleName,
+  trendViewLabel,
+  type TrendView,
+} from '../lib/trend-view.ts';
 import { recordChartCommit } from '../lib/e2e-probe.ts';
 import {
   commitRange,
@@ -166,12 +175,21 @@ export function TrendPanel() {
   const selectedDispersion = useApp((s) => s.selectedDispersion);
   const linkedSelection = useApp((s) => s.linkedSelection);
   const trendView = useApp((s) => s.trendView);
+  const setTrendView = useApp((s) => s.setTrendView);
   const trendMeasure = useApp((s) => s.trendMeasure);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const geometry = trendGeometryFor(presentation.width);
+  const activeTextCount = project?.data.order.length ?? 0;
+  const viewSwitcher = activeTextCount > 1 ? (
+    <TrendViewSwitcher
+      view={trendView}
+      compact={presentation.width === 'compact'}
+      onChange={setTrendView}
+    />
+  ) : null;
 
   // Callback ref, not a RefObject: the container mounts only after the trend
   // results settle, so a mount-time effect would observe nothing. The ref is
@@ -290,14 +308,20 @@ export function TrendPanel() {
   // re-fits as each line lands reads as data changing when it isn't.
   if (graphGate === 'pending') {
     return (
-      <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
+      <section>
+        <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
+        <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
+      </section>
     );
   }
   if ((!findMode || find !== null) && activeReady.length === 0) {
     return failed.length > 0 ? (
-      <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
-        {failed.map(failureText).join(' · ')}
-      </p>
+      <section>
+        <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
+        <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
+          {failed.map(failureText).join(' · ')}
+        </p>
+      </section>
     ) : null;
   }
 
@@ -327,6 +351,7 @@ export function TrendPanel() {
   const {
     edgeX,
     hitSpec,
+    rowDomain,
   } = stageGeometry;
   // Presentation titles come from the project's document metadata — doc ids
   // are opaque identity (library documents use UUIDs). Ordinals are reading-order.
@@ -422,6 +447,18 @@ export function TrendPanel() {
 
   return (
     <section>
+      <TrendPanelHeader>
+        {viewSwitcher}
+        <BarcodeLegend
+          tracks={tracks}
+          selectedTracks={selectedTracks}
+          linkedSelection={displayedSelection !== null}
+          selectedStatus={displayedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
+          styleOf={styleOf}
+          labelOf={labelOf}
+          onActivate={activateBarcode}
+        />
+      </TrendPanelHeader>
       {failed.length > 0 && (
         <p
           role="alert"
@@ -446,6 +483,7 @@ export function TrendPanel() {
         geometry={geometry}
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
+        rowDomain={rowDomain}
         barcodeTracks={tracks}
         captureBarcode={captureBarcode}
         hitSpec={hitSpec}
@@ -490,6 +528,7 @@ export function TrendPanel() {
           />
         ) : (
           <ByBookView
+            view={trendView}
             ready={displayedReady}
             selected={displayedSelected}
             docs={docs}
@@ -500,19 +539,46 @@ export function TrendPanel() {
             strokeFor={strokeFor}
             geometry={geometry}
             rowPitch={rowPitch}
+            rowDomain={rowDomain}
           />
         )}
       </ScrubSurface>
-      <BarcodeLegend
-        tracks={tracks}
-        selectedTracks={selectedTracks}
-        linkedSelection={displayedSelection !== null}
-        selectedStatus={displayedSelection ? selectedDispersion?.state.status ?? 'pending' : null}
-        styleOf={styleOf}
-        labelOf={labelOf}
-        onActivate={activateBarcode}
-      />
     </section>
+  );
+}
+
+function TrendPanelHeader({ children }: { readonly children: React.ReactNode }) {
+  return <div className="trend-panel-header">{children}</div>;
+}
+
+function TrendViewSwitcher({
+  view,
+  compact,
+  onChange,
+}: {
+  readonly view: TrendView;
+  readonly compact: boolean;
+  readonly onChange: (view: TrendView) => void;
+}) {
+  return (
+    <div
+      className="trend-view-switcher"
+      role="group"
+      aria-label="Trend view"
+      style={{ fontSize: compact ? 'var(--text-sm)' : 'var(--text-xs)' }}
+    >
+      {TREND_VIEW_ORDER.map((candidate) => (
+        <button
+          key={candidate}
+          type="button"
+          onClick={() => onChange(candidate)}
+          aria-pressed={view === candidate}
+          aria-label={trendViewAccessibleName(candidate)}
+        >
+          {trendViewLabel(candidate)}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -543,6 +609,7 @@ function ScrubSurface({
   geometry,
   barcodeHeight,
   rowPitch,
+  rowDomain,
   barcodeTracks,
   captureBarcode,
   hitSpec,
@@ -552,7 +619,7 @@ function ScrubSurface({
   children,
 }: {
   containerRef: (el: HTMLDivElement | null) => void;
-  trendView: 'series' | 'by-book';
+  trendView: TrendView;
   docs: readonly string[];
   titleByDoc: ReadonlyMap<string, string>;
   layout: SequenceLayout;
@@ -562,6 +629,7 @@ function ScrubSurface({
   geometry: TrendGeometry;
   barcodeHeight: number;
   rowPitch: number;
+  rowDomain: readonly number[];
   barcodeTracks: readonly BarcodeTrackVM[];
   captureBarcode: CaptureBarcodePointer;
   hitSpec: TrendStageSpec;
@@ -622,15 +690,16 @@ function ScrubSurface({
     scrub && scrubDocOrdinal >= 0
       ? trendView === 'series'
         ? seriesXFromToken(scrubDocOrdinal, scrub.token, plotW, layout)
-        : bookXFromToken(scrub.token, plotW, docTokenCount[scrubDocOrdinal] ?? 0)
+        : bookXFromToken(scrub.token, plotW, rowDomain[scrubDocOrdinal] ?? 0)
       : null;
 
   const targetFromPointer = (
     px: number,
     py: number,
     allowSnap = true,
+    intent: TrendStagePointerIntent = 'locate',
   ): StagePointerTarget | null => {
-    const hit = trendStageHit(px, py, hitSpec);
+    const hit = trendStageHit(px, py, hitSpec, intent);
     if (!hit) return null;
     const doc = docs[hit.d];
     if (doc === undefined) return null;
@@ -794,7 +863,9 @@ function ScrubSurface({
       && preview === null
     ) {
       e.preventDefault();
-      setTrendView(trendView === 'series' ? 'by-book' : 'series');
+      const next = nextTrendView(trendView);
+      setTrendView(next);
+      setRangeAnnouncement(`Trend view: ${trendViewAccessibleName(next)}.`);
       return;
     }
     if (
@@ -916,12 +987,12 @@ function ScrubSurface({
           left: bookXFromTokenEdge(
             range.tokens.start,
             plotW,
-            docTokenCount[ordinal] ?? 0,
+            rowDomain[ordinal] ?? 0,
           ),
           right: bookXFromTokenEdge(
             range.tokens.end,
             plotW,
-            docTokenCount[ordinal] ?? 0,
+            rowDomain[ordinal] ?? 0,
           ),
           top: ordinal * rowPitch,
           height: geometry.rowHeight + bandExtent,
@@ -972,8 +1043,11 @@ function ScrubSurface({
     const py = Math.max(0, Math.min(rect.height - 0.001, clientY - rect.top));
     const d = Math.max(0, Math.min(docs.length - 1, Math.floor(py / rowPitch)));
     const doc = docs[d];
-    const token = bookTokenFromX(px, plotW, docTokenCount[d] ?? 0);
-    return doc && token !== null ? { doc, token } : null;
+    const extent = docTokenCount[d] ?? 0;
+    const domainToken = bookTokenFromX(px, plotW, rowDomain[d] ?? 0);
+    return doc && domainToken !== null && extent > 0
+      ? { doc, token: Math.min(domainToken, extent - 1) }
+      : null;
   };
   const boundedHandleTarget = (
     edge: 'start' | 'end',
@@ -1076,7 +1150,12 @@ function ScrubSurface({
           if (e.pointerType === 'touch') {
             const before = touchGesture.current;
             if (before.phase === 'idle') return;
-            const target = targetFromPointer(px, py, false);
+            const target = targetFromPointer(
+              px,
+              py,
+              false,
+              before.phase === 'ranging' || before.phase === 'anchored' ? 'extend' : 'locate',
+            );
             const transition = touchRangeMove(before, {
               pointerId: e.pointerId,
               point: target ? { doc: target.doc, token: target.token } : null,
@@ -1105,7 +1184,7 @@ function ScrubSurface({
           }
           const drag = pointerDrag.current;
           if (drag?.pointerId === e.pointerId) {
-            const rangeTarget = targetFromPointer(px, py, false);
+            const rangeTarget = targetFromPointer(px, py, false, 'extend');
             if (!rangeTarget) return;
             const distance = Math.hypot(e.clientX - drag.x, e.clientY - drag.y);
             if (!drag.active && distance >= 4) drag.active = true;
@@ -1209,6 +1288,7 @@ function ScrubSurface({
               e.clientX - rect.left,
               e.clientY - rect.top,
               false,
+              before.phase === 'ranging' || before.phase === 'anchored' ? 'extend' : 'locate',
             );
             const transition = touchRangeUp(before, {
               pointerId: e.pointerId,
@@ -1502,7 +1582,7 @@ function ScrubSurface({
  *  dependency array fires after EVERY commit of its owning subtree, which is
  *  exactly the "did the chart re-render on scrub?" probe the regression test
  *  needs. Never incremented during render. */
-function ChartCommitProbe({ view }: { view: 'series' | 'by-book' }) {
+function ChartCommitProbe({ view }: { view: TrendView }) {
   useEffect(() => {
     recordChartCommit(view);
   });
@@ -1553,6 +1633,27 @@ const SeriesView = memo(function SeriesView({
   const pointX = (d: number, b: number) => {
     const { start, end } = trendBinSpan(geo, d, b);
     return x((bases[d] ?? 0) + (start + end) / 2);
+  };
+  const spanX = (d: number, b: number) => {
+    const { start, end } = trendBinSpan(geo, d, b);
+    const x0 = x(bases[d] ?? 0);
+    const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+    return {
+      start: clampToSpan(
+        x((bases[d] ?? 0) + start),
+        x0,
+        x1,
+        d > 0 ? BOUNDARY_GAP : 0,
+        BOUNDARY_GAP,
+      ),
+      end: clampToSpan(
+        x((bases[d] ?? 0) + end),
+        x0,
+        x1,
+        d > 0 ? BOUNDARY_GAP : 0,
+        BOUNDARY_GAP,
+      ),
+    };
   };
 
   return (
@@ -1619,6 +1720,7 @@ const SeriesView = memo(function SeriesView({
             r.rawValues,
             (b) => clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP),
             y,
+            (b) => spanX(d, b),
           ).map((path, index) => (
             <path
               key={`raw:${r.intent.id}:${doc}:${index}`}
@@ -1644,6 +1746,7 @@ const SeriesView = memo(function SeriesView({
             r.values,
             (b) => clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP),
             y,
+            (b) => spanX(d, b),
           ).map((path, index) => (
             <g key={`${r.intent.id}:${doc}:${index}`}>
               {!r.ghost && hasGhostContext && (
@@ -1690,6 +1793,7 @@ const SeriesView = memo(function SeriesView({
             r.values,
             (b) => clampToSpan(pointX(d, b), x0, x1, d > 0 ? BOUNDARY_GAP : 0, BOUNDARY_GAP),
             y,
+            (b) => spanX(d, b),
           ).map((path, i) => (
             <path
               key={`selected:${r.intent.id}:${doc}:${i}`}
@@ -1739,6 +1843,7 @@ const SeriesView = memo(function SeriesView({
 });
 
 const ByBookView = memo(function ByBookView({
+  view,
   ready,
   selected,
   docs,
@@ -1749,7 +1854,9 @@ const ByBookView = memo(function ByBookView({
   strokeFor,
   geometry,
   rowPitch,
+  rowDomain,
 }: {
+  view: Exclude<TrendView, 'series'>;
   ready: readonly DisplayedSeries[];
   selected: readonly DisplayedSeries[];
   docs: readonly string[];
@@ -1760,6 +1867,7 @@ const ByBookView = memo(function ByBookView({
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
   rowPitch: number;
+  rowDomain: readonly number[];
 }) {
   const foregroundReady = ready.filter((item) => !item.ghost);
   const rawReady = foregroundReady.length > 0 ? foregroundReady : ready;
@@ -1769,24 +1877,70 @@ const ByBookView = memo(function ByBookView({
   const height = docs.length * rowPitch + 4;
   const pointX = (d: number, b: number) => {
     const span = trendBinSpan(geo, d, b);
-    const tokens = geo.docTokenCount[d] ?? 0;
-    return bookXFromTokenEdge((span.start + span.end) / 2, plotW, tokens);
+    return bookXFromTokenEdge((span.start + span.end) / 2, plotW, rowDomain[d] ?? 0);
+  };
+  const spanX = (d: number, b: number) => {
+    const span = trendBinSpan(geo, d, b);
+    const domain = rowDomain[d] ?? 0;
+    return {
+      start: bookXFromTokenEdge(span.start, plotW, domain),
+      end: bookXFromTokenEdge(span.end, plotW, domain),
+    };
   };
 
   return (
     <svg
-      data-trend-view="by-book"
+      data-trend-view={view}
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} books`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} books${view === 'by-book-scaled' ? '; shared token scale, shorter books end early' : '; each book fills an equal-width row'}`}
     >
       {docs.map((doc, d) => {
-        const rowY = d * rowPitch;
+        const rowBase = d * rowPitch;
+        const rowY = rowBase;
         const title = titles[d] ?? doc;
+        const tokens = geo.docTokenCount[d] ?? 0;
+        const domain = rowDomain[d] ?? 0;
+        const rowEnd = bookXFromTokenEdge(tokens, plotW, domain);
+        const titleFontSize = geometry.rowGap <= 8 ? 9 : 11;
+        const titleBandTop = rowBase + rowPitch - geometry.rowGap;
+        const titleBaseline = titleBandTop + Math.max(7, Math.min(15, geometry.rowGap - 3));
         return (
           <g key={doc}>
-            <line x1={0} y1={rowY + geometry.rowHeight} x2={plotW} y2={rowY + geometry.rowHeight} stroke="var(--rule)" strokeWidth={1} />
+            <text
+              data-trend-row-title={d}
+              x={0}
+              y={titleBaseline}
+              fill="var(--fg-muted)"
+              fontFamily="var(--font-mono)"
+              fontSize={titleFontSize}
+              pointerEvents="none"
+              aria-hidden="true"
+            >
+              {title}
+            </text>
+            <line
+              data-trend-row-axis={d}
+              x1={0}
+              y1={rowY + geometry.rowHeight}
+              x2={rowEnd}
+              y2={rowY + geometry.rowHeight}
+              stroke="var(--rule)"
+              strokeWidth={1}
+            />
+            {view === 'by-book-scaled' && tokens > 0 && tokens < domain && (
+              <line
+                data-trend-row-end={d}
+                x1={rowEnd}
+                y1={rowY}
+                x2={rowEnd}
+                y2={rowY + geometry.rowHeight}
+                stroke="var(--rule-strong)"
+                strokeWidth={1}
+                pointerEvents="none"
+              />
+            )}
             {measure.kind === 'rate' && measure.smoothing !== 0 && measure.showRaw && rawReady.flatMap((r) =>
               selectedTrendPathData(
                 r.trend,
@@ -1794,6 +1948,7 @@ const ByBookView = memo(function ByBookView({
                 r.rawValues,
                 (b) => pointX(d, b),
                 (value) => rowY + y(value),
+                (b) => spanX(d, b),
               ).map((path, index) => (
                 <path
                   key={`raw:${r.intent.id}:${index}`}
@@ -1815,6 +1970,7 @@ const ByBookView = memo(function ByBookView({
                 r.values,
                 (b) => pointX(d, b),
                 (value) => rowY + y(value),
+                (b) => spanX(d, b),
               ).map((path, index) => (
                 <g key={`${r.intent.id}:${index}`}>
                   {!r.ghost && hasGhostContext && (
@@ -1857,6 +2013,7 @@ const ByBookView = memo(function ByBookView({
                 r.values,
                 (b) => pointX(d, b),
                 (value) => rowY + y(value),
+                (b) => spanX(d, b),
               ).map((path, i) => (
                 <path
                   key={`selected:${r.intent.id}:${i}`}
@@ -1889,12 +2046,12 @@ const ByBookView = memo(function ByBookView({
                 <rect
                   key={b}
                   data-trend-hit-row={d}
-                  x={bookXFromTokenEdge(span.start, plotW, geo.docTokenCount[d] ?? 0)}
+                  x={bookXFromTokenEdge(span.start, plotW, domain)}
                   y={rowY}
                   width={Math.max(
                     1,
-                    bookXFromTokenEdge(span.end, plotW, geo.docTokenCount[d] ?? 0)
-                      - bookXFromTokenEdge(span.start, plotW, geo.docTokenCount[d] ?? 0),
+                    bookXFromTokenEdge(span.end, plotW, domain)
+                      - bookXFromTokenEdge(span.start, plotW, domain),
                   )}
                   height={geometry.rowHeight}
                   fill="transparent"
@@ -1907,7 +2064,7 @@ const ByBookView = memo(function ByBookView({
         );
       })}
       {/* Moving cursor lives in ScrubSurface's overlay div, not this SVG. */}
-      {__TT_E2E__ && <ChartCommitProbe view="by-book" />}
+      {__TT_E2E__ && <ChartCommitProbe view={view} />}
     </svg>
   );
 });

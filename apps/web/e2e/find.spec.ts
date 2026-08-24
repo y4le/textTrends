@@ -7,7 +7,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
 
   const footer = page.getByRole('slider', { name: 'Corpus footer position' });
   const terms = page.getByRole('complementary', { name: 'Terms' });
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
   const seriesChart = page.locator('svg[data-trend-view="series"]');
   const mainBarcode = page.getByRole('slider', { name: 'Reading position scrubber' })
     .locator('canvas[data-barcode-band="series"]');
@@ -81,7 +81,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await resultReader.getByRole('button', { name: 'back', exact: true }).click();
   await expect(resultReader).toHaveCount(0);
   await expect(result).toBeFocused();
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
   await expect(seriesChart).toBeVisible();
   const findPath = page.locator('[data-series-path^="find-series:"]').first();
   await expect(findPath).toBeVisible();
@@ -146,14 +146,14 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   expect((await footerBarcode.boundingBox())?.height).toBe(durableFooterBarcodeHeight);
   await expect(page.locator('[data-term-occurrences]')).toHaveCount(1);
   await expect(page.locator('[data-term-occurrence-label]')).toHaveText('holmes');
-  await page.getByRole('button', { name: 'separate', exact: true }).click();
+  await page.getByRole('button', { name: 'Separate rows, equal width', exact: true }).click();
   const byBookChart = page.locator('svg[data-trend-view="by-book"]');
   await expect(byBookChart).toBeVisible();
   await expect(byBookChart.locator('[data-series-ghost="true"]')).not.toHaveCount(0);
   await expect(byBookChart).toHaveAttribute('aria-label', /Find holmes, with .*de-emphasized context/i);
   const byBookHover = await byBookChart.locator('rect title').first().textContent();
   expect(byBookHover?.split('\n').slice(1)).toEqual([expect.stringMatching(/^holmes:/)]);
-  await page.getByRole('button', { name: 'combined', exact: true }).click();
+  await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
   await expect(seriesChart).toBeVisible();
   const expectFindDraftSelected = async () => {
     await expect(input).toBeFocused();

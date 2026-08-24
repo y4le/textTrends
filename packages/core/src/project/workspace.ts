@@ -79,7 +79,7 @@ export type WorkspaceCorpusV1 =
     };
 
 export interface WorkspaceTrendViewV1 {
-  readonly mode: 'series' | 'by-book';
+  readonly mode: 'series' | 'by-book' | 'by-book-scaled';
   readonly bins: TrendBinsSpecV1;
   readonly measure: WorkspaceTrendMeasureV1;
 }
@@ -265,7 +265,11 @@ export function parseWorkspaceTrendView(value: unknown): WorkspaceTrendViewV1 {
   if (!current && !legacy) {
     throw new RangeError('trend view must be exact');
   }
-  if (value.mode !== 'series' && value.mode !== 'by-book') throw new RangeError('trend mode is invalid');
+  if (
+    value.mode !== 'series'
+    && value.mode !== 'by-book'
+    && value.mode !== 'by-book-scaled'
+  ) throw new RangeError('trend mode is invalid');
   if (legacy && value.focusedDoc !== null) {
     boundedString(value.focusedDoc, WORKSPACE_MAX_ID_UNITS, 'focused document');
   }

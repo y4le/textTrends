@@ -50,6 +50,26 @@ describe('selected trend paths', () => {
     const trend = trendWithDenominators([1], [5]);
     expect(selectedTrendPathData(trend, 'other', trend.ratePer10k, (b) => b, (r) => r)).toEqual([]);
   });
+
+  it('extends each observed run to its bin edges when span geometry is supplied', () => {
+    const trend = trendWithDenominators([2, 3, 0, 4], [10, 20, 999, 30]);
+    expect(selectedTrendPathData(
+      trend,
+      'doc',
+      trend.ratePer10k,
+      (bin) => [1, 3.5, 7, 9][bin]!,
+      (rate) => 100 - rate,
+      (bin) => [
+        { start: 0, end: 2 },
+        { start: 2, end: 5 },
+        { start: 5, end: 9 },
+        { start: 9, end: 13 },
+      ][bin]!,
+    )).toEqual([
+      'M0.0,90.0 L1.0,90.0 L3.5,80.0 L5.0,80.0',
+      'M9.0,70.0 L13.0,70.0',
+    ]);
+  });
 });
 
 describe('linearMap', () => {
@@ -172,15 +192,15 @@ describe('pointer plot containment', () => {
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
       layout: LAYOUT,
     };
-    expect(trendStageHit(300, 90, stage)).not.toBeNull();
-    expect(trendStageHit(600, 90, stage)).toBeNull(); // exclusive right edge
-    expect(trendStageHit(700, 90, stage)).toBeNull(); // beyond the plot
-    expect(trendStageHit(-1, 90, stage)).toBeNull();
-    expect(trendStageHit(300, 181, stage)).toBeNull(); // passage line below
-    expect(trendStageHit(300, -1, stage)).toBeNull();
+    expect(trendStageHit(300, 90, stage, 'locate')).not.toBeNull();
+    expect(trendStageHit(600, 90, stage, 'locate')).toBeNull(); // exclusive right edge
+    expect(trendStageHit(700, 90, stage, 'locate')).toBeNull(); // beyond the plot
+    expect(trendStageHit(-1, 90, stage, 'locate')).toBeNull();
+    expect(trendStageHit(300, 181, stage, 'locate')).toBeNull(); // passage line below
+    expect(trendStageHit(300, -1, stage, 'locate')).toBeNull();
   });
 
-  it('by-book: row gaps and the area past the last row are rejected, not snapped', () => {
+  it('by-book: title bands and the area past the last row are rejected, not snapped', () => {
     const tokenCounts = [100, 50];
     const stage = {
       view: 'by-book' as const,
@@ -191,13 +211,14 @@ describe('pointer plot containment', () => {
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
       tokenCounts,
+      rowDomain: tokenCounts,
     };
-    const hit = trendStageHit(300, 20, stage);
+    const hit = trendStageHit(300, 20, stage, 'locate');
     expect(hit).toMatchObject({ d: 0, token: 50, zone: 'plot' });
-    expect(trendStageHit(300, 50, stage)).toBeNull(); // gap after row 0
-    expect(trendStageHit(300, 80, stage)?.d).toBe(1);
-    expect(trendStageHit(300, 200, stage)).toBeNull(); // below last row
-    expect(trendStageHit(600, 20, stage)).toBeNull(); // exclusive right edge
+    expect(trendStageHit(300, 50, stage, 'locate')).toBeNull(); // title below row 0
+    expect(trendStageHit(300, 80, stage, 'locate')?.d).toBe(1);
+    expect(trendStageHit(300, 200, stage, 'locate')).toBeNull(); // below last row
+    expect(trendStageHit(600, 20, stage, 'locate')).toBeNull(); // exclusive right edge
   });
 
   it('by-book: an empty document row rejects instead of producing a position', () => {
@@ -210,7 +231,31 @@ describe('pointer plot containment', () => {
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
       tokenCounts: [0, 50],
-    })).toBeNull();
+      rowDomain: [0, 50],
+    }, 'locate')).toBeNull();
+  });
+
+  it('to-scale rows reject locating in blank tails but clamp an extending range head', () => {
+    const stage = {
+      view: 'by-book' as const,
+      plotWidth: 600,
+      rowHeight: 44,
+      rowGap: 22,
+      barcodeBandGap: 0,
+      barcodeHeight: 0,
+      band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      tokenCounts: [100, 50, 0],
+      rowDomain: [100, 100, 100],
+    };
+    expect(trendStageHit(450, 80, stage, 'locate')).toBeNull();
+    expect(trendStageHit(450, 80, stage, 'extend')).toMatchObject({
+      d: 1,
+      token: 49,
+      zone: 'plot',
+    });
+    expect(trendStageHit(150, 80, stage, 'locate')).toMatchObject({ d: 1, token: 25 });
+    expect(trendStageHit(100, 140, stage, 'locate')).toBeNull();
+    expect(trendStageHit(100, 140, stage, 'extend')).toBeNull();
   });
 });
 
@@ -226,7 +271,7 @@ describe('integrated barcode stage geometry', () => {
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
       layout: LAYOUT,
     };
-    const hit = (y: number, x = 300) => trendStageHit(x, y, stage);
+    const hit = (y: number, x = 300) => trendStageHit(x, y, stage, 'locate');
     expect(hit(90)?.zone).toBe('plot');
     expect(hit(181)).toBeNull();
     expect(hit(184)).toMatchObject({ zone: 'barcode', trackRow: 0 });
@@ -236,7 +281,7 @@ describe('integrated barcode stage geometry', () => {
     expect(hit(184, 700)).toBeNull();
   });
 
-  it('uses one centralized by-book pitch and never crosses rows through gaps', () => {
+  it('uses one centralized by-book pitch and never crosses rows through title bands', () => {
     const bandHeight = barcodeBandHeight(2, 7, 2);
     const pitch = byBookRowPitch(44, 22, 3, bandHeight);
     expect(pitch).toBe(87);
@@ -251,13 +296,14 @@ describe('integrated barcode stage geometry', () => {
       barcodeHeight: bandHeight,
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
       tokenCounts: [100, 50],
+      rowDomain: [100, 50],
     };
-    const hit = (y: number) => trendStageHit(300, y, stage);
+    const hit = (y: number) => trendStageHit(300, y, stage, 'locate');
     expect(hit(20)).toMatchObject({ d: 0, token: 50, zone: 'plot' });
     expect(hit(45)).toBeNull();
     expect(hit(48)).toMatchObject({ d: 0, zone: 'barcode', trackRow: 0 });
     expect(hit(57)).toMatchObject({ d: 0, zone: 'barcode', trackRow: 1 });
-    expect(hit(70)).toBeNull();
+    expect(hit(70)).toBeNull(); // title below row 0
     expect(hit(pitch + 20)).toMatchObject({ d: 1, token: 25, zone: 'plot' });
     expect(hit(pitch + 48)).toMatchObject({ d: 1, zone: 'barcode', trackRow: 0 });
   });

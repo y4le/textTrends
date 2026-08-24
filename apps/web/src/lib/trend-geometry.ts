@@ -11,24 +11,44 @@ export { barcodeBandExtent, barcodeBandHeight } from './footer-metrics.ts';
 
 /** Selected trends retain the full document bin geometry, but bins with no
  * selected denominator are GAPS rather than fabricated zero observations.
- * A one-bin run receives a near-zero horizontal tail so SVG paints the mark. */
+ * Supplying bin spans extends each observed run to its measured token edges;
+ * without them, a one-bin run receives a near-zero tail so SVG paints it. */
 export function selectedTrendPathData(
   trend: NumericTrend,
   doc: string,
   values: ArrayLike<number>,
   xAt: (bin: number) => number,
   yAt: (value: number) => number,
+  xSpanAt?: (bin: number) => { readonly start: number; readonly end: number },
 ): string[] {
   const d = trend.order.indexOf(doc);
   if (d < 0) return [];
   const start = trend.rowOffsets[d] ?? 0;
   const end = trend.rowOffsets[d + 1] ?? start;
   const paths: string[] = [];
-  let points: string[] = [];
+  let points: { readonly bin: number; readonly x: number; readonly y: number }[] = [];
   const flush = () => {
     if (points.length === 0) return;
+    const coordinate = (x: number, y: number) => `${x.toFixed(1)},${y.toFixed(1)}`;
     const [first, ...rest] = points;
-    paths.push(`M${first}${rest.map((p) => ` L${p}`).join('')}${rest.length === 0 ? ' l0.01,0' : ''}`);
+    const firstCoordinate = coordinate(first!.x, first!.y);
+    if (!xSpanAt) {
+      paths.push(`M${firstCoordinate}${rest.map((point) => ` L${coordinate(point.x, point.y)}`).join('')}${rest.length === 0 ? ' l0.01,0' : ''}`);
+      points = [];
+      return;
+    }
+    const firstSpan = xSpanAt(first!.bin);
+    const last = points.at(-1)!;
+    const lastSpan = xSpanAt(last.bin);
+    const extended = [
+      { x: firstSpan.start, y: first!.y },
+      ...points,
+      { x: lastSpan.end, y: last.y },
+    ].filter((point, index, all) => (
+      index === 0 || point.x !== all[index - 1]!.x || point.y !== all[index - 1]!.y
+    ));
+    const [extendedFirst, ...extendedRest] = extended;
+    paths.push(`M${coordinate(extendedFirst!.x, extendedFirst!.y)}${extendedRest.map((point) => ` L${coordinate(point.x, point.y)}`).join('')}`);
     points = [];
   };
   for (let i = start; i < end; i++) {
@@ -37,7 +57,7 @@ export function selectedTrendPathData(
       flush();
       continue;
     }
-    points.push(`${xAt(b).toFixed(1)},${yAt(values[i] as number).toFixed(1)}`);
+    points.push({ bin: b, x: xAt(b), y: yAt(values[i] as number) });
   }
   flush();
   return paths;
@@ -139,6 +159,8 @@ export type TrendStageHit =
   | { readonly d: number; readonly token: number; readonly zone: 'plot' }
   | { readonly d: number; readonly token: number; readonly zone: 'barcode'; readonly trackRow: number };
 
+export type TrendStagePointerIntent = 'locate' | 'extend';
+
 interface BarcodeBandSpec {
   readonly trackCount: number;
   readonly trackHeight: number;
@@ -156,7 +178,7 @@ export type TrendStageSpec =
       readonly layout: SequenceLayout;
     }
   | {
-      readonly view: 'by-book';
+      readonly view: 'by-book' | 'by-book-scaled';
       readonly plotWidth: number;
       readonly rowHeight: number;
       readonly rowGap: number;
@@ -164,11 +186,14 @@ export type TrendStageSpec =
       readonly barcodeHeight: number;
       readonly band: BarcodeBandSpec;
       readonly tokenCounts: readonly number[];
+      /** Per-row x denominator: own extent for equal rows, shared maximum for
+       * token-scaled rows. */
+      readonly rowDomain: readonly number[];
     };
 
-/** One by-book stage row is plot + embedded barcode + breathing room. Keep
- * this centralized so painting, pointer hit-testing, cursors and SVG rows can
- * never drift apart. */
+/** One by-book stage row is a plot, embedded barcode, and title band (reusing
+ * rowGap). Keep this centralized so painting, pointer hit-testing, cursors and
+ * SVG rows can never drift apart. */
 export function byBookRowPitch(
   rowHeight: number,
   rowGap: number,
@@ -196,6 +221,7 @@ export function trendStageHit(
   px: number,
   py: number,
   stage: TrendStageSpec,
+  intent: TrendStagePointerIntent,
 ): TrendStageHit | null {
   if (px < 0 || px >= stage.plotWidth || py < 0) return null;
   if (stage.view === 'series') {
@@ -222,8 +248,11 @@ export function trendStageHit(
   const d = Math.floor(py / pitch);
   if (d < 0 || d >= stage.tokenCounts.length) return null;
   const localY = py - d * pitch;
-  const token = bookTokenFromX(px, stage.plotWidth, stage.tokenCounts[d] ?? 0);
-  if (token === null) return null;
+  const domainToken = bookTokenFromX(px, stage.plotWidth, stage.rowDomain[d] ?? 0);
+  const extent = stage.tokenCounts[d] ?? 0;
+  if (domainToken === null || extent <= 0) return null;
+  if (domainToken >= extent && intent === 'locate') return null;
+  const token = Math.min(domainToken, extent - 1);
   if (localY <= stage.rowHeight) return { d, token, zone: 'plot' };
   const barcodeTop = stage.rowHeight + stage.barcodeBandGap;
   if (localY < barcodeTop || localY >= barcodeTop + stage.barcodeHeight) return null;
