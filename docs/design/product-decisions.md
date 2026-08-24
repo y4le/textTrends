@@ -4,6 +4,40 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-24 — Separate Trends rows can share a real token scale
+
+The Trends presentation control is a flat three-way choice: `combined`,
+`equal`, and `to scale`. `equal` retains the existing by-book view in which
+every book fills the row and x expresses relative progress. `to scale` keeps
+one row per book but gives every row the longest book's token domain, so the
+same x coordinate means the same token count and shorter books form a jagged
+right edge. Existing `by-book` workspaces remain `equal`; the new durable wire
+value is `by-book-scaled`. A single-text corpus still temporarily forces
+`combined` without discarding the preference, and `V` cycles the three views.
+This additive wire value deliberately keeps the current schema version: older
+saved workspaces load without migration, while a workspace saved in `to scale`
+will be rejected by builds that predate this option rather than silently
+changing its x-axis semantics.
+
+One per-row domain drives paths, baselines, barcode marks, cursors, linked
+ranges, and pointer inversion. In `to scale`, the baseline stops at the real
+book end and a hairline end-cap marks it. The remaining tail has no tint and is
+inert for hover, click, tap, and drag origins. An already-active range drag may
+extend through the blank tail to the real final token, matching ordinary text
+selection without making empty space claim a position.
+
+The naming, persistence, geometry, and interaction design was developed with
+an explicitly pinned Claude Opus planner through Parley (request
+`req_consult_b99292f8e0c53ce5`, artifact
+`art_sha256_25590f97ba1c2b7ee241b53bed3226843ee4a60a2acd0bc3ae3c0969b01a1456`).
+The blank-tail ruling was challenged and refined in follow-up request
+`req_consult_e679caa64fa6a911` (artifact
+`art_sha256_c583ed0f15dbb45dac31803e5c253920be3059b2690daecead931815523896ea`).
+Final Opus review confirmed the shared denominator across every painted and
+interactive surface, and prompted the label-in-name, chart description, and
+truthful hit-spec refinements (request `req_consult_e581f39435776d36`, artifact
+`art_sha256_187540b514fae0ae9e52d8cbcc819a61d8e2767d1880fb172c0dbe41b9839d0f`).
+
 ## 2026-08-21 — Reader gains a semi-hidden RSVP mode
 
 The full-screen Reader may enter a second, in-place RSVP presentation with

@@ -450,9 +450,9 @@ its complete draft so a replacement can be typed immediately.
 Within the
 Workbench sections, `h`/`l` and Left/Right move horizontal focus; tab focus does not
 activate a destination until the link is invoked. With at least two active
-texts, `v` on the Trends scrubber switches the visible combined/separate
-presentation without issuing analysis, alongside its existing Arrow, Page,
-Home/End, and range-selection keys.
+texts, `v` on the Trends scrubber cycles the combined, equal-row, and shared-
+token-scale presentations without issuing analysis, alongside its existing
+Arrow, Page, Home/End, and range-selection keys.
 
 On Trends, reading-footer shortcuts are also page fallbacks; the user does not
 need to focus the footer before reading. A focused local control still wins:
