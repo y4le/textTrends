@@ -292,6 +292,7 @@ test('Find saves its submitted aliases as one active term and disables Save at c
     .toBeVisible();
 
   await terms.getByRole('button', { name: 'Add term', exact: true }).click();
+  await terms.getByRole('button', { name: 'More options', exact: true }).click();
   const manager = page.getByRole('dialog', { name: 'Manage terms' });
   await manager.getByRole('textbox', { name: 'Term and aliases for new term' })
     .fill('capacity marker');

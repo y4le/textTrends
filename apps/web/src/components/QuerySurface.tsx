@@ -387,6 +387,7 @@ export function QuerySurface() {
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
   const [inlineAddOpen, setInlineAddOpen] = useState(false);
   const [inlineTerm, setInlineTerm] = useState('');
+  const [managerNewTermDraft, setManagerNewTermDraft] = useState('');
   const [termKeyboardStatus, setTermKeyboardStatus] = useState('');
   const inlineReturnFocus = useRef('term-add');
 
@@ -418,7 +419,10 @@ export function QuerySurface() {
     { surface: 'query-editor', mode: 'manage', groupId },
     returnFocusTo,
   );
-  const closeEditor = () => popLayer();
+  const closeEditor = () => {
+    setManagerNewTermDraft('');
+    popLayer();
+  };
   const focusTerm = (groupId: string) => {
     requestAnimationFrame(() => {
       const control = document.getElementById(termFocusControlId(groupId));
@@ -499,6 +503,13 @@ export function QuerySurface() {
   }, [inlineAddOpen]);
 
   useEffect(() => {
+    if (target?.mode !== 'manage' || managerNewTermDraft === '') return;
+    // The draft is a one-render handoff into TermEditor's state, not manager state.
+    // Consuming it here keeps Back and an in-manager Cancel from resurrecting it.
+    setManagerNewTermDraft('');
+  }, [managerNewTermDraft, target?.mode]);
+
+  useEffect(() => {
     if (openMenuId !== null && !view.rows.some((row) => row.id === openMenuId)) {
       setOpenMenuId(null);
     }
@@ -577,6 +588,21 @@ export function QuerySurface() {
                 spellCheck={false}
               />
               <button type="submit" disabled={inlineTerm.trim() === ''}>Add</button>
+              <button
+                type="button"
+                onClick={() => {
+                  setManagerNewTermDraft(inlineTerm);
+                  setInlineAddOpen(false);
+                  setInlineTerm('');
+                  clearNotebookError();
+                  writeLayer(
+                    { surface: 'query-editor', mode: 'manage', create: true },
+                    inlineReturnFocus.current,
+                  );
+                }}
+              >
+                More options
+              </button>
               <button type="button" onClick={() => closeInlineAdd()}>Cancel</button>
               {notebookError && (
                 <span id="term-inline-add-error" className="visually-hidden" role="alert">
@@ -592,10 +618,7 @@ export function QuerySurface() {
             type="button"
             aria-label={ADD_TERM_LABEL}
             aria-keyshortcuts={shortcutAria(['term-add-inline'])}
-            onClick={() => writeLayer(
-              { surface: 'query-editor', mode: 'manage', create: true },
-              'term-add',
-            )}
+            onClick={() => openInlineAdd('term-add')}
             onKeyDown={(event) => {
               if (
                 event.key !== 'Enter'
@@ -658,6 +681,7 @@ export function QuerySurface() {
             <NotebookPanel
               rows={view.rows}
               onDone={closeEditor}
+              initialNewTermAliases={managerNewTermDraft}
               {...(target.groupId ? { initialGroupId: target.groupId } : {})}
               {...(target.create ? { createOnOpen: true } : {})}
             />

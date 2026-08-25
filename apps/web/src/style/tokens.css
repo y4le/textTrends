@@ -3656,6 +3656,7 @@ canvas {
   color: var(--fg);
   font: inherit;
   font-family: var(--font-mono);
+  font-size: 16px;
 }
 
 .term-quick-add button {
@@ -5321,6 +5322,12 @@ html.reader-open .find-bar--floating {
   .term-bucket-edit,
   .term-bucket-toggle {
     min-inline-size: 44px;
+  }
+
+  .term-quick-add,
+  .term-quick-add input,
+  .term-quick-add button {
+    min-block-size: 44px;
   }
 
   .reader-region button {

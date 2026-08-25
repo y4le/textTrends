@@ -214,9 +214,9 @@ export async function clearNotebook(page: Page): Promise<void> {
   await manager.getByRole('button', { name: 'Done', exact: true }).click();
 }
 
-/** Open the full-screen manager with a new bottom entry and return its alias field. */
+/** Open the inline quick-entry form and return its term field. */
 export async function openQuickAdd(page: Page) {
-  const input = page.getByRole('textbox', { name: 'Term and aliases for new term' });
+  const input = page.getByRole('textbox', { name: 'New term' });
   if (!(await input.isVisible())) {
     await page.getByRole('button', { name: 'Add term', exact: true }).click();
   }
@@ -236,7 +236,7 @@ export async function openQuickAdd(page: Page) {
  */
 export async function submitAndAwaitFreshResults(page: Page, terms: string): Promise<ProtocolTraceEvent[]> {
   // The notebook is APPEND-ONLY (slice-1 commit C): "submit a comparison"
-  // now means clear the notebook, then add the terms in the manager. Removals happen
+  // now means clear the notebook, then add the terms through quick entry. Removals happen
   // BEFORE the trace mark so their superseded (cancelled, never-delivering)
   // bursts can't stall the fresh-results poll.
   await clearNotebook(page);
@@ -244,14 +244,7 @@ export async function submitAndAwaitFreshResults(page: Page, terms: string): Pro
   const delivered: ProtocolTraceEvent[] = [];
   const labels = terms.split(',').map((term) => term.trim()).filter(Boolean);
   for (let index = 0; index < labels.length; index++) {
-    const input = index === 0
-      ? await openQuickAdd(page)
-      : page.getByRole('textbox', { name: 'Term and aliases for new term' });
-    if (index > 0) {
-      await page.getByRole('dialog', { name: 'Manage terms' })
-        .getByRole('button', { name: '+ Add term', exact: true }).click();
-      await expect(input).toBeVisible();
-    }
+    const input = await openQuickAdd(page);
     await input.fill(labels[index]!);
     await input.press('Enter');
     let fresh: ProtocolTraceEvent[] = [];
@@ -272,8 +265,6 @@ export async function submitAndAwaitFreshResults(page: Page, terms: string): Pro
     delivered.push(...fresh);
     mark = (await trace(page)).events.at(-1)?.seq ?? mark;
   }
-  await page.getByRole('dialog', { name: 'Manage terms' })
-    .getByRole('button', { name: 'Done', exact: true }).click();
   return delivered;
 }
 

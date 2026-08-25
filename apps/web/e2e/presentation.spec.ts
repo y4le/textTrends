@@ -38,7 +38,7 @@ for (const viewport of viewports) {
     expect(mediaWidth.compact).toBe(expectedWidth === 'compact');
     expect(mediaWidth.wide).toBe(expectedWidth === 'wide');
 
-    const quickAdd = page.getByRole('textbox', { name: 'Term and aliases for new term' });
+    const quickAdd = page.getByRole('textbox', { name: 'New term' });
     const openQuickAdd = page.getByRole('button', { name: 'Add term', exact: true });
     await expect(openQuickAdd).toBeVisible();
     await openQuickAdd.click();
@@ -46,8 +46,6 @@ for (const viewport of viewports) {
     const size = await quickAdd.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize));
     expect(size).toBeGreaterThanOrEqual(16);
     await page.getByRole('button', { name: 'Cancel' }).click();
-    await page.getByRole('dialog', { name: 'Manage terms' })
-      .getByRole('button', { name: 'Done', exact: true }).click();
     await expect(page.getByRole('complementary', { name: 'Terms' })).toHaveCount(1);
     await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);
     await expect(page.getByRole('dialog', { name: 'Trend settings', exact: true })).toHaveCount(0);
@@ -223,6 +221,7 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   const queries = page.getByRole('complementary', { name: 'Terms' });
   await expect(page.locator('.workbench-dock')).toHaveCSS('position', 'fixed');
   await queries.getByRole('button', { name: 'Add term', exact: true }).click();
+  await queries.getByRole('button', { name: 'More options', exact: true }).click();
   await expect(page.getByRole('dialog', { name: 'Manage terms' })).toBeVisible();
   await expect(
     page.getByRole('textbox', { name: 'Term and aliases for new term' }),
@@ -277,10 +276,17 @@ test('an open new-term row keeps one modal draft across width classes', async ({
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
 
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
+  await page.getByRole('textbox', { name: 'New term' }).fill('watson');
+  await page.getByRole('button', { name: 'More options', exact: true }).click();
   const compactDialog = page.getByRole('dialog', { name: 'Manage terms' });
   const compactInput = page.getByRole('textbox', {
     name: 'Term and aliases for new term',
   });
+  await expect(compactInput).toHaveValue('watson');
+  await compactDialog.getByRole('form', { name: 'Edit term: new term' })
+    .getByRole('button', { name: 'Cancel', exact: true }).click();
+  await compactDialog.getByRole('button', { name: '+ Add term', exact: true }).click();
+  await expect(compactInput).toHaveValue('');
   await compactInput.fill('watson');
   await page.setViewportSize({ width: 844, height: 390 });
 
@@ -306,6 +312,21 @@ test('an open new-term row keeps one modal draft across width classes', async ({
       && event.t === 'query',
   )).toEqual([]);
   await page.goBack();
+  await expect(compactDialog).toHaveCount(0);
+
+  await page.locator('#term-manage').click();
+  const reopenedManager = page.getByRole('dialog', { name: 'Manage terms' });
+  await reopenedManager.getByRole('button', { name: '+ Add term', exact: true }).click();
+  const freshInput = reopenedManager.getByRole('textbox', {
+    name: 'Term and aliases for new term',
+  });
+  await expect(freshInput).toHaveValue('');
+  await freshInput.fill('discard this draft');
+  await reopenedManager.getByRole('form', { name: 'Edit term: new term' })
+    .getByRole('button', { name: 'Cancel', exact: true }).click();
+  await reopenedManager.getByRole('button', { name: '+ Add term', exact: true }).click();
+  await expect(freshInput).toHaveValue('');
+  await reopenedManager.getByRole('button', { name: 'Done', exact: true }).click();
 });
 
 test('an expanded term row keeps its draft and focus across width classes', async ({ page }) => {
@@ -365,12 +386,10 @@ test('coarse input sizing does not inflate dense matches rows', async ({ browser
   expect(await page.evaluate(() => matchMedia('(pointer: coarse)').matches)).toBe(true);
 
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
-  const quickAdd = page.getByRole('textbox', { name: 'Term and aliases for new term' });
+  const quickAdd = page.getByRole('textbox', { name: 'New term' });
   const quickBox = await quickAdd.boundingBox();
   expect(quickBox?.height).toBeGreaterThanOrEqual(44);
   await page.getByRole('button', { name: 'Cancel' }).click();
-  await page.getByRole('dialog', { name: 'Manage terms' })
-    .getByRole('button', { name: 'Done', exact: true }).click();
 
   await gotoPlace(page, 'matches');
   const node = page.getByRole('grid', { name: 'Matches' }).getByRole('button').first();

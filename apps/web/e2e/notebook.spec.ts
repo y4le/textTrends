@@ -405,8 +405,6 @@ test('visibility is global across Matches and zero-hit is a visible ready state'
   await quickAdd.focus();
   await page.keyboard.type('keyterm');
   await page.keyboard.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' })
-    .getByRole('button', { name: 'Done', exact: true }).click();
   await expect(terms.locator('.term-bucket-summary').filter({ hasText: /keyterm\s*\d+/ }))
     .toBeVisible();
 });

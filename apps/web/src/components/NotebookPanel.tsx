@@ -165,11 +165,13 @@ function StylePicker({
 function TermEditor({
   group,
   initialStyle,
+  initialAliases = '',
   onSaved,
   onCancel,
 }: {
   readonly group: NotebookGroupV1 | null;
   readonly initialStyle: SeriesStyleV1;
+  readonly initialAliases?: string;
   readonly onSaved: (groupId: string) => void;
   readonly onCancel: () => void;
 }) {
@@ -184,7 +186,7 @@ function TermEditor({
   const [draft, setDraft] = useState<TermDraft>(() => group
     ? draftOf(group)
     : {
-        aliases: '',
+        aliases: initialAliases,
         exactMatch: false,
         countOverlaps: false,
         style: initialStyle,
@@ -296,11 +298,13 @@ export function NotebookPanel({
   rows,
   initialGroupId,
   createOnOpen,
+  initialNewTermAliases,
   onDone,
 }: {
   readonly rows: readonly NotebookRowVM[];
   readonly initialGroupId?: string;
   readonly createOnOpen?: boolean;
+  readonly initialNewTermAliases?: string;
   readonly onDone: () => void;
 }) {
   const notebook = useApp((state) => state.notebook);
@@ -698,6 +702,9 @@ export function NotebookPanel({
             <TermEditor
               group={null}
               initialStyle={newStyle}
+              {...(initialNewTermAliases !== undefined
+                ? { initialAliases: initialNewTermAliases }
+                : {})}
               onSaved={(groupId) => closeEditorAndFocus(`term-summary-${groupId}`)}
               onCancel={() => {
                 clearNotebookError();
