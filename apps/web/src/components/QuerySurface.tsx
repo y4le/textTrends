@@ -9,6 +9,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { createPortal } from 'react-dom';
+import { DockTakeover } from './DockTakeover.tsx';
 import { FormLayer } from './FormLayer.tsx';
 import { groupTitle } from '../lib/notebook.ts';
 import { NotebookPanel } from './NotebookPanel.tsx';
@@ -25,6 +26,7 @@ import { rowDetailSurface, rowDetailWrite } from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
+import { usePresentation } from './PresentationProvider.tsx';
 
 const ADD_TERM_LABEL = 'Add term';
 const TERM_LONG_PRESS_MS = 500;
@@ -372,6 +374,7 @@ function TermActionMenu({
 }
 
 export function QuerySurface() {
+  const compact = usePresentation().width === 'compact';
   const place = useApp((state) => state.place);
   const notebook = useApp((state) => state.notebook);
   const activeGroupIds = useApp((state) => state.activeGroupIds);
@@ -453,6 +456,7 @@ export function QuerySurface() {
   const openInlineAdd = (returnFocusTo: string) => {
     setOpenMenuId(null);
     clearNotebookError();
+    setTermKeyboardStatus('');
     inlineReturnFocus.current = returnFocusTo;
     setInlineTerm('');
     setInlineAddOpen(true);
@@ -506,6 +510,33 @@ export function QuerySurface() {
     }
     closeTermMenu(true);
   };
+  const submitInlineAdd = () => {
+    const existingIds = new Set(notebook.groups.map((group) => group.id));
+    const groupId = addTerm({ aliases: [inlineTerm] });
+    if (groupId === null) {
+      requestAnimationFrame(() => document.getElementById('term-inline-add-input')?.focus({
+        preventScroll: true,
+      }));
+      return;
+    }
+    const group = useApp.getState().notebook.groups.find((candidate) => candidate.id === groupId);
+    const name = group ? groupTitle(group) : inlineTerm.trim();
+    setTermKeyboardStatus(existingIds.has(groupId)
+      ? `${name} is already in Terms.`
+      : `Added ${name}.`);
+    closeInlineAdd(false);
+    focusTerm(groupId);
+  };
+  const openInlineManager = () => {
+    setManagerNewTermDraft(inlineTerm);
+    setInlineAddOpen(false);
+    setInlineTerm('');
+    clearNotebookError();
+    writeLayer(
+      { surface: 'query-editor', mode: 'manage', create: true },
+      inlineReturnFocus.current,
+    );
+  };
 
   useEffect(() => {
     if (!inlineAddOpen) return undefined;
@@ -515,7 +546,7 @@ export function QuerySurface() {
       input?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [inlineAddOpen]);
+  }, [compact, inlineAddOpen]);
 
   useEffect(() => {
     if (target?.mode !== 'manage' || managerNewTermDraft === '') return;
@@ -574,11 +605,67 @@ export function QuerySurface() {
       <aside
         className="query-region term-bar"
         aria-label="Terms"
+        data-takeover={compact && inlineAddOpen ? 'add' : undefined}
         data-uses-query-encoding={view.usesQueryEncoding}
       >
-        <span className="visually-hidden" role="status" aria-live="polite" aria-atomic="true">
+        <span
+          id="term-rail-status"
+          className="visually-hidden"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
           {termKeyboardStatus}
         </span>
+        <span
+          id="term-rail-error"
+          className="visually-hidden"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+        >
+          {inlineAddOpen ? notebookError : null}
+        </span>
+        {compact && inlineAddOpen && (
+          <DockTakeover
+            mode="add"
+            formLabel="Add a term inline"
+            label="New term"
+            input={{
+              id: 'term-inline-add-input',
+              type: 'text',
+              value: inlineTerm,
+              placeholder: 'new term',
+              enterKeyHint: 'done',
+              describedBy: notebookError ? 'term-rail-error' : 'term-rail-status',
+              onChange: (value) => {
+                setInlineTerm(value);
+                if (notebookError !== null) clearNotebookError();
+              },
+            }}
+            status={notebookError}
+            onSubmit={submitInlineAdd}
+            onDismiss={() => closeInlineAdd()}
+            controls={(
+              <>
+                <button type="submit" disabled={inlineTerm.trim() === ''}>Add</button>
+                <button type="button" onClick={openInlineManager}>
+                  More options
+                </button>
+                <button
+                  type="button"
+                  className="dock-takeover-icon-action"
+                  aria-label="Cancel"
+                  onClick={() => closeInlineAdd()}
+                >
+                  <span aria-hidden="true">×</span>
+                </button>
+              </>
+            )}
+          />
+        )}
+        {(!compact || !inlineAddOpen) && (
+          <>
         <strong className="term-bar-label">Terms</strong>
         <div
           className="term-bucket-frame"
@@ -623,30 +710,26 @@ export function QuerySurface() {
               aria-label="Add a term inline"
               onSubmit={(event) => {
                 event.preventDefault();
-                const existingIds = new Set(notebook.groups.map((group) => group.id));
-                const groupId = addTerm({ aliases: [inlineTerm] });
-                if (groupId === null) return;
-                const group = useApp.getState().notebook.groups.find((candidate) => candidate.id === groupId);
-                const name = group ? groupTitle(group) : inlineTerm.trim();
-                setTermKeyboardStatus(existingIds.has(groupId)
-                  ? `${name} is already in Terms.`
-                  : `Added ${name}.`);
-                closeInlineAdd(false);
-                focusTerm(groupId);
+                submitInlineAdd();
               }}
             >
               <label className="visually-hidden" htmlFor="term-inline-add-input">New term</label>
               <input
                 id="term-inline-add-input"
                 value={inlineTerm}
-                onChange={(event) => setInlineTerm(event.currentTarget.value)}
+                onChange={(event) => {
+                  setInlineTerm(event.currentTarget.value);
+                  if (notebookError !== null) clearNotebookError();
+                }}
                 onKeyDown={(event) => {
-                  if (event.key !== 'Escape') return;
+                  if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
                   event.preventDefault();
+                  event.stopPropagation();
                   closeInlineAdd();
                 }}
-                aria-describedby={notebookError ? 'term-inline-add-error' : undefined}
+                aria-describedby={notebookError ? 'term-rail-error' : 'term-rail-status'}
                 placeholder="new term"
+                enterKeyHint="done"
                 autoCapitalize="none"
                 autoCorrect="off"
                 spellCheck={false}
@@ -654,25 +737,11 @@ export function QuerySurface() {
               <button type="submit" disabled={inlineTerm.trim() === ''}>Add</button>
               <button
                 type="button"
-                onClick={() => {
-                  setManagerNewTermDraft(inlineTerm);
-                  setInlineAddOpen(false);
-                  setInlineTerm('');
-                  clearNotebookError();
-                  writeLayer(
-                    { surface: 'query-editor', mode: 'manage', create: true },
-                    inlineReturnFocus.current,
-                  );
-                }}
+                onClick={openInlineManager}
               >
                 More options
               </button>
               <button type="button" onClick={() => closeInlineAdd()}>Cancel</button>
-              {notebookError && (
-                <span id="term-inline-add-error" className="visually-hidden" role="alert">
-                  {notebookError}
-                </span>
-              )}
               </form>
             )}
           </div>
@@ -713,6 +782,8 @@ export function QuerySurface() {
             </svg>
           </button>
         </div>
+          </>
+        )}
         {removedGroups.length > 0 && (
           <div className="term-undo" role="status">
             Removed {groupTitle(removedGroups.at(-1)!.group)}.

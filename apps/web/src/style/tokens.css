@@ -3980,6 +3980,133 @@ canvas {
   cursor: default;
 }
 
+.term-bar[data-takeover] {
+  container-name: dock-takeover-rail;
+  container-type: inline-size;
+  display: block;
+  overflow: visible;
+}
+
+.dock-takeover {
+  --dock-takeover-field-block-size: max(44px, var(--terms-rail-block-size));
+  --dock-takeover-controls-block-size: 44px;
+  position: relative;
+  display: block;
+  min-inline-size: 0;
+  block-size: 100%;
+}
+
+.dock-takeover-upper {
+  position: absolute;
+  z-index: 5;
+  inset-inline: 0;
+  inset-block-end: var(--dock-takeover-field-block-size);
+  display: flex;
+  min-inline-size: 0;
+  block-size: var(--dock-takeover-controls-block-size);
+  align-items: stretch;
+  gap: var(--space-1);
+  padding-inline: var(--space-1);
+  background: var(--bg);
+  box-shadow: inset 0 0 0 1px var(--rule-strong);
+  white-space: nowrap;
+}
+
+.dock-takeover-label {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-self: center;
+}
+
+.term-bar[data-takeover] .term-undo {
+  display: none;
+}
+
+.dock-takeover-status {
+  min-inline-size: 0;
+  flex: 1 1 auto;
+  align-self: center;
+  overflow: hidden;
+  color: var(--accent-text);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.dock-takeover-controls {
+  display: flex;
+  min-inline-size: 0;
+  flex: 0 0 auto;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.dock-takeover-controls button {
+  min-inline-size: 44px;
+  min-block-size: 44px;
+  flex: 0 0 auto;
+  border: 0;
+  border-inline-start: 1px solid var(--rule);
+  padding-inline: var(--space-2);
+  background: var(--bg);
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.dock-takeover-controls button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+}
+
+.dock-takeover-controls .dock-takeover-icon-action {
+  display: inline-grid;
+  padding-inline: 0;
+  font-size: var(--text-lg);
+  line-height: 1;
+  place-items: center;
+}
+
+.dock-takeover-field {
+  position: absolute;
+  inset: 0;
+  min-inline-size: 0;
+}
+
+.dock-takeover-field input {
+  position: absolute;
+  z-index: 4;
+  inset-inline: 0;
+  inset-block-end: 0;
+  inline-size: 100%;
+  min-inline-size: 0;
+  block-size: var(--dock-takeover-field-block-size);
+  border: 1px solid var(--rule-strong);
+  border-radius: 0;
+  padding-inline: var(--space-2);
+  background: var(--bg);
+  color: var(--fg);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: 16px;
+}
+
+.dock-takeover-controls button:focus-visible,
+.dock-takeover-field input:focus-visible {
+  outline-offset: -3px;
+}
+
+@container dock-takeover-rail (max-width: 319.98px) {
+  .dock-takeover-label {
+    position: absolute;
+    inline-size: 1px;
+    block-size: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+  }
+}
+
 .term-action-menu {
   position: fixed;
   z-index: 75;
@@ -6358,6 +6485,12 @@ html[data-footer-resizing='true'] * {
 .workbench-dock[data-mode='reader'][data-terms-dropped='true'] > .query-region {
   visibility: hidden;
   pointer-events: none;
+}
+
+.workbench-dock[data-mode='reader'] > .query-region.term-bar[data-takeover] {
+  visibility: visible;
+  overflow: visible;
+  pointer-events: auto;
 }
 
 @media (max-width: 599.98px) {

@@ -331,17 +331,34 @@ test('the compact dock stays one flush row, pins its actions, and opens Undo upw
   await addAction.click();
   const quickAdd = terms.getByRole('form', { name: 'Add a term inline' });
   const quickInput = quickAdd.getByRole('textbox', { name: 'New term' });
-  const [openPortBox, quickAddBox] = await Promise.all([
-    port.boundingBox(),
-    quickAdd.boundingBox(),
+  const upper = quickAdd.locator('.dock-takeover-upper');
+  const [openDockBox, openTermsBox, inputBox, upperBox] = await Promise.all([
+    dock.boundingBox(),
+    terms.boundingBox(),
+    quickInput.boundingBox(),
+    upper.boundingBox(),
   ]);
-  if (!openPortBox || !quickAddBox) throw new Error('quick-add geometry is unavailable');
-  expect(quickAddBox.y).toBeGreaterThanOrEqual(openPortBox.y - 1);
-  expect(quickAddBox.y + quickAddBox.height)
-    .toBeLessThanOrEqual(openPortBox.y + openPortBox.height + 1);
-  expect(await port.evaluate((node) => node.scrollHeight)).toBe(await port.evaluate(
+  if (!openDockBox || !openTermsBox || !inputBox || !upperBox) {
+    throw new Error('quick-add takeover geometry is unavailable');
+  }
+  expect(openDockBox).toEqual(dockBox);
+  expect(openTermsBox).toEqual(termsBox);
+  await expect(port).toHaveCount(0);
+  expect(inputBox.width).toBeGreaterThanOrEqual(openTermsBox.width * 0.5);
+  expect(Math.abs(inputBox.y + inputBox.height - (openTermsBox.y + openTermsBox.height)))
+    .toBeLessThanOrEqual(1);
+  expect(Math.abs(upperBox.y + upperBox.height - inputBox.y)).toBeLessThanOrEqual(1);
+  expect(await upper.evaluate((node) => node.scrollHeight)).toBe(await upper.evaluate(
     (node) => node.clientHeight,
   ));
+  expect(await upper.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await expect(quickAdd.locator('.dock-takeover-label')).toBeVisible();
+  await expect(quickInput).toHaveCSS('font-size', '16px');
+  for (const control of await quickAdd.getByRole('button').all()) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
   await quickInput.fill('focus check');
   await page.keyboard.press('Tab');
   const inlineAddAction = quickAdd.getByRole('button', { name: 'Add', exact: true });
@@ -371,8 +388,79 @@ test('the compact dock stays one flush row, pins its actions, and opens Undo upw
   if (!settledTermsBox || !undoBox) throw new Error('Undo geometry is unavailable');
   expect(undoBox.y + undoBox.height).toBeLessThanOrEqual(settledTermsBox.y - 3);
   expect(undoBox.y).toBeGreaterThanOrEqual(0);
+  await addAction.click();
+  await expect(undo).toBeHidden();
+  await expect(quickAdd).toBeVisible();
+  await quickAdd.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(undo).toBeVisible();
   await undo.getByRole('button', { name: 'Undo', exact: true }).click();
 
+  const overflow = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(overflow.root).toBeLessThanOrEqual(overflow.client);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+});
+
+test('the 320px Add takeover keeps dock metrics and composition focus stable', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const dock = page.locator('.workbench-dock');
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const addAction = terms.getByRole('button', { name: 'Add term', exact: true });
+  const [closedDockBox, closedTermsBox] = await Promise.all([
+    dock.boundingBox(),
+    terms.boundingBox(),
+  ]);
+  if (!closedDockBox || !closedTermsBox) throw new Error('closed dock geometry is unavailable');
+
+  await addAction.click();
+  const takeover = terms.getByRole('form', { name: 'Add a term inline' });
+  const input = takeover.getByRole('textbox', { name: 'New term' });
+  const upper = takeover.locator('.dock-takeover-upper');
+  const label = takeover.locator('.dock-takeover-label');
+  const [openDockBox, openTermsBox, inputBox] = await Promise.all([
+    dock.boundingBox(),
+    terms.boundingBox(),
+    input.boundingBox(),
+  ]);
+  if (!openDockBox || !openTermsBox || !inputBox) {
+    throw new Error('open dock geometry is unavailable');
+  }
+  expect(openDockBox).toEqual(closedDockBox);
+  expect(openTermsBox).toEqual(closedTermsBox);
+  expect(inputBox.width).toBeGreaterThanOrEqual(openTermsBox.width * 0.5);
+  await expect(input).toHaveCSS('font-size', '16px');
+  await expect(input).toHaveAttribute('enterkeyhint', 'done');
+  expect(await upper.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
+  expect(await upper.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await expect(label).toHaveCSS('position', 'absolute');
+  await expect(label).toHaveCSS('clip-path', 'inset(50%)');
+  for (const control of await takeover.getByRole('button').all()) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await input.fill('*');
+  await takeover.getByRole('button', { name: 'Add', exact: true }).click();
+  await expect(takeover.locator('.dock-takeover-status')).toContainText('use one *');
+  await expect(terms.getByRole('alert')).toContainText('use one *');
+  await expect(input).toHaveValue('*');
+  await expect(input).toBeFocused();
+  await input.fill('composition check');
+  await expect(takeover.locator('.dock-takeover-status')).toBeEmpty();
+
+  await input.dispatchEvent('keydown', { key: 'Escape', isComposing: true });
+  await expect(takeover).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.press('Escape');
+  await expect(takeover).toHaveCount(0);
+  await expect(addAction).toBeFocused();
   const overflow = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,
     root: document.documentElement.scrollWidth,
