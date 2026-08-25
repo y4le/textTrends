@@ -21,6 +21,101 @@ import {
 } from '../src/lib/trend-geometry.ts';
 
 describe('eager footer metrics', () => {
+  it('scales dock chrome from the density authority without scaling data marks', () => {
+    const compact = dockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'compact',
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    const standard = dockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'standard',
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    const comfortable = dockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'comfortable',
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    expect([compact.railBlockSize, standard.railBlockSize, comfortable.railBlockSize])
+      .toEqual([50, 54, 58]);
+    expect([compact.termTargetBlockSize, standard.termTargetBlockSize, comfortable.termTargetBlockSize])
+      .toEqual([36, 40, 44]);
+    expect(standard.footerGeometry).toBe(compact.footerGeometry);
+    expect(comfortable.footerGeometry).toBe(compact.footerGeometry);
+
+    const reader = readerDockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'comfortable',
+      trackCount: 3,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 844,
+      availableBlockSize: 700,
+    });
+    expect(reader.termTargetBlockSize).toBe(32);
+    expect(reader.railBlockSize).toBe(39);
+  });
+
+  it('drops Reader Terms as a complete lane before barcode at every density', () => {
+    for (const density of ['compact', 'standard', 'comfortable'] as const) {
+      const base = readerDockSizing({
+        width: 'compact',
+        coarse: true,
+        density,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      const withoutTerms = readerDockSizing({
+        width: 'compact',
+        coarse: true,
+        density,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: base.blockSize - 32,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      });
+      expect(withoutTerms.railBlockSize).toBe(0);
+      expect(withoutTerms.showBarcode).toBe(true);
+
+      const graphOnly = Array.from(
+        { length: withoutTerms.blockSize - withoutTerms.minBlockSize },
+        (_, index) => withoutTerms.blockSize - index - 1,
+      ).map((targetBlockSize) => readerDockSizing({
+        width: 'compact',
+        coarse: true,
+        density,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize,
+        viewportBlockSize: 844,
+        availableBlockSize: 700,
+      })).find((sizing) =>
+        !sizing.showBarcode && sizing.footerGeometry.seriesHeight > 2);
+      expect(graphOnly).toBeDefined();
+    }
+  });
+
   it('preserves every width, pointer, and track-count reservation', () => {
     const expected = {
       'compact-fine': [69, 78, 90, 102],

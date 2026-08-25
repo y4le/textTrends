@@ -9,8 +9,8 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 2 | `refactor(labels): name controls in words` | done · `3d1b626` | `req_review_diff_bbcd1cd9ee251d93` · approved | Visible language for layout, Compare actions, and Matches columns. |
 | 3 | `feat(shell): add a visible Find control` | done · `ed64af2` | `req_review_diff_499fd283694446cb` · approved | Pointer-reachable Find at phone width. |
 | 4 | `feat(settings): unify the settings pane` | done · `e5c0e22` | `req_review_diff_8038b7c596c50cff` · approved | Display preferences, theme, shell and Reader entrance. |
-| 5 | `feat(settings): host place settings in one pane` | in progress | pending | Contextual landing and Compare draft ownership; close discards consistently per `req_consult_84690c5cd85eafca`. |
-| 6 | `feat(display): add the density preference` | planned | pending | Three stops; current pixels remain Compact. |
+| 5 | `feat(settings): host place settings in one pane` | done · `2afbdda` | `req_review_diff_30c7ab4620bdfda3` · approved | Contextual landing and Compare draft ownership; close discards consistently per `req_consult_84690c5cd85eafca`. |
+| 6 | `feat(display): add the density preference` | in progress | pending | Three stops; current pixels remain Compact. |
 | 7 | `feat(display): scale data row pitch` | planned | pending | One metrics authority and semantic scroll anchors. |
 | 8 | `feat(terms): make the compact rail legible` | planned | pending | Fixed rail and identifiable overflow treatment. |
 | 9 | `feat(compare): favour identity in compact rows` | planned | pending | Preserve complete term identity before statistics. |

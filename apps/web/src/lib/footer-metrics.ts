@@ -1,5 +1,10 @@
 import type { WidthClass } from './presentation.ts';
 import type { TrendGeometry } from './trend-compact.ts';
+import {
+  DENSITY_METRICS,
+  type Density,
+  type DensityMetrics,
+} from './display-preference.ts';
 
 /** Shared barcode-band arithmetic. Keeping this in the footer metrics leaf
  * lets the eager dock reserve the lazy reading region without importing the
@@ -27,6 +32,9 @@ export interface FooterGeometry extends TrendGeometry {
 export interface DockSizingInput {
   readonly width: WidthClass;
   readonly coarse: boolean;
+  /** Omitted only by legacy geometry callers that intentionally assert the
+   * pre-preference Compact pixels. Runtime callers always provide a stop. */
+  readonly density?: Density;
   readonly trackCount: number;
   /** Reader's transient Find composer needs a full coarse pointer target;
    * the ordinary Terms rail deliberately uses its squished target. */
@@ -71,6 +79,7 @@ export const FOOTER_DEFAULT_MAX_VIEWPORT_RATIO = 1 / 3;
 export const DOCK_TERM_TARGET_MIN_HEIGHT = 24;
 const DOCK_RAIL_PAD_BASE = 3;
 const DOCK_RAIL_PAD_MIN = 2;
+const READER_RAIL_CHROME_RESIDUE = 1 + 2 * DOCK_RAIL_PAD_MIN + 2;
 const FOOTER_PAD_MIN = 1;
 const FOOTER_LANE_GAP_MIN = 1;
 
@@ -204,12 +213,28 @@ function finiteTracks(trackCount: number): number {
   return Number.isFinite(trackCount) ? Math.max(0, Math.floor(trackCount)) : 0;
 }
 
-function railBaseFor(width: WidthClass, coarse: boolean): number {
-  return width === 'compact' || coarse ? 50 : 48;
+function dockMetricsFor(density: Density | undefined): DensityMetrics['dock'] {
+  return DENSITY_METRICS[density ?? 'compact'].dock;
 }
 
-function termTargetBaseFor(width: WidthClass, coarse: boolean): number {
-  return width === 'compact' || coarse ? 36 : 34;
+function railBaseFor(
+  width: WidthClass,
+  coarse: boolean,
+  metrics: DensityMetrics['dock'],
+): number {
+  return width === 'compact' || coarse
+    ? metrics.compactRailBlockSize
+    : metrics.railBlockSize;
+}
+
+function termTargetBaseFor(
+  width: WidthClass,
+  coarse: boolean,
+  metrics: DensityMetrics['dock'],
+): number {
+  return width === 'compact' || coarse
+    ? metrics.compactTermTargetBlockSize
+    : metrics.termTargetBlockSize;
 }
 
 function passageFloorFor(width: WidthClass, coarse: boolean): number {
@@ -244,8 +269,9 @@ function withStrip(
  * residual, so every accepted pixel belongs to exactly one lane. */
 export function dockSizing(input: DockSizingInput): DockSizing {
   const tracks = finiteTracks(input.trackCount);
-  const railBase = railBaseFor(input.width, input.coarse);
-  const termTargetBase = termTargetBaseFor(input.width, input.coarse);
+  const dockMetrics = dockMetricsFor(input.density);
+  const railBase = railBaseFor(input.width, input.coarse, dockMetrics);
+  const termTargetBase = termTargetBaseFor(input.width, input.coarse, dockMetrics);
   const available = Number.isFinite(input.availableBlockSize)
     ? Math.max(0, Math.floor(input.availableBlockSize))
     : 0;
@@ -456,8 +482,9 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
     ? Math.max(0, Math.floor(input.availableBlockSize))
     : 0;
   const source = footerGeometryFor(input.width, input.coarse);
-  const termsRailSize = 1 + 2 * DOCK_RAIL_PAD_MIN + DOCK_TERM_TARGET_MIN_HEIGHT + 2;
-  const findTargetSize = input.coarse ? 44 : DOCK_TERM_TARGET_MIN_HEIGHT;
+  const readerTermTarget = dockMetricsFor(input.density).readerTermTargetBlockSize;
+  const termsRailSize = 1 + 2 * DOCK_RAIL_PAD_MIN + readerTermTarget + 2;
+  const findTargetSize = input.coarse ? Math.max(44, readerTermTarget) : readerTermTarget;
   const railSize = input.readerRail === 'find'
     ? 1 + findTargetSize
     : termsRailSize;
@@ -503,7 +530,7 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
       railPadBlock: DOCK_RAIL_PAD_MIN,
       termTargetBlockSize: input.readerRail === 'find'
         ? findTargetSize
-        : DOCK_TERM_TARGET_MIN_HEIGHT,
+        : readerTermTarget,
       footerBlockSize: footerBlockSize(footerGeometry, tracks, {
         showPassage: false,
         showStatus: false,
@@ -516,7 +543,13 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
   }
 
   const deficit = baseBlockSize - blockSize;
-  const railBlockSize = Math.max(0, railSize - deficit);
+  const railRemainder = Math.max(0, railSize - deficit);
+  // Once only border and padding residue remains, drop the Reader's Terms
+  // lane as a unit and give those pixels back to the analytical footer. This
+  // preserves Terms → barcode → graph collapse ordering at every density.
+  const railBlockSize = railRemainder <= READER_RAIL_CHROME_RESIDUE
+    ? 0
+    : railRemainder;
   const footerTarget = blockSize - railBlockSize;
   const stripTarget = Math.max(2, footerTarget - 1);
   const remainingBarcodeExtent = Math.max(
@@ -552,7 +585,7 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
     railPadBlock: DOCK_RAIL_PAD_MIN,
     termTargetBlockSize: input.readerRail === 'find'
       ? findTargetSize
-      : DOCK_TERM_TARGET_MIN_HEIGHT,
+      : readerTermTarget,
     footerBlockSize: footerSize,
     footerGeometry,
     showStatus: false,

@@ -228,7 +228,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(36);
+    expect(box?.height).toBe(40);
     expect(box?.x).toBeGreaterThanOrEqual(0);
     expect(box ? box.x + box.width : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(390);
   }
@@ -268,5 +268,5 @@ test('the coarse regular-width rail keeps compact-height, wide actions', async (
   await expect(edit).toBeVisible();
   const editBox = await edit.boundingBox();
   expect(editBox?.width).toBeGreaterThanOrEqual(44);
-  expect(editBox?.height).toBe(36);
+  expect(editBox?.height).toBe(40);
 });

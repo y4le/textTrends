@@ -14,7 +14,7 @@ import { dockSizing, readerDockSizing } from '../lib/footer-metrics.ts';
 import { findScope } from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
-import { usePresentation } from './PresentationProvider.tsx';
+import { useDisplayPreference, usePresentation } from './PresentationProvider.tsx';
 import { FindBar } from './FindBar.tsx';
 
 const QuerySurface = lazy(() =>
@@ -43,6 +43,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   readonly mode?: 'workbench' | 'reader';
 }) {
   const presentation = usePresentation();
+  const displayPreference = useDisplayPreference();
   const seriesCount = useApp((state) => state.series.length);
   const interaction = useApp((state) => state.interaction);
   const scopedFind = findScope(interaction);
@@ -66,6 +67,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   const sizingInput = {
     width: presentation.width,
     coarse: presentation.coarseAvailable,
+    density: displayPreference.density,
     trackCount: displayedTrackCount,
     readerRail: scopedFind !== null ? 'find' : 'terms',
     footerPresent,

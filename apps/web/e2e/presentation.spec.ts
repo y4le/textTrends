@@ -245,7 +245,7 @@ test('compact query controls keep wide targets in the shortened terms row', asyn
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(36);
+    expect(box?.height).toBe(40);
   }
 });
 

@@ -135,7 +135,7 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
   ]) {
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(36);
+    expect(box?.height).toBe(40);
   }
   const overflow = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

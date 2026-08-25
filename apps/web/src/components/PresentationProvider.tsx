@@ -22,6 +22,7 @@ import {
   getServerDisplayPreference,
   subscribeDisplayPreference,
 } from '../lib/display-store.ts';
+import type { DisplayPreference } from '../lib/display-preference.ts';
 
 const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
@@ -67,11 +68,7 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
   const anyCoarse = useMediaQuery(ANY_COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
   const darkScheme = useMediaQuery(DARK_SCHEME_QUERY, true);
-  const displayPreference = useSyncExternalStore(
-    subscribeDisplayPreference,
-    getDisplayPreference,
-    getServerDisplayPreference,
-  );
+  const displayPreference = useDisplayPreference();
 
   useEffect(() => {
     const visual = window.visualViewport;
@@ -134,4 +131,12 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
 
 export function usePresentation(): Presentation {
   return useContext(PresentationContext);
+}
+
+export function useDisplayPreference(): DisplayPreference {
+  return useSyncExternalStore(
+    subscribeDisplayPreference,
+    getDisplayPreference,
+    getServerDisplayPreference,
+  );
 }

@@ -1,5 +1,6 @@
 import {
   DEFAULT_DISPLAY_PREFERENCE,
+  DENSITY_METRICS,
   type DisplayPreference,
 } from './display-preference.ts';
 import {
@@ -14,13 +15,18 @@ const storage = typeof window === 'undefined' ? null : browserDisplayLocalStorag
 let preference = loadDisplayPreference(storage) ?? DEFAULT_DISPLAY_PREFERENCE;
 const listeners = new Set<DisplayListener>();
 
-function applyTheme(next: DisplayPreference): void {
+function applyDisplayPreference(next: DisplayPreference): void {
   if (typeof document === 'undefined') return;
-  if (next.theme === 'system') document.documentElement.removeAttribute('data-theme');
-  else document.documentElement.dataset.theme = next.theme;
+  const root = document.documentElement;
+  if (next.theme === 'system') root.removeAttribute('data-theme');
+  else root.dataset.theme = next.theme;
+  root.dataset.density = next.density;
+  for (const [property, value] of Object.entries(DENSITY_METRICS[next.density].cssVars)) {
+    root.style.setProperty(property, value);
+  }
 }
 
-applyTheme(preference);
+applyDisplayPreference(preference);
 
 export function getDisplayPreference(): DisplayPreference {
   return preference;
@@ -38,7 +44,7 @@ export function subscribeDisplayPreference(listener: DisplayListener): () => voi
 export function setDisplayPreference(next: DisplayPreference): void {
   if (next.density === preference.density && next.theme === preference.theme) return;
   preference = Object.freeze({ ...next });
-  applyTheme(preference);
+  applyDisplayPreference(preference);
   saveDisplayPreference(storage, preference);
   for (const listener of listeners) listener();
 }

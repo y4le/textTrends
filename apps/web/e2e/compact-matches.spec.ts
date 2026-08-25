@@ -264,6 +264,6 @@ test('short landscape Matches leaves a usable centered results viewport', async 
   expect(geometry.appHeaderHeight).toBeLessThanOrEqual(33);
   expect(geometry.gridHeaderHeight).toBeGreaterThanOrEqual(32);
   expect(geometry.gridHeaderHeight).toBeLessThanOrEqual(33);
-  expect(geometry.termsRailHeight).toBe(50);
-  expect(geometry.termTargetBlockSize).toBe(36);
+  expect(geometry.termsRailHeight).toBe(54);
+  expect(geometry.termTargetBlockSize).toBe(40);
 });

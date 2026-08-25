@@ -218,11 +218,21 @@ test('compact Reader is a Back/Escape layer and restores its invoking row', asyn
   await expect(drawer).toBeVisible();
   await expect(lens).toHaveCount(0);
   const settings = drawer.getByRole('button', { name: 'settings', exact: true });
+  const readerPage = drawer.locator('[data-reader-page]');
+  const startBeforeDensity = (await readerPage.getAttribute('data-reader-page'))?.split(':')[0];
+  const proseSizeBeforeDensity = await drawer.locator('.source-text').evaluate((element) =>
+    getComputedStyle(element).fontSize);
   await settings.click();
   const settingsPane = page.getByRole('dialog', { name: 'Settings', exact: true });
   await expect(settingsPane.getByText(/Reader presents authenticated plain text/)).toBeVisible();
+  await settingsPane.getByRole('slider', { name: 'Size and spacing' }).fill('2');
+  await expect(page.locator('html')).toHaveAttribute('data-density', 'comfortable');
   await page.keyboard.press('Escape');
   await expect(settings).toBeFocused();
+  await expect.poll(async () => (await readerPage.getAttribute('data-reader-page'))?.split(':')[0])
+    .toBe(startBeforeDensity);
+  expect(await drawer.locator('.source-text').evaluate((element) =>
+    getComputedStyle(element).fontSize)).toBe(proseSizeBeforeDensity);
   await page.goBack();
   await expect(drawer).toHaveCount(0);
   const row = page

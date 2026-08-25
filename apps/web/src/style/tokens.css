@@ -16,6 +16,10 @@
   --text-sm: 0.8125rem;
   --text-md: 0.9375rem;
   --text-lg: 1.25rem;
+  --density-chrome-target-block-size: 44px;
+  --density-data-header-block-size: 36px;
+  --density-kwic-header-block-size: 32px;
+  --density-compact-data-header-block-size: 44px;
 
   /* Dark default: warm near-black with warm paper text */
   --bg: #16140f;
@@ -59,10 +63,14 @@
    * heights; ordinary portrait and desktop viewports retain authored sizes. */
   --page-shell-pad-block-start: min(var(--space-3), 4dvh);
   --page-shell-pad-block: min(var(--space-4), 4dvh);
-  --chrome-target-block-size: clamp(32px, 8dvh, 44px);
-  --data-header-block-size: clamp(28px, 8dvh, 36px);
-  --kwic-header-block-size: clamp(28px, 8dvh, 32px);
-  --compact-data-header-block-size: clamp(32px, 8dvh, 44px);
+  --chrome-target-block-size:
+    max(32px, min(8dvh, var(--density-chrome-target-block-size)));
+  --data-header-block-size:
+    max(28px, min(8dvh, var(--density-data-header-block-size)));
+  --kwic-header-block-size:
+    max(28px, min(8dvh, var(--density-kwic-header-block-size)));
+  --compact-data-header-block-size:
+    max(32px, min(8dvh, var(--density-compact-data-header-block-size)));
   --tab-header-space-2: min(var(--space-2), 1.5dvh);
   --tab-header-space-3: min(var(--space-3), 3dvh);
 
@@ -3915,6 +3923,40 @@ canvas {
   padding: var(--space-3);
   border: 1px solid var(--rule);
   gap: var(--space-2);
+}
+
+.density-setting-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.density-settings output {
+  color: var(--accent-text);
+  font-weight: 600;
+}
+
+.density-settings input[type='range'] {
+  inline-size: 100%;
+  min-block-size: 44px;
+  margin: 0;
+  accent-color: var(--accent);
+}
+
+.density-stop-labels {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.density-stop-labels span:nth-child(2) {
+  text-align: center;
+}
+
+.density-stop-labels span:last-child {
+  text-align: end;
 }
 
 .display-settings fieldset > p,
