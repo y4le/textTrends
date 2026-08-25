@@ -17,6 +17,7 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 10 | `feat(inputs): foreground import and collapse acquisition` | done · `4be1a6e` | `req_review_diff_c193b1288dfaa91b` · approved | Empty/corpus states, trust line, asymmetric verbs, save-only library path, and coarse target floors. |
 | 11 | `feat(matches): show corpus-edge context bands` | done · `519a201` | `req_review_diff_001783d0ebcabdfc` · approved | Centred geometry is frozen; painted edge bands have equivalent accessible descriptions. |
 | 12 | `feat(filters): filter literally by default` | done · `74f6138` | `req_review_diff_9bf54142896ed542` · approved | Literal/regex contract, exact migration, compact fit, and pointer/keyboard focus split per `req_consult_758335124003a436`. |
+| 13 | `feat(display): start Compact with a shorter footer` | done · `3b8de55` | `req_review_diff_14fe965762a34efb` · approved | Automatic Compact floors only the Trends graph; lanes and explicit resize remain authoritative per `req_consult_cc4c3db092a304bf`. |
 
 ## Ratified decisions this programme implements
 
@@ -32,13 +33,14 @@ Transient execution checklist — not design authority. Superseded by `workbench
 
 ## Execution result
 
-- Twelve focused implementation commits were reviewed from immutable staged
+- Thirteen focused implementation commits were reviewed from immutable staged
   snapshots by pinned Claude Opus; requested corrections were re-staged and
   re-reviewed before commit.
-- `pnpm typecheck` and `pnpm test` pass in the combined working tree: 1,356
+- `pnpm typecheck` and `pnpm test` pass in the combined working tree: 1,357
   tests pass and one is skipped. The commit-only snapshot intentionally omits
   concurrent RSVP work; Opus confirmed its RSVP-only type/test failures are
-  identical to the commit-12 base and that the filter slice is delta-neutral.
+  unchanged from the follow-up's base and that the footer slice is
+  delta-neutral outside its new coverage.
 - The compact Vocabulary suite passes 20/20 across Chromium and WebKit after
   Opus caught a 320×568 table-port regression. The corrected field stays full
   width and the sort controls remain reachable.
