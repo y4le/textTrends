@@ -32,6 +32,22 @@ const TERM_LONG_PRESS_MOVEMENT_PX = 10;
 const TERM_MENU_FOCUSABLE =
   'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
+interface TermRailPosition {
+  readonly first: number;
+  readonly last: number;
+  readonly total: number;
+  readonly before: boolean;
+  readonly after: boolean;
+}
+
+const EMPTY_TERM_RAIL_POSITION: TermRailPosition = Object.freeze({
+  first: 0,
+  last: -1,
+  total: 0,
+  before: false,
+  after: false,
+});
+
 function termMenuId(groupId: string): string {
   return `term-menu-${encodeURIComponent(groupId)}`;
 }
@@ -389,7 +405,11 @@ export function QuerySurface() {
   const [inlineTerm, setInlineTerm] = useState('');
   const [managerNewTermDraft, setManagerNewTermDraft] = useState('');
   const [termKeyboardStatus, setTermKeyboardStatus] = useState('');
+  const [termRailPosition, setTermRailPosition] = useState<TermRailPosition>(
+    EMPTY_TERM_RAIL_POSITION,
+  );
   const inlineReturnFocus = useRef('term-add');
+  const termPortRef = useRef<HTMLDivElement | null>(null);
 
   const view = querySurfaceView({
     place,
@@ -403,6 +423,7 @@ export function QuerySurface() {
     hasSnapshot: snapshot !== null,
     partialCorpus: (snapshot?.missingDocs.length ?? 0) > 0,
   });
+  const termIdentity = view.rows.map((row) => row.id).join('\u001f');
   const topLayer = layers.at(-1);
   const target = topLayer?.kind === 'row-detail'
     ? queryEditorTarget(topLayer.target)
@@ -514,6 +535,61 @@ export function QuerySurface() {
       setOpenMenuId(null);
     }
   }, [openMenuId, view.rows]);
+  useLayoutEffect(() => {
+    const port = termPortRef.current;
+    if (port === null) return undefined;
+    let frame: number | null = null;
+    const measure = () => {
+      frame = null;
+      const bounds = port.getBoundingClientRect();
+      const buckets = [...port.querySelectorAll<HTMLElement>('.term-bucket')];
+      const visible = buckets.flatMap((bucket, index) => {
+        const name = bucket.querySelector<HTMLElement>('.term-bucket-name');
+        if (name === null) return [];
+        const nameBounds = name.getBoundingClientRect();
+        const visibleNameWidth = Math.max(
+          0,
+          Math.min(bounds.right, nameBounds.right) - Math.max(bounds.left, nameBounds.left),
+        );
+        return visibleNameWidth >= Math.min(16, nameBounds.width) ? [index] : [];
+      });
+      const total = buckets.length;
+      const maximumScroll = Math.max(0, port.scrollWidth - port.clientWidth);
+      const next: TermRailPosition = {
+        first: visible[0] ?? 0,
+        last: visible.at(-1) ?? (total > 0 ? 0 : -1),
+        total,
+        before: port.scrollLeft > 1,
+        after: port.scrollLeft < maximumScroll - 1,
+      };
+      setTermRailPosition((current) => current.first === next.first
+        && current.last === next.last
+        && current.total === next.total
+        && current.before === next.before
+        && current.after === next.after
+        ? current
+        : next);
+    };
+    const schedule = () => {
+      frame ??= requestAnimationFrame(measure);
+    };
+    const observer = typeof ResizeObserver === 'undefined'
+      ? null
+      : new ResizeObserver(schedule);
+    observer?.observe(port);
+    for (const child of port.children) {
+      if (child instanceof HTMLElement) observer?.observe(child);
+    }
+    port.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+    measure();
+    return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
+      observer?.disconnect();
+      port.removeEventListener('scroll', schedule);
+      window.removeEventListener('resize', schedule);
+    };
+  }, [inlineAddOpen, termIdentity]);
   const openMenuRow = openMenuId === null
     ? null
     : view.rows.find((row) => row.id === openMenuId) ?? null;
@@ -530,30 +606,37 @@ export function QuerySurface() {
         </span>
         <strong className="term-bar-label">Terms</strong>
         <div
-          id="term-query-port"
-          className="term-bucket-port"
-          role="group"
-          aria-label="Query terms"
-          tabIndex={-1}
+          className="term-bucket-frame"
+          data-overflow-before={termRailPosition.before || undefined}
+          data-overflow-after={termRailPosition.after || undefined}
         >
-          {view.rows.length === 0 && (
-            <span className="term-bar-empty">No terms yet.</span>
-          )}
-          {view.rows.map((row) => (
-            <TermBucket
-              key={row.id}
-              row={row}
-              menuOpen={openMenuId === row.id}
-              onToggle={() => setGroupActive(row.id, !row.active)}
-              onEdit={() => openGroup(row.id, `term-edit-${row.id}`)}
-              onOpenMenu={() => setOpenMenuId(row.id)}
-              onNavigate={(delta) => navigateTerm(row.id, delta)}
-              onDelete={() => deleteTerm(row.id)}
-              onAddInline={() => openInlineAdd(termFocusControlId(row.id))}
-              onExit={exitTermNavigation}
-            />
-          ))}
-          {inlineAddOpen && (
+          <div
+            ref={termPortRef}
+            id="term-query-port"
+            className="term-bucket-port"
+            role="group"
+            aria-label="Query terms"
+            aria-describedby="term-rail-position"
+            tabIndex={-1}
+          >
+            {view.rows.length === 0 && (
+              <span className="term-bar-empty">No terms yet.</span>
+            )}
+            {view.rows.map((row) => (
+              <TermBucket
+                key={row.id}
+                row={row}
+                menuOpen={openMenuId === row.id}
+                onToggle={() => setGroupActive(row.id, !row.active)}
+                onEdit={() => openGroup(row.id, `term-edit-${row.id}`)}
+                onOpenMenu={() => setOpenMenuId(row.id)}
+                onNavigate={(delta) => navigateTerm(row.id, delta)}
+                onDelete={() => deleteTerm(row.id)}
+                onAddInline={() => openInlineAdd(termFocusControlId(row.id))}
+                onExit={exitTermNavigation}
+              />
+            ))}
+            {inlineAddOpen && (
             <form
               className="term-quick-add"
               aria-label="Add a term inline"
@@ -609,8 +692,14 @@ export function QuerySurface() {
                   {notebookError}
                 </span>
               )}
-            </form>
-          )}
+              </form>
+            )}
+          </div>
+          <span id="term-rail-position" className="term-rail-position">
+            {termRailPosition.total === 0
+              ? '0 terms'
+              : `${termRailPosition.first + 1}–${termRailPosition.last + 1} of ${termRailPosition.total}`}
+          </span>
         </div>
         <div className="term-bar-actions">
           <button

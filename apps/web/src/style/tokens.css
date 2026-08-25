@@ -3581,6 +3581,45 @@ canvas {
   scrollbar-width: thin;
 }
 
+.term-bucket-frame {
+  position: relative;
+  min-inline-size: 0;
+  block-size: 100%;
+  overflow: hidden;
+}
+
+.term-bucket-frame::before,
+.term-bucket-frame::after {
+  position: absolute;
+  z-index: 2;
+  inset-block: 0;
+  inline-size: 14px;
+  opacity: 0;
+  pointer-events: none;
+  content: '';
+}
+
+.term-bucket-frame::before {
+  inset-inline-start: 0;
+  border-inline-start: 1px solid var(--fg-muted);
+  box-shadow: 8px 0 9px color-mix(in srgb, var(--fg-muted) 30%, transparent);
+}
+
+.term-bucket-frame::after {
+  inset-inline-end: 0;
+  border-inline-end: 1px solid var(--fg-muted);
+  box-shadow: -8px 0 9px color-mix(in srgb, var(--fg-muted) 30%, transparent);
+}
+
+.term-bucket-frame[data-overflow-before='true']::before,
+.term-bucket-frame[data-overflow-after='true']::after {
+  opacity: 1;
+}
+
+.term-rail-position {
+  display: none;
+}
+
 .term-bucket {
   display: inline-flex;
   flex: 0 0 auto;
@@ -5410,6 +5449,46 @@ html.reader-open .find-bar--floating {
     display: none;
   }
 
+  .term-bucket-summary {
+    gap: 0.35ch;
+    padding-inline: 2px;
+  }
+
+  .term-bucket-summary svg {
+    inline-size: 16px;
+  }
+
+  .term-bucket-name {
+    max-inline-size: 6ch;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .term-bucket-count {
+    display: none;
+  }
+
+  .term-bar-actions button {
+    min-inline-size: 44px;
+    padding-inline: var(--space-1);
+    font-size: var(--text-xs);
+  }
+
+  .term-rail-position {
+    position: absolute;
+    z-index: 3;
+    inset-block-start: 2px;
+    inset-inline-end: 2px;
+    display: block;
+    padding-inline: 0.35ch;
+    background: var(--bg);
+    color: var(--fg-muted);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    line-height: 1.2;
+    pointer-events: none;
+  }
+
   .trend-settings fieldset {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5478,6 +5557,12 @@ html.reader-open .find-bar--floating {
   .term-bucket,
   .term-bar-actions button {
     min-block-size: var(--term-target-block-size);
+  }
+
+  .workbench-dock:not([data-terms-compressed='true']) .term-bucket,
+  .workbench-dock:not([data-terms-compressed='true']) .term-bucket button,
+  .workbench-dock:not([data-terms-compressed='true']) .term-bar-actions button {
+    min-block-size: max(44px, var(--term-target-block-size));
   }
 
   .term-bucket-edit,

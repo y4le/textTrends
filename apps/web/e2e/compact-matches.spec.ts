@@ -18,6 +18,35 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await expect(page.getByRole('button', { name: 'recenter node' })).toHaveCount(0);
   await expect(page.getByLabel('Shown context characters')).toHaveCount(0);
   await expect(page.locator('.kwic-method')).toHaveCount(0);
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const termPort = terms.getByRole('group', { name: 'Query terms' });
+  const termFrame = terms.locator('.term-bucket-frame');
+  const termPosition = terms.locator('#term-rail-position');
+  await expect(termPosition).toHaveText(/^1–[2-3] of 3$/);
+  await expect(termFrame).toHaveAttribute('data-overflow-after', 'true');
+  expect(await termPort.evaluate((port) => {
+    const bounds = port.getBoundingClientRect();
+    return [...port.querySelectorAll<HTMLElement>('.term-bucket-name')].filter((name) => {
+      const nameBounds = name.getBoundingClientRect();
+      return nameBounds.left >= bounds.left - 0.5
+        && nameBounds.right <= bounds.right + 0.5;
+    }).length;
+  })).toBeGreaterThanOrEqual(2);
+  expect(await termFrame.evaluate((frame) =>
+    Number.parseFloat(getComputedStyle(frame, '::after').opacity))).toBe(1);
+  const coarseTerms = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
+  const blockTargetFloor = coarseTerms ? 44 : 40;
+  for (const button of await terms.getByRole('button').all()) {
+    const box = await button.boundingBox();
+    if (box === null) continue;
+    expect(box.width).toBeGreaterThanOrEqual(44);
+    expect(box.height).toBeGreaterThanOrEqual(blockTargetFloor);
+  }
+  await termPort.evaluate((port) => { port.scrollLeft = port.scrollWidth; });
+  await expect(termFrame).toHaveAttribute('data-overflow-before', 'true');
+  await expect(termFrame).not.toHaveAttribute('data-overflow-after');
+  await expect(termPosition).toHaveText(/^[1-2]–3 of 3$/);
+  await termPort.evaluate((port) => { port.scrollLeft = 0; });
   const dockGeometry = await page.locator('.app-shell').evaluate((shell) => {
     const dock = shell.querySelector<HTMLElement>('.workbench-dock');
     const footer = shell.querySelector<HTMLElement>('.workbench-footer');
