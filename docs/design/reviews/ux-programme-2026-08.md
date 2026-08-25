@@ -12,8 +12,8 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 5 | `feat(settings): host place settings in one pane` | done · `2afbdda` | `req_review_diff_30c7ab4620bdfda3` · approved | Contextual landing and Compare draft ownership; close discards consistently per `req_consult_84690c5cd85eafca`. |
 | 6 | `feat(display): add the density preference` | done · `d2b846f` | `req_review_diff_722abe1163fe5e85` · approved | Three stops with one metrics authority; rendered Compact layouts retain their prior geometry. |
 | 7 | `feat(display): scale data row pitch` | done · `8ecfd00` | `req_review_diff_647f0cb44eb79f04` · approved | Matches keeps its corpus anchor; Vocabulary keeps its first fully visible row; Compare remains measured. |
-| 8 | `feat(terms): make the compact rail legible` | in progress | pending | Fixed rail, visible range cue, and identifiable overflow treatment. |
-| 9 | `feat(compare): favour identity in compact rows` | planned | pending | Preserve complete term identity before statistics. |
+| 8 | `feat(terms): make the compact rail legible` | done · `afa4cf3` | `req_review_diff_e92346897dcfd2f7` · approved | Two complete names at 390px, a live range cue, painted overflow edges, and pointer-aware target floors. |
+| 9 | `feat(compare): favour identity in compact rows` | in progress | pending | Preserve complete term identity before statistics. |
 | 10 | `feat(inputs): foreground import and collapse acquisition` | planned | pending | Empty/corpus states, trust line, asymmetric verbs. |
 | 11 | `feat(matches): show corpus-edge context bands` | planned | pending | Keep the centre fixed; expose start/end distance at the edges. |
 | 12 | `feat(filters): filter literally by default` | planned | pending | Workspace migration and explicit advanced regex mode. |

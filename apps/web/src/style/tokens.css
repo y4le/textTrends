@@ -3189,12 +3189,25 @@ canvas {
     padding-inline: var(--space-1);
   }
 
+  .compare-pyramid-value {
+    display: none;
+  }
+
+  .compare-pyramid-term {
+    overflow: visible;
+    overflow-wrap: anywhere;
+    text-overflow: clip;
+    white-space: normal;
+  }
+
   .compare-pyramid-half[data-side='a'] .compare-pyramid-button {
-    grid-template-columns: 3.25rem minmax(0, 1fr) minmax(0.75rem, 0.55fr);
+    grid-template-columns: minmax(0, 1fr) minmax(1.5rem, 0.45fr);
+    grid-template-areas: 'term plot';
   }
 
   .compare-pyramid-half[data-side='b'] .compare-pyramid-button {
-    grid-template-columns: minmax(0.75rem, 0.55fr) minmax(0, 1fr) 3.25rem;
+    grid-template-columns: minmax(1.5rem, 0.45fr) minmax(0, 1fr);
+    grid-template-areas: 'plot term';
   }
 
   .compare-settings-form {

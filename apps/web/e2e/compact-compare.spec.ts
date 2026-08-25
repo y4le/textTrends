@@ -91,8 +91,9 @@ for (const viewport of [
     await expect(seaHalf).toHaveAttribute('data-side', 'b');
     await expect(forest.locator('.compare-pyramid-bar')).toBeVisible();
     await expect(sea.locator('.compare-pyramid-bar')).toBeVisible();
+    await expect(forest.locator('.compare-pyramid-value')).toBeHidden();
+    await expect(sea.locator('.compare-pyramid-value')).toBeHidden();
     const leftOrder = await horizontalOrder([
-      forest.locator('.compare-pyramid-value'),
       forest.locator('.compare-pyramid-term'),
       forest.locator('.compare-pyramid-plot'),
     ]);
@@ -100,9 +101,15 @@ for (const viewport of [
     const rightOrder = await horizontalOrder([
       sea.locator('.compare-pyramid-plot'),
       sea.locator('.compare-pyramid-term'),
-      sea.locator('.compare-pyramid-value'),
     ]);
     expect(rightOrder).toEqual([...rightOrder].sort((a, b) => a - b));
+    const carriageTerm = wordButton(page, 'carriage').locator('.compare-pyramid-term');
+    await expect(carriageTerm).toBeVisible();
+    await expect(carriageTerm).toHaveText('carriage');
+    await expect.poll(() => carriageTerm.evaluate((term) => ({
+      fullWidthVisible: term.scrollWidth <= term.clientWidth + 1,
+      wrapsWhenNeeded: getComputedStyle(term).whiteSpace === 'normal',
+    }))).toEqual({ fullWidthVisible: true, wrapsWhenNeeded: true });
     expect((await forest.boundingBox())?.height).toBeGreaterThanOrEqual(44);
 
     await expect(page.locator('.compare-pagers, .compare-pagination')).toHaveCount(0);
@@ -170,7 +177,9 @@ test('one full-width word detail replaces the other half and explains measuremen
   await prepareComparison(page);
   await applyOneDocumentMinimum(page);
 
-  await wordButton(page, 'forest').click();
+  const forestRow = wordButton(page, 'forest');
+  const rowLift = (await forestRow.locator('.compare-pyramid-value').textContent())?.trim();
+  await forestRow.click();
   const forest = page.getByRole('region', { name: 'Compare detail: forest, side A' });
   await expect(forest).toBeVisible();
   await expect(forest.getByRole('heading', { name: 'forest' })).toBeVisible();
@@ -180,6 +189,10 @@ test('one full-width word detail replaces the other half and explains measuremen
   // reason.
   await expect(forest.locator('dt')).toHaveCount(9);
   await expect(forest.getByRole('button', { name: 'About log₂ ratio' })).toBeVisible();
+  const detailLift = forest.locator('.compare-row-stats > div')
+    .filter({ hasText: 'log₂ ratio' })
+    .locator('dd');
+  await expect(detailLift).toContainText(rowLift!);
   await expect(forest.getByRole('button', { name: 'About 95% interval' })).toBeVisible();
   await expect(forest.getByText('text range', { exact: false })).toHaveCount(0);
   const detailCell = forest.locator('xpath=ancestor::td');
