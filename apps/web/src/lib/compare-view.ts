@@ -11,10 +11,6 @@ import type {
   KeynessViewV1,
 } from './store.ts';
 
-export interface CompareSettingsTarget {
-  readonly surface: 'compare-settings';
-}
-
 export interface CompareRowTarget {
   readonly surface: 'compare-row';
   readonly side: 'a' | 'b';
@@ -22,14 +18,11 @@ export interface CompareRowTarget {
   readonly key: string;
 }
 
-export type CompareTarget = CompareSettingsTarget | CompareRowTarget;
+export type CompareTarget = CompareRowTarget;
 
 export function compareTarget(value: unknown): CompareTarget | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
   const candidate = value as Record<string, unknown>;
-  if (candidate.surface === 'compare-settings') {
-    return { surface: 'compare-settings' };
-  }
   if (
     candidate.surface !== 'compare-row'
     || (candidate.side !== 'a' && candidate.side !== 'b')
@@ -77,7 +70,6 @@ export function compareTargetIsStale(
   stateB: KeynessTableState | null,
 ): boolean {
   if (!hasSnapshot || !hasComparison) return true;
-  if (target.surface === 'compare-settings') return false;
   const state = sideState(target.side, stateA, stateB);
   const result = compareResidentResult(state);
   return result !== null

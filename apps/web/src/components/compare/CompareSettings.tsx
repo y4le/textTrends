@@ -55,6 +55,7 @@ export function CompareSettings({
             <label>
               shared sort field
               <select
+                id="compare-sort-field"
                 className="exact-input"
                 value={draft.sortBy}
                 onChange={(event) => onDraft({

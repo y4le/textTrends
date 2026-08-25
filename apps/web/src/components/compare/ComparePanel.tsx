@@ -5,19 +5,17 @@ import {
   useState,
 } from 'react';
 import type { KeynessRowV1 } from '@texttrends/core';
-import { FormLayer } from '../FormLayer.tsx';
 import {
   compareDivergence,
   compareRowControlId,
   compareScale,
   compareSettingsControlId,
-  compareSettingsError,
   compareSettingsInput,
   compareResidentResult,
   compareSideLabel,
   compareTarget,
   compareTargetIsStale,
-  type CompareTarget,
+  type CompareRowTarget,
 } from '../../lib/compare-view.ts';
 import {
   renderedRowDetailLayer,
@@ -26,11 +24,11 @@ import {
 } from '../../lib/row-detail.ts';
 import {
   keynessSelections,
-  type KeynessSettingsInputV1,
 } from '../../lib/store.ts';
 import { useApp } from '../../lib/store-instance.ts';
+import { contextualSettingsEntry } from '../../lib/settings-entry.ts';
+import { useOpenSettings } from '../SettingsEntryContext.tsx';
 import { CompareProfile } from './CompareProfile.tsx';
-import { CompareSettings } from './CompareSettings.tsx';
 import { SignedAxis } from './SignedAxis.tsx';
 
 export function ComparePanel() {
@@ -48,11 +46,8 @@ export function ComparePanel() {
   const pushLayer = useApp((state) => state.pushLayer);
   const replaceLayer = useApp((state) => state.replaceLayer);
   const popLayer = useApp((state) => state.popLayer);
-  const [draft, setDraft] = useState<KeynessSettingsInputV1>(
-    () => compareSettingsInput(view),
-  );
+  const openSettings = useOpenSettings();
   const [profileOpen, setProfileOpen] = useState(false);
-  const [settingsMessage, setSettingsMessage] = useState<string | null>(null);
   const topLayer = layers.at(-1);
   const renderedLayer = useMemo(
     () => renderedRowDetailLayer(layers),
@@ -62,22 +57,8 @@ export function ComparePanel() {
     () => renderedLayer ? compareTarget(renderedLayer.target) : null,
     [renderedLayer],
   );
-  const settingsOpen = target?.surface === 'compare-settings';
-  const rowTarget = target?.surface === 'compare-row' ? target : null;
+  const rowTarget = target;
   const stalePopRequested = useRef(false);
-
-  useEffect(() => {
-    setDraft(compareSettingsInput(view));
-  }, [
-    view.minCountTotal,
-    view.minDocFreqTotal,
-    view.classes,
-    view.stoplistTopN,
-    view.sort.by,
-    view.sort.dirA,
-    view.sort.dirB,
-    view.showConfidenceIntervals,
-  ]);
 
   useEffect(() => {
     stalePopRequested.current = false;
@@ -127,7 +108,7 @@ export function ComparePanel() {
   const sideLabelB = compareSideLabel('b', view, titleOf);
 
   const writeTarget = (
-    next: CompareTarget,
+    next: CompareRowTarget,
     returnFocusTo: string,
   ): boolean => {
     if (
@@ -150,25 +131,6 @@ export function ComparePanel() {
     return true;
   };
 
-  const closeSettings = (discard: boolean) => {
-    if (!settingsOpen) return;
-    if (discard) {
-      setDraft(compareSettingsInput(view));
-      setSettingsMessage(null);
-    }
-    popLayer();
-  };
-  const applyDraft = () => {
-    if (!settingsOpen) return;
-    const error = compareSettingsError(draft);
-    if (error) {
-      setSettingsMessage(error);
-      return;
-    }
-    setSettingsMessage(null);
-    applySettings(draft);
-    popLayer();
-  };
   const reverseRankings = () => applySettings({
     ...compareSettingsInput(view),
     dirA: view.sort.dirA === 1 ? -1 : 1,
@@ -233,19 +195,6 @@ export function ComparePanel() {
   };
   const scale = compareScale(stateA, stateB);
   const divergence = compareDivergence(stateA, stateB);
-  const settings = (
-    <CompareSettings
-      draft={draft}
-      message={settingsMessage}
-      onDraft={(next) => {
-        setSettingsMessage(null);
-        setDraft(next);
-      }}
-      onApply={applyDraft}
-      onCancel={() => closeSettings(true)}
-    />
-  );
-
   return (
     <section className="compare-panel" aria-label="Keyness comparison">
       {readyDocs.length < 2
@@ -302,18 +251,12 @@ export function ComparePanel() {
                 className="compare-settings-trigger"
                 type="button"
                 aria-label="Compare settings"
-                aria-expanded={settingsOpen}
                 aria-haspopup="dialog"
                 title="Compare settings"
-                onClick={() => {
-                  if (settingsOpen) closeSettings(false);
-                  else {
-                    writeTarget(
-                      { surface: 'compare-settings' },
-                      compareSettingsControlId,
-                    );
-                  }
-                }}
+                onClick={(event) => openSettings(
+                  contextualSettingsEntry('compare'),
+                  event.currentTarget,
+                )}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true">
                   <circle cx="12" cy="12" r="3" />
@@ -321,16 +264,6 @@ export function ComparePanel() {
                 </svg>
               </button>
             </div>
-
-            {settingsOpen && (
-              <FormLayer
-                label="Compare settings"
-                focusKey={renderedLayer?.id ?? 'compare-settings'}
-                onClose={() => closeSettings(false)}
-              >
-                {settings}
-              </FormLayer>
-            )}
 
             <SignedAxis
               stateA={stateA}

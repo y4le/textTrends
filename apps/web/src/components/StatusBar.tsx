@@ -7,9 +7,11 @@ import { isWholeBookSelection } from '../lib/corpus-view.ts';
 export function StatusBar({
   onOpenFind,
   onOpenSettings,
+  onOpenTrendSettings,
 }: {
   readonly onOpenFind: () => void;
   readonly onOpenSettings: () => void;
+  readonly onOpenTrendSettings: (returnFocus: HTMLElement) => void;
 }) {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
@@ -161,6 +163,16 @@ export function StatusBar({
             )}
           </span>
         ))}
+        {place === 'trends' && (
+          <button
+            id="trend-settings-open"
+            className="scope-organ-link coarse-target"
+            type="button"
+            onClick={(event) => onOpenTrendSettings(event.currentTarget)}
+          >
+            Trend settings
+          </button>
+        )}
         <button
           id="global-find-open"
           className="scope-organ-link coarse-target"

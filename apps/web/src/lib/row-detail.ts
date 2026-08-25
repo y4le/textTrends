@@ -4,7 +4,6 @@ export type RowDetailSurface =
   | 'query-editor'
   | 'book-sheet'
   | 'vocab-row'
-  | 'compare-settings'
   | 'compare-row';
 
 export type RowDetailWrite = 'push' | 'replace';
@@ -17,7 +16,6 @@ export function rowDetailSurface(value: unknown): RowDetailSurface | null {
     case 'query-editor':
     case 'book-sheet':
     case 'vocab-row':
-    case 'compare-settings':
     case 'compare-row':
       return surface;
     default:

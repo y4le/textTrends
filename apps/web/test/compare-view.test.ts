@@ -81,10 +81,7 @@ const state = (
 });
 
 describe('Compare view law', () => {
-  it('totally guards settings and row targets with key-free ids', () => {
-    expect(compareTarget({ surface: 'compare-settings' })).toEqual({
-      surface: 'compare-settings',
-    });
+  it('totally guards row targets with key-free control ids', () => {
     expect(compareTarget({
       surface: 'compare-row',
       side: 'b',
@@ -99,6 +96,7 @@ describe('Compare view law', () => {
     for (const value of [
       null,
       [],
+      { surface: 'compare-settings' },
       { surface: 'foreign' },
       { surface: 'compare-row', side: 'c', typeId: 7, key: 'x' },
       { surface: 'compare-row', side: 'a', typeId: -1, key: 'x' },
@@ -130,20 +128,6 @@ describe('Compare view law', () => {
       .toBe(true);
     expect(compareTargetIsStale(target, true, false, state('a', 'pending'), null))
       .toBe(true);
-    expect(compareTargetIsStale(
-      { surface: 'compare-settings' },
-      true,
-      true,
-      state('a', 'ready', []),
-      state('b', 'ready', []),
-    )).toBe(false);
-    expect(compareTargetIsStale(
-      { surface: 'compare-settings' },
-      true,
-      false,
-      null,
-      null,
-    )).toBe(true);
   });
 
   it('names both comparison modes and every durable setting', () => {

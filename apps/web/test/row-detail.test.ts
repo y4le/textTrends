@@ -10,7 +10,7 @@ describe('row detail presentation', () => {
   it('parses only governed surface discriminants', () => {
     expect(rowDetailSurface({ surface: 'book-sheet', doc: 'a' })).toBe('book-sheet');
     expect(rowDetailSurface({ surface: 'query-editor' })).toBe('query-editor');
-    expect(rowDetailSurface({ surface: 'compare-settings' })).toBe('compare-settings');
+    expect(rowDetailSurface({ surface: 'compare-settings' })).toBeNull();
     expect(rowDetailSurface({ surface: 'compare-row' })).toBe('compare-row');
     expect(rowDetailSurface({ surface: 'foreign' })).toBeNull();
     expect(rowDetailSurface(null)).toBeNull();
@@ -22,7 +22,6 @@ describe('row detail presentation', () => {
       'query-editor',
       'book-sheet',
       'vocab-row',
-      'compare-settings',
       'compare-row',
     ];
     for (const next of surfaces) expect(rowDetailWrite(null, next)).toBe('push');

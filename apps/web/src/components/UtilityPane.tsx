@@ -1,4 +1,9 @@
-import { useId, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  useId,
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+} from 'react';
 import { FormLayer } from './FormLayer.tsx';
 
 export function UtilityPane({
@@ -6,6 +11,7 @@ export function UtilityPane({
   subtitle,
   focusKey,
   initialFocus = 'first-control',
+  initialFocusId,
   closeKeyshortcuts,
   className,
   layerClassName,
@@ -13,6 +19,7 @@ export function UtilityPane({
   closeOnBackdrop = false,
   onClose,
   onKeyDown,
+  bodyRef,
   children,
   footer,
 }: {
@@ -20,6 +27,7 @@ export function UtilityPane({
   readonly subtitle?: string;
   readonly focusKey?: string;
   readonly initialFocus?: 'heading' | 'first-control';
+  readonly initialFocusId?: string;
   readonly closeKeyshortcuts?: string;
   readonly className?: string;
   readonly layerClassName?: string;
@@ -27,6 +35,7 @@ export function UtilityPane({
   readonly closeOnBackdrop?: boolean;
   readonly onClose: () => void;
   readonly onKeyDown?: (event: KeyboardEvent<HTMLElement>) => void;
+  readonly bodyRef?: Ref<HTMLDivElement>;
   readonly children: ReactNode;
   readonly footer?: ReactNode;
 }) {
@@ -36,7 +45,9 @@ export function UtilityPane({
     <FormLayer
       labelledBy={titleId}
       {...(focusKey === undefined ? {} : { focusKey })}
-      {...(initialFocus === 'heading' ? { initialFocusId: titleId } : {})}
+      {...(initialFocusId === undefined
+        ? initialFocus === 'heading' ? { initialFocusId: titleId } : {}
+        : { initialFocusId })}
       {...(layerClassName === undefined ? {} : { className: layerClassName })}
       closeOnBackdrop={closeOnBackdrop}
       onClose={onClose}
@@ -60,7 +71,7 @@ export function UtilityPane({
             {compactClose ? <span aria-hidden="true">×</span> : 'close'}
           </button>
         </header>
-        <div className="utility-pane-body">{children}</div>
+        <div ref={bodyRef} className="utility-pane-body">{children}</div>
         {footer && <footer className="utility-pane-footer">{footer}</footer>}
       </section>
     </FormLayer>

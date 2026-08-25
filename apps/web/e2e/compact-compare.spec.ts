@@ -194,16 +194,31 @@ test('one full-width word detail replaces the other half and explains measuremen
   await expectNoBodyOverflow(page);
 });
 
-test('Compare settings preserve a draft through width changes and stage ranking reversal', async ({ page }) => {
+test('Compare settings discard on close, retain in-place drafts, and stage ranking reversal', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await prepareComparison(page);
 
   const open = page.getByRole('button', { name: 'Compare settings' });
+  const historyBefore = await page.evaluate(() => history.length);
   await open.click();
-  const dialog = page.getByRole('dialog', { name: 'Compare settings' });
-  const minimum = page.getByLabel('combined documents ≥');
+  const dialog = page.getByRole('dialog', { name: 'Settings' });
+  const minimum = dialog.getByLabel('combined documents ≥');
   const commonWords = dialog.getByRole('slider', { name: 'remove common words' });
+  const initialMinimum = await minimum.inputValue();
   await expect(dialog).toBeVisible();
+  await expect(dialog.getByLabel('shared sort field')).toBeFocused();
+  const landing = await dialog.evaluate((element) => {
+    const body = element.querySelector<HTMLElement>('.utility-pane-body');
+    const heading = element.querySelector<HTMLElement>('#settings-place-heading');
+    if (!body || !heading) return null;
+    return {
+      bodyTop: body.getBoundingClientRect().top,
+      headingTop: heading.getBoundingClientRect().top,
+    };
+  });
+  expect(landing).not.toBeNull();
+  expect(Math.abs(landing!.bodyTop - landing!.headingTop)).toBeLessThanOrEqual(1);
+  expect(await page.evaluate(() => history.length)).toBe(historyBefore);
   await expect(commonWords).toHaveAccessibleName('remove common words');
   await expect(commonWords).toHaveValue('0');
   await expect(commonWords).toHaveAttribute('aria-valuetext', /off/);
@@ -214,8 +229,14 @@ test('Compare settings preserve a draft through width changes and stage ranking 
   await page.keyboard.press('Escape');
   await expect(dialog).toHaveCount(0);
   await open.click();
-  await expect(minimum).toHaveValue('1');
-  await expect(commonWords).toHaveValue('100');
+  await expect(minimum).toHaveValue(initialMinimum);
+  await expect(commonWords).toHaveValue('0');
+  expect((await trace(page)).events.filter(
+    (event) => event.seq > quietMark && event.direction === 'to-worker'
+      && event.t === 'query',
+  )).toEqual([]);
+  await minimum.fill('1');
+  await commonWords.fill('100');
 
   await page.setViewportSize({ width: 900, height: 800 });
   await expect(dialog).toBeVisible();
@@ -303,7 +324,7 @@ test('Compare hides interval whiskers by default and can reveal them without req
   await expect(forest).not.toHaveAttribute('aria-label', /95% interval/);
 
   await page.getByRole('button', { name: 'Compare settings' }).click();
-  const settings = page.getByRole('dialog', { name: 'Compare settings' });
+  const settings = page.getByRole('dialog', { name: 'Settings' });
   await settings.getByLabel('Show 95% confidence interval whiskers').check();
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await settings.getByRole('button', { name: 'apply' }).click();

@@ -1,6 +1,7 @@
 import {
   lazy,
   Suspense,
+  useCallback,
   useEffect,
   useRef,
   useState,
@@ -14,10 +15,12 @@ import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import {
+  contextualSettingsEntry,
   globalSettingsEntry,
   type SettingsContext,
   type SettingsEntry,
 } from './lib/settings-entry.ts';
+import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
@@ -231,13 +234,13 @@ export function App() {
     replacePlace(fallbackPlace);
   }, [activeTextCount, place, project, replacePlace, routeStatus]);
 
-  const clearShortcutSequence = () => {
+  const clearShortcutSequence = useCallback(() => {
     shortcutSequence.current = null;
     if (shortcutSequenceTimer.current !== null) {
       clearTimeout(shortcutSequenceTimer.current);
       shortcutSequenceTimer.current = null;
     }
-  };
+  }, []);
   const openShortcutHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
@@ -252,8 +255,8 @@ export function App() {
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'shortcuts', context });
   };
-  const openSettings = (
-    context: SettingsContext = place,
+  const openSettingsEntry = useCallback((
+    entry: SettingsEntry,
     returnFocus: HTMLElement | null = null,
   ) => {
     clearShortcutSequence();
@@ -265,8 +268,16 @@ export function App() {
         : null);
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'settings', entry: globalSettingsEntry(context) });
-  };
+    setUtilityPane({ kind: 'settings', entry });
+  }, [clearShortcutSequence, exitInteraction, interaction.kind, setRsvpPlaying]);
+  const openSettings = (
+    context: SettingsContext = place,
+    returnFocus: HTMLElement | null = null,
+  ) => openSettingsEntry(globalSettingsEntry(context), returnFocus);
+  const openContextualSettings = (
+    context: SettingsContext,
+    returnFocus: HTMLElement | null = null,
+  ) => openSettingsEntry(contextualSettingsEntry(context), returnFocus);
   const openDebug = (fromUtilityPane = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
@@ -887,7 +898,11 @@ export function App() {
             shortcuts
           </button>
         </div>
-        <StatusBar onOpenFind={() => openFind()} onOpenSettings={openSettings} />
+        <StatusBar
+          onOpenFind={() => openFind()}
+          onOpenSettings={() => openSettings()}
+          onOpenTrendSettings={(returnFocus) => openContextualSettings('trends', returnFocus)}
+        />
         <WorkbenchTabs />
       </header>
       <ResumeStatus />
@@ -975,16 +990,18 @@ export function App() {
           {routeStatus === 'pending'
             ? <p className="region-placeholder" role="status">preparing your workspace…</p>
             : (
-                <PlaceSurface place={place}>
-                  {hasNoInputs && place !== 'inputs'
-                    ? (
-                        <NoInputsPlace onOpenInputs={() => {
-                          setPlace('inputs');
-                          focusAfterRender('place-inputs-heading');
-                        }} />
-                      )
-                    : <ActivePlace place={place} />}
-                </PlaceSurface>
+                <SettingsEntryProvider openSettings={openSettingsEntry}>
+                  <PlaceSurface place={place}>
+                    {hasNoInputs && place !== 'inputs'
+                      ? (
+                          <NoInputsPlace onOpenInputs={() => {
+                            setPlace('inputs');
+                            focusAfterRender('place-inputs-heading');
+                          }} />
+                        )
+                      : <ActivePlace place={place} />}
+                  </PlaceSurface>
+                </SettingsEntryProvider>
               )}
         </div>
       </div>

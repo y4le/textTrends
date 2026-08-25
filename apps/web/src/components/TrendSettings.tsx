@@ -125,6 +125,7 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
         <label>
           Bins
           <select
+            id="trend-bin-mode"
             value={draft.binMode}
             onChange={(event) => {
               const binMode = event.target.value as TrendBinMode;
