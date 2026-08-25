@@ -275,10 +275,10 @@ export function ComparePanel() {
                 className="compare-reverse"
                 type="button"
                 onClick={reverseRankings}
-                aria-label="Reverse both rankings"
+                aria-label="Swap — Reverse both rankings"
                 title="Reverse ranking directions"
               >
-                <span aria-hidden="true">⇅</span>
+                Swap
               </button>
               <label data-side="a">
                 {sideControl('a')}
@@ -292,7 +292,7 @@ export function ComparePanel() {
                 title={`${profileOpen ? 'Hide' : 'Show'} text profile`}
                 onClick={() => setProfileOpen((open) => !open)}
               >
-                <span aria-hidden="true">Σ</span>
+                Profile
               </button>
               <label data-side="b">
                 {sideControl('b')}

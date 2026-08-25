@@ -564,9 +564,10 @@ function TrendViewSwitcher({
     <div
       className="trend-view-switcher"
       role="group"
-      aria-label="Trend view"
+      aria-label="Layout — Trend view"
       style={{ fontSize: compact ? 'var(--text-sm)' : 'var(--text-xs)' }}
     >
+      <span className="trend-view-caption">Layout</span>
       {TREND_VIEW_ORDER.map((candidate) => (
         <button
           key={candidate}

@@ -1251,6 +1251,10 @@ canvas {
   color: var(--fg);
 }
 
+.trend-view-caption {
+  color: var(--fg-muted);
+}
+
 .trend-panel-header {
   display: flex;
   max-inline-size: 100%;
@@ -1828,7 +1832,7 @@ canvas {
 
 .compare-reverse,
 .compare-profile-trigger {
-  font-size: var(--text-lg);
+  font-size: var(--text-xs);
 }
 
 .compare-settings-trigger svg {

@@ -872,9 +872,10 @@ export function KwicPanel({
     },
     {
       key: 'node',
-      label: 'node',
+      label: 'match',
       className: 'kwic-node-heading',
       headingRef: nodeHeadingRef,
+      explanation: 'The matched word or phrase (the KWIC node).',
     },
     {
       key: 'right',
@@ -885,7 +886,12 @@ export function KwicPanel({
     ...(multipleBooks
       ? [{ key: 'book' as const, label: 'book', className: 'kwic-book-heading' }]
       : []),
-    { key: 'token', label: 'token', className: 'kwic-token-heading' },
+    {
+      key: 'token',
+      label: 'position',
+      className: 'kwic-token-heading',
+      explanation: 'Corpus position shown as token number / total tokens.',
+    },
   ];
 
   const onGridKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {

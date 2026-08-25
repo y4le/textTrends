@@ -119,6 +119,8 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   const leftInitial = await left.inputValue();
   const rightInitial = await right.inputValue();
   const reverse = page.getByRole('button', { name: 'Reverse both rankings' });
+  await expect(reverse).toHaveText('Swap');
+  await expect(reverse).toHaveAttribute('aria-label', /^Swap\b/);
   const reverseBox = await reverse.boundingBox();
   const leftBox = await left.boundingBox();
   expect(reverseBox?.x).toBeLessThan(leftBox?.x ?? 0);
@@ -256,7 +258,7 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   await expect(divergence).toHaveCount(0);
 
   const trigger = page.getByRole('button', { name: 'Text profile' });
-  await expect(trigger).toHaveText('Σ');
+  await expect(trigger).toHaveText('Profile');
   const triggerSize = await trigger.boundingBox();
   expect(triggerSize?.width).toBe(44);
   expect(triggerSize?.height).toBe(44);
@@ -272,7 +274,7 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   expect((triggerBox?.x ?? 0) + (triggerBox?.width ?? 0))
     .toBeLessThanOrEqual(rightBox?.x ?? 0);
   expect(await trigger.evaluate((button) =>
-    Number.parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThan(13);
+    Number.parseFloat(getComputedStyle(button).fontSize))).toBeGreaterThanOrEqual(11);
   await expect(trigger).toHaveAttribute('aria-expanded', 'false');
   await trigger.click();
   await expect(trigger).toHaveAttribute('aria-expanded', 'true');
