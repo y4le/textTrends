@@ -76,6 +76,8 @@ describe('Matches scroll geometry', () => {
     expect(matchesVisibleRanks(100, 100, 320)).toEqual({ start: 85, end: 100 });
     expect(matchesWindowSize(320)).toEqual({ before: 24, after: 24 });
     expect(matchesWindowSize(10_000)).toEqual({ before: 249, after: 249 });
+    expect(matchesVisibleRanks(50, 100, 320, 40)).toEqual({ start: 38, end: 62 });
+    expect(matchesWindowSize(320, 40)).toEqual({ before: 24, after: 24 });
   });
 
   it('prefetches overlapping windows before visible rows reach resident edges', () => {
@@ -89,6 +91,7 @@ describe('Matches scroll geometry', () => {
     expect(matchesPrefetchRank(35.5, 100, 320, middle, 1)).toBeNull();
     expect(matchesPrefetchRank(53.5, 100, 320, middle, 1)).toBe(69);
     expect(matchesPrefetchRank(53.5, 100, 320, middle, -1)).toBeNull();
+    expect(matchesPrefetchRank(56.5, 100, 320, middle, 1, 40)).toBe(69);
     expect(matchesPrefetchRank(90.5, 100, 320, middle, 1)).toBe(90);
 
     expect(matchesPrefetchRank(0.5, 100, 320, {

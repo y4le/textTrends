@@ -1,5 +1,5 @@
 import { expect, test, type Page } from '@playwright/test';
-import { awaitAllReady } from './helpers.ts';
+import { awaitAllReady, gotoPlace } from './helpers.ts';
 
 const STOPS = [
   { value: '0', density: 'compact', textXs: '0.6875rem', rail: 50, target: 36 },
@@ -102,4 +102,104 @@ test('density uses three live persisted stops without changing analytical marks'
   await page.getByRole('dialog', { name: 'Settings' })
     .getByRole('button', { name: 'Reset display' }).click();
   await expect(page.locator('html')).toHaveAttribute('data-density', 'standard');
+});
+
+test('density scales virtual data rows without moving their semantic anchors', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'matches');
+
+  const matches = page.getByRole('grid', { name: 'Matches' });
+  await expect(matches).toBeVisible();
+  await matches.evaluate((port) => {
+    port.scrollTop = port.scrollHeight * 0.55;
+  });
+  await expect.poll(() => matches.getAttribute('data-logical-position'))
+    .not.toBe('0.000');
+  const matchesAnchor = await matches.getAttribute('data-logical-position');
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  let pane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  let slider = pane.getByRole('slider', { name: 'Size and spacing' });
+  for (const stop of [
+    { value: '0', rowHeight: 32 },
+    { value: '1', rowHeight: 36 },
+    { value: '2', rowHeight: 40 },
+  ]) {
+    await slider.fill(stop.value);
+    await expect(matches).toHaveAttribute('data-logical-position', matchesAnchor!);
+    await expect.poll(() => matches.evaluate((port) => {
+      const rows = [...port.querySelectorAll<HTMLElement>('[data-matches-rank]')]
+        .map((row) => ({
+          rank: Number(row.dataset.matchesRank),
+          top: row.getBoundingClientRect().top,
+          height: row.getBoundingClientRect().height,
+        }))
+        .sort((left, right) => left.rank - right.rank);
+      const pair = rows.find((row, index) => rows[index + 1]?.rank === row.rank + 1);
+      const next = pair === undefined
+        ? undefined
+        : rows.find((row) => row.rank === pair.rank + 1);
+      return pair && next
+        ? { height: pair.height, pitch: next.top - pair.top }
+        : null;
+    })).toEqual({ height: stop.rowHeight, pitch: stop.rowHeight });
+  }
+
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+  await gotoPlace(page, 'vocabulary');
+  const vocabularyPort = page.getByRole('region', {
+    name: 'Scrollable Vocabulary frequency list',
+  });
+  await vocabularyPort.evaluate((port) => { port.scrollTop = 251; });
+  const firstFullyVisibleVocabularyRow = () => vocabularyPort.evaluate((port) => {
+    const headerBottom = port.querySelector<HTMLElement>('.frequency-grid-header')!
+      .getBoundingClientRect().bottom;
+    const rows = [...port.querySelectorAll<HTMLElement>('[data-frequency-row]')]
+      .map((row) => ({
+        index: Number(row.getAttribute('aria-rowindex')),
+        top: row.getBoundingClientRect().top,
+        height: row.getBoundingClientRect().height,
+      }))
+      .sort((left, right) => left.index - right.index);
+    const first = rows.find((row) => row.top >= headerBottom - 0.5);
+    return first ?? null;
+  });
+  await expect.poll(firstFullyVisibleVocabularyRow).not.toBeNull();
+  const vocabularyAnchor = (await firstFullyVisibleVocabularyRow())!.index;
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  pane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  slider = pane.getByRole('slider', { name: 'Size and spacing' });
+  for (const stop of [
+    { value: '0', rowHeight: 44 },
+    { value: '1', rowHeight: 48 },
+    { value: '2', rowHeight: 52 },
+  ]) {
+    await slider.fill(stop.value);
+    await expect.poll(firstFullyVisibleVocabularyRow).toEqual({
+      index: vocabularyAnchor,
+      top: expect.any(Number),
+      height: stop.rowHeight,
+    });
+  }
+
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+  await gotoPlace(page, 'compare');
+  const comparePort = page.getByRole('region', { name: 'Compare population pyramid' });
+  await expect(comparePort.locator('.compare-pyramid-row')).not.toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  pane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  slider = pane.getByRole('slider', { name: 'Size and spacing' });
+  for (const stop of STOPS) {
+    await slider.fill(stop.value);
+    await expect.poll(() => comparePort.evaluate((port) => {
+      const rows = [...port.querySelectorAll<HTMLElement>('.compare-pyramid-row')]
+        .map((row) => row.getBoundingClientRect())
+        .filter((box) => box.height > 0);
+      return rows.slice(1).every((box, index) =>
+        Math.abs(box.top - rows[index]!.bottom) <= 1);
+    })).toBe(true);
+  }
 });

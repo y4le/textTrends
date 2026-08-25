@@ -94,7 +94,7 @@ test('Matches merges all terms in corpus order and toggles a term off', async ({
   expect(mentionPresentation.color).toBe(mentionPresentation.foregroundColor);
   expect(mentionPresentation.cellText).toBe(mentionPresentation.wrapperText);
   expect(mentionPresentation.wrapperChildren).toBe(1);
-  expect(mentionPresentation.rowHeight).toBe(32);
+  expect(mentionPresentation.rowHeight).toBe(36);
 
   // A single-book corpus omits the redundant book column and keeps corpus
   // progress in its own rightmost column.

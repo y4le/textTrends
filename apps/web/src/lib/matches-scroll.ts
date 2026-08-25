@@ -76,11 +76,17 @@ export function matchesVisibleRanks(
   return { start, end: Math.max(start, end) };
 }
 
-export function matchesWindowSize(viewportHeight: number): {
+export function matchesWindowSize(
+  viewportHeight: number,
+  rowHeight = MATCHES_ROW_HEIGHT,
+): {
   readonly before: number;
   readonly after: number;
 } {
-  const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / MATCHES_ROW_HEIGHT));
+  const pitch = Number.isFinite(rowHeight) && rowHeight > 0
+    ? rowHeight
+    : MATCHES_ROW_HEIGHT;
+  const visibleRows = Math.max(1, Math.ceil(Math.max(0, viewportHeight) / pitch));
   const radius = Math.min(249, Math.max(24, visibleRows * 2));
   return { before: radius, after: radius };
 }
@@ -95,6 +101,7 @@ export function matchesPrefetchRank(
   viewportHeight: number,
   resident: MatchesResidentLike | null,
   direction: -1 | 0 | 1,
+  rowHeight = MATCHES_ROW_HEIGHT,
 ): number | null {
   if (!Number.isFinite(totalRows) || totalRows <= 0) return null;
   const active = Math.max(0, Math.min(totalRows - 1, Math.floor(logical)));
@@ -105,7 +112,7 @@ export function matchesPrefetchRank(
   const end = Math.max(first, Math.min(totalRows, first + resident.rows.length));
   if (active < first || active >= end) return active;
 
-  const visible = matchesVisibleRanks(logical, totalRows, viewportHeight);
+  const visible = matchesVisibleRanks(logical, totalRows, viewportHeight, rowHeight);
   const needsBefore = direction <= 0 && first > 0 && visible.start <= first;
   const needsAfter = direction >= 0 && end < totalRows && visible.end >= end;
   if (needsBefore && needsAfter) {

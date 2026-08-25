@@ -1583,7 +1583,6 @@ canvas {
 
 .frequency-table-shell {
   --data-grid-header-height: var(--data-header-block-size);
-  --frequency-row-height: 34px;
   position: relative;
   min-block-size: 10rem;
   overflow: hidden;
@@ -1620,6 +1619,13 @@ canvas {
   inset-block-start: 0;
   block-size: var(--data-grid-header-height);
   background: var(--bg);
+}
+
+/* A sticky header cannot coexist with one complete data row when the compact
+ * workbench leaves less than that combined height. Let it scroll in that
+ * exceptional viewport so the first row remains a real pointer target. */
+.frequency-table-port[data-short-table='true'] .frequency-table thead {
+  position: relative;
 }
 
 .frequency-grid-header,
@@ -1670,7 +1676,7 @@ canvas {
 
 .frequency-primary-row {
   min-block-size: var(--frequency-row-height);
-  border-block-start: 1px solid var(--rule);
+  box-shadow: inset 0 1px 0 var(--rule);
   cursor: pointer;
 }
 
@@ -1693,7 +1699,7 @@ canvas {
 }
 
 .frequency-primary-row[data-expanded='true'] {
-  box-shadow: inset 3px 0 0 var(--accent-text);
+  box-shadow: inset 0 1px 0 var(--rule), inset 3px 0 0 var(--accent-text);
   background: color-mix(in srgb, var(--accent) 7%, var(--bg));
 }
 
@@ -2980,7 +2986,7 @@ canvas {
   position: absolute;
   inset-block-start: 0;
   inset-inline-start: 0;
-  block-size: 32px;
+  block-size: var(--kwic-row-height);
   border-block-start: 1px solid var(--rule);
   will-change: transform;
 }
@@ -3109,7 +3115,6 @@ canvas {
 
   .frequency-table-shell {
     --data-grid-header-height: var(--compact-data-header-block-size);
-    --frequency-row-height: 44px;
   }
 
   .frequency-table-port:focus-visible {
@@ -3131,7 +3136,7 @@ canvas {
   }
 
   .frequency-primary-row {
-    min-block-size: 44px;
+    min-block-size: var(--frequency-row-height);
   }
 
   .frequency-term button {

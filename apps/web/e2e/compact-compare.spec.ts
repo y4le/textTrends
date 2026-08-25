@@ -282,7 +282,7 @@ test('Compare disclosure contains divergence and the two-sided text profile', as
   await expect(trigger).toHaveText('Profile');
   const triggerSize = await trigger.boundingBox();
   expect(triggerSize?.width).toBe(44);
-  expect(triggerSize?.height).toBe(44);
+  expect(triggerSize?.height).toBe(46);
   const left = page.getByLabel('Left comparison input');
   const right = page.getByLabel('Right comparison input');
   const [leftBox, triggerBox, rightBox] = await Promise.all([

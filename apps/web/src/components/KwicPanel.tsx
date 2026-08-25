@@ -39,7 +39,6 @@ import {
 } from '../lib/matches-columns.ts';
 import { proportionalPairFromPixels } from '../lib/column-layout.ts';
 import {
-  MATCHES_ROW_HEIGHT,
   matchesLogicalAtScroll,
   matchesPhysicalExtent,
   matchesPrefetchRank,
@@ -50,6 +49,7 @@ import {
   globalTokenForTarget,
   logicalForGlobalToken,
 } from '../lib/matches-scroll.ts';
+import { DENSITY_METRICS } from '../lib/display-preference.ts';
 import { sequenceLayoutFor } from '../lib/footer-view.ts';
 import {
   ROW_NAVIGATION_SHORTCUT_IDS,
@@ -61,7 +61,7 @@ import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { selectionContains } from '../lib/selection.ts';
 import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { widthClassFor } from '../lib/presentation.ts';
-import { usePresentation } from './PresentationProvider.tsx';
+import { useDisplayPreference, usePresentation } from './PresentationProvider.tsx';
 import {
   ColumnResizeHandle,
   DataGridColumnToolbar,
@@ -97,6 +97,7 @@ interface ColumnDrag {
 
 type MatchesGridStyle = CSSProperties & {
   '--kwic-template': string;
+  '--kwic-row-height': string;
 };
 
 export function KwicPanel({
@@ -105,6 +106,8 @@ export function KwicPanel({
   readonly showHeading?: boolean;
 }) {
   const presentation = usePresentation();
+  const displayPreference = useDisplayPreference();
+  const rowHeight = DENSITY_METRICS[displayPreference.density].matchesRowHeight;
   const kwic = useApp((state) => state.kwic);
   const project = useApp((state) => state.projectSession?.project ?? null);
   const snapshot = useApp((state) => state.snapshot);
@@ -144,6 +147,7 @@ export function KwicPanel({
   const announcementPendingRef = useRef('');
   const announcementAtRef = useRef(0);
   const lastScrollTopRef = useRef(0);
+  const previousRowHeightRef = useRef(rowHeight);
   const [viewport, setViewport] = useState({ width: 0, height: 0, chPx: 0 });
   const [logical, setLogical] = useState(0);
   const [announcement, setAnnouncement] = useState('');
@@ -274,22 +278,23 @@ export function KwicPanel({
     if (!moveScroll) return;
     const port = portRef.current;
     if (!port) return;
-    const top = matchesScrollTop(bounded, total);
+    const top = matchesScrollTop(bounded, total, rowHeight);
     if (Math.abs(port.scrollTop - top) <= SCROLL_TOLERANCE_PX) return;
     programmaticScrollRef.current = top;
     port.scrollTop = top;
-  }, [total]);
+  }, [rowHeight, total]);
 
   const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
-    const size = matchesWindowSize(viewport.height);
+    const size = matchesWindowSize(viewport.height, rowHeight);
     const prefetchRank = matchesPrefetchRank(
       bounded + 0.5,
       total,
       viewport.height,
       resident,
       direction,
+      rowHeight,
     );
     if (prefetchRank === null) return;
     const request = kwic?.request;
@@ -312,6 +317,7 @@ export function KwicPanel({
     kwic?.state.status,
     requestWindow,
     resident,
+    rowHeight,
     total,
     viewport.height,
   ]);
@@ -366,6 +372,18 @@ export function KwicPanel({
     };
   }, [hasGrid]);
 
+  useLayoutEffect(() => {
+    const previous = previousRowHeightRef.current;
+    previousRowHeightRef.current = rowHeight;
+    if (previous === rowHeight) return;
+    const port = portRef.current;
+    if (port === null || total <= 0) return;
+    const top = matchesScrollTop(logicalRef.current, total, rowHeight);
+    programmaticScrollRef.current = top;
+    lastScrollTopRef.current = top;
+    port.scrollTop = top;
+  }, [rowHeight, total]);
+
   useEffect(() => {
     const identity = kwic ? `${kwic.snapshot}\u001f${kwic.trackKey}` : '';
     if (identityRef.current === identity) return;
@@ -378,7 +396,7 @@ export function KwicPanel({
 
   useEffect(() => {
     if (!layout || total <= 0 || !kwic) return;
-    const size = matchesWindowSize(viewport.height);
+    const size = matchesWindowSize(viewport.height, rowHeight);
     const pendingRank = pendingRankRef.current;
     if (pendingRank !== null) {
       const row = rowAtRank(pendingRank);
@@ -442,6 +460,7 @@ export function KwicPanel({
     requestWindow,
     resident,
     rowAtRank,
+    rowHeight,
     scrub,
     setLogicalPosition,
     setScrub,
@@ -475,7 +494,7 @@ export function KwicPanel({
       scrollFrameRef.current = null;
       const livePort = portRef.current;
       if (!livePort || total <= 0) return;
-      const nextLogical = matchesLogicalAtScroll(livePort.scrollTop, total);
+      const nextLogical = matchesLogicalAtScroll(livePort.scrollTop, total, rowHeight);
       const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
       setLogicalPosition(nextLogical, false);
       const rank = Math.max(0, Math.min(total - 1, Math.floor(nextLogical)));
@@ -484,17 +503,17 @@ export function KwicPanel({
       if (target) announceRank(rank, target);
       requestRank(rank, direction);
     });
-  }, [announceRank, publishLogicalCursor, requestRank, setLogicalPosition, total]);
+  }, [announceRank, publishLogicalCursor, requestRank, rowHeight, setLogicalPosition, total]);
 
   const activeRank = total > 0
     ? Math.max(0, Math.min(total - 1, Math.floor(logical)))
     : -1;
-  const visible = matchesVisibleRanks(logical, total, viewport.height);
+  const visible = matchesVisibleRanks(logical, total, viewport.height, rowHeight);
   const renderedRows = rankedRows.filter(({ rank }) =>
     (rank >= visible.start && rank < visible.end) || rank === activeRank);
   const activeRowRendered = renderedRows.some(({ rank }) => rank === activeRank);
-  const physicalTop = matchesScrollTop(logical, total);
-  const planeHeight = matchesPhysicalExtent(total) + viewport.height;
+  const physicalTop = matchesScrollTop(logical, total, rowHeight);
+  const planeHeight = matchesPhysicalExtent(total, rowHeight) + viewport.height;
 
   const readerId = (row: MatchesRowVM) =>
     `kwic-reader-${encodeURIComponent(row.key)}`;
@@ -540,6 +559,7 @@ export function KwicPanel({
   [layoutOptions, resolveFor]);
   const gridStyle: MatchesGridStyle = {
     '--kwic-template': matchesGridTemplate(displayedColumns, layoutOptions),
+    '--kwic-row-height': `${rowHeight}px`,
   };
 
   useEffect(() => {
@@ -572,7 +592,7 @@ export function KwicPanel({
     );
     const anchor = kwic.request?.anchor
       ?? { kind: 'rank' as const, rank: Math.max(0, activeRank) };
-    const size = matchesWindowSize(viewport.height);
+    const size = matchesWindowSize(viewport.height, rowHeight);
     contextEscalationTimerRef.current = setTimeout(() => {
       contextEscalationTimerRef.current = null;
       requestWindow(anchor, {
@@ -596,6 +616,7 @@ export function KwicPanel({
     multipleBooks,
     requestWindow,
     resident,
+    rowHeight,
     viewport.chPx,
     viewport.height,
     viewport.width,
@@ -914,7 +935,7 @@ export function KwicPanel({
     const pageSize = visibleRowPageSize(
       event.currentTarget.clientHeight,
       window.innerHeight,
-      MATCHES_ROW_HEIGHT,
+      rowHeight,
     );
     const target = rowNavigationTarget(total, activeRank, shortcut, pageSize);
     if (target >= 0) moveToRank(target);
@@ -980,8 +1001,8 @@ export function KwicPanel({
             {renderedRows.map(({ row, rank }) => {
               const top = physicalTop
                 + viewport.height / 2
-                + (rank + 0.5 - logical) * MATCHES_ROW_HEIGHT
-                - MATCHES_ROW_HEIGHT / 2;
+                + (rank + 0.5 - logical) * rowHeight
+                - rowHeight / 2;
               return (
                 <div
                   key={row.key}

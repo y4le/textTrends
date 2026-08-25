@@ -89,7 +89,9 @@ export function useRowNavigation({
     setActiveKey(key);
     onActivateIndex?.(index, key);
     const control = controlsRef.current.get(key);
-    control?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    if (onActivateIndex === undefined) {
+      control?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+    }
     if (focus && control) {
       pendingFocusKeyRef.current = null;
       control.focus({ preventScroll: true });
@@ -106,7 +108,9 @@ export function useRowNavigation({
           pendingFocusKeyRef.current = null;
           requestAnimationFrame(() => {
             if (controlsRef.current.get(key) !== element) return;
-            element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            if (onActivateIndex === undefined) {
+              element.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+            }
             element.focus({ preventScroll: true });
           });
         }

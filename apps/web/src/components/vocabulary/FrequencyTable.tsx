@@ -2,6 +2,7 @@ import {
   Fragment,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -14,7 +15,12 @@ import {
   STOPLIST_MAX_TOP_N,
   type FrequencyListRowV1,
 } from '@texttrends/core';
-import { usePresentation } from '../PresentationProvider.tsx';
+import { useDisplayPreference, usePresentation } from '../PresentationProvider.tsx';
+import { DENSITY_METRICS } from '../../lib/display-preference.ts';
+import {
+  firstFullyVisibleFrequencyRow,
+  frequencyRowTop,
+} from '../../lib/frequency-scroll.ts';
 import {
   renderedRowDetailLayer,
   rowDetailSurface,
@@ -90,12 +96,11 @@ interface FrequencyColumnDrag {
   moved: boolean;
 }
 
-type FrequencyGridStyle = CSSProperties & { '--frequency-template': string };
+type FrequencyGridStyle = CSSProperties & {
+  '--frequency-template': string;
+  '--frequency-row-height': string;
+};
 
-const FREQUENCY_ROW_HEIGHT = 34;
-const FREQUENCY_COMPACT_ROW_HEIGHT = 44;
-const FREQUENCY_HEADER_HEIGHT = 36;
-const FREQUENCY_COMPACT_HEADER_HEIGHT = 44;
 const FREQUENCY_DETAIL_HEIGHT_ESTIMATE = 220;
 
 function FrequencyRowDetail({
@@ -171,6 +176,12 @@ export function FrequencyTable({
   readonly showHeading?: boolean;
 }) {
   const presentation = usePresentation();
+  const displayPreference = useDisplayPreference();
+  const compact = presentation.width === 'compact';
+  const densityMetrics = DENSITY_METRICS[displayPreference.density];
+  const rowHeight = compact
+    ? densityMetrics.frequencyCompactRowHeight
+    : densityMetrics.frequencyRowHeight;
   const state = useApp((store) => store.frequency);
   const snapshot = useApp((store) => store.snapshot);
   const view = useApp((store) => store.frequencyView);
@@ -193,7 +204,11 @@ export function FrequencyTable({
       ?? VOCABULARY_COLUMN_DEFAULTS);
   const [columnsAdjustable, setColumnsAdjustable] = useState(false);
   const [columnAnnouncement, setColumnAnnouncement] = useState('');
-  const [tableViewport, setTableViewport] = useState({ scrollTop: 0, height: 0 });
+  const [tableViewport, setTableViewport] = useState({
+    scrollTop: 0,
+    height: 0,
+    headerHeight: 0,
+  });
   const [detailHeight, setDetailHeight] = useState(FREQUENCY_DETAIL_HEIGHT_ESTIMATE);
   const portRef = useRef<HTMLDivElement | null>(null);
   const scrollFrameRef = useRef<number | null>(null);
@@ -201,6 +216,7 @@ export function FrequencyTable({
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
   const columnDragRef = useRef<FrequencyColumnDrag | null>(null);
   const initialNavigationClaimedRef = useRef(false);
+  const previousRowHeightRef = useRef(rowHeight);
   const topLayer = layers.at(-1);
   const renderedLayer = useMemo(
     () => renderedRowDetailLayer(layers),
@@ -213,7 +229,6 @@ export function FrequencyTable({
     [renderedLayer],
   );
   const rowTarget = target;
-  const compact = presentation.width === 'compact';
   const stalePopRequested = useRef(false);
 
   const cancelActiveColumnDrag = useCallback(() => {
@@ -480,17 +495,18 @@ export function FrequencyTable({
     [readyResult],
   );
   const loadingMore = readyResult !== null && state?.state.status === 'pending';
-  const rowHeight = compact ? FREQUENCY_COMPACT_ROW_HEIGHT : FREQUENCY_ROW_HEIGHT;
-  const headerHeight = compact
-    ? FREQUENCY_COMPACT_HEADER_HEIGHT
-    : FREQUENCY_HEADER_HEIGHT;
+  const headerHeight = tableViewport.headerHeight;
   const expandedIndex = readyResult === null || rowTarget === null
     ? -1
     : readyResult.rows.findIndex(
         (row) => row.typeId === rowTarget.typeId && row.key === rowTarget.key,
       );
-  const rowTop = useCallback((index: number) =>
-    index * rowHeight + (expandedIndex >= 0 && index > expandedIndex ? detailHeight : 0),
+  const rowTop = useCallback((index: number) => frequencyRowTop(
+    index,
+    rowHeight,
+    expandedIndex,
+    detailHeight,
+  ),
   [detailHeight, expandedIndex, rowHeight]);
   const bodyHeight = (readyResult?.rows.length ?? 0) * rowHeight
     + (expandedIndex >= 0 ? detailHeight : 0);
@@ -528,8 +544,15 @@ export function FrequencyTable({
     const port = portRef.current;
     if (port === null) return;
     setTableViewport((current) => {
-      const next = { scrollTop: port.scrollTop, height: port.clientHeight };
-      return current.scrollTop === next.scrollTop && current.height === next.height
+      const next = {
+        scrollTop: port.scrollTop,
+        height: port.clientHeight,
+        headerHeight: port.querySelector<HTMLElement>('.frequency-grid-header')
+          ?.getBoundingClientRect().height ?? 0,
+      };
+      return current.scrollTop === next.scrollTop
+        && current.height === next.height
+        && Math.abs(current.headerHeight - next.headerHeight) < 0.01
         ? current
         : next;
     });
@@ -557,6 +580,38 @@ export function FrequencyTable({
       updateTableViewport();
     });
   }, [maybeLoadMore, updateTableViewport]);
+  useLayoutEffect(() => {
+    const previousRowHeight = previousRowHeightRef.current;
+    previousRowHeightRef.current = rowHeight;
+    if (previousRowHeight === rowHeight) return;
+    const port = portRef.current;
+    const rowCount = readyResult?.rows.length ?? 0;
+    if (port === null || rowCount === 0) return;
+    const header = port.querySelector<HTMLElement>('.frequency-grid-header');
+    const stickyHeader = header === null || getComputedStyle(header).position === 'sticky';
+    const anchorScrollTop = stickyHeader
+      ? port.scrollTop
+      : Math.max(0, port.scrollTop - tableViewport.headerHeight);
+    const anchor = firstFullyVisibleFrequencyRow({
+      scrollTop: anchorScrollTop,
+      rowCount,
+      rowHeight: previousRowHeight,
+      expandedIndex,
+      detailHeight,
+    });
+    const anchoredRowTop = frequencyRowTop(anchor, rowHeight, expandedIndex, detailHeight);
+    port.scrollTop = stickyHeader
+      ? anchoredRowTop
+      : (header?.getBoundingClientRect().height ?? 0) + anchoredRowTop;
+    updateTableViewport();
+  }, [
+    detailHeight,
+    expandedIndex,
+    readyResult?.rows.length,
+    rowHeight,
+    tableViewport.headerHeight,
+    updateTableViewport,
+  ]);
   useEffect(() => {
     maybeLoadMore();
     updateTableViewport();
@@ -645,6 +700,7 @@ export function FrequencyTable({
   );
   const gridStyle: FrequencyGridStyle = {
     '--frequency-template': vocabularyGridTemplate(columns),
+    '--frequency-row-height': `${rowHeight}px`,
   };
   const regexApplied = regexError === null
     && regexDraft.normalize('NFC') === (view.regex ?? '');
@@ -774,6 +830,7 @@ export function FrequencyTable({
               role="region"
               aria-label="Scrollable Vocabulary frequency list"
               tabIndex={0}
+              data-short-table={tableViewport.height < headerHeight + rowHeight || undefined}
               onScroll={onTableScroll}
             >
               <table
