@@ -5,7 +5,7 @@ test('Trend settings separate result geometry from resident presentation', async
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  let pane = page.getByRole('dialog', { name: 'Trend settings' });
+  let pane = page.getByRole('dialog', { name: 'Settings' });
   let settings = pane.getByRole('form', { name: 'Trend settings' });
 
   const geometryMark = (await trace(page)).events.at(-1)?.seq ?? -1;
@@ -36,7 +36,7 @@ test('Trend settings separate result geometry from resident presentation', async
 
   const displayMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  pane = page.getByRole('dialog', { name: 'Trend settings' });
+  pane = page.getByRole('dialog', { name: 'Settings' });
   settings = pane.getByRole('form', { name: 'Trend settings' });
   await settings.getByRole('combobox', { name: 'Measure', exact: true }).selectOption('rate');
   await settings.getByRole('combobox', { name: 'Smoothing', exact: true }).selectOption('5');

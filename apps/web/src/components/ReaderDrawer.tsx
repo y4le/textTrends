@@ -175,8 +175,10 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 
 function ReaderProseDrawer({
   onOpenShortcuts,
+  onOpenSettings,
 }: {
   readonly onOpenShortcuts: () => void;
+  readonly onOpenSettings: (returnFocus: HTMLElement) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
   const result = useApp((state) => state.readerPage);
@@ -443,6 +445,14 @@ function ReaderProseDrawer({
         </div>
         <div className="reader-header-actions">
           <button
+            id="reader-settings-open"
+            type="button"
+            onClick={(event) => onOpenSettings(event.currentTarget)}
+            style={SMALL_BUTTON_STYLE}
+          >
+            settings
+          </button>
+          <button
             type="button"
             aria-keyshortcuts={shortcutAria(['show-help'])}
             onClick={onOpenShortcuts}
@@ -554,8 +564,10 @@ function ReaderProseDrawer({
 
 export function ReaderDrawer({
   onOpenShortcuts,
+  onOpenSettings,
 }: {
   readonly onOpenShortcuts: () => void;
+  readonly onOpenSettings: (returnFocus: HTMLElement) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
   const place = useApp((state) => state.readerPlace);
@@ -573,7 +585,12 @@ export function ReaderDrawer({
     || place === null
     || place.snapshot !== interaction.rsvp.snapshot
     || place.doc !== interaction.rsvp.doc
-  ) return <ReaderProseDrawer onOpenShortcuts={onOpenShortcuts} />;
+  ) return (
+    <ReaderProseDrawer
+      onOpenShortcuts={onOpenShortcuts}
+      onOpenSettings={onOpenSettings}
+    />
+  );
 
   const current = result && sameReaderPlace(result.place, place) ? result : null;
   const source: RsvpReaderSource = !current || current.state.status === 'pending'

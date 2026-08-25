@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { App } from './App';
 import { PresentationProvider } from './components/PresentationProvider.tsx';
 import { SeriesPaletteSync } from './components/SeriesPaletteSync.tsx';
+import './lib/display-store.ts';
 import './style/tokens.css';
 
 const root = document.getElementById('root');

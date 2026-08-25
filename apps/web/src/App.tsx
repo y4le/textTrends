@@ -13,7 +13,11 @@ import { StatusBar } from './components/StatusBar.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
-import { isSettingsPlace } from './lib/settings-place.ts';
+import {
+  globalSettingsEntry,
+  type SettingsContext,
+  type SettingsEntry,
+} from './lib/settings-entry.ts';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
@@ -51,8 +55,8 @@ const TrendsPlace = lazy(() =>
 const MatchesPlace = lazy(() =>
   import('./places/MatchesPlace.tsx').then(({ MatchesPlace: placeBody }) => ({ default: placeBody })),
 );
-const SettingsSurface = lazy(() =>
-  import('./components/SettingsSurface.tsx').then(({ SettingsSurface: surface }) => ({ default: surface })),
+const SettingsPane = lazy(() =>
+  import('./components/SettingsPane.tsx').then(({ SettingsPane: pane }) => ({ default: pane })),
 );
 const DebugSurface = lazy(() =>
   import('./components/DebugSurface.tsx').then(({ DebugSurface: surface }) => ({ default: surface })),
@@ -68,7 +72,7 @@ interface ReaderEdgePointer {
 }
 
 type OpenUtilityPane =
-  | { readonly kind: 'settings' }
+  | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
   | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
 
@@ -234,30 +238,34 @@ export function App() {
       shortcutSequenceTimer.current = null;
     }
   };
-  const openShortcutHelp = (context: ShortcutHelpContext) => {
+  const openShortcutHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = interaction.kind === 'find'
-      ? findReturnFocus.current
-      : document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null;
+    if (!fromUtilityPane) {
+      utilityPaneReturnFocus.current = interaction.kind === 'find'
+        ? findReturnFocus.current
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null;
+    }
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'shortcuts', context });
   };
-  const openSettings = () => {
-    if (!isSettingsPlace(place)) return;
+  const openSettings = (
+    context: SettingsContext = place,
+    returnFocus: HTMLElement | null = null,
+  ) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = interaction.kind === 'find'
+    utilityPaneReturnFocus.current = returnFocus ?? (interaction.kind === 'find'
       ? findReturnFocus.current
       : document.activeElement instanceof HTMLElement
         ? document.activeElement
-        : null;
+        : null);
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'settings' });
+    setUtilityPane({ kind: 'settings', entry: globalSettingsEntry(context) });
   };
   const openDebug = (fromUtilityPane = false) => {
     clearShortcutSequence();
@@ -304,10 +312,22 @@ export function App() {
   };
   const closeUtilityPane = () => {
     const target = utilityPaneReturnFocus.current;
+    const targetId = target?.id ?? '';
     setUtilityPane(null);
-    requestAnimationFrame(() => {
-      if (target?.isConnected) target.focus({ preventScroll: true });
-    });
+    const restore = (attempt: number) => {
+      const root = document.getElementById('root');
+      if (root?.inert && attempt < 3) {
+        requestAnimationFrame(() => restore(attempt + 1));
+        return;
+      }
+      const connectedTarget = target?.isConnected
+        ? target
+        : targetId === ''
+          ? null
+          : document.getElementById(targetId);
+      connectedTarget?.focus({ preventScroll: true });
+    };
+    requestAnimationFrame(() => restore(0));
   };
   const exitActiveRsvp = (): boolean => {
     const state = useApp.getState();
@@ -668,7 +688,15 @@ export function App() {
     : utilityPane?.kind === 'settings'
       ? (
           <Suspense fallback={null}>
-            <SettingsSurface onClose={closeUtilityPane} />
+            <SettingsPane
+              entry={utilityPane.entry}
+              onClose={closeUtilityPane}
+              onOpenShortcuts={() => openShortcutHelp(
+                utilityPane.entry.context === 'reader' ? 'reader' : 'workbench',
+                true,
+              )}
+              onOpenDebug={() => openDebug(true)}
+            />
           </Suspense>
         )
       : utilityPane?.kind === 'debug'
@@ -769,6 +797,13 @@ export function App() {
                 </div>
                 <div className="reader-header-actions">
                   <button
+                    id="reader-settings-open"
+                    type="button"
+                    onClick={(event) => openSettings('reader', event.currentTarget)}
+                  >
+                    settings
+                  </button>
+                  <button
                     type="button"
                     aria-keyshortcuts={shortcutAria(['show-help'])}
                     onClick={() => openShortcutHelp('reader')}
@@ -783,6 +818,7 @@ export function App() {
           )}
         >
           <ReaderDrawer
+            onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenShortcuts={() => openShortcutHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',
             )}

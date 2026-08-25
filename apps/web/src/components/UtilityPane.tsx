@@ -5,6 +5,7 @@ export function UtilityPane({
   title,
   subtitle,
   focusKey,
+  initialFocus = 'first-control',
   closeKeyshortcuts,
   className,
   layerClassName,
@@ -18,6 +19,7 @@ export function UtilityPane({
   readonly title: string;
   readonly subtitle?: string;
   readonly focusKey?: string;
+  readonly initialFocus?: 'heading' | 'first-control';
   readonly closeKeyshortcuts?: string;
   readonly className?: string;
   readonly layerClassName?: string;
@@ -34,6 +36,7 @@ export function UtilityPane({
     <FormLayer
       labelledBy={titleId}
       {...(focusKey === undefined ? {} : { focusKey })}
+      {...(initialFocus === 'heading' ? { initialFocusId: titleId } : {})}
       {...(layerClassName === undefined ? {} : { className: layerClassName })}
       closeOnBackdrop={closeOnBackdrop}
       onClose={onClose}
@@ -45,7 +48,7 @@ export function UtilityPane({
       >
         <header className="utility-pane-header">
           <div>
-            <h2 id={titleId}>{title}</h2>
+            <h2 id={titleId} tabIndex={initialFocus === 'heading' ? -1 : undefined}>{title}</h2>
             {subtitle && <p>{subtitle}</p>}
           </div>
           <button

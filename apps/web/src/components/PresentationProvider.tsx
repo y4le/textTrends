@@ -17,6 +17,11 @@ import {
   type Presentation,
 } from '../lib/presentation.ts';
 import { keyboardInsetFor } from '../lib/viewport-metrics.ts';
+import {
+  getDisplayPreference,
+  getServerDisplayPreference,
+  subscribeDisplayPreference,
+} from '../lib/display-store.ts';
 
 const DEFAULT_PRESENTATION: Presentation = {
   width: 'wide',
@@ -62,6 +67,11 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
   const anyCoarse = useMediaQuery(ANY_COARSE_POINTER_QUERY, false);
   const reducedMotion = useMediaQuery(REDUCED_MOTION_QUERY, false);
   const darkScheme = useMediaQuery(DARK_SCHEME_QUERY, true);
+  const displayPreference = useSyncExternalStore(
+    subscribeDisplayPreference,
+    getDisplayPreference,
+    getServerDisplayPreference,
+  );
 
   useEffect(() => {
     const visual = window.visualViewport;
@@ -102,8 +112,18 @@ export function PresentationProvider({ children }: { readonly children: ReactNod
     width: compact ? 'compact' : wide ? 'wide' : 'regular',
     coarseAvailable: primaryCoarse || anyCoarse,
     reducedMotion,
-    colorScheme: darkScheme ? 'dark' : 'light',
-  }), [anyCoarse, compact, darkScheme, primaryCoarse, reducedMotion, wide]);
+    colorScheme: displayPreference.theme === 'system'
+      ? darkScheme ? 'dark' : 'light'
+      : displayPreference.theme,
+  }), [
+    anyCoarse,
+    compact,
+    darkScheme,
+    displayPreference.theme,
+    primaryCoarse,
+    reducedMotion,
+    wide,
+  ]);
 
   return (
     <PresentationContext.Provider value={presentation}>

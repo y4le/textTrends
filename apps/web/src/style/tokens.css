@@ -7,7 +7,7 @@
  */
 
 :root {
-  color-scheme: dark light;
+  color-scheme: dark;
 
   /* Type */
   --font-ui: system-ui, -apple-system, 'Segoe UI', sans-serif;
@@ -81,8 +81,28 @@
     calc(var(--dock-block-size) + var(--space-2));
 }
 
+:root:not([data-theme]) {
+  color-scheme: dark light;
+}
+
+:root[data-theme='light'] {
+  color-scheme: light;
+  --bg: #f7f3e9;
+  --fg: #1c1913;
+  --fg-muted: #6e6754;
+  --rule: #c9c0aa;
+  --rule-strong: #948a73;
+  --accent: #b23a24;
+  --accent-text: #8f2c1a;
+  --series-1: var(--series-light-1);
+  --series-2: var(--series-light-2);
+  --series-3: var(--series-light-3);
+  --series-4: var(--series-light-4);
+  --series-5: var(--series-light-5);
+}
+
 @media (prefers-color-scheme: light) {
-  :root {
+  :root:not([data-theme]) {
     --bg: #f7f3e9;
     --fg: #1c1913;
     --fg-muted: #6e6754;
@@ -3836,6 +3856,74 @@ canvas {
 
 .utility-pane-body {
   min-width: 0;
+}
+
+.settings-sections {
+  display: grid;
+  gap: var(--space-4);
+}
+
+.settings-sections > section {
+  display: grid;
+  gap: var(--space-3);
+  padding-block-end: var(--space-4);
+  border-bottom: 1px solid var(--rule);
+  scroll-margin-block-start: var(--space-3);
+}
+
+.settings-sections > section:last-child {
+  padding-block-end: 0;
+  border-bottom: 0;
+}
+
+.settings-sections h3,
+.settings-sections p {
+  margin: 0;
+}
+
+.display-settings,
+.settings-help {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.display-settings fieldset {
+  display: grid;
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+  gap: var(--space-2);
+}
+
+.display-settings fieldset > p,
+.display-settings > p,
+.settings-method-summary,
+.settings-help > p {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.settings-choice-row,
+.settings-help-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.settings-choice-row label {
+  display: inline-flex;
+  min-block-size: 44px;
+  align-items: center;
+  gap: var(--space-1);
+}
+
+.display-settings button,
+.settings-help-actions button {
+  padding-inline: var(--space-2);
+  border: 1px solid var(--rule-strong);
+  background: none;
+  color: var(--fg);
+  cursor: pointer;
 }
 
 .utility-pane-footer {

@@ -7,9 +7,8 @@ test('every route exposes one canonical place and no canonical peer', async ({ p
   await awaitAllReady(page, { loadDemo: true });
   for (const place of PLACES) {
     await gotoPlace(page, place);
-    const supportsSettings = place === 'trends';
     await expect(page.getByRole('button', { name: 'Settings', exact: true }))
-      .toHaveCount(supportsSettings ? 1 : 0);
+      .toHaveCount(1);
     await expect(page.getByRole('complementary', { name: 'Terms' }))
       .toHaveCount(1);
     for (const [candidate, heading] of Object.entries(PLACE_HEADING)) {

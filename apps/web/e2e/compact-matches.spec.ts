@@ -12,7 +12,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await expect(grid).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('complementary', { name: 'Terms' })).toBeVisible();
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);
   await expect(page.getByLabel('Match order')).toHaveCount(0);
   await expect(page.getByLabel('Occurrence navigation')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'recenter node' })).toHaveCount(0);
@@ -39,10 +39,10 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   }
 
   const leftWidth = grid.getByRole('separator', { name: 'Left context width' });
-  const nodeWidth = grid.getByRole('separator', { name: 'Node width' });
+  const matchWidth = grid.getByRole('separator', { name: 'Match width' });
   const rightWidth = grid.getByRole('separator', { name: 'Right context width' });
   await expect(leftWidth).toHaveAttribute('tabindex', '-1');
-  await expect(nodeWidth).toHaveAttribute('tabindex', '-1');
+  await expect(matchWidth).toHaveAttribute('tabindex', '-1');
   await expect(rightWidth).toHaveAttribute('tabindex', '-1');
   await expect(leftWidth).toHaveAttribute('aria-valuenow', '50');
   await expect(rightWidth).toHaveAttribute('aria-valuenow', '50');
@@ -63,7 +63,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
 
   await expect.poll(async () => {
     const portBox = await grid.boundingBox();
-    const nodeBox = await grid.getByRole('columnheader', { name: 'node' }).boundingBox();
+    const nodeBox = await grid.getByRole('columnheader', { name: /^match/ }).boundingBox();
     if (!portBox || !nodeBox) return false;
     return nodeBox.x >= portBox.x - 1
       && nodeBox.x + nodeBox.width <= portBox.x + portBox.width + 1;
@@ -127,9 +127,9 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   await leftWidth.focus();
   await leftWidth.press('Home');
   await expect(leftWidth).toHaveAttribute('aria-valuenow', '1');
-  await nodeWidth.focus();
-  await nodeWidth.press('Home');
-  await expect(nodeWidth).toHaveAttribute('aria-valuenow', '1');
+  await matchWidth.focus();
+  await matchWidth.press('Home');
+  await expect(matchWidth).toHaveAttribute('aria-valuenow', '1');
 
   const firstLeft = grid.locator('[role="row"][aria-rowindex]').first().locator('.kwic-left-context');
   await expect(firstLeft.locator(':scope > span')).toHaveCount(1);
@@ -165,9 +165,9 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   });
 
   await toolbar.getByRole('button', { name: 'Reset column widths' }).click();
-  await expect(nodeWidth).toHaveAttribute('aria-valuenow', '6');
+  await expect(matchWidth).toHaveAttribute('aria-valuenow', '6');
   await toolbar.getByRole('button', { name: 'Lock column widths' }).click();
-  await expect(nodeWidth).toHaveAttribute('tabindex', '-1');
+  await expect(matchWidth).toHaveAttribute('tabindex', '-1');
   expect((await trace(page)).events.filter(
     (event) =>
       event.seq > mark
@@ -185,7 +185,7 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
 
   await expect.poll(async () => {
     const portBox = await grid.boundingBox();
-    const nodeBox = await grid.getByRole('columnheader', { name: 'node' }).boundingBox();
+    const nodeBox = await grid.getByRole('columnheader', { name: /^match/ }).boundingBox();
     if (!portBox || !nodeBox) return false;
     return nodeBox.x >= portBox.x - 1
       && nodeBox.x + nodeBox.width <= portBox.x + portBox.width + 1;

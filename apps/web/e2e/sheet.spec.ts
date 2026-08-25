@@ -13,7 +13,8 @@ test('Settings is a transient full-screen modal outside browser history', async 
   const settings = page.getByRole('button', { name: 'Settings', exact: true });
   await settings.click();
 
-  const pane = page.getByRole('dialog', { name: 'Trend settings' });
+  const pane = page.getByRole('dialog', { name: 'Settings' });
+  await expect(pane.getByRole('heading', { name: 'Settings', exact: true })).toBeFocused();
   await expect(pane).toHaveAttribute('aria-modal', 'true');
   await expect(page.locator('#root')).toHaveJSProperty('inert', true);
   expect(await page.evaluate(() => history.length)).toBe(historyBefore);
@@ -39,7 +40,7 @@ test('Settings keeps its Trends context while navigation moves beneath it', asyn
   await page.goBack();
   await expect(page).toHaveURL(/\?p=trends$/);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const pane = page.getByRole('dialog', { name: 'Trend settings', exact: true });
+  const pane = page.getByRole('dialog', { name: 'Settings', exact: true });
 
   await page.goForward();
   await expect(page).toHaveURL(/\?p=vocabulary$/);
@@ -47,12 +48,12 @@ test('Settings keeps its Trends context while navigation moves beneath it', asyn
   await expect(pane.getByRole('form', { name: 'Trend settings' })).toHaveCount(1);
 
   await page.keyboard.press('Escape');
-  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'Settings', exact: true })).toHaveCount(1);
 });
 
 test('an open Settings pane preserves its draft and focus across widths', async ({ page }) => {
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
-  const pane = page.getByRole('dialog', { name: 'Trend settings' });
+  const pane = page.getByRole('dialog', { name: 'Settings' });
   const bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
   await bins.fill('23');
   await expect(pane).toBeVisible();
@@ -69,7 +70,7 @@ test('an open Settings pane preserves its draft and focus across widths', async 
 test('unchanged settings stay open while close discards the draft', async ({ page }) => {
   const settings = page.getByRole('button', { name: 'Settings', exact: true });
   await settings.click();
-  let pane = page.getByRole('dialog', { name: 'Trend settings' });
+  let pane = page.getByRole('dialog', { name: 'Settings' });
   let bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
 
   await pane.getByRole('button', { name: 'Apply', exact: true }).click();
@@ -82,7 +83,7 @@ test('unchanged settings stay open while close discards the draft', async ({ pag
   await expect(settings).toBeFocused();
 
   await settings.click();
-  pane = page.getByRole('dialog', { name: 'Trend settings' });
+  pane = page.getByRole('dialog', { name: 'Settings' });
   bins = pane.getByRole('spinbutton', { name: 'Bins per book', exact: true });
   await expect(bins).toHaveValue('40');
 });

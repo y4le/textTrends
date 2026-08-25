@@ -18,6 +18,7 @@ export function FormLayer({
   label,
   labelledBy,
   focusKey,
+  initialFocusId,
   className,
   closeOnBackdrop = false,
   onClose,
@@ -26,6 +27,7 @@ export function FormLayer({
   readonly label?: string;
   readonly labelledBy?: string;
   readonly focusKey?: string;
+  readonly initialFocusId?: string;
   readonly className?: string;
   readonly closeOnBackdrop?: boolean;
   readonly onClose: () => void;
@@ -44,12 +46,17 @@ export function FormLayer({
   }, []);
 
   useEffect(() => {
-    const initial = [...(layerRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
-      .find((node) => node.getClientRects().length > 0)
+    const requested = initialFocusId === undefined
+      ? null
+      : document.getElementById(initialFocusId);
+    const initial = (requested?.getClientRects().length ?? 0) > 0
+      ? requested
+      : [...(layerRef.current?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])]
+        .find((node) => node.getClientRects().length > 0)
       ?? layerRef.current;
     initial?.focus({ preventScroll: true });
     lastFocusedRef.current = initial;
-  }, [focusKey]);
+  }, [focusKey, initialFocusId]);
 
   useEffect(() => {
     const layer = layerRef.current;

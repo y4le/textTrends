@@ -3,7 +3,6 @@ import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
-import { isSettingsPlace } from '../lib/settings-place.ts';
 
 export function StatusBar({
   onOpenFind,
@@ -166,20 +165,18 @@ export function StatusBar({
           id="global-find-open"
           className="scope-organ-link coarse-target"
           type="button"
-          onClick={onOpenFind}
+          onClick={() => onOpenFind()}
         >
           Find
         </button>
-        {isSettingsPlace(place) && (
-          <button
-            id="global-settings-open"
-            className="scope-organ-link coarse-target scope-settings-link"
-            type="button"
-            onClick={onOpenSettings}
-          >
-            Settings
-          </button>
-        )}
+        <button
+          id="global-settings-open"
+          className="scope-organ-link coarse-target scope-settings-link"
+          type="button"
+          onClick={() => onOpenSettings()}
+        >
+          Settings
+        </button>
       </div>
     </section>
   );
