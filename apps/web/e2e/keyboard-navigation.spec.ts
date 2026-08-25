@@ -67,6 +67,8 @@ test('Vim sequences and conventional arrows navigate visible workbench targets',
   await expect(page.getByRole('slider', { name: 'Corpus footer position' })).toBeFocused();
 
   await gotoPlace(page, 'inputs');
+  await page.getByRole('button', { name: 'Show options' }).click();
+  await page.getByRole('button', { name: /Browse Standard Ebooks/ }).click();
   const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await filter.fill('');
   await filter.pressSequentially('gt]b');

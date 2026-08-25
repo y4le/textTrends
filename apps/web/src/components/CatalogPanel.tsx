@@ -22,7 +22,7 @@ import {
 import { downloadEbookArchive } from '../lib/standard-ebooks.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 
-const INITIAL_VISIBLE_BOOKS = 100;
+const INITIAL_VISIBLE_BOOKS = 20;
 
 export function CatalogPanel({
   onAcquire,

@@ -5,9 +5,13 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'inputs' });
 
-  const demoButton = page.getByRole('button', { name: 'All Sherlock texts are active' });
-  await expect(demoButton).toBeFocused();
-  await demoButton.press('?');
+  const acquisitionToggle = page.getByRole('button', { name: 'Show options' });
+  await expect(acquisitionToggle).toBeFocused();
+  const coarsePointer = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
+  if (coarsePointer) {
+    expect((await acquisitionToggle.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+  }
+  await acquisitionToggle.press('?');
   let dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Terms' })).toBeVisible();
@@ -18,9 +22,17 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
     .toHaveAttribute('aria-keyshortcuts', 'Escape ?');
   await page.keyboard.press('?');
   await expect(dialog).toHaveCount(0);
-  await expect(demoButton).toBeFocused();
+  await expect(acquisitionToggle).toBeFocused();
 
   await gotoPlace(page, 'inputs');
+  await acquisitionToggle.click();
+  if (coarsePointer) {
+    expect((await page.getByLabel('Add files — import and analyze').locator('..').boundingBox())?.height)
+      .toBeGreaterThanOrEqual(44);
+    expect((await page.getByLabel('Save files to library').locator('..').boundingBox())?.height)
+      .toBeGreaterThanOrEqual(44);
+  }
+  await page.getByRole('button', { name: /Browse Standard Ebooks/ }).click();
   const catalogFilter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await catalogFilter.fill('sherlock');
   await catalogFilter.press('?');

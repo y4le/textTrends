@@ -175,6 +175,10 @@ export async function awaitAllReady(
   const original = await current.getAttribute('href');
   const inputs = navigation.getByRole('link', { name: 'Inputs', exact: true });
   if (!(await inputs.getAttribute('aria-current'))) await inputs.click();
+  const acquisition = page.getByRole('region', { name: 'Add texts', exact: true });
+  await expect(acquisition).toBeVisible({ timeout });
+  const showOptions = acquisition.getByRole('button', { name: 'Show options', exact: true });
+  if (await showOptions.isVisible()) await showOptions.click();
   const loadDemo = page.locator('.input-sample').getByRole('button', { name: /Sherlock/ });
   await expect(loadDemo).toBeVisible({ timeout });
   if ((await loadDemo.getAttribute('aria-disabled')) !== 'true') await loadDemo.click();

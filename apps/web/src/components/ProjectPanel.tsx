@@ -2,7 +2,7 @@
  * active input set. Acquisitions enter the library first; native drag-and-drop
  * then covers OS files, library activation, and input reordering. */
 
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, useSyncExternalStore, type DragEvent } from 'react';
 import { CatalogPanel } from './CatalogPanel.tsx';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import {
@@ -79,6 +79,8 @@ export function ProjectPanel() {
   const retryWorkspaceSave = useApp((s) => s.retryWorkspaceSave);
 
   const importRef = useRef<HTMLInputElement>(null);
+  const saveRef = useRef<HTMLInputElement>(null);
+  const acquisitionToggleRef = useRef<HTMLButtonElement>(null);
   const activeIdentityRef = useRef<ReadonlySet<string>>(new Set());
   const pendingActivationRef = useRef(new Set<string>());
   const sawPendingImportsRef = useRef(false);
@@ -110,6 +112,8 @@ export function ProjectPanel() {
   const [demoNotice, setDemoNotice] = useState<string | null>(null);
   const [activeNotice, setActiveNotice] = useState<string | null>(null);
   const [reorderNotice, setReorderNotice] = useState('');
+  const [acquisitionOverride, setAcquisitionOverride] = useState<boolean | null>(null);
+  const [catalogOverride, setCatalogOverride] = useState<boolean | null>(null);
   const claimLibrary = libraryOperation.claim;
   const releaseLibrary = libraryOperation.release;
 
@@ -148,11 +152,23 @@ export function ProjectPanel() {
     if (docs !== null) void refreshLibrary(false);
   }, [docs, refreshLibrary]);
 
-  if (!project) return null;
-  const importLabel = 'Add files';
   const finalizedDocs = docs ?? [];
   const pendingImports = imports ?? [];
   const inputCount = finalizedDocs.length + pendingImports.length;
+  const acquisitionExpanded = acquisitionOverride ?? inputCount === 0;
+  const catalogExpanded = catalogOverride ?? inputCount === 0;
+  const previousAcquisitionExpandedRef = useRef(acquisitionExpanded);
+
+  useLayoutEffect(() => {
+    const wasExpanded = previousAcquisitionExpandedRef.current;
+    previousAcquisitionExpandedRef.current = acquisitionExpanded;
+    if (wasExpanded && !acquisitionExpanded && document.activeElement === document.body) {
+      acquisitionToggleRef.current?.focus({ preventScroll: true });
+    }
+  }, [acquisitionExpanded]);
+
+  if (!project) return null;
+  const importLabel = 'Add files — import and analyze';
   const canReorder = pendingImports.length === 0 && finalizedDocs.length > 1;
   activeIdentityRef.current = new Set(finalizedDocs.flatMap((doc) => doc.library === undefined ? [] : [doc.library]));
   if (pendingImports.length > 0) sawPendingImportsRef.current = true;
@@ -276,6 +292,7 @@ export function ProjectPanel() {
     } finally {
       if (claimedHere) releaseLibrary(lease);
       if (importRef.current) importRef.current.value = '';
+      if (saveRef.current) saveRef.current.value = '';
     }
   };
 
@@ -559,53 +576,99 @@ export function ProjectPanel() {
               </li>
             ))}
           </ol>
-          <div className={`input-sample${inputCount === 0 ? ' input-sample-empty' : ' input-sample-compact'}`}>
-            <p className="input-sample-copy">
-              <strong>{inputCount === 0 ? 'Want to explore first?' : 'Sample corpus'}</strong>
-              <span>
-                {inputCount === 0
-                  ? 'Add your own files, or explore with prepared public-domain texts and suggested terms.'
-                  : 'Prepared samples can be added without replacing your active texts or authored terms.'}
-              </span>
-            </p>
-            <div className="input-sample-actions">
-              {inputCount === 0 && (
-                <>
-                  <button
-                    type="button"
-                    disabled={libraryBusy}
-                    onClick={() => importRef.current?.click()}
-                    style={{ ...SMALL_BUTTON_STYLE, borderColor: 'var(--fg)', padding: '3px 1ch' }}
-                  >
-                    Add your files
-                  </button>
-                  <span aria-hidden="true">or</span>
-                </>
-              )}
-              {demoActions.map((action) => (
-                <button
-                  key={`${action.id}-sample`}
-                  type="button"
-                  aria-disabled={action.unavailable}
-                  aria-busy={demoLoading === action.id || undefined}
-                  onClick={() => {
-                    if (!action.unavailable) void loadDemo(action.id);
-                  }}
-                  style={SMALL_BUTTON_STYLE}
-                >
-                  {action.label}
-                </button>
-              ))}
-            </div>
-            {demoError && <p role="alert" className="input-card-error input-sample-message">{demoError}</p>}
-            <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status input-sample-message">
-              {loadingDemoLabel ? `Adding the ${loadingDemoLabel} sample…` : demoNotice ?? ''}
-            </p>
+        </section>
+
+        <section className="input-card input-card-acquisition" aria-labelledby="input-acquisition-heading">
+          <div className="input-card-heading-row">
+            <h4 id="input-acquisition-heading">Add texts</h4>
+            <span className="input-card-spacer" />
+            <button
+              ref={acquisitionToggleRef}
+              type="button"
+              className="input-acquisition-toggle"
+              aria-expanded={acquisitionExpanded}
+              aria-controls="input-acquisition-options"
+              onClick={() => setAcquisitionOverride(!acquisitionExpanded)}
+              style={SMALL_BUTTON_STYLE}
+            >
+              {acquisitionExpanded ? 'Hide options' : 'Show options'}
+            </button>
           </div>
+          <div className={`input-acquisition-primary${acquisitionExpanded ? '' : ' input-acquisition-primary-collapsed'}`}>
+            {acquisitionExpanded && (
+              <p className="input-sample-copy">
+                <strong>{inputCount === 0 ? 'Start with your text' : 'Add more of your text'}</strong>
+                <span>Choose text, Markdown, HTML, EPUB, or PDF files to save locally and analyze now.</span>
+              </p>
+            )}
+            <label className="input-file-label input-file-label-primary" data-disabled={libraryBusy || undefined}>
+              Import and analyze
+              <input
+                ref={importRef}
+                type="file"
+                multiple
+                accept={SOURCE_FILE_ACCEPT}
+                aria-label={importLabel}
+                disabled={libraryBusy}
+                onChange={(event) => {
+                  if (event.target.files) void acquire([...event.target.files]);
+                }}
+              />
+            </label>
+            <p className="input-acquisition-trust">Processed in your browser · never uploaded.</p>
+          </div>
+          {acquisitionExpanded && (
+            <div id="input-acquisition-options" className="input-acquisition-options">
+              <div className="input-sample">
+                <p className="input-sample-copy">
+                  <strong>Try a prepared sample</strong>
+                  <span>Public-domain texts and useful starter terms are added without replacing your work.</span>
+                </p>
+                <div className="input-sample-actions">
+                  {demoActions.map((action) => (
+                    <button
+                      key={`${action.id}-sample`}
+                      type="button"
+                      aria-disabled={action.unavailable}
+                      aria-busy={demoLoading === action.id || undefined}
+                      onClick={() => {
+                        if (!action.unavailable) void loadDemo(action.id);
+                      }}
+                      style={SMALL_BUTTON_STYLE}
+                    >
+                      {action.label}
+                    </button>
+                  ))}
+                </div>
+                {demoError && <p role="alert" className="input-card-error input-sample-message">{demoError}</p>}
+                <p role="status" aria-live="polite" aria-atomic="true" className="input-card-status input-sample-message">
+                  {loadingDemoLabel ? `Adding the ${loadingDemoLabel} sample…` : demoNotice ?? ''}
+                </p>
+              </div>
+
+              <div className="input-catalog-disclosure">
+                <button
+                  type="button"
+                  className="input-catalog-summary"
+                  aria-expanded={catalogExpanded}
+                  aria-controls="input-catalog-body"
+                  onClick={() => setCatalogOverride(!catalogExpanded)}
+                >
+                  <span>Browse Standard Ebooks</span>
+                  <span>Search a public-domain catalog</span>
+                </button>
+                {catalogExpanded && (
+                  <div id="input-catalog-body" className="input-catalog-body">
+                    <CatalogPanel onAcquire={async (files, signal, lease) => (await acquire(files, true, signal, lease)).ok} />
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
         </section>
 
         <section
-          className="input-card"
+          className="input-card input-card-library"
           aria-labelledby="local-library-heading"
           onDragEnter={() => setDropTarget('library')}
           onDragOver={(event) => {
@@ -626,16 +689,16 @@ export function ProjectPanel() {
             <span>{library.length} text{library.length === 1 ? '' : 's'}</span>
             <span className="input-card-spacer" />
             <label className="input-file-label" data-disabled={libraryBusy || undefined}>
-              {importLabel}
+              Save to library
               <input
-                ref={importRef}
+                ref={saveRef}
                 type="file"
                 multiple
                 accept={SOURCE_FILE_ACCEPT}
-                aria-label={importLabel}
+                aria-label="Save files to library"
                 disabled={libraryBusy}
                 onChange={(event) => {
-                  if (event.target.files) void acquire([...event.target.files]);
+                  if (event.target.files) void acquire([...event.target.files], false);
                 }}
               />
             </label>
@@ -718,12 +781,6 @@ export function ProjectPanel() {
               ))}
             </ul>
           </div>
-        </section>
-
-        <section className="input-card input-card-standard-ebooks" aria-labelledby="standard-ebooks-heading">
-          <h4 id="standard-ebooks-heading">Load from Standard Ebooks</h4>
-          <p className="input-card-help">Browse a built-in catalog of carefully produced public-domain ebooks. Added books are saved locally and activated.</p>
-          <CatalogPanel onAcquire={async (files, signal, lease) => (await acquire(files, true, signal, lease)).ok} />
         </section>
 
       </div>

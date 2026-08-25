@@ -1,6 +1,66 @@
-import { expect, test } from '@playwright/test';
+import { expect, test, type Locator } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace, openQuickAdd } from './helpers.ts';
+
+async function dragSavedText(source: Locator, target: Locator): Promise<void> {
+  const targetHandle = await target.elementHandle();
+  if (targetHandle === null) throw new Error('active input drop target is unavailable');
+  try {
+    await source.evaluate((node, dropTarget) => {
+      const transfer = new DataTransfer();
+      node.dispatchEvent(new DragEvent('dragstart', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      dropTarget.dispatchEvent(new DragEvent('dragover', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+      dropTarget.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
+    }, targetHandle);
+  } finally {
+    await targetHandle.dispose();
+  }
+}
+
+test('empty Inputs foregrounds local import and collapses acquisition around active work', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./?fresh=1');
+
+  const active = page.getByRole('region', { name: 'Active inputs' });
+  const acquisition = page.getByRole('region', { name: 'Add texts' });
+  const acquisitionToggle = acquisition.getByRole('button', { name: 'Hide options' });
+  await expect(acquisitionToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(acquisition.getByText('Import and analyze', { exact: true })).toBeVisible();
+  const trust = acquisition.getByText('Processed in your browser · never uploaded.', { exact: true });
+  await expect(trust).toBeVisible();
+  expect((await trust.boundingBox())?.y).toBeLessThan(844);
+
+  const catalogToggle = acquisition.getByRole('button', { name: /Browse Standard Ebooks/ });
+  await expect(catalogToggle).toHaveAttribute('aria-expanded', 'true');
+  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' }).getByRole('listitem'))
+    .toHaveCount(20);
+
+  await page.getByLabel('Add files — import and analyze').setInputFiles({
+    name: 'primary.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('primary local text'),
+  });
+  await awaitReadyCount(page, 1);
+  const collapsedToggle = acquisition.getByRole('button', { name: 'Show options' });
+  await expect(collapsedToggle).toHaveAttribute('aria-expanded', 'false');
+  await expect(collapsedToggle).toBeFocused();
+  await expect(acquisition.locator('#input-acquisition-options')).toHaveCount(0);
+  expect((await active.getByRole('heading', { name: 'Active inputs' }).boundingBox())?.y).toBeLessThan(844);
+
+  await collapsedToggle.click();
+  await expect(acquisition.getByRole('button', { name: /Browse Standard Ebooks/ }))
+    .toHaveAttribute('aria-expanded', 'false');
+  const saveFiles = page.getByLabel('Save files to library');
+  await expect(saveFiles).toBeVisible();
+  await saveFiles.setInputFiles({
+    name: 'saved-for-later.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('save this without analysing it'),
+  });
+  await expect(page.getByRole('list', { name: 'Saved texts' })).toContainText('saved-for-later.txt');
+  await expect(active.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(1);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth + 1)).toBe(true);
+});
 
 test('local files persist, join active inputs, reorder accessibly, and delete independently', async ({ page }) => {
   await page.goto('./');
@@ -11,19 +71,20 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(cards).toHaveCount(3);
   await expect(cards.locator(':scope > h4, :scope > .input-card-heading-row > h4')).toHaveText([
     'Active inputs',
+    'Add texts',
     'Local library',
-    'Load from Standard Ebooks',
   ]);
-  const addFiles = page.getByLabel('Add files');
-  await addFiles.focus();
-  await expect(addFiles).toBeFocused();
-  await expect(addFiles.locator('..')).toHaveCSS('outline-style', 'solid');
+  const saveFiles = page.getByLabel('Save files to library');
+  await saveFiles.focus();
+  await expect(saveFiles).toBeFocused();
+  await expect(saveFiles.locator('..')).toHaveCSS('outline-style', 'solid');
 
   const localPanel = page.getByRole('region', { name: 'Local library' });
   const activePanel = page.getByRole('region', { name: 'Active inputs' });
-  // This portion of the active card remains visible with the internally
-  // scrolling saved-text list, so native drag events keep their true source.
-  const activeDropTarget = activePanel.locator('.input-sample');
+  // The synthetic pointer scroll needed to span these two long cards is
+  // browser-dependent; dispatch native drag events while retaining the real
+  // row's dragstart handler and the active card's drop handler.
+  const activeDropTarget = activePanel;
   const saved = page.getByRole('list', { name: 'Saved texts' });
   await expect(saved.getByRole('listitem')).toHaveCount(DOC_COUNT);
 
@@ -48,14 +109,14 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
   await expect(localPanel.getByRole('status')).toContainText('already saved');
 
   // A saved-file drag appends to the same ordinary corpus; a second is refused.
-  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activeDropTarget);
+  await dragSavedText(saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }), activeDropTarget);
   await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
     .toHaveCount(DOC_COUNT + 1);
   await awaitReadyCount(page, DOC_COUNT + 1);
-  await saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }).dragTo(activeDropTarget);
+  await dragSavedText(saved.getByRole('listitem').filter({ hasText: 'alpha.txt' }), activeDropTarget);
   await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(DOC_COUNT + 1);
   await expect(localPanel.getByRole('status')).toContainText('already active');
-  await saved.getByRole('listitem').filter({ hasText: 'beta.md' }).dragTo(activeDropTarget);
+  await dragSavedText(saved.getByRole('listitem').filter({ hasText: 'beta.md' }), activeDropTarget);
   await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
     .toHaveCount(DOC_COUNT + 2);
   await awaitReadyCount(page, DOC_COUNT + 2);
@@ -261,7 +322,6 @@ test('Clear all confirms one reset, keeps saved texts, and leaves demos additive
   const authored = await openQuickAdd(page);
   await authored.fill('Reader term');
   await authored.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   await page.getByRole('button', { name: 'Activate saved Sherlock texts' }).click();
   await awaitReadyCount(page, DOC_COUNT);
   await expect(page.getByRole('button', { name: 'Edit term: Reader term' })).toBeVisible();

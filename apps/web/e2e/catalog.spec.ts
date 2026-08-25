@@ -81,21 +81,27 @@ test('the baked catalog browses offline, preserves popularity order, and adds fr
   // retry test and its payload separation in the build-shape test).
   const popular = page.getByRole('list', { name: 'Popular Standard Ebooks' });
   await expect(popular).toBeVisible();
-  await expect(popular.getByRole('listitem')).toHaveCount(100);
+  await expect(popular.getByRole('listitem')).toHaveCount(20);
   await expect(page.locator('.standard-ebooks-catalog-content').getByRole('status'))
-    .toContainText('showing 100 of 1000 matches');
-  await page.getByRole('button', { name: 'show 100 more' }).click();
-  await expect(popular.getByRole('listitem')).toHaveCount(200);
-  await expect(popular.getByRole('listitem').nth(100).getByRole('button', { name: 'add' })).toBeFocused();
+    .toContainText('showing 20 of 1000 matches');
+  await page.getByRole('button', { name: 'show 20 more' }).click();
+  await expect(popular.getByRole('listitem')).toHaveCount(40);
+  await expect(popular.getByRole('listitem').nth(20).getByRole('button', { name: 'add' })).toBeFocused();
 
   // Exhausting the final partial window moves focus into the newly revealed
   // rows instead of dropping it to document.body when the disclosure unmounts.
   const filter = page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' });
   await filter.fill('and');
-  await page.getByRole('button', { name: 'show 24 more' }).click();
+  const filteredRows = popular.getByRole('listitem');
+  const showMore = page.getByRole('button', { name: /show \d+ more/ });
+  let finalWindowStart = 0;
+  while (await showMore.count()) {
+    finalWindowStart = await filteredRows.count();
+    await showMore.click();
+  }
   await expect(page.getByRole('button', { name: /show \d+ more/ })).toHaveCount(0);
-  await expect(popular.getByRole('listitem').nth(100).getByRole('button', { name: 'add' })).toBeFocused();
-  await filter.fill('');
+  await expect(filteredRows.nth(finalWindowStart).getByRole('button', { name: 'add' })).toBeFocused();
+  await filter.fill('A Study in Scarlet');
   const row = popular.getByRole('listitem').filter({ hasText: 'A Study in Scarlet' });
   await expect(row).toHaveCount(1);
   expect(apiRequests).toEqual([]);
@@ -105,7 +111,8 @@ test('the baked catalog browses offline, preserves popularity order, and adds fr
   // fixtures), repackages it, and ingests it like an uploaded .epub.
   await row.getByRole('button', { name: 'add' }).click();
   await awaitReadyCount(page, 1);
-  await expect(page.getByText('A Study in Scarlet', { exact: true })).toBeVisible();
+  await expect(page.getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
+    .toContainText(BOOK);
   await expect(page.getByRole('list', { name: 'Saved texts' })).toContainText(`${BOOK}.epub`);
   expect(apiRequests).toEqual([]);
   expect(rawRequests[0]).toBe(`${RAW_BASE}/content.opf`);
@@ -115,6 +122,10 @@ test('the baked catalog browses offline, preserves popularity order, and adds fr
 
   // Re-acquiring the same deterministic archive neither duplicates the local
   // record nor activates a second copy of the same source.
+  await page.getByRole('button', { name: 'Show options' }).click();
+  await page.getByRole('button', { name: /Browse Standard Ebooks/ }).click();
+  await page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' })
+    .fill('A Study in Scarlet');
   await row.getByRole('button', { name: 'add' }).click();
   await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(7);
   await expect(page.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(1);
@@ -143,6 +154,10 @@ test('leaving the catalog aborts its owned add and never imports after unmount',
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
+  await page.getByRole('button', { name: 'Show options' }).click();
+  await page.getByRole('button', { name: /Browse Standard Ebooks/ }).click();
+  await page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' })
+    .fill('A Study in Scarlet');
   await page
     .getByRole('list', { name: 'Popular Standard Ebooks' })
     .getByRole('listitem')
@@ -251,5 +266,5 @@ test('the catalog asset loads with Inputs, and a failed fetch shows a genuinely 
   await page.unroute(catalogAsset);
   await page.getByRole('button', { name: 'retry' }).click();
   await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' })).toBeVisible();
-  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' }).getByRole('listitem')).toHaveCount(100);
+  await expect(page.getByRole('list', { name: 'Popular Standard Ebooks' }).getByRole('listitem')).toHaveCount(20);
 });
