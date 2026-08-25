@@ -243,3 +243,77 @@ test('Matches merges all terms in corpus order and toggles a term off', async ({
   await awaitFreshMatches(page, mark2);
   await expect.poll(async () => new Set(await rowTerms(page)), { message: 'fox track did not disappear' }).toEqual(new Set(['wolf']));
 });
+
+test('Matches labels corpus edges without moving the centered reading geometry', async ({ page }) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'beasts.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from(CORPUS, 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+
+  await gotoPlace(page, 'trends');
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await submitAndAwaitFreshResults(page, 'wolf, fox');
+  await awaitFreshMatches(page, mark);
+  await gotoPlace(page, 'matches');
+
+  const grid = page.getByRole('grid', { name: 'Matches' });
+  const startBand = grid.locator('[data-corpus-edge="start"]');
+  const endBand = grid.locator('[data-corpus-edge="end"]');
+  await expect(startBand).toHaveText('Corpus start · 1 token before the first match');
+  await expect(endBand).toHaveText('Corpus end · last match begins 1 token before the end');
+  await expect(startBand).toHaveAttribute('aria-hidden', 'true');
+  await expect(endBand).toHaveAttribute('aria-hidden', 'true');
+  await expect(grid).toHaveAttribute(
+    'aria-describedby',
+    'matches-corpus-start-description matches-corpus-end-description',
+  );
+  await expect(page.locator('#matches-corpus-start-description')).toHaveText(
+    'Corpus start · 1 token before the first match',
+  );
+  await expect(page.locator('#matches-corpus-end-description')).toHaveText(
+    'Corpus end · last match begins 1 token before the end',
+  );
+
+  const geometry = (edge: 'start' | 'end') => grid.evaluate((port, requestedEdge) => {
+    const shell = port.closest<HTMLElement>('.kwic-grid-shell')!;
+    const line = shell.querySelector<HTMLElement>('.kwic-now-line')!.getBoundingClientRect();
+    const band = port.querySelector<HTMLElement>(`[data-corpus-edge="${requestedEdge}"]`)!
+      .getBoundingClientRect();
+    const rank = requestedEdge === 'start' ? '0' : '3';
+    const row = port.querySelector<HTMLElement>(`[data-matches-rank="${rank}"]`)!
+      .getBoundingClientRect();
+    return {
+      bandBoundary: requestedEdge === 'start' ? band.bottom - line.top : band.top - line.top,
+      logical: port.dataset.logicalPosition,
+      maxScroll: port.scrollHeight - port.clientHeight,
+      pointerEvents: getComputedStyle(
+        port.querySelector<HTMLElement>(`[data-corpus-edge="${requestedEdge}"]`)!,
+      ).pointerEvents,
+      rowCenterOffset: row.top + row.height / 2 - line.top,
+      rowHeight: row.height,
+      scrollTop: port.scrollTop,
+    };
+  }, edge);
+
+  await grid.evaluate((port) => { port.scrollTop = 0; });
+  await expect(grid).toHaveAttribute('data-logical-position', '0.000');
+  const atStart = await geometry('start');
+  expect(atStart.bandBoundary).toBeCloseTo(0, 0);
+  expect(atStart.pointerEvents).toBe('none');
+  expect(atStart.rowCenterOffset).toBeCloseTo(atStart.rowHeight / 2, 0);
+  expect(atStart.scrollTop).toBe(0);
+
+  await grid.evaluate((port) => { port.scrollTop = port.scrollHeight; });
+  await expect(grid).toHaveAttribute('data-logical-position', '4.000');
+  const atEnd = await geometry('end');
+  expect(atEnd.bandBoundary).toBeCloseTo(0, 0);
+  expect(atEnd.pointerEvents).toBe('none');
+  expect(atEnd.rowCenterOffset).toBeCloseTo(-atEnd.rowHeight / 2, 0);
+  expect(atEnd.scrollTop).toBeCloseTo(atEnd.maxScroll, 0);
+});

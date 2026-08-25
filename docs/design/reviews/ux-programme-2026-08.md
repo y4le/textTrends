@@ -14,8 +14,8 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 7 | `feat(display): scale data row pitch` | done · `8ecfd00` | `req_review_diff_647f0cb44eb79f04` · approved | Matches keeps its corpus anchor; Vocabulary keeps its first fully visible row; Compare remains measured. |
 | 8 | `feat(terms): make the compact rail legible` | done · `afa4cf3` | `req_review_diff_e92346897dcfd2f7` · approved | Two complete names at 390px, a live range cue, painted overflow edges, and pointer-aware target floors. |
 | 9 | `feat(compare): favour identity in compact rows` | done · `2c04416` | `req_review_diff_ed31deb2a54d7cb5` · approved | Complete compact term identity, retained comparison bars, and exact lift in the accessible name and row detail. |
-| 10 | `feat(inputs): foreground import and collapse acquisition` | in progress | pending | Empty/corpus states, trust line, asymmetric verbs. |
-| 11 | `feat(matches): show corpus-edge context bands` | planned | pending | Keep the centre fixed; expose start/end distance at the edges. |
+| 10 | `feat(inputs): foreground import and collapse acquisition` | done · `4be1a6e` | `req_review_diff_c193b1288dfaa91b` · approved | Empty/corpus states, trust line, asymmetric verbs, save-only library path, and coarse target floors. |
+| 11 | `feat(matches): show corpus-edge context bands` | in progress | pending | Keep the centre fixed; expose start/end distance at the edges. |
 | 12 | `feat(filters): filter literally by default` | planned | pending | Workspace migration and explicit advanced regex mode. |
 
 ## Ratified decisions this programme implements

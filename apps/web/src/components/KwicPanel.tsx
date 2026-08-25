@@ -74,6 +74,10 @@ const ANNOUNCEMENT_INTERVAL_MS = 250;
 const CONTEXT_ESCALATION_DELAY_MS = 250;
 const ROW_ARIA_KEYS = shortcutAria(ROW_NAVIGATION_SHORTCUT_IDS);
 
+function tokenDistance(count: number): string {
+  return `${count.toLocaleString()} ${count === 1 ? 'token' : 'tokens'}`;
+}
+
 interface SelfPublishedCursor {
   readonly doc: string;
   readonly token: number;
@@ -513,7 +517,33 @@ export function KwicPanel({
     (rank >= visible.start && rank < visible.end) || rank === activeRank);
   const activeRowRendered = renderedRows.some(({ rank }) => rank === activeRank);
   const physicalTop = matchesScrollTop(logical, total, rowHeight);
-  const planeHeight = matchesPhysicalExtent(total, rowHeight) + viewport.height;
+  const physicalExtent = matchesPhysicalExtent(total, rowHeight);
+  const planeHeight = physicalExtent + viewport.height;
+  const firstRow = rowAtRank(0);
+  const lastRow = rowAtRank(total - 1);
+  const firstMatchToken = layout && firstRow
+    ? globalTokenForTarget(docs, layout, { doc: firstRow.doc, token: firstRow.pos })
+    : null;
+  const lastMatchToken = layout && lastRow
+    ? globalTokenForTarget(docs, layout, { doc: lastRow.doc, token: lastRow.pos })
+    : null;
+  const startEdgeLabel = firstMatchToken === null
+    ? null
+    : firstMatchToken === 0
+      ? 'Corpus start · first match begins at the first token'
+      : `Corpus start · ${tokenDistance(firstMatchToken)} before the first match`;
+  const endDistance = layout && lastMatchToken !== null
+    ? layout.totalTokens - 1 - lastMatchToken
+    : null;
+  const endEdgeLabel = endDistance === null
+    ? null
+    : endDistance === 0
+      ? 'Corpus end · last match begins at the final token'
+      : `Corpus end · last match begins ${tokenDistance(endDistance)} before the end`;
+  const edgeDescriptionIds = [
+    startEdgeLabel ? 'matches-corpus-start-description' : null,
+    endEdgeLabel ? 'matches-corpus-end-description' : null,
+  ].filter((id): id is string => id !== null).join(' ') || undefined;
 
   const readerId = (row: MatchesRowVM) =>
     `kwic-reader-${encodeURIComponent(row.key)}`;
@@ -967,6 +997,16 @@ export function KwicPanel({
         <span ref={chRulerRef} className="kwic-ch-ruler" aria-hidden="true">
           0000000000
         </span>
+        {startEdgeLabel && (
+          <span id="matches-corpus-start-description" className="visually-hidden">
+            {startEdgeLabel}
+          </span>
+        )}
+        {endEdgeLabel && (
+          <span id="matches-corpus-end-description" className="visually-hidden">
+            {endEdgeLabel}
+          </span>
+        )}
         <div
           ref={portRef}
           id="matches-grid"
@@ -977,6 +1017,7 @@ export function KwicPanel({
           aria-rowcount={total + 1}
           aria-colcount={4 + Number(multipleBooks)}
           aria-activedescendant={activeRowRendered ? rowId(activeRank) : undefined}
+          aria-describedby={edgeDescriptionIds}
           aria-keyshortcuts={ROW_ARIA_KEYS}
           data-logical-position={logical.toFixed(3)}
           style={gridStyle}
@@ -998,6 +1039,29 @@ export function KwicPanel({
             role="rowgroup"
             style={{ height: `${Math.max(1, planeHeight)}px` }}
           >
+            {startEdgeLabel && (
+              <div
+                className="kwic-edge-band"
+                data-corpus-edge="start"
+                aria-hidden="true"
+                style={{ blockSize: `${viewport.height / 2}px` }}
+              >
+                <span>{startEdgeLabel}</span>
+              </div>
+            )}
+            {endEdgeLabel && (
+              <div
+                className="kwic-edge-band"
+                data-corpus-edge="end"
+                aria-hidden="true"
+                style={{
+                  insetBlockStart: `${physicalExtent + viewport.height / 2}px`,
+                  blockSize: `${viewport.height / 2}px`,
+                }}
+              >
+                <span>{endEdgeLabel}</span>
+              </div>
+            )}
             {renderedRows.map(({ row, rank }) => {
               const top = physicalTop
                 + viewport.height / 2
