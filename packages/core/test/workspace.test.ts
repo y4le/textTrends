@@ -36,7 +36,7 @@ function validWorkspace(): WorkspaceV1 {
         minDocFreq: 1,
         classes: ['lexical', 'numeral'],
         stoplistTopN: 0,
-        regex: '^é|ère$',
+        filter: { mode: 'regex', query: '^é|ère$' },
         sort: { by: 'count', dir: -1 },
         pageSize: 100,
       },
@@ -62,24 +62,63 @@ describe('workspace admission', () => {
     expect(parseWorkspace(validWorkspace())).toEqual(validWorkspace());
   });
 
-  it('admits legacy frequency prefixes but rejects invalid current regexes', () => {
+  it('migrates legacy frequency expressions and validates current text filters', () => {
     const value = validWorkspace();
-    const { regex: _regex, ...frequency } = value.views.frequency;
-    const legacy = {
+    const { filter: _filter, ...frequency } = value.views.frequency;
+    const legacyPrefix = {
       ...value,
       views: {
         ...value.views,
         frequency: { ...frequency, prefixNfc: 'a.b[' },
       },
     };
-    expect(parseWorkspace(legacy).views.frequency.prefixNfc).toBe('a.b[');
+    expect(parseWorkspace(legacyPrefix).views.frequency.prefixNfc).toBe('a.b[');
+    const legacyRegex = {
+      ...value,
+      views: {
+        ...value.views,
+        frequency: { ...frequency, regex: '^Holmes$' },
+      },
+    };
+    expect(parseWorkspace(legacyRegex).views.frequency.regex).toBe('^Holmes$');
+    expect(parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        frequency: {
+          ...frequency,
+          filter: { mode: 'literal', query: '[' },
+        },
+      },
+    }).views.frequency.filter).toEqual({ mode: 'literal', query: '[' });
     expect(() => parseWorkspace({
       ...value,
       views: {
         ...value.views,
-        frequency: { ...frequency, regex: '[' },
+        frequency: { ...frequency, filter: { mode: 'regex', query: '[' } },
       },
     })).toThrow(/frequency regex/);
+    expect(() => parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        frequency: {
+          ...frequency,
+          filter: { mode: 'literal', query: 'e\u0301' },
+        },
+      },
+    })).toThrow(/NFC/);
+    expect(() => parseWorkspace({
+      ...value,
+      views: {
+        ...value.views,
+        frequency: {
+          ...frequency,
+          filter: { mode: 'literal', query: 'term' },
+          regex: 'term',
+        },
+      },
+    })).toThrow(/frequency view must be exact/);
   });
 
   it('upgrades legacy Compare presentation settings without changing its display', () => {

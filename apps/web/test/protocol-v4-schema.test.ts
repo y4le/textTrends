@@ -21,7 +21,7 @@ import {
   INVENTORY_MAX_MATTR_WINDOW,
   INVENTORY_MAX_RHYTHM_BINS_PER_DOC,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_REGEX_MAX_UNITS,
+  FREQUENCY_FILTER_MAX_UNITS,
   FREQUENCY_WINDOW_MAX,
   KWIC_CONTEXT_MAX_TOKENS,
   STOPLIST_EN_ID,
@@ -442,7 +442,7 @@ describe('narrowQueryV4', () => {
     })).toBe(false);
   });
 
-  it('freq-list/2 pins dense classes, a valid NFC regex, sort, and chunk bounds', () => {
+  it('freq-list/2 pins dense classes, exact text filters, sort, and chunk bounds', () => {
     const query = (over: Record<string, unknown> = {}) => narrowQueryV4({
       op: 'freq-list',
       selection: { docs: ['a'] },
@@ -468,7 +468,8 @@ describe('narrowQueryV4', () => {
     const sparse = ['lexical'];
     sparse.length = 2;
     expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: sparse } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '^Holmes$' } })).toBe(true);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'regex', query: '^Holmes$' } } })).toBe(true);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'literal', query: '[' } } })).toBe(true);
     expect(query({ filter: {
       minCount: 1,
       minDocFreq: 1,
@@ -481,9 +482,11 @@ describe('narrowQueryV4', () => {
       classes: ['lexical'],
       stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 0 },
     } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'e\u0301' } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: '[' } })).toBe(false);
-    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'literal', query: 'e\u0301' } } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'regex', query: '[' } } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'literal', query: 'x'.repeat(FREQUENCY_FILTER_MAX_UNITS + 1) } } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], text: { mode: 'literal', query: 'x', extra: true } } })).toBe(false);
+    expect(query({ filter: { minCount: 1, minDocFreq: 1, classes: ['lexical'], regex: 'x' } })).toBe(false);
     expect(query({ sort: { by: 'bogus', dir: -1 } })).toBe(false);
     expect(query({ sort: { by: 'count', dir: 0 } })).toBe(false);
     expect(query({ page: { offset: 0, limit: 1, extra: true } })).toBe(false);

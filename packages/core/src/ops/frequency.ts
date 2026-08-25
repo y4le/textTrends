@@ -28,7 +28,9 @@ import {
 
 export const FREQUENCY_PAGE_MAX = 200;
 export const FREQUENCY_WINDOW_MAX = 5_000;
-export const FREQUENCY_REGEX_MAX_UNITS = 256;
+export const FREQUENCY_FILTER_MAX_UNITS = 256;
+/** Compatibility alias for consumers of the former regex-only filter API. */
+export const FREQUENCY_REGEX_MAX_UNITS = FREQUENCY_FILTER_MAX_UNITS;
 export const FREQUENCY_SCAN_CHUNK = 65_536;
 
 export type FrequencyTokenClassV1 = 'lexical' | 'numeral';
@@ -41,13 +43,18 @@ export type FrequencySortFieldV1 =
   | 'class'
   | 'key';
 
+export interface FrequencyTextFilterV1 {
+  readonly mode: 'literal' | 'regex';
+  readonly query: string;
+}
+
 export interface FrequencyListRequestV1 {
   readonly method: 'freq-list/2';
   readonly filter: {
     readonly minCount: number;
     readonly minDocFreq: number;
     readonly classes: readonly FrequencyTokenClassV1[];
-    readonly regex?: string;
+    readonly text?: FrequencyTextFilterV1;
     readonly stoplist?: StoplistSpecV1;
   };
   readonly sort: {
@@ -106,23 +113,26 @@ function validateRequest(request: FrequencyListRequestV1): void {
   ) {
     throw new RangeError('frequency classes must be a nonempty unique class list');
   }
-  const regex = request.filter.regex;
+  const text = request.filter.text;
   if (
-    regex !== undefined &&
+    text !== undefined &&
     (
-      typeof regex !== 'string' ||
-      regex.length < 1 ||
-      regex.length > FREQUENCY_REGEX_MAX_UNITS ||
-      regex.normalize('NFC') !== regex
+      typeof text !== 'object' ||
+      text === null ||
+      (text.mode !== 'literal' && text.mode !== 'regex') ||
+      typeof text.query !== 'string' ||
+      text.query.length < 1 ||
+      text.query.length > FREQUENCY_FILTER_MAX_UNITS ||
+      text.query.normalize('NFC') !== text.query
     )
   ) {
     throw new RangeError(
-      `frequency regex must be NFC with 1..${FREQUENCY_REGEX_MAX_UNITS} UTF-16 units`,
+      `frequency text filter must be NFC with 1..${FREQUENCY_FILTER_MAX_UNITS} UTF-16 units`,
     );
   }
-  if (regex !== undefined) {
+  if (text?.mode === 'regex') {
     try {
-      new RegExp(regex, 'u');
+      new RegExp(text.query, 'u');
     } catch {
       throw new RangeError('frequency regex must be a valid Unicode regular expression');
     }
@@ -278,9 +288,12 @@ export async function frequencyList(
     ? []
     : partSizes.map((value) => value / totalTokens);
   const positiveShares = partShares.filter((value) => value > 0);
-  const regex = request.filter.regex === undefined
-    ? null
-    : new RegExp(request.filter.regex, 'u');
+  const regex = request.filter.text?.mode === 'regex'
+    ? new RegExp(request.filter.text.query, 'u')
+    : null;
+  const literal = request.filter.text?.mode === 'literal'
+    ? request.filter.text.query.toLowerCase()
+    : null;
 
   const dpCorrection = request.dispersion
     ? new Float64Array(vocabularySize)
@@ -342,6 +355,9 @@ export async function frequencyList(
       continue;
     }
     if (regex !== null && !regex.test(key)) {
+      continue;
+    }
+    if (literal !== null && !key.toLowerCase().includes(literal)) {
       continue;
     }
     const stopRank = stoplistRanks?.ranks[typeId] ?? 0;

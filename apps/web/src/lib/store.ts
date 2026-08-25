@@ -56,7 +56,7 @@ import {
   type MatchesAxisArraysV1,
   DISPERSION_BUCKET_BUDGET,
   DISPERSION_EXACT_MAX,
-  FREQUENCY_REGEX_MAX_UNITS,
+  FREQUENCY_FILTER_MAX_UNITS,
   KWIC_MAX_PAGE,
   MAX_KWIC_TRACKS,
   parseWorkspaceTrendView,
@@ -67,6 +67,7 @@ import {
   TREND_RATE_DENOMINATOR,
   termGroupIdentity,
   type GroupMember,
+  type FrequencyTextFilterV1,
   type KwicContextMark,
   type NumericTrend,
   type TermGroupSpec,
@@ -412,13 +413,13 @@ export interface InventoryState {
     | { readonly status: 'error'; readonly message: string };
 }
 
-export interface FrequencyViewV1 {
-  readonly schema: 'texttrends/frequency-view/1';
+export interface FrequencyViewV2 {
+  readonly schema: 'texttrends/frequency-view/2';
   readonly minCount: number;
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
   readonly stoplistTopN: number;
-  readonly regex?: string;
+  readonly filter?: FrequencyTextFilterV1;
   readonly sort: { readonly by: FrequencySortFieldV1; readonly dir: 1 | -1 };
   readonly page: { readonly offset: number; readonly limit: number };
 }
@@ -426,7 +427,7 @@ export interface FrequencyViewV1 {
 export interface FrequencyState {
   readonly snapshot: string;
   readonly selection: TokenRangeSelectionV1 | null;
-  readonly view: FrequencyViewV1;
+  readonly view: FrequencyViewV2;
   /** Authenticated rows retained while the next chunk is in flight. */
   readonly resident: FrequencyListResultV1 | null;
   readonly state:
@@ -801,7 +802,7 @@ export interface AppState {
   /** Snapshot-bound full-document extents survive a range-scoped inventory
    * replacing the visible corpus inventory. Cleared on snapshot identity. */
   corpusTokenCounts: ReadonlyMap<string, number>;
-  frequencyView: FrequencyViewV1;
+  frequencyView: FrequencyViewV2;
   frequency: FrequencyState | null;
   /** Comparison-owned, brush-independent two-side keyness research intent. */
   keynessView: KeynessViewV1;
@@ -900,7 +901,7 @@ export interface AppState {
   runFrequency(retainResident?: boolean): void;
   loadMoreFrequency(): void;
   setFrequencySort(by: FrequencySortFieldV1): void;
-  setFrequencyRegex(pattern: string): void;
+  setFrequencyFilter(filter: FrequencyTextFilterV1 | null): void;
   setFrequencyStoplistTopN(topN: number): void;
   setFrequencyPage(offset: number): void;
   addFrequencyTerm(key: string): void;
@@ -1137,7 +1138,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
   const project = state.projectSession?.project;
   if (!project) return null;
   if (project.kind === 'library' && project.data.docs.some((doc) => doc.library === undefined)) return null;
-  const { regex, ...frequency } = state.frequencyView;
+  const { filter, ...frequency } = state.frequencyView;
   return {
     schema: 'texttrends/workspace/1',
     corpus: project.kind === 'builtin'
@@ -1174,7 +1175,7 @@ export function workspaceFromApp(state: AppState): WorkspaceV1 | null {
         minDocFreq: frequency.minDocFreq,
         classes: frequency.classes,
         stoplistTopN: frequency.stoplistTopN,
-        ...(regex === undefined ? {} : { regex }),
+        ...(filter === undefined ? {} : { filter }),
         sort: frequency.sort,
         pageSize: frequency.page.limit,
       },
@@ -2990,7 +2991,7 @@ export function createAppRuntime(
       corpusInventory: null,
       corpusTokenCounts: new Map(),
       frequencyView: {
-        schema: 'texttrends/frequency-view/1',
+        schema: 'texttrends/frequency-view/2',
         minCount: 1,
         minDocFreq: 1,
         classes: ['lexical'],
@@ -4715,9 +4716,9 @@ export function createAppRuntime(
                     topN: issuedView.stoplistTopN,
                   },
                 }),
-                ...(issuedView.regex === undefined
+                ...(issuedView.filter === undefined
                   ? {}
-                  : { regex: issuedView.regex }),
+                  : { text: issuedView.filter }),
               },
               sort: issuedView.sort,
               page: issuedView.page,
@@ -4805,9 +4806,9 @@ export function createAppRuntime(
                     topN: issuedView.stoplistTopN,
                   },
                 }),
-                ...(issuedView.regex === undefined
+                ...(issuedView.filter === undefined
                   ? {}
-                  : { regex: issuedView.regex }),
+                  : { text: issuedView.filter }),
               },
               sort: issuedView.sort,
               page: { offset, limit },
@@ -5263,10 +5264,10 @@ export function createAppRuntime(
         get().runFrequency();
       },
 
-      setFrequencyRegex(pattern) {
-        const normalized = pattern.normalize('NFC');
-        if (normalized.length > FREQUENCY_REGEX_MAX_UNITS) return;
-        if (normalized !== '') {
+      setFrequencyFilter(filter) {
+        const normalized = filter?.query.normalize('NFC') ?? '';
+        if (normalized.length > FREQUENCY_FILTER_MAX_UNITS) return;
+        if (filter?.mode === 'regex' && normalized !== '') {
           try {
             new RegExp(normalized, 'u');
           } catch {
@@ -5274,17 +5275,23 @@ export function createAppRuntime(
           }
         }
         const current = get().frequencyView;
-        if ((current.regex ?? '') === normalized) return;
-        const { regex: _oldRegex, ...withoutRegex } = current;
+        const nextFilter = filter === null || normalized === ''
+          ? undefined
+          : { mode: filter.mode, query: normalized } as const;
+        if (
+          current.filter?.mode === nextFilter?.mode
+          && current.filter?.query === nextFilter?.query
+        ) return;
+        const { filter: _oldFilter, ...withoutFilter } = current;
         set({
-          frequencyView: normalized === ''
+          frequencyView: nextFilter === undefined
             ? {
-                ...withoutRegex,
+                ...withoutFilter,
                 page: { ...current.page, offset: 0 },
               }
             : {
                 ...current,
-                regex: normalized,
+                filter: nextFilter,
                 page: { ...current.page, offset: 0 },
               },
         });
@@ -5562,10 +5569,15 @@ export function createAppRuntime(
           restoredTrendBins.mode !== workspace.views.trend.bins.mode
           || restoredTrendBins.count !== workspace.views.trend.bins.count;
         const compare = workspace.views.compare;
-        const frequencyRegex = workspace.views.frequency.regex
-          ?? (workspace.views.frequency.prefixNfc === undefined
-            ? undefined
-            : regexForLegacyFrequencyPrefix(workspace.views.frequency.prefixNfc));
+        const frequencyFilter = workspace.views.frequency.filter
+          ?? (workspace.views.frequency.regex !== undefined
+            ? { mode: 'regex' as const, query: workspace.views.frequency.regex }
+            : workspace.views.frequency.prefixNfc === undefined
+              ? undefined
+              : {
+                  mode: 'regex' as const,
+                  query: regexForLegacyFrequencyPrefix(workspace.views.frequency.prefixNfc),
+                });
         set({
           trendViewPreference: workspace.views.trend.mode,
           trendView: (state.projectSession?.project.data.order.length ?? 0) > 1
@@ -5580,14 +5592,14 @@ export function createAppRuntime(
               ? trendGeometryNotice(workspace.views.trend.bins, restoredTrendBins)
               : null,
           frequencyView: {
-            schema: 'texttrends/frequency-view/1',
+            schema: 'texttrends/frequency-view/2',
             minCount: workspace.views.frequency.minCount,
             minDocFreq: workspace.views.frequency.minDocFreq,
             classes: workspace.views.frequency.classes,
             stoplistTopN: workspace.views.frequency.stoplistTopN,
-            ...(frequencyRegex === undefined
+            ...(frequencyFilter === undefined
               ? {}
-              : { regex: frequencyRegex }),
+              : { filter: frequencyFilter }),
             sort: workspace.views.frequency.sort,
             page: { offset: 0, limit: workspace.views.frequency.pageSize },
           },

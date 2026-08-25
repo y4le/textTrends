@@ -82,7 +82,7 @@ test('slice 3: corpus → focus → vocabulary → matches → linked range → 
   await awaitOps(page, mark, ['freq-list']);
 
   mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await page.getByRole('searchbox', { name: 'filter (regex)' }).fill('^wolf$');
+  await page.getByRole('searchbox', { name: 'filter', exact: true }).fill('wolf');
   await awaitOps(page, mark, ['freq-list']);
   const wolfRow = page.getByRole('table', { name: 'Vocabulary frequency list' })
     .getByRole('row', { name: /^wolf / });

@@ -8,7 +8,7 @@ import type {
   WorkspaceTrendMeasureV1,
 } from '@texttrends/core';
 import type {
-  FrequencyViewV1,
+  FrequencyViewV2,
   KeynessViewV1,
 } from './store.ts';
 import type { Place } from './places.ts';
@@ -64,7 +64,7 @@ export interface ProvenanceInput {
   };
   readonly trendMeasure: WorkspaceTrendMeasureV1;
   readonly frequency: {
-    readonly view: FrequencyViewV1;
+    readonly view: FrequencyViewV2;
     readonly result: FrequencyListResultV1 | null;
   };
   readonly keyness: {
@@ -251,7 +251,8 @@ function frequencyMethod(input: ProvenanceInput): ProvenanceMethod {
       parameter('minimum count', String(view.minCount)),
       parameter('minimum document frequency', String(view.minDocFreq)),
       parameter('token classes', view.classes.join(', ')),
-      parameter('regular expression', view.regex ?? 'none'),
+      parameter('text filter mode', view.filter?.mode ?? 'none'),
+      parameter('text filter query', view.filter?.query ?? 'none'),
       parameter(
         'common-word filter',
         view.stoplistTopN === 0

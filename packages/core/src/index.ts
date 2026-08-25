@@ -281,6 +281,7 @@ export {
 } from './ops/inventory.ts';
 export {
   frequencyList,
+  FREQUENCY_FILTER_MAX_UNITS,
   FREQUENCY_PAGE_MAX,
   FREQUENCY_REGEX_MAX_UNITS,
   FREQUENCY_SCAN_CHUNK,
@@ -290,6 +291,7 @@ export {
   type FrequencyListResultV1,
   type FrequencyListRowV1,
   type FrequencySortFieldV1,
+  type FrequencyTextFilterV1,
   type FrequencyTokenClassV1,
 } from './ops/frequency.ts';
 export {

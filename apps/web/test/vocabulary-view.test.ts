@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   frequencyMeasure,
-  frequencyRegexError,
+  frequencyFilterError,
   vocabularyRowControlId,
   vocabularyTarget,
   vocabularyTargetIsStale,
@@ -99,10 +99,11 @@ describe('vocabulary view law', () => {
     expect(vocabularyTargetIsStale(target, false, pending)).toBe(true);
   });
 
-  it('validates bounded Unicode regular expressions', () => {
-    expect(frequencyRegexError('')).toBeNull();
-    expect(frequencyRegexError('^Holmes$|Watson')).toBeNull();
-    expect(frequencyRegexError('[')).toMatch(/Invalid regular expression/);
-    expect(frequencyRegexError('x'.repeat(257))).toMatch(/256/);
+  it('validates only regex-mode drafts while bounding both filter modes', () => {
+    expect(frequencyFilterError('regex', '')).toBeNull();
+    expect(frequencyFilterError('regex', '^Holmes$|Watson')).toBeNull();
+    expect(frequencyFilterError('regex', '[')).toMatch(/Invalid regular expression/);
+    expect(frequencyFilterError('literal', '[')).toBeNull();
+    expect(frequencyFilterError('literal', 'x'.repeat(257))).toMatch(/256/);
   });
 });

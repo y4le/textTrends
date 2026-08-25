@@ -5,7 +5,7 @@ import { createDocumentIndex } from '../src/index/build.ts';
 import {
   frequencyList,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_REGEX_MAX_UNITS,
+  FREQUENCY_FILTER_MAX_UNITS,
   type FrequencyListRequestV1,
 } from '../src/ops/frequency.ts';
 import { buildStoplistRanks } from '../src/ops/stoplist.ts';
@@ -259,6 +259,47 @@ describe('freq-list/2', () => {
     ]);
   });
 
+  it('applies a case-insensitive literal substring without interpreting metacharacters', async () => {
+    const world = await fixture([['a', 'Alpha Alpine alpha álpha cat dog']]);
+    const caseInsensitive = await run(world, {
+      ...REQUEST,
+      filter: {
+        ...REQUEST.filter,
+        text: { mode: 'literal', query: 'AL' },
+      },
+    });
+    expect(caseInsensitive.rows.map((row) => row.key)).toEqual(['Alpha', 'Alpine', 'alpha']);
+
+    const punctuation = 'c.t cat';
+    const segmentedPunctuation = await segment(punctuation, 'en');
+    const punctuationWorld = await fixture([[
+      'a',
+      punctuation,
+      {
+        ...segmentedPunctuation,
+        startsUtf16: Uint32Array.from([0, 4]),
+        endsUtf16: Uint32Array.from([3, 7]),
+        classes: Uint8Array.from([TOKEN_CLASS.lexical, TOKEN_CLASS.lexical]),
+      },
+    ]]);
+    const metacharacter = await run(punctuationWorld, {
+      ...REQUEST,
+      filter: {
+        ...REQUEST.filter,
+        text: { mode: 'literal', query: 'c.t' },
+      },
+    });
+    expect(metacharacter.rows.map((row) => row.key)).toEqual(['c.t']);
+
+    await expect(run(world, {
+      ...REQUEST,
+      filter: {
+        ...REQUEST.filter,
+        text: { mode: 'literal', query: '[' },
+      },
+    })).resolves.toMatchObject({ rows: [] });
+  });
+
   it('applies a case-sensitive Unicode regex before paging and reports one-part dispersion honestly', async () => {
     const world = await fixture([['a', 'Alpha Alpine alpha álpha']]);
     const result = await run(world, {
@@ -267,7 +308,7 @@ describe('freq-list/2', () => {
         minCount: 1,
         minDocFreq: 1,
         classes: ['lexical'],
-        regex: '^Al(?:pha|pine)$',
+        text: { mode: 'regex', query: '^Al(?:pha|pine)$' },
       },
     });
     expect(result.rows.map((row) => row.key)).toEqual(['Alpha', 'Alpine']);
@@ -347,9 +388,9 @@ describe('freq-list/2', () => {
       { ...REQUEST, filter: { ...REQUEST.filter, minDocFreq: 0 } },
       { ...REQUEST, filter: { ...REQUEST.filter, classes: [] } },
       { ...REQUEST, filter: { ...REQUEST.filter, classes: ['lexical', 'lexical'] } },
-      { ...REQUEST, filter: { ...REQUEST.filter, regex: 'x'.repeat(FREQUENCY_REGEX_MAX_UNITS + 1) } },
-      { ...REQUEST, filter: { ...REQUEST.filter, regex: 'e\u0301' } },
-      { ...REQUEST, filter: { ...REQUEST.filter, regex: '[' } },
+      { ...REQUEST, filter: { ...REQUEST.filter, text: { mode: 'literal', query: 'x'.repeat(FREQUENCY_FILTER_MAX_UNITS + 1) } } },
+      { ...REQUEST, filter: { ...REQUEST.filter, text: { mode: 'literal', query: 'e\u0301' } } },
+      { ...REQUEST, filter: { ...REQUEST.filter, text: { mode: 'regex', query: '[' } } },
       { ...REQUEST, filter: {
         ...REQUEST.filter,
         stoplist: { id: STOPLIST_EN_ID, version: STOPLIST_EN_VERSION, topN: 0 },

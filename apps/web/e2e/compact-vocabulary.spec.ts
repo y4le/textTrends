@@ -44,7 +44,7 @@ for (const viewport of [
     await expect(row.locator('td.frequency-count')).toHaveAttribute('aria-colindex', '2');
 
     const term = row.getByRole('button');
-    const filter = page.getByRole('searchbox', { name: 'filter (regex)' });
+    const filter = page.getByRole('searchbox', { name: 'filter', exact: true });
     const filterBox = await filter.boundingBox();
     expect(filterBox?.height).toBeGreaterThanOrEqual(44);
     await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
@@ -65,38 +65,66 @@ for (const viewport of [
   });
 }
 
-test('Vocabulary regex filter updates live, reports invalid input, and clears', async ({ page }) => {
+test('Vocabulary filters literally by default and keeps regex explicit', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'filter.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('Alpha alpha cat dog', 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
   await gotoPlace(page, 'vocabulary');
 
-  const filter = page.getByRole('searchbox', { name: 'filter (regex)' });
+  const filter = page.getByRole('searchbox', { name: 'filter', exact: true });
+  const regex = page.getByRole('checkbox', { name: 'regex', exact: true });
   await expect(filter).toBeVisible();
+  await expect(regex).not.toBeChecked();
   await expect(page.getByRole('button', { name: 'filter', exact: true })).toHaveCount(0);
   await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
   expect(await filter.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
     .toBeGreaterThanOrEqual(16);
   const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
-  await filter.fill('^Hol');
-  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  await filter.fill('ALP');
   await expect.poll(async () => (await trace(page)).events.filter(
     (event) => event.seq > mark && event.direction === 'to-worker'
       && event.t === 'query' && event.op === 'freq-list',
   ).length).toBe(1);
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
   await expect(page.locator('tr[data-frequency-row] .frequency-term-label').first())
-    .toHaveText(/^Hol/u);
+    .toHaveText(/alpha/iu);
+
+  const regexMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await regex.click();
+  await expect(regex).toBeChecked();
+  await expect(filter).toBeFocused();
+  await expect(page.locator('#vocabulary-regex-note')).toHaveText('case-sensitive');
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > regexMark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  ).length).toBe(1);
+  await expect(page.locator('tr[data-frequency-row]')).toHaveCount(0);
+
+  await filter.fill('^Al');
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  const priorRows = await page.locator('tr[data-frequency-row] .frequency-term-label').allInnerTexts();
 
   const invalidMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await filter.fill('[');
   await expect(filter).toHaveAttribute('aria-invalid', 'true');
-  await expect(page.locator('#vocabulary-regex-status'))
+  await expect(page.locator('#vocabulary-filter-status'))
     .toContainText('Invalid regular expression');
   await page.waitForTimeout(250);
   expect((await trace(page)).events.filter(
     (event) => event.seq > invalidMark && event.direction === 'to-worker'
       && event.t === 'query' && event.op === 'freq-list',
   )).toEqual([]);
+  expect(await page.locator('tr[data-frequency-row] .frequency-term-label').allInnerTexts())
+    .toEqual(priorRows);
 
   const clear = page.getByRole('button', { name: 'Clear vocabulary filter' });
   const clearBox = await clear.boundingBox();
@@ -105,7 +133,52 @@ test('Vocabulary regex filter updates live, reports invalid input, and clears', 
   await expect(filter).toHaveValue('');
   await expect(clear).toHaveCount(0);
   await expect(filter).not.toHaveAttribute('aria-invalid', 'true');
+  await expect(regex).toBeChecked();
+
+  const emptyToggleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await regex.click();
+  await expect(regex).not.toBeChecked();
+  await expect(filter).toBeFocused();
+  await regex.focus();
+  await regex.press('Space');
+  await expect(regex).toBeChecked();
+  await expect(regex).toBeFocused();
+  await page.waitForTimeout(250);
+  expect((await trace(page)).events.filter(
+    (event) => event.seq > emptyToggleMark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  )).toEqual([]);
+
+  const regexBox = await regex.locator('..').boundingBox();
+  expect(regexBox?.height).toBeGreaterThanOrEqual(44);
   await expectNoBodyOverflow(page);
+});
+
+test('Vocabulary persists the explicit regex mode and query', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'vocabulary');
+
+  const filter = page.getByRole('searchbox', { name: 'filter', exact: true });
+  const regex = page.getByRole('checkbox', { name: 'regex', exact: true });
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  await regex.click();
+  await expect(regex).toBeChecked();
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await filter.fill('^the$');
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > mark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  ).length).toBe(1);
+  await expect(page.locator('tr[data-frequency-row]')).not.toHaveCount(0);
+  await page.waitForTimeout(1_750);
+
+  await page.reload();
+  await awaitAllReady(page);
+  await gotoPlace(page, 'vocabulary');
+  await expect(page.getByRole('checkbox', { name: 'regex', exact: true })).toBeChecked();
+  await expect(page.getByRole('searchbox', { name: 'filter', exact: true })).toHaveValue('^the$');
 });
 
 test('Vocabulary common-word filtering is off by default and updates live', async ({ page }) => {
@@ -135,7 +208,7 @@ test('Vocabulary common-word filtering is off by default and updates live', asyn
   await expectNoBodyOverflow(page);
 });
 
-test('wide Vocabulary keeps six columns and an in-flow regex bar', async ({ page }) => {
+test('wide Vocabulary keeps six columns and an in-flow filter bar', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 900 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -146,7 +219,7 @@ test('wide Vocabulary keeps six columns and an in-flow regex bar', async ({ page
   await expect(table.locator('thead .data-grid-sort-button')).toHaveCount(6);
   await expect(table.getByRole('columnheader', { name: /class/ })).toHaveCount(0);
   await expect(page.getByRole('search', { name: 'Filter vocabulary' })).toBeVisible();
-  await expect(page.getByRole('searchbox', { name: 'filter (regex)' })).toBeVisible();
+  await expect(page.getByRole('searchbox', { name: 'filter', exact: true })).toBeVisible();
   await expect(page.getByRole('dialog', { name: 'Vocabulary filters' })).toHaveCount(0);
 });
 

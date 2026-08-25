@@ -8,9 +8,10 @@ import { exactArray, exactRecord, isNonNegSafeInt } from '../contract/guards.ts'
 import { INGEST_CAPS_V0 } from '../contract/ingest-caps.ts';
 import { isSourceFormat } from '../extract/formats.ts';
 import {
+  FREQUENCY_FILTER_MAX_UNITS,
   FREQUENCY_PAGE_MAX,
-  FREQUENCY_REGEX_MAX_UNITS,
   type FrequencySortFieldV1,
+  type FrequencyTextFilterV1,
   type FrequencyTokenClassV1,
 } from '../ops/frequency.ts';
 import { MAX_KWIC_TRACKS } from '../ops/kwic.ts';
@@ -89,6 +90,7 @@ export interface WorkspaceFrequencyViewV1 {
   readonly minDocFreq: number;
   readonly classes: readonly FrequencyTokenClassV1[];
   readonly stoplistTopN: number;
+  readonly filter?: FrequencyTextFilterV1;
   /** Legacy prefix settings are admitted so workspace/1 files remain readable. */
   readonly prefixNfc?: string;
   readonly regex?: string;
@@ -321,9 +323,14 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     value,
     ['minCount', 'minDocFreq', 'classes', 'regex', ...stoplistKey, 'sort', 'pageSize'],
   );
+  const hasFilter = exactRecord(
+    value,
+    ['minCount', 'minDocFreq', 'classes', 'filter', ...stoplistKey, 'sort', 'pageSize'],
+  );
   if (
     !hasPrefix
     && !hasRegex
+    && !hasFilter
     && !exactRecord(
       value,
       ['minCount', 'minDocFreq', 'classes', ...stoplistKey, 'sort', 'pageSize'],
@@ -353,7 +360,7 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
     throw new RangeError('frequency prefix must be NFC');
   }
   const regex = hasRegex
-    ? boundedString(value.regex, FREQUENCY_REGEX_MAX_UNITS, 'frequency regex')
+    ? boundedString(value.regex, FREQUENCY_FILTER_MAX_UNITS, 'frequency regex')
     : undefined;
   if (regex !== undefined) {
     if (regex !== regex.normalize('NFC')) {
@@ -365,11 +372,38 @@ function parseFrequencyView(value: unknown): WorkspaceFrequencyViewV1 {
       throw new RangeError('frequency regex must be valid');
     }
   }
+  let filter: FrequencyTextFilterV1 | undefined;
+  if (hasFilter) {
+    if (
+      !exactRecord(value.filter, ['mode', 'query'])
+      || (value.filter.mode !== 'literal' && value.filter.mode !== 'regex')
+    ) {
+      throw new RangeError('frequency text filter must be exact');
+    }
+    const query = boundedString(
+      value.filter.query,
+      FREQUENCY_FILTER_MAX_UNITS,
+      'frequency text filter',
+    );
+    if (query !== query.normalize('NFC')) {
+      throw new RangeError('frequency text filter must be NFC');
+    }
+    // Literal text has no compilation step; metacharacters remain ordinary text.
+    if (value.filter.mode === 'regex') {
+      try {
+        new RegExp(query, 'u');
+      } catch {
+        throw new RangeError('frequency regex must be valid');
+      }
+    }
+    filter = { mode: value.filter.mode, query };
+  }
   return {
     minCount: value.minCount,
     minDocFreq: value.minDocFreq,
     classes: parseClasses(value.classes, 'frequency classes'),
     stoplistTopN: hasStoplist ? value.stoplistTopN as number : 0,
+    ...(filter === undefined ? {} : { filter }),
     ...(prefixNfc === undefined ? {} : { prefixNfc }),
     ...(regex === undefined ? {} : { regex }),
     sort: value.sort as unknown as WorkspaceFrequencyViewV1['sort'],

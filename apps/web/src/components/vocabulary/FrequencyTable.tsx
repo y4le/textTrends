@@ -11,7 +11,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import {
-  FREQUENCY_REGEX_MAX_UNITS,
+  FREQUENCY_FILTER_MAX_UNITS,
   STOPLIST_MAX_TOP_N,
   type FrequencyListRowV1,
 } from '@texttrends/core';
@@ -28,7 +28,7 @@ import {
 } from '../../lib/row-detail.ts';
 import {
   frequencyMeasure,
-  frequencyRegexError,
+  frequencyFilterError,
   vocabularyRowControlId,
   vocabularyTarget,
   vocabularyTargetIsStale,
@@ -187,7 +187,7 @@ export function FrequencyTable({
   const view = useApp((store) => store.frequencyView);
   const layers = useApp((store) => store.layers);
   const setSort = useApp((store) => store.setFrequencySort);
-  const setFrequencyRegex = useApp((store) => store.setFrequencyRegex);
+  const setFrequencyFilter = useApp((store) => store.setFrequencyFilter);
   const setFrequencyStoplistTopN = useApp(
     (store) => store.setFrequencyStoplistTopN,
   );
@@ -197,7 +197,10 @@ export function FrequencyTable({
   const pushLayer = useApp((store) => store.pushLayer);
   const replaceLayer = useApp((store) => store.replaceLayer);
   const popLayer = useApp((store) => store.popLayer);
-  const [regexDraft, setRegexDraft] = useState(view.regex ?? '');
+  const [filterDraft, setFilterDraft] = useState(() => ({
+    mode: view.filter?.mode ?? 'literal' as const,
+    query: view.filter?.query ?? '',
+  }));
   const [stoplistDraft, setStoplistDraft] = useState(view.stoplistTopN);
   const [columns, setColumns] = useState<VocabularyColumnSettings>(() =>
     loadVocabularyColumnSettings(vocabularySessionStorage(window))
@@ -214,6 +217,8 @@ export function FrequencyTable({
   const scrollFrameRef = useRef<number | null>(null);
   const detailRowRef = useRef<HTMLTableRowElement | null>(null);
   const adjustButtonRef = useRef<HTMLButtonElement | null>(null);
+  const filterInputRef = useRef<HTMLInputElement | null>(null);
+  const refocusFilterAfterModeChangeRef = useRef(false);
   const columnDragRef = useRef<FrequencyColumnDrag | null>(null);
   const initialNavigationClaimedRef = useRef(false);
   const previousRowHeightRef = useRef(rowHeight);
@@ -403,21 +408,30 @@ export function FrequencyTable({
   };
 
   useEffect(() => {
-    setRegexDraft(view.regex ?? '');
-  }, [view.regex]);
+    setFilterDraft((current) => ({
+      mode: view.filter?.mode ?? current.mode,
+      query: view.filter?.query ?? '',
+    }));
+  }, [view.filter]);
 
   useEffect(() => {
     setStoplistDraft(view.stoplistTopN);
   }, [view.stoplistTopN]);
 
-  const regexError = frequencyRegexError(regexDraft);
+  const filterError = frequencyFilterError(filterDraft.mode, filterDraft.query);
   useEffect(() => {
-    if (regexError !== null) return undefined;
-    const normalized = regexDraft.normalize('NFC');
-    if (normalized === (view.regex ?? '')) return undefined;
-    const timer = window.setTimeout(() => setFrequencyRegex(normalized), 150);
+    if (filterError !== null) return undefined;
+    const normalized = filterDraft.query.normalize('NFC');
+    const next = normalized === ''
+      ? null
+      : { mode: filterDraft.mode, query: normalized } as const;
+    if (
+      view.filter?.mode === next?.mode
+      && view.filter?.query === next?.query
+    ) return undefined;
+    const timer = window.setTimeout(() => setFrequencyFilter(next), 150);
     return () => window.clearTimeout(timer);
-  }, [regexDraft, regexError, setFrequencyRegex, view.regex]);
+  }, [filterDraft, filterError, setFrequencyFilter, view.filter]);
 
   useEffect(() => {
     if (stoplistDraft === view.stoplistTopN) return undefined;
@@ -702,10 +716,14 @@ export function FrequencyTable({
     '--frequency-template': vocabularyGridTemplate(columns),
     '--frequency-row-height': `${rowHeight}px`,
   };
-  const regexApplied = regexError === null
-    && regexDraft.normalize('NFC') === (view.regex ?? '');
+  const normalizedFilterDraft = filterDraft.query.normalize('NFC');
+  const filterApplied = filterError === null
+    && (normalizedFilterDraft === ''
+      ? view.filter === undefined
+      : view.filter?.mode === filterDraft.mode
+        && view.filter.query === normalizedFilterDraft);
   const stoplistApplied = stoplistDraft === view.stoplistTopN;
-  const filtersPending = !regexApplied
+  const filtersPending = !filterApplied
     || !stoplistApplied
     || state?.state.status === 'pending';
 
@@ -721,55 +739,101 @@ export function FrequencyTable({
         </h2>
       )}
       <form
-        className="frequency-regex-filter"
+        className="frequency-filter"
         role="search"
         aria-label="Filter vocabulary"
         onSubmit={(event) => event.preventDefault()}
       >
-        <label htmlFor="vocabulary-regex-filter">filter (regex)</label>
-        <div className="frequency-regex-control">
+        <label className="frequency-filter-label" htmlFor="vocabulary-filter">filter</label>
+        <div className="frequency-filter-control">
           <input
-            id="vocabulary-regex-filter"
+            ref={filterInputRef}
+            id="vocabulary-filter"
             className="exact-input"
             type="search"
-            value={regexDraft}
-            maxLength={FREQUENCY_REGEX_MAX_UNITS}
-            aria-invalid={regexError !== null || undefined}
-            aria-describedby="vocabulary-regex-status"
-            placeholder="term pattern"
+            value={filterDraft.query}
+            maxLength={FREQUENCY_FILTER_MAX_UNITS}
+            aria-invalid={filterError !== null || undefined}
+            aria-describedby={filterDraft.mode === 'regex'
+              ? 'vocabulary-regex-note vocabulary-filter-status'
+              : 'vocabulary-filter-status'}
+            placeholder={filterDraft.mode === 'regex' ? 'term pattern' : 'contains text'}
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"
-            onChange={(event) => setRegexDraft(event.currentTarget.value)}
+            onChange={(event) => {
+              const query = event.currentTarget.value;
+              setFilterDraft((current) => ({ ...current, query }));
+            }}
             onKeyDown={(event) => {
-              if (event.key !== 'Escape' || regexDraft === '') return;
+              if (event.key !== 'Escape' || filterDraft.query === '') return;
               event.preventDefault();
-              setRegexDraft('');
-              setFrequencyRegex('');
+              setFilterDraft((current) => ({ ...current, query: '' }));
+              setFrequencyFilter(null);
             }}
           />
-          {regexDraft !== '' && (
+          {filterDraft.query !== '' && (
             <button
               type="button"
-              className="frequency-regex-clear"
+              className="frequency-filter-clear"
               aria-label="Clear vocabulary filter"
               title="Clear filter"
               onClick={() => {
-                setRegexDraft('');
-                setFrequencyRegex('');
+                setFilterDraft((current) => ({ ...current, query: '' }));
+                setFrequencyFilter(null);
               }}
             >
               <span aria-hidden="true">×</span>
             </button>
           )}
         </div>
+        <label
+          className="frequency-regex-mode"
+          onPointerDown={() => {
+            refocusFilterAfterModeChangeRef.current = true;
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={filterDraft.mode === 'regex'}
+            aria-label="regex"
+            aria-describedby={filterDraft.mode === 'regex' ? 'vocabulary-regex-note' : undefined}
+            onKeyDown={() => {
+              refocusFilterAfterModeChangeRef.current = false;
+            }}
+            onChange={(event) => {
+              const mode = event.currentTarget.checked ? 'regex' : 'literal';
+              const shouldRefocusFilter = refocusFilterAfterModeChangeRef.current;
+              refocusFilterAfterModeChangeRef.current = false;
+              const input = filterInputRef.current;
+              const selectionStart = input?.selectionStart ?? null;
+              const selectionEnd = input?.selectionEnd ?? null;
+              setFilterDraft((current) => ({
+                ...current,
+                mode,
+              }));
+              if (shouldRefocusFilter) {
+                requestAnimationFrame(() => {
+                  input?.focus({ preventScroll: true });
+                  if (selectionStart !== null && selectionEnd !== null) {
+                    input?.setSelectionRange(selectionStart, selectionEnd);
+                  }
+                });
+              }
+            }}
+          />
+          <span>regex</span>
+          {filterDraft.mode === 'regex' && (
+            <small id="vocabulary-regex-note">case-sensitive</small>
+          )}
+        </label>
         <span
-          id="vocabulary-regex-status"
-          className={regexError === null ? 'visually-hidden' : 'frequency-regex-status'}
+          id="vocabulary-filter-status"
+          className={filterError === null ? 'visually-hidden' : 'frequency-filter-status'}
           role="status"
           aria-live="polite"
         >
-          {regexError
+          {filterError
             ?? (filtersPending
               ? 'Filtering vocabulary.'
               : `${readyResult?.total ?? 0} matching vocabulary rows.`)}
@@ -787,7 +851,7 @@ export function FrequencyTable({
               aria-valuetext={stoplistDraft === 0
                 ? 'off — no reference words removed'
                 : `top ${stoplistDraft} reference words`}
-              aria-describedby="vocabulary-common-words-note vocabulary-regex-status"
+              aria-describedby="vocabulary-common-words-note vocabulary-filter-status"
               onChange={(event) => setStoplistDraft(event.currentTarget.valueAsNumber)}
             />
             <output htmlFor="vocabulary-common-words">

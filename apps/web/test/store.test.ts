@@ -5317,18 +5317,21 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect(f.store.getState().notebookError).toMatch(/term added.*deactivate/);
   });
 
-  it('applies a valid frequency regex live and resets the progressive offset', () => {
+  it('applies atomic frequency text filters live and resets the progressive offset', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     const before = f.frequencies().length;
-    f.store.getState().setFrequencyRegex('^Holmes$|Watson');
+    f.store.getState().setFrequencyFilter({
+      mode: 'literal',
+      query: 'e\u0301',
+    });
     expect(f.frequencies()).toHaveLength(before + 1);
     expect((f.frequencies().at(-1)!.query as {
       request: {
         filter: {
           minCount: number;
           minDocFreq: number;
-          regex: string;
+          text: { mode: string; query: string };
           classes: string[];
         };
         sort: { by: string; dir: number };
@@ -5338,7 +5341,7 @@ describe('corpus dashboard query intent (slice-3)', () => {
       filter: expect.objectContaining({
         minCount: 1,
         minDocFreq: 1,
-        regex: '^Holmes$|Watson',
+        text: { mode: 'literal', query: 'é' },
         classes: ['lexical'],
       }),
       sort: { by: 'count', dir: -1 },
@@ -5346,10 +5349,12 @@ describe('corpus dashboard query intent (slice-3)', () => {
     }));
 
     expect(f.store.getState().frequencyView.page).toEqual({ offset: 0, limit: 100 });
+    f.store.getState().setFrequencyFilter({ mode: 'regex', query: 'é' });
+    expect(f.store.getState().frequencyView.filter).toEqual({ mode: 'regex', query: 'é' });
     const valid = f.frequencies().length;
-    f.store.getState().setFrequencyRegex('[');
+    f.store.getState().setFrequencyFilter({ mode: 'regex', query: '[' });
     expect(f.frequencies()).toHaveLength(valid);
-    expect(f.store.getState().frequencyView.regex).toBe('^Holmes$|Watson');
+    expect(f.store.getState().frequencyView.filter).toEqual({ mode: 'regex', query: 'é' });
 
     const issued = f.frequencies().length;
     f.store.getState().setFrequencyPage(5_000);
@@ -5358,6 +5363,12 @@ describe('corpus dashboard query intent (slice-3)', () => {
     expect((f.frequencies().at(-1)!.query as {
       request: { page: { offset: number; limit: number } };
     }).request.page).toEqual({ offset: 5_000, limit: 100 });
+
+    f.store.getState().setFrequencyFilter(null);
+    expect(f.store.getState().frequencyView.filter).toBeUndefined();
+    expect((f.frequencies().at(-1)!.query as {
+      request: { filter: Record<string, unknown> };
+    }).request.filter).not.toHaveProperty('text');
   });
 
   it('applies common-word depth live, resets paging, and omits the disabled filter', () => {
@@ -5400,7 +5411,33 @@ describe('corpus dashboard query intent (slice-3)', () => {
         },
       },
     });
-    expect(f.store.getState().frequencyView.regex).toBe('^a\\.b\\[');
+    expect(f.store.getState().frequencyView.filter).toEqual({
+      mode: 'regex',
+      query: '^a\\.b\\[',
+    });
+  });
+
+  it('restores stored expressions in regex mode and writes only the current filter shape', () => {
+    const f = harness();
+    const workspace = workspaceState(BUILTIN_SHERLOCK_ID);
+    f.store.getState().restoreWorkspace({
+      ...workspace,
+      views: {
+        ...workspace.views,
+        frequency: {
+          ...workspace.views.frequency,
+          regex: '^Holmes$',
+        },
+      },
+    });
+    expect(f.store.getState().frequencyView.filter).toEqual({
+      mode: 'regex',
+      query: '^Holmes$',
+    });
+    const saved = workspaceFromApp(f.store.getState());
+    expect(saved?.views.frequency.filter).toEqual({ mode: 'regex', query: '^Holmes$' });
+    expect(saved?.views.frequency).not.toHaveProperty('regex');
+    expect(saved?.views.frequency).not.toHaveProperty('prefixNfc');
   });
 });
 

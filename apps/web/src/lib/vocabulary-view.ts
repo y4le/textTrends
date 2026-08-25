@@ -1,5 +1,5 @@
 import {
-  FREQUENCY_REGEX_MAX_UNITS,
+  FREQUENCY_FILTER_MAX_UNITS,
   type FrequencyListRowV1,
   type FrequencySortFieldV1,
 } from '@texttrends/core';
@@ -87,11 +87,14 @@ export function frequencyMeasure(
   }
 }
 
-export function frequencyRegexError(pattern: string): string | null {
-  if (pattern.length > FREQUENCY_REGEX_MAX_UNITS) {
-    return `Regular expression must be ${FREQUENCY_REGEX_MAX_UNITS} characters or fewer.`;
+export function frequencyFilterError(
+  mode: 'literal' | 'regex',
+  pattern: string,
+): string | null {
+  if (pattern.length > FREQUENCY_FILTER_MAX_UNITS) {
+    return `Filter must be ${FREQUENCY_FILTER_MAX_UNITS} characters or fewer.`;
   }
-  if (pattern === '') return null;
+  if (pattern === '' || mode === 'literal') return null;
   try {
     new RegExp(pattern.normalize('NFC'), 'u');
     return null;

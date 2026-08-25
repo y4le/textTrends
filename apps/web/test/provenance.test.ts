@@ -145,12 +145,12 @@ function input(overrides: Partial<ProvenanceInput> = {}): ProvenanceInput {
     },
     frequency: {
       view: {
-        schema: 'texttrends/frequency-view/1',
+        schema: 'texttrends/frequency-view/2',
         minCount: 2,
         minDocFreq: 1,
         classes: ['lexical'],
         stoplistTopN: 0,
-        regex: '^H',
+        filter: { mode: 'literal', query: 'Holmes' },
         sort: { by: 'count', dir: -1 },
         page: { offset: 0, limit: 100 },
       },
@@ -207,6 +207,8 @@ describe('provenanceFor', () => {
     expect(vocabulary).toContain('MATTR window: 500');
     expect(vocabulary).toContain('Method: freq-list/2');
     expect(vocabulary).toContain('token classes: lexical');
+    expect(vocabulary).toContain('text filter mode: literal');
+    expect(vocabulary).toContain('text filter query: Holmes');
     expect(vocabulary).toContain(
       'denominator: rate per 10,000 selected class tokens in letter/number terms',
     );

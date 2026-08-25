@@ -10,7 +10,7 @@
  * The engine narrows every inbound envelope with these before dispatch.
  */
 
-import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isStoplistSpecV1, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_REGEX_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
+import { exactRecord, isIndexRecipeProvisional, isNonNegSafeInt as isCount, isRecord, isSourceFormat, isStoplistSpecV1, isString as isStr, KWIC_CONTEXT_MAX_TOKENS, KWIC_MAX_PAGE, MAX_KWIC_TRACKS, SOURCE_FORMATS, TERM_GROUP_LIMITS_V1, DISPERSION_BUCKET_BUDGET, DISPERSION_EXACT_MAX, INVENTORY_MAX_MATTR_WINDOW, INVENTORY_MAX_RHYTHM_BINS_PER_DOC, FREQUENCY_PAGE_MAX, FREQUENCY_FILTER_MAX_UNITS, TREND_FIXED_TOKENS_MAX, TREND_FIXED_TOKENS_MIN, TREND_PER_DOC_MAX, TREND_PER_DOC_MIN } from '@texttrends/core';
 import {
   COMPANY_GAP_EDGES_V1,
   DESTINATION_MAX_RESULTS,
@@ -305,8 +305,8 @@ export function narrowQueryV4(q: unknown): boolean {
         'minDocFreq',
         'classes',
         ...(isRecord(r.filter)
-          && Object.prototype.hasOwnProperty.call(r.filter, 'regex')
-          ? ['regex']
+          && Object.prototype.hasOwnProperty.call(r.filter, 'text')
+          ? ['text']
           : []),
         ...(isRecord(r.filter)
           && Object.prototype.hasOwnProperty.call(r.filter, 'stoplist')
@@ -337,17 +337,26 @@ export function narrowQueryV4(q: unknown): boolean {
       ) {
         return false;
       }
-      if (filter.regex !== undefined) {
+      if (filter.text !== undefined) {
         if (
-          !isStr(filter.regex) ||
-          filter.regex.length < 1 ||
-          filter.regex.length > FREQUENCY_REGEX_MAX_UNITS ||
-          filter.regex.normalize('NFC') !== filter.regex
+          !exactRecord(filter.text, ['mode', 'query'])
+          || (filter.text.mode !== 'literal' && filter.text.mode !== 'regex')
+          || !isStr(filter.text.query)
+          || filter.text.query.length < 1
+          || filter.text.query.length > FREQUENCY_FILTER_MAX_UNITS
+          || filter.text.query.normalize('NFC') !== filter.text.query
+        ) {
+          return false;
+        }
+      }
+      if (isRecord(filter.text) && filter.text.mode === 'regex') {
+        if (
+          !isStr(filter.text.query)
         ) {
           return false;
         }
         try {
-          new RegExp(filter.regex, 'u');
+          new RegExp(filter.text.query, 'u');
         } catch {
           return false;
         }

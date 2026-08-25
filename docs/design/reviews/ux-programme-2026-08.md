@@ -15,8 +15,8 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 8 | `feat(terms): make the compact rail legible` | done · `afa4cf3` | `req_review_diff_e92346897dcfd2f7` · approved | Two complete names at 390px, a live range cue, painted overflow edges, and pointer-aware target floors. |
 | 9 | `feat(compare): favour identity in compact rows` | done · `2c04416` | `req_review_diff_ed31deb2a54d7cb5` · approved | Complete compact term identity, retained comparison bars, and exact lift in the accessible name and row detail. |
 | 10 | `feat(inputs): foreground import and collapse acquisition` | done · `4be1a6e` | `req_review_diff_c193b1288dfaa91b` · approved | Empty/corpus states, trust line, asymmetric verbs, save-only library path, and coarse target floors. |
-| 11 | `feat(matches): show corpus-edge context bands` | in progress | pending | Keep the centre fixed; expose start/end distance at the edges. |
-| 12 | `feat(filters): filter literally by default` | planned | pending | Workspace migration and explicit advanced regex mode. |
+| 11 | `feat(matches): show corpus-edge context bands` | done · `519a201` | `req_review_diff_001783d0ebcabdfc` · approved | Centred geometry is frozen; painted edge bands have equivalent accessible descriptions. |
+| 12 | `feat(filters): filter literally by default` | in progress | pending | Literal/regex filter contract and workspace migration per `req_consult_758335124003a436`. |
 
 ## Ratified decisions this programme implements
 
