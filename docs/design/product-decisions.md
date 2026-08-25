@@ -4,6 +4,48 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-25 — One settings spine and a legibility-first workbench pass
+
+The workbench has one app-wide Settings pane, ordered Display → This place →
+Help & method. Global entry lands at Display; contextual Trends and Compare
+entries land at the operative place form. Both are transient overlays with
+focus restoration and no URL or browser-history effect. Device-local theme and
+density preferences are kept separate from workspace-local analytical
+settings. Density is the requested three-stop slider: Standard is the default,
+Compact preserves the former rendered geometry, and Comfortable adds pitch. It
+scales authored UI type, chrome, Terms, headers, and data rows, but not analytical
+encodings, Reader prose, or RSVP type.
+
+The same programme adopts visible language and discovery over icon inference:
+every term entry path opens the same inline quick-add flow, the revised layout,
+Compare, and Matches controls use words, and Find is a visible action at
+compact width. Compact Terms and
+Compare rows preserve complete identity before secondary metadata. Matches
+keeps its centred occurrence geometry and paints otherwise empty corpus-edge
+space with an equivalent accessible description. Inputs leads with Import and
+analyze, collapses secondary acquisition after a corpus exists, distinguishes
+Save to library, and keeps the local-processing trust statement adjacent to
+the primary action.
+
+Vocabulary now filters by case-insensitive literal substring by default, with
+case-sensitive Unicode regex behind an explicit checkbox. Literal matching
+widens the displayed set across separately counted case variants; it does not
+merge those types or accent-fold them. Mode and query are one atomic value
+through store, worker protocol, provenance, and workspace persistence. Former
+regex and prefix workspace values migrate into regex mode. Writers emit only
+the new filter shape, so a newly saved filtered workspace is intentionally
+rejected by builds that predate this decision rather than being silently
+misinterpreted.
+
+The architecture and settings information model were frozen with pinned Claude
+Opus collaboration through Parley (`req_consult_09d491e1a04c6012`), with UX
+challenge passes in `req_consult_4ad30d6d0bded486` and
+`req_consult_273d383a67802f53`. The filter migration and interaction contract
+were refined separately in `req_consult_758335124003a436`; final staged review
+required the 320px layout and keyboard-focus corrections in
+`req_review_diff_7c6c474e01c83782`, then verified them in
+`req_review_diff_9bf54142896ed542`.
+
 ## 2026-08-24 — Separate Trends rows can share a real token scale
 
 The Trends presentation control is a flat three-way choice: `combined`,

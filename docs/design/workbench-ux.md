@@ -3,7 +3,7 @@
 *Current product-design authority for the textTrends shell and cross-device
 presentation.*
 
-**STATUS: IMPLEMENTED (updated 2026-08-19).**
+**STATUS: IMPLEMENTED (updated 2026-08-25).**
 
 ## Product principle
 
@@ -39,8 +39,8 @@ There are five stable places:
 | Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
 
 Compare reports whole-distribution vocabulary divergence and a two-sided text
-profile above streamed log-ratio rankings. A gear at the top right opens one
-settings page for sorting, per-side ranking direction, filters, and optional
+profile above streamed log-ratio rankings. Its gear opens the app-wide Settings
+pane at **This place** for sorting, per-side ranking direction, filters, and optional
 95% effect-interval whiskers (hidden by default). Exact intervals remain in
 term detail alongside signed G², the underlying counts, document ranges, and
 per-side dispersion. Sort fields include the log-ratio point estimate and its
@@ -49,10 +49,15 @@ retains at most the first 50,000 ranks;
 the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.
 
+At compact widths each ranking row preserves the complete term identity before
+secondary statistics. The comparison bar remains visible, while the exact
+signed lift is carried in the row's accessible name and disclosed detail rather
+than forcing a clipped number into the primary scan line.
+
 Vocabulary's filter bar and Compare's settings Filters section each expose a
 native “remove common words” slider from off (0, the default) through the top
 2,000 entries of the bundled English common-word reference. Vocabulary applies the
-control live with the same debounce as its regex; Compare stages it with the
+control live with the same debounce as its text filter; Compare stages it with the
 rest of that form. The control and export provenance state that this is a row
 filter: surviving counts and statistical measures do not change, and Compare's
 whole-distribution divergence does not move.
@@ -115,19 +120,72 @@ their governed bottom or side dock without duplicating the navigation DOM.
 Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
 transient source position, passage, trend, progress, and dispersion context.
-**Trend settings**, Debug, and the shortcut reference use the same full-screen pane frame;
+Settings, Debug, and the shortcut reference use the same full-screen pane frame;
 governed row details remain separate history layers.
 
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
-completeness. Its corpus label opens Inputs. The adjacent control on Trends
-opens the implemented **Trend settings** pane; Inputs, Matches, Vocabulary, and
-Compare currently have no contextual Method pane. A versioned formatter
+completeness. Its corpus label opens Inputs. **Find** and **Settings** are
+visible actions at every supported width. Trends retains a visible **Trend
+settings** contextual entrance and Compare retains its gear; both open the
+same Settings pane rather than a second settings surface. A versioned formatter
 contract exists for Trends, Vocabulary, and Compare provenance, limitations,
 and result export, but no production surface invokes it yet. Compare keeps its
 immediate profile, divergence, intervals, dispersion, and row evidence in the
 governed analysis surface.
+
+### Inputs acquisition states
+
+Inputs gives the primary acquisition job the strongest action: **Import and
+analyze**. With no active corpus, Add texts is expanded and leads with “Start
+with your text”; prepared samples and Standard Ebooks remain subordinate ways
+to begin. Once texts are active, acquisition collapses to the primary action
+and an explicit **Show options** disclosure so corpus management receives the
+space. The trust line “Processed in your browser · never uploaded” stays next
+to the primary import path in both states.
+
+The Local library is a separate save-without-activation path. **Save to
+library** never implies analysis, while dropping or choosing files in Add texts
+imports and activates them. Coarse targets keep their minimum size, disclosure
+focus is restored when collapsing would otherwise strand it, and empty,
+loading, failed, and populated states remain explicitly named.
+
+### Settings and display preferences
+
+There is one app-wide Settings pane with a stable order: **Display → This place
+→ Help & method**. The global Settings entrance lands at Display; a contextual
+entrance opens the same pane with This place aligned and focuses its first
+operative control. Closing or pressing Escape restores the entrance focus.
+Settings is transient UI: opening, switching entry section, applying, and
+closing neither push nor replace browser history.
+
+Display preferences apply immediately and are device-local. Theme and UI
+density live in local storage, not in a workspace. Analytical settings remain
+workspace-local: Trends and Compare use governed drafts until Apply, while
+closing or Escape discards an unapplied draft. This place contains the real
+Trends or Compare form where one exists and a concise method summary for
+Inputs, Matches, Vocabulary, and Reader. Help & method links onward to the
+shortcut and Debug utilities without creating a second settings hierarchy.
+
+UI density is a three-stop slider. Standard is the default; Compact reproduces
+the rendered geometry that predated the preference.
+
+| Metric | Compact | Standard | Comfortable |
+|---|---:|---:|---:|
+| authored UI type (`xs` / `sm` / `md` / `lg`) | .6875 / .8125 / .9375 / 1.25rem | .75 / .875 / 1 / 1.3125rem | .8125 / .9375 / 1.0625 / 1.375rem |
+| chrome target | 44px | 46px | 48px |
+| Matches row pitch | 32px | 36px | 40px |
+| Vocabulary row pitch (regular / compact width) | 34 / 44px | 38 / 48px | 42 / 52px |
+| Terms rail (regular / compact width) | 48 / 50px | 52 / 54px | 56 / 58px |
+
+Density scales authored UI type, chrome, Terms targets, table headers, and data
+row pitch. It does not scale structural spacing, plots, barcodes, strokes,
+series encodings, hit tolerances, Reader prose, or RSVP type. Reader chrome may
+refit, but its reading type remains reader-owned. On a live density change,
+Matches preserves its corpus anchor, Vocabulary preserves the first fully
+visible row, and Compare remeasures its virtual rows instead of pretending the
+old pitch still applies.
 
 ### Terms rail
 
@@ -145,6 +203,13 @@ horizontally while Add and Manage stay pinned. On compact screens edit and
 removal are intentionally reached through Manage, the visible Terms label is
 omitted, and the remaining rail targets stay at least 44 CSS pixels. A removal
 Undo notice opens upward from the dock rather than covering the reading lane.
+
+At compact widths the visible buckets prioritize identity over bucket count.
+At 390px, at least two complete term names remain readable, a live cue names
+the linked-range state, and painted edge fades disclose horizontal overflow.
+Add and Manage stay pinned; compact edit and removal still live in Manage.
+Touch/coarse targets retain their minimum size without forcing the same floor
+onto fine-pointer layouts.
 
 Manage is a full-screen editor. Reordering begins only from the leading drag
 handle and keeps the source plus insertion position visible. Mouse and touch
@@ -264,10 +329,20 @@ adjustable. A disclosed row adds filtered rank, corpus share, token interval,
 document coverage, and the mean count in containing documents without issuing
 another analysis query.
 
-A case-sensitive regular-expression field above the table filters terms live
-before ranking and paging. Invalid expressions retain the preceding valid
-result until the expression is corrected, and a trailing × clears a nonempty
-filter immediately.
+The text field above the table performs a case-insensitive literal substring
+filter by default, before ranking and paging. Literal metacharacters are text,
+not regular-expression syntax, and case folding does not merge vocabulary
+types: `The` and `the` retain separate rows and counts even though a literal
+query can include both in the result set. No accent folding is implied.
+
+An inline **regex** checkbox deliberately opts into a case-sensitive Unicode
+regular expression and retains the current query when switching modes. Invalid
+regex drafts retain the preceding valid result until corrected. Empty text
+means no filter and issues no filter request; the trailing × clears text while
+retaining the local mode. Pointer toggles return focus and the caret to the
+field, while keyboard activation leaves focus on the checkbox for repeat
+toggling. Workspace restore maps former regex and legacy prefix fields into
+regex mode; writers emit only the current `{ mode, query }` filter shape.
 
 The scrollport and row controls share one keyboard model: `j`/`k` and
 Down/Up move one row, Ctrl+D/Ctrl+U move half a visible page, and Enter toggles
@@ -334,17 +409,25 @@ Linked analytical ranges never filter or reorder Matches and never cause a
 Matches query. Rows inside the range receive a secondary highlight while
 the grid continues to represent the complete enabled-term result.
 
+The terms remain fixed at their midpoint geometry even when the first or last
+match lies far from a corpus edge. Otherwise empty half-viewport space before
+the first match and after the last match is painted as a non-interactive corpus
+edge band that names the exact token distance. The bands do not add rows,
+change the physical/logical scroll mapping, or move an occurrence. Equivalent
+hidden descriptions are attached to the grid; the painted copies are excluded
+from the accessibility tree.
+
 Activating a match opens Reader directly. Exact barcode occurrence
 controls in Trends open Reader. The footer's barcode centers Matches in
 place, while its current passage and a footer double-click open Reader at the
 current or clicked position.
 
-## Trend settings and provenance contract
+## Settings and provenance contract
 
-The graph carries no settings caption or control. The Scope organ opens the
-full-screen Trend settings pane. The versioned provenance and result-export
-formatter remains a tested library contract, not a visible or copyable pane in
-the current product.
+The graph carries no settings caption or embedded form. The Scope organ's
+contextual entrance opens the app-wide Settings pane at This place. The
+versioned provenance and result-export formatter remains a tested library
+contract, not a visible or copyable pane in the current product.
 
 Changing result geometry reissues only baseline and selected trend lanes.
 Changing resident presentation performs no worker query. Smoothing never
@@ -352,11 +435,12 @@ crosses document boundaries or bridges zero-denominator gaps, and exact raw
 counts remain available for totals and provenance. Rates use the fixed,
 explicit 10,000-token denominator; there is no denominator preference.
 
-Settings are a draft until Apply. A successful Apply closes the pane and
-restores focus to the Scope control; an unchanged or rejected draft remains
-open with an explicit status. Restore defaults changes only the draft, while
-close and Escape discard it. Settings are transient UI state and never add,
-replace, or consume a browser-history entry.
+Place settings are a draft until Apply. A successful Apply closes the pane and
+restores focus to its contextual entrance; an unchanged or rejected draft
+remains open with an explicit status. Restore defaults changes only the draft,
+while close and Escape discard it. Display changes are the deliberate
+immediate exception. The pane itself is transient UI state and never adds,
+replaces, or consumes a browser-history entry.
 
 ## Reader
 
@@ -490,6 +574,9 @@ cancelled or lost capture restores the committed width.
   page and local-header chrome may interpolate to a 32px floor while the Terms
   rail retains its authored one-row target geometry.
 - Editable compact inputs render at least 16px text.
+- UI density is independent of responsive width and pointer precision; it
+  changes authored pitch within the responsive composition rather than
+  selecting another place layout.
 - At 320px the page itself does not scroll horizontally; named data ports may.
 - The Trends overview uses one column below 720 CSS pixels, leaving classic
   scrollbar headroom before its two bounded panels share a row.
@@ -506,9 +593,10 @@ cancelled or lost capture restores the committed width.
 ## Persistence and release gates
 
 Workspace restore applies notebook and analysis-view state before queries
-continue. The deletion undo stack and Reader navigation are transient. Local
-files are deduplicated by content identity; workspace writes are
-last-write-wins, with no multi-tab edit model.
+continue. Theme and density are device-local display preferences and never
+travel with that workspace. The deletion undo stack and Reader navigation are
+transient. Local files are deduplicated by content identity; workspace writes
+are last-write-wins, with no multi-tab edit model.
 
 The design remains complete while these gates hold:
 

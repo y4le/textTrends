@@ -16,7 +16,7 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | 9 | `feat(compare): favour identity in compact rows` | done · `2c04416` | `req_review_diff_ed31deb2a54d7cb5` · approved | Complete compact term identity, retained comparison bars, and exact lift in the accessible name and row detail. |
 | 10 | `feat(inputs): foreground import and collapse acquisition` | done · `4be1a6e` | `req_review_diff_c193b1288dfaa91b` · approved | Empty/corpus states, trust line, asymmetric verbs, save-only library path, and coarse target floors. |
 | 11 | `feat(matches): show corpus-edge context bands` | done · `519a201` | `req_review_diff_001783d0ebcabdfc` · approved | Centred geometry is frozen; painted edge bands have equivalent accessible descriptions. |
-| 12 | `feat(filters): filter literally by default` | in progress | pending | Literal/regex filter contract and workspace migration per `req_consult_758335124003a436`. |
+| 12 | `feat(filters): filter literally by default` | done · `74f6138` | `req_review_diff_9bf54142896ed542` · approved | Literal/regex contract, exact migration, compact fit, and pointer/keyboard focus split per `req_consult_758335124003a436`. |
 
 ## Ratified decisions this programme implements
 
@@ -28,9 +28,48 @@ Transient execution checklist — not design authority. Superseded by `workbench
 - Literal vocabulary filtering is the default; regex remains an explicit advanced mode.
 - Architecture freeze: Parley request `req_consult_09d491e1a04c6012`.
 
-## Design-doc amendments owed at the end
+## Execution result
 
-- Record the Settings ownership, entry, focus, persistence, and history contracts.
-- Record the density metric table and exclusions.
-- Record compact Terms/Compare disclosure rules and Matches edge-band semantics.
-- Record Inputs acquisition states and vocabulary filter migration.
+- Twelve focused implementation commits were reviewed from immutable staged
+  snapshots by pinned Claude Opus; requested corrections were re-staged and
+  re-reviewed before commit.
+- `pnpm typecheck` and `pnpm test` pass in the combined working tree: 1,356
+  tests pass and one is skipped. The commit-only snapshot intentionally omits
+  concurrent RSVP work; Opus confirmed its RSVP-only type/test failures are
+  identical to the commit-12 base and that the filter slice is delta-neutral.
+- The compact Vocabulary suite passes 20/20 across Chromium and WebKit after
+  Opus caught a 320×568 table-port regression. The corrected field stays full
+  width and the sort controls remain reachable.
+- Durable authority is now recorded in `workbench-ux.md` and
+  `product-decisions.md`. This file remains transient and can be deleted after
+  owner review.
+
+## Owner review checklist
+
+- [ ] In Terms, activate Add by pointer, touch, and keyboard; each path opens
+  the same inline quick-entry field and preserves an advanced draft once.
+- [ ] At 320–390px, confirm visible **Find**, **Settings**, **Add**, and
+  **Manage** language; confirm at least two complete term names, the range cue,
+  and horizontal-overflow edge fades.
+- [ ] Open global Settings and confirm Display → This place → Help & method.
+  Open Trend settings and the Compare gear and confirm they enter the same pane
+  at the right form, close/Escape restore focus, and Back history is unchanged.
+- [ ] Move UI density through Compact, Standard, and Comfortable at regular and
+  compact widths. Confirm table/Terms pitch changes while plots, barcodes,
+  Reader prose, and RSVP type do not; Matches and Vocabulary retain their
+  reading anchors.
+- [ ] In compact Compare, confirm the full term remains readable, the comparison
+  bar remains, and exact lift is available in the accessible name and detail.
+- [ ] In empty Inputs, confirm Import and analyze is primary, samples/catalog
+  are subordinate, and the local-processing trust line is adjacent. With a
+  corpus, confirm options collapse and Save to library does not activate text.
+- [ ] In Matches, inspect the first and last occurrence: corpus-edge bands name
+  the real token distance without moving rows, and a screen reader receives one
+  equivalent description rather than the painted duplicate.
+- [ ] In Vocabulary, confirm literal `ALP` matches case variants, literal `[` is
+  valid, regex is explicit and case-sensitive, invalid regex retains the last
+  valid rows, × retains mode, pointer toggles return to typing, and keyboard
+  Space retains checkbox focus.
+- [ ] Save/reload the Vocabulary filter and open legacy regex/prefix fixtures;
+  confirm migration to regex mode and that subsequent workspace output contains
+  only `{ mode, query }`.
