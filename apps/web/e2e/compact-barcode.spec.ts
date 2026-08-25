@@ -7,7 +7,6 @@ import {
   submitAndAwaitFreshResults,
   trace,
 } from './helpers.ts';
-import { footerGeometryFor } from '../src/lib/footer-metrics.ts';
 
 async function awaitFreshKwic(
   page: import('@playwright/test').Page,
@@ -71,10 +70,13 @@ test('coarse pointers read the dense barcode through the first shown term\'s 48p
   expect((await footerSlider.boundingBox())?.height).toBeGreaterThanOrEqual(44);
   const footerReader = page.getByRole('button', { name: /Open reader at .* token/ });
   await expect(footerReader).toBeVisible({ timeout: 15_000 });
-  // The dense passage follows its governed compact-coarse geometry; the
-  // dedicated occurrence steppers above retain full 48px targets.
-  expect((await footerReader.boundingBox())?.height)
-    .toBe(footerGeometryFor('compact', true).passageHeight);
+  // The squeezed default spends the governed passage lane down to its 24px
+  // compact-coarse floor; the occurrence steppers retain full 48px targets.
+  const passageHeight = await footerReader.evaluate((node) => Number.parseFloat(
+    getComputedStyle(node).getPropertyValue('--footer-passage-height'),
+  ));
+  expect(passageHeight).toBe(24);
+  expect((await footerReader.boundingBox())?.height).toBeGreaterThanOrEqual(passageHeight);
   await footerReader.click();
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader).toBeVisible();

@@ -248,10 +248,12 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       className="workbench-dock"
       inert={inactive || undefined}
       data-mode={mode}
+      data-density={displayPreference.density}
       data-inactive={inactive || undefined}
       data-terms-compressed={mode === 'reader'
         || sizing.blockSize < sizing.baseBlockSize
         || undefined}
+      data-terms-flush={sizing.railPadBlock <= 0.01 || undefined}
       data-terms-dropped={sizing.railBlockSize === 0 || undefined}
       style={{
         '--dock-local-block-size': `${sizing.blockSize}px`,

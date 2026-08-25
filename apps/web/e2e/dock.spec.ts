@@ -90,6 +90,7 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   await awaitAllReady(page, { loadDemo: true });
 
   const dock = page.locator('.workbench-dock');
+  const terms = page.getByRole('complementary', { name: 'Terms' });
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const handle = page.getByRole('separator', { name: 'Resize reading footer' });
   const graph = footer.locator('.footer-sparkline');
@@ -97,10 +98,11 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   const before = {
     dock: await dock.boundingBox(),
     footer: await footer.boundingBox(),
+    terms: await terms.boundingBox(),
     graph: await graph.boundingBox(),
     barcode: await barcode.boundingBox(),
   };
-  if (!before.dock || !before.footer || !before.graph || !before.barcode) {
+  if (!before.dock || !before.footer || !before.terms || !before.graph || !before.barcode) {
     throw new Error('resizable footer geometry is unavailable');
   }
   const minimum = Number(await handle.getAttribute('aria-valuemin'));
@@ -120,13 +122,16 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   const grown = {
     dock: await dock.boundingBox(),
     footer: await footer.boundingBox(),
+    terms: await terms.boundingBox(),
     graph: await graph.boundingBox(),
     barcode: await barcode.boundingBox(),
   };
-  if (!grown.dock || !grown.footer || !grown.graph || !grown.barcode) {
+  if (!grown.dock || !grown.footer || !grown.terms || !grown.graph || !grown.barcode) {
     throw new Error('grown footer geometry is unavailable');
   }
-  expect(grown.footer.height).toBe(before.footer.height + 120);
+  expect(grown.footer.height - before.footer.height)
+    .toBe(120 - (grown.terms.height - before.terms.height));
+  expect(grown.terms.height).toBeGreaterThan(before.terms.height);
   expect(grown.graph.height).toBeGreaterThan(before.graph.height);
   expect(grown.barcode.height).toBeGreaterThan(before.barcode.height);
   expect(grown.dock.y).toBe(before.dock.y - 120);
@@ -136,8 +141,11 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   await drag(80);
   const cappedBarcodeHeight = (await barcode.boundingBox())?.height;
   const tallerGraphHeight = (await graph.boundingBox())?.height;
-  expect(cappedBarcodeHeight).toBe(grown.barcode.height);
-  expect(tallerGraphHeight).toBe(grown.graph.height + 80);
+  expect(cappedBarcodeHeight).toBeGreaterThanOrEqual(grown.barcode.height);
+  expect(tallerGraphHeight).toBeGreaterThan(grown.graph.height);
+  await drag(32);
+  expect((await barcode.boundingBox())?.height).toBe(cappedBarcodeHeight);
+  expect((await graph.boundingBox())?.height).toBe((tallerGraphHeight ?? 0) + 32);
 
   await handle.focus();
   await handle.press('Enter');
@@ -147,25 +155,27 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   await handle.press('ArrowDown');
   expect((await footer.boundingBox())?.height).toBe(before.footer.height);
 
-  const terms = page.getByRole('complementary', { name: 'Terms' });
   const [baseRailHeight, baseTermTarget] = await Promise.all([
     terms.boundingBox().then((box) => box?.height),
     rootMetric(page, '--term-target-block-size'),
   ]);
   await drag(-10);
-  expect((await terms.boundingBox())?.height).toBe((baseRailHeight ?? 0) - 10);
+  expect((await terms.boundingBox())?.height).toBe(baseRailHeight);
+  await expect(dock).toHaveAttribute('data-terms-flush', 'true');
   const earlyToggleHeight = (await page.locator('.term-bucket-toggle').first().boundingBox())?.height;
-  expect(earlyToggleHeight).toBeLessThan(baseTermTarget);
-  expect(earlyToggleHeight).toBeGreaterThan(24);
-  expect((await footer.boundingBox())?.height).toBe(before.footer.height);
+  expect(baseTermTarget).toBe(34);
+  expect(earlyToggleHeight).toBeGreaterThanOrEqual(34);
+  expect(earlyToggleHeight).toBeLessThanOrEqual(37);
+  expect((await footer.boundingBox())?.height).toBe(before.footer.height - 10);
   await handle.press('Enter');
 
   const defaultDock = await dock.boundingBox();
-  await drag(-90);
+  const shrinkBy = Math.min(50, (defaultDock?.height ?? minimum) - minimum);
+  await drag(-shrinkBy);
   const shrunkDock = await dock.boundingBox();
   if (!defaultDock || !shrunkDock) throw new Error('shrunk dock geometry is unavailable');
-  expect(shrunkDock.height).toBe(defaultDock.height - 90);
-  expect(shrunkDock.y).toBe(defaultDock.y + 90);
+  expect(shrunkDock.height).toBe(defaultDock.height - shrinkBy);
+  expect(shrunkDock.y).toBe(defaultDock.y + shrinkBy);
   expect(shrunkDock.y + shrunkDock.height).toBe(defaultDock.y + defaultDock.height);
   await expect(footer.locator('.footer-reading-status')).toHaveCount(0);
   await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
@@ -179,10 +189,10 @@ test('the reading dock resizes through its full range and caps barcode growth', 
     .toBe(coarse ? 24 : 20);
   expect((await graph.boundingBox())?.height).toBe(coarse ? 24 : 12);
   expect((await page.getByRole('complementary', { name: 'Terms' }).boundingBox())?.height)
-    .toBe(31);
+    .toBe(37);
   const minimumToggleHeight = (await page.locator('.term-bucket-toggle').first().boundingBox())?.height ?? 0;
-  expect(minimumToggleHeight).toBeGreaterThanOrEqual(24);
-  expect(minimumToggleHeight).toBeLessThanOrEqual(31);
+  expect(minimumToggleHeight).toBeGreaterThanOrEqual(34);
+  expect(minimumToggleHeight).toBeLessThanOrEqual(37);
   await expect(footer.locator('canvas[data-barcode-band="series"]')).toHaveCount(0);
 
   await handle.press('End');
@@ -192,6 +202,19 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   ]);
   if (!maximizedDock || !header) throw new Error('maximum footer geometry is unavailable');
   expect(Math.abs(maximizedDock.y - (header.y + header.height))).toBeLessThanOrEqual(1);
+  const [expandedTerms, expandedBucket, expandedAdd] = await Promise.all([
+    terms.boundingBox(),
+    terms.locator('.term-bucket').first().boundingBox(),
+    terms.getByRole('button', { name: 'Add term', exact: true }).boundingBox(),
+  ]);
+  if (!expandedTerms || !expandedBucket || !expandedAdd) {
+    throw new Error('expanded Terms geometry is unavailable');
+  }
+  const expandedTermsCenter = expandedTerms.y + expandedTerms.height / 2;
+  for (const box of [expandedBucket, expandedAdd]) {
+    expect(Math.abs(box.y + box.height / 2 - expandedTermsCenter))
+      .toBeLessThanOrEqual(1);
+  }
   await handle.press('Enter');
   expect((await dock.boundingBox())?.height).toBe(before.dock.height);
 });
@@ -229,8 +252,8 @@ test('Compact density starts with the footer Trends graph at its floor', async (
   // The graph must begin at the strip edge. A restored coarse strip reserve
   // would leave dead space above it while still passing relative-size checks.
   expect(Math.abs(graphBox.y - stripBox.y)).toBeLessThanOrEqual(1);
-  const coarse = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
-  expect((await term.boundingBox())!.height).toBeGreaterThanOrEqual(coarse ? 44 : 36);
+  expect((await term.boundingBox())!.height).toBeGreaterThanOrEqual(24);
+  expect((await term.boundingBox())!.height).toBeLessThanOrEqual(27);
 
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   let pane = page.getByRole('dialog', { name: 'Settings', exact: true });
@@ -259,7 +282,7 @@ test('Compact density starts with the footer Trends graph at its floor', async (
   expect((await dock.boundingBox())!.height).toBe(compact.dock);
 });
 
-test('the compact dock stays one row, pins its actions, and opens Undo upward', async ({ page }) => {
+test('the compact dock stays one flush row, pins its actions, and opens Undo upward', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -284,17 +307,57 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   await expect(terms.locator('.term-bar-label')).toBeHidden();
   expect(await port.evaluate((node) => node.scrollHeight <= node.clientHeight)).toBe(true);
 
-  for (const control of [
-    terms.locator('.term-bucket-toggle').first(),
-    terms.getByRole('button', { name: 'Add term', exact: true }),
-    terms.getByRole('button', { name: 'Manage', exact: true }),
-  ]) {
+  for (const [control, minimumWidth] of [
+    [terms.locator('.term-bucket-toggle').first(), 44],
+    [terms.getByRole('button', { name: 'Add term', exact: true }), 34],
+    [terms.getByRole('button', { name: 'Manage', exact: true }), 34],
+  ] as const) {
     const box = await control.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(await page.evaluate(() =>
-      matchMedia('(any-pointer: coarse)').matches ? 44 : 40));
+    expect(box?.width).toBeGreaterThanOrEqual(minimumWidth);
+    expect(box?.height).toBeGreaterThanOrEqual(34);
+    expect(box?.height).toBeLessThanOrEqual(37);
     expect(box?.x).toBeGreaterThanOrEqual(0);
     expect(box ? box.x + box.width : Number.POSITIVE_INFINITY).toBeLessThanOrEqual(390);
+  }
+  await expect(terms.getByRole('button', { name: 'Add term', exact: true })).toHaveText('+');
+  await expect(terms.getByRole('button', { name: 'Manage', exact: true }).locator('svg'))
+    .toHaveCount(1);
+  const focusedToggle = terms.locator('.term-bucket-toggle').first();
+  await terms.locator('.term-bucket-summary').first().focus();
+  await page.keyboard.press('Tab');
+  await expect(focusedToggle).toBeFocused();
+  await expect(focusedToggle).toHaveCSS('outline-offset', '-3px');
+  const addAction = terms.getByRole('button', { name: 'Add term', exact: true });
+  await addAction.click();
+  const quickAdd = terms.getByRole('form', { name: 'Add a term inline' });
+  const quickInput = quickAdd.getByRole('textbox', { name: 'New term' });
+  const [openPortBox, quickAddBox] = await Promise.all([
+    port.boundingBox(),
+    quickAdd.boundingBox(),
+  ]);
+  if (!openPortBox || !quickAddBox) throw new Error('quick-add geometry is unavailable');
+  expect(quickAddBox.y).toBeGreaterThanOrEqual(openPortBox.y - 1);
+  expect(quickAddBox.y + quickAddBox.height)
+    .toBeLessThanOrEqual(openPortBox.y + openPortBox.height + 1);
+  expect(await port.evaluate((node) => node.scrollHeight)).toBe(await port.evaluate(
+    (node) => node.clientHeight,
+  ));
+  await quickInput.fill('focus check');
+  await page.keyboard.press('Tab');
+  const inlineAddAction = quickAdd.getByRole('button', { name: 'Add', exact: true });
+  await expect(inlineAddAction).toBeFocused();
+  await expect(inlineAddAction).toHaveCSS('outline-offset', '-3px');
+  await quickAdd.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(addAction).toBeFocused();
+  const [bucketBox, addBox] = await Promise.all([
+    terms.locator('.term-bucket').first().boundingBox(),
+    addAction.boundingBox(),
+  ]);
+  for (const box of [bucketBox, addBox]) {
+    if (!box) throw new Error('flush Terms control geometry is unavailable');
+    expect(Math.abs(box.y - (termsBox.y + 1))).toBeLessThanOrEqual(1);
+    expect(Math.abs(box.y + box.height - (termsBox.y + termsBox.height)))
+      .toBeLessThanOrEqual(1);
   }
   await expect(terms.getByRole('button', { name: /^Remove / }).first()).toBeHidden();
 
@@ -319,7 +382,7 @@ test('the compact dock stays one row, pins its actions, and opens Undo upward', 
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
 });
 
-test('the coarse regular-width rail keeps compact-height, wide actions', async ({
+test('the squeezed coarse regular-width rail keeps wide actions', async ({
   page,
 }, testInfo) => {
   test.skip(testInfo.project.name !== 'webkit-compact', 'requires a coarse-pointer project');
@@ -327,10 +390,13 @@ test('the coarse regular-width rail keeps compact-height, wide actions', async (
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
+  const dock = page.locator('.workbench-dock');
   const terms = page.getByRole('complementary', { name: 'Terms' });
+  await expect(dock).toHaveAttribute('data-terms-flush', 'true');
   const edit = terms.getByRole('button', { name: /^Edit term:/ }).first();
   await expect(edit).toBeVisible();
   const editBox = await edit.boundingBox();
   expect(editBox?.width).toBeGreaterThanOrEqual(44);
-  expect(editBox?.height).toBe(44);
+  expect(editBox?.height).toBeGreaterThanOrEqual(34);
+  expect(editBox?.height).toBeLessThanOrEqual(37);
 });

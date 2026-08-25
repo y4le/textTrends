@@ -108,7 +108,7 @@ export const DENSITY_METRICS: Readonly<Record<Density, DensityMetrics>> = Object
     dock: Object.freeze({
       railBlockSize: 56,
       compactRailBlockSize: 58,
-      termTargetBlockSize: 42,
+      termTargetBlockSize: 44,
       compactTermTargetBlockSize: 44,
       readerTermTargetBlockSize: 32,
     }),

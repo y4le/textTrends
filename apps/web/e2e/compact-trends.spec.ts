@@ -69,7 +69,7 @@ for (const viewport of [
     expect(dockBox && lensBox ? dockBox.y + dockBox.height : Number.POSITIVE_INFINITY)
       .toBeLessThanOrEqual((lensBox?.y ?? 0) + 1);
     if (testInfo.project.name === 'webkit-compact') {
-      expect((await footer.locator('.footer-passage').boundingBox())?.height).toBe(36);
+      expect((await footer.locator('.footer-passage').boundingBox())?.height).toBe(24);
       expect((await footer.locator('.footer-sparkline').boundingBox())?.height).toBe(38);
       expect((await footer.locator('canvas[data-barcode-band="series"]').boundingBox())?.height)
         .toBe(27);

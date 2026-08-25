@@ -21,8 +21,11 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
   const terms = page.getByRole('complementary', { name: 'Terms' });
   const termPort = terms.getByRole('group', { name: 'Query terms' });
   const termFrame = terms.locator('.term-bucket-frame');
-  const termPosition = terms.locator('#term-rail-position');
-  await expect(termPosition).toHaveText(/^1–[2-3] of 3$/);
+  await expect(terms.locator('#term-rail-position')).toHaveCount(0);
+  await expect(termPort).toHaveAttribute(
+    'aria-label',
+    'Query terms (3). More terms after.',
+  );
   await expect(termFrame).toHaveAttribute('data-overflow-after', 'true');
   expect(await termPort.evaluate((port) => {
     const bounds = port.getBoundingClientRect();
@@ -32,20 +35,45 @@ test('compact Matches keeps the shared terms rail and direct result controls', a
         && nameBounds.right <= bounds.right + 0.5;
     }).length;
   })).toBeGreaterThanOrEqual(2);
-  expect(await termFrame.evaluate((frame) =>
-    Number.parseFloat(getComputedStyle(frame, '::after').opacity))).toBe(1);
-  const coarseTerms = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
-  const blockTargetFloor = coarseTerms ? 44 : 40;
+  await expect.poll(() => termFrame.evaluate((frame) => {
+    const edge = getComputedStyle(frame, '::after');
+    return {
+      opacity: Number.parseFloat(edge.opacity),
+      borderStyle: edge.borderRightStyle,
+      boxShadow: edge.boxShadow,
+    };
+  })).toEqual({
+    opacity: 1,
+    borderStyle: 'dashed',
+    boxShadow: 'none',
+  });
   for (const button of await terms.getByRole('button').all()) {
     const box = await button.boundingBox();
     if (box === null) continue;
-    expect(box.width).toBeGreaterThanOrEqual(44);
-    expect(box.height).toBeGreaterThanOrEqual(blockTargetFloor);
+    expect(box.width).toBeGreaterThanOrEqual(
+      await button.evaluate((node) => node.classList.contains('term-bar-icon-action')) ? 34 : 44,
+    );
+    expect(box.height).toBeGreaterThanOrEqual(34);
   }
   await termPort.evaluate((port) => { port.scrollLeft = port.scrollWidth; });
   await expect(termFrame).toHaveAttribute('data-overflow-before', 'true');
   await expect(termFrame).not.toHaveAttribute('data-overflow-after');
-  await expect(termPosition).toHaveText(/^[1-2]–3 of 3$/);
+  await expect(termPort).toHaveAttribute(
+    'aria-label',
+    'Query terms (3). More terms before.',
+  );
+  await expect.poll(() => termFrame.evaluate((frame) => {
+    const edge = getComputedStyle(frame, '::before');
+    return {
+      opacity: Number.parseFloat(edge.opacity),
+      borderStyle: edge.borderLeftStyle,
+      boxShadow: edge.boxShadow,
+    };
+  })).toEqual({
+    opacity: 1,
+    borderStyle: 'dashed',
+    boxShadow: 'none',
+  });
   await termPort.evaluate((port) => { port.scrollLeft = 0; });
   const dockGeometry = await page.locator('.app-shell').evaluate((shell) => {
     const dock = shell.querySelector<HTMLElement>('.workbench-dock');
@@ -293,6 +321,6 @@ test('short landscape Matches leaves a usable centered results viewport', async 
   expect(geometry.appHeaderHeight).toBeLessThanOrEqual(33);
   expect(geometry.gridHeaderHeight).toBeGreaterThanOrEqual(32);
   expect(geometry.gridHeaderHeight).toBeLessThanOrEqual(33);
-  expect(geometry.termsRailHeight).toBe(54);
-  expect(geometry.termTargetBlockSize).toBe(40);
+  expect(geometry.termsRailHeight).toBe(37);
+  expect(geometry.termTargetBlockSize).toBe(34);
 });

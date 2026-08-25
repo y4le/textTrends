@@ -3784,41 +3784,42 @@ canvas {
 
 .term-bucket-frame {
   position: relative;
+  display: flex;
   min-inline-size: 0;
   block-size: 100%;
+  align-items: center;
   overflow: hidden;
+}
+
+.term-bucket-frame > .term-bucket-port {
+  inline-size: 100%;
 }
 
 .term-bucket-frame::before,
 .term-bucket-frame::after {
   position: absolute;
   z-index: 2;
-  inset-block: 0;
-  inline-size: 14px;
+  inset-block: 15%;
+  inline-size: 0;
   opacity: 0;
   pointer-events: none;
+  transition: opacity 120ms linear;
   content: '';
 }
 
 .term-bucket-frame::before {
   inset-inline-start: 0;
-  border-inline-start: 1px solid var(--fg-muted);
-  box-shadow: 8px 0 9px color-mix(in srgb, var(--fg-muted) 30%, transparent);
+  border-inline-start: 1px dashed var(--rule-strong);
 }
 
 .term-bucket-frame::after {
   inset-inline-end: 0;
-  border-inline-end: 1px solid var(--fg-muted);
-  box-shadow: -8px 0 9px color-mix(in srgb, var(--fg-muted) 30%, transparent);
+  border-inline-end: 1px dashed var(--rule-strong);
 }
 
 .term-bucket-frame[data-overflow-before='true']::before,
 .term-bucket-frame[data-overflow-after='true']::after {
   opacity: 1;
-}
-
-.term-rail-position {
-  display: none;
 }
 
 .term-bucket {
@@ -3853,6 +3854,11 @@ canvas {
 
 .term-bucket button {
   min-block-size: var(--term-target-block-size);
+}
+
+.term-bucket button:focus-visible,
+.term-bar-actions button:focus-visible {
+  outline-offset: -3px;
 }
 
 .scope-settings-link {
@@ -3906,6 +3912,28 @@ canvas {
   padding-inline: var(--space-2);
   border: 1px solid var(--rule-strong);
   white-space: nowrap;
+}
+
+.term-bar-actions .term-bar-icon-action {
+  display: inline-grid;
+  min-inline-size: var(--term-target-block-size);
+  place-items: center;
+  padding-inline: 0;
+}
+
+.term-bar-action-glyph {
+  font-size: 1.25rem;
+  line-height: 1;
+}
+
+.term-bar-icon-action svg {
+  inline-size: 1.125rem;
+  block-size: 1.125rem;
+  fill: none;
+  stroke: currentcolor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.75;
 }
 
 .term-bar-empty {
@@ -5675,21 +5703,6 @@ html.reader-open .find-bar--floating {
     font-size: var(--text-xs);
   }
 
-  .term-rail-position {
-    position: absolute;
-    z-index: 3;
-    inset-block-start: 2px;
-    inset-inline-end: 2px;
-    display: block;
-    padding-inline: 0.35ch;
-    background: var(--bg);
-    color: var(--fg-muted);
-    font-family: var(--font-mono);
-    font-size: var(--text-xs);
-    line-height: 1.2;
-    pointer-events: none;
-  }
-
   .trend-settings fieldset {
     grid-template-columns: minmax(0, 1fr);
   }
@@ -5758,12 +5771,6 @@ html.reader-open .find-bar--floating {
   .term-bucket,
   .term-bar-actions button {
     min-block-size: var(--term-target-block-size);
-  }
-
-  .workbench-dock:not([data-terms-compressed='true']) .term-bucket,
-  .workbench-dock:not([data-terms-compressed='true']) .term-bucket button,
-  .workbench-dock:not([data-terms-compressed='true']) .term-bar-actions button {
-    min-block-size: max(44px, var(--term-target-block-size));
   }
 
   .term-bucket-edit,
@@ -5951,6 +5958,49 @@ html.reader-open .find-bar--floating {
 
 .workbench-dock[data-terms-compressed='true'] .term-bucket-port {
   scrollbar-width: none;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bar-actions {
+  align-self: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bar {
+  grid-template-rows: minmax(0, 1fr);
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket-frame {
+  block-size: auto;
+  min-block-size: 0;
+  align-self: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket-port {
+  block-size: 100%;
+  align-items: stretch;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket {
+  block-size: 100%;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-bucket button {
+  block-size: 100%;
+  min-block-size: 0;
+  line-height: 1;
+}
+
+.workbench-dock[data-terms-flush='true'] .term-quick-add,
+.workbench-dock[data-terms-flush='true'] .term-quick-add input,
+.workbench-dock[data-terms-flush='true'] .term-quick-add button {
+  block-size: 100%;
+  min-block-size: var(--term-target-block-size);
+}
+
+.workbench-dock[data-terms-flush='true'] .term-quick-add input:focus-visible,
+.workbench-dock[data-terms-flush='true'] .term-quick-add button:focus-visible {
+  outline-offset: -3px;
 }
 
 .workbench-dock[data-terms-compressed='true'] .term-bucket-port::-webkit-scrollbar {

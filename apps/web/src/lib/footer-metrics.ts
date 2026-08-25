@@ -77,8 +77,10 @@ export const FOOTER_BARCODE_TRACK_MAX_HEIGHT = 16;
 export const FOOTER_DEFAULT_MAX_VIEWPORT_RATIO = 1 / 3;
 
 export const DOCK_TERM_TARGET_MIN_HEIGHT = 24;
+const DOCK_TERM_TARGET_STANDARD_MIN_HEIGHT = 34;
+const DOCK_TERM_TARGET_COMFORTABLE_MIN_HEIGHT = 44;
 const DOCK_RAIL_PAD_BASE = 3;
-const DOCK_RAIL_PAD_MIN = 2;
+const DOCK_RAIL_PAD_MIN = 0;
 const READER_RAIL_CHROME_RESIDUE = 1 + 2 * DOCK_RAIL_PAD_MIN + 2;
 const FOOTER_PAD_MIN = 1;
 const FOOTER_LANE_GAP_MIN = 1;
@@ -128,8 +130,8 @@ const COMPACT_COARSE: FooterGeometry = Object.freeze({
   // The compact bottom navigation is 53px tall. Its historical 72px reserve
   // left 19px of dead air above the tabs; keep the dock's upper edge stable
   // and spend that recovered space on legible mobile data marks instead.
-  // The passage remains comfortably above the 24px pointer-target floor but
-  // gives back some of its former 44px tap padding to the data-rich strip.
+  // The authored passage remains above the 24px pointer-target floor. The
+  // squeezed Compact and Standard defaults may spend it down to that floor.
   passageHeight: 36,
   seriesHeight: 38,
   topPad: 3,
@@ -272,6 +274,16 @@ function termTargetBaseFor(
     : metrics.termTargetBlockSize;
 }
 
+/** The deliberately squeezed Terms lane remains density-authored: Compact
+ * may reach the WCAG target-size floor, Standard keeps an intermediate stop,
+ * and Comfortable retains a full 44px control. Omitted density is the legacy
+ * Compact contract. */
+export function dockTermTargetMinimumHeight(density?: Density): number {
+  if (density === 'comfortable') return DOCK_TERM_TARGET_COMFORTABLE_MIN_HEIGHT;
+  if (density === 'standard') return DOCK_TERM_TARGET_STANDARD_MIN_HEIGHT;
+  return DOCK_TERM_TARGET_MIN_HEIGHT;
+}
+
 function passageFloorFor(width: WidthClass, coarse: boolean): number {
   if (coarse) return 24;
   return width === 'compact' ? 18 : 20;
@@ -292,12 +304,13 @@ function withStrip(
 }
 
 /** Resolve one absolute dock-size request into rail and reading geometry.
- * Today's authored layout is the default rather than the minimum. Explicit
- * resizing uses the established rail-first squeeze in uncapped viewports. When
- * the viewport footer cap is active, automatic and explicit targets preserve
- * that footer-first partition until the footer reaches its own design floor,
- * avoiding a boundary jump on the first resize. The visual strip is the
- * residual, so every accepted pixel belongs to exactly one lane. */
+ * Compact and Standard automatically start at the rail-first compression
+ * boundary: Terms, footer chrome, and passage are at their readable floors,
+ * while the position-status and analytical lanes remain present. Comfortable
+ * and legacy callers retain the authored baseline. Explicit resizing uses the
+ * same rail-first allocation unless the legacy viewport footer cap owns the
+ * automatic partition. The visual strip is the residual, so every accepted
+ * pixel belongs to exactly one lane. */
 export function dockSizing(input: DockSizingInput): DockSizing {
   const tracks = finiteTracks(input.trackCount);
   const dockMetrics = dockMetricsFor(input.density);
@@ -326,17 +339,34 @@ export function dockSizing(input: DockSizingInput): DockSizing {
 
   const base = footerGeometryFor(input.width, input.coarse, input.density);
   const baseFooterSize = footerBlockSize(base, tracks);
+  const baseBarcodeExtent = barcodeBandExtent(
+    base.barcodeBandGap,
+    barcodeBandHeight(tracks, base.barcodeTrackHeight, base.barcodeTrackGap),
+  );
   const baseBlockSize = railBase + baseFooterSize;
   const passageFloor = passageFloorFor(input.width, input.coarse);
   const graphFloor = footerTrendMinimumHeight(input.coarse);
+  const termTargetFloor = dockTermTargetMinimumHeight(input.density);
   // A term bucket adds its own two border pixels around the button target.
-  const railFloor = 1 + 2 * DOCK_RAIL_PAD_MIN + DOCK_TERM_TARGET_MIN_HEIGHT + 2;
+  const railFloor = 1 + 2 * DOCK_RAIL_PAD_MIN + termTargetFloor + 2;
   const footerFloor = 1
     + 2 * FOOTER_PAD_MIN
     + passageFloor
     + FOOTER_LANE_GAP_MIN
     + graphFloor;
   const designMin = railFloor + footerFloor;
+  const railCapacity = railBase - railFloor;
+  const footerChromeCapacity = 2 * (base.padBlock - FOOTER_PAD_MIN)
+    + 2 * (base.laneGap - FOOTER_LANE_GAP_MIN)
+    + (base.passageHeight - passageFloor);
+  const compressedFooterSize = baseFooterSize - footerChromeCapacity;
+  const statusFooterFloor = 1
+    + 2 * FOOTER_PAD_MIN
+    + passageFloor
+    + 2 * FOOTER_LANE_GAP_MIN
+    + base.statusHeight
+    + baseBarcodeExtent
+    + graphFloor;
   const maxBlockSize = Math.max(designMin, available);
   const minBlockSize = designMin;
   const viewport = Number.isFinite(input.viewportBlockSize)
@@ -347,10 +377,18 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     footerFloor,
     Math.floor(viewport * FOOTER_DEFAULT_MAX_VIEWPORT_RATIO),
   );
-  const defaultBlockSize = railBase + Math.min(baseFooterSize, defaultFooterMax);
   const automaticDefault = input.targetBlockSize === null
     || !Number.isFinite(input.targetBlockSize);
-  const footerCapActive = baseFooterSize > defaultFooterMax;
+  const squeezedAutomaticDensity = input.density === 'compact'
+    || input.density === 'standard';
+  const defaultBlockSize = squeezedAutomaticDensity
+    ? railFloor + Math.min(
+        compressedFooterSize,
+        Math.max(statusFooterFloor, defaultFooterMax),
+      )
+    : railBase + Math.min(baseFooterSize, defaultFooterMax);
+  const footerCapActive = !squeezedAutomaticDensity
+    && baseFooterSize > defaultFooterMax;
   const requested = automaticDefault
     ? defaultBlockSize
     : Math.round(input.targetBlockSize!);
@@ -385,7 +423,6 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   let railPadBlock = DOCK_RAIL_PAD_BASE;
   let termTargetBlockSize = termTargetBase;
 
-  const railCapacity = railBase - railFloor;
   const footerCapacity = baseFooterSize - footerFloor;
   // A viewport-capped footer keeps its partition as the user begins resizing,
   // spending footer capacity first and borrowing from the rail only below the
@@ -397,7 +434,7 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   railBlockSize -= railTake;
   railPadBlock -= railProgress * (DOCK_RAIL_PAD_BASE - DOCK_RAIL_PAD_MIN);
   termTargetBlockSize -= railProgress
-    * (termTargetBase - DOCK_TERM_TARGET_MIN_HEIGHT);
+    * (termTargetBase - termTargetFloor);
   deficit -= railTake;
 
   if (deficit === 0) {
@@ -451,10 +488,7 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     });
   }
 
-  const barcodeExtent = barcodeBandExtent(
-    base.barcodeBandGap,
-    barcodeBandHeight(tracks, base.barcodeTrackHeight, base.barcodeTrackGap),
-  );
+  const barcodeExtent = baseBarcodeExtent;
   const statusLast = railBlockSize
     + 1 + 2 * FOOTER_PAD_MIN + passageFloor
     + 2 * FOOTER_LANE_GAP_MIN + base.statusHeight
@@ -575,7 +609,7 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
 
   const deficit = baseBlockSize - blockSize;
   const railRemainder = Math.max(0, railSize - deficit);
-  // Once only border and padding residue remains, drop the Reader's Terms
+  // Once only border and control-chrome residue remains, drop the Reader's Terms
   // lane as a unit and give those pixels back to the analytical footer. This
   // preserves Terms → barcode → graph collapse ordering at every density.
   const railBlockSize = railRemainder <= READER_RAIL_CHROME_RESIDUE

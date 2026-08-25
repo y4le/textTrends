@@ -3,6 +3,7 @@ import {
   barcodeBandExtent,
   barcodeBandHeight,
   dockSizing,
+  dockTermTargetMinimumHeight,
   DOCK_TERM_TARGET_MIN_HEIGHT,
   expandedFooterGeometry,
   FOOTER_BARCODE_TRACK_MAX_HEIGHT,
@@ -23,7 +24,7 @@ import {
 } from '../src/lib/trend-geometry.ts';
 
 describe('eager footer metrics', () => {
-  it('scales dock chrome and starts Compact with the Trends graph at its floor', () => {
+  it('starts Compact and Standard squeezed while Comfortable keeps authored chrome', () => {
     const compact = dockSizing({
       width: 'compact',
       coarse: true,
@@ -55,9 +56,15 @@ describe('eager footer metrics', () => {
       availableBlockSize: 700,
     });
     expect([compact.railBlockSize, standard.railBlockSize, comfortable.railBlockSize])
-      .toEqual([50, 54, 58]);
+      .toEqual([27, 37, 58]);
     expect([compact.termTargetBlockSize, standard.termTargetBlockSize, comfortable.termTargetBlockSize])
-      .toEqual([36, 40, 44]);
+      .toEqual([DOCK_TERM_TARGET_MIN_HEIGHT, 34, 44]);
+    expect([compact.footerGeometry.passageHeight, standard.footerGeometry.passageHeight])
+      .toEqual([24, 24]);
+    expect([compact.footerGeometry.padBlock, standard.footerGeometry.padBlock])
+      .toEqual([1, 1]);
+    expect([compact.footerGeometry.laneGap, standard.footerGeometry.laneGap])
+      .toEqual([1, 1]);
     expect(compact.footerGeometry.seriesHeight).toBe(footerTrendMinimumHeight(true));
     expect(compact.footerGeometry.stripMinHeight).toBe(0);
     expect(compact.footerGeometry.barcodeTrackHeight)
@@ -66,7 +73,12 @@ describe('eager footer metrics', () => {
     expect(compact.showBarcode).toBe(true);
     expect(compact.blockSize).toBeLessThan(standard.blockSize);
     expect(standard.blockSize).toBeLessThan(comfortable.blockSize);
-    expect(comfortable.footerGeometry).toBe(standard.footerGeometry);
+    expect(comfortable.footerGeometry.seriesHeight)
+      .toBe(standard.footerGeometry.seriesHeight);
+    expect(comfortable.footerGeometry.barcodeTrackHeight)
+      .toBe(standard.footerGeometry.barcodeTrackHeight);
+    expect(comfortable.footerGeometry.passageHeight)
+      .toBeGreaterThan(standard.footerGeometry.passageHeight);
 
     const reader = readerDockSizing({
       width: 'compact',
@@ -79,10 +91,10 @@ describe('eager footer metrics', () => {
       availableBlockSize: 700,
     });
     expect(reader.termTargetBlockSize).toBe(32);
-    expect(reader.railBlockSize).toBe(39);
+    expect(reader.railBlockSize).toBe(35);
   });
 
-  it('keeps Compact automatic, explicit, legacy, and Reader sizing boundaries separate', () => {
+  it('keeps squeezed automatic, explicit, legacy, and Reader sizing boundaries separate', () => {
     for (const [width, coarse] of [
       ['compact', false],
       ['compact', true],
@@ -108,11 +120,8 @@ describe('eager footer metrics', () => {
       expect(compact.showBarcode).toBe(true);
       expect(compact.blockSize).toBeLessThan(standard.blockSize);
       expect(standard.blockSize).toBeLessThan(comfortable.blockSize);
-      expect(new Set([
-        compact.minBlockSize,
-        standard.minBlockSize,
-        comfortable.minBlockSize,
-      ])).toHaveLength(1);
+      expect(compact.minBlockSize).toBeLessThan(standard.minBlockSize);
+      expect(standard.minBlockSize).toBeLessThan(comfortable.minBlockSize);
       expect(new Set([
         compact.maxBlockSize,
         standard.maxBlockSize,
@@ -122,10 +131,21 @@ describe('eager footer metrics', () => {
         const sizing = automatic(density);
         const metrics = DENSITY_METRICS[density].dock;
         expect(sizing.railBlockSize)
-          .toBe(sizing.baseBlockSize - sizing.footerBlockSize);
-        expect(sizing.termTargetBlockSize).toBe(width === 'compact' || coarse
-          ? metrics.compactTermTargetBlockSize
-          : metrics.termTargetBlockSize);
+          .toBe(sizing.blockSize - sizing.footerBlockSize);
+        if (density === 'comfortable') {
+          expect(sizing.termTargetBlockSize).toBe(width === 'compact' || coarse
+            ? metrics.compactTermTargetBlockSize
+            : metrics.termTargetBlockSize);
+        } else {
+          const targetFloor = dockTermTargetMinimumHeight(density);
+          expect(sizing.railBlockSize).toBe(targetFloor + 3);
+          expect(sizing.termTargetBlockSize).toBe(targetFloor);
+          expect(sizing.footerGeometry.passageHeight).toBe(coarse
+            ? 24
+            : width === 'compact' ? 18 : 20);
+          expect(sizing.showStatus).toBe(true);
+          expect(sizing.showBarcode).toBe(true);
+        }
       }
 
       const explicitTarget = compact.minBlockSize + 80;
@@ -167,6 +187,29 @@ describe('eager footer metrics', () => {
 
     expect(footerGeometryFor('compact', true).seriesHeight)
       .toBeGreaterThan(footerTrendMinimumHeight(true));
+  });
+
+  it('keeps book and token status at the squeezed viewport floor', () => {
+    for (const density of ['compact', 'standard'] as const) {
+      for (const trackCount of [0, 1, 3, 5]) {
+        const sizing = dockSizing({
+          width: 'compact',
+          coarse: true,
+          density,
+          trackCount,
+          footerPresent: true,
+          targetBlockSize: null,
+          viewportBlockSize: 320,
+          availableBlockSize: 276,
+        });
+        const targetFloor = dockTermTargetMinimumHeight(density);
+        expect(sizing.railBlockSize).toBe(targetFloor + 3);
+        expect(sizing.termTargetBlockSize).toBe(targetFloor);
+        expect(sizing.footerGeometry.passageHeight).toBe(24);
+        expect(sizing.showStatus).toBe(true);
+        expect(sizing.showBarcode).toBe(trackCount > 0);
+      }
+    }
   });
 
   it('drops Reader Terms as a complete lane before barcode at every density', () => {
@@ -411,7 +454,7 @@ describe('eager footer metrics', () => {
       );
       expect(firstPixel.footerGeometry).toBe(base.footerGeometry);
 
-      const railCapacity = railBase - 31;
+      const railCapacity = railBase - 27;
       const tight = dockSizing({
         width,
         coarse,
@@ -421,7 +464,7 @@ describe('eager footer metrics', () => {
         viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
-      expect(tight.railBlockSize).toBe(31);
+      expect(tight.railBlockSize).toBe(27);
       expect(tight.termTargetBlockSize).toBe(DOCK_TERM_TARGET_MIN_HEIGHT);
       expect(tight.footerBlockSize).toBe(base.footerBlockSize);
 
@@ -434,7 +477,7 @@ describe('eager footer metrics', () => {
         viewportBlockSize: 1_000,
         availableBlockSize: 1_000,
       });
-      expect(afterRail.railBlockSize).toBe(31);
+      expect(afterRail.railBlockSize).toBe(27);
       expect(afterRail.termTargetBlockSize).toBe(DOCK_TERM_TARGET_MIN_HEIGHT);
       expect(afterRail.footerBlockSize).toBe(base.footerBlockSize - 1);
     }
@@ -560,7 +603,7 @@ describe('eager footer metrics', () => {
       });
       expect(defaultSizing.blockSize).toBe(defaultSizing.baseBlockSize);
       expect(defaultSizing.blockSize).toBeGreaterThan(defaultSizing.minBlockSize);
-      expect(defaultSizing.railBlockSize).toBe(31);
+      expect(defaultSizing.railBlockSize).toBe(27);
       expect(defaultSizing.termTargetBlockSize).toBe(DOCK_TERM_TARGET_MIN_HEIGHT);
       expect(defaultSizing.footerGeometry.passageHeight).toBe(0);
       expect(defaultSizing.showStatus).toBe(false);

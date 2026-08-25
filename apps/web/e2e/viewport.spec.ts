@@ -129,13 +129,14 @@ test('compact landscape keeps the one-row dock clear of the Lens rail', async ({
     getComputedStyle(document.documentElement).getPropertyValue('--terms-rail-block-size'),
   )));
 
-  for (const control of [
-    terms.locator('.term-bucket-toggle').first(),
-    terms.locator('.term-bar-actions button').first(),
-  ]) {
+  for (const [control, minimumWidth] of [
+    [terms.locator('.term-bucket-toggle').first(), 44],
+    [terms.locator('.term-bar-actions button').first(), 34],
+  ] as const) {
     const box = await control.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(40);
+    expect(box?.width).toBeGreaterThanOrEqual(minimumWidth);
+    expect(box?.height).toBeGreaterThanOrEqual(34);
+    expect(box?.height).toBeLessThanOrEqual(37);
   }
   const overflow = await page.evaluate(() => ({
     client: document.documentElement.clientWidth,

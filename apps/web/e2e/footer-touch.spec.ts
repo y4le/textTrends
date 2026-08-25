@@ -114,14 +114,18 @@ test('the footer resize handle accepts a direct touch drag', async ({
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
+  const dock = page.locator('.workbench-dock');
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   const handle = page.getByRole('separator', { name: 'Resize reading footer' });
   await expect(handle).toHaveCSS('touch-action', 'none');
-  const [before, handleBox] = await Promise.all([
+  const [beforeDock, beforeFooter, handleBox] = await Promise.all([
+    dock.boundingBox(),
     footer.boundingBox(),
     handle.boundingBox(),
   ]);
-  if (!before || !handleBox) throw new Error('touch resize geometry is unavailable');
+  if (!beforeDock || !beforeFooter || !handleBox) {
+    throw new Error('touch resize geometry is unavailable');
+  }
   const point = {
     x: Math.round(handleBox.x + handleBox.width / 2),
     y: Math.round(handleBox.y + handleBox.height / 2),
@@ -138,8 +142,9 @@ test('the footer resize handle accepts a direct touch drag', async ({
   });
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
 
-  await expect.poll(async () => (await footer.boundingBox())?.height)
-    .toBe(before.height + 48);
+  await expect.poll(async () => (await dock.boundingBox())?.height)
+    .toBe(beforeDock.height + 48);
+  expect((await footer.boundingBox())!.height).toBeGreaterThan(beforeFooter.height);
   expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
 });
 

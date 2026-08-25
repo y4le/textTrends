@@ -33,17 +33,11 @@ const TERM_MENU_FOCUSABLE =
   'button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), a[href], [tabindex]:not([tabindex="-1"])';
 
 interface TermRailPosition {
-  readonly first: number;
-  readonly last: number;
-  readonly total: number;
   readonly before: boolean;
   readonly after: boolean;
 }
 
 const EMPTY_TERM_RAIL_POSITION: TermRailPosition = Object.freeze({
-  first: 0,
-  last: -1,
-  total: 0,
   before: false,
   after: false,
 });
@@ -541,31 +535,12 @@ export function QuerySurface() {
     let frame: number | null = null;
     const measure = () => {
       frame = null;
-      const bounds = port.getBoundingClientRect();
-      const buckets = [...port.querySelectorAll<HTMLElement>('.term-bucket')];
-      const visible = buckets.flatMap((bucket, index) => {
-        const name = bucket.querySelector<HTMLElement>('.term-bucket-name');
-        if (name === null) return [];
-        const nameBounds = name.getBoundingClientRect();
-        const visibleNameWidth = Math.max(
-          0,
-          Math.min(bounds.right, nameBounds.right) - Math.max(bounds.left, nameBounds.left),
-        );
-        return visibleNameWidth >= Math.min(16, nameBounds.width) ? [index] : [];
-      });
-      const total = buckets.length;
       const maximumScroll = Math.max(0, port.scrollWidth - port.clientWidth);
       const next: TermRailPosition = {
-        first: visible[0] ?? 0,
-        last: visible.at(-1) ?? (total > 0 ? 0 : -1),
-        total,
         before: port.scrollLeft > 1,
         after: port.scrollLeft < maximumScroll - 1,
       };
-      setTermRailPosition((current) => current.first === next.first
-        && current.last === next.last
-        && current.total === next.total
-        && current.before === next.before
+      setTermRailPosition((current) => current.before === next.before
         && current.after === next.after
         ? current
         : next);
@@ -615,8 +590,14 @@ export function QuerySurface() {
             id="term-query-port"
             className="term-bucket-port"
             role="group"
-            aria-label="Query terms"
-            aria-describedby="term-rail-position"
+            aria-label={[
+              `Query terms (${view.rows.length})`,
+              termRailPosition.before && termRailPosition.after
+                ? 'More terms before and after.'
+                : termRailPosition.before
+                  ? 'More terms before.'
+                  : termRailPosition.after ? 'More terms after.' : '',
+            ].filter(Boolean).join('. ')}
             tabIndex={-1}
           >
             {view.rows.length === 0 && (
@@ -695,18 +676,15 @@ export function QuerySurface() {
               </form>
             )}
           </div>
-          <span id="term-rail-position" className="term-rail-position">
-            {termRailPosition.total === 0
-              ? '0 terms'
-              : `${termRailPosition.first + 1}–${termRailPosition.last + 1} of ${termRailPosition.total}`}
-          </span>
         </div>
         <div className="term-bar-actions">
           <button
             id="term-add"
+            className="term-bar-icon-action"
             type="button"
             aria-label={ADD_TERM_LABEL}
             aria-keyshortcuts={shortcutAria(['term-add-inline'])}
+            title={ADD_TERM_LABEL}
             onClick={() => openInlineAdd('term-add')}
             onKeyDown={(event) => {
               if (
@@ -718,14 +696,21 @@ export function QuerySurface() {
               openInlineAdd('term-add');
             }}
           >
-            + Add
+            <span className="term-bar-action-glyph" aria-hidden="true">+</span>
           </button>
           <button
             id="term-manage"
+            className="term-bar-icon-action"
             type="button"
+            aria-label="Manage"
+            aria-haspopup="dialog"
+            title="Manage"
             onClick={() => writeLayer({ surface: 'query-editor', mode: 'manage' }, 'term-manage')}
           >
-            Manage <span aria-hidden="true">({view.rows.length})</span>
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <circle cx="12" cy="12" r="3" />
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+            </svg>
           </button>
         </div>
         {removedGroups.length > 0 && (

@@ -234,18 +234,19 @@ test('the Terms bar remains a first-class editor across places', async ({ page }
   await expect(page.getByRole('group', { name: 'Match terms' })).toHaveCount(0);
 });
 
-test('compact query controls keep wide targets in the shortened terms row', async ({ page }) => {
+test('compact query controls keep density-authored targets in the shortened terms row', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
-  for (const control of [
-    page.locator('.term-bucket-toggle').first(),
-    page.locator('.term-bar-actions button').first(),
-  ]) {
+  for (const [control, minimumWidth] of [
+    [page.locator('.term-bucket-toggle').first(), 44],
+    [page.locator('.term-bar-actions button').first(), 34],
+  ] as const) {
     const box = await control.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(44);
-    expect(box?.height).toBe(40);
+    expect(box?.width).toBeGreaterThanOrEqual(minimumWidth);
+    expect(box?.height).toBeGreaterThanOrEqual(34);
+    expect(box?.height).toBeLessThanOrEqual(37);
   }
 });
 
@@ -388,7 +389,11 @@ test('coarse input sizing does not inflate dense matches rows', async ({ browser
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
   const quickAdd = page.getByRole('textbox', { name: 'New term' });
   const quickBox = await quickAdd.boundingBox();
-  expect(quickBox?.height).toBeGreaterThanOrEqual(44);
+  const authoredTarget = await page.evaluate(() => Number.parseFloat(
+    getComputedStyle(document.documentElement).getPropertyValue('--term-target-block-size'),
+  ));
+  expect(authoredTarget).toBe(34);
+  expect(quickBox?.height).toBeGreaterThanOrEqual(authoredTarget);
   await page.getByRole('button', { name: 'Cancel' }).click();
 
   await gotoPlace(page, 'matches');
