@@ -6,8 +6,8 @@ Transient execution checklist — not design authority. Superseded by `workbench
 | # | commit | status | staged-diff review | notes |
 |---:|---|---|---|---|
 | 1 | `fix(terms): open quick entry from every input` | done · `34a1a7f` | `req_review_diff_236bd3eda34faf30` · approved | Pointer, touch, and keyboard share the inline path; one-shot advanced draft handoff. |
-| 2 | `refactor(labels): name controls in words` | in progress | pending | Visible language for layout, Compare actions, and Matches columns. |
-| 3 | `feat(shell): add a visible Find control` | planned | pending | Pointer-reachable Find at phone width. |
+| 2 | `refactor(labels): name controls in words` | done · `3d1b626` | `req_review_diff_bbcd1cd9ee251d93` · approved | Visible language for layout, Compare actions, and Matches columns. |
+| 3 | `feat(shell): add a visible Find control` | in progress | pending | Pointer-reachable Find at phone width. |
 | 4 | `feat(settings): unify the settings pane` | planned | pending | Display preferences, theme, shell and Reader entrance. |
 | 5 | `feat(settings): host place settings in one pane` | planned | pending | Contextual landing and Compare draft ownership. |
 | 6 | `feat(display): add the density preference` | planned | pending | Three stops; current pixels remain Compact. |

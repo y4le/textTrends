@@ -1,6 +1,25 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, awaitReadyCount, DOC_COUNT, simulateKeyboard } from './helpers.ts';
 
+test('the header exposes Find to touch and restores focus on close', async ({ browser }) => {
+  const context = await browser.newContext({
+    viewport: { width: 390, height: 844 },
+    hasTouch: true,
+    isMobile: true,
+  });
+  const page = await context.newPage();
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const open = page.getByRole('button', { name: 'Find', exact: true });
+  await expect(open).toBeVisible();
+  await open.click();
+  await expect(page.getByRole('searchbox', { name: 'Find term or aliases' })).toBeFocused();
+  await page.getByRole('button', { name: 'Clear and close find' }).click();
+  await expect(open).toBeFocused();
+  await context.close();
+});
+
 test('temporary Find cycles exact corpus matches and preserves focus priority', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });

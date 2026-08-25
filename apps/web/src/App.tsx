@@ -851,7 +851,7 @@ export function App() {
             shortcuts
           </button>
         </div>
-        <StatusBar onOpenSettings={openSettings} />
+        <StatusBar onOpenFind={() => openFind()} onOpenSettings={openSettings} />
         <WorkbenchTabs />
       </header>
       <ResumeStatus />

@@ -5,7 +5,13 @@ import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
 import { isSettingsPlace } from '../lib/settings-place.ts';
 
-export function StatusBar({ onOpenSettings }: { readonly onOpenSettings: () => void }) {
+export function StatusBar({
+  onOpenFind,
+  onOpenSettings,
+}: {
+  readonly onOpenFind: () => void;
+  readonly onOpenSettings: () => void;
+}) {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
@@ -156,6 +162,14 @@ export function StatusBar({ onOpenSettings }: { readonly onOpenSettings: () => v
             )}
           </span>
         ))}
+        <button
+          id="global-find-open"
+          className="scope-organ-link coarse-target"
+          type="button"
+          onClick={onOpenFind}
+        >
+          Find
+        </button>
         {isSettingsPlace(place) && (
           <button
             id="global-settings-open"
