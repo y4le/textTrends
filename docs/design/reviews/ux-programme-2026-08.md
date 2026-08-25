@@ -22,7 +22,9 @@ Transient execution checklist — not design authority. Superseded by `workbench
 
 - One Settings pane with Display → This place → Help & method, reached without URL/history changes.
 - Device-local density/theme preferences remain separate from workspace-local analytical settings.
-- Compact matches today's geometry; Standard becomes the default; analytical encodings do not scale.
+- Compact retains the former component geometry while starting the workbench
+  footer at minimum Trends height; Standard remains the default; analytical
+  encodings do not scale.
 - Reader prose and RSVP type are excluded from UI density; Reader chrome may scale and refit.
 - Terms stay fixed while corpus-edge context fills otherwise empty Matches space.
 - Literal vocabulary filtering is the default; regex remains an explicit advanced mode.
@@ -55,9 +57,12 @@ Transient execution checklist — not design authority. Superseded by `workbench
   Open Trend settings and the Compare gear and confirm they enter the same pane
   at the right form, close/Escape restore focus, and Back history is unchanged.
 - [ ] Move UI density through Compact, Standard, and Comfortable at regular and
-  compact widths. Confirm table/Terms pitch changes while plots, barcodes,
-  Reader prose, and RSVP type do not; Matches and Vocabulary retain their
-  reading anchors.
+  compact widths. Confirm table/Terms pitch changes while primary analysis
+  plots, barcodes, Reader prose, and RSVP type do not; Compact starts the
+  workbench footer with its Trends graph at minimum height while retaining
+  status and occurrences; resize it, change density, then reset and confirm the
+  explicit target wins until reset. Matches and Vocabulary retain their reading
+  anchors.
 - [ ] In compact Compare, confirm the full term remains readable, the comparison
   bar remains, and exact lift is available in the accessible name and detail.
 - [ ] In empty Inputs, confirm Import and analyze is primary, samples/catalog

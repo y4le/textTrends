@@ -12,9 +12,17 @@ entries land at the operative place form. Both are transient overlays with
 focus restoration and no URL or browser-history effect. Device-local theme and
 density preferences are kept separate from workspace-local analytical
 settings. Density is the requested three-stop slider: Standard is the default,
-Compact preserves the former rendered geometry, and Comfortable adds pitch. It
-scales authored UI type, chrome, Terms, headers, and data rows, but not analytical
+Compact otherwise preserves the former rendered geometry, and Comfortable adds
+pitch. It scales authored UI type, chrome, Terms, headers, and data rows, but not analytical
 encodings, Reader prose, or RSVP type.
+
+Compact also starts an automatically sized workbench footer with its Trends
+graph at the existing minimum readable height. This changes layout allocation,
+not the graph encoding: the full Terms targets, passage, status, and occurrence
+barcode remain present. A user-resized pixel target overrides the automatic
+baseline across density changes, and reset returns to the current density's
+baseline. Reader keeps its separate compressed-footer contract, which already
+uses the same minimum Trends height.
 
 The same programme adopts visible language and discovery over icon inference:
 every term entry path opens the same inline quick-add flow, the revised layout,

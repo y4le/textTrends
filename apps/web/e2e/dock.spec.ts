@@ -196,6 +196,69 @@ test('the reading dock resizes through its full range and caps barcode growth', 
   expect((await dock.boundingBox())?.height).toBe(before.dock.height);
 });
 
+test('Compact density starts with the footer Trends graph at its floor', async ({ page }) => {
+  await page.addInitScript(() => {
+    localStorage.setItem('texttrends/display/1', JSON.stringify({
+      density: 'compact',
+      theme: 'system',
+    }));
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const dock = page.locator('.workbench-dock');
+  const graph = page.locator('.footer-sparkline');
+  const status = page.locator('.footer-reading-status');
+  const barcode = page.locator('canvas[data-barcode-band="series"]');
+  const strip = page.getByRole('slider', { name: 'Corpus footer position' });
+  const term = page.locator('.term-bucket-toggle').first();
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  const compact = {
+    dock: (await dock.boundingBox())!.height,
+    graph: (await graph.boundingBox())!.height,
+    barcode: (await barcode.boundingBox())!.height,
+  };
+  await expect(status).toBeVisible();
+  await expect(barcode).toBeVisible();
+  const [stripBox, graphBox] = await Promise.all([
+    strip.boundingBox(),
+    graph.boundingBox(),
+  ]);
+  if (!stripBox || !graphBox) throw new Error('Compact footer strip has no layout box');
+  // The graph must begin at the strip edge. A restored coarse strip reserve
+  // would leave dead space above it while still passing relative-size checks.
+  expect(Math.abs(graphBox.y - stripBox.y)).toBeLessThanOrEqual(1);
+  const coarse = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
+  expect((await term.boundingBox())!.height).toBeGreaterThanOrEqual(coarse ? 44 : 36);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  let pane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  let density = pane.getByRole('slider', { name: 'Size and spacing' });
+  await density.fill('1');
+  expect((await dock.boundingBox())!.height).toBeGreaterThan(compact.dock);
+  expect((await graph.boundingBox())!.height).toBeGreaterThan(compact.graph);
+  expect((await barcode.boundingBox())!.height).toBe(compact.barcode);
+  await density.fill('0');
+  expect((await dock.boundingBox())!.height).toBe(compact.dock);
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+
+  await handle.focus();
+  await handle.press('ArrowUp');
+  const explicit = (await dock.boundingBox())!.height;
+  expect(explicit).toBe(compact.dock + 16);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  pane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  density = pane.getByRole('slider', { name: 'Size and spacing' });
+  await density.fill('2');
+  expect((await dock.boundingBox())!.height).toBe(explicit);
+  await density.fill('0');
+  expect((await dock.boundingBox())!.height).toBe(explicit);
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+  await handle.dblclick();
+  expect((await dock.boundingBox())!.height).toBe(compact.dock);
+});
+
 test('the compact dock stays one row, pins its actions, and opens Undo upward', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');

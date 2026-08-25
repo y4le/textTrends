@@ -139,8 +139,41 @@ const COMPACT_COARSE: FooterGeometry = Object.freeze({
 });
 const STANDARD_COARSE = coarseGeometry(STANDARD_FINE);
 
+/** Smallest authored Trends graph that remains readable in the footer. The
+ * Reader and the Compact density default share this floor. */
+export function footerTrendMinimumHeight(coarse: boolean): number {
+  return coarse ? 24 : 12;
+}
+
+function compactDensityGeometry(authored: FooterGeometry, coarse: boolean): FooterGeometry {
+  return Object.freeze({
+    ...authored,
+    seriesHeight: footerTrendMinimumHeight(coarse),
+    // The Compact coarse reserve would otherwise mask the graph reduction.
+    // Let the actual graph + barcode extent define the visual strip instead.
+    stripMinHeight: 0,
+  });
+}
+
+const COMPACT_DENSITY_COMPACT_FINE = compactDensityGeometry(COMPACT_FINE, false);
+const COMPACT_DENSITY_REGULAR_FINE = compactDensityGeometry(STANDARD_FINE, false);
+const COMPACT_DENSITY_COMPACT_COARSE = compactDensityGeometry(COMPACT_COARSE, true);
+const COMPACT_DENSITY_REGULAR_COARSE = compactDensityGeometry(STANDARD_COARSE, true);
+
 /** Footer geometry is presentation-only and never changes query intent. */
-export function footerGeometryFor(width: WidthClass, coarse = false): FooterGeometry {
+export function footerGeometryFor(
+  width: WidthClass,
+  coarse = false,
+  density?: Density,
+): FooterGeometry {
+  // `undefined` deliberately retains the authored pre-preference geometry for
+  // legacy geometry callers. Runtime callers pass an explicit density.
+  if (density === 'compact') {
+    if (width === 'compact') {
+      return coarse ? COMPACT_DENSITY_COMPACT_COARSE : COMPACT_DENSITY_COMPACT_FINE;
+    }
+    return coarse ? COMPACT_DENSITY_REGULAR_COARSE : COMPACT_DENSITY_REGULAR_FINE;
+  }
   if (width === 'compact') return coarse ? COMPACT_COARSE : COMPACT_FINE;
   return coarse ? STANDARD_COARSE : STANDARD_FINE;
 }
@@ -214,6 +247,8 @@ function finiteTracks(trackCount: number): number {
 }
 
 function dockMetricsFor(density: Density | undefined): DensityMetrics['dock'] {
+  // Legacy callers omit density to request the old Compact rail metrics, while
+  // footerGeometryFor reserves the new graph floor for explicit Compact only.
   return DENSITY_METRICS[density ?? 'compact'].dock;
 }
 
@@ -240,10 +275,6 @@ function termTargetBaseFor(
 function passageFloorFor(width: WidthClass, coarse: boolean): number {
   if (coarse) return 24;
   return width === 'compact' ? 18 : 20;
-}
-
-function graphFloorFor(coarse: boolean): number {
-  return coarse ? 24 : 12;
 }
 
 function withStrip(
@@ -293,11 +324,11 @@ export function dockSizing(input: DockSizingInput): DockSizing {
     });
   }
 
-  const base = footerGeometryFor(input.width, input.coarse);
+  const base = footerGeometryFor(input.width, input.coarse, input.density);
   const baseFooterSize = footerBlockSize(base, tracks);
   const baseBlockSize = railBase + baseFooterSize;
   const passageFloor = passageFloorFor(input.width, input.coarse);
-  const graphFloor = graphFloorFor(input.coarse);
+  const graphFloor = footerTrendMinimumHeight(input.coarse);
   // A term bucket adds its own two border pixels around the button target.
   const railFloor = 1 + 2 * DOCK_RAIL_PAD_MIN + DOCK_TERM_TARGET_MIN_HEIGHT + 2;
   const footerFloor = 1
@@ -492,7 +523,7 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
     source.barcodeBandGap,
     barcodeBandHeight(tracks, source.barcodeTrackHeight, source.barcodeTrackGap),
   );
-  const seriesHeight = graphFloorFor(input.coarse);
+  const seriesHeight = footerTrendMinimumHeight(input.coarse);
   const stripHeight = seriesHeight + barcodeExtent;
   const base = withStrip(Object.freeze({
     ...source,

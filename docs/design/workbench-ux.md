@@ -168,8 +168,9 @@ Trends or Compare form where one exists and a concise method summary for
 Inputs, Matches, Vocabulary, and Reader. Help & method links onward to the
 shortcut and Debug utilities without creating a second settings hierarchy.
 
-UI density is a three-stop slider. Standard is the default; Compact reproduces
-the rendered geometry that predated the preference.
+UI density is a three-stop slider. Standard is the default; apart from the
+automatic footer baseline below, Compact reproduces the rendered geometry that
+predated the preference.
 
 | Metric | Compact | Standard | Comfortable |
 |---|---:|---:|---:|
@@ -180,12 +181,22 @@ the rendered geometry that predated the preference.
 | Terms rail (regular / compact width) | 48 / 50px | 52 / 54px | 56 / 58px |
 
 Density scales authored UI type, chrome, Terms targets, table headers, and data
-row pitch. It does not scale structural spacing, plots, barcodes, strokes,
-series encodings, hit tolerances, Reader prose, or RSVP type. Reader chrome may
-refit, but its reading type remains reader-owned. On a live density change,
-Matches preserves its corpus anchor, Vocabulary preserves the first fully
-visible row, and Compare remeasures its virtual rows instead of pretending the
-old pitch still applies.
+row pitch. It does not rescale analytical encodings, primary place plots,
+barcodes, strokes, hit tolerances, Reader prose, or RSVP type. Reader chrome may
+refit, but its reading type remains reader-owned.
+
+Compact has one deliberate reading-footer layout rule: an automatic workbench
+footer starts its Trends graph at the existing minimum readable height while
+retaining the authored Terms rail, passage, status, and occurrence barcode.
+On coarse layouts at Compact density, this also releases the old minimum-strip
+reserve so it cannot leave dead space above the shorter graph; the preserved
+lanes and pointer targets remain the legibility boundary.
+An explicit resize remains authoritative across density changes; resetting the
+resize returns to the active density's automatic baseline. Reader is excluded
+because its separately governed compressed footer already starts the Trends
+graph at this floor. On a live density change, Matches preserves its corpus
+anchor, Vocabulary preserves the first fully visible row, and Compare
+remeasures its virtual rows instead of pretending the old pitch still applies.
 
 ### Terms rail
 

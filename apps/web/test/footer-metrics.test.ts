@@ -9,19 +9,21 @@ import {
   FOOTER_DEFAULT_MAX_VIEWPORT_RATIO,
   footerBlockSize,
   footerGeometryFor,
+  footerTrendMinimumHeight,
   readerDockSizing,
 } from '../src/lib/footer-metrics.ts';
 import {
   footerBlockSize as footerViewBlockSize,
   footerGeometryFor as footerViewGeometryFor,
 } from '../src/lib/footer-view.ts';
+import { DENSITY_METRICS } from '../src/lib/display-preference.ts';
 import {
   barcodeBandExtent as trendBarcodeBandExtent,
   barcodeBandHeight as trendBarcodeBandHeight,
 } from '../src/lib/trend-geometry.ts';
 
 describe('eager footer metrics', () => {
-  it('scales dock chrome from the density authority without scaling data marks', () => {
+  it('scales dock chrome and starts Compact with the Trends graph at its floor', () => {
     const compact = dockSizing({
       width: 'compact',
       coarse: true,
@@ -56,8 +58,15 @@ describe('eager footer metrics', () => {
       .toEqual([50, 54, 58]);
     expect([compact.termTargetBlockSize, standard.termTargetBlockSize, comfortable.termTargetBlockSize])
       .toEqual([36, 40, 44]);
-    expect(standard.footerGeometry).toBe(compact.footerGeometry);
-    expect(comfortable.footerGeometry).toBe(compact.footerGeometry);
+    expect(compact.footerGeometry.seriesHeight).toBe(footerTrendMinimumHeight(true));
+    expect(compact.footerGeometry.stripMinHeight).toBe(0);
+    expect(compact.footerGeometry.barcodeTrackHeight)
+      .toBe(standard.footerGeometry.barcodeTrackHeight);
+    expect(compact.showStatus).toBe(true);
+    expect(compact.showBarcode).toBe(true);
+    expect(compact.blockSize).toBeLessThan(standard.blockSize);
+    expect(standard.blockSize).toBeLessThan(comfortable.blockSize);
+    expect(comfortable.footerGeometry).toBe(standard.footerGeometry);
 
     const reader = readerDockSizing({
       width: 'compact',
@@ -71,6 +80,93 @@ describe('eager footer metrics', () => {
     });
     expect(reader.termTargetBlockSize).toBe(32);
     expect(reader.railBlockSize).toBe(39);
+  });
+
+  it('keeps Compact automatic, explicit, legacy, and Reader sizing boundaries separate', () => {
+    for (const [width, coarse] of [
+      ['compact', false],
+      ['compact', true],
+      ['regular', false],
+      ['regular', true],
+    ] as const) {
+      const automatic = (density: 'compact' | 'standard' | 'comfortable') => dockSizing({
+        width,
+        coarse,
+        density,
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize: 1_000,
+        availableBlockSize: 800,
+      });
+      const compact = automatic('compact');
+      const standard = automatic('standard');
+      const comfortable = automatic('comfortable');
+      expect(compact.footerGeometry.seriesHeight)
+        .toBe(footerTrendMinimumHeight(coarse));
+      expect(compact.showStatus).toBe(true);
+      expect(compact.showBarcode).toBe(true);
+      expect(compact.blockSize).toBeLessThan(standard.blockSize);
+      expect(standard.blockSize).toBeLessThan(comfortable.blockSize);
+      expect(new Set([
+        compact.minBlockSize,
+        standard.minBlockSize,
+        comfortable.minBlockSize,
+      ])).toHaveLength(1);
+      expect(new Set([
+        compact.maxBlockSize,
+        standard.maxBlockSize,
+        comfortable.maxBlockSize,
+      ])).toHaveLength(1);
+      for (const density of ['compact', 'standard', 'comfortable'] as const) {
+        const sizing = automatic(density);
+        const metrics = DENSITY_METRICS[density].dock;
+        expect(sizing.railBlockSize)
+          .toBe(sizing.baseBlockSize - sizing.footerBlockSize);
+        expect(sizing.termTargetBlockSize).toBe(width === 'compact' || coarse
+          ? metrics.compactTermTargetBlockSize
+          : metrics.termTargetBlockSize);
+      }
+
+      const explicitTarget = compact.minBlockSize + 80;
+      const explicitSizes = (['compact', 'standard', 'comfortable'] as const)
+        .map((density) => dockSizing({
+          width,
+          coarse,
+          density,
+          trackCount: 3,
+          footerPresent: true,
+          targetBlockSize: explicitTarget,
+          viewportBlockSize: 1_000,
+          availableBlockSize: 800,
+        }).blockSize);
+      expect(explicitSizes).toEqual([explicitTarget, explicitTarget, explicitTarget]);
+
+      const readerCompact = readerDockSizing({
+        width,
+        coarse,
+        density: 'compact',
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize: 1_000,
+        availableBlockSize: 800,
+      });
+      const readerStandard = readerDockSizing({
+        width,
+        coarse,
+        density: 'standard',
+        trackCount: 3,
+        footerPresent: true,
+        targetBlockSize: null,
+        viewportBlockSize: 1_000,
+        availableBlockSize: 800,
+      });
+      expect(readerCompact.footerGeometry).toEqual(readerStandard.footerGeometry);
+    }
+
+    expect(footerGeometryFor('compact', true).seriesHeight)
+      .toBeGreaterThan(footerTrendMinimumHeight(true));
   });
 
   it('drops Reader Terms as a complete lane before barcode at every density', () => {

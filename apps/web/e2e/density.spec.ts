@@ -18,7 +18,7 @@ async function expectNoPageOverflow(page: Page) {
   });
 }
 
-test('density uses three live persisted stops without changing analytical marks', async ({ page }) => {
+test('density uses three live persisted stops and Compact floors the footer graph', async ({ page }) => {
   await page.addInitScript(() => {
     const scope = window as unknown as { __firstAppliedDensity?: string };
     const observer = new MutationObserver(() => {
@@ -45,7 +45,11 @@ test('density uses three live persisted stops without changing analytical marks'
   await expect(slider).toHaveAttribute('aria-valuetext', 'Standard');
   expect((await slider.boundingBox())?.height).toBeGreaterThanOrEqual(44);
 
-  let analyticalGeometry: { graph: number; barcode: number } | null = null;
+  const automaticGeometry = new Map<string, {
+    dock: number;
+    graph: number;
+    barcode: number;
+  }>();
   for (const stop of STOPS) {
     await page.setViewportSize({ width: 390, height: 844 });
     await slider.fill(stop.value);
@@ -82,15 +86,58 @@ test('density uses three live persisted stops without changing analytical marks'
         .getBoundingClientRect().height,
     }));
     expect(reservation.dockBox).toBe(reservation.dock);
-    const currentGeometry = { graph: reservation.graph, barcode: reservation.barcode };
-    analyticalGeometry ??= currentGeometry;
-    expect(currentGeometry).toEqual(analyticalGeometry);
+    automaticGeometry.set(stop.density, {
+      dock: reservation.dock,
+      graph: reservation.graph,
+      barcode: reservation.barcode,
+    });
+    if (stop.density === 'compact') {
+      await expect(page.locator('.footer-reading-status')).toBeVisible();
+      await expect(page.locator('canvas[data-barcode-band="series"]')).toBeVisible();
+      const coarse = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
+      expect((await page.locator('.term-bucket-toggle').first().boundingBox())?.height)
+        .toBeGreaterThanOrEqual(coarse ? 44 : stop.target);
+    }
 
     for (const width of [320, 390, 768, 1440]) {
       await page.setViewportSize({ width, height: width <= 390 ? 844 : 900 });
       await expectNoPageOverflow(page);
     }
   }
+
+  const compact = automaticGeometry.get('compact')!;
+  const standard = automaticGeometry.get('standard')!;
+  const comfortable = automaticGeometry.get('comfortable')!;
+  expect(compact.dock).toBeLessThan(standard.dock);
+  expect(compact.graph).toBeLessThan(standard.graph);
+  expect(compact.barcode).toBe(standard.barcode);
+  expect(comfortable.graph).toBe(standard.graph);
+  expect(comfortable.barcode).toBe(standard.barcode);
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await slider.fill('0');
+  const compactBaseline = (await page.locator('.workbench-dock').boundingBox())!.height;
+  await pane.getByRole('button', { name: 'close', exact: true }).click();
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  await handle.focus();
+  await handle.press('ArrowUp');
+  const explicitSize = (await page.locator('.workbench-dock').boundingBox())!.height;
+  expect(explicitSize).toBe(compactBaseline + 16);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const reopenedPane = page.getByRole('dialog', { name: 'Settings', exact: true });
+  const reopenedSlider = reopenedPane.getByRole('slider', { name: 'Size and spacing' });
+  await reopenedSlider.fill('2');
+  expect((await page.locator('.workbench-dock').boundingBox())?.height).toBe(explicitSize);
+  await reopenedSlider.fill('0');
+  expect((await page.locator('.workbench-dock').boundingBox())?.height).toBe(explicitSize);
+  await reopenedPane.getByRole('button', { name: 'close', exact: true }).click();
+  await handle.dblclick();
+  expect((await page.locator('.workbench-dock').boundingBox())?.height).toBe(compactBaseline);
+
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Settings', exact: true })
+    .getByRole('slider', { name: 'Size and spacing' }).fill('2');
 
   await page.setViewportSize({ width: 390, height: 844 });
   await page.reload();
