@@ -131,11 +131,19 @@ for (const viewport of [
     await page.getByRole('button', { name: 'Separate rows, equal width', exact: true }).click();
     const byBook = page.locator('svg[data-trend-view="by-book"]');
     await expect(byBook).toBeVisible();
-    const firstTitle = await byBook.locator('[data-trend-row-title="0"]').boundingBox();
-    const firstRow = await byBook.locator('[data-trend-hit-row="0"]').first().boundingBox();
-    expect(firstTitle?.y).toBeGreaterThanOrEqual(
-      firstRow ? firstRow.y + firstRow.height : Number.POSITIVE_INFINITY,
-    );
+    const firstTitle = byBook.locator('[data-trend-row-title="0"]');
+    const firstHitRow = byBook.locator('[data-trend-hit-row="0"]').first();
+    const [titleY, rowY, rowHeight] = await Promise.all([
+      firstTitle.getAttribute('y'),
+      firstHitRow.getAttribute('y'),
+      firstHitRow.getAttribute('height'),
+    ]);
+    expect(titleY).not.toBeNull();
+    expect(rowY).not.toBeNull();
+    expect(rowHeight).not.toBeNull();
+    expect(Number(titleY) - (Number(rowY) + Number(rowHeight)))
+      .toBeGreaterThanOrEqual(7);
+    const firstRow = await firstHitRow.boundingBox();
     expect(firstRow?.height).toBe(28);
 
     const overflow = await page.evaluate(() => ({
