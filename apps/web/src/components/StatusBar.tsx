@@ -5,12 +5,8 @@ import { fullTokensByDoc } from '../lib/doc-tokens.ts';
 import { isWholeBookSelection } from '../lib/corpus-view.ts';
 
 export function StatusBar({
-  onOpenFind,
-  onOpenSettings,
   onOpenTrendSettings,
 }: {
-  readonly onOpenFind: () => void;
-  readonly onOpenSettings: () => void;
   readonly onOpenTrendSettings: (returnFocus: HTMLElement) => void;
 }) {
   const snapshot = useApp((state) => state.snapshot);
@@ -173,22 +169,6 @@ export function StatusBar({
             Trend settings
           </button>
         )}
-        <button
-          id="global-find-open"
-          className="scope-organ-link coarse-target"
-          type="button"
-          onClick={() => onOpenFind()}
-        >
-          Find
-        </button>
-        <button
-          id="global-settings-open"
-          className="scope-organ-link coarse-target scope-settings-link"
-          type="button"
-          onClick={() => onOpenSettings()}
-        >
-          Settings
-        </button>
       </div>
     </section>
   );

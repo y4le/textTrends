@@ -182,7 +182,7 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await expect(page.getByRole('status', { name: 'Navigation status' }))
     .toHaveText('Compare requires at least two active texts');
 
-  await page.getByRole('button', { name: 'shortcuts', exact: true }).click();
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
   const shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(shortcuts.getByText('Go to Trends', { exact: true })).toHaveCount(0);
   await expect(shortcuts.getByText('Go to Inputs', { exact: true })).toBeVisible();

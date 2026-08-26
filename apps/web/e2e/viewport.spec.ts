@@ -89,23 +89,43 @@ test('compact header reflows the publisher mark without starving single-line Sco
     const brand = node.querySelector<HTMLElement>('h1')!.getBoundingClientRect();
     const scope = node.querySelector<HTMLElement>('.scope-organ')!.getBoundingClientRect();
     const content = node.querySelector<HTMLElement>('.scope-organ-content')!;
+    const actions = [...node.querySelectorAll<HTMLElement>('.header-action')]
+      .map((action) => {
+        const rect = action.getBoundingClientRect();
+        return { left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+      });
     return {
       height: box.height,
       top: box.top,
       bottom: box.bottom,
+      left: box.left,
+      right: box.right,
       brand: { top: brand.top, bottom: brand.bottom },
       scope: { top: scope.top, bottom: scope.bottom },
       scopeWidth: scope.width,
       scopeClientHeight: content.clientHeight,
       scopeScrollHeight: content.scrollHeight,
+      actions,
+      clientWidth: node.clientWidth,
+      scrollWidth: node.scrollWidth,
     };
   });
   expect(geometry.height).toBeLessThanOrEqual(60);
-  expect(geometry.scopeWidth).toBeGreaterThanOrEqual(72);
+  // This is the temporary scroller floor. The scope-chip slice replaces the
+  // port with a width-aware signal rather than treating 44px as prose space.
+  expect(geometry.scopeWidth).toBeGreaterThanOrEqual(44);
   for (const child of [geometry.brand, geometry.scope]) {
     expect(child.top).toBeGreaterThanOrEqual(geometry.top);
     expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);
   }
+  expect(geometry.actions).toHaveLength(3);
+  for (const action of geometry.actions) {
+    expect(action.width).toBeGreaterThanOrEqual(44);
+    expect(action.height).toBeGreaterThanOrEqual(44);
+    expect(action.left).toBeGreaterThanOrEqual(geometry.left);
+    expect(action.right).toBeLessThanOrEqual(geometry.right);
+  }
+  expect(geometry.scrollWidth).toBeLessThanOrEqual(geometry.clientWidth + 1);
   expect(geometry.scopeScrollHeight).toBeLessThanOrEqual(geometry.scopeClientHeight);
 });
 

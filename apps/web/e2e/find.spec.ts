@@ -481,7 +481,7 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
-  await page.getByRole('button', { name: 'shortcuts', exact: true }).click();
+  await page.getByRole('button', { name: 'Help', exact: true }).click();
   const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
   await expect(dialog.getByRole('heading', { name: 'Tools', exact: true })).toBeVisible();
   const tool = dialog.getByRole('button', { name: /Find in corpus/ });

@@ -11,6 +11,7 @@ import {
 } from 'react';
 import { useApp } from './lib/store-instance.ts';
 import { StatusBar } from './components/StatusBar.tsx';
+import { HeaderActions } from './components/HeaderActions.tsx';
 import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
@@ -889,19 +890,14 @@ export function App() {
               <span>textTrends</span>
             </a>
           </h1>
-          <button
-            type="button"
-            className="shortcut-help-open"
-            aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={() => openShortcutHelp('workbench')}
-          >
-            shortcuts
-          </button>
         </div>
         <StatusBar
+          onOpenTrendSettings={(returnFocus) => openContextualSettings('trends', returnFocus)}
+        />
+        <HeaderActions
           onOpenFind={() => openFind()}
           onOpenSettings={() => openSettings()}
-          onOpenTrendSettings={(returnFocus) => openContextualSettings('trends', returnFocus)}
+          onOpenHelp={() => openShortcutHelp('workbench')}
         />
         <WorkbenchTabs />
       </header>

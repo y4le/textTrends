@@ -39,7 +39,7 @@ test('shortcut help follows focus and restores its invoking control', async ({ p
   await expect(catalogFilter).toHaveValue('sherlock?');
   await expect(page.getByRole('dialog', { name: 'Keyboard shortcuts' })).toHaveCount(0);
 
-  const open = page.getByRole('button', { name: 'shortcuts', exact: true });
+  const open = page.getByRole('button', { name: 'Help', exact: true });
   const openBox = await open.boundingBox();
   expect(openBox?.width).toBeGreaterThanOrEqual(44);
   expect(openBox?.height).toBeGreaterThanOrEqual(44);

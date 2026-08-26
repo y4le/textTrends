@@ -225,7 +225,7 @@ canvas {
   z-index: 20;
   inset-block-start: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: var(--space-3);
   min-block-size: var(--chrome-target-block-size);
@@ -266,10 +266,8 @@ canvas {
 }
 
 @media (max-width: 599.98px) and (orientation: portrait) {
-  .app-brand-link {
-    /* Keep the publisher domain atomic and wrap the project name after `/`. */
-    max-inline-size: 12ch;
-    flex-wrap: wrap;
+  .app-brand-link > span:first-child {
+    display: none;
   }
 }
 
@@ -280,7 +278,15 @@ canvas {
   gap: var(--space-2);
 }
 
-.shortcut-help-open {
+.header-actions {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: var(--space-2);
+  white-space: nowrap;
+}
+
+.header-action {
   min-inline-size: 44px;
   min-block-size: var(--chrome-target-block-size);
   padding: 0;
@@ -294,6 +300,20 @@ canvas {
   text-decoration-color: var(--rule-strong);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
+}
+
+@media (max-width: 599.98px) {
+  .app-header {
+    gap: var(--space-1);
+  }
+
+  .header-actions {
+    gap: var(--space-1);
+  }
+
+  .header-action {
+    font-size: var(--text-xs);
+  }
 }
 
 .workbench {
