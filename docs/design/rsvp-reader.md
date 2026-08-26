@@ -30,6 +30,9 @@ throughput (request `req_consult_14f52f6a9c7da913`, artifact
 The standalone-foundation and 2,000 WPM amendment was then decided with the
 same pinned Opus planner (request `req_consult_89a758dc12ea553f`, artifact
 `art_sha256_45fb556a3f68f8419da0cf7d1f94be683f2de7859e13fa3664da900cd5353515`).
+The user-configurable frame character limit followed a further pinned Opus UX
+consultation (request `req_consult_55b1d4b5abb562c6`, artifact
+`art_sha256_4ebc24e0e7ff89af0f19929952c72a5259cdfbe31bb2bb7ea76a3f6912dc196a`).
 
 ## Outcome
 
@@ -42,8 +45,9 @@ promise that comprehension remains unchanged at the displayed WPM. The pace
 is an honest scheduled-throughput contract that includes integration rests.
 The mode defaults to one fixed focal word, with an optional two- or three-word
 frame and a stable anchor glyph in its first word whose index is left of centre,
-deterministic word-length timing, and explicit integration rests at sentence
-and paragraph boundaries.
+an adjustable absolute character ceiling for multi-word frames, deterministic
+word-length timing, and explicit integration rests at sentence and paragraph
+boundaries.
 
 Do not add Bionic Reading prefixes, randomized pacing, automatic speed ramps,
 or a lexical/readability “complexity” score. Bionic prefixes have not shown a
@@ -273,19 +277,36 @@ viewport. The radio fieldset spans a full compact control row and divides its
 three 44px choices evenly; it does not compete with transport or pace controls
 for the same two-column row.
 
-The remaining settings live behind a native **rhythm** disclosure; opening it
-pauses playback and closing it never auto-resumes. Selections commit
-immediately; numeric rest and emphasis edits commit on Enter or blur. Changes
-affect the next frame after playback resumes. No new global shortcuts are
-introduced. Every control participates in the RSVP focus trap and keeps its
-native Space and arrow-key behavior from reaching the document shortcuts.
+The remaining settings live behind a native **frame & rhythm** disclosure;
+opening it pauses playback and closing it never auto-resumes. Its separate
+frame group exposes an absolute 12–40-character frame limit as a number input,
+defaulting to thirty with a step of two. The input is visibly retained and
+remains focusable with `aria-disabled="true"` when the effective words-at-once
+value is one, where the limit cannot affect output. In that state it ignores
+edits while its `aria-describedby` help remains reachable. The help states that
+spaces and punctuation count and that one long word is always kept whole. The
+rhythm group retains the preset, rests, length emphasis, and reset. Selections
+commit immediately; numeric edits commit
+on Enter or blur. Changes affect the next frame after playback resumes. No new
+global shortcuts are introduced. Every focusable control participates in the
+RSVP focus trap and keeps its native Space and arrow-key behavior from reaching
+the document shortcuts; the aria-disabled input does not act on those keys.
 
-Presets change rhythm without moving pace or words at once: **Even** has no
-length emphasis or rests; **Natural** is the default timing row above; **Study**
+Presets change rhythm without moving pace or either frame preference: **Even**
+has no length emphasis or rests; **Natural** is the default timing row above; **Study**
 uses 100% emphasis, 500ms sentence rests, and 900ms paragraph rests. Any timing
 divergence selects **Custom**. Reset restores Natural timing and 300 WPM while
-preserving words at once. This regrouping does not change the strict v2 storage
-record's keys, ranges, or defaults, so it does not require a storage migration.
+preserving words at once and the character limit. Character-limit changes do
+not turn an otherwise matching rhythm into Custom. The strict device-local
+preference record advances to v3; a valid v2 record migrates by retaining every
+authored value and adding the thirty-character default. That default
+intentionally preserves the former three-word ceiling while widening ordinary
+and compact two-word frames from twenty to thirty characters; the independent
+word limit still caps those frames at two members. A v3 record is valid only
+with the exact key set and in-range integer fields. Every integer from twelve
+through forty is valid for the character limit—the step of two is a UI
+increment, not a storage constraint—and a malformed or out-of-range v3 record
+is rejected as a whole rather than clamped.
 
 ### Multi-word frames
 
@@ -303,28 +324,34 @@ abbreviations and `...` are not split. Quotes and all unlisted bracket forms
 are not clause marks; quotes frequently close a quotation inside a larger
 clause, and the browser does not infer new families beyond the enumerated set.
 
-The configured count is an upper bound. A candidate after the first member is
-accepted only when the exact rendered frame, including collapsed internal
-whitespace and attached punctuation, remains within a `10 × effective-count`
-Unicode-grapheme budget. Effective count is the presented count after the
-compact clamp, so authored three-word mode uses a budget of twenty when it is
-presented as two. The first word is unconditional, so pathological source
-tokens remain whole and retain visible overflow.
+The configured word count and absolute character limit are independent upper
+bounds. A candidate after the first member is accepted only when the exact
+rendered frame, including collapsed internal whitespace and attached
+punctuation, remains within the configured Unicode-grapheme limit. The UI calls
+these user-perceived units “characters.” The default is thirty, the supported
+range is twelve through forty, and compact presentation does not rewrite the
+authored limit when it clamps three words to two. Forty is an option for wider
+Readers, not a promise that every admitted frame fits at the narrowest width.
+At 320 CSS pixels, frames remain one unwrapped row with a stable anchor and
+cannot create page-level horizontal overflow; the fixed Reader pane may clip
+excess at its edge. The first word is unconditional, so pathological source
+tokens remain whole in frame data and single-line rendering even when that pane
+clips visible excess.
 
-Budget admission happens while greedily adding members and therefore precedes
-orphan handling. Only when three members were admitted, the third did not end
+Character-limit admission happens while greedily adding members and therefore
+precedes orphan handling. Only when three members were admitted, the third did not end
 on a hard stop, and the immediately following word is itself a hard stop does
 the builder drop the already-admissible third member. That normally produces
-`2 + 2` rather than `3 + 1`; a following frame shortened by its own width
-budget may instead produce `2 + 1 + 1`. A budget-shortened frame is never
+`2 + 2` rather than `3 + 1`; a following frame shortened by its own character
+limit may instead produce `2 + 1 + 1`. A limit-shortened frame is never
 expanded or rebalanced. The rule performs one look-ahead only. Two-word mode
 keeps an unavoidable `2 + 1` rather than merely moving the singleton.
 
-The builder remains stateless in the authenticated page, live start token, and
-effective count. Entering mid-sentence and re-entering with the same page and
-token therefore reproduce the same forward partition without a whole-sentence
-parser. A continuation source can change grouping at the former served-window
-edge because window end is a hard stop and new look-ahead becomes available.
+The builder remains stateless in the authenticated page, live start token,
+effective count, and character limit. Entering mid-sentence and re-entering
+with the same inputs therefore reproduce the same forward partition without a
+whole-sentence parser. A continuation source can change grouping at the former
+served-window edge because window end is a hard stop and new look-ahead becomes available.
 The live cursor remains authoritative and the replacement partition starts
 from it, so the changed grouping still cannot skip or repeat a token. Frame
 display is the exact authenticated source slice with internal whitespace
@@ -335,7 +362,7 @@ extend to its right. The anchor column is authored once per frame size and the
 word-row shift is derived from that value, so the visible guide and focal
 grapheme cannot drift apart. One-, two-, and three-word columns are
 monotonically farther left while the focal x-coordinate stays invariant within
-each size. Type continues to ramp down by size; the grapheme budget and type
+each size. Type continues to ramp down by size; the character limit and type
 ramp bound different parts of the layout.
 
 The frame word time is the sum of its members' planned exposures. Its boundary
@@ -559,6 +586,14 @@ The standalone-foundation amendment adds four focused commits:
 21. the 30ms exposure floor, derived 2,000 WPM ceiling, factual high-speed
     guidance, and updated unit/browser acceptance.
 
+The frame-limit amendment adds three focused commits:
+
+22. this amended decision record and pinned Opus UX decision;
+23. explicit dual-ceiling frame primitives, the strict v2-to-v3 preference
+    migration, store state, and unit tests; and
+24. the separated frame/rhythm settings groups, focusable aria-disabled state,
+    responsive styling, and browser acceptance.
+
 Every staged commit receives an exact Opus review before commit.
 
 Acceptance requires:
@@ -575,7 +610,7 @@ Acceptance requires:
   word exposure, while any capped rest discloses configured and effective time;
 - one-, two-, and three-word frames partition the source without crossing a
   sentence, paragraph, clause, or served-window boundary, respect the rendered
-  grapheme budget and orphan rule, and take identical aggregate span time
+  character limit and orphan rule, and take identical aggregate span time
   including rests;
 - timer jitter correction carries the planned deadline across frames, absorbs
   no more than 25ms without violating the per-frame word floor, and never banks
@@ -590,9 +625,16 @@ Acceptance requires:
   length emphasis has no residual budget, and timer catch-up cannot reduce an
   exposure;
 - the first member's anchor stays on the pixel guide for every frame size;
-- strict local-storage preference validation, session-storage v1 pace
-  migration, rhythm-only presets, compact clamping, and display-preserving
-  reset behavior are covered;
+- strict local-storage preference validation, session-storage v1 pace and
+  local-storage v2 preference migration, rhythm-only presets, compact word
+  clamping, and frame-preference-preserving reset behavior are covered;
+- the character limit is absolute, counts rendered graphemes including spaces
+  and punctuation, preserves a whole first word, remains authored across the
+  compact clamp, is aria-disabled only when one effective word makes it inert,
+  and keeps its explanation keyboard- and screen-reader-reachable;
+- at 320 CSS pixels a forty-character frame stays on one anchored row and does
+  not create page-level horizontal overflow, with Reader-pane edge clipping an
+  explicit upper-range tradeoff;
 - paused context is an exact resident sentence slice, does not move the focal
   row or update while playing, is pointer-exempt, and is exposed as focusable,
   trapped, stable non-live content;
