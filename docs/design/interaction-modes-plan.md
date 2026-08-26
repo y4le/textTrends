@@ -545,9 +545,10 @@ Every implemented phase must demonstrate:
 - keyboard, mouse/pen, touch-only, and hybrid-pointer entry and exit;
 - no action available only through hover, double-click, double-tap, multi-touch,
   or long-press;
-- 44px compact/coarse targets at 320px and 390px widths, except page and
-  local-header chrome may interpolate to the documented 32px floor in a short
-  viewport;
+- density-authored compact/coarse targets at 320px and 390px widths; the
+  squeezed Terms rail uses 24 / 34 / 44px in Compact / Standard / Comfortable,
+  and page/local-header chrome may interpolate to its documented 32px floor in
+  a short viewport;
 - native text entry, button activation, text selection, and page scrolling
   remain available outside an explicitly indicated mode;
 - mode precedence does not depend on bubbling order;

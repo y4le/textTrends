@@ -16,13 +16,18 @@ Compact otherwise preserves the former rendered geometry, and Comfortable adds
 pitch. It scales authored UI type, chrome, Terms, headers, and data rows, but not analytical
 encodings, Reader prose, or RSVP type.
 
-Compact also starts an automatically sized workbench footer with its Trends
-graph at the existing minimum readable height. This changes layout allocation,
-not the graph encoding: the full Terms targets, passage, status, and occurrence
-barcode remain present. A user-resized pixel target overrides the automatic
-baseline across density changes, and reset returns to the current density's
-baseline. Reader keeps its separate compressed-footer contract, which already
-uses the same minimum Trends height.
+Compact and Standard start an automatically sized workbench footer with its
+passage, padding, and lane gaps at their readable floors, while the position
+status and occurrence barcode remain present. The squeezed Terms target is
+density-authored at 24px in Compact, 34px in Standard, and 44px in Comfortable.
+The squeezed Compact and Standard targets meet the 24-by-24 minimum in WCAG
+2.5.8 (AA), while intentionally giving up the 44-by-44 enhanced target in WCAG
+2.5.5 (AAA).
+Compact also keeps its Trends graph at the existing minimum readable height;
+Standard retains its authored analytical strip and Comfortable retains its
+roomier authored footer. A user-resized pixel target overrides the
+automatic baseline across density changes, and reset returns to the current
+density's baseline. Reader keeps its separate compressed-footer contract.
 
 The same programme adopts visible language and discovery over icon inference:
 every term entry path opens the same inline quick-add flow, the revised layout,
@@ -139,17 +144,19 @@ position that the Reader most recently displayed.
 Workbench chrome responds to layout viewport height as well as width. The page
 header's top gutter uses the 1rem edge spacing by default and is capped at 4dvh;
 remaining page block padding is capped at 4dvh. The automatic Reading Position
-footer may use at most one third of the viewport, spending its own padding and
-optional lanes before anything in the Terms rail; explicit footer resizing may
-still use the full available height. The persistent Terms rail therefore keeps
-its authored one-row controls when the automatic footer cap engages wherever
-the available height permits.
+footer may use at most one third of the viewport; explicit footer resizing may
+still use the full available height. Comfortable and legacy automatic layouts
+spend footer padding and optional lanes before anything in the Terms rail when
+that cap engages. Compact and Standard already start with their Terms and
+footer chrome at the readable floors described above.
 
 Page-header actions and each place's leading controls interpolate from the
-ordinary 44px coarse target to a 32px floor in short viewports. Compact data
-headers share the 32px floor; fine-pointer data headers may reach 28px. These
-are deliberate height-qualified exceptions to the general 44px compact/coarse
-contract and remain above the WCAG 2.5.8 minimum. Ordinary portrait and desktop
+ordinary 44px coarse target to a 32px floor in short viewports. The squeezed
+Terms rail separately follows its 24 / 34 / 44px density floor. Compact data
+headers share the 32px floor; fine-pointer data headers may reach 28px. The
+page-header and data-header floors are deliberate height-qualified exceptions
+to the general coarse-control contract and remain at or above the WCAG 2.5.8
+minimum. Ordinary portrait and desktop
 viewports retain their authored sizes. Layout compression changes no query,
 selection, navigation, or persisted intent.
 

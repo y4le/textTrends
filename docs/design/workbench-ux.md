@@ -185,12 +185,16 @@ row pitch. It does not rescale analytical encodings, primary place plots,
 barcodes, strokes, hit tolerances, Reader prose, or RSVP type. Reader chrome may
 refit, but its reading type remains reader-owned.
 
-Compact has one deliberate reading-footer layout rule: an automatic workbench
-footer starts its Trends graph at the existing minimum readable height while
-retaining the authored Terms rail, passage, status, and occurrence barcode.
-On coarse layouts at Compact density, this also releases the old minimum-strip
-reserve so it cannot leave dead space above the shorter graph; the preserved
-lanes and pointer targets remain the legibility boundary.
+Compact and Standard have one deliberate reading-footer layout rule: an
+automatic workbench footer starts with the passage, padding, and lane gaps at
+their readable floors while retaining the position status and occurrence
+barcode. The squeezed Terms target follows the density scale: 24px in Compact,
+34px in Standard, and 44px in Comfortable. Compact also starts its Trends graph
+at the existing minimum readable height; Standard retains its authored
+analytical strip. On
+coarse layouts at Compact density, this releases the old minimum-strip reserve
+so it cannot leave dead space above the shorter graph. Comfortable retains the
+roomier authored footer.
 An explicit resize remains authoritative across density changes; resetting the
 resize returns to the active density's automatic baseline. Reader is excluded
 because its separately governed compressed footer already starts the Trends
@@ -211,16 +215,20 @@ groups; at most five are projected into analysis. **Add** opens quick entry and
 **Manage** opens the primary notebook editor. The rail is fixed directly above
 the reading footer and remains one row at every width. Buckets scroll
 horizontally while Add and Manage stay pinned. On compact screens edit and
-removal are intentionally reached through Manage, the visible Terms label is
-omitted, and the remaining rail targets stay at least 44 CSS pixels. A removal
-Undo notice opens upward from the dock rather than covering the reading lane.
+removal are intentionally reached through Manage and the visible Terms label
+is omitted. Terms targets use density-specific minimums: 24px in Compact, 34px
+in Standard, and 44px in Comfortable. The automatic Compact and Standard
+states begin at those squeezed floors until the user expands the dock. A
+removal Undo notice opens upward from the dock rather than covering the reading
+lane.
 
 At compact widths the visible buckets prioritize identity over bucket count.
 At 390px, at least two complete term names remain readable, a live cue names
 the linked-range state, and painted edge fades disclose horizontal overflow.
 Add and Manage stay pinned; compact edit and removal still live in Manage.
-Touch/coarse targets retain their minimum size without forcing the same floor
-onto fine-pointer layouts.
+Outside the explicit squeezed automatic state, touch/coarse targets retain
+their authored minimum size without forcing the same floor onto fine-pointer
+layouts.
 
 Manage is a full-screen editor. Reordering begins only from the leading drag
 handle and keeps the source plus insertion position visible. Mouse and touch
@@ -633,8 +641,10 @@ The design remains complete while these gates hold:
 1. no page-level horizontal overflow at 320, 390, 768, and 1440px;
 2. one Terms rail and one active place at every width;
 3. no persistent side rails beyond the transient corpus-reading instrument;
-4. 44px compact/coarse controls and keyboard-operable equivalents, with only
-   the documented short-viewport page/local-header exception down to 32px;
+4. density-authored compact/coarse controls and keyboard-operable equivalents;
+   the squeezed Terms rail uses 24 / 34 / 44px in Compact / Standard /
+   Comfortable, while documented short-viewport page/local-header chrome may
+   reach 32px;
 5. viewport transforms issue no analysis and retain governed drafts and focus;
 6. trend result-geometry changes issue only trend work;
 7. direct Matches/barcode-to-Reader navigation stays snapshot-bound;
