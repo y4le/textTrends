@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import {
   RSVP_CONTEXT_TOKENS_PER_SIDE,
-  RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD,
+  RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+  RSVP_MAX_FRAME_CHAR_LIMIT,
+  RSVP_MIN_FRAME_CHAR_LIMIT,
   RSVP_MAX_REST_SHARE,
   RSVP_MAX_WPM,
   RSVP_MIN_EXPOSURE_MS,
@@ -26,6 +28,7 @@ import {
   rsvpSpanAt,
   rsvpSpanPlan,
   rsvpWordFrame,
+  type RsvpFrameLimits,
   type RsvpSource,
 } from '../src/index.ts';
 
@@ -57,11 +60,22 @@ function textPage(
   };
 }
 
-function frameSizes(source: RsvpSource, wordsPerFrame: number): number[] {
+function frameLimits(
+  wordsPerFrame: number,
+  charLimit = RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+): RsvpFrameLimits {
+  return { wordsPerFrame, charLimit };
+}
+
+function frameSizes(
+  source: RsvpSource,
+  wordsPerFrame: number,
+  charLimit = RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+): number[] {
   const sizes: number[] = [];
   let relative = 0;
   while (relative < source.tokens.end - source.tokens.start) {
-    const frame = rsvpFrameAt(source, relative, wordsPerFrame);
+    const frame = rsvpFrameAt(source, relative, frameLimits(wordsPerFrame, charLimit));
     sizes.push(frame.words.length);
     relative += frame.words.length;
   }
@@ -110,7 +124,7 @@ describe('RSVP focal presentation', () => {
 
   it('keeps a collapsed source space at the split-span join', () => {
     for (const source of [textPage('I\n am ready'), textPage('to\tgo now')]) {
-      const frame = rsvpFrameAt(source, 0, 3);
+      const frame = rsvpFrameAt(source, 0, frameLimits(3));
       expect(frame.after.startsWith(' ')).toBe(true);
       expect(frame.text).toBe(source.text.replace(/\s+/gu, ' '));
       expect(frame.text).not.toMatch(/[\n\r\t]/u);
@@ -124,7 +138,7 @@ describe('RSVP focal presentation', () => {
   });
 
   it('builds exact-source multi-word frames without crossing authored boundaries', () => {
-    const first = rsvpFrameAt(page(), 0, 3);
+    const first = rsvpFrameAt(page(), 0, frameLimits(3));
     expect(first.words.map((word) => word.token)).toEqual([10, 11]);
     expect(first).toMatchObject({
       startToken: 10,
@@ -137,15 +151,15 @@ describe('RSVP focal presentation', () => {
     });
     expect(first.before + first.anchor + first.after).toBe(first.text);
 
-    const sentenceTail = rsvpFrameAt(page(), 1, 3);
+    const sentenceTail = rsvpFrameAt(page(), 1, frameLimits(3));
     expect(sentenceTail.words.map((word) => word.token)).toEqual([11]);
     expect(sentenceTail.text).toBe('said,');
 
-    const paragraph = rsvpFrameAt(page(), 3, 3);
+    const paragraph = rsvpFrameAt(page(), 3, frameLimits(3));
     expect(paragraph.words.map((word) => word.token)).toEqual([13]);
     expect(paragraph.text).toBe('Then—');
     expect(paragraph.paragraphEnd).toBe(false);
-    expect(rsvpFrameAt(page(), 4, 3).paragraphEnd).toBe(true);
+    expect(rsvpFrameAt(page(), 4, frameLimits(3)).paragraphEnd).toBe(true);
   });
 
   it('partitions every token exactly once for each supported frame size', () => {
@@ -153,7 +167,7 @@ describe('RSVP focal presentation', () => {
       const tokens: number[] = [];
       let relative = 0;
       while (relative < 5) {
-        const frame = rsvpFrameAt(page(), relative, wordsPerFrame);
+        const frame = rsvpFrameAt(page(), relative, frameLimits(wordsPerFrame));
         tokens.push(...frame.words.map((word) => word.token));
         expect(frame.words.slice(0, -1).every(
           (word) => !word.sentenceEnd && !word.paragraphEnd,
@@ -167,37 +181,51 @@ describe('RSVP focal presentation', () => {
   it('uses an explicit clause-mark set without second-guessing sentence punctuation', () => {
     for (const mark of [',', '、', '，', ';', ':', '；', '：', '–', '—', '…', ')', ']', '}', '）']) {
       expect(rsvpHasClauseMark(`x${mark}”`)).toBe(true);
-      expect(rsvpFrameAt(textPage(`one${mark} two`), 0, 2).words).toHaveLength(1);
+      expect(rsvpFrameAt(textPage(`one${mark} two`), 0, frameLimits(2)).words).toHaveLength(1);
     }
     for (const mark of ['.', '...', '!', '?', '"', '”', "'", '’', '】']) {
       expect(rsvpHasClauseMark(mark)).toBe(false);
-      expect(rsvpFrameAt(textPage(`one${mark} two`), 0, 2).words).toHaveLength(2);
+      expect(rsvpFrameAt(textPage(`one${mark} two`), 0, frameLimits(2)).words).toHaveLength(2);
     }
 
     const abbreviation = textPage('Mr. Jones went home.');
-    expect(rsvpFrameAt(abbreviation, 0, 2).text).toBe('Mr. Jones');
+    expect(rsvpFrameAt(abbreviation, 0, frameLimits(2)).text).toBe('Mr. Jones');
   });
 
   it('keeps clause punctuation with its word and never crosses the stop', () => {
     const source = textPage('he said, and left');
-    expect(rsvpFrameAt(source, 0, 3).text).toBe('he said,');
-    expect(rsvpFrameAt(source, 2, 3).text).toBe('and left');
+    expect(rsvpFrameAt(source, 0, frameLimits(3)).text).toBe('he said,');
+    expect(rsvpFrameAt(source, 2, frameLimits(3)).text).toBe('and left');
   });
 
   it('bounds rendered graphemes while always admitting the first source token', () => {
-    expect(RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD).toBe(10);
+    expect([
+      RSVP_MIN_FRAME_CHAR_LIMIT,
+      RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+      RSVP_MAX_FRAME_CHAR_LIMIT,
+    ]).toEqual([12, 30, 40]);
     const pathological = textPage('supercalifragilisticexpialidocious tiny word');
-    expect(rsvpFrameAt(pathological, 0, 3).words).toHaveLength(1);
-    expect(rsvpFrameAt(pathological, 0, 3).text)
+    expect(rsvpFrameAt(pathological, 0, frameLimits(3, 12)).words).toHaveLength(1);
+    expect(rsvpFrameAt(pathological, 0, frameLimits(3, 12)).text)
       .toBe('supercalifragilisticexpialidocious');
 
     const ordinary = textPage('notwithstanding the circumstances');
-    expect(rsvpFrameAt(ordinary, 0, 3).text).toBe('notwithstanding the');
+    expect(rsvpFrameAt(ordinary, 0, frameLimits(3, 20)).text).toBe('notwithstanding the');
 
     const combining = 'e\u0301'.repeat(8);
-    expect(rsvpFrameAt(textPage(`${combining} ${combining}`), 0, 2).words).toHaveLength(2);
+    expect(rsvpFrameAt(textPage(`${combining} ${combining}`), 0, frameLimits(2, 20)).words)
+      .toHaveLength(2);
     const astral = '𝔴'.repeat(8);
-    expect(rsvpFrameAt(textPage(`${astral} ${astral}`), 0, 2).words).toHaveLength(2);
+    expect(rsvpFrameAt(textPage(`${astral} ${astral}`), 0, frameLimits(2, 20)).words)
+      .toHaveLength(2);
+
+    const longPair = textPage('understanding circumstances');
+    expect(rsvpFrameAt(longPair, 0, frameLimits(2)).words).toHaveLength(2);
+    expect(rsvpFrameAt(longPair, 0, frameLimits(2, 20)).words).toHaveLength(1);
+
+    const oneWordAtATime = textPage('one extraordinary word');
+    expect(rsvpFrameAt(oneWordAtATime, 1, frameLimits(1, 12)))
+      .toEqual(rsvpFrameAt(oneWordAtATime, 1, frameLimits(1, 40)));
   });
 
   it('balances only avoidable three-plus-one tails after budget admission', () => {
@@ -213,14 +241,20 @@ describe('RSVP focal presentation', () => {
 
   it('derives regression from the same resident forward partition', () => {
     const source = textPage('one two three four five six seven');
-    expect(rsvpPreviousFrameStart(source, 0, 3)).toBe(0);
-    expect(rsvpPreviousFrameStart(source, 3, 3)).toBe(0);
-    expect(rsvpPreviousFrameStart(source, 4, 3)).toBe(3);
-    expect(rsvpPreviousFrameStart(source, 5, 3)).toBe(3);
+    expect(rsvpPreviousFrameStart(source, 0, frameLimits(3))).toBe(0);
+    expect(rsvpPreviousFrameStart(source, 3, frameLimits(3))).toBe(0);
+    expect(rsvpPreviousFrameStart(source, 4, frameLimits(3))).toBe(3);
+    expect(rsvpPreviousFrameStart(source, 5, frameLimits(3))).toBe(3);
 
     const clauses = textPage('one two, three four');
-    expect(rsvpPreviousFrameStart(clauses, 2, 3)).toBe(0);
-    expect(() => rsvpPreviousFrameStart(source, 7, 3)).toThrow(RangeError);
+    expect(rsvpPreviousFrameStart(clauses, 2, frameLimits(3))).toBe(0);
+
+    const limited = textPage('notwithstanding the one two three');
+    const limitedFrames = frameLimits(3, 20);
+    expect(rsvpFrameAt(limited, 0, limitedFrames).words).toHaveLength(2);
+    expect(rsvpPreviousFrameStart(limited, 2, limitedFrames)).toBe(0);
+    expect(rsvpPreviousFrameStart(limited, 3, limitedFrames)).toBe(2);
+    expect(() => rsvpPreviousFrameStart(source, 7, frameLimits(3))).toThrow(RangeError);
   });
 
   it('cuts paused context from the exact enclosing resident sentence', () => {
@@ -229,7 +263,7 @@ describe('RSVP focal presentation', () => {
       'Lead. “One   two, three four five.” Tail.',
       [0, 1, 6, 7],
     );
-    const context = rsvpPausedContext(source, rsvpFrameAt(source, 2, 3));
+    const context = rsvpPausedContext(source, rsvpFrameAt(source, 2, frameLimits(3)));
     expect(context).toEqual({
       text: '“One   two, three four five.”',
       before: '“One   ',
@@ -243,7 +277,7 @@ describe('RSVP focal presentation', () => {
 
   it('caps paused context at forty tokens per side and marks resident truncation', () => {
     const source = textPage(Array.from({ length: 90 }, (_, index) => `w${index}`).join(' '));
-    const context = rsvpPausedContext(source, rsvpFrameAt(source, 45, 1));
+    const context = rsvpPausedContext(source, rsvpFrameAt(source, 45, frameLimits(1)));
     expect(context.before.match(/\bw\d+\b/gu)).toHaveLength(40);
     expect(context.current).toBe('w45');
     expect(context.after.match(/\bw\d+\b/gu)).toHaveLength(40);
@@ -260,19 +294,19 @@ describe('RSVP focal presentation', () => {
       next: { kind: 'from' as const, token: 53 },
       cappedBy: 'tokens' as const,
     };
-    expect(rsvpPausedContext(window, rsvpFrameAt(window, 1, 1))).toMatchObject({
+    expect(rsvpPausedContext(window, rsvpFrameAt(window, 1, frameLimits(1)))).toMatchObject({
       text: 'middle sentence words',
       current: 'sentence',
       leadingEllipsis: true,
       trailingEllipsis: true,
     });
-    const frame = rsvpFrameAt(window, 0, 3);
+    const frame = rsvpFrameAt(window, 0, frameLimits(3));
     const nonconsecutive = {
       ...frame,
       words: [frame.words[0]!, frame.words[2]!, frame.words[2]!],
     };
     expect(() => rsvpPausedContext(window, nonconsecutive)).toThrow(RangeError);
-    expect(() => rsvpPausedContext(window, rsvpFrameAt(window, 1, 1), -1))
+    expect(() => rsvpPausedContext(window, rsvpFrameAt(window, 1, frameLimits(1)), -1))
       .toThrow(RangeError);
   });
 
@@ -284,8 +318,8 @@ describe('RSVP focal presentation', () => {
     );
     for (const wordsPerFrame of [1, 2, 3]) {
       for (let token = 0; token < 10; token++) {
-        const first = rsvpFrameAt(source, token, wordsPerFrame);
-        expect(rsvpFrameAt(source, token, wordsPerFrame)).toEqual(first);
+        const first = rsvpFrameAt(source, token, frameLimits(wordsPerFrame));
+        expect(rsvpFrameAt(source, token, frameLimits(wordsPerFrame))).toEqual(first);
         expect(first.words[0]?.token).toBe(token);
         const last = first.words.at(-1)!;
         expect(first.text).toBe(source.text
@@ -307,16 +341,18 @@ describe('RSVP pacing', () => {
     expect(RSVP_REST_FLOOR_CROSSOVER_WPM).toBe(1_500);
   });
 
-  it('clamps rhythm fields and raises paragraph rest to the authored sentence rest', () => {
+  it('clamps frame and rhythm fields and raises paragraph rest to the sentence rest', () => {
     expect(clampRsvpPacing({
       wpm: 2_250,
       wordsPerFrame: 7,
+      frameCharLimit: 100,
       sentencePauseMs: 750,
       paragraphPauseMs: 200,
       lengthEmphasis: -5,
     })).toEqual({
       wpm: 2_000,
       wordsPerFrame: 3,
+      frameCharLimit: 40,
       sentencePauseMs: 750,
       paragraphPauseMs: 750,
       lengthEmphasis: 0,
@@ -325,7 +361,7 @@ describe('RSVP pacing', () => {
     expect(effectiveRsvpWordsPerFrame(3, false)).toBe(3);
   });
 
-  it('recognizes rhythm presets independently of pace and words at once', () => {
+  it('recognizes rhythm presets independently of pace and frame preferences', () => {
     expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wpm: 725 })).toBe('natural');
     expect(rsvpPresetSelection({
       ...RSVP_PACING_DEFAULTS,
@@ -333,7 +369,9 @@ describe('RSVP pacing', () => {
     })).toBe('study');
     expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 2 })).toBe('natural');
     expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, wordsPerFrame: 3 })).toBe('natural');
+    expect(rsvpPresetSelection({ ...RSVP_PACING_DEFAULTS, frameCharLimit: 12 })).toBe('natural');
     expect(RSVP_RHYTHM_PRESETS.natural).not.toHaveProperty('wordsPerFrame');
+    expect(RSVP_RHYTHM_PRESETS.natural).not.toHaveProperty('frameCharLimit');
     expect(RSVP_RHYTHM_RESET).toEqual({
       wpm: 300,
       sentencePauseMs: 350,
@@ -341,6 +379,7 @@ describe('RSVP pacing', () => {
       lengthEmphasis: 100,
     });
     expect(RSVP_RHYTHM_RESET).not.toHaveProperty('wordsPerFrame');
+    expect(RSVP_RHYTHM_RESET).not.toHaveProperty('frameCharLimit');
   });
 
   it('finds stable resident spans and treats a truncated window as no boundary', () => {
@@ -518,7 +557,7 @@ describe('RSVP pacing', () => {
       let total = 0;
       let relative = 0;
       while (relative < 5) {
-        const frame = rsvpFrameAt(page(), relative, wordsPerFrame);
+        const frame = rsvpFrameAt(page(), relative, frameLimits(wordsPerFrame));
         const plan = rsvpSpanPlan(page(), relative, { ...pacing, wordsPerFrame });
         total += rsvpFrameHoldMs(plan, frame);
         relative += frame.words.length;
@@ -532,7 +571,7 @@ describe('RSVP pacing', () => {
 
   it('rejects a frame outside its timing span', () => {
     const firstPlan = rsvpSpanPlan(page(), 0, RSVP_PACING_DEFAULTS);
-    expect(() => rsvpFrameTiming(firstPlan, rsvpFrameAt(page(), 3, 1)))
+    expect(() => rsvpFrameTiming(firstPlan, rsvpFrameAt(page(), 3, frameLimits(1))))
       .toThrow(RangeError);
   });
 });

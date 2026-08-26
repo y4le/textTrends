@@ -41,6 +41,7 @@ import { findScope } from './interaction.ts';
 import { RSVP_PACING_DEFAULTS, type RsvpPacing } from '@texttrends/rsvp';
 import {
   browserLocalStorage,
+  hasRsvpPacingV3,
   loadRsvpPacing,
   loadRsvpWpm,
   pacingFromLegacyWpm,
@@ -57,11 +58,13 @@ const client = new WorkerClient(trace);
 const matchesStorage = browserSessionStorage(window);
 const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
 const rsvpStorage = browserLocalStorage(window);
+const hadRsvpPacingV3 = hasRsvpPacingV3(rsvpStorage);
 const storedRsvpPacing = loadRsvpPacing(rsvpStorage);
 const legacyRsvpWpm = storedRsvpPacing === null ? loadRsvpWpm(matchesStorage) : null;
 const restoredRsvpPacing = storedRsvpPacing
   ?? (legacyRsvpWpm === null ? RSVP_PACING_DEFAULTS : pacingFromLegacyWpm(legacyRsvpWpm));
-if (storedRsvpPacing === null && legacyRsvpWpm !== null) {
+if ((storedRsvpPacing !== null && !hadRsvpPacingV3) || legacyRsvpWpm !== null) {
+  // Keep the inert v2 record for rollback; v3 always takes read precedence.
   saveRsvpPacing(rsvpStorage, restoredRsvpPacing);
 }
 const runtime = createAppRuntime(client, {
@@ -130,6 +133,7 @@ const unsubscribeRsvpPacing = runtime.useApp.subscribe((state) => {
   const pacing: RsvpPacing = {
     wpm: source.wpm,
     wordsPerFrame: source.wordsPerFrame,
+    frameCharLimit: source.frameCharLimit,
     sentencePauseMs: source.sentencePauseMs,
     paragraphPauseMs: source.paragraphPauseMs,
     lengthEmphasis: source.lengthEmphasis,

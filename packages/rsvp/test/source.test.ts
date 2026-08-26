@@ -170,7 +170,10 @@ describe('plain-text RSVP source', () => {
     const seen: string[] = [];
     let totalMs = 0;
     for (let relative = 0; relative < source.docTokenCount;) {
-      const frame = rsvpFrameAt(source, relative, 3);
+      const frame = rsvpFrameAt(source, relative, {
+        wordsPerFrame: 3,
+        charLimit: RSVP_PACING_DEFAULTS.frameCharLimit,
+      });
       seen.push(...frame.words.map((word) => word.bare));
       const plan = rsvpSpanPlan(source, relative, RSVP_PACING_DEFAULTS);
       const offset = frame.startToken - plan.startToken;

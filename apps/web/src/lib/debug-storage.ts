@@ -1,7 +1,11 @@
 import { LOCAL_LIBRARY_DB_NAME } from './local-library.ts';
 import { MATCHES_COLUMN_STORAGE_KEY } from './matches-column-storage.ts';
 import { VOCABULARY_COLUMN_STORAGE_KEY } from './vocabulary-column-storage.ts';
-import { RSVP_PACING_STORAGE_KEY, RSVP_WPM_STORAGE_KEY } from './rsvp-storage.ts';
+import {
+  RSVP_PACING_STORAGE_KEY,
+  RSVP_PACING_V2_STORAGE_KEY,
+  RSVP_WPM_STORAGE_KEY,
+} from './rsvp-storage.ts';
 import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
@@ -11,6 +15,7 @@ export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
 ]);
 
 export const OWNED_LOCAL_STORAGE_KEYS = Object.freeze([
+  RSVP_PACING_V2_STORAGE_KEY,
   RSVP_PACING_STORAGE_KEY,
 ]);
 

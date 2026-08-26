@@ -4443,6 +4443,7 @@ describe('RSVP interaction ownership', () => {
       rsvpPacing: {
         wpm: 375,
         wordsPerFrame: 2,
+        frameCharLimit: 24,
         sentencePauseMs: 250,
         paragraphPauseMs: 800,
         lengthEmphasis: 50,
@@ -4465,7 +4466,7 @@ describe('RSVP interaction ownership', () => {
       kind: 'rsvp',
       rsvp: {
         snapshot: 's1', doc: 'a', docTokenCount: 12, startToken: 4,
-        wpm: 375, wordsPerFrame: 2, sentencePauseMs: 250,
+        wpm: 375, wordsPerFrame: 2, frameCharLimit: 24, sentencePauseMs: 250,
         paragraphPauseMs: 800, lengthEmphasis: 50, playing: true,
       },
       suspended: { kind: 'none' },
@@ -4475,6 +4476,7 @@ describe('RSVP interaction ownership', () => {
     f.store.getState().setRsvpPacing({
       wpm: 425,
       wordsPerFrame: 9,
+      frameCharLimit: 100,
       sentencePauseMs: 750,
       paragraphPauseMs: 100,
       lengthEmphasis: -10,
@@ -4485,6 +4487,7 @@ describe('RSVP interaction ownership', () => {
       rsvp: {
         wpm: 425,
         wordsPerFrame: 3,
+        frameCharLimit: 40,
         sentencePauseMs: 750,
         paragraphPauseMs: 750,
         lengthEmphasis: 0,
@@ -4504,6 +4507,7 @@ describe('RSVP interaction ownership', () => {
         startToken: 5,
         wpm: 425,
         wordsPerFrame: 3,
+        frameCharLimit: 40,
         sentencePauseMs: 750,
         paragraphPauseMs: 750,
         lengthEmphasis: 0,
@@ -4516,11 +4520,12 @@ describe('RSVP interaction ownership', () => {
     f.runtime.dispose();
   });
 
-  it('preserves words at once when applying a rhythm preset or reset', async () => {
+  it('preserves frame preferences when applying a rhythm preset or reset', async () => {
     const f = harness(undefined, {
       rsvpPacing: {
         wpm: 425,
         wordsPerFrame: 3,
+        frameCharLimit: 24,
         sentencePauseMs: 250,
         paragraphPauseMs: 800,
         lengthEmphasis: 50,
@@ -4535,6 +4540,7 @@ describe('RSVP interaction ownership', () => {
       rsvp: {
         wpm: 425,
         wordsPerFrame: 3,
+        frameCharLimit: 24,
         sentencePauseMs: 500,
         paragraphPauseMs: 900,
         lengthEmphasis: 100,
@@ -4547,6 +4553,7 @@ describe('RSVP interaction ownership', () => {
       rsvp: {
         wpm: 300,
         wordsPerFrame: 3,
+        frameCharLimit: 24,
         sentencePauseMs: 350,
         paragraphPauseMs: 700,
         lengthEmphasis: 100,

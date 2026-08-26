@@ -7,6 +7,10 @@ export const RSVP_DEFAULT_WORDS_PER_FRAME = 1;
 export const RSVP_MIN_WORDS_PER_FRAME = 1;
 export const RSVP_MAX_WORDS_PER_FRAME = 3;
 export const RSVP_COMPACT_MAX_WORDS_PER_FRAME = 2;
+export const RSVP_DEFAULT_FRAME_CHAR_LIMIT = 30;
+export const RSVP_MIN_FRAME_CHAR_LIMIT = 12;
+export const RSVP_MAX_FRAME_CHAR_LIMIT = 40;
+export const RSVP_FRAME_CHAR_LIMIT_STEP = 2;
 export const RSVP_DEFAULT_SENTENCE_PAUSE_MS = 350;
 export const RSVP_MAX_SENTENCE_PAUSE_MS = 800;
 export const RSVP_SENTENCE_PAUSE_STEP_MS = 50;
@@ -21,7 +25,6 @@ export const RSVP_MAX_CATCHUP_MS = 25;
 export const RSVP_MAX_REST_SHARE = 0.25;
 export const RSVP_REST_FLOOR_CROSSOVER_WPM =
   60_000 * (1 - RSVP_MAX_REST_SHARE) / RSVP_MIN_EXPOSURE_MS;
-export const RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD = 10;
 export const RSVP_CONTEXT_TOKENS_PER_SIDE = 40;
 
 /** A window of authenticated source, or a whole document. UTF-16 offsets and
@@ -55,12 +58,15 @@ const graphemeSegmenter = new Intl.Segmenter(undefined, { granularity: 'grapheme
 export interface RsvpPacing {
   readonly wpm: number;
   readonly wordsPerFrame: number;
+  /** Maximum rendered graphemes in a multi-word frame. The first word is
+   * unconditional and remains whole when it exceeds this limit. */
+  readonly frameCharLimit: number;
   readonly sentencePauseMs: number;
   readonly paragraphPauseMs: number;
   readonly lengthEmphasis: number;
 }
 
-export type RsvpRhythm = Omit<RsvpPacing, 'wpm' | 'wordsPerFrame'>;
+export type RsvpRhythm = Omit<RsvpPacing, 'wpm' | 'wordsPerFrame' | 'frameCharLimit'>;
 export type RsvpRhythmReset = RsvpRhythm & Pick<RsvpPacing, 'wpm'>;
 export type RsvpRhythmPreset = 'even' | 'natural' | 'study';
 export type RsvpRhythmPresetSelection = RsvpRhythmPreset | 'custom';
@@ -68,6 +74,7 @@ export type RsvpRhythmPresetSelection = RsvpRhythmPreset | 'custom';
 export const RSVP_PACING_DEFAULTS: RsvpPacing = Object.freeze({
   wpm: RSVP_DEFAULT_WPM,
   wordsPerFrame: RSVP_DEFAULT_WORDS_PER_FRAME,
+  frameCharLimit: RSVP_DEFAULT_FRAME_CHAR_LIMIT,
   sentencePauseMs: RSVP_DEFAULT_SENTENCE_PAUSE_MS,
   paragraphPauseMs: RSVP_DEFAULT_PARAGRAPH_PAUSE_MS,
   lengthEmphasis: RSVP_DEFAULT_LENGTH_EMPHASIS,
@@ -91,8 +98,8 @@ export const RSVP_RHYTHM_PRESETS: Readonly<Record<RsvpRhythmPreset, RsvpRhythm>>
   }),
 });
 
-/** A rhythm reset also restores pace, but deliberately leaves the
- * independent words-at-once display preference untouched. */
+/** A rhythm reset also restores pace, but deliberately leaves the independent
+ * words-at-once and character-limit display preferences untouched. */
 export const RSVP_RHYTHM_RESET: Readonly<RsvpRhythmReset> = Object.freeze({
   wpm: RSVP_DEFAULT_WPM,
   ...RSVP_RHYTHM_PRESETS.natural,
@@ -122,6 +129,11 @@ export interface RsvpFrame {
   readonly after: string;
   readonly sentenceEnd: boolean;
   readonly paragraphEnd: boolean;
+}
+
+export interface RsvpFrameLimits {
+  readonly wordsPerFrame: number;
+  readonly charLimit: number;
 }
 
 export interface RsvpFrameTiming {
@@ -210,6 +222,12 @@ export function clampRsvpPacing(value: Partial<RsvpPacing> = {}): RsvpPacing {
       RSVP_PACING_DEFAULTS.wordsPerFrame,
       RSVP_MIN_WORDS_PER_FRAME,
       RSVP_MAX_WORDS_PER_FRAME,
+    ),
+    frameCharLimit: boundedInteger(
+      value.frameCharLimit,
+      RSVP_PACING_DEFAULTS.frameCharLimit,
+      RSVP_MIN_FRAME_CHAR_LIMIT,
+      RSVP_MAX_FRAME_CHAR_LIMIT,
     ),
     sentencePauseMs,
     paragraphPauseMs,
@@ -355,22 +373,28 @@ function renderedFrameText(
   );
 }
 
-/** Build a consecutive frame without crossing an authored integration
- * boundary or the resident source window. The first word always owns the ORP. */
+/** Build a consecutive frame within explicit word and rendered-character
+ * ceilings without crossing an authored integration boundary or the resident
+ * source window. The first word is unconditional and always owns the ORP. */
 export function rsvpFrameAt(
   page: RsvpSource,
   relativeToken: number,
-  wordsPerFrame: number,
+  limits: RsvpFrameLimits,
 ): RsvpFrame {
-  const maximum = effectiveRsvpWordsPerFrame(wordsPerFrame, false);
-  const budget = RSVP_FRAME_GRAPHEME_BUDGET_PER_WORD * maximum;
+  const maximum = effectiveRsvpWordsPerFrame(limits.wordsPerFrame, false);
+  const charLimit = boundedInteger(
+    limits.charLimit,
+    RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+    RSVP_MIN_FRAME_CHAR_LIMIT,
+    RSVP_MAX_FRAME_CHAR_LIMIT,
+  );
   const words: RsvpWordFrame[] = [];
   for (let index = relativeToken; words.length < maximum; index++) {
     const word = rsvpWordFrame(page, index);
     const first = words[0];
     if (
       first !== undefined
-      && rsvpGraphemes(renderedFrameText(page, first, word)).length > budget
+      && rsvpGraphemes(renderedFrameText(page, first, word)).length > charLimit
     ) break;
     words.push(word);
     if (rsvpIsFrameStop(page, index, word)) break;
@@ -413,7 +437,7 @@ export function rsvpFrameAt(
 export function rsvpPreviousFrameStart(
   page: RsvpSource,
   relativeToken: number,
-  wordsPerFrame: number,
+  limits: RsvpFrameLimits,
 ): number {
   const tokenCount = page.tokens.end - page.tokens.start;
   if (!Number.isSafeInteger(relativeToken) || relativeToken < 0 || relativeToken >= tokenCount) {
@@ -433,7 +457,7 @@ export function rsvpPreviousFrameStart(
   let previous = relativeToken;
   for (let index = partitionStart; index < relativeToken;) {
     previous = index;
-    const frame = rsvpFrameAt(page, index, wordsPerFrame);
+    const frame = rsvpFrameAt(page, index, limits);
     index += frame.words.length;
   }
   return previous;

@@ -151,11 +151,13 @@ export function RsvpReader({
   const playbackPacing = useMemo<RsvpPacing>(() => ({
     wpm: mode.wpm,
     wordsPerFrame: effectiveWords,
+    frameCharLimit: mode.frameCharLimit,
     sentencePauseMs: mode.sentencePauseMs,
     paragraphPauseMs: mode.paragraphPauseMs,
     lengthEmphasis: mode.lengthEmphasis,
   }), [
     effectiveWords,
+    mode.frameCharLimit,
     mode.lengthEmphasis,
     mode.paragraphPauseMs,
     mode.sentencePauseMs,
@@ -223,9 +225,12 @@ export function RsvpReader({
   const relative = resident ? cursor - resident.tokens.start : -1;
   const frame = useMemo(
     () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpFrameAt(resident, relative, effectiveWords)
+      ? rsvpFrameAt(resident, relative, {
+          wordsPerFrame: effectiveWords,
+          charLimit: mode.frameCharLimit,
+        })
       : null,
-    [effectiveWords, relative, resident],
+    [effectiveWords, mode.frameCharLimit, relative, resident],
   );
   const span = useMemo(
     () => resident && relative >= 0 && relative < resident.tokens.end - resident.tokens.start
@@ -248,9 +253,12 @@ export function RsvpReader({
     () => resident
       && relative >= 0
       && relative < resident.tokens.end - resident.tokens.start
-      ? rsvpPreviousFrameStart(resident, relative, effectiveWords)
+      ? rsvpPreviousFrameStart(resident, relative, {
+          wordsPerFrame: effectiveWords,
+          charLimit: mode.frameCharLimit,
+        })
       : relative,
-    [effectiveWords, relative, resident],
+    [effectiveWords, mode.frameCharLimit, relative, resident],
   );
   const pausedContext = useMemo(
     () => resident && frame && source.status !== 'error' && !mode.playing && !completed

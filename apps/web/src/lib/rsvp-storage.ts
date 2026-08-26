@@ -1,25 +1,31 @@
 import {
+  RSVP_DEFAULT_FRAME_CHAR_LIMIT,
+  RSVP_MAX_FRAME_CHAR_LIMIT,
   RSVP_MAX_LENGTH_EMPHASIS,
   RSVP_MAX_PARAGRAPH_PAUSE_MS,
   RSVP_MAX_SENTENCE_PAUSE_MS,
   RSVP_MAX_WORDS_PER_FRAME,
   RSVP_MAX_WPM,
   RSVP_MIN_WORDS_PER_FRAME,
+  RSVP_MIN_FRAME_CHAR_LIMIT,
   RSVP_MIN_WPM,
   RSVP_PACING_DEFAULTS,
   type RsvpPacing,
 } from '@texttrends/rsvp';
 
 export const RSVP_WPM_STORAGE_KEY = 'texttrends/rsvp-pace/1';
-export const RSVP_PACING_STORAGE_KEY = 'texttrends/rsvp-rhythm/2';
+export const RSVP_PACING_V2_STORAGE_KEY = 'texttrends/rsvp-rhythm/2';
+export const RSVP_PACING_STORAGE_KEY = 'texttrends/rsvp-rhythm/3';
 
 const PACING_KEYS = Object.freeze([
+  'frameCharLimit',
   'lengthEmphasis',
   'paragraphPauseMs',
   'sentencePauseMs',
   'wordsPerFrame',
   'wpm',
 ]);
+const PACING_V2_KEYS = Object.freeze(PACING_KEYS.filter((key) => key !== 'frameCharLimit'));
 
 type StorageReader = Pick<Storage, 'getItem'>;
 type StorageWriter = Pick<Storage, 'setItem'>;
@@ -42,10 +48,16 @@ function parseRecord(raw: string | null): Record<string, unknown> | null {
 export function loadRsvpPacing(storage: StorageReader | null): RsvpPacing | null {
   if (storage === null) return null;
   try {
-    const record = parseRecord(storage.getItem(RSVP_PACING_STORAGE_KEY));
-    if (record === null || Object.keys(record).sort().join('\u001f') !== PACING_KEYS.join('\u001f')) {
-      return null;
-    }
+    const currentRaw = storage.getItem(RSVP_PACING_STORAGE_KEY);
+    const legacyV2 = currentRaw === null;
+    const record = parseRecord(
+      currentRaw ?? storage.getItem(RSVP_PACING_V2_STORAGE_KEY),
+    );
+    const expectedKeys = legacyV2 ? PACING_V2_KEYS : PACING_KEYS;
+    if (
+      record === null
+      || Object.keys(record).sort().join('\u001f') !== expectedKeys.join('\u001f')
+    ) return null;
     if (
       !integerBetween(record.wpm, RSVP_MIN_WPM, RSVP_MAX_WPM)
       || !integerBetween(
@@ -57,16 +69,33 @@ export function loadRsvpPacing(storage: StorageReader | null): RsvpPacing | null
       || !integerBetween(record.paragraphPauseMs, 0, RSVP_MAX_PARAGRAPH_PAUSE_MS)
       || record.paragraphPauseMs < record.sentencePauseMs
       || !integerBetween(record.lengthEmphasis, 0, RSVP_MAX_LENGTH_EMPHASIS)
+      || (!legacyV2 && !integerBetween(
+        record.frameCharLimit,
+        RSVP_MIN_FRAME_CHAR_LIMIT,
+        RSVP_MAX_FRAME_CHAR_LIMIT,
+      ))
     ) return null;
     return {
       wpm: record.wpm,
       wordsPerFrame: record.wordsPerFrame,
+      frameCharLimit: legacyV2
+        ? RSVP_DEFAULT_FRAME_CHAR_LIMIT
+        : record.frameCharLimit as number,
       sentencePauseMs: record.sentencePauseMs,
       paragraphPauseMs: record.paragraphPauseMs,
       lengthEmphasis: record.lengthEmphasis,
     };
   } catch {
     return null;
+  }
+}
+
+export function hasRsvpPacingV3(storage: StorageReader | null): boolean {
+  if (storage === null) return false;
+  try {
+    return storage.getItem(RSVP_PACING_STORAGE_KEY) !== null;
+  } catch {
+    return false;
   }
 }
 

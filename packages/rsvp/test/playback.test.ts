@@ -76,7 +76,10 @@ describe('RSVP playback boundaries', () => {
       for (let token = source.tokens.start; token < source.tokens.end; token++) {
         let total = 0;
         for (let relative = token - source.tokens.start; relative < source.tokens.end;) {
-          const frame = rsvpFrameAt(source, relative, wordsPerFrame);
+          const frame = rsvpFrameAt(source, relative, {
+            wordsPerFrame,
+            charLimit: pacing.frameCharLimit,
+          });
           total += rsvpFrameHoldMs(rsvpSpanPlan(source, relative, pacing), frame);
           relative += frame.words.length;
         }
