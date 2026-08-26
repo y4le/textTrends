@@ -194,9 +194,11 @@ name distinguishes the Find subject from its de-emphasized context.
   Reader marks, Matches, and navigation until exit. Main and footer trend-line
   and barcode surfaces retain durable terms as deemphasized visual context.
 - An edge/no-hit result remains explicit. Once the exact match window for a hit
-  lands, the Find explainer strip shows its one-based position and total as `x/y`;
-  progress stays hidden while seeking so retained windows cannot mislabel a
-  newer hit. Activating that current-result explainer opens Reader at the hit.
+  lands, wider layouts show its one-based position and total as `x/y`; compact
+  layouts show a bounded percentage while retaining exact progress in the
+  action's accessible name and live status. Progress stays hidden while seeking
+  so retained windows cannot mislabel a newer hit. Activating that
+  current-result explainer opens Reader at the hit.
 
 The existing worker query accepts an arbitrary `KwicTrack`, so seeking can
 reuse the occurrence cache and `occurrence-step/1`. Find uses separate transient
@@ -207,12 +209,17 @@ only the explicit Save action crosses that boundary through normal Terms admissi
 
 ### Touch behavior
 
-Touch opens Find from Help/Tools. On the workbench the Find composer owns the
-fixed Terms rail; in Reader it floats above the visual keyboard. Both expose
-Find, Save, ←, →, and × as 44px controls. The three action glyphs share one
-size and target style. After a result lands, the
-composer retains ←, →, and × so repeated navigation does not
-require reopening the keyboard. No swipe gesture is required.
+Touch opens Find from Help/Tools. In both the workbench and Reader, compact Find
+owns the retained Terms rail: the query field fills that row and a temporary
+44px controls row opens above it. Before submission the controls are Find and
+Clear and close. A current submitted draft exposes Previous, Next, Save, and
+Clear and close; once a result is ready it also exposes the fixed-width
+result-progress action. Editing the draft returns to Find and Clear and close
+until it is submitted again. The visible progress uses a bounded percentage,
+while its accessible name and live status retain the exact match and total.
+After submission, the Previous, Next, and Clear-and-close glyphs share one size
+and target style. Repeated navigation does not require reopening the keyboard,
+and no swipe gesture is required.
 
 ## Speed reading mode
 
