@@ -54,7 +54,7 @@ for (const viewport of viewports) {
 
 test('brand, Scope, and Lens share one header row where Lens is not docked', async ({ page }) => {
   for (const viewport of [
-    { width: 768, height: 1024 },
+    { width: 960, height: 1024 },
     { width: 1440, height: 900 },
   ]) {
     await page.setViewportSize(viewport);
@@ -434,26 +434,4 @@ test('structural rules and safe viewport contract are active', async ({ page }) 
     expect(contrastRatio(contract.rule, contract.background)).toBeGreaterThanOrEqual(1.6);
     expect(contract.viewport).toContain('viewport-fit=cover');
   }
-});
-
-test('the horizontally overflowing Corpus and analysis status are keyboard-scrollable', async ({ page }) => {
-  await page.setViewportSize({ width: 320, height: 800 });
-  await page.goto('./');
-  await awaitAllReady(page, { loadDemo: true });
-  await gotoPlace(page, 'inputs');
-  const firstText = page.getByRole('table', { name: 'Text details' })
-    .locator('tr[data-catalog-book]')
-    .first();
-  await firstText.getByRole('button').first().click();
-  await page.getByRole('region', { name: /Text detail:/ })
-    .getByRole('button', { name: 'select this text' })
-    .click();
-  const details = page.getByRole('group', { name: 'Corpus and analysis status' });
-  await expect(details).toHaveAttribute('tabindex', '0');
-  expect(await details.evaluate((node) => node.scrollWidth > node.clientWidth)).toBe(true);
-  await details.focus();
-  await page.keyboard.press('End');
-  await expect.poll(() => details.evaluate((node) => node.scrollLeft)).toBeGreaterThan(0);
-  await page.keyboard.press('Home');
-  await expect.poll(() => details.evaluate((node) => node.scrollLeft)).toBe(0);
 });

@@ -48,12 +48,15 @@ test('text detail preserves scope while select this text explicitly rescopes lin
 
   const beforeScope = (await trace(page)).events.at(-1)?.seq ?? -1;
   await textDetail.getByRole('button', { name: 'select this text' }).click();
-  await expect(scope.getByRole('button', {
-    name: /review linked range in Trends/,
-  })).toBeVisible();
+  const scopeChip = scope.getByRole('button', { name: /Open scope details/ });
+  await expect(scopeChip).toBeVisible();
   await expect(scope).toContainText(title);
   await expect(scope).toContainText(/tokens 1–/);
-  await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
+  await scopeChip.click();
+  await expect(page.locator('#scope-details:popover-open')
+    .getByRole('button', { name: 'Use all texts' })).toBeVisible();
+  await page.locator('#scope-details:popover-open')
+    .getByRole('button', { name: 'close' }).click();
   await expect(rows).toHaveCount(6);
   await expect(secondRow.getByRole('rowheader').getByRole('button')).toHaveText(declaredTitle);
   expect(await secondRow.locator('.catalog-term-total').allInnerTexts()).toEqual(termCountsBefore);
@@ -87,7 +90,7 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   // one-step escape must remain enabled and correctly labelled.
   await gotoPlace(page, 'trends');
   await clearNotebook(page);
-  await expect(scope.getByRole('button', { name: 'All books' })).toBeVisible();
+  await expect(scopeChip).toBeVisible();
   await gotoPlace(page, 'inputs');
   await titleButton.click();
   await expect(textDetail).toBeVisible();
@@ -96,7 +99,9 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   await expect(detailEscape).not.toHaveAttribute('aria-disabled');
   await expect(secondRow.getByRole('rowheader')).toHaveAccessibleName(title);
 
-  await scope.getByRole('button', { name: 'All books' }).click();
+  await scopeChip.click();
+  await page.locator('#scope-details:popover-open')
+    .getByRole('button', { name: 'Use all texts' }).click();
   await expect(scope.getByText('all 6 books', { exact: true })).toHaveCount(0);
   await expect(rows).toHaveCount(6);
 });

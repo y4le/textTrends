@@ -948,36 +948,223 @@ canvas {
 }
 
 .scope-organ {
+  container: scope-organ / inline-size;
   min-width: 0;
   overflow: hidden;
 }
 
 .scope-organ-content {
   display: flex;
+  min-width: 0;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 0 var(--space-2);
-  overflow-x: auto;
-  overscroll-behavior-inline: contain;
-  padding-block: var(--space-1);
+}
+
+.scope-chip {
+  display: flex;
+  min-width: 0;
+  min-inline-size: 44px;
+  min-block-size: var(--chrome-target-block-size);
+  max-width: 100%;
+  align-items: center;
+  gap: 0.6ch;
+  overflow: hidden;
+  padding: 0 var(--space-1);
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
   color: var(--fg-muted);
+  background: none;
+  cursor: pointer;
+  font: inherit;
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   white-space: nowrap;
 }
 
-.scope-organ-content > * {
-  flex: 0 0 auto;
+.scope-chip[data-narrowed='true'] {
+  color: var(--fg);
 }
 
-.scope-organ-link {
-  padding: 0;
-  border: 0;
-  border-bottom: 1px solid var(--rule-strong);
-  color: inherit;
+.scope-chip-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.scope-chip-title-short,
+.scope-chip-magnitude-compact {
+  display: none;
+}
+
+.scope-chip-magnitude,
+.scope-chip-alert {
+  flex: 0 0 auto;
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-chip-alert {
+  color: var(--accent-text);
+  font-weight: 700;
+}
+
+.scope-details[popover] {
+  position: fixed;
+  inset-block: calc(var(--page-shell-pad-block-start) + var(--chrome-target-block-size) + 1px) auto;
+  inset-inline: calc(var(--space-3) + env(safe-area-inset-left, 0px)) auto;
+  box-sizing: border-box;
+  inline-size: min(32rem, calc(100vw - 2 * var(--space-3)));
+  max-block-size:
+    calc(
+      100dvh
+      - var(--page-shell-pad-block-start)
+      - var(--chrome-target-block-size)
+      - 2 * var(--space-3)
+    );
+  margin: 0;
+  overflow: auto;
+  padding: var(--space-3);
+  border: 1px solid var(--rule-strong);
+  color: var(--fg);
+  background: var(--bg);
+  box-shadow: 0 1rem 3rem color-mix(in srgb, #000 18%, transparent);
+}
+
+.scope-details::backdrop {
+  background: transparent;
+}
+
+.scope-details-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding-block-end: var(--space-2);
+  border-bottom: 1px solid var(--rule);
+}
+
+.scope-details-header h2,
+.scope-details-header p,
+.scope-details-note {
+  margin: 0;
+}
+
+.scope-details-header h2 {
+  font-size: var(--text-md);
+}
+
+.scope-details-header p,
+.scope-details-note,
+.scope-details-facts {
+  color: var(--fg-muted);
+  font-size: var(--text-sm);
+}
+
+.scope-details-header p {
+  margin-block-start: var(--space-1);
+}
+
+.scope-details-header button,
+.scope-details-actions button {
+  padding-inline: var(--space-2);
+  border: 1px solid var(--rule-strong);
+  color: var(--fg);
   background: none;
   cursor: pointer;
   font: inherit;
+}
+
+.scope-details-facts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2) var(--space-3);
+  margin-block: var(--space-3);
+}
+
+.scope-details-facts > div {
+  min-width: 0;
+}
+
+.scope-details-facts dt {
+  color: var(--fg);
+  font-size: var(--text-xs);
+}
+
+.scope-details-facts dd {
+  margin: var(--space-1) 0 0;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
+}
+
+.scope-details-note + .scope-details-note {
+  margin-block-start: var(--space-2);
+}
+
+.scope-details-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-2);
+  border-top: 1px solid var(--rule);
+}
+
+@media (max-width: 1199.98px) {
+  .scope-chip-title-expanded {
+    display: none;
+  }
+
+  .scope-chip-title-short {
+    display: inline;
+  }
+}
+
+@media (max-width: 599.98px) {
+  .scope-chip {
+    gap: 0.35ch;
+    padding-inline: 0;
+  }
+
+  .scope-chip-title,
+  .scope-chip-magnitude-exact {
+    display: none;
+  }
+
+  .scope-chip:not([data-has-magnitude]) .scope-chip-title-short {
+    display: inline;
+  }
+
+  .scope-chip-magnitude-compact {
+    display: inline;
+  }
+
+  .scope-details[popover] {
+    inset: auto 0 0;
+    inline-size: 100%;
+    max-block-size:
+      calc(
+        100dvh
+        - var(--chrome-target-block-size)
+        - env(safe-area-inset-top, 0px)
+      );
+    padding:
+      var(--space-3)
+      calc(var(--space-3) + env(safe-area-inset-right, 0px))
+      calc(var(--space-3) + env(safe-area-inset-bottom, 0px))
+      calc(var(--space-3) + env(safe-area-inset-left, 0px));
+    border-width: 1px 0 0;
+  }
+}
+
+/* Preserve the number before the title when the header gives Scope a narrow
+ * track around the navigation handoff. The full value remains in the button's
+ * name and details surface; only its visible notation becomes compact. */
+@container scope-organ (max-width: 10rem) {
+  .scope-chip-magnitude-exact {
+    display: none;
+  }
+
+  .scope-chip-magnitude-compact {
+    display: inline;
+  }
 }
 
 /* Inputs workspace ------------------------------------------------------- */
@@ -6561,6 +6748,63 @@ html[data-footer-resizing='true'] * {
       calc(var(--space-3) + env(safe-area-inset-right, 0px));
     inset-block-end:
       calc(var(--keyboard-inset) + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+/* The full five-place navigation leaves the header before it can consume the
+ * scope track. This fit threshold is deliberately independent of the 600px
+ * compact-density breakpoint: 600–959px keeps regular content density while
+ * reserving a bottom navigation row. */
+@media (min-width: 600px) and (max-width: 959.98px) {
+  :root {
+    --lens-block-size: calc(var(--chrome-target-block-size) + 2 * var(--space-1) + 1px);
+    scroll-padding-block:
+      calc(var(--chrome-target-block-size) + var(--space-2))
+      calc(var(--lens-block-size) + var(--dock-block-size) + var(--space-2));
+  }
+
+  .app-shell,
+  .app-shell[data-place='matches'],
+  .app-shell[data-place='vocabulary'],
+  .app-shell[data-place='compare'] {
+    padding-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--dock-block-size)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .workbench-dock {
+    inset-block-end:
+      calc(
+        var(--lens-block-size)
+        + var(--keyboard-inset)
+        + env(safe-area-inset-bottom, 0px)
+      );
+  }
+
+  .lens-organ {
+    position: fixed;
+    z-index: 40;
+    inset-inline: 0;
+    inset-block-end: 0;
+    justify-content: space-evenly;
+    gap: 0;
+    padding:
+      var(--space-1)
+      env(safe-area-inset-right, 0px)
+      calc(var(--space-1) + env(safe-area-inset-bottom, 0px))
+      env(safe-area-inset-left, 0px);
+    border-top: 1px solid var(--rule-strong);
+    background: var(--bg);
+  }
+
+  .lens-organ a {
+    min-block-size: var(--chrome-target-block-size);
+    justify-content: center;
+    padding-inline: var(--space-1);
+    font-size: var(--text-sm);
   }
 }
 

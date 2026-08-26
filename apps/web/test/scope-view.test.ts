@@ -55,6 +55,7 @@ const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
   linkedSelection: null,
   titleByDoc: new Map([['a', 'A Study in Scarlet']]),
   loadingPhase: null,
+  totalCorpusTokens: 461_992,
   ...overrides,
 });
 
@@ -69,6 +70,15 @@ describe('scopeView', () => {
     expect(loading.docsInScope).toBeNull();
     expect(loading.tokensInScope).toBeNull();
     expect(loading.segments.some((segment) => segment.endsWith('tokens'))).toBe(false);
+    expect(loading.chip).toMatchObject({
+      shortTitle: 'loading',
+      magnitude: null,
+      narrowed: false,
+    });
+
+    const residentLoading = scopeView(input({ loadingPhase: 'refreshing index…' }), 'trends');
+    expect(residentLoading.chip?.expandedTitle).toBe('refreshing index…');
+    expect(residentLoading.chip?.accessibleName).toContain('refreshing index…');
 
     const pending = scopeView(input({
       inventory: {
@@ -93,6 +103,7 @@ describe('scopeView', () => {
     expect(empty.readyText).toBe('nothing is being analyzed');
     expect(empty.segments).toEqual(['No active inputs', 'nothing is being analyzed']);
     expect(empty.announcement).toBe('No active inputs · nothing is being analyzed');
+    expect(empty.chip).toBeNull();
   });
 
   it('reports progress while the first input is still pending finalization', () => {
@@ -165,6 +176,7 @@ describe('scopeView', () => {
     expect(view.segments).toContain('all 6 books');
     expect(view.segments).toContain('461,992 tokens');
     expect(view.readyText).toBe('6/6 books ready');
+    expect(view.chip).toBeNull();
   });
 
   it('renders a half-open committed range as 1-based inclusive evidence', () => {
@@ -191,6 +203,42 @@ describe('scopeView', () => {
       label: 'A Study in Scarlet · tokens 1–3 · 3 tokens',
     });
     expect(view.segments).toContain('1 book in scope');
+    expect(view.chip).toEqual({
+      expandedTitle: 'A Study in Scarlet',
+      shortTitle: 'range',
+      magnitude: '3 tokens',
+      compactMagnitude: '3',
+      accessibleName:
+        'range · 3 tokens · 3 · A Study in Scarlet · Scope: A Study in Scarlet · tokens 1–3 · 3 tokens · 3 of 461,992 corpus tokens selected · Open scope details',
+      narrowed: true,
+      partial: false,
+    });
+  });
+
+  it.each([
+    { tokens: 1_500, compact: '1.5k' },
+    { tokens: 10_000, compact: '10k' },
+    { tokens: 1_000_000, compact: '1m' },
+  ])('compacts a $tokens-token range as $compact without hiding its exact magnitude', ({
+    tokens,
+    compact,
+  }) => {
+    const linkedSelection = {
+      snapshot: 'snapshot-1',
+      ranges: [{ doc: 'a', tokens: { start: 0, end: tokens } }],
+    } as const;
+    const view = scopeView(input({
+      linkedSelection,
+      inventory: {
+        snapshot: 'snapshot-1',
+        selection: linkedSelection,
+        state: { status: 'ready', result: inventoryResult(1, tokens) },
+      },
+    }), 'trends');
+
+    expect(view.chip?.magnitude).toBe(`${tokens.toLocaleString()} tokens`);
+    expect(view.chip?.compactMagnitude).toBe(compact);
+    expect(view.chip?.accessibleName).toContain(compact);
   });
 
   it('labels the endpoints and total of a cross-book range', () => {
@@ -222,6 +270,13 @@ describe('scopeView', () => {
       label: 'Alpha token 9 → Beta token 4 · 6 tokens across 2 books',
     });
     expect(view.segments).toContain('2 books in scope');
+    expect(view.chip).toMatchObject({
+      expandedTitle: 'Alpha → Beta',
+      shortTitle: '2-book range',
+      magnitude: '6 tokens',
+      compactMagnitude: '6',
+    });
+    expect(view.chip?.accessibleName).toContain('Alpha → Beta');
   });
 
   it('reports partial readiness without pretending unavailable books are ready', () => {
@@ -236,6 +291,12 @@ describe('scopeView', () => {
     expect(view.partial).toBe(true);
     expect(view.readyText).toBe('4/6 books ready');
     expect(view.segments).toContain('partial corpus');
+    expect(view.chip).toMatchObject({
+      expandedTitle: 'Partial corpus',
+      magnitude: '2 unavailable',
+      compactMagnitude: '2 missing',
+      partial: true,
+    });
   });
 
   it('states the Compare range exception only where it applies', () => {

@@ -41,7 +41,7 @@ test('a reading-order drag selects across a book boundary', async ({ page }) => 
 
   await gotoPlace(page, 'inputs');
   await expect(page.getByRole('button', {
-    name: /alpha token .* → beta token .* across 2 books — review linked range in Trends/i,
+    name: /Scope: alpha token .* → beta token .* across 2 books.*Open scope details/i,
   })).toBeVisible();
   const rows = page.getByRole('table', { name: 'Text details' })
     .locator(':scope > tbody > tr[data-catalog-book]');

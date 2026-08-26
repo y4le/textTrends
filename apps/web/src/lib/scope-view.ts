@@ -24,6 +24,9 @@ export interface ScopeInput {
   readonly linkedSelection: TokenRangeSelectionV1 | null;
   readonly titleByDoc: ReadonlyMap<string, string>;
   readonly loadingPhase: string | null;
+  /** Selection-independent token total retained from authenticated document
+   * extents. Null means the full total is not resident yet. */
+  readonly totalCorpusTokens: number | null;
 }
 
 export interface ScopeRangeVM {
@@ -39,6 +42,21 @@ export interface ScopeRangeVM {
   readonly label: string;
 }
 
+export interface ScopeChipVM {
+  /** Truncating document/status title used when the header has room. */
+  readonly expandedTitle: string;
+  /** Width-independent fallback title; CSS chooses it without a JS query. */
+  readonly shortTitle: string;
+  /** Exact magnitude. It is rendered in a non-shrinking span. */
+  readonly magnitude: string | null;
+  /** Compact but never ellipsized magnitude for the narrowest header. */
+  readonly compactMagnitude: string | null;
+  /** Complete button name, independent of the visible responsive summary. */
+  readonly accessibleName: string;
+  readonly narrowed: boolean;
+  readonly partial: boolean;
+}
+
 export interface ScopeVM {
   readonly corpusName: string;
   readonly readyText: string;
@@ -47,9 +65,24 @@ export interface ScopeVM {
   readonly range: ScopeRangeVM | null;
   readonly partial: boolean;
   readonly missingDocs: readonly string[];
+  readonly missingDocTitles: readonly string[];
+  readonly totalCorpusTokens: number | null;
   readonly exception: string | null;
+  readonly chip: ScopeChipVM | null;
   readonly announcement: string;
   readonly segments: readonly string[];
+}
+
+function compactNumber(value: number): string {
+  const magnitude = Math.abs(value);
+  const compact = (divisor: number, suffix: string) => {
+    const scaled = value / divisor;
+    const digits = Math.abs(scaled) < 10 && !Number.isInteger(scaled) ? 1 : 0;
+    return `${scaled.toFixed(digits).replace(/\.0$/u, '')}${suffix}`;
+  };
+  if (magnitude >= 1_000_000) return compact(1_000_000, 'm');
+  if (magnitude >= 1_000) return compact(1_000, 'k');
+  return number.format(value);
 }
 
 export function corpusName(project: ScopeProject | null): string {
@@ -125,6 +158,71 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   if (partial) segments.push('partial corpus');
   if (exception) segments.push(exception);
 
+  const missingDocTitles = missing.map((doc) => input.titleByDoc.get(doc) ?? doc);
+  const loading = !empty && (
+    input.project === null
+    || input.snapshot === null
+    || input.loadingPhase !== null
+  );
+  const loadingTitle = input.loadingPhase ?? 'Preparing corpus';
+  const chip: ScopeChipVM | null = range !== null
+    ? (() => {
+        const shortTitle = range.documents === 1
+          ? 'range'
+          : `${number.format(range.documents)}-book range`;
+        const magnitude = `${number.format(range.tokens)} tokens`;
+        const compactMagnitude = compactNumber(range.tokens);
+        return {
+          expandedTitle: range.docTitle,
+          shortTitle,
+          magnitude,
+          compactMagnitude,
+          accessibleName: [
+            `${shortTitle} · ${magnitude}`,
+            compactMagnitude === magnitude ? null : compactMagnitude,
+            range.docTitle,
+            `Scope: ${range.label}`,
+            input.totalCorpusTokens === null
+              ? null
+              : `${number.format(range.tokens)} of ${number.format(input.totalCorpusTokens)} corpus tokens selected`,
+            partial ? 'partial corpus' : null,
+            exception,
+            'Open scope details',
+          ].filter((part): part is string => part !== null).join(' · '),
+          narrowed: true,
+          partial,
+        };
+      })()
+    : partial
+      ? {
+          expandedTitle: 'Partial corpus',
+          shortTitle: 'partial',
+          magnitude: `${number.format(missing.length)} unavailable`,
+          compactMagnitude: `${number.format(missing.length)} missing`,
+          accessibleName: [
+            'Partial corpus',
+            'partial',
+            `${number.format(missing.length)} unavailable`,
+            `${number.format(missing.length)} missing`,
+            `Scope: ${segments.join(' · ')}`,
+            'Open scope details',
+          ].join(' · '),
+          narrowed: false,
+          partial: true,
+        }
+      : loading
+        ? {
+            expandedTitle: loadingTitle,
+            shortTitle: 'loading',
+            magnitude: null,
+            compactMagnitude: null,
+            accessibleName:
+              `${loadingTitle} · loading · Scope: ${segments.join(' · ')} · Open scope details`,
+            narrowed: false,
+            partial: false,
+          }
+        : null;
+
   return {
     corpusName: corpus,
     readyText,
@@ -133,7 +231,10 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
     range,
     partial,
     missingDocs: missing,
+    missingDocTitles,
+    totalCorpusTokens: input.totalCorpusTokens,
     exception,
+    chip,
     announcement: segments.join(' · '),
     segments,
   };

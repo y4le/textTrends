@@ -81,9 +81,11 @@ home of exact per-document term counts.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
 **Workbench sections** tab list, with Inputs first. Compare is available only
-when at least two texts are active. Compact portrait bottom-docks every
-available destination; compact landscape uses a left rail. There is no
-hamburger or analytically ambiguous “More” menu.
+when at least two texts are active. The complete five-place list remains in the
+header only at widths where it and the scope signal fit without collision. It
+bottom-docks below 960px; compact landscape keeps its left rail. This navigation
+fit threshold is intentionally separate from the 600px compact-density
+breakpoint. There is no hamburger or analytically ambiguous “More” menu.
 
 The query string owns one presentation key:
 
@@ -111,13 +113,17 @@ The publisher signature is the first header item and links to
 `https://yalethom.as/` in the current context. The brand, Scope status, and
 Workbench sections share one header row. The selected workbench tab supplies
 the active place name; the analytical surface does not repeat it as an interior
-title. Scope is
-a single-line local horizontal scroll port when its facts do not fit. Compact
-portrait shortens the visible publisher signature to `textTrends` so the
-global Find, Settings, and Help actions remain touch-sized and reachable; the
-link's accessible name and destination retain the publisher identity. Compact
-portrait and landscape move the Workbench section links to their governed
-bottom or side dock without duplicating the navigation DOM.
+title. Scope is a conditional single-line control: a complete loaded
+whole-corpus state stays quiet, while a linked range, partial corpus, or active
+loading state exposes a compact signal and a non-modal details surface. The
+signal may truncate its title but never its numeric magnitude; when its own
+track narrows, the visible magnitude switches to compact notation while Scope
+details retain the exact value. Compact portrait
+shortens the visible publisher signature to `textTrends` so the global Find,
+Settings, and Help actions remain touch-sized and reachable; the link's
+accessible name and destination retain the publisher identity. Widths below
+960px move the Workbench section links to their governed bottom dock; compact
+landscape uses its side dock. Neither placement duplicates the navigation DOM.
 
 Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the

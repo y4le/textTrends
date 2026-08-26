@@ -12,6 +12,7 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await page.goto('./');
 
   const dock = page.locator('.workbench-dock');
+  const navigation = page.getByRole('navigation', { name: 'Workbench sections' });
   const terms = page.getByRole('complementary', { name: 'Terms' });
   const termButtons = terms.locator('[data-term-toggle]:not(:disabled)');
   await expect(terms).toBeVisible();
@@ -27,12 +28,13 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   await awaitAllReady(page);
   const footer = page.getByRole('complementary', { name: 'Reading position' });
   await expect(footer).toBeVisible();
-  const [dockBox, termsBox, footerBox] = await Promise.all([
+  const [dockBox, termsBox, footerBox, navigationBox] = await Promise.all([
     dock.boundingBox(),
     terms.boundingBox(),
     footer.boundingBox(),
+    navigation.boundingBox(),
   ]);
-  if (!dockBox || !termsBox || !footerBox || railTopBefore === undefined) {
+  if (!dockBox || !termsBox || !footerBox || !navigationBox || railTopBefore === undefined) {
     throw new Error('dock geometry is unavailable');
   }
   const [railSize, dockSize, footerSize, viewportHeight] = await Promise.all([
@@ -49,7 +51,9 @@ test('the fixed dock adds Reading only when active inputs exist', async ({ page 
   expect(dockBox.height).toBe(dockSize);
   expect(dockBox.height).toBe(railSize + footerSize);
   expect(Math.abs(termsBox.y + termsBox.height - footerBox.y)).toBeLessThanOrEqual(1);
-  expect(Math.abs(dockBox.y + dockBox.height - viewportHeight)).toBeLessThanOrEqual(1);
+  expect(await navigation.evaluate((node) => getComputedStyle(node).position)).toBe('fixed');
+  expect(Math.abs(dockBox.y + dockBox.height - navigationBox.y)).toBeLessThanOrEqual(1);
+  expect(Math.abs(navigationBox.y + navigationBox.height - viewportHeight)).toBeLessThanOrEqual(1);
 
   const dockTopBeforeScroll = dockBox.y;
   await page.evaluate(() => window.scrollTo(0, document.documentElement.scrollHeight));

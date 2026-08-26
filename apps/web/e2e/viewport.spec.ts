@@ -102,7 +102,6 @@ test('compact header reflows the publisher mark without starving single-line Sco
       right: box.right,
       brand: { top: brand.top, bottom: brand.bottom },
       scope: { top: scope.top, bottom: scope.bottom },
-      scopeWidth: scope.width,
       scopeClientHeight: content.clientHeight,
       scopeScrollHeight: content.scrollHeight,
       actions,
@@ -111,9 +110,6 @@ test('compact header reflows the publisher mark without starving single-line Sco
     };
   });
   expect(geometry.height).toBeLessThanOrEqual(60);
-  // This is the temporary scroller floor. The scope-chip slice replaces the
-  // port with a width-aware signal rather than treating 44px as prose space.
-  expect(geometry.scopeWidth).toBeGreaterThanOrEqual(44);
   for (const child of [geometry.brand, geometry.scope]) {
     expect(child.top).toBeGreaterThanOrEqual(geometry.top);
     expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);

@@ -1,22 +1,31 @@
 import { useMemo } from 'react';
 import { scopeView } from '../lib/scope-view.ts';
 import { useApp } from '../lib/store-instance.ts';
-import { fullTokensByDoc } from '../lib/doc-tokens.ts';
-import { isWholeBookSelection } from '../lib/corpus-view.ts';
+import { ScopeDetails, SCOPE_DETAILS_ID } from './ScopeDetails.tsx';
 
 export function StatusBar() {
   const snapshot = useApp((state) => state.snapshot);
   const inventory = useApp((state) => state.inventory);
   const linkedSelection = useApp((state) => state.linkedSelection);
-  const projectSession = useApp((state) => state.projectSession);
+  const project = useApp((state) => state.projectSession?.project ?? null);
+  const pendingInputCount = useApp((state) => state.projectSession?.imports.length ?? 0);
   const loadingPhase = useApp((state) => state.loadingPhase);
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
   const setLinkedSelection = useApp((state) => state.setLinkedSelection);
-  const trends = useApp((state) => state.trends);
   const place = useApp((state) => state.place);
   const setPlace = useApp((state) => state.setPlace);
+  const totalCorpusTokens = useApp((state) => {
+    const order = state.projectSession?.project.data.order ?? [];
+    if (order.length === 0) return null;
+    let total = 0;
+    for (const doc of order) {
+      const tokens = state.corpusTokenCounts.get(doc);
+      if (tokens === undefined) return null;
+      total += tokens;
+    }
+    return total;
+  });
 
-  const project = projectSession?.project ?? null;
   const titleByDoc = useMemo(
     () => new Map(
       (project?.data.docs ?? []).map((document) => [document.doc, document.meta.title] as const),
@@ -29,7 +38,7 @@ export function StatusBar() {
         project: project
           ? { kind: project.kind, id: project.id, docCount: project.data.order.length }
           : null,
-        pendingInputCount: projectSession?.imports.length ?? 0,
+        pendingInputCount,
         snapshot,
         inventory,
         linkedSelection,
@@ -37,6 +46,7 @@ export function StatusBar() {
         loadingPhase: bootstrapPhase === 'initializing'
           ? 'preparing your inputs…'
           : loadingPhase,
+        totalCorpusTokens,
       },
       place,
     ),
@@ -47,27 +57,18 @@ export function StatusBar() {
       loadingPhase,
       place,
       project,
-      projectSession?.imports.length,
+      pendingInputCount,
       snapshot,
       titleByDoc,
+      totalCorpusTokens,
     ],
   );
-  const onlyRange = linkedSelection?.ranges.length === 1
-    ? linkedSelection.ranges[0]!
-    : null;
-  const selectionFullTokens = onlyRange === null
-    ? null
-    : fullTokensByDoc(onlyRange.doc, { inventory, trends });
-  const isOnlyThisBook = onlyRange !== null
-    && selectionFullTokens !== null
-    && isWholeBookSelection(linkedSelection, onlyRange.doc, selectionFullTokens);
-  // Keep the persistent header quiet at whole-corpus scope. A committed range
-  // remains visible because it carries navigation and clear actions; Compare's
-  // range exception remains beside it. The complete status is still announced
-  // through the live region above.
-  const visibleSegments = vm.range === null
-    ? []
-    : [vm.range.label, ...(vm.exception === null ? [] : [vm.exception])];
+  const useAllTexts = () => {
+    setLinkedSelection(null);
+    requestAnimationFrame(() => {
+      document.getElementById('global-find-open')?.focus({ preventScroll: true });
+    });
+  };
 
   return (
     <section
@@ -82,79 +83,48 @@ export function StatusBar() {
       >
         {vm.announcement}
       </span>
-      <div
-        className="scope-organ-content"
-        role="group"
-        aria-label="Corpus and analysis status"
-        tabIndex={0}
-        onKeyDown={(event) => {
-          // A focusable overflow region is not consistently keyboard-scrollable
-          // across engines. Own the conventional horizontal keys when the
-          // region itself (rather than one of its controls) has focus.
-          if (event.target !== event.currentTarget) return;
-          const region = event.currentTarget;
-          const page = Math.max(40, Math.round(region.clientWidth * 0.8));
-          switch (event.key) {
-            case 'ArrowLeft':
-              region.scrollBy({ left: -40 });
-              break;
-            case 'ArrowRight':
-              region.scrollBy({ left: 40 });
-              break;
-            case 'Home':
-              region.scrollTo({ left: 0 });
-              break;
-            case 'End':
-              region.scrollTo({ left: region.scrollWidth });
-              break;
-            case 'PageUp':
-              region.scrollBy({ left: -page });
-              break;
-            case 'PageDown':
-              region.scrollBy({ left: page });
-              break;
-            default:
-              return;
-          }
-          event.preventDefault();
-        }}
-      >
-        {visibleSegments.map((segment, index) => (
-          <span key={`${index}:${segment}`} style={{ display: 'inline-flex', gap: '0.5ch' }}>
-            {index > 0 && <span aria-hidden="true">·</span>}
-            {segment === vm.range?.label
-              ? (
-                  <button
-                    className="scope-organ-link coarse-target"
-                    type="button"
-                    aria-label={`${segment} — review linked range in Trends`}
-                    onClick={() => setPlace('trends')}
-                  >
-                    {segment}
-                  </button>
-                )
-              : <span>{segment}</span>}
-            {segment === vm.range?.label && (
-              <button
-                className="coarse-target"
-                type="button"
-                aria-label={isOnlyThisBook ? 'All books' : 'Clear linked range'}
-                onClick={() => setLinkedSelection(null)}
-                style={{
-                  font: 'inherit',
-                  color: 'var(--fg)',
-                  background: 'none',
-                  border: 0,
-                  borderBottom: '1px solid var(--rule-strong)',
-                  cursor: 'pointer',
-                  padding: 0,
-                }}
-              >
-                {isOnlyThisBook ? 'all books' : '× clear'}
-              </button>
-            )}
-          </span>
-        ))}
+      <div className="scope-organ-content">
+        {vm.chip !== null && (
+          <>
+            <button
+              id="scope-chip"
+              className="scope-chip coarse-target"
+              type="button"
+              aria-label={vm.chip.accessibleName}
+              popoverTarget={SCOPE_DETAILS_ID}
+              data-narrowed={vm.chip.narrowed || undefined}
+              data-partial={vm.chip.partial || undefined}
+              data-has-magnitude={vm.chip.compactMagnitude !== null || undefined}
+            >
+              <span className="scope-chip-title scope-chip-title-expanded" aria-hidden="true">
+                {vm.chip.expandedTitle}
+              </span>
+              <span className="scope-chip-title scope-chip-title-short" aria-hidden="true">
+                {vm.chip.shortTitle}
+              </span>
+              {vm.chip.magnitude !== null && (
+                <span className="scope-chip-magnitude scope-chip-magnitude-exact" aria-hidden="true">
+                  {vm.chip.magnitude}
+                </span>
+              )}
+              {vm.chip.compactMagnitude !== null && (
+                <span className="scope-chip-magnitude scope-chip-magnitude-compact" aria-hidden="true">
+                  {vm.chip.compactMagnitude}
+                </span>
+              )}
+              {vm.chip.partial && (
+                <span className="scope-chip-alert" aria-hidden="true">!</span>
+              )}
+            </button>
+            <ScopeDetails
+              vm={vm}
+              canReviewRange={vm.range !== null && place !== 'trends'}
+              onUseAllTexts={useAllTexts}
+              onReviewRange={() => setPlace('trends')}
+              onReviewInputs={() => setPlace('inputs')}
+            />
+          </>
+        )}
       </div>
     </section>
   );
