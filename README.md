@@ -56,12 +56,21 @@ Requires Node 22.12+ and pnpm 10.19.
 ```sh
 pnpm install
 pnpm dev
+pnpm dev:tailnet
 pnpm typecheck
 pnpm test
 pnpm build
 pnpm --filter @texttrends/web e2e:functional
 pnpm --filter @texttrends/web e2e:viewport
 ```
+
+`pnpm dev:tailnet` keeps Vite on loopback and registers the app at the
+path-scoped `https://<tailnet-host>/textTrends/` route through
+`tailnet-dev-host`. The route can coexist with other project routes on the
+standard HTTPS port; the launcher prints its exact URL and removal command.
+Use the printed tailnet URL for live reload: this mode configures secure HMR
+for that HTTPS endpoint, not for direct loopback browsing.
+Browser tests use a separate strict port and never reuse a running dev server.
 
 Run the occurrence stress harness with:
 

@@ -21,7 +21,10 @@
 
 import { defineConfig, devices } from '@playwright/test';
 
-const e2ePort = Number.parseInt(process.env.TT_E2E_PORT ?? '4173', 10);
+// Keep browser verification off Vite's conventional 4173 preview port. Other
+// workspaces may have a long-running dev server there, and accepting an
+// arbitrary 2xx response would make Playwright test the wrong application.
+const e2ePort = Number.parseInt(process.env.TT_E2E_PORT ?? '43173', 10);
 if (!Number.isSafeInteger(e2ePort) || e2ePort < 1 || e2ePort > 65_535) {
   throw new RangeError('TT_E2E_PORT must be an integer from 1 through 65535');
 }
@@ -58,7 +61,7 @@ export default defineConfig({
   webServer: {
     command: `pnpm build:e2e && pnpm preview --host 127.0.0.1 --port ${e2ePort} --strictPort`,
     url: `${e2eOrigin}/textTrends/`,
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 });

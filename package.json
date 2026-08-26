@@ -12,6 +12,7 @@
   },
   "scripts": {
     "dev": "pnpm build:se && pnpm --filter @texttrends/web dev",
+    "dev:tailnet": "pnpm build:se && bash scripts/dev-tailnet.sh",
     "build": "pnpm typecheck && pnpm --filter @texttrends/web build:bundle && pnpm check:bundle",
     "check:bundle": "node scripts/check-bundle.mjs",
     "build:se": "pnpm --filter @texttrends/standard-ebooks build",
