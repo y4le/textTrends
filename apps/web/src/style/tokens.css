@@ -715,18 +715,46 @@ canvas {
   display: grid;
   max-block-size: 45vh;
   padding-block-start: var(--space-2);
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: minmax(12rem, 0.7fr) minmax(0, 2.3fr);
   gap: var(--space-2);
   overflow: auto;
 }
 
-.reader-rsvp-rhythm-note {
+.reader-rsvp-settings-group {
+  display: grid;
+  min-inline-size: 0;
+  align-content: start;
+  padding: var(--space-2);
+  border: 1px solid var(--rule);
+  gap: var(--space-2);
+}
+
+.reader-rsvp-frame-settings {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.reader-rsvp-rhythm-settings {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.reader-rsvp-settings-group > h3,
+.reader-rsvp-settings-note {
   grid-column: 1 / -1;
   margin: 0;
+}
+
+.reader-rsvp-settings-group > h3 {
+  padding-block-end: var(--space-1);
+  border-bottom: 1px solid var(--rule);
+  color: var(--fg);
+  font-size: inherit;
+}
+
+.reader-rsvp-settings-note {
   text-align: center;
 }
 
-.reader-rsvp-rhythm-body > label {
+.reader-rsvp-settings-group > label {
   display: grid;
   min-inline-size: 0;
   gap: var(--space-1);
@@ -746,6 +774,12 @@ canvas {
 
 .reader-rsvp-rhythm-body select {
   inline-size: 100%;
+}
+
+.reader-rsvp-rhythm-body input[aria-disabled='true'] {
+  background: color-mix(in srgb, var(--bg) 94%, var(--fg-muted));
+  color: var(--fg-muted);
+  cursor: not-allowed;
 }
 
 .reader-rsvp-setting-input {
@@ -813,6 +847,11 @@ canvas {
   }
 
   .reader-rsvp-rhythm-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: var(--space-1);
+  }
+
+  .reader-rsvp-rhythm-settings {
     grid-template-columns: minmax(0, 1fr);
     gap: var(--space-1);
   }

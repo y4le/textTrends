@@ -10,12 +10,15 @@ import {
   rsvpBoundedFrameStart,
   rsvpCursorStep,
   rsvpNeedsContinuation,
+  RSVP_FRAME_CHAR_LIMIT_STEP,
   RSVP_LENGTH_EMPHASIS_STEP,
+  RSVP_MAX_FRAME_CHAR_LIMIT,
   RSVP_MAX_LENGTH_EMPHASIS,
   RSVP_MAX_PARAGRAPH_PAUSE_MS,
   RSVP_MAX_SENTENCE_PAUSE_MS,
   RSVP_MAX_WPM,
   RSVP_MIN_EXPOSURE_MS,
+  RSVP_MIN_FRAME_CHAR_LIMIT,
   RSVP_MIN_WPM,
   RSVP_PARAGRAPH_PAUSE_STEP_MS,
   RSVP_REST_CUE_MIN_MS,
@@ -67,21 +70,30 @@ interface PlaybackPhase {
   readonly startedAt: number;
 }
 
-type RhythmNumberKey = 'sentencePauseMs' | 'paragraphPauseMs' | 'lengthEmphasis';
+type NumberSettingKey =
+  | 'frameCharLimit'
+  | 'sentencePauseMs'
+  | 'paragraphPauseMs'
+  | 'lengthEmphasis';
 
 const RSVP_PACE_HELP_ID = 'reader-rsvp-pace-help';
 const RSVP_HIGH_SPEED_HELP_ID = 'reader-rsvp-high-speed-help';
 const RSVP_MULTI_WORD_HINT_WPM = 1_200;
+const RSVP_FRAME_CHAR_LIMIT_HELP_ID = 'reader-rsvp-frame-char-limit-help';
+const RSVP_FRAME_GROUP_HEADING_ID = 'reader-rsvp-frame-group-heading';
+const RSVP_RHYTHM_GROUP_HEADING_ID = 'reader-rsvp-rhythm-group-heading';
 const RSVP_SENTENCE_REST_HELP_ID = 'reader-rsvp-sentence-rest-help';
 const RSVP_PARAGRAPH_REST_HELP_ID = 'reader-rsvp-paragraph-rest-help';
 
-const RHYTHM_NUMBER_LABEL: Readonly<Record<RhythmNumberKey, string>> = Object.freeze({
+const NUMBER_SETTING_LABEL: Readonly<Record<NumberSettingKey, string>> = Object.freeze({
+  frameCharLimit: 'character limit',
   sentencePauseMs: 'sentence rest',
   paragraphPauseMs: 'paragraph rest',
   lengthEmphasis: 'length emphasis',
 });
 
-const RHYTHM_NUMBER_UNIT: Readonly<Record<RhythmNumberKey, string>> = Object.freeze({
+const NUMBER_SETTING_UNIT: Readonly<Record<NumberSettingKey, string>> = Object.freeze({
+  frameCharLimit: 'characters',
   sentencePauseMs: 'milliseconds',
   paragraphPauseMs: 'milliseconds',
   lengthEmphasis: 'percent',
@@ -122,7 +134,8 @@ export function RsvpReader({
   const [completed, setCompleted] = useState(false);
   const [editingPace, setEditingPace] = useState(false);
   const [paceDraft, setPaceDraft] = useState(String(mode.wpm));
-  const [rhythmDrafts, setRhythmDrafts] = useState<Record<RhythmNumberKey, string>>({
+  const [settingDrafts, setSettingDrafts] = useState<Record<NumberSettingKey, string>>({
+    frameCharLimit: String(mode.frameCharLimit),
     sentencePauseMs: String(mode.sentencePauseMs),
     paragraphPauseMs: String(mode.paragraphPauseMs),
     lengthEmphasis: String(mode.lengthEmphasis),
@@ -135,7 +148,7 @@ export function RsvpReader({
   });
   const resumeAfterEdit = useRef(false);
   const editingPaceRef = useRef(false);
-  const editingRhythmRef = useRef<RhythmNumberKey | null>(null);
+  const editingSettingRef = useRef<NumberSettingKey | null>(null);
   const requestedSource = useRef<string | null>(null);
   const nextFrameStart = useRef<number | null>(null);
   const shellRef = useRef<HTMLDivElement | null>(null);
@@ -148,6 +161,7 @@ export function RsvpReader({
     mode.wordsPerFrame,
     presentation.width === 'compact',
   );
+  const frameLimitInert = effectiveWords === 1;
   const playbackPacing = useMemo<RsvpPacing>(() => ({
     wpm: mode.wpm,
     wordsPerFrame: effectiveWords,
@@ -175,18 +189,21 @@ export function RsvpReader({
   }, [editingPace, mode.wpm]);
 
   useEffect(() => {
-    setRhythmDrafts((current) => ({
-      sentencePauseMs: editingRhythmRef.current === 'sentencePauseMs'
+    setSettingDrafts((current) => ({
+      frameCharLimit: editingSettingRef.current === 'frameCharLimit'
+        ? current.frameCharLimit
+        : String(mode.frameCharLimit),
+      sentencePauseMs: editingSettingRef.current === 'sentencePauseMs'
         ? current.sentencePauseMs
         : String(mode.sentencePauseMs),
-      paragraphPauseMs: editingRhythmRef.current === 'paragraphPauseMs'
+      paragraphPauseMs: editingSettingRef.current === 'paragraphPauseMs'
         ? current.paragraphPauseMs
         : String(mode.paragraphPauseMs),
-      lengthEmphasis: editingRhythmRef.current === 'lengthEmphasis'
+      lengthEmphasis: editingSettingRef.current === 'lengthEmphasis'
         ? current.lengthEmphasis
         : String(mode.lengthEmphasis),
     }));
-  }, [mode.lengthEmphasis, mode.paragraphPauseMs, mode.sentencePauseMs]);
+  }, [mode.frameCharLimit, mode.lengthEmphasis, mode.paragraphPauseMs, mode.sentencePauseMs]);
 
   useEffect(() => {
     setSettingStatus('');
@@ -423,34 +440,46 @@ export function RsvpReader({
     onSetPacing(patch);
     setSettingStatus(status);
   };
-  const finishRhythmEdit = (key: RhythmNumberKey, commit: boolean) => {
-    if (editingRhythmRef.current !== key) return;
-    editingRhythmRef.current = null;
-    const parsed = rhythmDrafts[key].trim() === '' ? Number.NaN : Number(rhythmDrafts[key]);
+  const finishNumberSettingEdit = (key: NumberSettingKey, commit: boolean) => {
+    if (editingSettingRef.current !== key) return;
+    editingSettingRef.current = null;
+    if (key === 'frameCharLimit' && frameLimitInert) {
+      setSettingDrafts((current) => ({
+        ...current,
+        frameCharLimit: String(mode.frameCharLimit),
+      }));
+      return;
+    }
+    const parsed = settingDrafts[key].trim() === '' ? Number.NaN : Number(settingDrafts[key]);
     if (commit && Number.isFinite(parsed)) {
-      const patch = { [key]: parsed } as Pick<RsvpPacing, RhythmNumberKey>;
+      const patch = { [key]: parsed } as Pick<RsvpPacing, NumberSettingKey>;
       const bounded = clampRsvpPacing({ ...mode, ...patch });
       updatePacing(
         patch,
-        `${RHYTHM_NUMBER_LABEL[key]} ${bounded[key]} ${RHYTHM_NUMBER_UNIT[key]}`,
+        `${NUMBER_SETTING_LABEL[key]} ${bounded[key]} ${NUMBER_SETTING_UNIT[key]}`,
       );
     } else {
-      setRhythmDrafts((current) => ({ ...current, [key]: String(mode[key]) }));
+      setSettingDrafts((current) => ({ ...current, [key]: String(mode[key]) }));
     }
   };
-  const handleRhythmNumberKeyDown = (
+  const handleNumberSettingKeyDown = (
     event: KeyboardEvent<HTMLInputElement>,
-    key: RhythmNumberKey,
+    key: NumberSettingKey,
   ) => {
-    if (event.key === 'Enter') {
-      event.preventDefault();
-      event.stopPropagation();
-      finishRhythmEdit(key, true);
-      event.currentTarget.blur();
-    } else if (event.key === 'Escape' || shortcutMatches(event, 'reader-rsvp-toggle')) {
+    if (event.key === 'Escape' || shortcutMatches(event, 'reader-rsvp-toggle')) {
       event.preventDefault();
       event.stopPropagation();
       exit();
+    } else if (key === 'frameCharLimit' && frameLimitInert) {
+      if (event.key !== 'Tab') {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    } else if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      finishNumberSettingEdit(key, true);
+      event.currentTarget.blur();
     } else {
       stopControlSpace(event);
     }
@@ -733,129 +762,181 @@ export function RsvpReader({
             onSetPlaying(false);
           }}
         >
-          <summary data-rsvp-control="true" onKeyDown={stopControlSpace}>rhythm</summary>
+          <summary data-rsvp-control="true" onKeyDown={stopControlSpace}>frame &amp; rhythm</summary>
           <div className="reader-rsvp-rhythm-body">
-            <p className="reader-rsvp-rhythm-note">
-              Rest values are maxima taken from the current sentence&rsquo;s time.
-              {restSummary === '' ? '' : ` Current ${restSummary}.`}
-            </p>
-            <label data-rsvp-control="true">
-              <span>rhythm preset</span>
-              <select
-                data-rsvp-control="true"
-                aria-label="Rhythm preset"
-                value={preset}
-                onChange={(event) => {
-                  const value = event.currentTarget.value;
-                  if (value !== 'custom') selectPreset(value as RsvpRhythmPreset);
-                }}
-                onKeyDown={stopControlSpace}
-              >
-                <option value="natural">Natural</option>
-                <option value="even">Even</option>
-                <option value="study">Study</option>
-                <option value="custom" disabled>Custom</option>
-              </select>
-            </label>
-
-            <label data-rsvp-control="true">
-              <span className="reader-rsvp-setting-label">
-                sentence rest
-                <span id={RSVP_SENTENCE_REST_HELP_ID}>at most · from sentence time</span>
-              </span>
-              <span className="reader-rsvp-setting-input">
-                <input
-                  data-rsvp-control="true"
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  max={RSVP_MAX_SENTENCE_PAUSE_MS}
-                  step={RSVP_SENTENCE_PAUSE_STEP_MS}
-                  value={rhythmDrafts.sentencePauseMs}
-                  aria-label="Sentence rest in milliseconds"
-                  aria-describedby={RSVP_SENTENCE_REST_HELP_ID}
-                  onFocus={(event) => {
-                    editingRhythmRef.current = 'sentencePauseMs';
-                    event.currentTarget.select();
-                  }}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRhythmDrafts((current) => ({ ...current, sentencePauseMs: value }));
-                  }}
-                  onKeyDown={(event) => handleRhythmNumberKeyDown(event, 'sentencePauseMs')}
-                  onBlur={() => finishRhythmEdit('sentencePauseMs', true)}
-                />
-                <span>ms</span>
-              </span>
-            </label>
-
-            <label data-rsvp-control="true">
-              <span className="reader-rsvp-setting-label">
-                paragraph rest
-                <span id={RSVP_PARAGRAPH_REST_HELP_ID}>at most · from sentence time</span>
-              </span>
-              <span className="reader-rsvp-setting-input">
-                <input
-                  data-rsvp-control="true"
-                  type="number"
-                  inputMode="numeric"
-                  min={mode.sentencePauseMs}
-                  max={RSVP_MAX_PARAGRAPH_PAUSE_MS}
-                  step={RSVP_PARAGRAPH_PAUSE_STEP_MS}
-                  value={rhythmDrafts.paragraphPauseMs}
-                  aria-label="Paragraph rest in milliseconds"
-                  aria-describedby={RSVP_PARAGRAPH_REST_HELP_ID}
-                  onFocus={(event) => {
-                    editingRhythmRef.current = 'paragraphPauseMs';
-                    event.currentTarget.select();
-                  }}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRhythmDrafts((current) => ({ ...current, paragraphPauseMs: value }));
-                  }}
-                  onKeyDown={(event) => handleRhythmNumberKeyDown(event, 'paragraphPauseMs')}
-                  onBlur={() => finishRhythmEdit('paragraphPauseMs', true)}
-                />
-                <span>ms</span>
-              </span>
-            </label>
-
-            <label data-rsvp-control="true">
-              <span>length emphasis</span>
-              <span className="reader-rsvp-setting-input">
-                <input
-                  data-rsvp-control="true"
-                  type="number"
-                  inputMode="numeric"
-                  min="0"
-                  max={RSVP_MAX_LENGTH_EMPHASIS}
-                  step={RSVP_LENGTH_EMPHASIS_STEP}
-                  value={rhythmDrafts.lengthEmphasis}
-                  aria-label="Length emphasis in percent"
-                  onFocus={(event) => {
-                    editingRhythmRef.current = 'lengthEmphasis';
-                    event.currentTarget.select();
-                  }}
-                  onChange={(event) => {
-                    const value = event.currentTarget.value;
-                    setRhythmDrafts((current) => ({ ...current, lengthEmphasis: value }));
-                  }}
-                  onKeyDown={(event) => handleRhythmNumberKeyDown(event, 'lengthEmphasis')}
-                  onBlur={() => finishRhythmEdit('lengthEmphasis', true)}
-                />
-                <span>%</span>
-              </span>
-            </label>
-
-            <button
-              type="button"
-              data-rsvp-control="true"
-              onClick={resetRhythm}
-              onKeyDown={stopControlSpace}
-              style={SMALL_BUTTON_STYLE}
+            <section
+              className="reader-rsvp-settings-group reader-rsvp-frame-settings"
+              aria-labelledby={RSVP_FRAME_GROUP_HEADING_ID}
             >
-              reset
-            </button>
+              <h3 id={RSVP_FRAME_GROUP_HEADING_ID}>frame</h3>
+              <p className="reader-rsvp-settings-note">
+                Frames stop at the word limit, the character limit, or punctuation — whichever
+                comes first. Spaces and punctuation count, and a single long word is always shown whole.
+              </p>
+              <label data-rsvp-control="true">
+                <span className="reader-rsvp-setting-label">
+                  character limit
+                  <span id={RSVP_FRAME_CHAR_LIMIT_HELP_ID}>
+                    {frameLimitInert ? 'applies with 2+ words' : 'per frame · at most'}
+                  </span>
+                </span>
+                <span className="reader-rsvp-setting-input">
+                  <input
+                    data-rsvp-control="true"
+                    type="number"
+                    inputMode="numeric"
+                    min={RSVP_MIN_FRAME_CHAR_LIMIT}
+                    max={RSVP_MAX_FRAME_CHAR_LIMIT}
+                    step={RSVP_FRAME_CHAR_LIMIT_STEP}
+                    value={settingDrafts.frameCharLimit}
+                    readOnly={frameLimitInert}
+                    aria-disabled={frameLimitInert || undefined}
+                    aria-label="Frame character limit in characters"
+                    aria-describedby={RSVP_FRAME_CHAR_LIMIT_HELP_ID}
+                    onFocus={(event) => {
+                      editingSettingRef.current = 'frameCharLimit';
+                      event.currentTarget.select();
+                    }}
+                    onChange={(event) => {
+                      if (frameLimitInert) return;
+                      const value = event.currentTarget.value;
+                      setSettingDrafts((current) => ({ ...current, frameCharLimit: value }));
+                    }}
+                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'frameCharLimit')}
+                    onBlur={() => finishNumberSettingEdit('frameCharLimit', true)}
+                  />
+                  <span>chars</span>
+                </span>
+              </label>
+            </section>
+
+            <section
+              className="reader-rsvp-settings-group reader-rsvp-rhythm-settings"
+              aria-labelledby={RSVP_RHYTHM_GROUP_HEADING_ID}
+            >
+              <h3 id={RSVP_RHYTHM_GROUP_HEADING_ID}>rhythm</h3>
+              <p className="reader-rsvp-settings-note">
+                Rest values are maxima taken from the current sentence&rsquo;s time.
+                {restSummary === '' ? '' : ` Current ${restSummary}.`}
+              </p>
+              <label data-rsvp-control="true">
+                <span>rhythm preset</span>
+                <select
+                  data-rsvp-control="true"
+                  aria-label="Rhythm preset"
+                  value={preset}
+                  onChange={(event) => {
+                    const value = event.currentTarget.value;
+                    if (value !== 'custom') selectPreset(value as RsvpRhythmPreset);
+                  }}
+                  onKeyDown={stopControlSpace}
+                >
+                  <option value="natural">Natural</option>
+                  <option value="even">Even</option>
+                  <option value="study">Study</option>
+                  <option value="custom" disabled>Custom</option>
+                </select>
+              </label>
+
+              <label data-rsvp-control="true">
+                <span className="reader-rsvp-setting-label">
+                  sentence rest
+                  <span id={RSVP_SENTENCE_REST_HELP_ID}>at most · from sentence time</span>
+                </span>
+                <span className="reader-rsvp-setting-input">
+                  <input
+                    data-rsvp-control="true"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max={RSVP_MAX_SENTENCE_PAUSE_MS}
+                    step={RSVP_SENTENCE_PAUSE_STEP_MS}
+                    value={settingDrafts.sentencePauseMs}
+                    aria-label="Sentence rest in milliseconds"
+                    aria-describedby={RSVP_SENTENCE_REST_HELP_ID}
+                    onFocus={(event) => {
+                      editingSettingRef.current = 'sentencePauseMs';
+                      event.currentTarget.select();
+                    }}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettingDrafts((current) => ({ ...current, sentencePauseMs: value }));
+                    }}
+                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'sentencePauseMs')}
+                    onBlur={() => finishNumberSettingEdit('sentencePauseMs', true)}
+                  />
+                  <span>ms</span>
+                </span>
+              </label>
+
+              <label data-rsvp-control="true">
+                <span className="reader-rsvp-setting-label">
+                  paragraph rest
+                  <span id={RSVP_PARAGRAPH_REST_HELP_ID}>at most · from sentence time</span>
+                </span>
+                <span className="reader-rsvp-setting-input">
+                  <input
+                    data-rsvp-control="true"
+                    type="number"
+                    inputMode="numeric"
+                    min={mode.sentencePauseMs}
+                    max={RSVP_MAX_PARAGRAPH_PAUSE_MS}
+                    step={RSVP_PARAGRAPH_PAUSE_STEP_MS}
+                    value={settingDrafts.paragraphPauseMs}
+                    aria-label="Paragraph rest in milliseconds"
+                    aria-describedby={RSVP_PARAGRAPH_REST_HELP_ID}
+                    onFocus={(event) => {
+                      editingSettingRef.current = 'paragraphPauseMs';
+                      event.currentTarget.select();
+                    }}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettingDrafts((current) => ({ ...current, paragraphPauseMs: value }));
+                    }}
+                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'paragraphPauseMs')}
+                    onBlur={() => finishNumberSettingEdit('paragraphPauseMs', true)}
+                  />
+                  <span>ms</span>
+                </span>
+              </label>
+
+              <label data-rsvp-control="true">
+                <span>length emphasis</span>
+                <span className="reader-rsvp-setting-input">
+                  <input
+                    data-rsvp-control="true"
+                    type="number"
+                    inputMode="numeric"
+                    min="0"
+                    max={RSVP_MAX_LENGTH_EMPHASIS}
+                    step={RSVP_LENGTH_EMPHASIS_STEP}
+                    value={settingDrafts.lengthEmphasis}
+                    aria-label="Length emphasis in percent"
+                    onFocus={(event) => {
+                      editingSettingRef.current = 'lengthEmphasis';
+                      event.currentTarget.select();
+                    }}
+                    onChange={(event) => {
+                      const value = event.currentTarget.value;
+                      setSettingDrafts((current) => ({ ...current, lengthEmphasis: value }));
+                    }}
+                    onKeyDown={(event) => handleNumberSettingKeyDown(event, 'lengthEmphasis')}
+                    onBlur={() => finishNumberSettingEdit('lengthEmphasis', true)}
+                  />
+                  <span>%</span>
+                </span>
+              </label>
+
+              <button
+                type="button"
+                data-rsvp-control="true"
+                onClick={resetRhythm}
+                onKeyDown={stopControlSpace}
+                style={SMALL_BUTTON_STYLE}
+              >
+                reset
+              </button>
+            </section>
           </div>
         </details>
       </div>

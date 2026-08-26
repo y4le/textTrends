@@ -54,7 +54,9 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('aria-label="Pace in words per minute"');
     expect(html).toContain('including rests');
     expect(html).toContain('min="100" max="2000" step="25"');
-    expect(html).toContain('<summary data-rsvp-control="true">rhythm</summary>');
+    expect(html).toContain('<summary data-rsvp-control="true">frame &amp; rhythm</summary>');
+    expect(html).toContain('<h3 id="reader-rsvp-frame-group-heading">frame</h3>');
+    expect(html).toContain('<h3 id="reader-rsvp-rhythm-group-heading">rhythm</h3>');
     expect(html).toContain('Words at once (maximum)');
     expect(html).toContain('type="radio" aria-label="1 word at once"');
     expect(html).toContain('name="reader-rsvp-words-at-once" checked="" value="1"');
@@ -63,6 +65,12 @@ describe('RSVP Reader presentation', () => {
     expect(html).toContain('aria-label="Paragraph rest in milliseconds"');
     expect(html).toContain('aria-label="Length emphasis in percent"');
     expect(html).toContain('Rest values are maxima taken from the current sentence');
+    expect(html).toContain('aria-label="Frame character limit in characters"');
+    expect(html).toMatch(
+      /<input[^>]*min="12" max="40" step="2" readOnly="" aria-disabled="true"[^>]*value="30"\/>/u,
+    );
+    expect(html).toContain('applies with 2+ words');
+    expect(html).toContain('Spaces and punctuation count');
     expect(html).toContain('paragraph rest 700 ms (100 ms here)');
     const status = html.match(/<p class="visually-hidden" role="status"[^>]*>(.*?)<\/p>/)?.[1];
     expect(status).toContain('Speed reading playing at 300 words per minute including rests');
@@ -122,5 +130,11 @@ describe('RSVP Reader presentation', () => {
     expect(renderAt(1_500)).not.toContain('Boundary rests may be capped');
     expect(renderAt(1_501)).toContain('Boundary rests may be capped');
     expect(renderAt(2_000, 2)).not.toContain('Showing 2 or 3 words at once');
+    expect(renderAt(300, 2)).toMatch(
+      /<input[^>]*min="12" max="40" step="2"[^>]*value="30"\/>/u,
+    );
+    expect(renderAt(300, 2)).not.toMatch(
+      /<input[^>]*min="12" max="40" step="2"[^>]*aria-disabled="true"/u,
+    );
   });
 });
