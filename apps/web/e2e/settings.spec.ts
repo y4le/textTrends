@@ -4,7 +4,10 @@ import { awaitAllReady, gotoPlace, trace } from './helpers.ts';
 test('Trend settings separate result geometry from resident presentation', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
-  const contextualSettings = page.getByRole('button', { name: 'Trend settings', exact: true });
+  const contextualSettings = page.locator('.trend-panel-header')
+    .getByRole('button', { name: 'Trend settings', exact: true });
+  await expect(page.locator('.app-header')
+    .getByRole('button', { name: 'Trend settings', exact: true })).toHaveCount(0);
   const historyBefore = await page.evaluate(() => history.length);
   await contextualSettings.click();
   let pane = page.getByRole('dialog', { name: 'Settings' });

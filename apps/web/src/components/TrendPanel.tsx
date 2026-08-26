@@ -99,6 +99,8 @@ import {
 } from '../lib/trend-stage.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
+import { useOpenSettings } from './SettingsEntryContext.tsx';
+import { contextualSettingsEntry } from '../lib/settings-entry.ts';
 import {
   TOUCH_RANGE_HOLD_MS,
   beginTouchRangeGesture,
@@ -548,7 +550,24 @@ export function TrendPanel() {
 }
 
 function TrendPanelHeader({ children }: { readonly children: React.ReactNode }) {
-  return <div className="trend-panel-header">{children}</div>;
+  const openSettings = useOpenSettings();
+  return (
+    <div className="trend-panel-header">
+      <div className="trend-panel-controls">{children}</div>
+      <button
+        id="trend-settings-open"
+        className="trend-settings-trigger coarse-target"
+        type="button"
+        aria-haspopup="dialog"
+        onClick={(event) => openSettings(
+          contextualSettingsEntry('trends'),
+          event.currentTarget,
+        )}
+      >
+        Trend settings
+      </button>
+    </div>
+  );
 }
 
 function TrendViewSwitcher({

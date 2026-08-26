@@ -52,6 +52,42 @@ for (const viewport of [
     await gotoPlace(page, 'trends');
     await page.getByRole('button', { name: 'Combined sequence', exact: true }).click();
 
+    const plateHeader = await page.evaluate(() => {
+      const header = document.querySelector<HTMLElement>('.trend-panel-header');
+      const controls = document.querySelector<HTMLElement>('.trend-panel-controls');
+      const entrance = document.querySelector<HTMLElement>('#trend-settings-open');
+      if (!header || !controls || !entrance) return null;
+      const headerBox = header.getBoundingClientRect();
+      const before = entrance.getBoundingClientRect();
+      controls.scrollLeft = controls.scrollWidth;
+      const after = entrance.getBoundingClientRect();
+      const hit = document.elementFromPoint(
+        after.left + after.width / 2,
+        after.top + after.height / 2,
+      );
+      return {
+        header: { left: headerBox.left, right: headerBox.right },
+        entrance: { left: after.left, right: after.right },
+        shiftedByLocalScroll: Math.abs(after.left - before.left),
+        controlsOverflow: controls.scrollWidth > controls.clientWidth,
+        headerScrollWidth: header.scrollWidth,
+        headerClientWidth: header.clientWidth,
+        documentOverflows:
+          document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        hitTestable: hit === entrance || entrance.contains(hit),
+      };
+    });
+    expect(plateHeader).not.toBeNull();
+    expect(plateHeader!.entrance.left).toBeGreaterThanOrEqual(plateHeader!.header.left);
+    expect(plateHeader!.entrance.right).toBeLessThanOrEqual(plateHeader!.header.right + 1);
+    expect(plateHeader!.shiftedByLocalScroll).toBeLessThanOrEqual(1);
+    expect(plateHeader!.controlsOverflow).toBe(true);
+    expect(plateHeader!.headerScrollWidth).toBeLessThanOrEqual(
+      plateHeader!.headerClientWidth + 1,
+    );
+    expect(plateHeader!.documentOverflows).toBe(false);
+    expect(plateHeader!.hitTestable).toBe(true);
+
     const footer = page.getByRole('complementary', { name: 'Reading position' });
     const dock = page.locator('.workbench-dock');
     const lens = page.getByRole('navigation', { name: 'Workbench sections' });

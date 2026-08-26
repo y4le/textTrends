@@ -1463,14 +1463,36 @@ canvas {
 }
 
 .trend-panel-header {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   max-inline-size: 100%;
   align-items: center;
   gap: var(--space-3);
   margin-block-end: var(--tab-header-space-3);
+}
+
+.trend-panel-controls {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: var(--space-3);
   overflow-x: auto;
   overscroll-behavior-inline: contain;
   scrollbar-width: thin;
+}
+
+.trend-settings-trigger {
+  min-inline-size: 44px;
+  padding: 0;
+  border: 0;
+  border-bottom: 1px solid var(--rule-strong);
+  color: var(--fg-muted);
+  background: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  white-space: nowrap;
 }
 
 .trend-term-navigation {

@@ -16,7 +16,6 @@ import { ResumeStatus } from './components/ResumeStatus.tsx';
 import { WorkbenchTabs } from './components/WorkbenchTabs.tsx';
 import { PLACE_HEADING, type Place } from './lib/places.ts';
 import {
-  contextualSettingsEntry,
   globalSettingsEntry,
   type SettingsContext,
   type SettingsEntry,
@@ -275,10 +274,6 @@ export function App() {
     context: SettingsContext = place,
     returnFocus: HTMLElement | null = null,
   ) => openSettingsEntry(globalSettingsEntry(context), returnFocus);
-  const openContextualSettings = (
-    context: SettingsContext,
-    returnFocus: HTMLElement | null = null,
-  ) => openSettingsEntry(contextualSettingsEntry(context), returnFocus);
   const openDebug = (fromUtilityPane = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
@@ -891,9 +886,7 @@ export function App() {
             </a>
           </h1>
         </div>
-        <StatusBar
-          onOpenTrendSettings={(returnFocus) => openContextualSettings('trends', returnFocus)}
-        />
+        <StatusBar />
         <HeaderActions
           onOpenFind={() => openFind()}
           onOpenSettings={() => openSettings()}

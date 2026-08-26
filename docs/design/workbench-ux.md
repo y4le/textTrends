@@ -128,14 +128,14 @@ governed row details remain separate history layers.
 ### Scope organ
 
 Scope states the corpus, included documents or linked range, token count, and
-completeness. Its corpus label opens Inputs. **Find** and **Settings** are
-visible actions at every supported width. Trends retains a visible **Trend
-settings** contextual entrance and Compare retains its gear; both open the
-same Settings pane rather than a second settings surface. A versioned formatter
-contract exists for Trends, Vocabulary, and Compare provenance, limitations,
-and result export, but no production surface invokes it yet. Compare keeps its
-immediate profile, divergence, intervals, dispersion, and row evidence in the
-governed analysis surface.
+completeness. **Find**, **Settings**, and **Help** are pinned sibling actions at
+every supported width rather than children of Scope's overflow region. Trends
+and Compare keep contextual settings entrances inside their own analytical
+plates; both open the same Settings pane rather than a second settings surface.
+A versioned formatter contract exists for Trends, Vocabulary, and Compare
+provenance, limitations, and result export, but no production surface invokes
+it yet. Compare keeps its immediate profile, divergence, intervals, dispersion,
+and row evidence in the governed analysis surface.
 
 ### Inputs acquisition states
 
@@ -448,10 +448,11 @@ current or clicked position.
 
 ## Settings and provenance contract
 
-The graph carries no settings caption or embedded form. The Scope organ's
-contextual entrance opens the app-wide Settings pane at This place. The
-versioned provenance and result-export formatter remains a tested library
-contract, not a visible or copyable pane in the current product.
+The graph carries no embedded settings form. Its pinned **Trend settings**
+entrance opens the app-wide Settings pane at This place, matching Compare's
+plate-local entrance. The versioned provenance and result-export formatter
+remains a tested library contract, not a visible or copyable pane in the
+current product.
 
 Changing result geometry reissues only baseline and selected trend lanes.
 Changing resident presentation performs no worker query. Smoothing never
