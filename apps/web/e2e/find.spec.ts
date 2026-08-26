@@ -20,6 +20,109 @@ test('the header exposes Find to touch and restores focus on close', async ({ br
   await context.close();
 });
 
+test('the 320px Find takeover swaps progressive controls without changing dock metrics', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 568 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
+
+  const dock = page.locator('.workbench-dock');
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  const open = page.getByRole('button', { name: 'Find', exact: true });
+  const [closedDockBox, closedTermsBox] = await Promise.all([
+    dock.boundingBox(),
+    terms.boundingBox(),
+  ]);
+  if (!closedDockBox || !closedTermsBox) throw new Error('closed Find geometry is unavailable');
+
+  await open.click();
+  const find = page.getByRole('search', { name: 'Find in corpus' });
+  const takeover = find.getByRole('form', { name: 'Find in corpus controls' });
+  const input = takeover.getByRole('searchbox', { name: 'Find term or aliases' });
+  const upper = takeover.locator('.dock-takeover-upper');
+  const [openDockBox, openFindBox, inputBox, upperBox] = await Promise.all([
+    dock.boundingBox(),
+    find.boundingBox(),
+    input.boundingBox(),
+    upper.boundingBox(),
+  ]);
+  if (!openDockBox || !openFindBox || !inputBox || !upperBox) {
+    throw new Error('open Find geometry is unavailable');
+  }
+  expect(openDockBox).toEqual(closedDockBox);
+  expect(openFindBox).toEqual(closedTermsBox);
+  expect(Math.abs(inputBox.y + inputBox.height - (openFindBox.y + openFindBox.height)))
+    .toBeLessThanOrEqual(1);
+  expect(Math.abs(upperBox.y + upperBox.height - inputBox.y)).toBeLessThanOrEqual(1);
+  await expect(input).toHaveCSS('font-size', '16px');
+  await expect(input).toHaveAttribute('enterkeyhint', 'search');
+  await expect(takeover.locator('.dock-takeover-label')).toHaveCSS('clip-path', 'inset(50%)');
+  expect(await upper.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  await expect(find.getByRole('button', { name: 'Submit find' })).toBeVisible();
+  await expect(find.getByRole('button', { name: 'Save Find as term' })).toHaveCount(0);
+  for (const control of await takeover.getByRole('button').all()) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+
+  await input.fill('wo*lf');
+  await find.getByRole('button', { name: 'Submit find' }).click();
+  await expect(takeover.locator('.dock-takeover-status')).toContainText('start or end');
+  await expect(find.locator('#corpus-find-error')).toContainText('start or end');
+  await expect(input).toHaveValue('wo*lf');
+  await expect(input).toBeFocused();
+  await input.fill('the');
+  await expect(takeover.locator('.dock-takeover-status')).not.toContainText('start or end');
+  await input.press('Enter');
+  await expect(find.getByRole('button', { name: 'Next match' })).toBeFocused();
+  await expect(find.getByRole('button', { name: 'Submit find' })).toHaveCount(0);
+  await expect(find.getByRole('button', { name: /Open current Find result in Reader:/ }))
+    .toBeVisible();
+  for (const control of await takeover.getByRole('button').all()) {
+    const box = await control.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+  }
+  expect(await upper.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+
+  const progress = find.locator('[data-find-match-progress]');
+  const exactProgress = progress.locator('[data-find-match-exact]');
+  await expect(exactProgress).toHaveText(/^\d[\d,]*\/\d[\d,]*$/);
+  await expect(progress.locator('.find-bar-compact-progress')).toHaveText(/^\d{1,3}%$/);
+  const initialProgress = await exactProgress.textContent();
+  await find.getByRole('button', { name: 'Previous match' }).click();
+  await expect.poll(() => exactProgress.textContent()).not.toBe(initialProgress);
+  expect(await upper.evaluate((node) => node.scrollWidth <= node.clientWidth + 1)).toBe(true);
+  const [resultBox, closeBox] = await Promise.all([
+    find.getByRole('button', { name: /Open current Find result in Reader:/ }).boundingBox(),
+    find.getByRole('button', { name: 'Clear and close find' }).boundingBox(),
+  ]);
+  if (!resultBox || !closeBox) throw new Error('wrapped Find controls are unavailable');
+  expect(resultBox.width).toBe(44);
+  expect(closeBox.x + closeBox.width).toBeLessThanOrEqual(320);
+
+  await input.fill('there');
+  await expect(find.getByRole('button', { name: 'Submit find' })).toBeVisible();
+  await expect(find.getByRole('button', { name: 'Previous match' })).toHaveCount(0);
+  await expect(find.getByRole('button', { name: 'Next match' })).toHaveCount(0);
+  await expect(find.getByRole('button', { name: 'Save Find as term' })).toHaveCount(0);
+  await expect(input).toHaveValue('there');
+  await input.dispatchEvent('keydown', { key: 'Escape', isComposing: true });
+  await expect(find).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.press('Escape');
+  await expect(find).toHaveCount(0);
+  await expect(open).toBeFocused();
+
+  const overflow = await page.evaluate(() => ({
+    client: document.documentElement.clientWidth,
+    root: document.documentElement.scrollWidth,
+    body: document.body.scrollWidth,
+  }));
+  expect(overflow.root).toBeLessThanOrEqual(overflow.client);
+  expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+});
+
 test('temporary Find cycles exact corpus matches and preserves focus priority', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
@@ -54,9 +157,15 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   const status = find.locator('#corpus-find-status');
   await expect(find).toBeVisible();
   await expect(terms).toHaveCount(0);
-  await expect(find.locator('.term-bar-label')).toHaveText('Find');
+  await expect(find.locator('label[for="corpus-find-input"]')).toHaveText('Find');
   await expect(input).toBeFocused();
   await expect(input).toHaveAttribute('autocomplete', 'off');
+  if (testInfo.project.name === 'webkit-compact') {
+    await expect(find.getByRole('button', { name: 'Submit find' })).toBeVisible();
+    await expect(find.getByRole('button', { name: 'Save Find as term' })).toHaveCount(0);
+    await expect(find.getByRole('button', { name: 'Previous match' })).toHaveCount(0);
+    await expect(find.getByRole('button', { name: 'Next match' })).toHaveCount(0);
+  }
   await expect(seriesChart).toBeVisible();
   await expect.poll(async () => seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
     [...new Set(paths.map((path) => path.getAttribute('data-series-path')).filter(Boolean))].sort(),
@@ -82,15 +191,20 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(next).toBeFocused();
   await expect(status).toContainText(/holmes/i);
   await expect(status).not.toContainText('Searching');
-  const statusInsets = await status.evaluate((element) => {
-    const style = getComputedStyle(element);
-    return [style.insetInlineStart, style.insetInlineEnd];
-  });
-  expect(statusInsets[0]).toBe(statusInsets[1]);
-  const progress = status.locator('[data-find-match-progress]');
-  await expect(progress).toHaveText(/^\d[\d,]*\/\d[\d,]*$/);
+  if (testInfo.project.name !== 'webkit-compact') {
+    const statusInsets = await status.evaluate((element) => {
+      const style = getComputedStyle(element);
+      return [style.insetInlineStart, style.insetInlineEnd];
+    });
+    expect(statusInsets[0]).toBe(statusInsets[1]);
+  }
+  const progress = find.locator('[data-find-match-progress]');
+  const progressValue = testInfo.project.name === 'webkit-compact'
+    ? progress.locator('[data-find-match-exact]')
+    : progress;
+  await expect(progressValue).toHaveText(/^\d[\d,]*\/\d[\d,]*$/);
   await expect(progress).toHaveAccessibleName(/^Find match [\d,]+ of [\d,]+$/);
-  const firstProgress = await progress.textContent();
+  const firstProgress = await progressValue.textContent();
   await expect.poll(() => footer.getAttribute('aria-valuenow')).not.toBe(before);
   const result = find.getByRole('button', { name: /Open current Find result in Reader:/ });
   await result.focus();
@@ -202,14 +316,14 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
     const text = await status.textContent();
     return text?.includes('Searching') ? first : text;
   }).not.toBe(first);
-  await expect.poll(() => progress.textContent()).not.toBe(firstProgress);
+  await expect.poll(() => progressValue.textContent()).not.toBe(firstProgress);
   const second = await status.textContent();
   await input.press('Control+Shift+G');
   await expect.poll(async () => {
     const text = await status.textContent();
     return text?.includes('Searching') ? second : text;
   }).toBe(first);
-  await expect.poll(() => progress.textContent()).toBe(firstProgress);
+  await expect.poll(() => progressValue.textContent()).toBe(firstProgress);
 
   await find.getByRole('button', { name: 'Clear and close find' }).click();
   await expect(find).toHaveCount(0);
@@ -245,7 +359,11 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await input.fill('moriarty');
   await input.press('Enter');
   await expect(status).not.toContainText('Searching');
-  await expect(status).toBeVisible();
+  if (testInfo.project.name === 'webkit-compact') {
+    await expect(find.locator('.dock-takeover-status')).toBeVisible();
+  } else {
+    await expect(status).toBeVisible();
+  }
   await expect(reader).toBeVisible();
   await expect(reader.getByLabel('Reader query highlights')).toHaveCount(0);
   await expect(reader.locator('[data-reader-mark]').filter({ hasText: 'moriarty' }).first())
@@ -253,7 +371,6 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(reader.getByText('query changed', { exact: false })).toHaveCount(0);
   if (testInfo.project.name === 'webkit-compact') {
     for (const name of [
-      'Submit find',
       'Save Find as term',
       'Previous match',
       'Next match',
@@ -262,6 +379,10 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
       const box = await find.getByRole('button', { name }).boundingBox();
       expect(box?.height).toBeGreaterThanOrEqual(44);
     }
+    const resultBox = await find.getByRole('button', {
+      name: /Open current Find result in Reader:/,
+    }).boundingBox();
+    expect(resultBox?.height).toBeGreaterThanOrEqual(44);
     await simulateKeyboard(page, 280);
     const [box, viewport] = await Promise.all([
       find.boundingBox(),
@@ -288,7 +409,7 @@ test('temporary Find cycles exact corpus matches and preserves focus priority', 
   await expect(reader).toBeVisible();
 });
 
-test('Find saves its submitted aliases as one active term and disables Save at capacity', async ({ page }) => {
+test('Find saves its submitted aliases as one active term and disables Save at capacity', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
@@ -299,11 +420,19 @@ test('Find saves its submitted aliases as one active term and disables Save at c
   const find = page.getByRole('search', { name: 'Find in corpus' });
   const input = find.getByRole('searchbox', { name: 'Find term or aliases' });
   const save = find.getByRole('button', { name: 'Save Find as term' });
-  await expect(save).toBeDisabled();
+  if (testInfo.project.name === 'webkit-compact') await expect(save).toHaveCount(0);
+  else await expect(save).toBeDisabled();
   await input.fill('Baker Street, 221B');
   await input.press('Enter');
   await expect(save).toBeEnabled();
   await save.click();
+  if (testInfo.project.name === 'webkit-compact') {
+    const saved = find.getByRole('button', { name: 'Saved Find as term' });
+    await expect(saved).toHaveText('Saved');
+    await expect(saved).toBeDisabled();
+    await expect(saved).toHaveAttribute('title', 'Baker Street saved to Terms');
+    await expect(find.locator('#corpus-find-status')).toContainText('Saved Baker Street');
+  }
   await find.getByRole('button', { name: 'Clear and close find' }).click();
 
   const terms = page.getByRole('complementary', { name: 'Terms' });
@@ -368,7 +497,9 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   await expect(dialog).toHaveCount(0);
   await expect(input).toBeFocused();
   const glyphs = find.locator('.find-bar-action-glyph');
-  await expect(glyphs).toHaveText(['←', '→', '×']);
+  await expect(glyphs).toHaveText(testInfo.project.name === 'webkit-compact'
+    ? ['×']
+    : ['←', '→', '×']);
   const glyphMetrics = await glyphs.evaluateAll((nodes) => nodes.map((node) => {
     const style = getComputedStyle(node);
     return `${style.inlineSize}/${style.blockSize}/${style.fontSize}/${style.lineHeight}`;
@@ -376,8 +507,16 @@ test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', asy
   expect(new Set(glyphMetrics).size).toBe(1);
 
   if (testInfo.project.name === 'webkit-compact') {
+    for (const name of ['Submit find', 'Clear and close find']) {
+      const box = await find.getByRole('button', { name }).boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+    await input.fill('holmes');
+    await input.press('Enter');
+    await expect(find.getByRole('button', { name: 'Next match' })).toBeFocused();
+    await expect(glyphs).toHaveText(['←', '→', '×']);
     for (const name of [
-      'Submit find',
       'Save Find as term',
       'Previous match',
       'Next match',

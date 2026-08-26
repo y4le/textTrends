@@ -2,6 +2,7 @@ import type { FormEvent, KeyboardEvent, ReactNode, Ref } from 'react';
 
 export interface DockTakeoverInput {
   readonly id: string;
+  readonly ariaLabel?: string;
   readonly type: 'search' | 'text';
   readonly value: string;
   readonly placeholder: string;
@@ -58,6 +59,7 @@ export function DockTakeover({
           id={input.id}
           type={input.type}
           value={input.value}
+          aria-label={input.ariaLabel}
           aria-describedby={input.describedBy}
           placeholder={input.placeholder}
           enterKeyHint={input.enterKeyHint}

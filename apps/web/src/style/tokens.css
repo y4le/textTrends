@@ -4810,6 +4810,24 @@ html.reader-open .find-bar--floating {
   text-align: start;
 }
 
+.find-bar[data-takeover] .dock-takeover-result {
+  inline-size: 44px;
+  max-inline-size: 44px;
+  overflow: hidden;
+  padding-inline: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.find-bar[data-takeover] .dock-takeover-result [data-find-match-progress] {
+  display: grid;
+  inline-size: 100%;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+  place-items: center;
+}
+
 .find-bar-match-progress {
   display: inline-flex;
   flex: none;
