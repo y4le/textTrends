@@ -148,7 +148,7 @@ test('the footer resize handle accepts a direct touch drag', async ({
   expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
 });
 
-test('passage text pans freely and advances the shared corpus position', async ({
+test('the full passage and status area pans freely and advances the shared corpus position', async ({
   page,
   context,
   browserName,
@@ -162,10 +162,18 @@ test('passage text pans freely and advances the shared corpus position', async (
   await page.touchscreen.tap(sliderBox.x + sliderBox.width / 2, sliderBox.y + 5);
 
   const passage = page.locator('.footer-passage-coarse[data-passage-for]');
+  const status = page.locator('.footer-reading-status');
   await expect(passage).toBeVisible({ timeout: 15_000 });
   await expect(passage).toHaveCSS('touch-action', 'pan-x pinch-zoom');
-  const passageBox = await passage.boundingBox();
-  if (!passageBox) throw new Error('footer passage has no layout box');
+  await expect(status).toHaveCSS('pointer-events', 'none');
+  const [passageBox, statusBox] = await Promise.all([
+    passage.boundingBox(),
+    status.boundingBox(),
+  ]);
+  if (!passageBox || !statusBox) throw new Error('footer text area has no layout box');
+  expect(passageBox.y + passageBox.height).toBeGreaterThanOrEqual(
+    statusBox.y + statusBox.height - 1,
+  );
   const metrics = await passage.evaluate((node) => ({
     before: node.scrollLeft,
     max: node.scrollWidth - node.clientWidth,
@@ -174,9 +182,12 @@ test('passage text pans freely and advances the shared corpus position', async (
   const corpusPosition = Number(await slider.getAttribute('aria-valuenow'));
   const pageY = await page.evaluate(() => window.scrollY);
   const point = {
-    x: Math.round(passageBox.x + passageBox.width * 0.7),
-    y: Math.round(passageBox.y + passageBox.height / 2),
+    x: Math.round(statusBox.x + statusBox.width * 0.7),
+    y: Math.round(statusBox.y + statusBox.height / 2),
   };
+  expect(await page.evaluate(({ x, y }) =>
+    (document.elementFromPoint(x, y) as HTMLElement | null)
+      ?.closest('.footer-passage-coarse') !== null, point)).toBe(true);
   const cdp = await context.newCDPSession(page);
   await cdp.send('Input.dispatchTouchEvent', {
     type: 'touchStart',
@@ -197,6 +208,46 @@ test('passage text pans freely and advances the shared corpus position', async (
     .toBeGreaterThan(corpusPosition);
   expect(await page.evaluate(() => window.scrollY)).toBe(pageY);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+});
+
+test('the book/token status is pointer-transparent to the passage', async ({
+  page,
+}) => {
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  const slider = page.getByRole('slider', { name: 'Corpus footer position' });
+  const sliderBox = await slider.boundingBox();
+  if (!sliderBox) throw new Error('footer slider has no layout box');
+  await slider.click({ position: { x: sliderBox.width * 0.4, y: 5 } });
+  await page.mouse.move(1, 1);
+
+  const passage = page.locator('.footer-passage-coarse[data-passage-for]');
+  const status = page.locator('.footer-reading-status');
+  await expect(passage).toBeVisible({ timeout: 15_000 });
+  await expect.poll(async () => {
+    const valueText = await slider.getAttribute('aria-valuetext');
+    const token = /token ([\d,]+) of/.exec(valueText ?? '')?.[1];
+    return token
+      ? Number(await passage.getAttribute('data-passage-for'))
+        === Number(token.replaceAll(',', '')) - 1
+      : false;
+  }).toBe(true);
+  await expect(status).toHaveCSS('pointer-events', 'none');
+  const [passageBox, statusBox] = await Promise.all([
+    passage.boundingBox(),
+    status.boundingBox(),
+  ]);
+  if (!passageBox || !statusBox) throw new Error('footer text area has no layout box');
+  expect(passageBox.y + passageBox.height).toBeGreaterThanOrEqual(
+    statusBox.y + statusBox.height - 1,
+  );
+  const point = {
+    x: Math.round(statusBox.x + statusBox.width * 0.7),
+    y: Math.round(statusBox.y + statusBox.height / 2),
+  };
+  expect(await page.evaluate(({ x, y }) =>
+    (document.elementFromPoint(x, y) as HTMLElement | null)
+      ?.closest('.footer-passage-coarse') !== null, point)).toBe(true);
 });
 
 test('scrolling to resident text edges loads another source window without blank space', async ({

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useApp } from '../lib/store-instance.ts';
 import type { FooterPassageState, ScrubTarget } from '../lib/store.ts';
 import {
@@ -53,6 +53,19 @@ function splitAt(
   return output;
 }
 
+interface FooterPassageProps {
+  readonly passage: FooterPassageState | null;
+  readonly scrub: ScrubTarget | null;
+  readonly snapshot: string;
+  readonly title: string;
+  readonly crosshairXForToken: (doc: string, token: number) => number | null;
+  readonly coarse: boolean;
+  readonly widthClass: WidthClass;
+  readonly onPassageMarginChange: (tokens: number) => void;
+  readonly onVisibleTokensChange: (tokens: number) => void;
+  readonly onPassageWindowChange: (window: PassageWindowV1 | null) => void;
+}
+
 /** One clipped, selectable line of authenticated source text. This is a
  * transient readout. */
 export function FooterPassage({
@@ -66,18 +79,7 @@ export function FooterPassage({
   onPassageMarginChange,
   onVisibleTokensChange,
   onPassageWindowChange,
-}: {
-  readonly passage: FooterPassageState | null;
-  readonly scrub: ScrubTarget | null;
-  readonly snapshot: string;
-  readonly title: string;
-  readonly crosshairXForToken: (doc: string, token: number) => number | null;
-  readonly coarse: boolean;
-  readonly widthClass: WidthClass;
-  readonly onPassageMarginChange: (tokens: number) => void;
-  readonly onVisibleTokensChange: (tokens: number) => void;
-  readonly onPassageWindowChange: (window: PassageWindowV1 | null) => void;
-}) {
+}: FooterPassageProps) {
   const openReader = useApp((state) => state.openReader);
   const retryPassage = useApp((state) => state.runFooterPassage);
   const setScrub = useApp((state) => state.setScrub);
@@ -206,6 +208,12 @@ export function FooterPassage({
     const followsNativeScroll = scrollDrivenToken.current === viewToken;
     residentPageKey.current = pageKey;
     if (sameResidentPage && followsNativeScroll) return;
+    // An external cross-document scrub supersedes any scroll-derived update
+    // queued by the previously resident source page.
+    if (scrollFrame.current !== null) {
+      cancelAnimationFrame(scrollFrame.current);
+      scrollFrame.current = null;
+    }
     if (!followsNativeScroll) nativeScrollIntentUntil.current = 0;
     scrollDrivenToken.current = null;
     // Passage text lives in a real horizontal scrollport for both touch and
@@ -220,6 +228,42 @@ export function FooterPassage({
   useEffect(() => () => {
     if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
   }, []);
+
+  const markNativeScrollIntent = useCallback(() => {
+    // Cover the browser-owned momentum tail; each subsequent wheel/pointer
+    // gesture refreshes the window.
+    nativeScrollIntentUntil.current = Date.now() + 2_000;
+  }, []);
+
+  const syncScrubToScroll = useCallback((element: HTMLElement) => {
+    const programmed = programmaticScrollLeft.current;
+    if (programmed !== null && Math.abs(element.scrollLeft - programmed) <= 0.75) {
+      // WebKit may emit more than one scroll event for the same assignment.
+      // Keep the target authenticated until a genuinely divergent native
+      // scroll arrives; clearing after the first event misclassifies the
+      // second and suppresses an immediate, intentional Reader tap.
+      return;
+    }
+    programmaticScrollLeft.current = null;
+    if (Date.now() < nativeScrollIntentUntil.current) {
+      suppressOpenUntil.current = Date.now() + 350;
+    }
+    if (!tokenGeometry || !page || crosshairX === null) return;
+    const relative = passageTokenAtTextOffset(
+      tokenGeometry,
+      element.scrollLeft + crosshairX,
+    );
+    if (relative === null) return;
+    const token = page.tokens.start + relative;
+    scrollDrivenToken.current = token;
+    if (token === scrub?.token) return;
+    if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      const latest = scrollDrivenToken.current;
+      if (latest !== null) setScrub({ doc: page.doc, token: latest });
+    });
+  }, [crosshairX, page, scrub?.token, setScrub, tokenGeometry]);
 
   if (scrub === null || crosshairX === null) {
     return <div className="footer-passage footer-passage-message">scrub the corpus strip to read</div>;
@@ -274,11 +318,6 @@ export function FooterPassage({
       token: scrub.token,
       from: 'footer',
     }, 'footer-passage-node');
-  };
-  const markNativeScrollIntent = () => {
-    // Cover the browser-owned momentum tail; each subsequent wheel/pointer
-    // gesture refreshes the window.
-    nativeScrollIntentUntil.current = Date.now() + 2_000;
   };
   const line = (
     <span
@@ -373,36 +412,7 @@ export function FooterPassage({
         }
       }}
       onWheel={markNativeScrollIntent}
-      onScroll={(event) => {
-        const element = event.currentTarget;
-        const programmed = programmaticScrollLeft.current;
-        if (programmed !== null && Math.abs(element.scrollLeft - programmed) <= 0.75) {
-          // WebKit may emit more than one scroll event for the same assignment.
-          // Keep the target authenticated until a genuinely divergent native
-          // scroll arrives; clearing after the first event misclassifies the
-          // second and suppresses an immediate, intentional Reader tap.
-          return;
-        }
-        programmaticScrollLeft.current = null;
-        if (Date.now() < nativeScrollIntentUntil.current) {
-          suppressOpenUntil.current = Date.now() + 350;
-        }
-        if (!tokenGeometry || !page || crosshairX === null) return;
-        const relative = passageTokenAtTextOffset(
-          tokenGeometry,
-          element.scrollLeft + crosshairX,
-        );
-        if (relative === null) return;
-        const token = page.tokens.start + relative;
-        scrollDrivenToken.current = token;
-        if (token === scrub.token) return;
-        if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
-        scrollFrame.current = requestAnimationFrame(() => {
-          scrollFrame.current = null;
-          const latest = scrollDrivenToken.current;
-          if (latest !== null) setScrub({ doc: page.doc, token: latest });
-        });
-      }}
+      onScroll={(event) => { syncScrubToScroll(event.currentTarget); }}
       onKeyDown={(event) => {
         if (event.key !== 'Enter' && event.key !== ' ') {
           if (NATIVE_SCROLL_KEYS.has(event.key)) {

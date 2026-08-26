@@ -6206,6 +6206,20 @@ html[data-footer-resizing='true'] * {
   scrollbar-width: none;
 }
 
+/* The source passage owns the complete two-line reading area. Extending its
+ * native scrollport behind the visual status readout gives wheel and touch the
+ * exact same browser-owned scrub path everywhere in that area. */
+.footer-interactive[data-passage='true'][data-status='true'] .footer-passage-scrollable {
+  block-size:
+    calc(
+      var(--footer-passage-height)
+      + var(--footer-lane-gap)
+      + var(--footer-status-height)
+    );
+  margin-block-end:
+    calc(-1 * (var(--footer-lane-gap) + var(--footer-status-height)));
+}
+
 .footer-passage-scrollable::-webkit-scrollbar {
   display: none;
 }
@@ -6271,6 +6285,8 @@ html[data-footer-resizing='true'] * {
 }
 
 .footer-reading-status {
+  position: relative;
+  z-index: 1;
   block-size: var(--footer-status-height);
   margin-block-start: var(--footer-lane-gap);
   overflow: hidden;
@@ -6280,6 +6296,7 @@ html[data-footer-resizing='true'] * {
   line-height: var(--footer-status-height);
   text-align: center;
   text-overflow: ellipsis;
+  pointer-events: none;
   white-space: nowrap;
 }
 

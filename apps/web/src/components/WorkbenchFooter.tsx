@@ -691,6 +691,7 @@ function FooterInteractive({
     <div
       className="footer-interactive"
       data-passage={showPassage || undefined}
+      data-status={showStatus || undefined}
       data-shortcut-context="footer"
       onDoubleClick={(event) => {
         if (Date.now() - lastDirectPointerAt.current < 700) return;
@@ -750,7 +751,12 @@ function FooterInteractive({
         />
       )}
       {showStatus && (
-        <div className="footer-reading-status" title={status}>{status}</div>
+        <div
+          className="footer-reading-status"
+          aria-hidden="true"
+        >
+          {status}
+        </div>
       )}
       <span className="visually-hidden" role="status" aria-live="polite">
         {[keyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}

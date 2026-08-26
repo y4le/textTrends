@@ -288,10 +288,13 @@ current passage and position-status lane; Reader omits both because its fitted
 page already owns the source text. The
 complete dock sits above the compact portrait Workbench sections dock and to the right of the
 compact-landscape rail. The source line is a transient `reader-page/1` window.
-Pointer samples are frame-coalesced;
-its independent single-flight lane issues the newest unserved position
-immediately, retains the last authenticated page while the next is in flight,
-and saves no text or range. Absolute hover continues to seek the shared corpus
+Its independent single-flight lane frame-coalesces pointer samples, issues the
+newest unserved position immediately, retains the last authenticated page while
+the next is in flight, and saves no text or range.
+The passage's native horizontal scrollport covers both the source line and its
+book/token status line; the status is a pointer-transparent visual readout, so
+wheel and touch gestures anywhere in that text area follow one scroll path.
+Absolute hover continues to seek the shared corpus
 axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token
 rate, the truthful cursor advances through declared book order while the

@@ -325,7 +325,7 @@ test('a mouse drag shuttles through source continuously and release pauses', asy
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
-test('passage text scrolls horizontally with a precise pointer', async ({ page }) => {
+test('passage text and its book/token status scroll horizontally with a precise pointer', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
 
@@ -355,6 +355,22 @@ test('passage text scrolls horizontally with a precise pointer', async ({ page }
     .toBeGreaterThan(metrics.before);
   await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
     .toBeGreaterThan(corpusPosition);
+
+  const status = page.locator('.footer-reading-status');
+  const statusBox = await status.boundingBox();
+  if (!statusBox) throw new Error('footer status has no layout box');
+  await expect(status).toHaveCSS('pointer-events', 'none');
+  const statusStart = await passage.evaluate((node) => node.scrollLeft);
+  const statusCorpusPosition = Number(await slider.getAttribute('aria-valuenow'));
+  await page.mouse.move(
+    statusBox.x + statusBox.width / 2,
+    statusBox.y + statusBox.height / 2,
+  );
+  await page.mouse.wheel(120, 0);
+  await expect.poll(() => passage.evaluate((node) => node.scrollLeft))
+    .toBeGreaterThan(statusStart);
+  await expect.poll(async () => Number(await slider.getAttribute('aria-valuenow')))
+    .toBeGreaterThan(statusCorpusPosition);
   await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
 });
 
@@ -406,9 +422,10 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
   const statusBox = await status.boundingBox();
   if (!statusBox) throw new Error('footer status has no layout box');
 
-  await status.dblclick({
-    position: { x: statusBox.width * (5.5 / 9), y: statusBox.height / 2 },
-  });
+  await page.mouse.dblclick(
+    statusBox.x + statusBox.width * (5.5 / 9),
+    statusBox.y + statusBox.height / 2,
+  );
 
   const reader = page.getByRole('main', { name: /Reader: footer-reader/ });
   await expect(reader).toBeVisible();
