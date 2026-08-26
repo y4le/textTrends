@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, DOC_COUNT, simulateKeyboard } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, DOC_COUNT, gotoPlace, simulateKeyboard } from './helpers.ts';
 
 test('the header exposes Find to touch and restores focus on close', async ({ browser }) => {
   const context = await browser.newContext({
@@ -477,13 +477,19 @@ test('store-driven Find teardown restores focus instead of orphaning it', async 
   await expect(inputsRegion).toBeFocused();
 });
 
-test('Shortcuts exposes a touch-sized Find entry in the keyboard-safe rail', async ({ page }, testInfo) => {
+test('Reader Help exposes a touch-sized Find entry in the keyboard-safe rail', async ({ page }, testInfo) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true, placeAfterLoad: 'trends' });
 
-  await page.getByRole('button', { name: 'Help', exact: true }).click();
-  const dialog = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
-  await expect(dialog.getByRole('heading', { name: 'Tools', exact: true })).toBeVisible();
+  await gotoPlace(page, 'trends');
+  const scrubber = page.getByRole('slider', { name: /reading position/i });
+  await scrubber.focus();
+  await scrubber.press('ArrowRight');
+  await scrubber.press('Enter');
+  const reader = page.getByRole('main', { name: /Reader:/ });
+  await reader.getByRole('button', { name: 'help', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: 'Help' });
+  await expect(dialog.getByRole('heading', { name: 'Quick actions', exact: true })).toBeVisible();
   const tool = dialog.getByRole('button', { name: /Find in corpus/ });
   if (testInfo.project.name === 'webkit-compact') {
     const box = await tool.boundingBox();

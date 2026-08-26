@@ -174,10 +174,10 @@ function readerSourceKey(page: ReaderPageResultV1): string {
 }
 
 function ReaderProseDrawer({
-  onOpenShortcuts,
+  onOpenHelp,
   onOpenSettings,
 }: {
-  readonly onOpenShortcuts: () => void;
+  readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
@@ -455,10 +455,10 @@ function ReaderProseDrawer({
           <button
             type="button"
             aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenShortcuts}
+            onClick={onOpenHelp}
             style={SMALL_BUTTON_STYLE}
           >
-            shortcuts
+            help
           </button>
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>
             back
@@ -563,10 +563,10 @@ function ReaderProseDrawer({
 }
 
 export function ReaderDrawer({
-  onOpenShortcuts,
+  onOpenHelp,
   onOpenSettings,
 }: {
-  readonly onOpenShortcuts: () => void;
+  readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
@@ -587,7 +587,7 @@ export function ReaderDrawer({
     || place.doc !== interaction.rsvp.doc
   ) return (
     <ReaderProseDrawer
-      onOpenShortcuts={onOpenShortcuts}
+      onOpenHelp={onOpenHelp}
       onOpenSettings={onOpenSettings}
     />
   );
@@ -613,7 +613,7 @@ export function ReaderDrawer({
       onSeek={seek}
       onExit={exit}
       onRetry={retry}
-      onOpenShortcuts={onOpenShortcuts}
+      onOpenHelp={onOpenHelp}
     />
   );
 }

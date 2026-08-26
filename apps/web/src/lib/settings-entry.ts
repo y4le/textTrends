@@ -1,6 +1,6 @@
 import type { Place } from './places.ts';
 
-export type SettingsSection = 'display' | 'this-place' | 'help';
+export type SettingsSection = 'display' | 'this-place';
 export type SettingsContext = Place | 'reader';
 
 export interface SettingsEntry {

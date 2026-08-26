@@ -128,7 +128,7 @@ landscape uses its side dock. Neither placement duplicates the navigation DOM.
 Full-screen modal panes and form layers overlay this flow. There are no permanent
 desktop side rails. One fixed dock carries the authored Terms rail above the
 transient source position, passage, trend, progress, and dispersion context.
-Settings, Debug, and the shortcut reference use the same full-screen pane frame;
+Settings, Help, Credits & sources, and Debug use the same governed pane frame;
 governed row details remain separate history layers.
 
 ### Scope organ
@@ -161,10 +161,11 @@ loading, failed, and populated states remain explicitly named.
 
 ### Settings and display preferences
 
-There is one app-wide Settings pane with a stable order: **Display → This place
-→ Help & method**. The global Settings entrance lands at Display; a contextual
-entrance opens the same pane with This place aligned and focuses its first
-operative control. Closing or pressing Escape restores the entrance focus.
+There is one app-wide Settings pane with a stable order: **Display → This
+place**, with This place present only where operative controls exist. The global
+Settings entrance lands at Display; a contextual entrance opens the same pane
+with This place aligned and focuses its first operative control. Closing or
+pressing Escape restores the entrance focus.
 Settings is transient UI: opening, switching entry section, applying, and
 closing neither push nor replace browser history.
 
@@ -172,9 +173,28 @@ Display preferences apply immediately and are device-local. Theme and UI
 density live in local storage, not in a workspace. Analytical settings remain
 workspace-local: Trends and Compare use governed drafts until Apply, while
 closing or Escape discards an unapplied draft. This place contains the real
-Trends or Compare form where one exists and a concise method summary for
-Inputs, Matches, Vocabulary, and Reader. Help & method links onward to the
-shortcut and Debug utilities without creating a second settings hierarchy.
+Trends or Compare form where one exists; prose, tutorial hints, shortcuts, and
+diagnostics do not live in Settings.
+
+### Help, guidance, and credits
+
+Help is a contextual utility rather than a renamed shortcut sheet or a second
+settings hierarchy. It opens from the pinned header action, `?`, Reader, or the
+speed reader and keeps four jobs together: **This view**, **Quick actions**,
+**Method & privacy**, and **Keyboard & gestures**. This view names the current
+place's governing task and offers one concise next-step hint. Quick actions link
+to the existing Display settings surface and, only where the pinned header is
+absent, corpus Find. Method & privacy carries the short methodological caveat
+for the current surface and the browser-local processing promise. The keyboard
+registry still generates the contextual key and gesture reference.
+
+The Help footer links to **Credits & sources** and **Debug**. Credits is a nested
+surface covering project authorship, bundled text provenance, the optional
+GitHub source-download path for Standard Ebooks titles, and primary runtime
+dependencies. Its Back action
+returns to Help with focus on the credits entry. A handoff from Help to Settings,
+Find, or Debug retains the original external invoking control for final focus
+restoration. None of these surfaces participates in browser history.
 
 UI density is a three-stop slider. Standard is the default; apart from the
 automatic footer baseline below, Compact reproduces the rendered geometry that
@@ -514,19 +534,19 @@ Explicit interaction modes are the narrow exception: at most one is active,
 and a visible non-modal indicator always names it and provides a touch/coarse
 entry and exit path. Temporary corpus Find is the first such mode. A central
 registry is the source for event matching,
-`aria-keyshortcuts`, and the contextual shortcuts reference opened by `?` or
-the visible Shortcuts control. The reference interleaves keyboard and touch
-gestures under the surfaces they govern. Workbench help includes Terms, Trends,
-and its persistent reading footer, while Reader help contains only Reader-owned
-actions. Its Tools section also exposes the Debug utility pane for touch; the
-same pane opens globally with the explicit `Shift+D` chord.
+`aria-keyshortcuts`, and the contextual Help reference opened by `?` or the
+visible Help control. The reference interleaves keyboard and touch gestures
+under the surfaces they govern. Workbench Help includes Terms, the active place,
+and its persistent reading footer, while Reader and speed-reader Help contain
+only their owned actions. Debug remains reachable by touch from the Help footer
+and globally with the explicit `Shift+D` chord.
 
 Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable
 content, unrelated browser modifier chords, and IME composition retain their
 native behavior. The explicit `Ctrl/Cmd-F` and `Ctrl/Cmd-G` Find chords are the
-narrow exception. Shortcut help is a transient modal rather than navigable
-research state; closing it with Escape or its visible control restores the
+narrow exception. Help is a transient modal rather than navigable research
+state; closing it with Escape, `?`, or its visible control restores the
 invoking focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
@@ -635,8 +655,10 @@ cancelled or lost capture restores the committed width.
 - Full-screen forms and utility panes trap focus and inert the workbench.
 - Escape closes one transient pane and restores its invoking focus. Back closes
   exactly one governed history layer; utility panes do not participate in Back.
-- Help can hand off directly to Debug without losing the original invoking
-  control; closing Debug restores focus there.
+- Help can hand off directly to Settings, Find, or Debug without losing the
+  original invoking control; closing the destination restores focus there.
+- Credits & sources returns to Help with the credits entry focused; closing Help
+  still restores the original external invoking control.
 - Browser save shortcuts are not intercepted.
 - Reduced motion removes nonessential transitions without removing state.
 

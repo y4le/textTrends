@@ -41,7 +41,7 @@ describe('RSVP Reader presentation', () => {
       onSeek: vi.fn(),
       onExit: vi.fn(),
       onRetry: vi.fn(),
-      onOpenShortcuts: vi.fn(),
+      onOpenHelp: vi.fn(),
     }));
 
     expect(html).toContain('class="reader-rsvp-before">S</span>');
@@ -89,7 +89,7 @@ describe('RSVP Reader presentation', () => {
       onSeek: vi.fn(),
       onExit: vi.fn(),
       onRetry: vi.fn(),
-      onOpenShortcuts: vi.fn(),
+      onOpenHelp: vi.fn(),
     }));
     expect(pausedHtml).toContain('role="note" aria-label="Paused sentence context" tabindex="0"');
     expect(pausedHtml).toContain('<mark>Speed,</mark> reader');
@@ -111,7 +111,7 @@ describe('RSVP Reader presentation', () => {
         onSeek: vi.fn(),
         onExit: vi.fn(),
         onRetry: vi.fn(),
-        onOpenShortcuts: vi.fn(),
+        onOpenHelp: vi.fn(),
       }),
     );
     const highSpeedHtml = renderAt(2_000);

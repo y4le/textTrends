@@ -44,8 +44,8 @@ async function chooseWordsAtOnce(group: Locator, value: 1 | 2 | 3): Promise<void
 test('the semi-hidden RSVP surface anchors words and owns its keyboard controls', async ({ page }) => {
   const reader = await openReader(page);
 
-  await reader.getByRole('button', { name: 'shortcuts', exact: true }).click();
-  let shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  await reader.getByRole('button', { name: 'help', exact: true }).click();
+  let shortcuts = page.getByRole('dialog', { name: 'Help' });
   await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toHaveCount(0);
   await page.keyboard.press('?');
 
@@ -100,7 +100,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
 
   const back = reader.getByRole('button', { name: 'back', exact: true });
   const play = reader.locator('.reader-rsvp-controls > button').nth(1);
-  const firstControl = reader.getByRole('button', { name: 'shortcuts', exact: true });
+  const firstControl = reader.getByRole('button', { name: 'help', exact: true });
   const rhythm = reader.locator('.reader-rsvp-rhythm > summary');
   await firstControl.focus();
   await firstControl.press('Shift+Tab');
@@ -134,7 +134,7 @@ test('the semi-hidden RSVP surface anchors words and owns its keyboard controls'
   await play.press('Space');
   await expect(status).toContainText('playing');
   await play.press('?');
-  shortcuts = page.getByRole('dialog', { name: 'Keyboard shortcuts' });
+  shortcuts = page.getByRole('dialog', { name: 'Help' });
   await expect(shortcuts.getByRole('heading', { name: 'Speed reader' })).toBeVisible();
   await expect(shortcuts.getByRole('heading', { name: 'Reader', exact: true })).toHaveCount(0);
   await expect(shortcuts.getByRole('button', { name: /Find in corpus/ })).toHaveCount(0);

@@ -2,20 +2,15 @@ import { useLayoutEffect, useRef } from 'react';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import type { SettingsEntry } from '../lib/settings-entry.ts';
 import { DisplaySettings } from './settings/DisplaySettings.tsx';
-import { HelpSection } from './settings/HelpSection.tsx';
 import { PlaceSettings } from './settings/PlaceSettings.tsx';
 import { UtilityPane } from './UtilityPane.tsx';
 
 export function SettingsPane({
   entry,
   onClose,
-  onOpenShortcuts,
-  onOpenDebug,
 }: {
   readonly entry: SettingsEntry;
   readonly onClose: () => void;
-  readonly onOpenShortcuts: () => void;
-  readonly onOpenDebug: () => void;
 }) {
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const sectionsRef = useRef<HTMLDivElement | null>(null);
@@ -49,11 +44,12 @@ export function SettingsPane({
         ? 'compare-sort-field'
         : undefined
     : undefined;
+  const hasPlaceSettings = entry.context === 'trends' || entry.context === 'compare';
 
   return (
     <UtilityPane
       title="Settings"
-      subtitle="Display preferences, place-specific method, and help."
+      subtitle="Display preferences and operative controls for this place."
       focusKey={`${entry.context}:${entry.section}`}
       initialFocus={entry.section === 'display' ? 'heading' : 'first-control'}
       {...(initialFocusId === undefined ? {} : { initialFocusId })}
@@ -67,18 +63,16 @@ export function SettingsPane({
           <h3 id="settings-display-heading">Display</h3>
           <DisplaySettings />
         </section>
-        <section
-          id="settings-place"
-          ref={placeSectionRef}
-          aria-labelledby="settings-place-heading"
-        >
-          <h3 id="settings-place-heading">This place</h3>
-          <PlaceSettings context={entry.context} onApplied={onClose} />
-        </section>
-        <section id="settings-help" aria-labelledby="settings-help-heading">
-          <h3 id="settings-help-heading">Help &amp; method</h3>
-          <HelpSection onOpenShortcuts={onOpenShortcuts} onOpenDebug={onOpenDebug} />
-        </section>
+        {hasPlaceSettings && (
+          <section
+            id="settings-place"
+            ref={placeSectionRef}
+            aria-labelledby="settings-place-heading"
+          >
+            <h3 id="settings-place-heading">This place</h3>
+            <PlaceSettings context={entry.context} onApplied={onClose} />
+          </section>
+        )}
       </div>
     </UtilityPane>
   );

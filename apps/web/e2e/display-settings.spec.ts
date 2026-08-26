@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { awaitAllReady, gotoPlace } from './helpers.ts';
 
-test('Settings keeps fixed sections, applies theme live, and persists it locally', async ({ page }) => {
+test('Settings keeps only operative sections, applies theme live, and persists it locally', async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -14,11 +14,8 @@ test('Settings keeps fixed sections, applies theme live, and persists it locally
   const opener = page.getByRole('button', { name: 'Settings', exact: true });
   await opener.click();
   const pane = page.getByRole('dialog', { name: 'Settings', exact: true });
-  await expect(pane.locator('.settings-sections > section > h3')).toHaveText([
-    'Display',
-    'This place',
-    'Help & method',
-  ]);
+  await expect(pane.locator('.settings-sections > section > h3')).toHaveText(['Display']);
+  await expect(pane.getByText('Vocabulary ranks words in the active corpus')).toHaveCount(0);
   await expect(pane.getByRole('heading', { name: 'Settings', exact: true })).toBeFocused();
 
   await pane.getByRole('radio', { name: 'Light', exact: true }).check();

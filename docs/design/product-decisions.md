@@ -4,10 +4,29 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-26 — Contextual Help and task-specific Settings
+
+The header keeps Find, Settings, and Help as pinned sibling actions. Settings is
+not a documentation drawer: it contains device-local Display preferences and,
+only on Trends or Compare, the operative place form reached from that plate.
+Method summaries and utility links no longer pad Settings on places with no
+settings.
+
+Help replaces the shortcut-only sheet without replacing Settings. It combines
+concise contextual orientation, one next-step hint, relevant actions, method and
+privacy notes, and the existing registry-generated keyboard and gesture guide.
+Workbench Help does not repeat pinned Find; Reader Help carries Find because the
+workbench header is absent. Credits & sources is nested from the Help footer and
+returns focus to that entry; Settings, Find, and Debug handoffs preserve the
+original external invoker. This follows the contextual overlay and credits-back
+pattern inspected in GraphTV while retaining textTrends' own utility-pane and
+shortcut authorities.
+
 ## 2026-08-25 — One settings spine and a legibility-first workbench pass
 
-The workbench has one app-wide Settings pane, ordered Display → This place →
-Help & method. Global entry lands at Display; contextual Trends and Compare
+The workbench adopted one app-wide Settings pane, then ordered Display → This
+place → Help & method; the 2026-08-26 decision above subsequently moved Help and
+non-operative method prose out. Global entry lands at Display; contextual Trends and Compare
 entries land at the operative place form. Both are transient overlays with
 focus restoration and no URL or browser-history effect. Device-local theme and
 density preferences are kept separate from workspace-local analytical

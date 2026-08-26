@@ -61,7 +61,7 @@ export interface RsvpReaderProps {
   readonly onSeek: (token: number) => void;
   readonly onExit: (token: number) => void;
   readonly onRetry: () => void;
-  readonly onOpenShortcuts: () => void;
+  readonly onOpenHelp: () => void;
 }
 
 interface PlaybackPhase {
@@ -121,7 +121,7 @@ export function RsvpReader({
   onSeek,
   onExit,
   onRetry,
-  onOpenShortcuts,
+  onOpenHelp,
 }: RsvpReaderProps) {
   const presentation = usePresentation();
   const initial = source.status === 'ready'
@@ -564,11 +564,11 @@ export function RsvpReader({
             type="button"
             data-rsvp-control="true"
             aria-keyshortcuts={shortcutAria(['show-help'])}
-            onClick={onOpenShortcuts}
+            onClick={onOpenHelp}
             onKeyDown={stopControlSpace}
             style={SMALL_BUTTON_STYLE}
           >
-            shortcuts
+            help
           </button>
           <button
             ref={exitRef}

@@ -32,7 +32,7 @@ import {
   type ShortcutHelpContext,
   type ShortcutSequenceState,
 } from './lib/shortcuts.ts';
-import { KeyboardShortcuts } from './components/KeyboardShortcuts.tsx';
+import { HelpPane } from './components/HelpPane.tsx';
 import { termFocusControlId } from './lib/query-surface.ts';
 import { WorkbenchDock } from './components/WorkbenchDock.tsx';
 import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
@@ -77,7 +77,7 @@ interface ReaderEdgePointer {
 type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
-  | { readonly kind: 'shortcuts'; readonly context: ShortcutHelpContext };
+  | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
   return target instanceof Element
@@ -241,7 +241,7 @@ export function App() {
       shortcutSequenceTimer.current = null;
     }
   }, []);
-  const openShortcutHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
+  const openHelp = (context: ShortcutHelpContext, fromUtilityPane = false) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
     if (!fromUtilityPane) {
@@ -253,19 +253,22 @@ export function App() {
     }
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
-    setUtilityPane({ kind: 'shortcuts', context });
+    setUtilityPane({ kind: 'help', context });
   };
   const openSettingsEntry = useCallback((
     entry: SettingsEntry,
     returnFocus: HTMLElement | null = null,
+    fromUtilityPane = false,
   ) => {
     clearShortcutSequence();
     setKeyboardNavigationStatus('');
-    utilityPaneReturnFocus.current = returnFocus ?? (interaction.kind === 'find'
-      ? findReturnFocus.current
-      : document.activeElement instanceof HTMLElement
-        ? document.activeElement
-        : null);
+    if (!fromUtilityPane) {
+      utilityPaneReturnFocus.current = returnFocus ?? (interaction.kind === 'find'
+        ? findReturnFocus.current
+        : document.activeElement instanceof HTMLElement
+          ? document.activeElement
+          : null);
+    }
     if (interaction.kind === 'find') exitInteraction();
     if (interaction.kind === 'rsvp') setRsvpPlaying(false);
     setUtilityPane({ kind: 'settings', entry });
@@ -416,7 +419,7 @@ export function App() {
     if (shortcutMatches(event, 'show-help')) {
       event.preventDefault();
       clearShortcutSequence();
-      openShortcutHelp(context);
+      openHelp(context);
       return;
     }
     if (shortcutMatches(event, 'show-debug')) {
@@ -682,12 +685,17 @@ export function App() {
     }
   };
 
-  const utilityPaneSurface = utilityPane?.kind === 'shortcuts'
+  const utilityPaneSurface = utilityPane?.kind === 'help'
     ? (
-        <KeyboardShortcuts
+        <HelpPane
           context={utilityPane.context}
           place={place}
           onFind={() => openFind(true)}
+          onSettings={() => openSettingsEntry(
+            globalSettingsEntry(utilityPane.context === 'workbench' ? place : 'reader'),
+            null,
+            true,
+          )}
           onDebug={() => openDebug(true)}
           onClose={closeUtilityPane}
         />
@@ -698,11 +706,6 @@ export function App() {
             <SettingsPane
               entry={utilityPane.entry}
               onClose={closeUtilityPane}
-              onOpenShortcuts={() => openShortcutHelp(
-                utilityPane.entry.context === 'reader' ? 'reader' : 'workbench',
-                true,
-              )}
-              onOpenDebug={() => openDebug(true)}
             />
           </Suspense>
         )
@@ -813,9 +816,9 @@ export function App() {
                   <button
                     type="button"
                     aria-keyshortcuts={shortcutAria(['show-help'])}
-                    onClick={() => openShortcutHelp('reader')}
+                    onClick={() => openHelp('reader')}
                   >
-                    shortcuts
+                    help
                   </button>
                   <button type="button" onClick={closeReader}>back</button>
                 </div>
@@ -826,7 +829,7 @@ export function App() {
         >
           <ReaderDrawer
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
-            onOpenShortcuts={() => openShortcutHelp(
+            onOpenHelp={() => openHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',
             )}
           />
@@ -890,7 +893,7 @@ export function App() {
         <HeaderActions
           onOpenFind={() => openFind()}
           onOpenSettings={() => openSettings()}
-          onOpenHelp={() => openShortcutHelp('workbench')}
+          onOpenHelp={() => openHelp('workbench')}
         />
         <WorkbenchTabs />
       </header>
