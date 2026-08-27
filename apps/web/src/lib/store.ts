@@ -80,6 +80,7 @@ import {
 import {
   detailSelection,
   isValidSelection,
+  selectionComplement,
   type TokenRangeSelectionV1,
 } from './selection.ts';
 import { fullTokenCountsForDocs } from './doc-tokens.ts';
@@ -438,7 +439,7 @@ export interface FrequencyState {
 
 export interface KeynessViewV1 {
   readonly schema: 'texttrends/keyness-view/1';
-  readonly mode: 'documents' | 'document-rest';
+  readonly mode: 'documents' | 'document-rest' | 'selection-rest';
   readonly documentA: string | null;
   readonly documentB: string | null;
   /** In document-rest mode, which table contains the complement corpus. */
@@ -520,14 +521,42 @@ export function reconcileKeynessView(
     && view.documentB !== documentA
     ? view.documentB
     : readyDocs.find((doc) => doc !== documentA) ?? null;
-  if (documentA === view.documentA && documentB === view.documentB) return view;
-  return { ...view, documentA, documentB };
+  const mode = readyDocs.length === 1
+    ? 'selection-rest'
+    : readyDocs.length >= 2
+      && view.mode === 'selection-rest'
+      && view.documentB === null
+      ? DEFAULT_KEYNESS_VIEW.mode
+      : view.mode;
+  if (
+    mode === view.mode
+    && documentA === view.documentA
+    && documentB === view.documentB
+  ) return view;
+  return { ...view, mode, documentA, documentB };
+}
+
+export interface KeynessScope {
+  readonly view: KeynessViewV1;
+  readonly readyDocs: readonly string[];
+  readonly selection: TokenRangeSelectionV1 | null;
+  readonly tokenCountOf: (doc: string) => number | undefined;
 }
 
 export function keynessSelections(
-  view: KeynessViewV1,
-  readyDocs: readonly string[],
+  scope: KeynessScope,
 ): { readonly a: WireSelectionV4; readonly b: WireSelectionV4 } | null {
+  const { view, readyDocs, selection, tokenCountOf } = scope;
+  if (view.mode === 'selection-rest') {
+    if (selection === null) return null;
+    const outside = selectionComplement(selection, readyDocs, tokenCountOf);
+    return outside === null
+      ? null
+      : {
+          a: detailSelection(readyDocs, selection),
+          b: outside,
+        };
+  }
   if (
     view.documentA === null ||
     view.documentB === null ||
@@ -555,26 +584,37 @@ export function keynessSelections(
     : { a: { docs: rest }, b: { docs: [view.documentB] } };
 }
 
-function keynessSideSelectionKey(
+/** In a range comparison, keep terms that occur on only one side reachable:
+ * their combined range cannot exceed that side's number of document parts.
+ * Other comparison modes preserve the authored document-range filter. */
+export function effectiveKeynessMinDocFreq(
   view: KeynessViewV1,
-  readyDocs: readonly string[],
+  pair: { readonly a: WireSelectionV4; readonly b: WireSelectionV4 },
+): number {
+  if (view.mode !== 'selection-rest') return view.minDocFreqTotal;
+  const smallerSideParts = Math.min(pair.a.docs.length, pair.b.docs.length);
+  return Math.min(view.minDocFreqTotal, Math.max(1, smallerSideParts));
+}
+
+function keynessSideSelectionKey(
+  scope: KeynessScope,
   side: 'a' | 'b',
 ): string | null {
-  const pair = keynessSelections(view, readyDocs);
+  const pair = keynessSelections(scope);
   return pair ? JSON.stringify(pair[side]) : null;
 }
 
 function keynessTableIntentKey(
-  view: KeynessViewV1,
-  readyDocs: readonly string[],
+  scope: KeynessScope,
   side: 'a' | 'b',
 ): string | null {
-  const pair = keynessSelections(view, readyDocs);
+  const { view } = scope;
+  const pair = keynessSelections(scope);
   if (!pair) return null;
   return JSON.stringify([
     pair,
     view.minCountTotal,
-    view.minDocFreqTotal,
+    effectiveKeynessMinDocFreq(view, pair),
     view.classes,
     view.stoplistTopN,
     { by: view.sort.by, dir: side === 'a' ? view.sort.dirA : view.sort.dirB },
@@ -1612,24 +1652,35 @@ export function createAppRuntime(
       else set({ keynessInventoryB: value });
     };
 
+    const keynessScopeFor = (state: AppState): KeynessScope | null => {
+      if (state.snapshot === null) return null;
+      const counts = state.corpusTokenCounts;
+      return {
+        view: state.keynessView,
+        readyDocs: state.snapshot.readyDocs,
+        selection: state.linkedSelection,
+        tokenCountOf: (doc) => counts.get(doc),
+      };
+    };
+
     const runKeynessTable = (side: 'a' | 'b'): void => {
       const lane = side === 'a' ? keynessALane : keynessBLane;
       lane.supersede();
-      const { snapshot, keynessView } = get();
-      const pair = snapshot
-        ? keynessSelections(keynessView, snapshot.readyDocs)
-        : null;
-      if (!snapshot || !pair) {
+      const state = get();
+      const { snapshot, keynessView } = state;
+      const scope = keynessScopeFor(state);
+      const pair = scope ? keynessSelections(scope) : null;
+      if (!snapshot || !scope || !pair) {
         writeKeynessTable(side, null);
         return;
       }
       const issuedKey = snapKey(snapshot);
       const issuedView = keynessView;
       const issuedIntent = keynessTableIntentKey(
-        issuedView,
-        snapshot.readyDocs,
+        scope,
         side,
       );
+      const minDocFreqTotal = effectiveKeynessMinDocFreq(issuedView, pair);
       const sort = {
         by: issuedView.sort.by,
         dir: side === 'a' ? issuedView.sort.dirA : issuedView.sort.dirB,
@@ -1642,12 +1693,9 @@ export function createAppRuntime(
         () => snapKey(get().snapshot) === issuedKey,
         () => {
           const live = get();
-          return live.snapshot !== null
-            && keynessTableIntentKey(
-              live.keynessView,
-              live.snapshot.readyDocs,
-              side,
-            ) === issuedIntent;
+          const liveScope = keynessScopeFor(live);
+          return liveScope !== null
+            && keynessTableIntentKey(liveScope, side) === issuedIntent;
         },
       );
       writeKeynessTable(side, {
@@ -1669,7 +1717,7 @@ export function createAppRuntime(
             b: pair.b,
             filter: {
               minCountTotal: issuedView.minCountTotal,
-              minDocFreqTotal: issuedView.minDocFreqTotal,
+              minDocFreqTotal,
               classes: issuedView.classes,
               ...(issuedView.stoplistTopN === 0 ? {} : {
                 stoplist: {
@@ -1710,31 +1758,27 @@ export function createAppRuntime(
         ? keynessInventoryALane
         : keynessInventoryBLane;
       lane.supersede();
-      const { snapshot, keynessView } = get();
-      const pair = snapshot
-        ? keynessSelections(keynessView, snapshot.readyDocs)
-        : null;
-      if (!snapshot || !pair) {
+      const state = get();
+      const { snapshot, keynessView } = state;
+      const scope = keynessScopeFor(state);
+      const pair = scope ? keynessSelections(scope) : null;
+      if (!snapshot || !scope || !pair) {
         writeKeynessInventory(side, null);
         return;
       }
       const issuedKey = snapKey(snapshot);
       const issuedView = keynessView;
       const issuedSelection = keynessSideSelectionKey(
-        issuedView,
-        snapshot.readyDocs,
+        scope,
         side,
       );
       const lease = lane.ops.begin(
         () => snapKey(get().snapshot) === issuedKey,
         () => {
           const live = get();
-          return live.snapshot !== null
-            && keynessSideSelectionKey(
-              live.keynessView,
-              live.snapshot.readyDocs,
-              side,
-            ) === issuedSelection;
+          const liveScope = keynessScopeFor(live);
+          return liveScope !== null
+            && keynessSideSelectionKey(liveScope, side) === issuedSelection;
         },
       );
       writeKeynessInventory(side, {
@@ -4881,11 +4925,11 @@ export function createAppRuntime(
         const table = side === 'a' ? state.keynessA : state.keynessB;
         const resident = table?.resident
           ?? (table?.state.status === 'ready' ? table.state.result : null);
-        const pair = snapshot
-          ? keynessSelections(keynessView, snapshot.readyDocs)
-          : null;
+        const scope = keynessScopeFor(state);
+        const pair = scope ? keynessSelections(scope) : null;
         if (
           !snapshot
+          || !scope
           || !pair
           || resident === null
           || (
@@ -4910,10 +4954,10 @@ export function createAppRuntime(
         const issuedKey = snapKey(snapshot);
         const issuedView = keynessView;
         const issuedIntent = keynessTableIntentKey(
-          issuedView,
-          snapshot.readyDocs,
+          scope,
           side,
         );
+        const minDocFreqTotal = effectiveKeynessMinDocFreq(issuedView, pair);
         const sort = {
           by: issuedView.sort.by,
           dir: side === 'a' ? issuedView.sort.dirA : issuedView.sort.dirB,
@@ -4923,12 +4967,9 @@ export function createAppRuntime(
           () => snapKey(get().snapshot) === issuedKey,
           () => {
             const live = get();
-            return live.snapshot !== null
-              && keynessTableIntentKey(
-                live.keynessView,
-                live.snapshot.readyDocs,
-                side,
-              ) === issuedIntent;
+            const liveScope = keynessScopeFor(live);
+            return liveScope !== null
+              && keynessTableIntentKey(liveScope, side) === issuedIntent;
           },
         );
         writeKeynessTable(side, {
@@ -4950,7 +4991,7 @@ export function createAppRuntime(
               b: pair.b,
               filter: {
                 minCountTotal: issuedView.minCountTotal,
-                minDocFreqTotal: issuedView.minDocFreqTotal,
+                minDocFreqTotal,
                 classes: issuedView.classes,
                 ...(issuedView.stoplistTopN === 0 ? {} : {
                   stoplist: {
@@ -5015,9 +5056,18 @@ export function createAppRuntime(
 
       setKeynessMode(mode) {
         pendingKeynessResetDoc = null;
-        if (mode !== 'documents' && mode !== 'document-rest') return;
+        if (
+          mode !== 'documents'
+          && mode !== 'document-rest'
+          && mode !== 'selection-rest'
+        ) return;
         const state = get();
         if (state.keynessView.mode === mode) return;
+        if (mode === 'selection-rest') {
+          set({ keynessView: { ...state.keynessView, mode } });
+          get().runKeyness();
+          return;
+        }
         const ready = state.snapshot?.readyDocs ?? [];
         const focus = state.keynessView.restOn === 'b'
           ? state.keynessView.documentA
@@ -5068,8 +5118,24 @@ export function createAppRuntime(
         if (side !== 'a' && side !== 'b') return;
         const state = get();
         const ready = state.snapshot?.readyDocs ?? [];
-        if (ready.length < 2 || (doc !== null && !ready.includes(doc))) return;
+        if (doc !== null && !ready.includes(doc)) return;
         const view = state.keynessView;
+        if (view.mode === 'selection-rest') {
+          if (doc === null || ready.length < 2) return;
+          const other = ready.find((candidate) => candidate !== doc) ?? null;
+          set({
+            keynessView: {
+              ...view,
+              mode: 'documents',
+              documentA: side === 'a' ? doc : other,
+              documentB: side === 'b' ? doc : other,
+              restOn: 'b',
+            },
+          });
+          get().runKeyness();
+          return;
+        }
+        if (ready.length < 2) return;
         const otherSide = side === 'a' ? 'b' : 'a';
         const currentDoc = side === 'a' ? view.documentA : view.documentB;
         const otherDoc = side === 'a' ? view.documentB : view.documentA;
@@ -5134,6 +5200,7 @@ export function createAppRuntime(
       swapKeynessSides() {
         pendingKeynessResetDoc = null;
         const view = get().keynessView;
+        if (view.mode === 'selection-rest') return;
         const ready = get().snapshot?.readyDocs ?? [];
         let next: KeynessViewV1;
         if (view.mode === 'documents') {
@@ -5178,7 +5245,9 @@ export function createAppRuntime(
         set({
           keynessView: {
             ...state.keynessView,
-            mode: DEFAULT_KEYNESS_VIEW.mode,
+            mode: ready.length < 2
+              ? 'selection-rest'
+              : DEFAULT_KEYNESS_VIEW.mode,
             documentA: focusReady ? doc : null,
             documentB: focusReady
               ? ready.find((candidate) => candidate !== doc) ?? null
@@ -5432,6 +5501,7 @@ export function createAppRuntime(
         }
         // Detail consumers reissue; the resident BASELINE trends/dispersion
         // are untouched (clearing a brush must not recompute them).
+        if (get().keynessView.mode === 'selection-rest') get().runKeyness();
         runSelected();
         get().runInventory();
         get().runFrequency();
@@ -5816,7 +5886,9 @@ export function createAppRuntime(
         pendingKeynessResetDoc = null;
         keynessView = {
           ...currentKeynessView,
-          mode: DEFAULT_KEYNESS_VIEW.mode,
+          mode: readyDocs.length < 2
+            ? 'selection-rest'
+            : DEFAULT_KEYNESS_VIEW.mode,
           documentA: focus,
           documentB: readyDocs.find((doc) => doc !== focus) ?? null,
           restOn: DEFAULT_KEYNESS_VIEW.restOn,
@@ -5824,7 +5896,9 @@ export function createAppRuntime(
       } else {
         keynessView = {
           ...currentKeynessView,
-          mode: DEFAULT_KEYNESS_VIEW.mode,
+          mode: readyDocs.length === 1
+            ? 'selection-rest'
+            : DEFAULT_KEYNESS_VIEW.mode,
           documentA: null,
           documentB: null,
           restOn: DEFAULT_KEYNESS_VIEW.restOn,

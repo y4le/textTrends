@@ -19,7 +19,9 @@ import { beforeAll, describe, expect, it, vi } from 'vitest';
 import {
   createAppRuntime,
   DEFAULT_KEYNESS_VIEW,
+  effectiveKeynessMinDocFreq,
   emptyLibraryWorkspace,
+  reconcileKeynessView,
   MAX_SERIES,
   occurrenceNavigationText,
   workspaceFromApp,
@@ -5449,6 +5451,35 @@ describe('corpus dashboard query intent (slice-3)', () => {
 });
 
 describe('dueling keyness query intent (slice-4)', () => {
+  it('forces only the one-text comparison and preserves an explicit multi-text choice', () => {
+    const forced = reconcileKeynessView(DEFAULT_KEYNESS_VIEW, ['a']);
+    expect(forced).toMatchObject({
+      mode: 'selection-rest',
+      documentA: 'a',
+      documentB: null,
+    });
+    expect(reconcileKeynessView(forced, ['a', 'b']).mode).toBe('document-rest');
+
+    const explicit = {
+      ...DEFAULT_KEYNESS_VIEW,
+      mode: 'selection-rest' as const,
+      documentA: 'a',
+      documentB: 'b',
+    };
+    expect(reconcileKeynessView(explicit, ['a', 'b'])).toBe(explicit);
+  });
+
+  it('clamps document range only to the smaller side of a selection comparison', () => {
+    expect(effectiveKeynessMinDocFreq(
+      { ...DEFAULT_KEYNESS_VIEW, mode: 'selection-rest' },
+      { a: { docs: ['a'] }, b: { docs: ['a', 'b', 'c'] } },
+    )).toBe(1);
+    expect(effectiveKeynessMinDocFreq(
+      DEFAULT_KEYNESS_VIEW,
+      { a: { docs: ['a'] }, b: { docs: ['b', 'c'] } },
+    )).toBe(DEFAULT_KEYNESS_VIEW.minDocFreqTotal);
+  });
+
   it('defaults to the first document against the rest with log-ratio projections', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b', 'c']);
@@ -5549,6 +5580,131 @@ describe('dueling keyness query intent (slice-4)', () => {
     });
     expect(f.keynesses()).toHaveLength(keynessCount);
     expect(f.keynessInventories()).toHaveLength(inventoryCount);
+  });
+
+  it('compares a linked range with its exact complement in a single text', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    expect(f.store.getState().keynessView.mode).toBe('selection-rest');
+    expect(f.keynesses()).toHaveLength(0);
+
+    f.store.setState({ corpusTokenCounts: new Map([['a', 10]]) });
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+    });
+
+    expect(f.keynesses()).toHaveLength(2);
+    const firstPair = f.keynesses().map((issued) => (issued.query as {
+      request: {
+        a: { docs: string[]; ranges: unknown[] };
+        b: { docs: string[]; ranges: unknown[] };
+        filter: { minDocFreqTotal: number };
+      };
+    }).request);
+    for (const request of firstPair) {
+      expect(request).toMatchObject({
+        a: {
+          docs: ['a'],
+          ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+        },
+        b: {
+          docs: ['a'],
+          ranges: [
+            { doc: 'a', tokens: { start: 0, end: 2 } },
+            { doc: 'a', tokens: { start: 4, end: 10 } },
+          ],
+        },
+        filter: { minDocFreqTotal: 1 },
+      });
+    }
+
+    const old = [...f.keynesses()];
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 3, end: 6 } }],
+    });
+    expect(f.keynesses()).toHaveLength(4);
+    expect(old.every((issued) => issued.cancelled)).toBe(true);
+    expect((f.keynesses().at(-1)!.query as {
+      request: { a: { ranges: unknown[] }; b: { ranges: unknown[] } };
+    }).request).toMatchObject({
+      a: { ranges: [{ doc: 'a', tokens: { start: 3, end: 6 } }] },
+      b: {
+        ranges: [
+          { doc: 'a', tokens: { start: 0, end: 3 } },
+          { doc: 'a', tokens: { start: 6, end: 10 } },
+        ],
+      },
+    });
+
+    f.store.getState().setLinkedSelection(null);
+    expect(f.store.getState().keynessA).toBeNull();
+    expect(f.store.getState().keynessB).toBeNull();
+    expect(f.store.getState().keynessInventoryA).toBeNull();
+    expect(f.store.getState().keynessInventoryB).toBeNull();
+  });
+
+  it('keeps untouched documents whole in the outside-selection side', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.setState({ corpusTokenCounts: new Map([['a', 10], ['b', 8]]) });
+    f.store.getState().setKeynessMode('selection-rest');
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+    });
+    const request = (f.keynesses().at(-1)!.query as {
+      request: {
+        a: { docs: string[]; ranges: unknown[] };
+        b: { docs: string[]; ranges: unknown[] };
+        filter: { minDocFreqTotal: number };
+      };
+    }).request;
+    expect(request).toMatchObject({
+      a: {
+        docs: ['a'],
+        ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+      },
+      b: {
+        docs: ['a', 'b'],
+        ranges: [
+          { doc: 'a', tokens: { start: 0, end: 2 } },
+          { doc: 'a', tokens: { start: 4, end: 10 } },
+        ],
+      },
+      filter: { minDocFreqTotal: 1 },
+    });
+  });
+
+  it('waits without issuing when selection geometry is unavailable', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 2, end: 4 } }],
+    });
+    expect(f.keynesses()).toHaveLength(0);
+    expect(f.store.getState().keynessA).toBeNull();
+    expect(f.store.getState().keynessB).toBeNull();
+  });
+
+  it('leaves selection comparison when a document is chosen', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().setKeynessMode('selection-rest');
+    f.store.getState().setKeynessSelection('a', 'b');
+    expect(f.store.getState().keynessView).toMatchObject({
+      mode: 'documents',
+      documentA: 'b',
+      documentB: 'a',
+    });
+    expect((f.keynesses().at(-1)!.query as {
+      request: { a: { docs: string[] }; b: { docs: string[] } };
+    }).request).toMatchObject({
+      a: { docs: ['b'] },
+      b: { docs: ['a'] },
+    });
   });
 
   it('appends independently loaded viewport chunks while retaining prior ranks', async () => {

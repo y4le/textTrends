@@ -100,7 +100,7 @@ export interface WorkspaceFrequencyViewV1 {
 }
 
 export interface WorkspaceCompareViewV1 {
-  readonly mode: 'documents' | 'document-rest';
+  readonly mode: 'documents' | 'document-rest' | 'selection-rest';
   readonly documentA: string | null;
   readonly documentB: string | null;
   readonly restOn: 'a' | 'b';
@@ -437,7 +437,11 @@ function parseCompareView(value: unknown): WorkspaceCompareViewV1 {
     ? value.showConfidenceIntervals
     : true;
   if (
-    (value.mode !== 'documents' && value.mode !== 'document-rest')
+    (
+      value.mode !== 'documents'
+      && value.mode !== 'document-rest'
+      && value.mode !== 'selection-rest'
+    )
     || (value.restOn !== 'a' && value.restOn !== 'b')
     || !isNonNegSafeInt(value.minCountTotal) || value.minCountTotal < 1
     || !isNonNegSafeInt(value.minDocFreqTotal) || value.minDocFreqTotal < 1

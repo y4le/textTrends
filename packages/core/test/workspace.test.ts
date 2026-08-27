@@ -195,6 +195,18 @@ describe('workspace admission', () => {
     }).views.compare.sort.by).toBe('logRatioLow');
   });
 
+  it('round-trips the transient-selection comparison mode without persisting a range', () => {
+    const value = validWorkspace();
+    const compare = {
+      ...value.views.compare,
+      mode: 'selection-rest' as const,
+    };
+    expect(parseWorkspace({
+      ...value,
+      views: { ...value.views, compare },
+    }).views.compare).toEqual(compare);
+  });
+
   it('round-trips a query-notebook/3 workspace with an authored custom color', () => {
     const value = validWorkspace();
     const custom: WorkspaceV1 = {

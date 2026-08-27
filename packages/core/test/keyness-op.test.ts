@@ -194,8 +194,29 @@ describe('keyness-g2-2x2/1', () => {
         tokens: { start: 3 as never, end: 6 as never },
       }],
     });
+    const middle = await resolveSelection(world.snapshot, {
+      docs: ['a' as ProjectDocId],
+      ranges: [{
+        doc: 'a' as ProjectDocId,
+        tokens: { start: 2 as never, end: 4 as never },
+      }],
+    });
+    const outside = await resolveSelection(world.snapshot, {
+      docs: ['a' as ProjectDocId],
+      ranges: [
+        {
+          doc: 'a' as ProjectDocId,
+          tokens: { start: 0 as never, end: 2 as never },
+        },
+        {
+          doc: 'a' as ProjectDocId,
+          tokens: { start: 4 as never, end: 6 as never },
+        },
+      ],
+    });
     expect(firstSelectionOverlap(world.snapshot, whole, left)).toBe('a');
     expect(firstSelectionOverlap(world.snapshot, left, right)).toBeNull();
+    expect(firstSelectionOverlap(world.snapshot, middle, outside)).toBeNull();
     await expect(keyness(
       world.snapshot,
       whole,
@@ -216,6 +237,18 @@ describe('keyness-g2-2x2/1', () => {
     )).resolves.toMatchObject({
       totalsA: { tokens: 3 },
       totalsB: { tokens: 3 },
+    });
+    await expect(keyness(
+      world.snapshot,
+      middle,
+      outside,
+      inputsFor(world, middle),
+      inputsFor(world, outside),
+      REQUEST,
+      async () => {},
+    )).resolves.toMatchObject({
+      totalsA: { tokens: 2, documents: 1 },
+      totalsB: { tokens: 4, documents: 1 },
     });
   });
 

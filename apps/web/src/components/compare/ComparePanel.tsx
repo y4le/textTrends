@@ -39,6 +39,8 @@ export function ComparePanel() {
   const stateB = useApp((state) => state.keynessB);
   const inventoryA = useApp((state) => state.keynessInventoryA);
   const inventoryB = useApp((state) => state.keynessInventoryB);
+  const linkedSelection = useApp((state) => state.linkedSelection);
+  const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const layers = useApp((state) => state.layers);
   const setSelection = useApp((state) => state.setKeynessSelection);
   const applySettings = useApp((state) => state.applyKeynessSettings);
@@ -66,7 +68,12 @@ export function ComparePanel() {
 
   const readyDocs = snapshot?.readyDocs ?? [];
   const comparison = snapshot
-    ? keynessSelections(view, snapshot.readyDocs)
+    ? keynessSelections({
+        view,
+        readyDocs: snapshot.readyDocs,
+        selection: linkedSelection,
+        tokenCountOf: (doc) => corpusTokenCounts.get(doc),
+      })
     : null;
   const hasComparison = comparison !== null;
 
