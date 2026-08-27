@@ -11,7 +11,6 @@ import { shortcutAria } from '../lib/shortcuts.ts';
 import { parseAuthoredAliases } from '../lib/notebook.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { DockTakeover } from './DockTakeover.tsx';
-import { usePresentation } from './PresentationProvider.tsx';
 
 const FIND_RESULT_ID = 'corpus-find-result';
 
@@ -43,10 +42,8 @@ export function FindBar({
   const nextRef = useRef<HTMLButtonElement | null>(null);
   const model = findBarModel(interaction);
   const progress = findMatchProgress(find, matches);
-  const presentation = usePresentation();
   const rail = placement === 'rail';
-  const compactRail = rail && presentation.width === 'compact';
-  const compactSubmitted = find !== null && draft === submittedRaw;
+  const submittedDraft = find !== null && draft === submittedRaw;
   const notebookAtCapacity = notebookTermCount >= NOTEBOOK_LIMITS_V1.maxGroups;
   const analysisAtCapacity = activeTermCount >= MAX_KWIC_TRACKS;
   const saveDisabled = find === null || notebookAtCapacity || analysisAtCapacity;
@@ -136,11 +133,10 @@ export function FindBar({
       role="search"
       aria-label="Find in corpus"
       aria-busy={model.busy}
-      data-find-submitted={model.hasSubmittedQuery || undefined}
-      data-takeover={compactRail ? 'find' : undefined}
+      data-takeover={rail ? 'find' : undefined}
       onKeyDown={handleKeyDown}
     >
-      {compactRail ? (
+      {rail ? (
         <>
           <DockTakeover
             mode="find"
@@ -162,12 +158,15 @@ export function FindBar({
               },
             }}
             status={(interactionError ?? saveError) || saveStatus || status}
+            statusTone={interactionError !== null || saveError !== ''
+              ? 'error'
+              : saveStatus !== '' ? 'success' : 'muted'}
             busy={model.busy}
             onSubmit={submitDraft}
             onDismiss={onClose}
             controls={(
               <>
-                {!compactSubmitted ? (
+                {!submittedDraft ? (
                   <button
                     type="submit"
                     aria-label="Submit find"
@@ -227,7 +226,7 @@ export function FindBar({
                             <span className="visually-hidden" data-find-match-exact aria-hidden="true">
                               {progress.current.toLocaleString()}/{progress.total.toLocaleString()}
                             </span>
-                            <span className="find-bar-compact-progress" aria-hidden="true">
+                            <span className="find-bar-progress-percent" aria-hidden="true">
                               {Math.round((progress.current / progress.total) * 100)}%
                             </span>
                           </span>

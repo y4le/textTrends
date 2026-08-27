@@ -36,6 +36,10 @@ export interface DockSizingInput {
    * pre-preference Compact pixels. Runtime callers always provide a stop. */
   readonly density?: Density;
   readonly trackCount: number;
+  /** A transient Find or new-term composer replaces the ordinary Terms rail
+   * with two full-size rows. The resize handle also needs clear space at the
+   * rail's leading edge instead of straddling the upper controls. */
+  readonly takeoverLine?: boolean;
   /** Reader's transient Find composer needs a full coarse pointer target;
    * the ordinary Terms rail deliberately uses its squished target. */
   readonly readerRail?: 'terms' | 'find';
@@ -77,6 +81,9 @@ export const FOOTER_BARCODE_TRACK_MAX_HEIGHT = 16;
 export const FOOTER_DEFAULT_MAX_VIEWPORT_RATIO = 1 / 3;
 
 export const DOCK_TERM_TARGET_MIN_HEIGHT = 24;
+export const DOCK_TAKEOVER_ROW_BLOCK_SIZE = 44;
+export const DOCK_RESIZE_HANDLE_INWARD_FINE = 8;
+export const DOCK_RESIZE_HANDLE_INWARD_COARSE = 12;
 const DOCK_TERM_TARGET_STANDARD_MIN_HEIGHT = 34;
 const DOCK_TERM_TARGET_COMFORTABLE_MIN_HEIGHT = 44;
 const DOCK_RAIL_PAD_BASE = 3;
@@ -84,6 +91,16 @@ const DOCK_RAIL_PAD_MIN = 0;
 const READER_RAIL_CHROME_RESIDUE = 1 + 2 * DOCK_RAIL_PAD_MIN + 2;
 const FOOTER_PAD_MIN = 1;
 const FOOTER_LANE_GAP_MIN = 1;
+
+/** Two 44px composer rows plus the half of the resize target that sits inside
+ * the dock. Keeping this in the eager metrics makes the fixed dock, its page
+ * reservation, and the visible handle move upward as one surface. */
+export function dockTakeoverRailBlockSize(coarse: boolean): number {
+  const handleClearance = coarse
+    ? DOCK_RESIZE_HANDLE_INWARD_COARSE
+    : DOCK_RESIZE_HANDLE_INWARD_FINE;
+  return 2 * DOCK_TAKEOVER_ROW_BLOCK_SIZE + handleClearance;
+}
 
 const COMPACT_FINE: FooterGeometry = Object.freeze({
   passageHeight: 20,
@@ -314,8 +331,14 @@ function withStrip(
 export function dockSizing(input: DockSizingInput): DockSizing {
   const tracks = finiteTracks(input.trackCount);
   const dockMetrics = dockMetricsFor(input.density);
-  const railBase = railBaseFor(input.width, input.coarse, dockMetrics);
-  const termTargetBase = termTargetBaseFor(input.width, input.coarse, dockMetrics);
+  const takeoverRail = input.takeoverLine
+    ? dockTakeoverRailBlockSize(input.coarse)
+    : null;
+  const railBase = takeoverRail
+    ?? railBaseFor(input.width, input.coarse, dockMetrics);
+  const termTargetBase = takeoverRail === null
+    ? termTargetBaseFor(input.width, input.coarse, dockMetrics)
+    : DOCK_TAKEOVER_ROW_BLOCK_SIZE;
   const available = Number.isFinite(input.availableBlockSize)
     ? Math.max(0, Math.floor(input.availableBlockSize))
     : 0;
@@ -346,9 +369,12 @@ export function dockSizing(input: DockSizingInput): DockSizing {
   const baseBlockSize = railBase + baseFooterSize;
   const passageFloor = passageFloorFor(input.width, input.coarse);
   const graphFloor = footerTrendMinimumHeight(input.coarse);
-  const termTargetFloor = dockTermTargetMinimumHeight(input.density);
+  const termTargetFloor = takeoverRail === null
+    ? dockTermTargetMinimumHeight(input.density)
+    : DOCK_TAKEOVER_ROW_BLOCK_SIZE;
   // A term bucket adds its own two border pixels around the button target.
-  const railFloor = 1 + 2 * DOCK_RAIL_PAD_MIN + termTargetFloor + 2;
+  const railFloor = takeoverRail
+    ?? 1 + 2 * DOCK_RAIL_PAD_MIN + termTargetFloor + 2;
   const footerFloor = 1
     + 2 * FOOTER_PAD_MIN
     + passageFloor
@@ -550,9 +576,11 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
   const readerTermTarget = dockMetricsFor(input.density).readerTermTargetBlockSize;
   const termsRailSize = 1 + 2 * DOCK_RAIL_PAD_MIN + readerTermTarget + 2;
   const findTargetSize = input.coarse ? Math.max(44, readerTermTarget) : readerTermTarget;
-  const railSize = input.readerRail === 'find'
-    ? 1 + findTargetSize
-    : termsRailSize;
+  const takeoverRail = input.takeoverLine
+    ? dockTakeoverRailBlockSize(input.coarse)
+    : null;
+  const railSize = takeoverRail
+    ?? (input.readerRail === 'find' ? 1 + findTargetSize : termsRailSize);
   const barcodeExtent = barcodeBandExtent(
     source.barcodeBandGap,
     barcodeBandHeight(tracks, source.barcodeTrackHeight, source.barcodeTrackGap),
@@ -572,7 +600,9 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
     showBarcode: tracks > 0,
   });
   const baseBlockSize = railSize + baseFooterSize;
-  const minBlockSize = 3; // one border pixel + the two-pixel progress line
+  // A visible two-row composer is never compressed or dropped. Without a
+  // takeover, Reader retains its one-border-plus-two-pixel progress floor.
+  const minBlockSize = (takeoverRail ?? 0) + 3;
   const maxBlockSize = Math.max(minBlockSize, available);
   const automaticDefault = input.targetBlockSize === null
     || !Number.isFinite(input.targetBlockSize);
@@ -593,9 +623,9 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
       maxBlockSize,
       railBlockSize: railSize,
       railPadBlock: DOCK_RAIL_PAD_MIN,
-      termTargetBlockSize: input.readerRail === 'find'
-        ? findTargetSize
-        : readerTermTarget,
+      termTargetBlockSize: takeoverRail === null
+        ? input.readerRail === 'find' ? findTargetSize : readerTermTarget
+        : DOCK_TAKEOVER_ROW_BLOCK_SIZE,
       footerBlockSize: footerBlockSize(footerGeometry, tracks, {
         showPassage: false,
         showStatus: false,
@@ -608,11 +638,13 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
   }
 
   const deficit = baseBlockSize - blockSize;
-  const railRemainder = Math.max(0, railSize - deficit);
+  const railRemainder = takeoverRail
+    ?? Math.max(0, railSize - deficit);
   // Once only border and control-chrome residue remains, drop the Reader's Terms
   // lane as a unit and give those pixels back to the analytical footer. This
   // preserves Terms → barcode → graph collapse ordering at every density.
-  const railBlockSize = railRemainder <= READER_RAIL_CHROME_RESIDUE
+  const railBlockSize = takeoverRail === null
+    && railRemainder <= READER_RAIL_CHROME_RESIDUE
     ? 0
     : railRemainder;
   const footerTarget = blockSize - railBlockSize;
@@ -648,9 +680,9 @@ export function readerDockSizing(input: DockSizingInput): DockSizing {
     maxBlockSize,
     railBlockSize,
     railPadBlock: DOCK_RAIL_PAD_MIN,
-    termTargetBlockSize: input.readerRail === 'find'
-      ? findTargetSize
-      : readerTermTarget,
+    termTargetBlockSize: takeoverRail === null
+      ? input.readerRail === 'find' ? findTargetSize : readerTermTarget
+      : DOCK_TAKEOVER_ROW_BLOCK_SIZE,
     footerBlockSize: footerSize,
     footerGeometry,
     showStatus: false,

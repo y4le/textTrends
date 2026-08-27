@@ -26,7 +26,6 @@ import { rowDetailSurface, rowDetailWrite } from '../lib/row-detail.ts';
 import type { GroupCountVM, NotebookRowVM } from '../lib/notebook-view.ts';
 import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
-import { usePresentation } from './PresentationProvider.tsx';
 
 const ADD_TERM_LABEL = 'Add term';
 const TERM_LONG_PRESS_MS = 500;
@@ -373,8 +372,13 @@ function TermActionMenu({
   );
 }
 
-export function QuerySurface() {
-  const compact = usePresentation().width === 'compact';
+export function QuerySurface({
+  inlineAddOpen,
+  onInlineAddOpenChange,
+}: {
+  readonly inlineAddOpen: boolean;
+  readonly onInlineAddOpenChange: (open: boolean) => void;
+}) {
   const place = useApp((state) => state.place);
   const notebook = useApp((state) => state.notebook);
   const activeGroupIds = useApp((state) => state.activeGroupIds);
@@ -398,7 +402,6 @@ export function QuerySurface() {
   const replaceLayer = useApp((state) => state.replaceLayer);
   const popLayer = useApp((state) => state.popLayer);
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
-  const [inlineAddOpen, setInlineAddOpen] = useState(false);
   const [inlineTerm, setInlineTerm] = useState('');
   const [managerNewTermDraft, setManagerNewTermDraft] = useState('');
   const [termKeyboardStatus, setTermKeyboardStatus] = useState('');
@@ -459,10 +462,10 @@ export function QuerySurface() {
     setTermKeyboardStatus('');
     inlineReturnFocus.current = returnFocusTo;
     setInlineTerm('');
-    setInlineAddOpen(true);
+    onInlineAddOpenChange(true);
   };
   const closeInlineAdd = (restoreFocus = true) => {
-    setInlineAddOpen(false);
+    onInlineAddOpenChange(false);
     setInlineTerm('');
     clearNotebookError();
     if (restoreFocus) {
@@ -529,7 +532,7 @@ export function QuerySurface() {
   };
   const openInlineManager = () => {
     setManagerNewTermDraft(inlineTerm);
-    setInlineAddOpen(false);
+    onInlineAddOpenChange(false);
     setInlineTerm('');
     clearNotebookError();
     writeLayer(
@@ -546,7 +549,9 @@ export function QuerySurface() {
       input?.scrollIntoView({ block: 'nearest', inline: 'nearest' });
     });
     return () => cancelAnimationFrame(frame);
-  }, [compact, inlineAddOpen]);
+  }, [inlineAddOpen]);
+
+  useEffect(() => () => onInlineAddOpenChange(false), [onInlineAddOpenChange]);
 
   useEffect(() => {
     if (target?.mode !== 'manage' || managerNewTermDraft === '') return;
@@ -605,7 +610,7 @@ export function QuerySurface() {
       <aside
         className="query-region term-bar"
         aria-label="Terms"
-        data-takeover={compact && inlineAddOpen ? 'add' : undefined}
+        data-takeover={inlineAddOpen ? 'add' : undefined}
         data-uses-query-encoding={view.usesQueryEncoding}
       >
         <span
@@ -626,7 +631,7 @@ export function QuerySurface() {
         >
           {inlineAddOpen ? notebookError : null}
         </span>
-        {compact && inlineAddOpen && (
+        {inlineAddOpen && (
           <DockTakeover
             mode="add"
             formLabel="Add a term inline"
@@ -644,6 +649,7 @@ export function QuerySurface() {
               },
             }}
             status={notebookError}
+            statusTone={notebookError === null ? 'muted' : 'error'}
             onSubmit={submitInlineAdd}
             onDismiss={() => closeInlineAdd()}
             controls={(
@@ -664,7 +670,7 @@ export function QuerySurface() {
             )}
           />
         )}
-        {(!compact || !inlineAddOpen) && (
+        {!inlineAddOpen && (
           <>
         <strong className="term-bar-label">Terms</strong>
         <div
@@ -704,46 +710,6 @@ export function QuerySurface() {
                 onExit={exitTermNavigation}
               />
             ))}
-            {inlineAddOpen && (
-            <form
-              className="term-quick-add"
-              aria-label="Add a term inline"
-              onSubmit={(event) => {
-                event.preventDefault();
-                submitInlineAdd();
-              }}
-            >
-              <label className="visually-hidden" htmlFor="term-inline-add-input">New term</label>
-              <input
-                id="term-inline-add-input"
-                value={inlineTerm}
-                onChange={(event) => {
-                  setInlineTerm(event.currentTarget.value);
-                  if (notebookError !== null) clearNotebookError();
-                }}
-                onKeyDown={(event) => {
-                  if (event.key !== 'Escape' || event.nativeEvent.isComposing) return;
-                  event.preventDefault();
-                  event.stopPropagation();
-                  closeInlineAdd();
-                }}
-                aria-describedby={notebookError ? 'term-rail-error' : 'term-rail-status'}
-                placeholder="new term"
-                enterKeyHint="done"
-                autoCapitalize="none"
-                autoCorrect="off"
-                spellCheck={false}
-              />
-              <button type="submit" disabled={inlineTerm.trim() === ''}>Add</button>
-              <button
-                type="button"
-                onClick={openInlineManager}
-              >
-                More options
-              </button>
-              <button type="button" onClick={() => closeInlineAdd()}>Cancel</button>
-              </form>
-            )}
           </div>
         </div>
         <div className="term-bar-actions">

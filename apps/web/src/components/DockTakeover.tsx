@@ -18,6 +18,7 @@ export function DockTakeover({
   label,
   input,
   status,
+  statusTone = 'muted',
   controls,
   busy = false,
   onSubmit,
@@ -28,6 +29,7 @@ export function DockTakeover({
   readonly label: string;
   readonly input: DockTakeoverInput;
   readonly status?: ReactNode;
+  readonly statusTone?: 'muted' | 'error' | 'success';
   readonly controls: ReactNode;
   readonly busy?: boolean;
   readonly onSubmit: () => void;
@@ -77,7 +79,11 @@ export function DockTakeover({
         >
           {label}
         </label>
-        <span className="dock-takeover-status" aria-hidden="true">
+        <span
+          className="dock-takeover-status"
+          data-tone={statusTone}
+          aria-hidden="true"
+        >
           {status}
         </span>
         <div className="dock-takeover-controls">{controls}</div>

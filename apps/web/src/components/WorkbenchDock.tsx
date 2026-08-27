@@ -10,7 +10,13 @@ import {
   type KeyboardEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
-import { dockSizing, readerDockSizing } from '../lib/footer-metrics.ts';
+import {
+  DOCK_RESIZE_HANDLE_INWARD_COARSE,
+  DOCK_RESIZE_HANDLE_INWARD_FINE,
+  dockSizing,
+  dockTakeoverRailBlockSize,
+  readerDockSizing,
+} from '../lib/footer-metrics.ts';
 import { findScope } from '../lib/interaction.ts';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
@@ -54,6 +60,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   );
   const dockRef = useRef<HTMLDivElement | null>(null);
   const [targetBlockSize, setTargetBlockSize] = useState<number | null>(null);
+  const [termTakeoverOpen, setTermTakeoverOpen] = useState(false);
   const [availableBlockSize, setAvailableBlockSize] = useState(() => window.innerHeight);
   const [viewportBlockSize, setViewportBlockSize] = useState(() => window.innerHeight);
   const [resizing, setResizing] = useState(false);
@@ -64,20 +71,37 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
   const displayedTrackCount = scopedFind !== null
     ? Math.max(seriesCount, scopedFind.find === null ? 0 : 1)
     : seriesCount;
+  const takeoverLine = scopedFind !== null || termTakeoverOpen;
+  const resizeHandleInward = presentation.coarseAvailable
+    ? DOCK_RESIZE_HANDLE_INWARD_COARSE
+    : DOCK_RESIZE_HANDLE_INWARD_FINE;
   const sizingInput = {
     width: presentation.width,
     coarse: presentation.coarseAvailable,
     density: displayPreference.density,
     trackCount: displayedTrackCount,
-    readerRail: scopedFind !== null ? 'find' : 'terms',
+    // The takeover has its own fixed rail. Keep the hidden resting calculation
+    // on Terms so opening Find preserves the exact footer partition it replaces.
+    readerRail: 'terms',
     footerPresent,
     targetBlockSize,
     viewportBlockSize,
     availableBlockSize,
   } as const;
-  const sizing = mode === 'reader'
-    ? readerDockSizing(sizingInput)
-    : dockSizing(sizingInput);
+  const sizeDock = mode === 'reader' ? readerDockSizing : dockSizing;
+  const restingSizing = sizeDock(sizingInput);
+  const takeoverTarget = targetBlockSize === null
+    ? null
+    : targetBlockSize
+      + dockTakeoverRailBlockSize(presentation.coarseAvailable)
+      - restingSizing.railBlockSize;
+  const sizing = takeoverLine
+    ? sizeDock({
+        ...sizingInput,
+        takeoverLine: true,
+        targetBlockSize: takeoverTarget,
+      })
+    : restingSizing;
   const sizingRef = useRef(sizing);
   sizingRef.current = sizing;
   const targetRef = useRef(targetBlockSize);
@@ -219,14 +243,17 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       : event.key === 'PageUp' || event.key === 'PageDown'
         ? 64
         : 16;
-    setTargetBlockSize(event.key === 'Home'
+    const nextBlockSize = event.key === 'Home'
       ? current.minBlockSize
       : event.key === 'End'
         ? current.maxBlockSize
         : Math.max(
             current.minBlockSize,
             Math.min(current.maxBlockSize, current.blockSize + direction * step),
-          ));
+          );
+    setTargetBlockSize(takeoverLine
+      ? restingSizing.blockSize + nextBlockSize - current.blockSize
+      : nextBlockSize);
   };
 
   const laneText = [
@@ -256,6 +283,7 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
       data-terms-flush={sizing.railPadBlock <= 0.01 || undefined}
       data-terms-dropped={sizing.railBlockSize === 0 || undefined}
       style={{
+        '--dock-resize-handle-inward': `${resizeHandleInward}px`,
         '--dock-local-block-size': `${sizing.blockSize}px`,
         '--terms-local-block-size': `${sizing.railBlockSize}px`,
       } as CSSProperties}
@@ -303,10 +331,13 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
             event.preventDefault();
             const current = sizingRef.current;
             const next = drag.startBlockSize + drag.startY - event.clientY;
-            scheduleTarget(Math.max(
+            const nextBlockSize = Math.max(
               current.minBlockSize,
               Math.min(current.maxBlockSize, Math.round(next)),
-            ));
+            );
+            scheduleTarget(takeoverLine
+              ? restingSizing.blockSize + nextBlockSize - current.blockSize
+              : nextBlockSize);
           }}
           onPointerUp={(event: ReactPointerEvent<HTMLDivElement>) => {
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -324,7 +355,10 @@ export function WorkbenchDock({ globalShortcuts, inactive = false, onCloseFind, 
         ? <FindBar placement="rail" onClose={onCloseFind} />
         : (
             <Suspense fallback={<TermsRailFallback />}>
-              <QuerySurface />
+              <QuerySurface
+                inlineAddOpen={termTakeoverOpen}
+                onInlineAddOpenChange={setTermTakeoverOpen}
+              />
             </Suspense>
           )}
       <Suspense fallback={null}>

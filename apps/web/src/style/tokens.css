@@ -4214,71 +4214,32 @@ canvas {
   color: var(--fg-muted);
 }
 
-.term-quick-add {
-  display: inline-flex;
-  flex: 0 0 auto;
-  min-block-size: var(--term-target-block-size);
-  align-items: stretch;
-  border: 1px solid var(--rule-strong);
-  background: var(--bg);
-}
-
-.term-quick-add input {
-  inline-size: min(24ch, 52vw);
-  min-inline-size: 12ch;
-  border: 0;
-  border-inline-end: 1px solid var(--rule);
-  border-radius: 0;
-  padding-inline: var(--space-2);
-  background: var(--bg);
-  color: var(--fg);
-  font: inherit;
-  font-family: var(--font-mono);
-  font-size: 16px;
-}
-
-.term-quick-add button {
-  min-inline-size: 44px;
-  border: 0;
-  border-inline-start: 1px solid var(--rule);
-  padding-inline: var(--space-2);
-  background: none;
-  color: var(--fg);
-  cursor: pointer;
-  font: inherit;
-}
-
-.term-quick-add button:disabled {
-  color: var(--fg-muted);
-  cursor: default;
-}
-
 .term-bar[data-takeover] {
   container-name: dock-takeover-rail;
   container-type: inline-size;
   display: block;
-  overflow: visible;
+  overflow: hidden;
+  border-block-start: 0;
 }
 
 .dock-takeover {
-  --dock-takeover-field-block-size: max(44px, var(--terms-rail-block-size));
   --dock-takeover-controls-block-size: 44px;
-  position: relative;
-  display: block;
+  display: grid;
   min-inline-size: 0;
   block-size: 100%;
+  box-sizing: border-box;
+  grid-template-rows:
+    var(--dock-resize-handle-inward)
+    repeat(2, var(--dock-takeover-controls-block-size));
 }
 
 .dock-takeover-upper {
-  position: absolute;
-  z-index: 5;
-  inset-inline: 0;
-  inset-block-end: var(--dock-takeover-field-block-size);
   display: flex;
+  grid-row: 2;
   min-inline-size: 0;
   block-size: var(--dock-takeover-controls-block-size);
   align-items: stretch;
-  gap: var(--space-1);
+  gap: var(--space-2);
   padding-inline: var(--space-1);
   background: var(--bg);
   box-shadow: inset 0 0 0 1px var(--rule-strong);
@@ -4297,13 +4258,23 @@ canvas {
 
 .dock-takeover-status {
   min-inline-size: 0;
-  flex: 1 1 auto;
+  max-inline-size: 72ch;
+  flex: 0 1 72ch;
   align-self: center;
   overflow: hidden;
-  color: var(--accent-text);
+  margin-inline-end: auto;
+  color: var(--fg-muted);
   font-size: var(--text-xs);
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.dock-takeover-status[data-tone='error'] {
+  color: var(--accent-text);
+}
+
+.dock-takeover-status[data-tone='success'] {
+  color: var(--fg);
 }
 
 .dock-takeover-controls {
@@ -4341,20 +4312,16 @@ canvas {
 }
 
 .dock-takeover-field {
-  position: absolute;
-  inset: 0;
   min-inline-size: 0;
+  grid-row: 3;
 }
 
 .dock-takeover-field input {
-  position: absolute;
-  z-index: 4;
-  inset-inline: 0;
-  inset-block-end: 0;
   inline-size: 100%;
   min-inline-size: 0;
-  block-size: var(--dock-takeover-field-block-size);
+  block-size: var(--dock-takeover-controls-block-size);
   border: 1px solid var(--rule-strong);
+  border-block-start: 0;
   border-radius: 0;
   padding-inline: var(--space-2);
   background: var(--bg);
@@ -5122,16 +5089,6 @@ html.reader-open .find-bar--floating {
     );
 }
 
-.find-bar--rail {
-  grid-template-columns: auto minmax(0, 1fr) auto;
-  gap: var(--space-2);
-  padding-inline: 0;
-}
-
-.find-bar--rail .term-bar-label {
-  align-self: center;
-}
-
 .find-bar-form,
 .find-bar-actions {
   display: flex;
@@ -5258,33 +5215,6 @@ html.reader-open .find-bar--floating {
   color: var(--accent-text);
 }
 
-.find-bar--rail .find-bar-status,
-.find-bar--rail .find-bar-error {
-  position: absolute;
-  z-index: 3;
-  inset-inline: var(--space-2);
-  inset-block-end: 100%;
-  display: none;
-  overflow: hidden;
-  padding: 0.2rem var(--space-2);
-  border: 1px solid var(--rule);
-  background: var(--bg);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.find-bar--rail[data-find-submitted='true'] .find-bar-status {
-  display: flex;
-}
-
-.find-bar--rail .find-bar-error:not(:empty) {
-  display: block;
-}
-
-.find-bar--rail .find-bar-error:not(:empty) {
-  z-index: 4;
-}
-
 @media (max-width: 599.98px) {
   .find-bar--floating {
     inset-inline:
@@ -5307,14 +5237,6 @@ html.reader-open .find-bar--floating {
     font-size: 16px;
   }
 
-  .find-bar--rail {
-    grid-template-columns: minmax(0, 1fr) auto;
-  }
-
-  .find-bar--rail .find-bar-actions button {
-    min-inline-size: 44px;
-    padding-inline: var(--space-1);
-  }
 }
 
 .term-manager-header {
@@ -6314,12 +6236,6 @@ html.reader-open .find-bar--floating {
     min-inline-size: 44px;
   }
 
-  .term-quick-add,
-  .term-quick-add input,
-  .term-quick-add button {
-    min-block-size: 44px;
-  }
-
   .reader-region button {
     min-inline-size: 44px;
   }
@@ -6462,10 +6378,10 @@ html.reader-open .find-bar--floating {
 .footer-resize-handle {
   position: absolute;
   z-index: 8;
-  inset-block-start: -8px;
+  inset-block-start: calc(-1 * var(--dock-resize-handle-inward));
   inset-inline: 0;
   display: flex;
-  block-size: 16px;
+  block-size: calc(2 * var(--dock-resize-handle-inward));
   align-items: center;
   justify-content: center;
   outline: none;
@@ -6525,18 +6441,6 @@ html.reader-open .find-bar--floating {
   block-size: 100%;
   min-block-size: 0;
   line-height: 1;
-}
-
-.workbench-dock[data-terms-flush='true'] .term-quick-add,
-.workbench-dock[data-terms-flush='true'] .term-quick-add input,
-.workbench-dock[data-terms-flush='true'] .term-quick-add button {
-  block-size: 100%;
-  min-block-size: var(--term-target-block-size);
-}
-
-.workbench-dock[data-terms-flush='true'] .term-quick-add input:focus-visible,
-.workbench-dock[data-terms-flush='true'] .term-quick-add button:focus-visible {
-  outline-offset: -3px;
 }
 
 .workbench-dock[data-terms-compressed='true'] .term-bucket-port::-webkit-scrollbar {
@@ -6953,10 +6857,6 @@ html[data-footer-resizing='true'] * {
     min-block-size: 44px;
   }
 
-  .footer-resize-handle {
-    inset-block-start: -12px;
-    block-size: 24px;
-  }
 }
 
 .workbench-dock[data-mode='reader'] {
@@ -6974,12 +6874,6 @@ html[data-footer-resizing='true'] * {
 .workbench-dock[data-mode='reader'][data-terms-dropped='true'] > .query-region {
   visibility: hidden;
   pointer-events: none;
-}
-
-.workbench-dock[data-mode='reader'] > .query-region.term-bar[data-takeover] {
-  visibility: visible;
-  overflow: visible;
-  pointer-events: auto;
 }
 
 @media (max-width: 599.98px) {
