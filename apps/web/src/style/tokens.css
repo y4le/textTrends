@@ -1969,20 +1969,6 @@ canvas {
   text-align: end;
 }
 
-.frequency-common-words {
-  display: grid;
-  grid-column: 1 / -1;
-  grid-template-columns: auto minmax(0, 1fr);
-  align-items: center;
-  gap: var(--space-2);
-}
-
-.frequency-common-words > p {
-  grid-column: 2;
-  margin: 0;
-  color: var(--fg-muted);
-}
-
 .frequency-empty-state {
   color: var(--fg-muted);
 }
@@ -3556,15 +3542,6 @@ canvas {
     grid-column: 1 / -1;
   }
 
-  .frequency-common-words {
-    grid-template-columns: minmax(0, 1fr);
-    gap: var(--space-1);
-  }
-
-  .frequency-common-words > p {
-    grid-column: 1;
-  }
-
   .common-words-control input[type='range'] {
     min-block-size: 44px;
   }
@@ -4584,6 +4561,38 @@ canvas {
 .display-settings {
   display: grid;
   gap: var(--space-3);
+}
+
+.vocabulary-settings {
+  display: grid;
+  min-inline-size: 0;
+}
+
+.vocabulary-settings fieldset {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--rule);
+}
+
+.vocabulary-settings legend {
+  padding-inline-end: var(--space-2);
+  font-weight: 600;
+}
+
+.vocabulary-settings .common-words-field {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.vocabulary-settings .common-words-field > p {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
+}
+
+.vocabulary-settings input[type='range'] {
+  min-block-size: 44px;
 }
 
 .display-settings fieldset {

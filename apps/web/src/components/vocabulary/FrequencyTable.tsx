@@ -12,7 +12,6 @@ import {
 } from 'react';
 import {
   FREQUENCY_FILTER_MAX_UNITS,
-  STOPLIST_MAX_TOP_N,
   type FrequencyListRowV1,
 } from '@texttrends/core';
 import { useDisplayPreference, usePresentation } from '../PresentationProvider.tsx';
@@ -188,9 +187,6 @@ export function FrequencyTable({
   const layers = useApp((store) => store.layers);
   const setSort = useApp((store) => store.setFrequencySort);
   const setFrequencyFilter = useApp((store) => store.setFrequencyFilter);
-  const setFrequencyStoplistTopN = useApp(
-    (store) => store.setFrequencyStoplistTopN,
-  );
   const loadMore = useApp((store) => store.loadMoreFrequency);
   const addTerm = useApp((store) => store.addTerm);
   const showInKwic = useApp((store) => store.showFrequencyTermInKwic);
@@ -201,7 +197,6 @@ export function FrequencyTable({
     mode: view.filter?.mode ?? 'literal' as const,
     query: view.filter?.query ?? '',
   }));
-  const [stoplistDraft, setStoplistDraft] = useState(view.stoplistTopN);
   const [columns, setColumns] = useState<VocabularyColumnSettings>(() =>
     loadVocabularyColumnSettings(vocabularySessionStorage(window))
       ?? VOCABULARY_COLUMN_DEFAULTS);
@@ -414,10 +409,6 @@ export function FrequencyTable({
     }));
   }, [view.filter]);
 
-  useEffect(() => {
-    setStoplistDraft(view.stoplistTopN);
-  }, [view.stoplistTopN]);
-
   const filterError = frequencyFilterError(filterDraft.mode, filterDraft.query);
   useEffect(() => {
     if (filterError !== null) return undefined;
@@ -432,15 +423,6 @@ export function FrequencyTable({
     const timer = window.setTimeout(() => setFrequencyFilter(next), 150);
     return () => window.clearTimeout(timer);
   }, [filterDraft, filterError, setFrequencyFilter, view.filter]);
-
-  useEffect(() => {
-    if (stoplistDraft === view.stoplistTopN) return undefined;
-    const timer = window.setTimeout(
-      () => setFrequencyStoplistTopN(stoplistDraft),
-      150,
-    );
-    return () => window.clearTimeout(timer);
-  }, [setFrequencyStoplistTopN, stoplistDraft, view.stoplistTopN]);
 
   useEffect(() => {
     if (columnDragRef.current !== null) return;
@@ -722,10 +704,7 @@ export function FrequencyTable({
       ? view.filter === undefined
       : view.filter?.mode === filterDraft.mode
         && view.filter.query === normalizedFilterDraft);
-  const stoplistApplied = stoplistDraft === view.stoplistTopN;
-  const filtersPending = !filterApplied
-    || !stoplistApplied
-    || state?.state.status === 'pending';
+  const filtersPending = !filterApplied || state?.state.status === 'pending';
 
   return (
     <section
@@ -838,34 +817,6 @@ export function FrequencyTable({
               ? 'Filtering vocabulary.'
               : `${readyResult?.total ?? 0} matching vocabulary rows.`)}
         </span>
-        <div className="common-words-field frequency-common-words">
-          <label htmlFor="vocabulary-common-words">remove common words</label>
-          <div className="common-words-control">
-            <input
-              id="vocabulary-common-words"
-              type="range"
-              min={0}
-              max={STOPLIST_MAX_TOP_N}
-              step={5}
-              value={stoplistDraft}
-              aria-valuetext={stoplistDraft === 0
-                ? 'off — no reference words removed'
-                : `top ${stoplistDraft} reference words`}
-              aria-describedby="vocabulary-common-words-note vocabulary-filter-status"
-              onChange={(event) => setStoplistDraft(event.currentTarget.valueAsNumber)}
-            />
-            <output htmlFor="vocabulary-common-words">
-              {stoplistDraft === 0
-                ? 'off'
-                : readyResult?.stoplist?.topN === stoplistDraft
-                  ? `top ${stoplistDraft} · ${readyResult.stoplist.removedRows} rows hidden`
-                  : `top ${stoplistDraft}`}
-            </output>
-          </div>
-          <p id="vocabulary-common-words-note">
-            Bundled English common-word reference; remaining counts and rates do not change.
-          </p>
-        </div>
       </form>
       {state?.state.status === 'pending' && readyResult === null && <p>ranking vocabulary…</p>}
       {state?.state.status === 'error' && (

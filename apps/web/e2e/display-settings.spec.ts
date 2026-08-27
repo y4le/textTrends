@@ -14,7 +14,8 @@ test('Settings keeps only operative sections, applies theme live, and persists i
   const opener = page.getByRole('button', { name: 'Settings', exact: true });
   await opener.click();
   const pane = page.getByRole('dialog', { name: 'Settings', exact: true });
-  await expect(pane.locator('.settings-sections > section > h3')).toHaveText(['Display']);
+  await expect(pane.locator('.settings-sections > section > h3'))
+    .toHaveText(['This place', 'Display']);
   await expect(pane.getByText('Vocabulary ranks words in the active corpus')).toHaveCount(0);
   await expect(pane.getByRole('heading', { name: 'Settings', exact: true })).toBeFocused();
 

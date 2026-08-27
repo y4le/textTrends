@@ -44,7 +44,9 @@ export function SettingsPane({
         ? 'compare-sort-field'
         : undefined
     : undefined;
-  const hasPlaceSettings = entry.context === 'trends' || entry.context === 'compare';
+  const hasPlaceSettings = entry.context === 'trends'
+    || entry.context === 'compare'
+    || entry.context === 'vocabulary';
 
   return (
     <UtilityPane
@@ -59,10 +61,6 @@ export function SettingsPane({
       onClose={onClose}
     >
       <div ref={sectionsRef} className="settings-sections">
-        <section id="settings-display" aria-labelledby="settings-display-heading">
-          <h3 id="settings-display-heading">Display</h3>
-          <DisplaySettings />
-        </section>
         {hasPlaceSettings && (
           <section
             id="settings-place"
@@ -73,6 +71,10 @@ export function SettingsPane({
             <PlaceSettings context={entry.context} onApplied={onClose} />
           </section>
         )}
+        <section id="settings-display" aria-labelledby="settings-display-heading">
+          <h3 id="settings-display-heading">Display</h3>
+          <DisplaySettings />
+        </section>
       </div>
     </UtilityPane>
   );

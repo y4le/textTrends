@@ -187,7 +187,10 @@ test('Vocabulary common-word filtering is off by default and updates live', asyn
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'vocabulary');
 
-  const slider = page.getByRole('slider', { name: 'remove common words' });
+  await expect(page.getByRole('slider', { name: 'remove common words' })).toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  const settings = page.getByRole('dialog', { name: 'Settings' });
+  const slider = settings.getByRole('slider', { name: 'remove common words' });
   await expect(slider).toHaveAccessibleName('remove common words');
   await expect(slider).toHaveValue('0');
   await expect(slider).toHaveAttribute('aria-valuetext', /off/);
@@ -204,7 +207,36 @@ test('Vocabulary common-word filtering is off by default and updates live', asyn
   ).length).toBe(1);
   await expect(page.locator('.frequency-term-label', { hasText: /^the$/iu }))
     .toHaveCount(0);
-  await expect(page.locator('.common-words-control output')).toContainText(/top 100.*rows hidden/);
+  await expect(settings.locator('.common-words-control output'))
+    .toContainText(/top 100.*rows hidden/);
+
+  await slider.fill('0');
+  await expect(page.locator('.frequency-term-label', { hasText: /^the$/iu }).first())
+    .toBeVisible();
+  const closeMark = (await trace(page)).events.at(-1)?.seq ?? -1;
+  await settings.evaluate((dialog) => {
+    const input = dialog.querySelector<HTMLInputElement>('#vocabulary-common-words');
+    const close = [...dialog.querySelectorAll<HTMLButtonElement>('button')]
+      .find((button) => button.textContent?.trim() === 'close');
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value',
+    )?.set;
+    if (!input || !close || !setValue) throw new Error('missing vocabulary settings controls');
+    setValue.call(input, '100');
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+    close.click();
+  });
+  await expect(settings).toHaveCount(0);
+  await expect.poll(async () => (await trace(page)).events.filter(
+    (event) => event.seq > closeMark && event.direction === 'to-worker'
+      && event.t === 'query' && event.op === 'freq-list',
+  ).length).toBe(1);
+  await expect(page.locator('.frequency-term-label', { hasText: /^the$/iu }))
+    .toHaveCount(0);
+  await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await expect(page.getByRole('dialog', { name: 'Settings' })
+    .getByRole('slider', { name: 'remove common words' })).toHaveValue('100');
   await expectNoBodyOverflow(page);
 });
 
