@@ -93,6 +93,7 @@ const args = process.argv.slice(2);
 const valueAfter = (flag) => args[args.indexOf(flag) + 1];
 fs.writeFileSync(process.env.VITE_LOG, JSON.stringify({
   args,
+  cwd: process.cwd(),
   tailnetPath: process.env.TT_TAILNET_PATH,
 }));
 const server = net.createServer((socket) => socket.end('HTTP/1.1 200 OK\\r\\nContent-Length: 0\\r\\n\\r\\n'));
@@ -145,6 +146,7 @@ test('dev:tailnet exposes only the textTrends path on loopback', async () => {
       '--clearScreen',
       'false',
     ],
+    cwd: join(repoRoot, 'apps/web'),
     tailnetPath: '/textTrends',
   });
 

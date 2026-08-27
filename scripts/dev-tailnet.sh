@@ -2,10 +2,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd -P)"
+WEB_ROOT="$REPO_ROOT/apps/web"
 HOST="${HOST:-127.0.0.1}"
 PORT="${PORT:-5173}"
 TAILNET_PATH="${TAILNET_PATH:-/textTrends}"
-VITE_BIN="${VITE_BIN:-$REPO_ROOT/apps/web/node_modules/.bin/vite}"
+VITE_BIN="${VITE_BIN:-$WEB_ROOT/node_modules/.bin/vite}"
 TAILNET_HELPER=""
 VITE_PID=""
 
@@ -99,11 +100,14 @@ trap cleanup_vite EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
 
-"$VITE_BIN" "$@" \
-  --host "$HOST" \
-  --port "$PORT" \
-  --strictPort \
-  --clearScreen false &
+(
+  cd "$WEB_ROOT"
+  exec "$VITE_BIN" "$@" \
+    --host "$HOST" \
+    --port "$PORT" \
+    --strictPort \
+    --clearScreen false
+) &
 VITE_PID="$!"
 
 wait_for_vite
