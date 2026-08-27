@@ -116,6 +116,14 @@ test('single touch reads and scrolls while two touches commit one range', async 
   const committedBeforeHandle = (await page.getByTestId('linked-selection').boundingBox())!;
   const endHandle = scrubber.locator('[data-range-handle="end"]');
   const initialEndHandleBox = (await endHandle.boundingBox())!;
+  const handleScrubberBox = (await scrubber.boundingBox())!;
+  await endHandle.dispatchEvent('dblclick', {
+    clientX: initialEndHandleBox.x + initialEndHandleBox.width / 2,
+    // Keep the handle as the event target but put the pointer firmly in the
+    // plot lane, so only the interactive-target guard can reject the clear.
+    clientY: handleScrubberBox.y + 8,
+  });
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
   await page.evaluate((top) => window.scrollBy(0, top - 160), initialEndHandleBox.y);
   const endHandleBox = (await endHandle.boundingBox())!;
   const handlePoint = {
@@ -150,7 +158,12 @@ test('single touch reads and scrolls while two touches commit one range', async 
     && event.direction === 'to-worker'
     && event.t === 'query')).toEqual([]);
   await cdp.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
+  await scrubber.dispatchEvent('dblclick', {
+    clientX: handleScrubberBox.x + handleScrubberBox.width / 2,
+    clientY: handleScrubberBox.y + 8,
+  });
   await expect(page.getByTestId('selection-preview')).toHaveCount(0);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect.poll(async () => (await page.getByTestId('linked-selection').boundingBox())?.width ?? 0)
     .toBeGreaterThan(committedBeforeHandle.width);
   await expect.poll(async () => new Set(

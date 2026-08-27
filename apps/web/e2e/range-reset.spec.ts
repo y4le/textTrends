@@ -31,12 +31,73 @@ test('double-click clears the linked range without selecting chart text', async 
   await expect(direction).toBeVisible();
   await expect(direction).toHaveAttribute('data-direction-side', 'rest');
 
-  await scrubber.dblclick();
+  const barcode = scrubber.locator('canvas[data-barcode-band]').first();
+  const barcodeBox = await barcode.boundingBox();
+  expect(barcodeBox).not.toBeNull();
+  await barcode.dispatchEvent('dblclick', {
+    clientX: barcodeBox!.x + barcodeBox!.width / 2,
+    clientY: barcodeBox!.y + barcodeBox!.height / 2,
+  });
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  const chartLabel = scrubber.locator('svg[data-trend-view] text').first();
+  const labelBox = await chartLabel.boundingBox();
+  expect(labelBox).not.toBeNull();
+  expect(labelBox!.y).toBeGreaterThan(barcodeBox!.y + barcodeBox!.height);
+  await chartLabel.dispatchEvent('dblclick', {
+    clientX: labelBox!.x + labelBox!.width / 2,
+    clientY: labelBox!.y + labelBox!.height / 2,
+  });
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  const box = (await scrubber.boundingBox())!;
+  const graphY = box.y + 8;
+  await scrubber.dblclick({ position: { x: box.width / 2, y: 8 } });
 
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
   await expect(page.locator('[data-trend-organ="overview"]')).toBeVisible();
+  const rangeStatus = scrubber.locator('..').getByRole('status');
+  await expect(rangeStatus).toHaveText('Range cleared.');
   expect(await page.evaluate(() => window.getSelection()?.toString() ?? '')).toBe('');
+
+  // A new drag can start immediately after the clear. The native dblclick a
+  // real browser may synthesize from its click pair must not wipe that range.
+  const startX = box.x + box.width * 0.3;
+  const endX = box.x + box.width * 0.5;
+  await page.mouse.move(startX, graphY);
+  await page.mouse.down();
+  await page.mouse.move(endX, graphY, { steps: 6 });
+  await expect(page.getByTestId('selection-preview')).toBeVisible();
+  await page.mouse.up();
+  await scrubber.dispatchEvent('dblclick', {
+    clientX: box.x + box.width / 2,
+    clientY: graphY,
+  });
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // Once the post-drag window expires, the same graph gesture clears again.
+  await page.waitForTimeout(600);
+  await scrubber.dispatchEvent('dblclick', {
+    clientX: box.x + box.width / 2,
+    clientY: graphY,
+  });
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(rangeStatus).toHaveText('Range cleared.');
+
+  // An accepted graph double-click also cancels an uncommitted keyboard range
+  // without claiming that a committed selection was cleared.
+  await scrubber.focus();
+  await scrubber.press('Home');
+  await scrubber.press('s');
+  await scrubber.press('ArrowRight');
+  await scrubber.dispatchEvent('dblclick', {
+    clientX: box.x + box.width / 2,
+    clientY: graphY,
+  });
+  await expect(page.getByTestId('selection-preview')).toHaveCount(0);
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(rangeStatus).toHaveText('Range selection cancelled.');
 
   await gotoPlace(page, 'inputs');
   const stat = page.locator('.selectable-stat').first();
