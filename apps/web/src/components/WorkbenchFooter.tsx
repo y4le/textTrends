@@ -78,6 +78,11 @@ import {
 } from '../lib/shortcuts.ts';
 import { pointerIntentFor, type PointerIntent } from '../lib/pointer-capability.ts';
 import {
+  commitRange,
+  selectionTokenCount,
+  type SelectionPoint,
+} from '../lib/selection.ts';
+import {
   beginFooterTouchGesture,
   footerTouchCancel,
   footerTouchDown,
@@ -86,12 +91,30 @@ import {
   resetFooterTouchGesture,
   type FooterTouchTransition,
 } from '../lib/footer-touch-gesture.ts';
+import {
+  FOOTER_RANGE_SUPPRESSION_MS,
+  footerRangeDown,
+  footerRangeMove,
+  footerRangeUp,
+  footerStripZone,
+  idleFooterRangeGesture,
+  primeFooterRangeGesture,
+  resetFooterRangeGesture,
+  type FooterRangeEffect,
+  type FooterRangeGesture,
+} from '../lib/footer-range-gesture.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
 const FOOTER_SHUTTLE_ARIA_INTERVAL_MS = 1_000;
 
 type FooterKeyboardEvent = KeyboardEvent<HTMLDivElement> | globalThis.KeyboardEvent;
+
+interface FooterRangePreview {
+  readonly mode: 'pointer' | 'keyboard';
+  readonly origin: SelectionPoint;
+  readonly head: SelectionPoint;
+}
 
 function nativeEnterTarget(target: EventTarget | null): boolean {
   const element = target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
@@ -252,6 +275,8 @@ function FooterInteractive({
   const passage = useApp((state) => state.footerPassage);
   const snapshot = useApp((state) => state.snapshot);
   const setScrub = useApp((state) => state.setScrub);
+  const linkedSelection = useApp((state) => state.linkedSelection);
+  const setLinkedSelection = useApp((state) => state.setLinkedSelection);
   const setFooterPassageMargin = useApp((state) => state.setFooterPassageMargin);
   const centerKwicAt = useApp((state) => state.centerKwicAt);
   const openReader = useApp((state) => state.openReader);
@@ -291,8 +316,11 @@ function FooterInteractive({
   const passageWindow = useRef<PassageWindowV1 | null>(null);
   const queuedPageDirection = useRef<1 | -1 | null>(null);
   const [keyboardStatus, setKeyboardStatus] = useState('');
+  const [rangePreview, setRangePreview] = useState<FooterRangePreview | null>(null);
+  const [rangeAnnouncement, setRangeAnnouncement] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
   const footerTouch = useRef(beginFooterTouchGesture());
+  const footerRange = useRef<FooterRangeGesture>(idleFooterRangeGesture());
   const [touchScrubbing, setTouchScrubbing] = useState(false);
   const pointerTap = useRef<{
     readonly pointerId: number;
@@ -301,6 +329,8 @@ function FooterInteractive({
     readonly y: number;
     readonly barcode: CapturedBarcodeTarget | null;
     readonly anchorTarget: { readonly doc: string; readonly token: number } | null;
+    readonly zone: 'graph' | 'barcode';
+    readonly primeRange: boolean;
     moved: boolean;
     mode: 'tap' | 'shuttle';
     offsetPx: number;
@@ -363,6 +393,9 @@ function FooterInteractive({
     passageWindow.current = null;
     queuedPageDirection.current = null;
     setKeyboardStatus('');
+    setRangeAnnouncement('');
+    setRangePreview(null);
+    footerRange.current = idleFooterRangeGesture();
     footerTouch.current = resetFooterTouchGesture().state;
     setTouchScrubbing(false);
   }, [snapshot?.snapshot]);
@@ -480,6 +513,57 @@ function FooterInteractive({
     const at = seriesTokenFromX(x, width, layout);
     const doc = at ? docs[at.d] : undefined;
     return at && doc ? { ...at, doc } : null;
+  };
+  const stripZoneAt = (y: number) => footerStripZone(y, {
+    stripHeight,
+    stripTop,
+    seriesHeight: geometry.seriesHeight,
+    barcodeBandGap: geometry.barcodeBandGap,
+    trackCount,
+  });
+  const commitFooterRange = (origin: SelectionPoint, head: SelectionPoint) => {
+    const selection = snapshot
+      ? commitRange(snapshot.snapshot, origin, head, docs, layout.tokenCounts)
+      : null;
+    if (!selection) {
+      setRangePreview(null);
+      setRangeAnnouncement('Range selection cancelled.');
+      return;
+    }
+    setLinkedSelection(selection);
+    setRangePreview(null);
+    const tokens = selectionTokenCount(selection);
+    setRangeAnnouncement(
+      `Range applied: ${tokens.toLocaleString()} token${tokens === 1 ? '' : 's'}.`,
+    );
+  };
+  const applyFooterRangeEffect = (effect: FooterRangeEffect) => {
+    switch (effect.kind) {
+      case 'none': return;
+      case 'clear':
+        setRangePreview(null);
+        setLinkedSelection(null);
+        setRangeAnnouncement('Range cleared.');
+        return;
+      case 'preview':
+        setRangePreview({
+          mode: 'pointer',
+          origin: effect.origin,
+          head: effect.head,
+        });
+        return;
+      case 'commit':
+        commitFooterRange(effect.origin, effect.head);
+        return;
+      case 'cancel':
+        setRangePreview(null);
+        setRangeAnnouncement('Range selection cancelled.');
+        return;
+      default: {
+        const exhaustive: never = effect;
+        return exhaustive;
+      }
+    }
   };
   const captureBarcodeAt = (
     x: number,
@@ -605,6 +689,74 @@ function FooterInteractive({
       ? { d: docOrdinal, token: scrub.token }
       : stepAlongSequence(0, 0, 0, layout);
     if (!current) return;
+    const eventTarget = event.target as (EventTarget & {
+      closest?: (selector: string) => unknown;
+    }) | null;
+    const footerFocused = Boolean(eventTarget?.closest?.('#corpus-footer-position'));
+    if (
+      footerFocused
+      && shortcutMatches(event, 'footer-selection-start')
+      && rangePreview === null
+    ) {
+      const doc = docs[current.d];
+      if (!doc) return;
+      event.preventDefault();
+      setRangePreview({
+        mode: 'keyboard',
+        origin: { doc, token: current.token },
+        head: { doc, token: current.token },
+      });
+      setRangeAnnouncement('Keyboard range started.');
+      return;
+    }
+    if (footerFocused && rangePreview?.mode === 'keyboard') {
+      const headOrdinal = docs.indexOf(rangePreview.head.doc);
+      const previous = shortcutMatches(event, 'footer-token-previous')
+        || shortcutMatches(event, 'footer-page-previous');
+      const next = shortcutMatches(event, 'footer-token-next')
+        || shortcutMatches(event, 'footer-page-next');
+      let head = rangePreview.head;
+      if (previous || next) {
+        const stepped = stepAlongSequence(
+          headOrdinal,
+          rangePreview.head.token,
+          previous ? -1 : 1,
+          layout,
+        );
+        if (stepped) head = { doc: docs[stepped.d]!, token: stepped.token };
+      } else if (shortcutMatches(event, 'footer-corpus-start')) {
+        const first = seriesDocFromGlobal(0, layout);
+        if (first) head = { doc: docs[first.d]!, token: first.token };
+      } else if (shortcutMatches(event, 'footer-corpus-end')) {
+        const last = seriesDocFromGlobal(layout.totalTokens - 1, layout);
+        if (last) head = { doc: docs[last.d]!, token: last.token };
+      } else if (shortcutMatches(event, 'trend-selection-commit')) {
+        event.preventDefault();
+        commitFooterRange(rangePreview.origin, rangePreview.head);
+        return;
+      } else if (shortcutMatches(event, 'trend-selection-cancel')) {
+        event.preventDefault();
+        setRangePreview(null);
+        setRangeAnnouncement('Range selection cancelled.');
+        return;
+      } else {
+        return;
+      }
+      event.preventDefault();
+      setRangePreview({ ...rangePreview, head });
+      return;
+    }
+    if (
+      footerFocused
+      && rangePreview === null
+      && linkedSelection !== null
+      && shortcutMatches(event, 'trend-selection-cancel')
+    ) {
+      event.preventDefault();
+      setLinkedSelection(null);
+      setRangeAnnouncement('Range cleared.');
+      return;
+    }
     if (
       shortcutMatches(event, 'footer-occurrence-next')
       || shortcutMatches(event, 'footer-occurrence-previous')
@@ -687,6 +839,42 @@ function FooterInteractive({
     return () => document.removeEventListener('keydown', onDocumentKeyDown);
   }, [globalShortcuts]);
 
+  const previewSelection = rangePreview && snapshot
+    ? commitRange(
+        snapshot.snapshot,
+        rangePreview.origin,
+        rangePreview.head,
+        docs,
+        layout.tokenCounts,
+      )
+    : null;
+  const previewFirst = previewSelection?.ranges[0] ?? null;
+  const previewLast = previewSelection?.ranges.at(-1) ?? null;
+  const previewFirstOrdinal = previewFirst ? docs.indexOf(previewFirst.doc) : -1;
+  const previewLastOrdinal = previewLast ? docs.indexOf(previewLast.doc) : -1;
+  const previewLeft = previewFirst && previewFirstOrdinal >= 0
+    ? seriesXFromTokenEdge(previewFirstOrdinal, previewFirst.tokens.start, width, layout)
+    : null;
+  const previewRight = previewLast && previewLastOrdinal >= 0
+    ? seriesXFromTokenEdge(previewLastOrdinal, previewLast.tokens.end, width, layout)
+    : null;
+  const ariaTarget = rangePreview?.head ?? announcedScrub;
+  const ariaTargetOrdinal = ariaTarget ? docs.indexOf(ariaTarget.doc) : -1;
+  const ariaTargetProgress = ariaTarget && ariaTargetOrdinal >= 0
+    ? corpusProgress(layout, ariaTargetOrdinal, ariaTarget.token)
+    : null;
+  const ariaTargetTitle = ariaTarget
+    ? titles.get(ariaTarget.doc) ?? ariaTarget.doc
+    : '';
+  const committedRangeTokens = linkedSelection
+    ? selectionTokenCount(linkedSelection)
+    : null;
+  const ariaValueText = rangePreview
+    ? `${ariaTargetTitle} · selection head token ${((ariaTarget?.token ?? 0) + 1).toLocaleString()}`
+    : ariaProgress && announcedScrub
+      ? `${ariaTitle} · token ${(announcedScrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[ariaDocOrdinal] ?? 0).toLocaleString()} · ${ariaProgress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}${shuttleRate === null ? '' : ` · reading ${shuttleRate >= 0 ? 'forward' : 'backward'} at ${Math.abs(shuttleRate).toFixed(1)} tokens per second`}${committedRangeTokens === null ? '' : ` · range: ${committedRangeTokens.toLocaleString()} tokens`}`
+      : 'no position';
+
   return (
     <div
       className="footer-interactive"
@@ -702,6 +890,15 @@ function FooterInteractive({
         if ((event.target as Element).closest('button, a')) return;
         const point = localPoint(event);
         if (!point || snapshot === null) return;
+        if (stripZoneAt(point.y) === 'graph') {
+          event.preventDefault();
+          footerRange.current = idleFooterRangeGesture();
+          setRangePreview(null);
+          setLinkedSelection(null);
+          setRangeAnnouncement('Range cleared.');
+          suppressDoubleClickUntil.current = Date.now() + FOOTER_RANGE_SUPPRESSION_MS;
+          return;
+        }
         const captured = captureBarcodeAt(
           point.x,
           point.y,
@@ -759,7 +956,7 @@ function FooterInteractive({
         </div>
       )}
       <span className="visually-hidden" role="status" aria-live="polite">
-        {[keyboardStatus, occurrenceStatus].filter(Boolean).join(' · ')}
+        {[keyboardStatus, occurrenceStatus, rangeAnnouncement].filter(Boolean).join(' · ')}
       </span>
       <div
         id="corpus-footer-position"
@@ -777,18 +974,21 @@ function FooterInteractive({
           'footer-occurrence-next',
           'footer-corpus-start',
           'footer-corpus-end',
+          'footer-selection-start',
+          'trend-selection-commit',
+          'trend-selection-cancel',
           'footer-open-reader',
         ])}
         tabIndex={0}
         aria-label="Corpus footer position"
         aria-valuemin={0}
         aria-valuemax={Math.max(0, layout.totalTokens - 1)}
-        aria-valuenow={progress?.globalToken ?? 0}
-        aria-valuetext={ariaProgress && announcedScrub
-          ? `${ariaTitle} · token ${(announcedScrub.token + 1).toLocaleString()} of ${(layout.tokenCounts[ariaDocOrdinal] ?? 0).toLocaleString()} · ${ariaProgress.percent}% of corpus${honestyQualifier ? ` · ${honestyQualifier}` : ''}${shuttleRate === null ? '' : ` · reading ${shuttleRate >= 0 ? 'forward' : 'backward'} at ${Math.abs(shuttleRate).toFixed(1)} tokens per second`}`
-          : 'no position'}
+        aria-valuenow={ariaTargetProgress?.globalToken ?? 0}
+        aria-valuetext={ariaValueText}
         data-shuttling={shuttleRate === null ? undefined : 'true'}
         data-touch-scrubbing={touchScrubbing || undefined}
+        data-range-armed={footerRange.current.phase === 'armed' || undefined}
+        data-range-brushing={footerRange.current.phase === 'brushing' || undefined}
         style={{ height: stripHeight }}
         onKeyDown={onKeyDown}
         onPointerEnter={(event) => {
@@ -825,6 +1025,20 @@ function FooterInteractive({
               clientX: event.clientX,
               clientY: event.clientY,
             }));
+            return;
+          }
+          const range = footerRange.current;
+          if (range.phase === 'armed' || range.phase === 'brushing') {
+            const point = localPoint(event);
+            const transition = footerRangeMove(range, {
+              pointerId: event.pointerId,
+              point: point ? rawTarget(point.x) : null,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            });
+            footerRange.current = transition.state;
+            applyFooterRangeEffect(transition.effect);
+            event.preventDefault();
             return;
           }
           const precise = observePrecisePointer(event.pointerType);
@@ -892,8 +1106,28 @@ function FooterInteractive({
           }
           if (!event.isPrimary || event.button !== 0) return;
           const precise = observePrecisePointer(event.pointerType);
-          event.currentTarget.setPointerCapture(event.pointerId);
           const point = localPoint(event);
+          const zone = point ? stripZoneAt(point.y) : 'outside';
+          const now = Date.now();
+          const range = footerRangeDown(footerRange.current, {
+            zone,
+            pointerId: event.pointerId,
+            point: point ? rawTarget(point.x) : null,
+            clientX: event.clientX,
+            clientY: event.clientY,
+            at: now,
+            suppressed: now < suppressDoubleClickUntil.current,
+            recentDirectPointer: now - lastDirectPointerAt.current < 700,
+          });
+          footerRange.current = range.state;
+          event.currentTarget.setPointerCapture(event.pointerId);
+          if (range.effect.kind === 'clear') {
+            pointerTap.current = null;
+            suppressDoubleClickUntil.current = now + FOOTER_RANGE_SUPPRESSION_MS;
+            applyFooterRangeEffect(range.effect);
+            event.preventDefault();
+            return;
+          }
           pointerTap.current = {
             pointerId: event.pointerId,
             pointerType: event.pointerType,
@@ -903,6 +1137,10 @@ function FooterInteractive({
               ? captureBarcodeAt(point.x, point.y, true)
               : null,
             anchorTarget: point ? rawTarget(point.x) : null,
+            zone: zone === 'graph' ? 'graph' : 'barcode',
+            primeRange: zone === 'graph'
+              && now >= suppressDoubleClickUntil.current
+              && now - lastDirectPointerAt.current >= 700,
             moved: false,
             mode: 'tap',
             offsetPx: 0,
@@ -921,6 +1159,21 @@ function FooterInteractive({
             }));
             return;
           }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const transition = footerRangeUp(range, event.pointerId);
+            footerRange.current = transition.state;
+            if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+              event.currentTarget.releasePointerCapture(event.pointerId);
+            }
+            suppressDoubleClickUntil.current = Date.now() + FOOTER_RANGE_SUPPRESSION_MS;
+            applyFooterRangeEffect(transition.effect);
+            event.preventDefault();
+            return;
+          }
           const tap = pointerTap.current;
           if (!tap || tap.pointerId !== event.pointerId) return;
           pointerTap.current = null;
@@ -928,12 +1181,16 @@ function FooterInteractive({
             event.currentTarget.releasePointerCapture(event.pointerId);
           }
           if (tap.mode === 'shuttle') {
+            footerRange.current = idleFooterRangeGesture();
             stopShuttle();
             suppressDoubleClickUntil.current = Date.now() + 500;
             event.preventDefault();
             return;
           }
           if (tap.moved) return;
+          footerRange.current = tap.primeRange
+            ? primeFooterRangeGesture(Date.now(), tap.x, tap.y)
+            : idleFooterRangeGesture();
           const resolution = tap.barcode
             ? resolveCapturedBarcodeTarget(tracks, tap.barcode)
             : null;
@@ -972,6 +1229,15 @@ function FooterInteractive({
             }
             return;
           }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const reset = resetFooterRangeGesture(range);
+            footerRange.current = reset.state;
+            applyFooterRangeEffect(reset.effect);
+          }
           if (pointerTap.current?.pointerId === event.pointerId) {
             pointerTap.current = null;
             stopShuttle();
@@ -995,6 +1261,15 @@ function FooterInteractive({
             ));
             return;
           }
+          const range = footerRange.current;
+          if (
+            (range.phase === 'armed' || range.phase === 'brushing')
+            && range.pointerId === event.pointerId
+          ) {
+            const reset = resetFooterRangeGesture(range);
+            footerRange.current = reset.state;
+            applyFooterRangeEffect(reset.effect);
+          }
           if (pointerTap.current?.pointerId === event.pointerId) {
             pointerTap.current = null;
             stopShuttle();
@@ -1002,6 +1277,21 @@ function FooterInteractive({
         }}
       >
         {strip}
+        {previewLeft !== null && previewRight !== null && (
+          <span
+            className="footer-range"
+            data-footer-range="preview"
+            data-testid="footer-selection-preview"
+            aria-hidden="true"
+            style={{
+              left: previewLeft,
+              width: Math.max(1, previewRight - previewLeft),
+              top: stripTop,
+              bottom: 'auto',
+              height: stripVisualHeight,
+            }}
+          />
+        )}
         <div
           className="footer-progress-track"
           aria-hidden="true"

@@ -48,9 +48,11 @@ test('one text compares a selected range with its corpus complement', async ({ p
   await expect(pyramid.getByRole('button', { name: /^outside,/ })).toBeVisible();
 
   await gotoPlace(page, 'trends');
-  const box = await scrubber.boundingBox();
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const sparkline = footer.locator('.footer-sparkline');
+  const box = await sparkline.boundingBox();
   expect(box).not.toBeNull();
-  await scrubber.dblclick({ position: { x: box!.width / 2, y: 8 } });
+  await page.mouse.dblclick(box!.x + box!.width / 2, box!.y + box!.height / 2);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
 
   await gotoPlace(page, 'compare');

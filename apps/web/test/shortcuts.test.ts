@@ -171,7 +171,13 @@ describe('shortcut registry', () => {
       entry.id === 'footer-page-next')).toEqual({
         id: 'footer-page-next',
         label: 'Next rendered passage',
-        keys: ['l', '→', 'Page Down'],
+      keys: ['l', '→', 'Page Down'],
+    });
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'footer-selection-start')).toEqual({
+        id: 'footer-selection-start',
+        label: 'Start a range at the footer cursor',
+        keys: ['s', 'S'],
       });
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-help')?.keys).toEqual(['?']);

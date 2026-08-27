@@ -328,6 +328,10 @@ the next is in flight, and saves no text or range.
 The passage's native horizontal scrollport covers both the source line and its
 book/token status line; the status is a pointer-transparent visual readout, so
 wheel and touch gestures anywhere in that text area follow one scroll path.
+On the footer sparkline only, a stationary double-click clears the linked
+range; holding and dragging the second press replaces it with a newly brushed
+range. A plain graph drag remains the reading shuttle. Barcode and passage or
+status double-clicks retain their exact navigation and Reader actions.
 Absolute hover continues to seek the shared corpus
 axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token
@@ -475,8 +479,9 @@ from the accessibility tree.
 
 Activating a match opens Reader directly. Exact barcode occurrence
 controls in Trends open Reader. The footer's barcode centers Matches in
-place, while its current passage and a footer double-click open Reader at the
-current or clicked position.
+place, while its current passage and status or barcode double-clicks open Reader
+at the current or clicked position. The footer graph's double-press gesture is
+reserved for linked ranges.
 
 ## Settings and provenance contract
 
@@ -618,8 +623,10 @@ On Trends, reading-footer shortcuts are also page fallbacks; the user does not
 need to focus the footer before reading. A focused local control still wins:
 the Trends scrubber keeps Arrow, Page, and Home/End movement and an active range
 keeps Enter/Escape. Otherwise `h`/`l`, `H`/`L`, `w`/`W`, and `o` or Enter use
-the same footer actions and source-honest passage cursor. Native Enter on a link
-or button remains activation, never a Reader shortcut.
+the same footer actions and source-honest passage cursor. On the focused footer,
+`s` starts a keyboard range, movement keys extend it, Enter commits it, and
+Escape cancels a preview or clears a committed range. Native Enter on a link or
+button remains activation, never a Reader shortcut.
 
 Result tables share one row-navigation contract without replacing their native
 table semantics. One existing row disclosure or open control is in the Tab

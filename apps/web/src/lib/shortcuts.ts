@@ -56,6 +56,7 @@ export type ShortcutId =
   | 'footer-occurrence-next'
   | 'footer-corpus-start'
   | 'footer-corpus-end'
+  | 'footer-selection-start'
   | 'footer-open-reader'
   | 'dock-resize-step'
   | 'dock-resize-fine'
@@ -513,6 +514,13 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench'],
     label: 'End of corpus',
     strokes: [{ key: 'End' }],
+  },
+  {
+    id: 'footer-selection-start',
+    group: 'Reading footer',
+    helpContexts: ['workbench'],
+    label: 'Start a range at the footer cursor',
+    strokes: [{ key: 's' }, { key: 'S', shift: true }],
   },
   {
     id: 'footer-open-reader',

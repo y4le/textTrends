@@ -6707,6 +6707,12 @@ html[data-footer-resizing='true'] * {
   cursor: ew-resize;
 }
 
+.footer-strip[data-range-armed='true'],
+.footer-strip[data-range-brushing='true'] {
+  cursor: col-resize;
+  user-select: none;
+}
+
 .footer-strip:focus-visible {
   outline: 1px solid var(--fg);
   outline-offset: -1px;

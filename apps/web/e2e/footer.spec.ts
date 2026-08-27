@@ -402,7 +402,7 @@ test('an exact footer barcode tick centers Matches without opening Reader', asyn
     .toHaveText('2 / 9', { timeout: 15_000 });
 });
 
-test('status and sparkline double-clicks open Reader at their raw corpus points', async ({ page }) => {
+test('status double-click opens Reader at its raw corpus point', async ({ page }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -433,22 +433,6 @@ test('status and sparkline double-clicks open Reader at their raw corpus points'
     .toHaveCSS('text-decoration-line', 'underline');
   await reader.getByRole('button', { name: 'back' }).click();
   await expect(slider).toBeFocused();
-
-  const sliderBox = await slider.boundingBox();
-  const sparklineBox = await footer.locator('.footer-sparkline').boundingBox();
-  if (!sliderBox || !sparklineBox) throw new Error('footer sparkline has no layout box');
-  // This point is four pixels before wolf@1. A barcode lane would snap to
-  // wolf, while the sparkline must retain the raw token 0 target (`the`).
-  await slider.dblclick({
-    position: {
-      x: sliderBox.width * (1 / 9) - 4,
-      y: sparklineBox.y - sliderBox.y + sparklineBox.height / 2,
-    },
-  });
-  await expect(reader).toBeVisible();
-  const articles = reader.locator('.source-text').getByText('the', { exact: true });
-  await expect(articles).toHaveCount(1);
-  await expect(articles.first()).toHaveCSS('text-decoration-line', 'underline');
 });
 
 test('a footer barcode double-click snaps to a nearby exact reference before opening Reader', async ({ page }) => {

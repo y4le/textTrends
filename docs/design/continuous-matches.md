@@ -419,7 +419,7 @@ review before commit.
    geometry and rewrites every browser locator or assertion coupled to
    `role="table"`, `tbody tr`, or the old per-row buttons for the
    grid/virtual-row contract (including Matches, compact, EPUB, Reader,
-   HTML, selection, keyboard-navigation, slice-2/3 acceptance, range-reset,
+   HTML, selection, keyboard-navigation, slice-2/3 acceptance, footer-range,
    only-this-book, presentation, and notebook specs). It updates
    `workbench-ux.md` in the same commit.
 6. `refactor(matches): remove legacy proximity presentation`

@@ -63,6 +63,7 @@ test('contextual Help follows focus and unifies guidance, actions, credits, and 
   await expect(dialog.getByText('Go to Inputs', { exact: true })).toHaveCount(0);
   await expect(dialog.getByText('Go to Trends', { exact: true })).toBeVisible();
   await expect(dialog.getByText('Previous rendered passage')).toBeVisible();
+  await expect(dialog.getByText('Start a range at the footer cursor')).toBeVisible();
   const panel = dialog.locator('.help-pane');
   const [panelBox, viewport] = await Promise.all([
     panel.boundingBox(),
