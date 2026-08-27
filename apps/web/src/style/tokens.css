@@ -1871,7 +1871,7 @@ canvas {
 
 .frequency-filter {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--tab-header-space-2);
   margin-block: var(--tab-header-space-2);
@@ -1881,15 +1881,23 @@ canvas {
 
 .frequency-filter-control {
   position: relative;
+  display: grid;
   min-inline-size: 0;
 }
 
 .frequency-filter-control input {
+  grid-area: 1 / 1;
   inline-size: 100%;
   min-inline-size: 0;
   box-sizing: border-box;
-  padding: 3px 2.5rem 3px 0.75ch;
+  padding-block: 3px;
+  padding-inline: 0.75ch 3rem;
   font-family: var(--font-mono);
+}
+
+.frequency-filter-control input::placeholder {
+  color: var(--fg);
+  opacity: 1;
 }
 
 .frequency-filter-control input::-webkit-search-cancel-button {
@@ -1902,10 +1910,13 @@ canvas {
 }
 
 .frequency-filter-clear {
-  position: absolute;
-  inset-block: 0;
-  inset-inline-end: 0;
-  min-inline-size: 2.25rem;
+  position: relative;
+  z-index: 1;
+  grid-area: 1 / 1;
+  align-self: stretch;
+  justify-self: end;
+  inline-size: 44px;
+  min-inline-size: 44px;
   padding: 0;
   border: 0;
   color: var(--fg-muted);
@@ -1943,7 +1954,7 @@ canvas {
 }
 
 .frequency-filter-status {
-  grid-column: 2 / -1;
+  grid-column: 1 / -1;
   margin: calc(-1 * var(--space-1)) 0 0;
   color: var(--accent-text);
 }
@@ -3513,29 +3524,26 @@ canvas {
     gap: var(--space-1);
   }
 
-  .frequency-filter-label {
+  .frequency-filter-control {
     grid-column: 1;
     grid-row: 1;
-  }
-
-  .frequency-filter-control {
-    grid-column: 1 / -1;
-    grid-row: 2;
   }
 
   .frequency-filter-control input {
     min-block-size: var(--chrome-target-block-size);
   }
 
-  .frequency-filter-clear {
-    min-inline-size: 44px;
-  }
-
   .frequency-regex-mode {
     grid-column: 2;
     grid-row: 1;
+    display: grid;
     min-block-size: 44px;
+    min-inline-size: 44px;
+    align-content: center;
+    gap: 0;
+    justify-items: center;
     justify-self: end;
+    line-height: 1;
   }
 
   .frequency-filter-status {

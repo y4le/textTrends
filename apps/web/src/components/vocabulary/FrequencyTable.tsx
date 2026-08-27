@@ -723,20 +723,20 @@ export function FrequencyTable({
         aria-label="Filter vocabulary"
         onSubmit={(event) => event.preventDefault()}
       >
-        <label className="frequency-filter-label" htmlFor="vocabulary-filter">filter</label>
         <div className="frequency-filter-control">
           <input
             ref={filterInputRef}
             id="vocabulary-filter"
             className="exact-input"
             type="search"
+            aria-label="filter"
             value={filterDraft.query}
             maxLength={FREQUENCY_FILTER_MAX_UNITS}
             aria-invalid={filterError !== null || undefined}
             aria-describedby={filterDraft.mode === 'regex'
               ? 'vocabulary-regex-note vocabulary-filter-status'
               : 'vocabulary-filter-status'}
-            placeholder={filterDraft.mode === 'regex' ? 'term pattern' : 'contains text'}
+            placeholder="filter"
             spellCheck={false}
             autoCapitalize="none"
             autoCorrect="off"

@@ -54,13 +54,14 @@ secondary statistics. The comparison bar remains visible, while the exact
 signed lift is carried in the row's accessible name and disclosed detail rather
 than forcing a clipped number into the primary scan line.
 
-Vocabulary's filter bar and Compare's settings Filters section each expose a
-native “remove common words” slider from off (0, the default) through the top
-2,000 entries of the bundled English common-word reference. Vocabulary applies the
-control live with the same debounce as its text filter; Compare stages it with the
-rest of that form. The control and export provenance state that this is a row
-filter: surviving counts and statistical measures do not change, and Compare's
-whole-distribution divergence does not move.
+Vocabulary's **Settings → This place** section and Compare's settings Filters
+section each expose a native “remove common words” slider from off (0, the
+default) through the top 2,000 entries of the bundled English common-word
+reference. Vocabulary applies the control live with the same debounce as its
+text filter; Compare stages it with the rest of that form. The control and
+export provenance state that this is a row filter: surviving counts and
+statistical measures do not change, and Compare's whole-distribution divergence
+does not move.
 
 Trends keeps the term set fixed to the at-most-five groups already being
 tracked. With no linked range, its second organ shows Reading Destinations for

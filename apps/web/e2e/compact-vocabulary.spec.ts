@@ -46,7 +46,36 @@ for (const viewport of [
     const term = row.getByRole('button');
     const filter = page.getByRole('searchbox', { name: 'filter', exact: true });
     const filterBox = await filter.boundingBox();
+    const regexMode = page.getByRole('checkbox', { name: 'regex', exact: true }).locator('..');
+    const regexBox = await regexMode.boundingBox();
+    const regexCheckboxBox = await regexMode.locator('input').boundingBox();
+    const regexCaptionBox = await regexMode.locator('span').boundingBox();
     expect(filterBox?.height).toBeGreaterThanOrEqual(44);
+    expect(regexBox?.width).toBeGreaterThanOrEqual(44);
+    await expect(filter).toHaveAttribute('placeholder', 'filter');
+    expect(await filter.evaluate((input) => {
+      const channels = (color: string) => {
+        const values = color.match(/[\d.]+/g)?.slice(0, 3).map(Number);
+        if (!values || values.length !== 3) throw new Error(`unsupported color: ${color}`);
+        return values.map((value) => {
+          const component = value / 255;
+          return component <= 0.04045
+            ? component / 12.92
+            : ((component + 0.055) / 1.055) ** 2.4;
+        });
+      };
+      const luminance = ([red, green, blue]: number[]) =>
+        0.2126 * red! + 0.7152 * green! + 0.0722 * blue!;
+      const foreground = luminance(channels(getComputedStyle(input, '::placeholder').color));
+      const background = luminance(channels(getComputedStyle(input).backgroundColor));
+      return (Math.max(foreground, background) + 0.05)
+        / (Math.min(foreground, background) + 0.05);
+    })).toBeGreaterThanOrEqual(4.5);
+    expect(Math.min(filterBox!.y + filterBox!.height, regexBox!.y + regexBox!.height)
+      - Math.max(filterBox!.y, regexBox!.y)).toBeGreaterThan(0);
+    expect(regexCaptionBox!.y).toBeGreaterThanOrEqual(
+      regexCheckboxBox!.y + regexCheckboxBox!.height - 1,
+    );
     await expect(page.getByRole('region', { name: 'Scrollable Vocabulary frequency list' }))
       .toBeFocused();
     await page.keyboard.press('j');
@@ -62,6 +91,19 @@ for (const viewport of [
     await page.goBack();
     await expect(detail).toHaveCount(0);
     await expect(term).toBeFocused();
+
+    await filter.fill('the');
+    const clear = page.getByRole('button', { name: 'Clear vocabulary filter' });
+    const clearBox = await clear.boundingBox();
+    const filteredInputBox = await filter.boundingBox();
+    const paddingInlineEnd = await filter.evaluate((input) =>
+      Number.parseFloat(getComputedStyle(input).paddingInlineEnd));
+    expect(clearBox!.x).toBeGreaterThanOrEqual(filteredInputBox!.x);
+    expect(clearBox!.x + clearBox!.width)
+      .toBeLessThanOrEqual(filteredInputBox!.x + filteredInputBox!.width + 1);
+    expect(paddingInlineEnd).toBeGreaterThanOrEqual(clearBox!.width);
+    await clear.click();
+    await expect(filter).toHaveValue('');
   });
 }
 
