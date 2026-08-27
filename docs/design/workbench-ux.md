@@ -570,26 +570,25 @@ Two-key Vim sequences expire after 900ms and never create a persistent mode.
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 first term visibility control in the fixed rail without scrolling the workbench.
 
-At compact widths, temporary dock composers use one shared two-row takeover
-without changing the retained dock's measured height. The input occupies the
-entire existing rail and a 44px action row opens directly above it. Add shows
-Add, More options, and Cancel in that row; its More action carries the draft
-into the full editor. A pending removal notice is hidden only while this
-composer is open and returns intact on close. Non-compact layouts retain the
-inline Add editor.
+Temporary dock composers use one shared two-row takeover at every width. A
+44px input row sits below a 44px action row; an 8px fine-pointer or 12px
+coarse-pointer clearance lane keeps the footer resize handle from intersecting
+or capturing those controls. The bottom-pinned dock grows upward to reserve all
+three lanes while the reading footer itself keeps the same height. Add shows
+Add, More options, and Cancel in the upper row; its More action carries the
+draft into the full editor. A pending removal notice is hidden only while this
+composer is open and returns intact on close.
 
 `/` and `Ctrl/Cmd-F` open temporary corpus Find. On the workbench Find replaces
-the whole Terms rail. At compact widths its query field takes the lower row;
-the temporary upper row shows Find and Clear and close before submission, then
+the whole Terms rail. Its query field takes the lower row at every width; the
+temporary upper row shows Find and Clear and close before submission, then
 Previous, Next, Save, and Clear and close for a current submitted draft. Once a
 result is ready it also shows the fixed-width result-progress action. Editing a
 submitted query returns that upper row to Find and Clear and close until the
-draft is submitted again. The visible compact progress is a bounded percentage
+draft is submitted again. The visible progress is a bounded percentage
 so arbitrarily large corpus totals cannot displace the close action; its
 accessible name and live status retain the exact one-based match and total.
-Save becomes a disabled Saved confirmation after promotion. Wider layouts
-retain the inline `Find` label, wide query field, submit action, same-sized ←/→
-controls, and matching ×. Find accepts the Terms editor's comma-authored
+Save becomes a disabled Saved confirmation after promotion. Find accepts the Terms editor's comma-authored
 aliases (words, phrases, and one-ended wildcards) as OR
 alternatives in one temporary term and does not mutate the notebook unless the
 explicit Save action is used. The first
@@ -604,9 +603,8 @@ contributors to that scale settle. Hover readouts remain Find-only, while the
 accessible graph name explicitly identifies the durable lines as de-emphasized
 context. The durable comparison returns at normal emphasis on exit. Enter seeks
 forward; `n`/`Ctrl/Cmd-G` and `p`/`Ctrl/Cmd-Shift-G` cycle through exact starts.
-After the matching window lands, wider layouts show the current one-based match
-and exact total as `x/y`; compact layouts show a bounded percentage while
-retaining exact progress in the action's accessible name and live status. The
+After the matching window lands, the result action shows a bounded percentage
+while retaining exact progress in its accessible name and live status. The
 indicator is absent while a seek is pending. The ready explainer is actionable:
 Enter opens Reader at that hit.
 Save promotes the submitted aliases into one durable, active term and is

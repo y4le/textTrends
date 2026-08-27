@@ -209,9 +209,9 @@ only the explicit Save action crosses that boundary through normal Terms admissi
 
 ### Touch behavior
 
-Touch opens Find from Help/Tools. In both the workbench and Reader, compact Find
-owns the retained Terms rail: the query field fills that row and a temporary
-44px controls row opens above it. Before submission the controls are Find and
+Touch opens Find from Help/Tools. In both the workbench and Reader, Find owns
+the retained Terms rail at every width: the query field fills a 44px lower row
+and a temporary 44px controls row opens above it. Before submission the controls are Find and
 Clear and close. A current submitted draft exposes Previous, Next, Save, and
 Clear and close; once a result is ready it also exposes the fixed-width
 result-progress action. Editing the draft returns to Find and Clear and close

@@ -4,6 +4,27 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-27 — Find and new-term composers always use two reserved rows
+
+Find and inline new-term entry use one shared two-row dock takeover at every
+viewport width. The upper row owns the mode label, status, and progressive
+44px actions; the lower row is a full-width 44px field. Opening either composer
+grows the bottom-pinned dock upward while preserving the reading footer's
+passage and analytical height.
+
+The resize handle moves with that dock edge. Its inward 8px fine-pointer or
+12px coarse-pointer target receives a dedicated clearance lane above the two
+composer rows, so it neither paints across nor captures the top of the upper
+controls. The takeover rail is therefore an incompressible 96px on fine
+pointers and 100px when a coarse pointer is available. Reader retains the same
+two-row floor instead of dropping the rail during footer compression. Closing
+the composer restores the prior rail and any explicit footer-size target.
+
+This replaces the earlier compact-only overflow treatment and the separate
+wide inline editors. The correction and polish were reviewed with pinned
+Claude Opus through Parley (`req_consult_7036408eb9d6f70c` and
+`req_consult_fd3cda9c71216d63`).
+
 ## 2026-08-26 — Contextual Help and task-specific Settings
 
 The header keeps Find, Settings, and Help as pinned sibling actions. Settings is
