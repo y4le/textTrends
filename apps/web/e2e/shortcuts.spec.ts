@@ -122,6 +122,7 @@ test('contextual Help follows focus and unifies guidance, actions, credits, and 
   dialog = page.getByRole('dialog', { name: 'Help' });
   await expect(dialog).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Trends', exact: true })).toBeVisible();
+  await expect(dialog.getByText(/double-tap the graph to clear that range/i)).toBeVisible();
   await expect(dialog.getByRole('heading', { name: 'Rows', exact: true })).toHaveCount(0);
   await expect(dialog.getByText('Go to Trends', { exact: true })).toHaveCount(0);
   await dialog.getByRole('button', { name: 'close' }).click();

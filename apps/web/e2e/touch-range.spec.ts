@@ -18,7 +18,7 @@ const CORPUS = Array.from(
   (_, index) => (index % 17 === 0 ? 'Holmes' : `word${index}`),
 ).join(' ');
 
-test('single touch reads and scrolls while two touches commit one range', async ({ page, context }) => {
+test('touch reads and ranges while a graph double-tap clears selection', async ({ page, context }) => {
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
   await gotoPlace(page, 'inputs');
@@ -133,6 +133,9 @@ test('single touch reads and scrolls while two touches commit one range', async 
   expect(await page.evaluate(({ x, y }) =>
     document.elementFromPoint(x, y)?.closest('[data-range-handle]')
       ?.getAttribute('data-range-handle') ?? null, handlePoint)).toBe('end');
+  await page.touchscreen.tap(handlePoint.x, handlePoint.y);
+  await page.touchscreen.tap(handlePoint.x, handlePoint.y);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
   const cdp = await context.newCDPSession(page);
   const handleMark = (await trace(page)).events.at(-1)?.seq ?? -1;
   await cdp.send('Input.dispatchTouchEvent', {
@@ -175,8 +178,42 @@ test('single touch reads and scrolls while two touches commit one range', async 
       )
       .map((event) => event.op),
   )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list', 'keyness']));
-  await page.getByRole('button', { name: 'clear selection' }).click();
+  const clearScrubberBox = (await scrubber.boundingBox())!;
+  const graphTap = (fraction: number) => ({
+    x: Math.round(clearScrubberBox.x + clearScrubberBox.width * fraction),
+    y: Math.round(clearScrubberBox.y + 8),
+  });
+  const readingBefore = await scrubber.getAttribute('aria-valuenow');
+  await page.touchscreen.tap(graphTap(0.92).x, graphTap(0.92).y);
+  await expect(scrubber).not.toHaveAttribute('aria-valuenow', readingBefore ?? '');
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // Two slow taps remain ordinary reading, and barcode taps cannot become a
+  // graph clear even when they arrive inside the double-tap time window.
+  await page.touchscreen.tap(graphTap(0.5).x, graphTap(0.5).y);
+  await page.waitForTimeout(350);
+  await page.touchscreen.tap(graphTap(0.5).x, graphTap(0.5).y);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+  const barcode = scrubber.locator('canvas[data-barcode-band]').first();
+  const barcodeBox = await barcode.boundingBox();
+  if (!barcodeBox) throw new Error('trend barcode has no layout box');
+  await page.touchscreen.tap(barcodeBox.x + barcodeBox.width / 2, barcodeBox.y + 3);
+  await page.touchscreen.tap(barcodeBox.x + barcodeBox.width / 2, barcodeBox.y + 3);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // Establish the read position outside the gesture window, then keep the
+  // clearing taps adjacent so browser round trips cannot consume its budget.
+  await page.touchscreen.tap(graphTap(0.55).x, graphTap(0.55).y);
+  const readingAtClearPoint = await scrubber.getAttribute('aria-valuenow');
+  await page.waitForTimeout(350);
+  const firstClearTap = graphTap(0.55);
+  const secondClearTap = { ...firstClearTap, x: firstClearTap.x + 18 };
+  await page.touchscreen.tap(firstClearTap.x, firstClearTap.y);
+  await page.touchscreen.tap(secondClearTap.x, secondClearTap.y);
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'clear selection' })).toHaveCount(0);
+  await expect(scrubber).toHaveAttribute('aria-valuenow', readingAtClearPoint ?? '');
+  await expect(scrubber.locator('..').getByRole('status')).toHaveText('Range cleared.');
 
   const rangeBox = (await scrubber.boundingBox())!;
   const touchPoint = (id: number, fraction: number) => ({

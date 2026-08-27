@@ -311,6 +311,10 @@ an exact barcode row snap only within the specified pixel tolerance; touch
 stays on its direct raw position. This is decided per pointer event, so an iPad
 trackpad retains precise hover and snapping while the same device keeps its
 large touch controls. Density cells never pretend to be exact targets.
+Two stationary touch taps within the main graph lane clear a linked range.
+Barcode rows, range handles, gaps, an active long-press anchor, and concurrent
+two-finger range selection do not participate in that gesture. The first tap
+retains ordinary reading feedback; the recognizing second tap is consumed.
 Clicking an exact occurrence centers Matches; opening source text is an
 explicit action from Matches or the global reading footer.
 

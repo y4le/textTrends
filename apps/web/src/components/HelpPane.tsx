@@ -31,7 +31,7 @@ const WORKBENCH_HELP: Readonly<Record<Place, HelpCopy>> = Object.freeze({
   },
   trends: {
     summary: 'See where tracked terms occur, keep company, and lead into close reading.',
-    hint: 'Move through the trend to read exact positions; start and commit a range to compare that passage with the rest of the corpus.',
+    hint: 'Move through the trend to read exact positions; start and commit a range to compare that passage with the rest of the corpus. On touch screens, double-tap the graph to clear that range.',
     method: 'Trend bins summarize indexed token positions. Trend settings govern binning, measure, and smoothing in this same workspace.',
   },
   matches: {
