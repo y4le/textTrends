@@ -84,6 +84,9 @@ export function compareSideLabel(
   view: KeynessViewV1,
   titleOf: (doc: string) => string,
 ): string {
+  if (view.mode === 'selection-rest') {
+    return side === 'a' ? 'selected range' : 'rest of corpus';
+  }
   if (view.mode === 'documents') {
     const doc = side === 'a' ? view.documentA : view.documentB;
     return doc ? titleOf(doc) : 'unavailable';

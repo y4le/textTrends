@@ -591,8 +591,20 @@ export function effectiveKeynessMinDocFreq(
   view: KeynessViewV1,
   pair: { readonly a: WireSelectionV4; readonly b: WireSelectionV4 },
 ): number {
+  return effectiveKeynessMinDocFreqForParts(
+    view,
+    pair.a.docs.length,
+    pair.b.docs.length,
+  );
+}
+
+export function effectiveKeynessMinDocFreqForParts(
+  view: KeynessViewV1,
+  partsA: number,
+  partsB: number,
+): number {
   if (view.mode !== 'selection-rest') return view.minDocFreqTotal;
-  const smallerSideParts = Math.min(pair.a.docs.length, pair.b.docs.length);
+  const smallerSideParts = Math.min(partsA, partsB);
   return Math.min(view.minDocFreqTotal, Math.max(1, smallerSideParts));
 }
 

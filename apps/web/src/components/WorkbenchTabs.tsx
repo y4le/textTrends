@@ -18,7 +18,7 @@ export function WorkbenchTabs() {
   );
   const [keyboardStatus, setKeyboardStatus] = useState('');
   const visiblePlaces = PLACES.filter(
-    (tab) => tab !== 'compare' || activeTextCount > 1,
+    (tab) => tab !== 'compare' || activeTextCount > 0,
   );
 
   return (

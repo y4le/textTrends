@@ -112,8 +112,9 @@ export type QueryOpV4 =
   // frequency table; notebook groups are deliberately absent.
   | { readonly op: 'inventory'; readonly selection: WireSelectionV4; readonly request: InventoryRequestV1 }
   | { readonly op: 'freq-list'; readonly selection: WireSelectionV4; readonly request: FrequencyListRequestV1 }
-  // keyness/1 owns both sides. The global linked trend brush is deliberately
-  // absent: a comparison can only change through its explicit side records.
+  // keyness/1 owns both explicit sides. In selection/rest mode the browser
+  // resolves the linked trend range and its exact corpus complement into those
+  // side records; the worker never infers an implicit brush.
   | { readonly op: 'keyness'; readonly request: KeynessRequestV1 }
   // reader-page/1: bounded directional source slices for browser-fitted
   // reading, with occurrence marks from the SHARED cached BASE occurrences. Like

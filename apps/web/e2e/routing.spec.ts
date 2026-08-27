@@ -142,11 +142,11 @@ test('a fresh p-less workspace opens Inputs without loading a demo implicitly', 
   }, LOCAL_LIBRARY_DB_NAME)).toEqual({ kind: 'library', order: [], docs: [] });
 });
 
-test('multi-text controls appear only when at least two inputs are active', async ({ page }) => {
+test('Compare remains available with one text while multi-text Trends controls require two', async ({ page }) => {
   await page.goto('./?fresh=1&p=compare');
   await expect(page).toHaveURL(/\?fresh=1&p=inputs$/);
   await expect(page.getByRole('status', { name: 'Navigation status' }))
-    .toHaveText('Compare requires at least two active texts. Opening Inputs.');
+    .toHaveText('Compare requires at least one active text. Opening Inputs.');
   const lens = page.getByRole('navigation', { name: 'Workbench sections' });
   const compare = lens.getByRole('link', { name: 'Compare', exact: true });
   await expect(compare).toHaveCount(0);
@@ -157,19 +157,16 @@ test('multi-text controls appear only when at least two inputs are active', asyn
     buffer: Buffer.from('one reference'),
   });
   await awaitReadyCount(page, 1);
-  await expect(compare).toHaveCount(0);
-  const oneTextInputsUrl = page.url();
-  await page.evaluate(() => {
-    const url = new URL(location.href);
-    url.searchParams.set('p', 'compare');
-    history.pushState(history.state, '', url);
-    dispatchEvent(new PopStateEvent('popstate', { state: history.state }));
-  });
+  await expect(compare).toBeVisible();
+  await gotoPlace(page, 'compare');
+  await expect(page).toHaveURL(/\?fresh=1&p=compare$/);
+  await expect(page.getByText('No range selected.', { exact: true })).toBeVisible();
+  await expect(page.getByLabel('Left comparison input')).toHaveValue('__selection__');
+  await expect(page.getByLabel('Right comparison input')).toHaveValue('__outside__');
+  await page.getByRole('button', { name: 'Select a range in Trends' }).click();
   await expect(page).toHaveURL(/\?fresh=1&p=trends$/);
-  await page.goBack();
-  await expect(page).toHaveURL(oneTextInputsUrl);
+  await expect(page.getByRole('button', { name: 'Add term', exact: true })).toBeFocused();
   await submitAndAwaitFreshResults(page, 'reference');
-  await gotoPlace(page, 'trends');
   await expect(page.getByRole('group', { name: 'Trend view' })).toHaveCount(0);
   const scrubber = page.getByRole('slider', { name: 'Reading position scrubber' });
   await expect(scrubber).not.toHaveAttribute('aria-keyshortcuts', /(?:^| )v(?: |$)/);
@@ -178,15 +175,16 @@ test('multi-text controls appear only when at least two inputs are active', asyn
   await expect(page.locator('svg[data-trend-view="by-book"]')).toHaveCount(0);
   await page.locator('body').press('g');
   await page.locator('body').press('c');
-  await expect(page).toHaveURL(/\?fresh=1&p=trends$/);
+  await expect(page).toHaveURL(/\?fresh=1&p=compare$/);
   await expect(page.getByRole('status', { name: 'Navigation status' }))
-    .toHaveText('Compare requires at least two active texts');
+    .toHaveText('Compare');
 
+  await gotoPlace(page, 'trends');
   await page.getByRole('button', { name: 'Help', exact: true }).click();
   const shortcuts = page.getByRole('dialog', { name: 'Help' });
   await expect(shortcuts.getByText('Go to Trends', { exact: true })).toHaveCount(0);
   await expect(shortcuts.getByText('Go to Inputs', { exact: true })).toBeVisible();
-  await expect(shortcuts.getByText('Go to Compare', { exact: true })).toHaveCount(0);
+  await expect(shortcuts.getByText('Go to Compare', { exact: true })).toBeVisible();
   await expect(shortcuts.getByText('Cycle combined / equal / to scale views', { exact: true }))
     .toHaveCount(0);
   await shortcuts.getByRole('button', { name: 'close', exact: true }).click();

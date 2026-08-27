@@ -1,4 +1,4 @@
-import type { InventoryState } from './store.ts';
+import type { InventoryState, KeynessViewV1 } from './store.ts';
 import { sameSelection, selectionTokenCount, type TokenRangeSelectionV1 } from './selection.ts';
 import type { Place } from './places.ts';
 import { builtinCorpusOption } from './project.ts';
@@ -22,6 +22,7 @@ export interface ScopeInput {
   } | null;
   readonly inventory: InventoryState | null;
   readonly linkedSelection: TokenRangeSelectionV1 | null;
+  readonly compareMode: KeynessViewV1['mode'];
   readonly titleByDoc: ReadonlyMap<string, string>;
   readonly loadingPhase: string | null;
   /** Selection-independent token total retained from authenticated document
@@ -139,7 +140,9 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
         };
       })();
   const exception = place === 'compare' && range !== null
-    ? 'Compare uses declared sides A and B · the active trend range does not apply'
+    ? input.compareMode === 'selection-rest'
+      ? 'Compare is measuring the selected range against the rest of the corpus'
+      : 'Compare uses declared sides A and B · the active trend range does not apply'
     : null;
 
   const segments: string[] = [empty ? 'No active inputs' : corpus];

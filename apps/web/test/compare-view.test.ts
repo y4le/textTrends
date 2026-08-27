@@ -130,7 +130,7 @@ describe('Compare view law', () => {
       .toBe(true);
   });
 
-  it('names both comparison modes and every durable setting', () => {
+  it('names every comparison mode and durable setting', () => {
     const title = (doc: string) => ({ a: 'Alpha', b: 'Beta' })[doc] ?? doc;
     expect(compareSideLabel('a', view, title)).toBe('Alpha');
     expect(compareSideLabel('b', view, title)).toBe('Beta');
@@ -140,6 +140,9 @@ describe('Compare view law', () => {
     const inverted = { ...rest, restOn: 'a' as const };
     expect(compareSideLabel('a', inverted, title)).toBe('all books except Beta');
     expect(compareSideLabel('b', inverted, title)).toBe('Beta');
+    const selection = { ...view, mode: 'selection-rest' as const };
+    expect(compareSideLabel('a', selection, title)).toBe('selected range');
+    expect(compareSideLabel('b', selection, title)).toBe('rest of corpus');
     expect(compareSettingsInput(view)).toEqual({
       minCountTotal: 5,
       minDocFreqTotal: 2,

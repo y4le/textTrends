@@ -225,13 +225,12 @@ export function App() {
       routeStatus !== 'resolved'
       || project === null
       || place !== 'compare'
-      || activeTextCount > 1
+      || activeTextCount > 0
     ) return;
-    const fallbackPlace = activeTextCount === 0 ? 'inputs' : 'trends';
     setKeyboardNavigationStatus(
-      `Compare requires at least two active texts. Opening ${PLACE_HEADING[fallbackPlace]}.`,
+      'Compare requires at least one active text. Opening Inputs.',
     );
-    replacePlace(fallbackPlace);
+    replacePlace('inputs');
   }, [activeTextCount, place, project, replacePlace, routeStatus]);
 
   const clearShortcutSequence = useCallback(() => {
@@ -370,8 +369,8 @@ export function App() {
       case 'go-vocabulary': go('vocabulary'); return true;
       case 'go-compare': {
         const textCount = state.projectSession?.project.data.order.length ?? 0;
-        if (textCount < 2) {
-          setKeyboardNavigationStatus('Compare requires at least two active texts');
+        if (textCount < 1) {
+          setKeyboardNavigationStatus('Compare requires at least one active text');
           return true;
         }
         go('compare');

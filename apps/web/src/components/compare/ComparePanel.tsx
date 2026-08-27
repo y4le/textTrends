@@ -22,6 +22,7 @@ import {
   rowDetailSurface,
   rowDetailWrite,
 } from '../../lib/row-detail.ts';
+import { selectionTokenCount } from '../../lib/selection.ts';
 import {
   keynessSelections,
 } from '../../lib/store.ts';
@@ -43,6 +44,8 @@ export function ComparePanel() {
   const corpusTokenCounts = useApp((state) => state.corpusTokenCounts);
   const layers = useApp((state) => state.layers);
   const setSelection = useApp((state) => state.setKeynessSelection);
+  const setMode = useApp((state) => state.setKeynessMode);
+  const setPlace = useApp((state) => state.setPlace);
   const applySettings = useApp((state) => state.applyKeynessSettings);
   const loadMore = useApp((state) => state.loadMoreKeyness);
   const pushLayer = useApp((state) => state.pushLayer);
@@ -76,6 +79,14 @@ export function ComparePanel() {
       })
     : null;
   const hasComparison = comparison !== null;
+  const corpusTokenTotal = readyDocs.reduce<number | null>((total, doc) => {
+    if (total === null) return null;
+    const tokens = corpusTokenCounts.get(doc);
+    return tokens === undefined ? null : total + tokens;
+  }, 0);
+  const selectionCoversCorpus = linkedSelection !== null
+    && corpusTokenTotal !== null
+    && selectionTokenCount(linkedSelection) >= corpusTokenTotal;
 
   useEffect(() => {
     if (target === null || stalePopRequested.current) return;
@@ -168,6 +179,34 @@ export function ComparePanel() {
     return true;
   };
   const sideControl = (side: 'a' | 'b') => {
+    if (view.mode === 'selection-rest') {
+      if (side === 'b') {
+        return (
+          <select
+            className="exact-input"
+            aria-label="Right comparison input"
+            value="__outside__"
+            disabled
+          >
+            <option value="__outside__">Outside the range</option>
+          </select>
+        );
+      }
+      return (
+        <select
+          className="exact-input"
+          aria-label="Left comparison input"
+          value="__selection__"
+          disabled={readyDocs.length < 2}
+          onChange={(event) => setSelection('a', event.currentTarget.value)}
+        >
+          <option value="__selection__">Selected range</option>
+          {readyDocs.length >= 2 && readyDocs.map((candidate) => (
+            <option key={candidate} value={candidate}>{titleOf(candidate)}</option>
+          ))}
+        </select>
+      );
+    }
     const isRest = view.mode === 'document-rest' && view.restOn === side;
     const doc = side === 'a' ? view.documentA : view.documentB;
     const otherIsRest = view.mode === 'document-rest' && view.restOn !== side;
@@ -178,13 +217,24 @@ export function ComparePanel() {
         className="exact-input"
         aria-label={`${side === 'a' ? 'Left' : 'Right'} comparison input`}
         value={isRest ? '__rest__' : doc ?? ''}
-        onChange={(event) => setSelection(
-          side,
-          event.currentTarget.value === '__rest__'
-            ? null
-            : event.currentTarget.value,
-        )}
+        onChange={(event) => {
+          if (event.currentTarget.value === '__selection__') {
+            setMode('selection-rest');
+            return;
+          }
+          setSelection(
+            side,
+            event.currentTarget.value === '__rest__'
+              ? null
+              : event.currentTarget.value,
+          );
+        }}
       >
+        {side === 'a' && (
+          <option value="__selection__" disabled={linkedSelection === null}>
+            Selected range
+          </option>
+        )}
         <option value="__rest__">
           All other texts{restExcludes ? ` (except ${titleOf(restExcludes)})` : ''}
         </option>
@@ -202,12 +252,17 @@ export function ComparePanel() {
   };
   const scale = compareScale(stateA, stateB);
   const divergence = compareDivergence(stateA, stateB);
+  const selectRangeInTrends = () => {
+    setPlace('trends');
+    requestAnimationFrame(() => {
+      (document.getElementById('reading-position-scrubber')
+        ?? document.getElementById('term-add'))
+        ?.focus({ preventScroll: true });
+    });
+  };
   return (
     <section className="compare-panel" aria-label="Keyness comparison">
-      {readyDocs.length < 2
-        ? <p>Add at least two ready books to compare distinctive terms.</p>
-        : (
-          <>
+      <>
             <div className="compare-warnings">
               {(['a', 'b'] as const).map((side) => {
                 const table = side === 'a' ? stateA : stateB;
@@ -218,8 +273,10 @@ export function ComparePanel() {
                 return totals && totals.tokens < 10_000
                   ? (
                       <p key={side} role="note">
-                        Small side {side.toUpperCase()} (&lt;10,000 selected-class
-                        tokens): ranks may be unstable.
+                        {view.mode === 'selection-rest' && side === 'a'
+                          ? 'Short selected range'
+                          : `Small side ${side.toUpperCase()}`}{' '}
+                        (&lt;10,000 selected-class tokens): ranks may be unstable.
                       </p>
                     )
                   : null;
@@ -233,6 +290,7 @@ export function ComparePanel() {
                 onClick={reverseRankings}
                 aria-label="Swap — Reverse both rankings"
                 title="Reverse ranking directions"
+                disabled={!hasComparison}
               >
                 Swap
               </button>
@@ -247,6 +305,7 @@ export function ComparePanel() {
                 aria-controls="compare-text-profile"
                 title={`${profileOpen ? 'Hide' : 'Show'} text profile`}
                 onClick={() => setProfileOpen((open) => !open)}
+                disabled={!hasComparison}
               >
                 Profile
               </button>
@@ -272,30 +331,77 @@ export function ComparePanel() {
               </button>
             </div>
 
-            <SignedAxis
-              stateA={stateA}
-              stateB={stateB}
-              view={view}
-              scale={scale}
-              rowTarget={rowTarget}
-              sideLabelA={sideLabelA}
-              sideLabelB={sideLabelB}
-              profileOpen={profileOpen}
-              profileContent={(
-                <CompareProfile
-                  inventoryA={inventoryA}
-                  inventoryB={inventoryB}
-                  divergence={divergence}
-                  sideLabelA={sideLabelA}
-                  sideLabelB={sideLabelB}
-                />
-              )}
-              onRow={openRow}
-              onLoadMore={loadMore}
-              onCloseRow={closeRow}
-            />
+            <span className="visually-hidden" role="status" aria-live="polite">
+              {view.mode === 'selection-rest'
+                ? linkedSelection === null
+                  ? 'No range selected. Select a range in Trends to compare it with the rest of the corpus.'
+                  : hasComparison
+                    ? 'Comparing the selected range with the rest of the corpus.'
+                    : 'The selected range cannot yet be compared with the rest of the corpus.'
+                : ''}
+            </span>
+
+            {hasComparison
+              ? (
+                  <SignedAxis
+                    stateA={stateA}
+                    stateB={stateB}
+                    view={view}
+                    scale={scale}
+                    rowTarget={rowTarget}
+                    sideLabelA={sideLabelA}
+                    sideLabelB={sideLabelB}
+                    profileOpen={profileOpen}
+                    profileContent={(
+                      <CompareProfile
+                        inventoryA={inventoryA}
+                        inventoryB={inventoryB}
+                        divergence={divergence}
+                        sideLabelA={sideLabelA}
+                        sideLabelB={sideLabelB}
+                      />
+                    )}
+                    onRow={openRow}
+                    onLoadMore={loadMore}
+                    onCloseRow={closeRow}
+                  />
+                )
+              : (
+                  <div className="compare-empty-state">
+                    {readyDocs.length === 0
+                      ? <p><strong>Preparing an active text for comparison.</strong></p>
+                      : view.mode === 'selection-rest' && linkedSelection === null
+                        ? (
+                            <>
+                              <p><strong>No range selected.</strong></p>
+                              <p>
+                                Compare needs a passage to measure against the rest of the
+                                corpus. Drag across the trend graph in Trends, or focus the
+                                reading position scrubber, press <kbd>s</kbd>, extend with the
+                                arrow keys, and press <kbd>Enter</kbd>.
+                              </p>
+                              <button type="button" onClick={selectRangeInTrends}>
+                                Select a range in Trends
+                              </button>
+                              {readyDocs.length >= 2 && (
+                                <p>Or choose a text above to compare two texts directly.</p>
+                              )}
+                            </>
+                          )
+                        : selectionCoversCorpus
+                          ? (
+                              <>
+                                <p><strong>The selected range covers the whole corpus.</strong></p>
+                                <p>Select a smaller range to compare it with what remains.</p>
+                                <button type="button" onClick={selectRangeInTrends}>
+                                  Change the range in Trends
+                                </button>
+                              </>
+                            )
+                          : <p><strong>Preparing the comparison.</strong></p>}
+                  </div>
+                )}
           </>
-        )}
     </section>
   );
 }

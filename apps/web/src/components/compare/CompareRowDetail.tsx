@@ -1,5 +1,8 @@
 import type { KeynessRowV1, KeynessSideTotalsV1 } from '@texttrends/core';
-import type { KeynessViewV1 } from '../../lib/store.ts';
+import {
+  effectiveKeynessMinDocFreqForParts,
+  type KeynessViewV1,
+} from '../../lib/store.ts';
 import { formatRate } from '../../lib/rate-format.ts';
 import { InfoTooltip } from '../InfoTooltip.tsx';
 
@@ -41,6 +44,11 @@ export function CompareRowDetail({
 }) {
   const favoredLabel = side === 'a' ? sideLabelA : sideLabelB;
   const measurementIdBase = `compare-row-${side}-${row.typeId}-measurement`;
+  const appliedMinimumParts = effectiveKeynessMinDocFreqForParts(
+    view,
+    totalsA?.documents ?? 1,
+    totalsB?.documents ?? 1,
+  );
   // Range counts texts, so it says nothing on a side that IS one text — there
   // it can only be 0 or 1, and printing it invites reading a tautology as a
   // finding. Dispersion takes its place wherever the side has parts to
@@ -177,8 +185,9 @@ export function CompareRowDetail({
         ))}
       </dl>
       <p className="compare-row-filters">
-        Included at count ≥ {number.format(view.minCountTotal)} · texts ≥{' '}
-        {number.format(view.minDocFreqTotal)} · {view.classes.join(' + ')}
+        Included at count ≥ {number.format(view.minCountTotal)} ·{' '}
+        {view.mode === 'selection-rest' ? 'comparison parts' : 'texts'} ≥{' '}
+        {number.format(appliedMinimumParts)} · {view.classes.join(' + ')}
       </p>
     </section>
   );

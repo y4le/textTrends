@@ -136,7 +136,9 @@ The wire protocol has a closed query union:
 - `inventory` — corpus and per-document measurements plus sentence rhythm;
 - `freq-list` (`freq-list/2`) — bounded frequency, document-frequency,
   dispersion, and lexical diversity ranking;
-- `keyness` — explicit disjoint A/B comparison using log ratio and G²; and
+- `keyness` — explicit disjoint A/B comparison using log ratio and G²; the
+  browser may resolve a linked range and its exact corpus complement into the
+  two explicit sides; and
 - `reader-page` — bounded directional source slices with occurrence marks;
   the browser derives visual pages from actual layout; and
 - `occurrence-step` — one exact previous/next full-corpus occurrence stop.

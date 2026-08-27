@@ -12,6 +12,7 @@ export function StatusBar() {
   const loadingPhase = useApp((state) => state.loadingPhase);
   const bootstrapPhase = useApp((state) => state.bootstrap.phase);
   const setLinkedSelection = useApp((state) => state.setLinkedSelection);
+  const compareMode = useApp((state) => state.keynessView.mode);
   const place = useApp((state) => state.place);
   const setPlace = useApp((state) => state.setPlace);
   const totalCorpusTokens = useApp((state) => {
@@ -42,6 +43,7 @@ export function StatusBar() {
         snapshot,
         inventory,
         linkedSelection,
+        compareMode,
         titleByDoc,
         loadingPhase: bootstrapPhase === 'initializing'
           ? 'preparing your inputs…'
@@ -52,6 +54,7 @@ export function StatusBar() {
     ),
     [
       bootstrapPhase,
+      compareMode,
       inventory,
       linkedSelection,
       loadingPhase,

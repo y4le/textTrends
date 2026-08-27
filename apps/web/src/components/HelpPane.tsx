@@ -45,9 +45,9 @@ const WORKBENCH_HELP: Readonly<Record<Place, HelpCopy>> = Object.freeze({
     method: 'Counts and dispersion use the active scope. Common-word and text filters remove rows without changing the surviving statistics.',
   },
   compare: {
-    summary: 'Contrast two explicit sides without losing the evidence behind the ranking.',
-    hint: 'Choose A and B, then use Compare settings for ranking direction, filters, and optional interval whiskers.',
-    method: 'Whole-distribution divergence is separate from the ranked term rows. A linked Trend range does not redefine the declared comparison sides.',
+    summary: 'Contrast a selected passage with what lies outside it, or compare two texts.',
+    hint: 'Select a range in Trends, or choose two text sides here; then refine ranking, filters, and interval whiskers in Compare settings.',
+    method: 'Whole-distribution divergence is separate from the ranked term rows. Range comparison uses the exact selected tokens as A and their corpus complement as B.',
   },
 });
 

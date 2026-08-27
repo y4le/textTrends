@@ -36,7 +36,7 @@ There are five stable places:
 | Trends | Where do tracked terms occur, which terms keep company, and where should I read? | trend plate, dispersion, Company, Reading Destinations, linked-range density against the corpus remainder |
 | Matches | What contexts contain the terms? | continuous corpus-order grid, term membership, context, occurrence navigation |
 | Vocabulary | What words characterize this scope? | frequency, document frequency, dispersion, richness |
-| Compare | What distinguishes explicit A and B? | two-sided text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
+| Compare | What distinguishes one side from another? | selected-range versus corpus-rest or text-versus-text profile and divergence, keyness controls, effect intervals and G² rankings, exact counts, per-side dispersion, row detail |
 
 Compare reports whole-distribution vocabulary divergence and a two-sided text
 profile above streamed log-ratio rankings. Its gear opens the app-wide Settings
@@ -48,6 +48,11 @@ lower 95% confidence bound, as well as evidence and counts. A browser view
 retains at most the first 50,000 ranks;
 the visible progress line says when that display bound is reached so readers
 can refine the filters for deeper ranks.
+With one active text, Compare remains present in selected-range mode. Before a
+range exists it explains how to create one in Trends; afterward side A is the
+exact linked range and side B is every ready-corpus token outside that range.
+With multiple texts, a linked range can be chosen as a side alongside the
+existing text-versus-text and text-versus-rest modes.
 
 At compact widths each ranking row preserves the complete term identity before
 secondary statistics. The comparison bar remains visible, while the exact
@@ -81,8 +86,8 @@ adds G² evidence columns—the Compare place owns those jobs. Inputs remains th
 home of exact per-document term counts.
 
 Inputs, Trends, Matches, Vocabulary, and Compare form one ordered
-**Workbench sections** tab list, with Inputs first. Compare is available only
-when at least two texts are active. The complete five-place list remains in the
+**Workbench sections** tab list, with Inputs first. Compare is available when
+at least one text is active. The complete five-place list remains in the
 header only at widths where it and the scope signal fit without collision. It
 bottom-docks below 960px; compact landscape keeps its left rail. This navigation
 fit threshold is intentionally separate from the 600px compact-density
@@ -95,8 +100,8 @@ The query string owns one presentation key:
 | Place | `?p=` | `inputs`, `trends`, `matches`, `vocabulary`, `compare` |
 
 Terms, source text, and workspace data never enter the query string.
-When fewer than two texts are active, a `compare` route is rewritten in place
-to Inputs for an empty corpus or Trends for a single text.
+With an empty corpus, a `compare` route is rewritten in place to Inputs. A
+single active text keeps the route and presents the selected-range prompt.
 
 ## Governing composition
 
@@ -552,7 +557,7 @@ invoking focus without adding browser history.
 
 Two-key Vim sequences expire after 900ms and never create a persistent mode.
 `gi`, `gt`, `gm`, and `gv` go to Inputs, Trends, Matches, and Vocabulary;
-`gd` goes to Compare when at least two texts are active and otherwise announces
+`gd` goes to Compare when at least one text is active and otherwise announces
 why it is unavailable. `gf` focuses the reading footer and `gq` focuses the
 first term visibility control in the fixed rail without scrolling the workbench.
 

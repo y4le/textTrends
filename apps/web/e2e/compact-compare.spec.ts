@@ -140,7 +140,7 @@ test('side selectors support a rest comparison and prevent duplicate texts', asy
   expect(rightInitial).toBe('__rest__');
 
   const rightDocument = await right
-    .locator('option:not([value="__rest__"]):not([disabled])')
+    .locator('option:not([value^="__"]):not([disabled])')
     .first()
     .getAttribute('value');
   expect(rightDocument).not.toBeNull();

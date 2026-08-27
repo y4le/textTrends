@@ -53,6 +53,7 @@ const input = (overrides: Partial<ScopeInput> = {}): ScopeInput => ({
   },
   inventory: readyInventory(),
   linkedSelection: null,
+  compareMode: 'documents',
   titleByDoc: new Map([['a', 'A Study in Scarlet']]),
   loadingPhase: null,
   totalCorpusTokens: 461_992,
@@ -299,13 +300,19 @@ describe('scopeView', () => {
     });
   });
 
-  it('states the Compare range exception only where it applies', () => {
+  it('states whether Compare uses or ignores the active range', () => {
     const linkedSelection = {
       snapshot: 'snapshot-1',
       ranges: [{ doc: 'a', tokens: { start: 2, end: 5 } }],
     } as const;
     expect(scopeView(input({ linkedSelection }), 'compare').exception).toBe(
       'Compare uses declared sides A and B · the active trend range does not apply',
+    );
+    expect(scopeView(input({
+      linkedSelection,
+      compareMode: 'selection-rest',
+    }), 'compare').exception).toBe(
+      'Compare is measuring the selected range against the rest of the corpus',
     );
     expect(scopeView(input({ linkedSelection }), 'trends').exception).toBeNull();
   });

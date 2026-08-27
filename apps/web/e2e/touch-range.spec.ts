@@ -104,7 +104,7 @@ test('single touch reads and scrolls while two touches commit one range', async 
           && event.t === 'query',
       )
       .map((event) => event.op),
-  )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list']));
+  )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list', 'keyness']));
 
   const handles = scrubber.locator('[data-range-handle]');
   await expect(handles).toHaveCount(2);
@@ -174,7 +174,7 @@ test('single touch reads and scrolls while two touches commit one range', async 
           && event.t === 'query',
       )
       .map((event) => event.op),
-  )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list']));
+  )).toEqual(new Set(['trend', 'dispersion', 'inventory', 'freq-list', 'keyness']));
   await page.getByRole('button', { name: 'clear selection' }).click();
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
 
@@ -216,7 +216,7 @@ test('single touch reads and scrolls while two touches commit one range', async 
       event.seq > rangeMark
       && event.direction === 'to-worker'
       && event.t === 'query'
-      && ['trend', 'dispersion', 'inventory', 'freq-list'].includes(event.op ?? ''),
+      && ['trend', 'dispersion', 'inventory', 'freq-list', 'keyness'].includes(event.op ?? ''),
   );
   expect(previewQueries).toEqual([]);
 
@@ -228,7 +228,7 @@ test('single touch reads and scrolls while two touches commit one range', async 
   await expect(page.getByTestId('selection-preview')).toHaveCount(0);
   await expect(page.getByTestId('linked-selection')).toBeVisible();
   await expect(page.getByRole('button', { name: 'clear selection' })).toBeVisible();
-  const required = ['trend', 'dispersion', 'inventory', 'freq-list'];
+  const required = ['trend', 'dispersion', 'inventory', 'freq-list', 'keyness'];
   await expect.poll(async () => new Set(
     (await trace(page)).events
       .filter(

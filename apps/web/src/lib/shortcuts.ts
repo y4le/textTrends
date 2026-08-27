@@ -853,7 +853,7 @@ export function shortcutHelpSections(scope: ShortcutHelpScope): readonly Shortcu
         ) return false;
         if (scope.context !== 'workbench') return true;
         if (GO_PLACE[shortcut.id] === scope.place) return false;
-        if (shortcut.id === 'go-compare' && scope.activeTextCount < 2) return false;
+        if (shortcut.id === 'go-compare' && scope.activeTextCount < 1) return false;
         if (shortcut.id === 'go-footer' && !scope.footerAvailable) return false;
         if (shortcut.id === 'trend-toggle-view' && scope.activeTextCount < 2) return false;
         return true;

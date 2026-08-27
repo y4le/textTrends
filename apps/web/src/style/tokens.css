@@ -2296,6 +2296,26 @@ canvas {
   font-size: var(--text-xs);
 }
 
+.compare-empty-state {
+  display: grid;
+  justify-items: center;
+  max-inline-size: 42rem;
+  margin: clamp(2rem, 10vh, 7rem) auto 0;
+  gap: var(--space-3);
+  padding: var(--space-5);
+  text-align: center;
+}
+
+.compare-empty-state p {
+  margin: 0;
+  color: var(--fg-muted);
+}
+
+.compare-empty-state p:first-child {
+  color: var(--fg);
+  font-size: var(--text-lg);
+}
+
 .compare-settings-form {
   display: flex;
   min-inline-size: 0;

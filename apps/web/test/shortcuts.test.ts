@@ -225,7 +225,7 @@ describe('shortcut registry', () => {
     ]);
     const inputIds = inputs.flatMap((section) => section.entries.map((entry) => entry.id));
     expect(inputIds).not.toContain('go-inputs');
-    expect(inputIds).not.toContain('go-compare');
+    expect(inputIds).toContain('go-compare');
     expect(inputIds).not.toContain('trend-step-next');
 
     const empty = shortcutHelpSections({
