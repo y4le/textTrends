@@ -3,6 +3,7 @@ import {
   commitRange,
   detailSelection,
   isValidSelection,
+  selectionComplement,
   selectionContains,
   selectionTokenCount,
   type TokenRangeSelectionV1,
@@ -12,6 +13,101 @@ const sel = (over: Partial<TokenRangeSelectionV1> = {}): TokenRangeSelectionV1 =
   snapshot: 's1',
   ranges: [{ doc: 'b', tokens: { start: 10, end: 20 } }],
   ...over,
+});
+
+describe('selectionComplement — the outside-selection comparison side', () => {
+  const docs = ['a', 'b', 'c'];
+  const counts = new Map([
+    ['a', 10],
+    ['b', 6],
+    ['c', 8],
+  ]);
+  const complement = (ranges: TokenRangeSelectionV1['ranges']) =>
+    selectionComplement(
+      { snapshot: 's1', ranges },
+      docs,
+      (doc) => counts.get(doc),
+    );
+
+  it('keeps untouched documents whole and emits a suffix after a head selection', () => {
+    expect(complement([
+      { doc: 'a', tokens: { start: 0, end: 4 } },
+    ])).toEqual({
+      docs: ['a', 'b', 'c'],
+      ranges: [{ doc: 'a', tokens: { start: 4, end: 10 } }],
+    });
+  });
+
+  it('emits a prefix before a tail selection', () => {
+    expect(complement([
+      { doc: 'c', tokens: { start: 3, end: 8 } },
+    ])).toEqual({
+      docs: ['a', 'b', 'c'],
+      ranges: [{ doc: 'c', tokens: { start: 0, end: 3 } }],
+    });
+  });
+
+  it('emits two disjoint ranges around a selection in one document', () => {
+    expect(complement([
+      { doc: 'b', tokens: { start: 2, end: 4 } },
+    ])).toEqual({
+      docs: ['a', 'b', 'c'],
+      ranges: [
+        { doc: 'b', tokens: { start: 0, end: 2 } },
+        { doc: 'b', tokens: { start: 4, end: 6 } },
+      ],
+    });
+  });
+
+  it('omits fully selected documents, including whole interior books', () => {
+    expect(complement([
+      { doc: 'a', tokens: { start: 7, end: 10 } },
+      { doc: 'b', tokens: { start: 0, end: 6 } },
+      { doc: 'c', tokens: { start: 0, end: 3 } },
+    ])).toEqual({
+      docs: ['a', 'c'],
+      ranges: [
+        { doc: 'a', tokens: { start: 0, end: 7 } },
+        { doc: 'c', tokens: { start: 3, end: 8 } },
+      ],
+    });
+  });
+
+  it('returns only whole untouched documents when one book is fully selected', () => {
+    expect(complement([
+      { doc: 'b', tokens: { start: 0, end: 6 } },
+    ])).toEqual({ docs: ['a', 'c'] });
+  });
+
+  it('returns null for a whole-corpus selection or unavailable geometry', () => {
+    expect(complement([
+      { doc: 'a', tokens: { start: 0, end: 10 } },
+      { doc: 'b', tokens: { start: 0, end: 6 } },
+      { doc: 'c', tokens: { start: 0, end: 8 } },
+    ])).toBeNull();
+    expect(selectionComplement(
+      { snapshot: 's1', ranges: [{ doc: 'b', tokens: { start: 2, end: 4 } }] },
+      docs,
+      () => undefined,
+    )).toBeNull();
+  });
+
+  it('refuses stale bounds and malformed selection records', () => {
+    expect(complement([
+      { doc: 'b', tokens: { start: 0, end: 99 } },
+    ])).toBeNull();
+    expect(complement([
+      { doc: 'b', tokens: { start: 1.5, end: 4 } },
+    ])).toBeNull();
+    expect(complement([
+      { doc: 'b', tokens: { start: 0, end: 2 } },
+      { doc: 'b', tokens: { start: 4, end: 6 } },
+    ])).toBeNull();
+    expect(complement([
+      { doc: 'missing', tokens: { start: 0, end: 1 } },
+    ])).toBeNull();
+    expect(complement([])).toBeNull();
+  });
 });
 
 describe('detailSelection — the one analytical-detail selection builder', () => {

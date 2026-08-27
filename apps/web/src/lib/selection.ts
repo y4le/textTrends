@@ -71,6 +71,68 @@ export function detailSelection(
   };
 }
 
+/** Build the exact corpus complement of one linked range. Untouched documents
+ * stay whole (and therefore carry no range records); a selected document can
+ * contribute both a prefix and a suffix because the wire selection supports
+ * multiple disjoint ranges per document. Null means the input is malformed or
+ * stale, its token geometry is unavailable, or the range covers the corpus. */
+export function selectionComplement(
+  selection: TokenRangeSelectionV1,
+  readyDocs: readonly string[],
+  tokenCountOf: (doc: string) => number | undefined,
+): WireSelectionV4 | null {
+  if (selection.ranges.length === 0) return null;
+  const selectedByDoc = new Map<string, TokenRangeSelectionSpanV1>();
+  for (const range of selection.ranges) {
+    if (selectedByDoc.has(range.doc) || !readyDocs.includes(range.doc)) return null;
+    selectedByDoc.set(range.doc, range);
+  }
+
+  const docs: string[] = [];
+  const ranges: NonNullable<WireSelectionV4['ranges']>[number][] = [];
+  for (const doc of readyDocs) {
+    const selected = selectedByDoc.get(doc);
+    if (selected === undefined) {
+      docs.push(doc);
+      continue;
+    }
+    const tokenCount = tokenCountOf(doc);
+    if (
+      tokenCount === undefined
+      || !Number.isSafeInteger(tokenCount)
+      || tokenCount < 0
+      || !Number.isSafeInteger(selected.tokens.start)
+      || !Number.isSafeInteger(selected.tokens.end)
+      || selected.tokens.start < 0
+      || selected.tokens.end <= selected.tokens.start
+      || selected.tokens.end > tokenCount
+    ) return null;
+
+    const outside: NonNullable<WireSelectionV4['ranges']>[number][] = [];
+    if (selected.tokens.start > 0) {
+      outside.push({
+        doc,
+        tokens: { start: 0, end: selected.tokens.start },
+      });
+    }
+    if (selected.tokens.end < tokenCount) {
+      outside.push({
+        doc,
+        tokens: { start: selected.tokens.end, end: tokenCount },
+      });
+    }
+    if (outside.length > 0) {
+      docs.push(doc);
+      ranges.push(...outside);
+    }
+  }
+  return docs.length === 0
+    ? null
+    : ranges.length === 0
+      ? { docs }
+      : { docs, ranges };
+}
+
 export function selectionRangeForDoc(
   selection: TokenRangeSelectionV1 | null,
   doc: string,
