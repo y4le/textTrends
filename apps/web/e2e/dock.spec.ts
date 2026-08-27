@@ -336,17 +336,23 @@ test('the compact dock stays one flush row, pins its actions, and opens Undo upw
   const quickAdd = terms.getByRole('form', { name: 'Add a term inline' });
   const quickInput = quickAdd.getByRole('textbox', { name: 'New term' });
   const upper = quickAdd.locator('.dock-takeover-upper');
-  const [openDockBox, openTermsBox, inputBox, upperBox] = await Promise.all([
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+  const [openDockBox, openTermsBox, openFooterBox, handleBox, inputBox, upperBox] = await Promise.all([
     dock.boundingBox(),
     terms.boundingBox(),
+    footer.boundingBox(),
+    handle.boundingBox(),
     quickInput.boundingBox(),
     upper.boundingBox(),
   ]);
-  if (!openDockBox || !openTermsBox || !inputBox || !upperBox) {
+  if (!openDockBox || !openTermsBox || !openFooterBox || !handleBox || !inputBox || !upperBox) {
     throw new Error('quick-add takeover geometry is unavailable');
   }
-  expect(openDockBox).toEqual(dockBox);
-  expect(openTermsBox).toEqual(termsBox);
+  expect(openDockBox.y + openDockBox.height).toBe(dockBox.y + dockBox.height);
+  expect(openDockBox.height - dockBox.height).toBe(openTermsBox.height - termsBox.height);
+  expect(openTermsBox.height).toBeGreaterThanOrEqual(96);
+  expect(openFooterBox).toEqual(footerBox);
+  expect(handleBox.y + handleBox.height).toBeLessThanOrEqual(upperBox.y + 1);
   await expect(port).toHaveCount(0);
   expect(inputBox.width).toBeGreaterThanOrEqual(openTermsBox.width * 0.5);
   expect(Math.abs(inputBox.y + inputBox.height - (openTermsBox.y + openTermsBox.height)))
@@ -362,6 +368,11 @@ test('the compact dock stays one flush row, pins its actions, and opens Undo upw
     const box = await control.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(44);
     expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(await control.evaluate((node) => {
+      const rect = node.getBoundingClientRect();
+      return document.elementFromPoint(rect.x + rect.width / 2, rect.y + 1)?.closest('button')
+        === node;
+    })).toBe(true);
   }
   await quickInput.fill('focus check');
   await page.keyboard.press('Tab');
@@ -408,7 +419,7 @@ test('the compact dock stays one flush row, pins its actions, and opens Undo upw
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
 });
 
-test('the 320px Add takeover keeps dock metrics and composition focus stable', async ({ page }) => {
+test('the 320px Add takeover reserves both rows and keeps composition focus stable', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
@@ -435,8 +446,10 @@ test('the 320px Add takeover keeps dock metrics and composition focus stable', a
   if (!openDockBox || !openTermsBox || !inputBox) {
     throw new Error('open dock geometry is unavailable');
   }
-  expect(openDockBox).toEqual(closedDockBox);
-  expect(openTermsBox).toEqual(closedTermsBox);
+  expect(openDockBox.y + openDockBox.height).toBe(closedDockBox.y + closedDockBox.height);
+  expect(openDockBox.height - closedDockBox.height)
+    .toBe(openTermsBox.height - closedTermsBox.height);
+  expect(openTermsBox.height).toBeGreaterThanOrEqual(96);
   expect(inputBox.width).toBeGreaterThanOrEqual(openTermsBox.width * 0.5);
   await expect(input).toHaveCSS('font-size', '16px');
   await expect(input).toHaveAttribute('enterkeyhint', 'done');
@@ -472,6 +485,104 @@ test('the 320px Add takeover keeps dock metrics and composition focus stable', a
   }));
   expect(overflow.root).toBeLessThanOrEqual(overflow.client);
   expect(overflow.body).toBeLessThanOrEqual(overflow.client);
+});
+
+test('wide Find and new-term composers use the same reserved two-line surface', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const dock = page.locator('.workbench-dock');
+  const footer = page.getByRole('complementary', { name: 'Reading position' });
+  const handle = page.getByRole('separator', { name: 'Resize reading footer' });
+
+  const assertReservedSurface = async (
+    rail: ReturnType<typeof page.locator>,
+    form: ReturnType<typeof page.locator>,
+    input: ReturnType<typeof page.locator>,
+    closedDockBox: NonNullable<Awaited<ReturnType<typeof dock.boundingBox>>>,
+    closedRailBox: NonNullable<Awaited<ReturnType<typeof rail.boundingBox>>>,
+    closedFooterBox: NonNullable<Awaited<ReturnType<typeof footer.boundingBox>>>,
+  ) => {
+    const upper = form.locator('.dock-takeover-upper');
+    const [openDockBox, openRailBox, openFooterBox, handleBox, upperBox, inputBox] = await Promise.all([
+      dock.boundingBox(),
+      rail.boundingBox(),
+      footer.boundingBox(),
+      handle.boundingBox(),
+      upper.boundingBox(),
+      input.boundingBox(),
+    ]);
+    if (!openDockBox || !openRailBox || !openFooterBox || !handleBox || !upperBox || !inputBox) {
+      throw new Error('wide takeover geometry is unavailable');
+    }
+    expect(openDockBox.y + openDockBox.height)
+      .toBe(closedDockBox.y + closedDockBox.height);
+    expect(openDockBox.height - closedDockBox.height)
+      .toBe(openRailBox.height - closedRailBox.height);
+    expect(openRailBox.height).toBeGreaterThanOrEqual(96);
+    expect(openFooterBox).toEqual(closedFooterBox);
+    expect(handleBox.y + handleBox.height).toBeLessThanOrEqual(upperBox.y + 1);
+    expect(Math.abs(upperBox.y + upperBox.height - inputBox.y)).toBeLessThanOrEqual(1);
+    expect(Math.abs(inputBox.y + inputBox.height - (openRailBox.y + openRailBox.height)))
+      .toBeLessThanOrEqual(1);
+    await expect(form.locator('.dock-takeover-label')).toBeVisible();
+    await expect(form.locator('.dock-takeover-label')).not.toHaveCSS('clip-path', 'inset(50%)');
+    for (const control of await form.getByRole('button').all()) {
+      const box = await control.boundingBox();
+      expect(box?.width).toBeGreaterThanOrEqual(44);
+      expect(box?.height).toBeGreaterThanOrEqual(44);
+    }
+  };
+
+  const terms = page.getByRole('complementary', { name: 'Terms' });
+  let [closedDockBox, closedRailBox, closedFooterBox] = await Promise.all([
+    dock.boundingBox(), terms.boundingBox(), footer.boundingBox(),
+  ]);
+  if (!closedDockBox || !closedRailBox || !closedFooterBox) {
+    throw new Error('wide closed Add geometry is unavailable');
+  }
+  await terms.getByRole('button', { name: 'Add term', exact: true }).click();
+  const addForm = terms.getByRole('form', { name: 'Add a term inline' });
+  await assertReservedSurface(
+    terms,
+    addForm,
+    addForm.getByRole('textbox', { name: 'New term' }),
+    closedDockBox,
+    closedRailBox,
+    closedFooterBox,
+  );
+  await addForm.getByRole('button', { name: 'Cancel', exact: true }).click();
+
+  [closedDockBox, closedRailBox, closedFooterBox] = await Promise.all([
+    dock.boundingBox(), terms.boundingBox(), footer.boundingBox(),
+  ]);
+  if (!closedDockBox || !closedRailBox || !closedFooterBox) {
+    throw new Error('wide closed Find geometry is unavailable');
+  }
+  await page.getByRole('button', { name: 'Find', exact: true }).click();
+  const find = page.getByRole('search', { name: 'Find in corpus' });
+  const findForm = find.getByRole('form', { name: 'Find in corpus controls' });
+  await assertReservedSurface(
+    find,
+    findForm,
+    findForm.getByRole('searchbox', { name: 'Find term or aliases' }),
+    closedDockBox,
+    closedRailBox,
+    closedFooterBox,
+  );
+  const [footerBeforeResize, railBeforeResize] = await Promise.all([
+    footer.boundingBox(), find.boundingBox(),
+  ]);
+  if (!footerBeforeResize || !railBeforeResize) {
+    throw new Error('wide Find resize geometry is unavailable');
+  }
+  await handle.focus();
+  await handle.press('ArrowUp');
+  expect((await find.boundingBox())?.height).toBe(railBeforeResize.height);
+  expect((await footer.boundingBox())?.height).toBe(footerBeforeResize.height + 16);
+  await find.getByRole('button', { name: 'Clear and close find' }).click();
+  expect((await footer.boundingBox())?.height).toBe(closedFooterBox.height + 16);
 });
 
 test('the squeezed coarse regular-width rail keeps wide actions', async ({

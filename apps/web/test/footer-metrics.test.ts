@@ -3,6 +3,7 @@ import {
   barcodeBandExtent,
   barcodeBandHeight,
   dockSizing,
+  dockTakeoverRailBlockSize,
   dockTermTargetMinimumHeight,
   DOCK_TERM_TARGET_MIN_HEIGHT,
   expandedFooterGeometry,
@@ -24,6 +25,78 @@ import {
 } from '../src/lib/trend-geometry.ts';
 
 describe('eager footer metrics', () => {
+  it('reserves two full takeover rows and handle clearance without shrinking the footer', () => {
+    for (const density of ['compact', 'standard', 'comfortable'] as const) {
+      for (const [width, coarse] of [
+        ['compact', false],
+        ['compact', true],
+        ['regular', false],
+        ['regular', true],
+        ['wide', false],
+        ['wide', true],
+      ] as const) {
+        const input = {
+          width,
+          coarse,
+          density,
+          trackCount: 3,
+          footerPresent: true,
+          targetBlockSize: null,
+          viewportBlockSize: 844,
+          availableBlockSize: 700,
+        } as const;
+        const closed = dockSizing(input);
+        const open = dockSizing({ ...input, takeoverLine: true });
+        const takeoverRail = dockTakeoverRailBlockSize(coarse);
+        const delta = takeoverRail - closed.railBlockSize;
+
+        expect(open.railBlockSize).toBe(takeoverRail);
+        expect(open.termTargetBlockSize).toBe(44);
+        expect(open.blockSize).toBe(closed.blockSize + delta);
+        expect(open.footerBlockSize).toBe(closed.footerBlockSize);
+        expect(open.maxBlockSize).toBe(closed.maxBlockSize);
+
+        const targetBlockSize = closed.minBlockSize + 80;
+        const explicitClosed = dockSizing({ ...input, targetBlockSize });
+        const explicitDelta = takeoverRail - explicitClosed.railBlockSize;
+        const explicitOpen = dockSizing({
+          ...input,
+          takeoverLine: true,
+          targetBlockSize: targetBlockSize + explicitDelta,
+        });
+        expect(explicitOpen.blockSize).toBe(explicitClosed.blockSize + explicitDelta);
+        expect(explicitOpen.footerBlockSize).toBe(explicitClosed.footerBlockSize);
+      }
+    }
+
+    const closedReader = readerDockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'standard',
+      trackCount: 3,
+      readerRail: 'find',
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 568,
+      availableBlockSize: 276,
+    });
+    const openReader = readerDockSizing({
+      width: 'compact',
+      coarse: true,
+      density: 'standard',
+      trackCount: 3,
+      readerRail: 'find',
+      takeoverLine: true,
+      footerPresent: true,
+      targetBlockSize: null,
+      viewportBlockSize: 568,
+      availableBlockSize: 276,
+    });
+    expect(openReader.railBlockSize).toBe(dockTakeoverRailBlockSize(true));
+    expect(openReader.footerBlockSize).toBe(closedReader.footerBlockSize);
+    expect(openReader.minBlockSize).toBe(dockTakeoverRailBlockSize(true) + 3);
+  });
+
   it('starts Compact and Standard squeezed while Comfortable keeps authored chrome', () => {
     const compact = dockSizing({
       width: 'compact',
