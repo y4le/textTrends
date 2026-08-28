@@ -1,7 +1,7 @@
 /**
  * Cold boot under the deployed base path (plan M6 bullet 1; corrected cold
  * expectations per the M6 consult §3): the module worker starts as a
- * same-origin asset under /textTrends/, the cold barrier names all six
+ * same-origin asset under /textTrends/, the cold barrier names every Sherlock
  * docs missing BEFORE any fetch, ingest bytes genuinely transfer, each
  * document follows its per-doc phase order, and snapshots grow
  * monotonically in declared order. UI completion is asserted through
@@ -27,7 +27,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   expect(t.dropped).toBe(0);
 
   // A fresh local workspace first opens one terminal empty generation. Loading
-  // the demo then opens a normal six-document library generation.
+  // the demo then opens a normal full-Sherlock library generation.
   const begins = events(t, { direction: 'to-worker', t: 'begin-generation' });
   expect(begins.length).toBe(2);
   const barriers = events(t, { direction: 'from-worker', t: 'generation-ready' });
@@ -39,7 +39,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
   expect(ingests.length).toBe(DOC_COUNT);
   expect(barriers[1]!.seq).toBeLessThan(ingests[0]!.seq);
 
-  // Exactly the six manifest corpus files were fetched and integrity-checked
+  // Exactly the manifest corpus files were fetched and integrity-checked
   // before activation. Their static paths remain transport details.
   expect(corpusRequests.length).toBe(DOC_COUNT);
   const requestedFiles = corpusRequests.map((u) => new URL(u).pathname.split('/').at(-1)).sort();
@@ -91,7 +91,7 @@ test('cold boot: worker under base path, barrier-then-fetch, transfer, per-doc o
     expect(sourceReady.length, doc).toBe(1);
   }
 
-  // Snapshot ready sets grow monotonically to six.
+  // Snapshot ready sets grow monotonically through the full manifest.
   const published = events(t, { direction: 'from-worker', t: 'snapshot-published' });
   expect(published.length).toBe(DOC_COUNT);
   const counts = published.map((e) => e.readyCount!);

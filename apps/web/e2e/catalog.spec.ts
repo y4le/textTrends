@@ -15,7 +15,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, awaitReadyCount, clearDemoInputs, gotoPlace } from './helpers.ts';
+import { awaitAllReady, awaitReadyCount, clearDemoInputs, DOC_COUNT, gotoPlace } from './helpers.ts';
 
 const BOOK = 'arthur-conan-doyle_a-study-in-scarlet';
 const RAW_BASE = `https://raw.githubusercontent.com/standardebooks/${BOOK}/master/src/epub`;
@@ -127,7 +127,7 @@ test('the baked catalog browses offline, preserves popularity order, and adds fr
   await page.getByRole('searchbox', { name: 'Filter the Standard Ebooks library' })
     .fill('A Study in Scarlet');
   await row.getByRole('button', { name: 'add' }).click();
-  await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(7);
+  await expect(page.getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(DOC_COUNT + 1);
   await expect(page.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(1);
   await expect(page.getByText(/already saved.*already active/)).toBeVisible();
 });

@@ -10,7 +10,7 @@
  * Clock definitions (main-thread trace stamps):
  * - coldBarrierMs:   begin-generation post -> cold generation-ready
  * - coldFirstT1Ms:   first ingest post -> first snapshot-published
- * - coldAllReadyMs:  first ingest post -> sixth snapshot-published
+ * - coldAllReadyMs:  first ingest post -> final snapshot-published
  * - warmReopenMs:    begin-generation post -> warm generation-ready
  * - trendQueryMs:    query post -> matching result (median of samples)
  */

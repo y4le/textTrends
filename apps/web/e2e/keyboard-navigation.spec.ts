@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, gotoPlace } from './helpers.ts';
+import { awaitAllReady, DOC_COUNT, gotoPlace } from './helpers.ts';
 
 async function chord(
   target: import('@playwright/test').Locator,
@@ -173,7 +173,7 @@ test('result tables retain their intended keyboard behavior', async ({ page }) =
   await gotoPlace(page, 'inputs');
   const catalogPort = page.getByRole('region', { name: 'Scrollable text details table' });
   const books = page.locator('[data-catalog-book] .catalog-book-title > button');
-  await expect(books).toHaveCount(6);
+  await expect(books).toHaveCount(DOC_COUNT);
   await expect(page.locator('[data-catalog-book] .catalog-book-title > button[tabindex="0"]'))
     .toHaveCount(1);
   await books.first().focus();

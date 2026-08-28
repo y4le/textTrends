@@ -262,11 +262,15 @@ and a separately confirmed full reset. Both destructive paths first close the
 session, worker, and local-library connection; blocked IndexedDB deletion asks
 the user to close another app tab instead of reporting false success.
 
-Sherlock and Jane Austen are the public first-run samples in Inputs. They are
-secondary to **Add your files** in the empty Active inputs state and collapse
-to adaptive compact actions after texts are present. The private LOTR and ASOIF
-loaders live in Debug, where every menu load stays additive. The allowlisted
-one-shot `?demo=sherlock`, `?demo=austen`, `?demo=lotr`, and `?demo=asoif` boot
+The public first-run samples in Inputs are Sherlock, Jane Austen, the World
+English Bible, the Pickthall Quran, Political Arguments, Shakespeare, U.S.
+Inaugural Addresses, six *Origin of Species* editions, and Classic Novels. They
+are secondary to **Add your files** in the empty Active inputs state and
+collapse to adaptive compact actions after texts are present. The private LOTR
+and ASOIF loaders live in Debug, where every menu load stays additive. The
+allowlisted one-shot `?demo=` slugs for every named corpus (`sherlock`,
+`austen`, `bible`, `quran`/`koran`, `arguments`/`political`, `shakespeare`,
+`inaugurals`, `darwin`, `classics`, `lotr`, and `asoif`) boot
 parameters have deliberately different semantics: they are stripped before
 route writes, clear the active corpus and notebook without deleting saved
 library bytes, load the preset, and cannot repeat on reload or history

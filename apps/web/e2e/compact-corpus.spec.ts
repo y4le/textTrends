@@ -2,6 +2,7 @@ import { expect, test } from '@playwright/test';
 import {
   awaitAllReady,
   clearNotebook,
+  DOC_COUNT,
   gotoPlace,
   trace,
 } from './helpers.ts';
@@ -33,8 +34,8 @@ for (const viewport of [
     const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
     await expect(table).toBeVisible();
     await expect(table.getByRole('columnheader')).toHaveCount(5);
-    await expect(documentRows).toHaveCount(6);
-    await expect(table.getByRole('rowheader')).toHaveCount(7);
+    await expect(documentRows).toHaveCount(DOC_COUNT);
+    await expect(table.getByRole('rowheader')).toHaveCount(DOC_COUNT + 1);
     await expect(table.getByRole('columnheader', { name: 'text' })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: 'tokens' })).toBeVisible();
     await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
@@ -75,7 +76,7 @@ for (const viewport of [
     })).toEqual(['0px', '0px', '0px']);
     await expect(page.getByRole('region', { name: 'Term counts' })).toHaveCount(0);
     await expect(page.getByRole('region', { name: 'Source details' })).toBeVisible();
-    await expect(documentRows).toHaveCount(6);
+    await expect(documentRows).toHaveCount(DOC_COUNT);
     const sentenceInfo = page.getByRole('button', { name: 'About sentence mean / median / p90' });
     const sentenceTooltip = page.locator(`[id="${await sentenceInfo.getAttribute('aria-controls')}"]`);
     expect(await page.locator('.book-detail-stats').evaluate((element) =>
@@ -125,7 +126,7 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
   const table = page.getByRole('table', { name: 'Text details' });
   const documentRows = table.locator(':scope > tbody > tr[data-catalog-book]');
   await expect(table.getByRole('columnheader')).toHaveCount(5);
-  await expect(documentRows).toHaveCount(6);
+  await expect(documentRows).toHaveCount(DOC_COUNT);
   await expect(table.getByRole('columnheader', { name: /Holmes/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Watson/ })).toBeVisible();
   await expect(table.getByRole('columnheader', { name: /Moriarty/ })).toBeVisible();
@@ -136,7 +137,7 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
   const firstTermRates = table.locator(
     'tbody > tr[data-catalog-book] > td.catalog-term-total:nth-of-type(2) .catalog-term-rate',
   );
-  await expect(firstTermCounts).toHaveCount(6);
+  await expect(firstTermCounts).toHaveCount(DOC_COUNT);
   const countEdges = await firstTermCounts.evaluateAll((nodes) =>
     nodes.map((node) => node.getBoundingClientRect().right));
   const rateEdges = await firstTermRates.evaluateAll((nodes) =>
@@ -189,6 +190,6 @@ test('wide Catalog keeps useful comparison columns and additive detail', async (
   await page.mouse.click(0, 0);
   await expect(mattrTooltip).toBeHidden();
   await expect(page.getByRole('region', { name: 'Term counts' })).toHaveCount(0);
-  await expect(documentRows).toHaveCount(6);
+  await expect(documentRows).toHaveCount(DOC_COUNT);
   await expectNoBodyOverflow(page);
 });

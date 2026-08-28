@@ -21,7 +21,10 @@ const DEMO_FETCH_TIMEOUT_MS = 60_000;
 function sourceUrl(option: BuiltinCorpusOption, doc: string): string {
   const file = `${doc}.txt`;
   const path = [option.sourceDirectory, file]
-    .map((part) => encodeURIComponent(part))
+    // A comma is a legal path sub-delimiter. Vite's static middleware uses
+    // decodeURI (which intentionally leaves %2C encoded), so escaping commas
+    // makes a real comma-named asset fall through to index.html.
+    .map((part) => encodeURIComponent(part).replaceAll('%2C', ','))
     .join('/');
   return `${import.meta.env.BASE_URL ?? '/'}corpora/${path}`;
 }

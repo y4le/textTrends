@@ -57,7 +57,9 @@ describe('generation resolution and plan validation', () => {
     );
     await begin(h, docs);
     expect(h.last('error').code).toBe('CAP_EXCEEDED');
-    expect(h.last('error').message).toMatch(/65 documents.*64 cap/);
+    expect(h.last('error').message).toMatch(
+      new RegExp(`${INGEST_CAPS_V0.maxDocsPerProject + 1} documents.*${INGEST_CAPS_V0.maxDocsPerProject} cap`),
+    );
     expect(h.all('generation-ready')).toHaveLength(0);
   });
 

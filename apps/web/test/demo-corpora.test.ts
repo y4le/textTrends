@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { fetchDemoCorpus } from '../src/lib/demo-corpora.ts';
-import { AUSTEN, BUILTIN_AUSTEN_ID, BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
+import {
+  BUILTIN_QURAN_ID,
+  BUILTIN_SHERLOCK_ID,
+  demoCorpusFixtures,
+  FEATURED_DEMO_IDS,
+} from '../src/lib/project.ts';
 
 const originalFetch = globalThis.fetch;
 
@@ -23,22 +28,24 @@ function serveCorpusBytes(transform?: (bytes: Uint8Array) => Uint8Array): void {
 }
 
 describe('fetchDemoCorpus', () => {
-  it('fetches and verifies every text before exposing ordinary local files', async () => {
+  it.each(FEATURED_DEMO_IDS)('fetches and verifies every %s text against its checked-in manifest', async (id) => {
     serveCorpusBytes();
-    const demo = await fetchDemoCorpus(BUILTIN_SHERLOCK_ID);
+    const fixtures = demoCorpusFixtures(id);
+    const demo = await fetchDemoCorpus(id);
 
-    expect(demo.files).toHaveLength(SHERLOCK.length);
-    expect(demo.files.map((file) => file.name)).toEqual(SHERLOCK.map((book) => `${book.title}.txt`));
-    expect(demo.files.map((file) => file.size)).toEqual(SHERLOCK.map((book) => book.bytes));
+    expect(demo.files).toHaveLength(fixtures.length);
+    expect(demo.files.map((file) => file.name)).toEqual(fixtures.map((document) => `${document.title}.txt`));
+    expect(demo.files.map((file) => file.size)).toEqual(fixtures.map((document) => document.bytes));
     expect(await demo.files[0]!.arrayBuffer()).not.toBe(await demo.files[0]!.arrayBuffer());
   });
 
-  it('fetches the complete six-novel Austen corpus', async () => {
+  it('keeps real commas literal in Quran asset requests', async () => {
     serveCorpusBytes();
-    const demo = await fetchDemoCorpus(BUILTIN_AUSTEN_ID);
+    await fetchDemoCorpus(BUILTIN_QURAN_ID);
 
-    expect(demo.files.map((file) => file.name)).toEqual(AUSTEN.map((book) => `${book.title}.txt`));
-    expect(demo.files.map((file) => file.size)).toEqual(AUSTEN.map((book) => book.bytes));
+    const requested = vi.mocked(globalThis.fetch).mock.calls.map(([input]) => String(input));
+    expect(requested.some((url) => url.includes(','))).toBe(true);
+    expect(requested.every((url) => !url.includes('%2C'))).toBe(true);
   });
 
   it('rejects a damaged response before returning a partial acquisition', async () => {
@@ -69,7 +76,7 @@ describe('fetchDemoCorpus', () => {
     const loading = fetchDemoCorpus(BUILTIN_SHERLOCK_ID, controller.signal);
     controller.abort(new DOMException('test cancellation', 'AbortError'));
     await expect(loading).rejects.toThrow(/test cancellation/);
-    expect(observed).toHaveLength(SHERLOCK.length);
+    expect(observed).toHaveLength(demoCorpusFixtures(BUILTIN_SHERLOCK_ID).length);
     expect(observed.every((signal) => signal.aborted)).toBe(true);
   });
 });

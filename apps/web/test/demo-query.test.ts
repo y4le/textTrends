@@ -1,5 +1,16 @@
 import { describe, expect, it, vi } from 'vitest';
-import { BUILTIN_AUSTEN_ID, BUILTIN_LOTR_ID, BUILTIN_SHERLOCK_ID } from '../src/lib/project.ts';
+import {
+  BUILTIN_AUSTEN_ID,
+  BUILTIN_BIBLE_ID,
+  BUILTIN_CLASSIC_NOVELS_ID,
+  BUILTIN_DARWIN_ORIGIN_ID,
+  BUILTIN_INAUGURALS_ID,
+  BUILTIN_LOTR_ID,
+  BUILTIN_POLITICAL_ARGUMENTS_ID,
+  BUILTIN_QURAN_ID,
+  BUILTIN_SHAKESPEARE_ID,
+  BUILTIN_SHERLOCK_ID,
+} from '../src/lib/project.ts';
 import { consumeDemoBootRequest, parseDemoBootRequest } from '../src/lib/demo-query.ts';
 
 describe('demo boot query', () => {
@@ -12,6 +23,15 @@ describe('demo boot query', () => {
       slug: 'austen',
       id: BUILTIN_AUSTEN_ID,
     });
+    expect(parseDemoBootRequest('?demo=bible')?.id).toBe(BUILTIN_BIBLE_ID);
+    expect(parseDemoBootRequest('?demo=quran')?.id).toBe(BUILTIN_QURAN_ID);
+    expect(parseDemoBootRequest('?demo=koran')?.id).toBe(BUILTIN_QURAN_ID);
+    expect(parseDemoBootRequest('?demo=arguments')?.id).toBe(BUILTIN_POLITICAL_ARGUMENTS_ID);
+    expect(parseDemoBootRequest('?demo=political')?.id).toBe(BUILTIN_POLITICAL_ARGUMENTS_ID);
+    expect(parseDemoBootRequest('?demo=shakespeare')?.id).toBe(BUILTIN_SHAKESPEARE_ID);
+    expect(parseDemoBootRequest('?demo=inaugurals')?.id).toBe(BUILTIN_INAUGURALS_ID);
+    expect(parseDemoBootRequest('?demo=darwin')?.id).toBe(BUILTIN_DARWIN_ORIGIN_ID);
+    expect(parseDemoBootRequest('?demo=classics')?.id).toBe(BUILTIN_CLASSIC_NOVELS_ID);
     expect(parseDemoBootRequest('?demo=LOTR&demo=sherlock')).toEqual({
       slug: 'LOTR',
       id: BUILTIN_LOTR_ID,

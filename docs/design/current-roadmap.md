@@ -1,6 +1,6 @@
 # Current roadmap
 
-This is the reconciliation index for the current tree as of 2026-08-18. The
+This is the reconciliation index for the current tree as of 2026-08-28. The
 [analysis contract](analysis-contract.md) remains the semantic authority;
 the other retained design documents record current product decisions,
 measurement gates, and method contracts.
@@ -18,7 +18,7 @@ measurement gates, and method contracts.
 - **Inputs as a first-class composition surface:** empty workspaces open Inputs;
   non-empty workspaces open Trends. A three-card composition area shares one
   local-library ownership lane; its empty Active inputs state leads with user
-  files and offers Sherlock as a secondary sample. Samples become ordinary
+  files and offers rights-documented prepared corpora as secondary samples. Samples become ordinary
   local texts, and stable full-corpus text details report every active term. See the
   [Inputs workspace proposal and decision record](inputs-workspace.md).
 - **Direct reading paths:** all workbench places share a transient corpus-order
@@ -39,8 +39,8 @@ measurement gates, and method contracts.
   action in Help, opens sanitized runtime, worker, analysis-lane, storage, and
   presentation diagnostics. The pane owns additive private demo loaders,
   explicit cache eviction, full browser-data reset, worker/retry actions, and a
-  metadata-only copy report. Allowlisted one-shot `?demo=sherlock`,
-  `?demo=austen`, `?demo=lotr`, and `?demo=asoif` links replace active research
+  metadata-only copy report. Allowlisted one-shot demo links cover the public
+  corpus shelf plus private `lotr` and `asoif`; they replace active research
   state while preserving reusable local-library bytes.
 - **Hermetic builds and deployment:** every workspace package, including the
   Standard Ebooks client, lives in this repository. Pull requests run the full

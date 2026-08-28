@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Refresh the six bundled Sherlock Holmes demo texts from Standard Ebooks'
+ * Refresh the nine bundled Sherlock Holmes demo texts from Standard Ebooks'
  * official release EPUBs. Run ad hoc with `pnpm update:sherlock-corpus`.
  *
  * The Standard Ebooks client selects body matter and applies the same XHTML
@@ -49,6 +49,21 @@ const BOOKS = [
     doc: '6 - The Return of Sherlock Holmes - Arthur Conan Doyle',
     title: 'The Return of Sherlock Holmes',
     repository: 'arthur-conan-doyle_the-return-of-sherlock-holmes',
+  },
+  {
+    doc: '7 - The Valley of Fear - Arthur Conan Doyle',
+    title: 'The Valley of Fear',
+    repository: 'arthur-conan-doyle_the-valley-of-fear',
+  },
+  {
+    doc: '8 - His Last Bow - Arthur Conan Doyle',
+    title: 'His Last Bow',
+    repository: 'arthur-conan-doyle_his-last-bow',
+  },
+  {
+    doc: '9 - The Casebook of Sherlock Holmes - Arthur Conan Doyle',
+    title: 'The Casebook of Sherlock Holmes',
+    repository: 'arthur-conan-doyle_the-casebook-of-sherlock-holmes',
   },
 ];
 

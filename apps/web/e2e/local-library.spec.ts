@@ -97,7 +97,7 @@ test('local files persist, join active inputs, reorder accessibly, and delete in
     target.dispatchEvent(new DragEvent('drop', { bubbles: true, cancelable: true, dataTransfer: transfer }));
   });
   await expect(saved.getByRole('listitem')).toHaveCount(DOC_COUNT + 2);
-  await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(6);
+  await expect(activePanel.getByRole('list', { name: 'Active input order' }).getByRole('listitem')).toHaveCount(DOC_COUNT);
 
   // A second acquisition of the same format + bytes reuses the saved record.
   await localPanel.evaluate((target) => {

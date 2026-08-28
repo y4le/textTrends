@@ -1,26 +1,48 @@
 import { describe, expect, it } from 'vitest';
 import { workspaceState } from './support/workspace-fixtures.ts';
 import {
-  ASOIF,
-  AUSTEN,
   BUILTIN_AUSTEN_ID,
-  BUILTIN_ASOIF_ID,
+  BUILTIN_BIBLE_ID,
+  BUILTIN_CLASSIC_NOVELS_ID,
   BUILTIN_CORPORA,
-  BUILTIN_LOTR_ID,
+  BUILTIN_DARWIN_ORIGIN_ID,
+  BUILTIN_INAUGURALS_ID,
+  BUILTIN_POLITICAL_ARGUMENTS_ID,
+  BUILTIN_QURAN_ID,
+  BUILTIN_SHAKESPEARE_ID,
   BUILTIN_SHERLOCK_ID,
-  LOTR,
+  FEATURED_DEMO_IDS,
   SHERLOCK,
   builtinProjectData,
+  demoCorpusFixtures,
   generationSpecsFromProject,
   libraryProject,
   reconcileLibraryWorkspace,
   sherlockProjectData,
+  type BuiltinCorpusId,
   type ProjectDataV1,
 } from '../src/lib/project.ts';
 
 const builtin = () => sherlockProjectData();
 
 describe('bundled corpora', () => {
+  it('ships the complete public demo shelf at the intended document granularity', () => {
+    const counts = new Map<BuiltinCorpusId, number>([
+      [BUILTIN_SHERLOCK_ID, 9],
+      [BUILTIN_AUSTEN_ID, 6],
+      [BUILTIN_BIBLE_ID, 66],
+      [BUILTIN_QURAN_ID, 114],
+      [BUILTIN_POLITICAL_ARGUMENTS_ID, 7],
+      [BUILTIN_SHAKESPEARE_ID, 39],
+      [BUILTIN_INAUGURALS_ID, 57],
+      [BUILTIN_DARWIN_ORIGIN_ID, 6],
+      [BUILTIN_CLASSIC_NOVELS_ID, 10],
+    ]);
+
+    expect(FEATURED_DEMO_IDS).toEqual([...counts.keys()]);
+    for (const [id, count] of counts) expect(demoCorpusFixtures(id)).toHaveLength(count);
+  });
+
   it('starts Sherlock with a three-term comparison', () => {
     const sherlock = BUILTIN_CORPORA.find((corpus) => corpus.id === BUILTIN_SHERLOCK_ID);
     expect(sherlock?.defaultTerms).toBe('Holmes, Watson, Moriarty');
@@ -32,19 +54,14 @@ describe('bundled corpora', () => {
   });
 
   it('builds every demo in declared order with bundled TXT sources', async () => {
-    const fixtures = {
-      [BUILTIN_SHERLOCK_ID]: SHERLOCK,
-      [BUILTIN_AUSTEN_ID]: AUSTEN,
-      [BUILTIN_ASOIF_ID]: ASOIF,
-      [BUILTIN_LOTR_ID]: LOTR,
-    } as const;
     for (const corpus of BUILTIN_CORPORA) {
+      const fixtures = demoCorpusFixtures(corpus.id);
       const data = await builtinProjectData(corpus.id);
       expect(data.id).toBe(corpus.id);
-      expect(data.order).toEqual(fixtures[corpus.id].map((entry) => entry.doc));
+      expect(data.order).toEqual(fixtures.map((entry) => entry.doc));
       expect(data.docs.every((doc) => doc.sourceAvailability === 'bundled' && doc.source.format === 'txt')).toBe(true);
       expect(data.docs.map((doc) => doc.sourceName)).toEqual(
-        fixtures[corpus.id].map((entry) => `${corpus.sourceDirectory}/${entry.doc}`),
+        fixtures.map((entry) => `${corpus.sourceDirectory}/${entry.doc}`),
       );
     }
   });

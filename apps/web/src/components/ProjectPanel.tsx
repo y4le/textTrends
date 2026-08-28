@@ -18,10 +18,9 @@ import {
   type LocalLibraryItem,
 } from '../lib/local-library.ts';
 import {
-  BUILTIN_AUSTEN_ID,
-  BUILTIN_SHERLOCK_ID,
   builtinCorpusOption,
   demoCorpusFixtures,
+  FEATURED_DEMO_IDS,
   SOURCE_FILE_ACCEPT,
   type BuiltinCorpusId,
 } from '../lib/project.ts';
@@ -32,7 +31,6 @@ import { useApp } from '../lib/store-instance.ts';
 
 const LIBRARY_DRAG = 'application/x-texttrends-library-file';
 const ACTIVE_DRAG = 'application/x-texttrends-active-document';
-const FEATURED_DEMO_IDS: readonly BuiltinCorpusId[] = [BUILTIN_SHERLOCK_ID, BUILTIN_AUSTEN_ID];
 const FEATURED_LIBRARY_IDS = new Map(
   FEATURED_DEMO_IDS.map((id) => [
     id,

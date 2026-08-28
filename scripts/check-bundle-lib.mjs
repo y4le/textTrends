@@ -99,7 +99,7 @@ export function checkBundle(files, catalogSource) {
   const extractPath = unique(files, /^assets\/extract-[^/]+\.js$/, 'epub extractor', failures);
   const parse5Path = unique(files, /^assets\/dist-[^/]+\.js$/, 'html parser (parse5)', failures);
   const catalogPath = unique(files, /^assets\/standard-ebooks-catalog-[^/]+\.json$/, 'catalog asset', failures);
-  const settingsSurfacePath = unique(files, /^assets\/SettingsSurface-[^/]+\.js$/, 'Settings region', failures);
+  const settingsSurfacePath = unique(files, /^assets\/SettingsPane-[^/]+\.js$/, 'Settings region', failures);
   const querySurfacePath = unique(files, /^assets\/QuerySurface-[^/]+\.js$/, 'Query region', failures);
   const footerPath = unique(files, /^assets\/WorkbenchFooter-[^/]+\.js$/, 'Reading footer', failures);
   const localLibraryPath = unique(files, /^assets\/local-library-[^/]+\.js$/, 'local library', failures);

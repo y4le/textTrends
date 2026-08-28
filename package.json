@@ -8,6 +8,7 @@
   "packageManager": "pnpm@10.19.0",
   "devDependencies": {
     "@texttrends/standard-ebooks": "workspace:*",
+    "fflate": "0.8.3",
     "vitest": "^4.1.0"
   },
   "scripts": {
@@ -23,6 +24,7 @@
     "update:stoplist": "node scripts/update-stoplist.mjs",
     "update:se-catalog": "pnpm build:se && node scripts/update-se-catalog.mjs",
     "update:austen-corpus": "pnpm build:se && node scripts/update-austen-corpus.mjs",
-    "update:sherlock-corpus": "pnpm build:se && node scripts/update-sherlock-corpus.mjs"
+    "update:sherlock-corpus": "pnpm build:se && node scripts/update-sherlock-corpus.mjs",
+    "update:demo-corpora": "pnpm build:se && node scripts/update-demo-corpora.mjs"
   }
 }

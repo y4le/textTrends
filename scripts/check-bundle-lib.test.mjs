@@ -29,7 +29,7 @@ function syntheticDist() {
   );
   put(
     'assets/index-AAAA.js',
-    'import{h}from"./preload-helper-PPPP.js";const places=["assets/InputsPlace-1111.js","assets/TrendsPlace-2222.js","assets/MatchesPlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const settings="assets/SettingsSurface-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";const library="assets/local-library-LLLL.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
+    'import{h}from"./preload-helper-PPPP.js";const places=["assets/InputsPlace-1111.js","assets/TrendsPlace-2222.js","assets/MatchesPlace-3333.js","assets/VocabularyPlace-4444.js","assets/ComparePlace-5555.js"];const settings="assets/SettingsPane-UUUU.js";const queries="assets/QuerySurface-QQQQ.js";const footer="assets/WorkbenchFooter-FFFF.js";const library="assets/local-library-LLLL.js";new Worker(new URL("assets/index.worker-WWWW.js",import.meta.url));',
   );
   put('assets/preload-helper-PPPP.js', 'export const h=1;');
   put('assets/InputsPlace-1111.js', 'const archive=()=>import("./archive-RRRR.js");fetch("assets/standard-ebooks-catalog-JJJJ.json");');
@@ -37,7 +37,7 @@ function syntheticDist() {
   put('assets/MatchesPlace-3333.js', 'export const Matches=1;');
   put('assets/VocabularyPlace-4444.js', 'export const Vocabulary=1;');
   put('assets/ComparePlace-5555.js', 'export const Compare=1;');
-  put('assets/SettingsSurface-UUUU.js', 'export const SettingsSurface=1;');
+  put('assets/SettingsPane-UUUU.js', 'export const SettingsPane=1;');
   put('assets/QuerySurface-QQQQ.js', 'export const QuerySurface=1;');
   put('assets/WorkbenchFooter-FFFF.js', 'export const WorkbenchFooter=1;');
   put('assets/local-library-LLLL.js', 'export const localLibrary=1;');
@@ -145,14 +145,14 @@ describe('bundle contract', () => {
 
   it('a missing, unreferenced, or statically imported Settings region fails', () => {
     const d = syntheticDist();
-    d.files.delete('assets/SettingsSurface-UUUU.js');
+    d.files.delete('assets/SettingsPane-UUUU.js');
     assert.ok(run(d.files).failures.some((f) => f.includes('Settings region')));
 
     const d2 = syntheticDist();
     d2.put(
       'assets/index-AAAA.js',
       d2.files.get('assets/index-AAAA.js').toString()
-        .replace('const settings="assets/SettingsSurface-UUUU.js";', ''),
+        .replace('const settings="assets/SettingsPane-UUUU.js";', ''),
     );
     assert.ok(run(d2.files).failures.some((f) => f.includes('lazy Settings region edge is gone')));
 
@@ -160,7 +160,7 @@ describe('bundle contract', () => {
     d3.put(
       'assets/index-AAAA.js',
       d3.files.get('assets/index-AAAA.js').toString()
-        + ';import"./SettingsSurface-UUUU.js";',
+        + ';import"./SettingsPane-UUUU.js";',
     );
     assert.ok(run(d3.files).failures.some((f) => f.includes('Settings region must stay lazy')));
   });

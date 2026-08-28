@@ -1,16 +1,11 @@
 #!/usr/bin/env node
 /**
- * Refresh ten supplemental local-comparison texts from official Standard
- * Ebooks release EPUBs.
+ * Refresh the ten-book Classic Novels demo and its integrity manifest from
+ * official Standard Ebooks release EPUBs.
  */
 
-import { mkdir, mkdtemp, rename, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 import { StandardEbooksClient } from '@texttrends/standard-ebooks';
-
-const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
-const CORPUS_DIR = join(ROOT, 'text/standard-ebooks');
+import { commitCorpus } from './demo-corpus-lib.mjs';
 
 const SUPPLEMENTAL_BOOKS = Object.freeze([
   {
@@ -71,43 +66,31 @@ function assert(condition, message) {
 
 async function main() {
   const client = new StandardEbooksClient();
-  const stagingDir = await mkdtemp(join(dirname(CORPUS_DIR), '.standard-ebooks-update-'));
-  try {
-    for (const book of SUPPLEMENTAL_BOOKS) {
-      const downloaded = await client.downloadEbookText(book.repository, {
-        partitions: ['bodymatter'],
-        fallbackToRepository: false,
-      });
-      assert(downloaded.source.kind === 'release', `${book.title}: source was not an official release`);
-      assert(
-        downloaded.source.repository === `standardebooks/${book.repository}`,
-        `${book.title}: unexpected repository ${downloaded.source.repository}`,
-      );
-      assert(downloaded.warnings.length === 0, `${book.title}: download produced warnings`);
-      assert(downloaded.metadata.title === book.title, `${book.title}: metadata title is ${downloaded.metadata.title}`);
-      assert(downloaded.text.trim() !== '', `${book.title}: extracted body matter is empty`);
-      assert(!downloaded.text.includes('\r'), `${book.title}: extracted text contains CR line endings`);
-      assert(!downloaded.text.includes('\uFFFD'), `${book.title}: extracted text contains replacement characters`);
-      const text = `${downloaded.text}\n`;
-      await writeFile(join(stagingDir, `${book.doc}.txt`), text, 'utf8');
-      console.log(`${book.title}: ${text.length} UTF-16 units from ${downloaded.source.url}`);
-    }
-
-    await mkdir(CORPUS_DIR, { recursive: true });
-    for (const book of SUPPLEMENTAL_BOOKS) {
-      await rename(
-        join(stagingDir, `${book.doc}.txt`),
-        join(CORPUS_DIR, `${book.doc}.txt`),
-      );
-    }
-    console.log(`refreshed ${SUPPLEMENTAL_BOOKS.length} supplemental corpus books`);
-  } finally {
-    await rm(stagingDir, { recursive: true, force: true });
+  const documents = [];
+  for (const book of SUPPLEMENTAL_BOOKS) {
+    const downloaded = await client.downloadEbookText(book.repository, {
+      partitions: ['bodymatter'],
+      fallbackToRepository: false,
+    });
+    assert(downloaded.source.kind === 'release', `${book.title}: source was not an official release`);
+    assert(
+      downloaded.source.repository === `standardebooks/${book.repository}`,
+      `${book.title}: unexpected repository ${downloaded.source.repository}`,
+    );
+    assert(downloaded.warnings.length === 0, `${book.title}: download produced warnings`);
+    assert(downloaded.metadata.title === book.title, `${book.title}: metadata title is ${downloaded.metadata.title}`);
+    assert(downloaded.text.trim() !== '', `${book.title}: extracted body matter is empty`);
+    assert(!downloaded.text.includes('\r'), `${book.title}: extracted text contains CR line endings`);
+    assert(!downloaded.text.includes('\uFFFD'), `${book.title}: extracted text contains replacement characters`);
+    const text = `${downloaded.text}\n`;
+    documents.push({ doc: book.doc, title: book.title, text });
+    console.log(`${book.title}: ${text.length} UTF-16 units from ${downloaded.source.url}`);
   }
+  await commitCorpus({ directory: 'standard-ebooks', manifestName: 'CLASSIC_NOVELS', documents });
 }
 
 main().catch((error) => {
   console.error(error);
-  console.error('Refresh failed; downloads were staged before replacement.');
+  console.error('Refresh failed; downloads and manifest replacement were staged before commit.');
   process.exitCode = 1;
 });

@@ -19,7 +19,7 @@
  *   layer aligns with the unchanged overview axis. The budget
  *   (DISPERSION_BUCKET_BUDGET) is allocated across the selected documents —
  *   ≥1 bucket per nonempty document, remainder token-proportional; the
- *   selection width is bounded by the 64-doc project cap, so the geometry is
+ *   selection width is bounded by the 128-doc project cap, so the geometry is
  *   bounded by construction.
  *
  * Packing is STEPPED: `packDispersion` awaits the injected checkpoint every

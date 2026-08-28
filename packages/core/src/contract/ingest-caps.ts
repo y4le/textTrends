@@ -5,7 +5,7 @@
  * UTF-16 length, cumulative project totals over the generation's declared
  * docs). A violation is CAP_EXCEEDED, never an OOM-shaped INTERNAL error.
  *
- * The project byte cap closes the transfer-guard gap: without it, 64
+ * The project byte cap closes the transfer-guard gap: without it, 128
  * individually-legal 32 MiB files could be read and transferred before any
  * text total constrains them.
  *
@@ -31,7 +31,8 @@ export const INGEST_CAPS_V0 = {
   maxSourceBytesPerFile: 32 * 1024 * 1024, // 32 MiB
   maxProjectSourceBytes: 128 * 1024 * 1024, // 128 MiB — transfer guard
   maxTextUtf16PerDoc: 32 * 1024 * 1024, // 32M code units
-  maxDocsPerProject: 64,
+  // 128 preserves canonical 66-book Bible and 114-surah Quran corpora.
+  maxDocsPerProject: 128,
   maxProjectTextUtf16: 64 * 1024 * 1024, // 64M code units
   /** The total DECOMPRESSED archive bytes a container extractor (epub) may read
    *  — a zip-bomb guard on INPUT, distinct from the output text cap. A compressed

@@ -1,11 +1,13 @@
+import { INGEST_CAPS_V0 } from '@texttrends/core';
 import { fetchDemoCorpus } from './demo-corpora.ts';
 import { libraryOperation } from './library-operation.ts';
 import {
   localLibrary,
+  localFileIdentity,
   type LocalLibraryAddResult,
   type LocalLibraryFile,
 } from './local-library.ts';
-import type { BuiltinCorpusId } from './project.ts';
+import { demoCorpusFixtures, type BuiltinCorpusId } from './project.ts';
 import type { AppState } from './store.ts';
 
 export const LIBRARY_BUSY_NOTICE = 'Another input is being saved. Try again when it finishes.';
@@ -52,6 +54,18 @@ function activeLibraryIds(state: AppState): ReadonlySet<string> {
   ]);
 }
 
+function assertAdditiveDemoFits(id: BuiltinCorpusId, state: AppState): void {
+  const session = state.projectSession;
+  const activeInputs = session === null ? 0 : session.project.data.docs.length + session.imports.length;
+  const active = activeLibraryIds(state);
+  const additions = demoCorpusFixtures(id).filter((fixture) => (
+    !active.has(localFileIdentity('txt', fixture.sourceHash))
+  )).length;
+  if (activeInputs + additions > INGEST_CAPS_V0.maxDocsPerProject) {
+    throw new Error(`Adding this sample would exceed the ${INGEST_CAPS_V0.maxDocsPerProject}-document limit. Clear active inputs first, or open the sample from its demo URL to replace the current corpus.`);
+  }
+}
+
 function firstActivatedDocument(
   state: AppState,
   acquired: readonly LocalLibraryAddResult[],
@@ -82,6 +96,7 @@ export async function loadDemoCorpus(
   let clearedTexts = 0;
   let clearedTerms = 0;
   try {
+    if (mode === 'additive') assertAdditiveDemoFits(id, dependencies.getState());
     const demo = await fetchCorpus(id, signal);
     if (!operation.owns(lease)) throw new Error('The demo load was superseded.');
 

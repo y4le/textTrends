@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { LoadedDemoCorpus } from '../src/lib/demo-corpora.ts';
 import { loadDemoCorpus } from '../src/lib/demo-loader.ts';
-import { BUILTIN_SHERLOCK_ID, builtinCorpusOption } from '../src/lib/project.ts';
+import { BUILTIN_QURAN_ID, BUILTIN_SHERLOCK_ID, builtinCorpusOption } from '../src/lib/project.ts';
 import type { AppState } from '../src/lib/store.ts';
 
 function harness(fetchCorpus: () => Promise<LoadedDemoCorpus>) {
@@ -66,6 +66,21 @@ describe('demo loader', () => {
     });
     expect(subject.state.clearActiveInputsAndTerms).toHaveBeenCalledOnce();
     expect(subject.library.add).toHaveBeenCalledOnce();
+    expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
+  });
+
+  it('rejects an additive sample that cannot fit before downloading or persisting it', async () => {
+    const fetchCorpus = vi.fn(async () => ({ option: builtinCorpusOption(BUILTIN_QURAN_ID)!, files: [] }));
+    const subject = harness(fetchCorpus);
+    subject.state.projectSession = {
+      project: { data: { docs: Array.from({ length: 20 }, (_, index) => ({ doc: `active-${index}` })) } },
+      imports: [],
+    } as unknown as AppState['projectSession'];
+
+    await expect(loadDemoCorpus(BUILTIN_QURAN_ID, 'additive', subject.dependencies))
+      .rejects.toThrow(/128-document limit/);
+    expect(fetchCorpus).not.toHaveBeenCalled();
+    expect(subject.library.add).not.toHaveBeenCalled();
     expect(subject.operation.release).toHaveBeenCalledWith(subject.lease);
   });
 });

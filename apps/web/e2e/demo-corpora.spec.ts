@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { ASOIF, AUSTEN, LOTR, SHERLOCK } from '../src/lib/project.ts';
+import { ASOIF, AUSTEN, LOTR, POLITICAL_ARGUMENTS, SHERLOCK } from '../src/lib/project.ts';
 import { workspaceState } from '../test/support/workspace-fixtures.ts';
 import { awaitReadyCount, openQuickAdd, trackCorpusRequests } from './helpers.ts';
 
@@ -31,7 +31,19 @@ test('the Austen sample sits beside Sherlock and loads all six novels with evide
   const requests = trackCorpusRequests(page);
   await page.goto('./');
 
-  await expect(page.getByRole('button', { name: 'Try the Sherlock Holmes sample' })).toBeVisible();
+  for (const label of [
+    'Sherlock Holmes',
+    'Jane Austen',
+    'World English Bible',
+    'Quran — Pickthall translation',
+    'Political Arguments',
+    'Shakespeare',
+    'U.S. Inaugural Addresses',
+    'Origin of Species Editions',
+    'Classic Novels',
+  ]) {
+    await expect(page.getByRole('button', { name: `Try the ${label} sample` })).toBeVisible();
+  }
   await page.getByRole('button', { name: 'Try the Jane Austen sample' }).click();
   await awaitReadyCount(page, AUSTEN.length);
 
@@ -44,6 +56,16 @@ test('the Austen sample sits beside Sherlock and loads all six novels with evide
     .map((url) => decodeURIComponent(new URL(url).pathname.split('/').at(-1)!))
     .sort();
   expect(austenFiles).toEqual(AUSTEN.map(({ doc }) => `${doc}.txt`).sort());
+});
+
+test('a new public one-shot URL loads the complete corpus and starter terms', async ({ page }) => {
+  await page.goto('./?demo=arguments&p=inputs');
+  await expect(page).toHaveURL(/\?p=inputs$/);
+  await awaitReadyCount(page, POLITICAL_ARGUMENTS.length);
+  await expect(page.getByRole('button', { name: 'The Communist Manifesto', exact: true })).toBeVisible();
+  for (const term of ['liberty', 'property', 'class']) {
+    await expect(page.getByRole('button', { name: `Edit term: ${term}` })).toBeVisible();
+  }
 });
 
 test('demos load as additive local texts and merge useful starter terms', async ({ page }) => {

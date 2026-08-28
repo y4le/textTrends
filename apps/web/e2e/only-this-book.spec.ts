@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test';
-import { awaitAllReady, clearNotebook, gotoPlace, trace } from './helpers.ts';
+import { awaitAllReady, clearNotebook, DOC_COUNT, gotoPlace, trace } from './helpers.ts';
 
 test('text detail preserves scope while select this text explicitly rescopes linked analyses', async ({ page }) => {
   await page.goto('./');
@@ -9,7 +9,7 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   const scope = page.getByRole('region', { name: 'Corpus status' });
   const documents = page.getByRole('table', { name: 'Text details' });
   const rows = documents.locator(':scope > tbody > tr[data-catalog-book]');
-  await expect(rows).toHaveCount(6);
+  await expect(rows).toHaveCount(DOC_COUNT);
   const dashboardTokenValue = page
     .locator('.catalog-summary')
     .locator('dt', { hasText: /^tokens$/ })
@@ -57,7 +57,7 @@ test('text detail preserves scope while select this text explicitly rescopes lin
     .getByRole('button', { name: 'Use all texts' })).toBeVisible();
   await page.locator('#scope-details:popover-open')
     .getByRole('button', { name: 'close' }).click();
-  await expect(rows).toHaveCount(6);
+  await expect(rows).toHaveCount(DOC_COUNT);
   await expect(secondRow.getByRole('rowheader').getByRole('button')).toHaveText(declaredTitle);
   expect(await secondRow.locator('.catalog-term-total').allInnerTexts()).toEqual(termCountsBefore);
 
@@ -102,6 +102,6 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   await scopeChip.click();
   await page.locator('#scope-details:popover-open')
     .getByRole('button', { name: 'Use all texts' }).click();
-  await expect(scope.getByText('all 6 books', { exact: true })).toHaveCount(0);
-  await expect(rows).toHaveCount(6);
+  await expect(scope.getByText(`all ${DOC_COUNT} books`, { exact: true })).toHaveCount(0);
+  await expect(rows).toHaveCount(DOC_COUNT);
 });
