@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   advanceShortcutSequence,
+  chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutAria,
@@ -67,6 +68,9 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('w', { ctrlKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('u', { ctrlKey: true }), 'row-half-page-previous')).toBe(true);
     expect(shortcutMatches(key('d', { ctrlKey: true }), 'row-half-page-next')).toBe(true);
+    expect(shortcutMatches(key('o', { ctrlKey: true }), 'position-previous')).toBe(true);
+    expect(shortcutMatches(key('i', { ctrlKey: true }), 'position-next')).toBe(true);
+    expect(shortcutMatches(key('o', { metaKey: true }), 'position-previous')).toBe(false);
     expect(shortcutMatches(key('u'), 'row-half-page-previous')).toBe(false);
     expect(shortcutMatches(key('?', { shiftKey: true, metaKey: true }), 'show-help')).toBe(false);
     expect(shortcutMatches(key('w', { metaKey: true }), 'reader-occurrence-next')).toBe(false);
@@ -138,6 +142,24 @@ describe('shortcut registry', () => {
     }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { altKey: true }))).toBe(false);
     expect(interactionShortcutAllowed(interactionEvent(plain, { isComposing: true }))).toBe(false);
+
+    const chordEvent = (
+      target: EventTarget,
+      overrides: Partial<ShortcutEventLike & { defaultPrevented: boolean }> = {},
+    ) => ({
+      ...key('o', { ctrlKey: true }),
+      target,
+      defaultPrevented: false,
+      ...overrides,
+    });
+    expect(chordShortcutAllowed(chordEvent(plain))).toBe(true);
+    expect(chordShortcutAllowed(chordEvent(input))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(dialog))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(menu))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { metaKey: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { altKey: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { isComposing: true }))).toBe(false);
+    expect(chordShortcutAllowed(chordEvent(plain, { defaultPrevented: true }))).toBe(false);
   });
 
   it('derives accessibility metadata and contextual help from the same definitions', () => {
@@ -161,6 +183,7 @@ describe('shortcut registry', () => {
     expect(trends.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
       'Trends',
@@ -223,6 +246,7 @@ describe('shortcut registry', () => {
     expect(inputs.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
       'Rows',
@@ -243,6 +267,7 @@ describe('shortcut registry', () => {
     expect(empty.map((section) => section.title)).toEqual([
       'Global',
       'Find',
+      'Reading position history',
       'Navigation',
       'Terms',
     ]);
@@ -252,6 +277,8 @@ describe('shortcut registry', () => {
     const readerIds = shortcutHelpSections({ context: 'reader' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
+    expect(readerIds).toContain('position-previous');
+    expect(readerIds).toContain('position-next');
     expect(readerIds).toContain('find-open');
     expect(readerIds).not.toContain('footer-page-next');
     expect(readerIds).not.toContain('reader-rsvp-toggle');

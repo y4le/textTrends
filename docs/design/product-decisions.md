@@ -4,6 +4,35 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-28 — Reading positions use a transient jump list
+
+The shared corpus cursor now feeds one session-only reading-position history,
+separate from URL and governed layer history. Discrete evidence navigation
+(Find and occurrence steps, Matches/barcode activation, Reader entry, and RSVP
+exit) records immediately. Continuous scrubbing, Matches scrolling, footer
+panning, and Reader page fitting update the live cursor without delay while a
+400ms history-only quiet timer coalesces the reading run. The list holds 32
+entries, keeps a conventional back/forward index, and reconciles surviving
+document identities across corpus snapshots; it is never persisted.
+
+`Ctrl+O` goes to the previous reading position and `Ctrl+I` to the next in the
+workbench and ordinary Reader. There are deliberately no Cmd aliases: Cmd+O
+and Cmd+I retain their platform meanings. The Ctrl chords are excluded from
+text editing, dialogs, menus, composition, and RSVP, but when otherwise owned
+they prevent the browser default even at a history edge. This explicitly
+shadows the browser's Ctrl+O Open File command; Inputs remains the visible file
+acquisition path.
+
+The workbench header exposes an always-mounted, labelled pair of curved-arrow
+controls before Find. Their accessible names always say “reading position” so
+they cannot be confused with browser Back, Reader Back, fitted-page turns, or
+occurrence navigation. Reader supports the shortcuts and Help entries but does
+not duplicate the buttons in its already crowded, fit-sensitive header.
+
+The interaction contract was resolved with an explicitly pinned Claude Opus
+planner through Parley (request `req_consult_03f56c4295f6e900`, artifact
+`art_sha256_3d19c922b0a7eab814c119290082be3d93e3a130cb0410ed172f83ce321b8b2d`).
+
 ## 2026-08-27 — Find and new-term composers always use two reserved rows
 
 Find and inline new-term entry use one shared two-row dock takeover at every

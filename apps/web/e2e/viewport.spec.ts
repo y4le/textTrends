@@ -92,7 +92,13 @@ test('compact header reflows the publisher mark without starving single-line Sco
     const actions = [...node.querySelectorAll<HTMLElement>('.header-action')]
       .map((action) => {
         const rect = action.getBoundingClientRect();
-        return { left: rect.left, right: rect.right, width: rect.width, height: rect.height };
+        return {
+          left: rect.left,
+          right: rect.right,
+          width: rect.width,
+          height: rect.height,
+          positionHistory: action.classList.contains('position-history-action'),
+        };
       });
     return {
       height: box.height,
@@ -114,9 +120,9 @@ test('compact header reflows the publisher mark without starving single-line Sco
     expect(child.top).toBeGreaterThanOrEqual(geometry.top);
     expect(child.bottom).toBeLessThanOrEqual(geometry.bottom);
   }
-  expect(geometry.actions).toHaveLength(3);
+  expect(geometry.actions).toHaveLength(5);
   for (const action of geometry.actions) {
-    expect(action.width).toBeGreaterThanOrEqual(44);
+    expect(action.width).toBeGreaterThanOrEqual(action.positionHistory ? 32 : 44);
     expect(action.height).toBeGreaterThanOrEqual(44);
     expect(action.left).toBeGreaterThanOrEqual(geometry.left);
     expect(action.right).toBeLessThanOrEqual(geometry.right);

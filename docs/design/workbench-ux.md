@@ -542,6 +542,26 @@ buckets and linked analytical ranges never approximate or narrow this action.
 The shared scrub position and Matches center follow the result, and an open
 Reader replaces its current page around that exact occurrence.
 
+## Reading position history
+
+Reading positions form one bounded, session-only jump list independent of
+browser Back and the governed Reader/row-detail layer stack. `Ctrl+O` visits an
+older reading position and `Ctrl+I` revisits a newer one in both the workbench
+and ordinary Reader. The workbench header mirrors those commands with labelled
+curved-arrow controls; Reader keeps the keys and Help entries without adding a
+third previous/next pair to its header. A history traversal retargets an open
+Reader in place and neither closes it nor pushes, replaces, or consumes a
+browser-history entry.
+
+Discrete evidence jumps record their departure and destination immediately.
+Continuous footer/Trends scrubbing, Matches scrolling, keyboard reading, and
+Reader page fitting update the source and shared cursor immediately but amend
+one provisional history destination after 400ms of quiet. Forward history
+survives traversal and small landing refinements, and clears only when a new
+branch is committed. The capped list stores only snapshot, document, token,
+and origin; it contains no source snippets and is not part of the workspace.
+RSVP playback does not record each word; exiting records its settled stop.
+
 ## Keys and gestures
 
 Vim and conventional bindings are simultaneous during ordinary navigation.
@@ -560,7 +580,10 @@ Focused controls act first. A local handler that consumes an event prevents the
 root dispatcher from reinterpreting it, and text inputs, selectors, editable
 content, unrelated browser modifier chords, and IME composition retain their
 native behavior. The explicit `Ctrl/Cmd-F` and `Ctrl/Cmd-G` Find chords are the
-narrow exception. Help is a transient modal rather than navigable research
+narrow semantic-search exception. The Ctrl-only `Ctrl+O` / `Ctrl+I` reading
+history chords are a second explicit exception outside editing, dialogs,
+menus, composition, and RSVP; Cmd+O / Cmd+I retain their platform meanings.
+Help is a transient modal rather than navigable research
 state; closing it with Escape, `?`, or its visible control restores the
 invoking focus without adding browser history.
 

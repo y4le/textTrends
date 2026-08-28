@@ -4,6 +4,12 @@
 interaction backlog. It is not a claim about shipped behavior and does not yet
 supersede the implemented rules in [workbench-ux.md](workbench-ux.md).
 
+**IMPLEMENTATION NOTE (2026-08-28):** Recent-position history has now shipped
+with the later contract recorded in [product-decisions.md](product-decisions.md)
+and [workbench-ux.md](workbench-ux.md): a 400ms jump/drift recorder,
+`Ctrl+O` / `Ctrl+I`, and workbench-header controls. That decision supersedes
+this proposal's earlier “shortcut deferred” and phase-5 placement.
+
 The proposal was informed by repository inspection, RSVP reading research, and
 an explicitly pinned Claude Opus planning consultation through Parley (request
 `req_consult_408c65794ca0905b`, artifact

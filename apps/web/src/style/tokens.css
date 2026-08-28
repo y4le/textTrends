@@ -286,6 +286,12 @@ canvas {
   white-space: nowrap;
 }
 
+.position-history-actions {
+  display: flex;
+  align-items: center;
+  gap: 0;
+}
+
 .header-action {
   min-inline-size: 44px;
   min-block-size: var(--chrome-target-block-size);
@@ -300,6 +306,17 @@ canvas {
   text-decoration-color: var(--rule-strong);
   text-decoration-thickness: 1px;
   text-underline-offset: 0.2em;
+}
+
+.position-history-action {
+  min-inline-size: 32px;
+  font-size: var(--text-md);
+  text-decoration: none;
+}
+
+.position-history-action:disabled {
+  opacity: 0.45;
+  cursor: default;
 }
 
 @media (max-width: 599.98px) {

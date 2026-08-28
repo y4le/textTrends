@@ -24,6 +24,7 @@ import { SettingsEntryProvider } from './components/SettingsEntryContext.tsx';
 import { occurrenceNavigationText, type ReaderVisibleRangeV1 } from './lib/store.ts';
 import {
   advanceShortcutSequence,
+  chordShortcutAllowed,
   interactionShortcutAllowed,
   rootShortcutAllowed,
   shortcutAria,
@@ -400,6 +401,38 @@ export function App() {
       default: return false;
     }
   };
+  const stepPositionHistory = (direction: -1 | 1) => {
+    const state = useApp.getState();
+    const target = state.stepPositionHistory(direction);
+    const way = direction === -1 ? 'previous' : 'next';
+    const message = target === null
+      ? `No ${way} reading position`
+      : `${way === 'previous' ? 'Previous' : 'Next'} reading position · ${
+          state.projectSession?.project.data.docs.find((document) => document.doc === target.doc)
+            ?.meta.title ?? target.doc
+        } · token ${(target.token + 1).toLocaleString()}`;
+    if (readerOpen) setReaderKeyboardStatus(message);
+    else setKeyboardNavigationStatus(message);
+  };
+  const handlePositionHistoryShortcut = (
+    event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
+  ): boolean => {
+    if (
+      utilityPane !== null
+      || interaction.kind === 'rsvp'
+      || !chordShortcutAllowed(event)
+    ) return false;
+    const direction = shortcutMatches(event, 'position-previous')
+      ? -1
+      : shortcutMatches(event, 'position-next')
+        ? 1
+        : null;
+    if (direction === null) return false;
+    event.preventDefault();
+    clearShortcutSequence();
+    stepPositionHistory(direction);
+    return true;
+  };
   const handleRootShortcut = (
     event: KeyboardEvent<HTMLElement> | globalThis.KeyboardEvent,
     context: ShortcutHelpContext,
@@ -556,6 +589,7 @@ export function App() {
       // authoritative. The document seam also reaches a fresh workbench while
       // focus still rests on <body>.
       if (utilityPane !== null) return;
+      if (handlePositionHistoryShortcut(event)) return;
       if (handleInteractionShortcut(event)) return;
       handleRootShortcut(
         event,
@@ -893,6 +927,7 @@ export function App() {
           onOpenFind={() => openFind()}
           onOpenSettings={() => openSettings()}
           onOpenHelp={() => openHelp('workbench')}
+          onStepPositionHistory={stepPositionHistory}
         />
         <WorkbenchTabs />
       </header>

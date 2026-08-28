@@ -10,6 +10,8 @@ export type ShortcutId =
   | 'find-next'
   | 'find-previous'
   | 'find-close'
+  | 'position-previous'
+  | 'position-next'
   | 'focus-horizontal-previous'
   | 'focus-horizontal-next'
   | 'go-inputs'
@@ -90,7 +92,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'Global' | 'Find' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
+  readonly group: 'Global' | 'Find' | 'Reading position history' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -185,6 +187,20 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench', 'reader'],
     label: 'Close find',
     strokes: [{ key: 'Escape' }],
+  },
+  {
+    id: 'position-previous',
+    group: 'Reading position history',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Previous reading position',
+    strokes: [{ key: 'o', ctrl: true }],
+  },
+  {
+    id: 'position-next',
+    group: 'Reading position history',
+    helpContexts: ['workbench', 'reader'],
+    label: 'Next reading position',
+    strokes: [{ key: 'i', ctrl: true }],
   },
   {
     id: 'focus-horizontal-previous',
@@ -774,6 +790,20 @@ export function interactionShortcutAllowed(
     );
 }
 
+/** Gate for app-owned Ctrl chords that intentionally shadow a browser action. */
+export function chordShortcutAllowed(
+  event: ShortcutEventLike & { readonly defaultPrevented: boolean; readonly target: EventTarget | null },
+): boolean {
+  const target = event.target as (EventTarget & { closest?: (selector: string) => unknown }) | null;
+  return !event.defaultPrevented
+    && event.ctrlKey
+    && !event.metaKey
+    && !event.altKey
+    && !event.isComposing
+    && !isShortcutTypingTarget(event.target)
+    && !(target?.closest?.('[role="dialog"], [role="menu"]'));
+}
+
 const DISPLAY_KEY: Readonly<Record<string, string>> = Object.freeze({
   ArrowLeft: '←',
   ArrowRight: '→',
@@ -839,12 +869,13 @@ const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
  * unavailable sections from the menu. */
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
-    ? ['Global', 'Find', 'Reader']
+    ? ['Global', 'Find', 'Reading position history', 'Reader']
     : scope.context === 'rsvp'
       ? ['Global', 'Speed reader']
       : [
         'Global',
         'Find',
+        'Reading position history',
         'Navigation',
         'Terms',
         ...(scope.activeTextCount > 0 && ROW_PLACES.has(scope.place) ? ['Rows' as const] : []),
