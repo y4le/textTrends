@@ -60,6 +60,7 @@ import {
   RSVP_RHYTHM_RESET,
   type RsvpPacing,
 } from '@texttrends/rsvp';
+import { POSITION_HISTORY_SETTLE_MS } from '../src/lib/position-history.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -3517,6 +3518,118 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().linkedSelection).toBeNull();
     f.store.getState().setLinkedSelection({ snapshot: 's1', ranges: [{ doc: 'zz', tokens: { start: 0, end: 2 } }] });
     expect(f.store.getState().linkedSelection).toBeNull();
+  });
+});
+
+describe('reading position history intent', () => {
+  it('settles drift without delaying the cursor and flushes it before a jump', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setScrub({ doc: 'a', token: 10 });
+      expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 10 });
+      expect(f.store.getState().positionHistory.entries).toEqual([]);
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS);
+      expect(f.store.getState().positionHistory.entries).toMatchObject([
+        { doc: 'a', token: 10 },
+      ]);
+
+      f.store.getState().setScrub({ doc: 'a', token: 500 });
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS / 2);
+      f.store.getState().setScrub({ doc: 'a', token: 700 });
+      f.store.getState().setScrub(
+        { doc: 'a', token: 1_200 },
+        { kind: 'jump', origin: 'find' },
+      );
+      expect(f.store.getState().positionHistory.entries).toMatchObject([
+        { doc: 'a', token: 10 },
+        { doc: 'a', token: 700 },
+        { doc: 'a', token: 1_200, origin: 'find' },
+      ]);
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('traverses and permits a small landing refinement without clearing forward', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      for (const token of [0, 1_000, 2_000]) {
+        f.store.getState().setScrub(
+          { doc: 'a', token },
+          { kind: 'jump', origin: 'occurrence' },
+        );
+      }
+      expect(f.store.getState().stepPositionHistory(-1)).toEqual({ doc: 'a', token: 1_000 });
+      f.store.getState().setScrub(
+        { doc: 'a', token: 1_010 },
+        { kind: 'drift', origin: 'reader' },
+      );
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS);
+      expect(f.store.getState().positionHistory.entries.map((entry) => entry.token))
+        .toEqual([0, 1_010, 2_000]);
+      expect(f.store.getState().stepPositionHistory(1)).toEqual({ doc: 'a', token: 2_000 });
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('retargets an open Reader without closing its governed browser-history layer', () => {
+    const q = fakeQueryClient();
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const runtime = createAppRuntime(q.client, { history, newLayerId: layerIds() });
+    const port = new FakeSessionPort();
+    runtime.attachSession(port);
+    port.publishSnapshot('g1', 's1', ['a']);
+    runtime.useApp.getState().setScrub(
+      { doc: 'a', token: 100 },
+      { kind: 'jump', origin: 'seek' },
+    );
+    runtime.useApp.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 1_000, from: 'kwic',
+    });
+    const browserEntries = history.entries.length;
+    const layerId = runtime.useApp.getState().layers.at(-1)?.id;
+
+    expect(runtime.useApp.getState().stepPositionHistory(-1))
+      .toEqual({ doc: 'a', token: 100 });
+    expect(runtime.useApp.getState()).toMatchObject({
+      readerPlace: { doc: 'a', cursor: { kind: 'around', token: 100 } },
+      layers: [{ id: layerId, kind: 'reader' }],
+    });
+    expect(history.entries).toHaveLength(browserEntries);
+    expect(runtime.useApp.getState().stepPositionHistory(1))
+      .toEqual({ doc: 'a', token: 1_000 });
+    expect(runtime.useApp.getState().readerPlace).toMatchObject({
+      cursor: { kind: 'around', token: 1_000 },
+    });
+    runtime.dispose();
+  });
+
+  it('reconciles surviving positions onto a replacement snapshot', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.setState({ corpusTokenCounts: new Map([['a', 500], ['b', 300]]) });
+    f.store.getState().setScrub(
+      { doc: 'a', token: 100 },
+      { kind: 'jump', origin: 'seek' },
+    );
+    f.store.getState().setScrub(
+      { doc: 'b', token: 250 },
+      { kind: 'jump', origin: 'barcode' },
+    );
+
+    f.port.publishSnapshot('g2', 's2', ['b']);
+    expect(f.store.getState().positionHistory).toMatchObject({
+      index: 0,
+      entries: [{ snapshot: 's2', doc: 'b', token: 250 }],
+    });
+    f.runtime.dispose();
   });
 });
 

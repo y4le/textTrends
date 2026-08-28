@@ -261,7 +261,12 @@ export function FooterPassage({
     scrollFrame.current = requestAnimationFrame(() => {
       scrollFrame.current = null;
       const latest = scrollDrivenToken.current;
-      if (latest !== null) setScrub({ doc: page.doc, token: latest });
+      if (latest !== null) {
+        setScrub(
+          { doc: page.doc, token: latest },
+          { kind: 'drift', origin: 'scrub' },
+        );
+      }
     });
   }, [crosshairX, page, scrub?.token, setScrub, tokenGeometry]);
 

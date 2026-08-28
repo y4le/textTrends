@@ -99,6 +99,17 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
+  EMPTY_POSITION_HISTORY,
+  POSITION_HISTORY_SETTLE_MS,
+  reconcilePositionHistory,
+  recordPositionJump,
+  recordPositionSettle,
+  traversePositionHistory,
+  type PositionHistory,
+  type PositionHistoryEntry,
+  type PositionHistoryOrigin,
+} from './position-history.ts';
+import {
   coreGroupOf,
   firstFreeStyle,
   groupIdentity,
@@ -661,6 +672,10 @@ export interface ScrubTarget {
   readonly token: number;
 }
 
+export type ScrubIntent =
+  | { readonly kind: 'drift'; readonly origin: PositionHistoryOrigin }
+  | { readonly kind: 'jump'; readonly origin: PositionHistoryOrigin };
+
 /** One exact any-active-term navigation intent. The worker returns one bounded
  * distinct-start hit; raw overlap counts never become a misleading progress
  * readout. */
@@ -875,6 +890,8 @@ export interface AppState {
    * that cannot satisfy the bounded trend protocol. */
   trendSettingsNotice: string | null;
   scrub: ScrubTarget | null;
+  /** Session-only reading jump list, independent of URL/layer history. */
+  positionHistory: PositionHistory;
   /** Transient, snapshot-bound source text for the global reading footer. */
   footerPassage: FooterPassageState | null;
   /** Latest exact w/b navigation request and its accessible outcome. */
@@ -970,8 +987,10 @@ export interface AppState {
   setKeynessSelection(side: 'a' | 'b', doc: string | null): void;
   swapKeynessSides(): void;
   applyKeynessSettings(input: KeynessSettingsInputV1): void;
-  setScrub(target: ScrubTarget): void;
+  setScrub(target: ScrubTarget, intent?: ScrubIntent): void;
   clearScrub(): void;
+  /** Move through reading positions without recording the traversal itself. */
+  stepPositionHistory(direction: -1 | 1): ScrubTarget | null;
   stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
@@ -1446,6 +1465,8 @@ export function createAppRuntime(
   let workspaceSaveToken = 0;
   let workspaceScheduling = false;
   let saveWorkspaceNow = (): void => undefined;
+  let positionHistoryTimer: ReturnType<typeof setTimeout> | null = null;
+  let pendingPositionSettle: PositionHistoryEntry | null = null;
   // A demo acquisition knows its declared first document before concurrent
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.
@@ -1459,6 +1480,65 @@ export function createAppRuntime(
     boundaries: number[];
     index: number;
   } | null = null;
+
+  const clearPositionHistoryTimer = (): void => {
+    if (positionHistoryTimer !== null) {
+      clearTimeout(positionHistoryTimer);
+      positionHistoryTimer = null;
+    }
+  };
+
+  const settlePositionHistory = (): void => {
+    clearPositionHistoryTimer();
+    const entry = pendingPositionSettle;
+    pendingPositionSettle = null;
+    if (
+      entry === null
+      || entry.snapshot !== store.getState().snapshot?.snapshot
+    ) return;
+    store.setState((state) => ({
+      positionHistory: recordPositionSettle(state.positionHistory, entry),
+    }));
+  };
+
+  const schedulePositionSettle = (
+    target: ScrubTarget,
+    origin: PositionHistoryOrigin,
+  ): void => {
+    const snapshot = store.getState().snapshot?.snapshot;
+    if (snapshot === undefined) return;
+    pendingPositionSettle = { snapshot, ...target, origin };
+    clearPositionHistoryTimer();
+    positionHistoryTimer = setTimeout(() => {
+      positionHistoryTimer = null;
+      settlePositionHistory();
+    }, POSITION_HISTORY_SETTLE_MS);
+  };
+
+  const recordPositionJumpNow = (
+    from: ScrubTarget | null,
+    to: ScrubTarget,
+    origin: PositionHistoryOrigin,
+  ): void => {
+    const snapshot = store.getState().snapshot?.snapshot;
+    if (snapshot === undefined) return;
+    const pending = pendingPositionSettle?.snapshot === snapshot
+      ? pendingPositionSettle
+      : null;
+    clearPositionHistoryTimer();
+    pendingPositionSettle = null;
+    const departure = pending ?? (from === null
+      ? null
+      : { snapshot, ...from, origin });
+    const destination: PositionHistoryEntry = { snapshot, ...to, origin };
+    store.setState((state) => ({
+      positionHistory: recordPositionJump(
+        state.positionHistory,
+        departure,
+        destination,
+      ),
+    }));
+  };
 
   // Route and layer state is initialized before the store so the first React
   // snapshot and the current history entry cannot disagree.
@@ -3067,6 +3147,7 @@ export function createAppRuntime(
       trendMeasure: DEFAULT_TREND_MEASURE,
       trendSettingsNotice: null,
       scrub: null,
+      positionHistory: EMPTY_POSITION_HISTORY,
       footerPassage: null,
       occurrenceNavigation: null,
       readerPlace: null,
@@ -3490,7 +3571,7 @@ export function createAppRuntime(
         return 'applied';
       },
 
-      setScrub(target) {
+      setScrub(target, intent = { kind: 'drift', origin: 'scrub' }) {
         if (get().interaction.kind === 'rsvp') return;
         const { snapshot, corpusTokenCounts } = get();
         const tokenCount = corpusTokenCounts.get(target.doc);
@@ -3504,6 +3585,11 @@ export function createAppRuntime(
         const previous = get().scrub;
         const changed =
           previous?.doc !== target.doc || previous.token !== target.token;
+        if (intent.kind === 'jump') {
+          recordPositionJumpNow(previous, target, intent.origin);
+        } else if (changed) {
+          schedulePositionSettle(target, intent.origin);
+        }
         if (changed) {
           occurrenceLane.supersede();
           set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
@@ -3513,10 +3599,42 @@ export function createAppRuntime(
 
       clearScrub() {
         if (get().interaction.kind === 'rsvp') return;
+        settlePositionHistory();
         occurrenceLane.supersede();
         set({ scrub: null, occurrenceNavigation: null, matchesReveal: null });
         resetFooterPassage();
         runMatchesWindow({ kind: 'rank', rank: 0 });
+      },
+
+      stepPositionHistory(direction) {
+        if (get().interaction.kind === 'rsvp' || (direction !== -1 && direction !== 1)) {
+          return null;
+        }
+        settlePositionHistory();
+        const state = get();
+        const current = state.positionHistory.entries[state.positionHistory.index];
+        const transition = state.scrub === null && current !== undefined
+          ? { history: state.positionHistory, target: current }
+          : traversePositionHistory(state.positionHistory, direction);
+        if (transition === null) return null;
+        const target = { doc: transition.target.doc, token: transition.target.token };
+        occurrenceLane.supersede();
+        set({
+          positionHistory: transition.history,
+          scrub: target,
+          occurrenceNavigation: null,
+          matchesReveal: null,
+        });
+        scheduleFooterPassage(target);
+        if (get().readerPlace !== null) {
+          replaceReaderTarget({
+            doc: target.doc,
+            cursor: { kind: 'around', token: target.token },
+          });
+        } else {
+          runMatchesWindow({ kind: 'position', doc: target.doc, token: target.token });
+        }
+        return target;
       },
 
       enterFind() {
@@ -3729,7 +3847,10 @@ export function createAppRuntime(
               return;
             }
 
-            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().setScrub(
+              { doc: hit.doc, token: hit.token },
+              { kind: 'jump', origin: 'find' },
+            );
             get().requestMatchesWindow({ kind: 'position', doc: hit.doc, token: hit.token });
             const liveReader = get().readerPlace;
             if (liveReader?.snapshot === snapshot.snapshot) {
@@ -3815,6 +3936,11 @@ export function createAppRuntime(
             find: { ...suspended.find, state: { status: 'idle' } },
           };
         }
+        recordPositionJumpNow(
+          state.scrub,
+          { doc: source.doc, token: startToken },
+          'reader',
+        );
         set({
           interaction: {
             kind: 'rsvp',
@@ -3909,6 +4035,7 @@ export function createAppRuntime(
         ) return;
         const { doc } = state.interaction.rsvp;
         const suspended = state.interaction.suspended;
+        recordPositionJumpNow(state.scrub, { doc, token }, 'reader');
         occurrenceLane.supersede();
         set({
           interaction: suspended,
@@ -4095,7 +4222,10 @@ export function createAppRuntime(
               });
               return;
             }
-            get().setScrub({ doc: hit.doc, token: hit.token });
+            get().setScrub(
+              { doc: hit.doc, token: hit.token },
+              { kind: 'jump', origin: 'occurrence' },
+            );
             // Occurrence stepping deliberately collapses a same-start cluster
             // into one stop; its members are cluster-level provenance, so the
             // Matches applies the documented first-row rule.
@@ -4140,6 +4270,18 @@ export function createAppRuntime(
           snapshot?.readyDocs ?? [],
         );
         if (place) {
+          const origin: PositionHistoryOrigin = intent.from === 'kwic'
+            ? 'matches'
+            : intent.from === 'footer'
+              ? 'seek'
+              : intent.from;
+          const target = { doc: intent.doc, token: intent.token };
+          const previous = get().scrub;
+          recordPositionJumpNow(previous, target, origin);
+          if (previous?.doc !== target.doc || previous.token !== target.token) {
+            occurrenceLane.supersede();
+            set({ scrub: target, occurrenceNavigation: null, matchesReveal: null });
+          }
           const next = freshLayer(
             'reader',
             Object.freeze(place),
@@ -4229,6 +4371,12 @@ export function createAppRuntime(
         const selectionChanged = state.scrub?.doc !== source.doc
           || state.scrub.token !== selectionToken;
         if (selectionChanged) occurrenceLane.supersede();
+        if (selectionChanged) {
+          schedulePositionSettle(
+            { doc: source.doc, token: selectionToken },
+            'reader',
+          );
+        }
         set({
           readerVisibleRange: range,
           readerNavigation: {
@@ -5534,7 +5682,13 @@ export function createAppRuntime(
         if (!state.snapshot?.readyDocs.includes(doc)) return;
         // All navigation publishes the ONE shared cursor. Exact evidence also
         // carries a one-shot row disambiguator; density midpoints never do.
-        get().setScrub({ doc, token });
+        get().setScrub(
+          { doc, token },
+          {
+            kind: 'jump',
+            origin: origin?.kind === 'bucket' ? 'barcode' : 'occurrence',
+          },
+        );
         const live = get();
         const tracks = effectiveTrackSpecs(live.series);
         const trackKey = tracks === null ? '' : JSON.stringify(tracks.identities);
@@ -5919,6 +6073,21 @@ export function createAppRuntime(
     } else {
       keynessView = reconcileKeynessView(currentKeynessView, readyDocs);
     }
+    const current = store.getState();
+    if (prevKey !== nextKey) {
+      clearPositionHistoryTimer();
+      pendingPositionSettle = null;
+    }
+    const positionHistory = prevKey === nextKey
+      ? current.positionHistory
+      : next.snapshot === null
+        ? EMPTY_POSITION_HISTORY
+        : reconcilePositionHistory(
+            current.positionHistory,
+            next.snapshot.snapshot,
+            readyDocs,
+            current.corpusTokenCounts,
+          );
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
@@ -5926,6 +6095,7 @@ export function createAppRuntime(
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
       keynessView,
+      positionHistory,
       corpusTokenCounts: prevKey !== nextKey
         ? new Map()
         : store.getState().corpusTokenCounts,
@@ -6106,6 +6276,8 @@ export function createAppRuntime(
           readerNavigation: null,
         });
       }
+      clearPositionHistoryTimer();
+      pendingPositionSettle = null;
       clearWorkspaceTimer();
       workspaceSaveToken += 1;
       unsubscribeHistory();

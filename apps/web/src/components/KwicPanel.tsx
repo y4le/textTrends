@@ -16,6 +16,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useApp } from '../lib/store-instance.ts';
+import type { ScrubIntent } from '../lib/store.ts';
 import { findScope } from '../lib/interaction.ts';
 import { fullTokenCountsForDocs } from '../lib/doc-tokens.ts';
 import {
@@ -326,23 +327,28 @@ export function KwicPanel({
     viewport.height,
   ]);
 
-  const publishLogicalCursor = useCallback((nextLogical: number) => {
+  const publishLogicalCursor = useCallback((
+    nextLogical: number,
+    intent: ScrubIntent = { kind: 'drift', origin: 'matches' },
+  ) => {
     const target = matchesTargetAtLogical(nextLogical, resident);
     if (!target) return null;
     const cursor = { doc: target.doc, token: target.token };
     selfPublishedRef.current = { ...cursor, logical: nextLogical };
-    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) setScrub(cursor);
+    if (scrub?.doc !== cursor.doc || scrub.token !== cursor.token) {
+      setScrub(cursor, intent);
+    }
     return cursor;
   }, [resident, scrub, setScrub]);
 
-  const moveToRank = useCallback((rank: number) => {
+  const moveToRank = useCallback((rank: number, intent?: ScrubIntent) => {
     if (total <= 0) return;
     const bounded = Math.max(0, Math.min(total - 1, rank));
     const nextLogical = bounded + 0.5;
     const direction = Math.sign(nextLogical - logicalRef.current) as -1 | 0 | 1;
     pendingRankRef.current = rowAtRank(bounded) ? null : bounded;
     setLogicalPosition(nextLogical, true);
-    const target = publishLogicalCursor(nextLogical);
+    const target = publishLogicalCursor(nextLogical, intent);
     if (target) announceRank(bounded, target);
     requestRank(bounded, direction);
   }, [announceRank, publishLogicalCursor, requestRank, rowAtRank, setLogicalPosition, total]);
@@ -408,7 +414,9 @@ export function KwicPanel({
         const target = { doc: row.doc, token: row.pos };
         pendingRankRef.current = null;
         selfPublishedRef.current = { ...target, logical: pendingRank + 0.5 };
-        if (scrub?.doc !== target.doc || scrub.token !== target.token) setScrub(target);
+        if (scrub?.doc !== target.doc || scrub.token !== target.token) {
+          setScrub(target, { kind: 'drift', origin: 'matches' });
+        }
         setLogicalPosition(pendingRank + 0.5, true);
         announceRank(pendingRank, target);
         return;
@@ -550,7 +558,7 @@ export function KwicPanel({
   const rowId = (rank: number) => `matches-row-${rank}`;
   const openRowReader = (row: MatchesRowVM, rank: number) => {
     if (!kwic) return;
-    moveToRank(rank);
+    moveToRank(rank, { kind: 'jump', origin: 'matches' });
     openReader(
       { snapshot: kwic.snapshot, doc: row.doc, token: row.pos, from: 'kwic' },
       'matches-grid',
@@ -1082,7 +1090,7 @@ export function KwicPanel({
                   onPointerDown={(event) => {
                     if ((event.target as Element).closest('button, .source-text')) return;
                     portRef.current?.focus({ preventScroll: true });
-                    moveToRank(rank);
+                    moveToRank(rank, { kind: 'jump', origin: 'matches' });
                   }}
                 >
                   <div
