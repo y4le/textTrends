@@ -259,7 +259,7 @@ export function footerBlockSize(
     + Math.max(geometry.stripMinHeight, visualStripHeight);
 }
 
-function finiteTracks(trackCount: number): number {
+export function finiteTracks(trackCount: number): number {
   return Number.isFinite(trackCount) ? Math.max(0, Math.floor(trackCount)) : 0;
 }
 
