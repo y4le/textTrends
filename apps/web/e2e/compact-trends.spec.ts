@@ -191,6 +191,19 @@ for (const viewport of [
       .toBeGreaterThanOrEqual(7);
     const firstRow = await firstHitRow.boundingBox();
     expect(firstRow?.height).toBe(28);
+    const rowResize = page.getByRole('separator', { name: 'Resize trend rows' });
+    expect((await rowResize.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    await expect(rowResize).toHaveCSS('touch-action', 'none');
+    await rowResize.focus();
+    await rowResize.press('ArrowUp');
+    await expect(rowResize).toHaveAttribute('aria-valuetext', /titles hidden/);
+    await expect(byBook.locator('[data-trend-row-title]')).toHaveCount(0);
+    await expect(page.getByRole('group', { name: 'Select whole texts' })
+      .locator('[data-title-painted="false"]')).toHaveCount(
+        await byBook.locator('[data-trend-row-axis]').count(),
+      );
+    await rowResize.press('Enter');
+    await expect(byBook.locator('[data-trend-row-title]')).not.toHaveCount(0);
 
     const overflow = await page.evaluate(() => ({
       client: document.documentElement.clientWidth,

@@ -87,6 +87,12 @@ import {
 } from '../lib/selection.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
+import { trendRowSizing, type TrendRowSizing } from '../lib/trend-row-size.ts';
+import {
+  browserTrendRowStorage,
+  loadTrendRowPitch,
+  saveTrendRowPitch,
+} from '../lib/trend-row-storage.ts';
 import {
   formatTrendDisplayValue,
   trendDisplayValues,
@@ -139,6 +145,9 @@ import {
 } from '../lib/trend-title-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
+const trendRowStorage = typeof window === 'undefined'
+  ? null
+  : browserTrendRowStorage(window);
 const TREND_TITLE_ARIA_KEYS = shortcutAria([
   'trend-title-previous',
   'trend-title-next',
@@ -214,7 +223,9 @@ export function TrendPanel() {
   const centerKwicAt = useApp((s) => s.centerKwicAt);
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
-  const geometry = trendGeometryFor(presentation.width);
+  const baseGeometry = trendGeometryFor(presentation.width);
+  const [rowPitchTarget, setRowPitchTarget] = useState<number | null>(() =>
+    loadTrendRowPitch(trendRowStorage));
   const activeTextCount = project?.data.order.length ?? 0;
   const viewSwitcher = activeTextCount > 1 ? (
     <TrendViewSwitcher
@@ -290,6 +301,30 @@ export function TrendPanel() {
     return state?.status === 'ready' ? [{ intent, trend: state.trend }] : [];
   });
   const readyGeo = activeReady[0]?.trend ?? ghostReady[0]?.trend ?? null;
+  const reservedTrackCount = findMode ? Math.max(series.length, activeSeries.length) : 0;
+  const sizingTrackCount = useMemo(() => {
+    if (graphGate !== 'ready' || !readyGeo) return reservedTrackCount;
+    return Math.max(
+      projectedBarcodeTracks(
+        displayedDispersion,
+        readyGeo.order,
+        activeSeries.map((item) => item.id),
+      ).length,
+      reservedTrackCount,
+    );
+  }, [activeSeries, displayedDispersion, graphGate, readyGeo, reservedTrackCount]);
+  const rowSizing = useMemo(() => trendRowSizing({
+    width: presentation.width,
+    coarse: presentation.coarseAvailable,
+    trackCount: sizingTrackCount,
+    targetPitch: rowPitchTarget,
+  }), [
+    presentation.coarseAvailable,
+    presentation.width,
+    rowPitchTarget,
+    sizingTrackCount,
+  ]);
+  const geometry = trendView === 'series' ? baseGeometry : rowSizing.geometry;
   const stageProjection = useMemo(() => {
     if (
       graphGate !== 'ready'
@@ -305,17 +340,18 @@ export function TrendPanel() {
         : null,
       selectedDocs: displayedSelection?.ranges.map((range) => range.doc) ?? [],
       geometry,
-      reservedTrackCount: findMode ? Math.max(series.length, activeSeries.length) : 0,
+      reservedTrackCount,
       foregroundBarcodeOverlay: findMode && find !== null,
     });
-  }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, selectedDispersion, series.length]);
+  }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, reservedTrackCount, selectedDispersion]);
   const stageGeometry = useMemo(() => stageProjection
     ? trendStageGeometry(stageProjection, {
         plotWidth: plotW,
         view: trendView,
+        titlesPainted: trendView === 'series' || rowSizing.titlesPainted,
       })
     : null,
-  [plotW, stageProjection, trendView]);
+  [plotW, rowSizing.titlesPainted, stageProjection, trendView]);
   const snapIndexCache = useRef<{
     readonly projection: NonNullable<typeof stageProjection>;
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
@@ -477,6 +513,11 @@ export function TrendPanel() {
   );
   const maxValue = Math.max(1e-9, dataMaxValue);
   const strokeFor = () => geometry.strokeWidth;
+  const previewRowPitch = (target: number | null) => { setRowPitchTarget(target); };
+  const commitRowPitch = (target: number | null) => {
+    setRowPitchTarget(target);
+    saveTrendRowPitch(trendRowStorage, target);
+  };
 
   return (
     <section>
@@ -503,6 +544,16 @@ export function TrendPanel() {
         >
           failed: {failed.map(failureText).join(' · ')}
         </p>
+      )}
+      {trendView !== 'series' && docs.length > 1 && (
+        <TrendRowResizeHandle
+          sizing={rowSizing}
+          target={rowPitchTarget}
+          trackCount={sizingTrackCount}
+          coarse={presentation.coarseAvailable}
+          onPreview={previewRowPitch}
+          onCommit={commitRowPitch}
+        />
       )}
       <ScrubSurface
         containerRef={setContainerEl}
@@ -632,6 +683,200 @@ function TrendViewSwitcher({
           {trendViewLabel(candidate)}
         </button>
       ))}
+    </div>
+  );
+}
+
+function TrendRowResizeHandle({
+  sizing,
+  target,
+  trackCount,
+  coarse,
+  onPreview,
+  onCommit,
+}: {
+  readonly sizing: TrendRowSizing;
+  readonly target: number | null;
+  readonly trackCount: number;
+  readonly coarse: boolean;
+  readonly onPreview: (target: number | null) => void;
+  readonly onCommit: (target: number | null) => void;
+}) {
+  const [resizing, setResizing] = useState(false);
+  const resizeFrame = useRef<number | null>(null);
+  const pendingTarget = useRef<number | null>(null);
+  const keyboardTarget = useRef<number | null>(null);
+  const drag = useRef<{
+    readonly pointerId: number;
+    readonly startY: number;
+    readonly startPitch: number;
+    readonly startTarget: number | null;
+    lastTarget: number;
+  } | null>(null);
+
+  useEffect(() => () => {
+    if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
+    document.documentElement.removeAttribute('data-trend-row-resizing');
+  }, []);
+
+  const setResizeActive = (active: boolean) => {
+    setResizing(active);
+    if (active) document.documentElement.setAttribute('data-trend-row-resizing', 'true');
+    else document.documentElement.removeAttribute('data-trend-row-resizing');
+  };
+  const commitPendingTarget = () => {
+    if (resizeFrame.current !== null) {
+      cancelAnimationFrame(resizeFrame.current);
+      resizeFrame.current = null;
+    }
+    const pending = pendingTarget.current;
+    pendingTarget.current = null;
+    if (pending !== null) onPreview(pending);
+  };
+  const scheduleTarget = (next: number) => {
+    pendingTarget.current = next;
+    if (drag.current) drag.current.lastTarget = next;
+    resizeFrame.current ??= requestAnimationFrame(() => {
+      resizeFrame.current = null;
+      const pending = pendingTarget.current;
+      pendingTarget.current = null;
+      if (pending !== null) onPreview(pending);
+    });
+  };
+  const finishResize = (pointerId: number) => {
+    const active = drag.current;
+    if (active?.pointerId !== pointerId) return;
+    commitPendingTarget();
+    drag.current = null;
+    setResizeActive(false);
+    onCommit(active.lastTarget);
+  };
+  const valuetext = `${sizing.rowPitch} pixels per text · ${
+    sizing.titlesPainted ? 'titles shown' : 'titles hidden'
+  }${sizing.atMinimum && trackCount > 0
+    ? ` · minimum for ${trackCount} occurrence row${trackCount === 1 ? '' : 's'}`
+    : ''}`;
+  const commitKeyboardTarget = () => {
+    const pending = keyboardTarget.current;
+    keyboardTarget.current = null;
+    if (pending !== null) onCommit(pending);
+  };
+
+  const resizeByKeyboard = (event: React.KeyboardEvent<HTMLDivElement>) => {
+    const direction = event.key === 'ArrowDown' || event.key === 'PageDown'
+      ? 1
+      : event.key === 'ArrowUp' || event.key === 'PageUp'
+        ? -1
+        : 0;
+    if (direction === 0 && !['Home', 'End', 'Enter', 'Escape'].includes(event.key)) return;
+    if (event.key === 'Escape' && drag.current === null) return;
+    event.preventDefault();
+    if (event.key === 'Escape') {
+      const active = drag.current;
+      if (active) {
+        if (resizeFrame.current !== null) cancelAnimationFrame(resizeFrame.current);
+        resizeFrame.current = null;
+        pendingTarget.current = null;
+        drag.current = null;
+        if (event.currentTarget.hasPointerCapture(active.pointerId)) {
+          event.currentTarget.releasePointerCapture(active.pointerId);
+        }
+        onPreview(active.startTarget);
+        setResizeActive(false);
+      }
+      return;
+    }
+    if (event.key === 'Enter') {
+      keyboardTarget.current = null;
+      onCommit(null);
+      return;
+    }
+    const step = event.shiftKey
+      ? 1
+      : event.key === 'PageUp' || event.key === 'PageDown'
+        ? 32
+        : 8;
+    const currentPitch = keyboardTarget.current ?? sizing.rowPitch;
+    const next = event.key === 'Home'
+      ? sizing.minPitch
+      : event.key === 'End'
+        ? sizing.maxPitch
+        : Math.max(
+            sizing.minPitch,
+            Math.min(sizing.maxPitch, currentPitch + direction * step),
+          );
+    keyboardTarget.current = next;
+    onPreview(next);
+  };
+
+  return (
+    <div
+      className="trend-row-resize-handle"
+      role="separator"
+      aria-label="Resize trend rows"
+      aria-orientation="horizontal"
+      aria-controls="reading-position-scrubber"
+      aria-valuemin={sizing.minPitch}
+      aria-valuemax={sizing.maxPitch}
+      aria-valuenow={sizing.rowPitch}
+      aria-valuetext={valuetext}
+      aria-keyshortcuts={shortcutAria([
+        'trend-rows-step',
+        'trend-rows-fine',
+        'trend-rows-page',
+        'trend-rows-limits',
+        'trend-rows-reset',
+      ])}
+      tabIndex={0}
+      data-resizing={resizing || undefined}
+      data-titles-painted={sizing.titlesPainted}
+      style={{ '--trend-row-resize-target': coarse ? '44px' : '24px' } as React.CSSProperties}
+      onDoubleClick={() => { onCommit(null); }}
+      onKeyDown={resizeByKeyboard}
+      onKeyUp={(event) => {
+        if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End'].includes(event.key)) {
+          commitKeyboardTarget();
+        }
+      }}
+      onBlur={commitKeyboardTarget}
+      onPointerDown={(event) => {
+        if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
+        event.preventDefault();
+        commitKeyboardTarget();
+        event.currentTarget.focus();
+        drag.current = {
+          pointerId: event.pointerId,
+          startY: event.clientY,
+          startPitch: sizing.rowPitch,
+          startTarget: target,
+          lastTarget: sizing.rowPitch,
+        };
+        event.currentTarget.setPointerCapture(event.pointerId);
+        setResizeActive(true);
+      }}
+      onPointerMove={(event) => {
+        const active = drag.current;
+        if (active?.pointerId !== event.pointerId) return;
+        event.preventDefault();
+        scheduleTarget(Math.max(
+          sizing.minPitch,
+          Math.min(
+            sizing.maxPitch,
+            Math.round(active.startPitch + event.clientY - active.startY),
+          ),
+        ));
+      }}
+      onPointerUp={(event) => {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+        finishResize(event.pointerId);
+      }}
+      onPointerCancel={(event) => { finishResize(event.pointerId); }}
+      onLostPointerCapture={(event) => { finishResize(event.pointerId); }}
+    >
+      <span className="trend-row-resize-mark" aria-hidden="true" />
+      {resizing && <span className="trend-row-resize-readout">{valuetext}</span>}
     </div>
   );
 }
@@ -1219,6 +1464,7 @@ function ScrubSurface({
       ? `Range start set at ${describeRanges(shownRanges)} · tap another position`
       : `Selecting ${describeRanges(shownRanges)}`
     : '';
+  const hiddenTitles = labelBands.some((band) => !band.titlePainted);
 
   const pointerTap = useRef<{
     readonly pointerId: number;
@@ -1732,6 +1978,7 @@ function ScrubSurface({
         className="trend-title-controls"
         role="group"
         aria-label="Select whole texts"
+        aria-describedby={hiddenTitles ? 'trend-hidden-title-note' : undefined}
         style={{
           width: plotW,
           height: labelBands.reduce(
@@ -1773,7 +2020,7 @@ function ScrubSurface({
               }}
               className="trend-title-control"
               data-trend-title-control={band.d}
-              data-title-painted={band.titlePainted || undefined}
+              data-title-painted={String(band.titlePainted)}
               disabled={disabled}
               tabIndex={!disabled && band.d === titleFocusOrdinal ? 0 : -1}
               aria-keyshortcuts={TREND_TITLE_ARIA_KEYS}
@@ -1916,6 +2163,11 @@ function ScrubSurface({
           );
         })}
       </div>
+      {hiddenTitles && (
+        <span id="trend-hidden-title-note" className="visually-hidden">
+          Titles are hidden at this row height. Selection remains available from the keyboard.
+        </span>
+      )}
       {(rangeStatus || linkedSelection) && (
         <p
           style={{

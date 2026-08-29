@@ -65,6 +65,7 @@
   --page-shell-pad-block: min(var(--space-4), 4dvh);
   --chrome-target-block-size:
     max(32px, min(8dvh, var(--density-chrome-target-block-size)));
+  --app-header-block-size: var(--chrome-target-block-size);
   --data-header-block-size:
     max(28px, min(8dvh, var(--density-data-header-block-size)));
   --kwic-header-block-size:
@@ -1704,6 +1705,56 @@ canvas {
   font-family: var(--font-mono);
   font-size: var(--text-xs);
   white-space: nowrap;
+}
+
+.trend-row-resize-handle {
+  position: sticky;
+  z-index: 10;
+  inset-block-start: var(--app-header-block-size);
+  display: grid;
+  inline-size: 100%;
+  block-size: var(--trend-row-resize-target, 24px);
+  place-items: center;
+  border: 0;
+  background: var(--bg);
+  outline: none;
+  cursor: ns-resize;
+  touch-action: none;
+  user-select: none;
+}
+
+.trend-row-resize-mark {
+  display: block;
+  inline-size: 3rem;
+  block-size: 1px;
+  background: var(--rule-strong);
+}
+
+.trend-row-resize-handle:hover .trend-row-resize-mark,
+.trend-row-resize-handle:focus-visible .trend-row-resize-mark,
+.trend-row-resize-handle[data-resizing='true'] .trend-row-resize-mark {
+  block-size: 2px;
+  background: var(--accent);
+}
+
+.trend-row-resize-handle:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.trend-row-resize-readout {
+  position: absolute;
+  inset-inline-end: var(--space-1);
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+  pointer-events: none;
+}
+
+html[data-trend-row-resizing='true'],
+html[data-trend-row-resizing='true'] * {
+  cursor: ns-resize !important;
+  user-select: none !important;
 }
 
 .trend-term-navigation {

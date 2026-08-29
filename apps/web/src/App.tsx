@@ -3,6 +3,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type KeyboardEvent,
@@ -168,6 +169,7 @@ function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) 
 }
 
 export function App() {
+  const [appHeaderEl, setAppHeaderEl] = useState<HTMLElement | null>(null);
   const presentation = usePresentation();
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
@@ -220,6 +222,24 @@ export function App() {
   const shortcutSequenceTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [keyboardNavigationStatus, setKeyboardNavigationStatus] = useState('');
   const occurrenceStatus = occurrenceNavigationText(occurrenceNavigation);
+
+  useLayoutEffect(() => {
+    if (appHeaderEl === null) return undefined;
+    const root = document.documentElement.style;
+    const publish = () => {
+      root.setProperty(
+        '--app-header-block-size',
+        `${Math.ceil(appHeaderEl.getBoundingClientRect().height)}px`,
+      );
+    };
+    const observer = new ResizeObserver(publish);
+    observer.observe(appHeaderEl);
+    publish();
+    return () => {
+      observer.disconnect();
+      root.removeProperty('--app-header-block-size');
+    };
+  }, [appHeaderEl]);
 
   useEffect(() => {
     if (
@@ -907,7 +927,7 @@ export function App() {
       >
         {keyboardNavigationStatus}
       </p>
-      <header className="app-header">
+      <header ref={setAppHeaderEl} className="app-header">
         <div className="app-identity">
           <h1 className="app-brand">
             <a

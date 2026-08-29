@@ -179,6 +179,7 @@ describe('shortcut registry', () => {
       place: 'trends',
       activeTextCount: 2,
       footerAvailable: true,
+      trendView: 'by-book',
     });
     expect(trends.map((section) => section.title)).toEqual([
       'Global',
@@ -187,6 +188,7 @@ describe('shortcut registry', () => {
       'Navigation',
       'Terms',
       'Trends',
+      'Trend rows',
       'Reading footer',
       'Footer size',
     ]);
@@ -222,6 +224,29 @@ describe('shortcut registry', () => {
     ])).toBe(
       'ArrowLeft ArrowUp ArrowRight ArrowDown Home End Enter Space Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown',
     );
+    expect(shortcutAria([
+      'trend-rows-step',
+      'trend-rows-fine',
+      'trend-rows-page',
+      'trend-rows-limits',
+      'trend-rows-reset',
+    ])).toBe('ArrowUp ArrowDown Shift+ArrowUp Shift+ArrowDown PageUp PageDown Home End Enter');
+    expect(trends.find((section) => section.title === 'Trend rows')?.entries
+      .map((entry) => entry.id)).toEqual([
+        'trend-rows-step',
+        'trend-rows-fine',
+        'trend-rows-page',
+        'trend-rows-limits',
+        'trend-rows-reset',
+      ]);
+    const combined = shortcutHelpSections({
+      context: 'workbench',
+      place: 'trends',
+      activeTextCount: 2,
+      footerAvailable: true,
+      trendView: 'series',
+    });
+    expect(combined.map((section) => section.title)).not.toContain('Trend rows');
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'find-previous')?.keys).toEqual([
         'p',
@@ -258,6 +283,7 @@ describe('shortcut registry', () => {
       place: 'inputs',
       activeTextCount: 1,
       footerAvailable: true,
+      trendView: 'series',
     });
     expect(inputs.map((section) => section.title)).toEqual([
       'Global',
@@ -279,6 +305,7 @@ describe('shortcut registry', () => {
       place: 'inputs',
       activeTextCount: 0,
       footerAvailable: false,
+      trendView: 'series',
     });
     expect(empty.map((section) => section.title)).toEqual([
       'Global',

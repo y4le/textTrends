@@ -99,6 +99,28 @@ describe('trend stage projection and geometry', () => {
     });
   });
 
+  it('withdraws only separate-row title paint while retaining focus geometry', () => {
+    const projected = projection();
+    const hidden = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'by-book',
+      titlesPainted: false,
+    });
+    expect(hidden.labelBands).toHaveLength(2);
+    expect(hidden.labelBands.every((band) => !band.titlePainted)).toBe(true);
+    expect(hidden.labelBands[0]).toMatchObject({
+      focusTop: 0,
+      focusHeight: projected.rowPitch,
+    });
+
+    const series = trendStageGeometry(projected, {
+      plotWidth: 240,
+      view: 'series',
+      titlesPainted: false,
+    });
+    expect(series.labelBands.every((band) => band.titlePainted)).toBe(true);
+  });
+
   it('gives to-scale rows one shared token domain without changing their extents', () => {
     const projected = projection();
     const stage = trendStageGeometry(projected, {

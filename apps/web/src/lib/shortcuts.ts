@@ -56,6 +56,11 @@ export type ShortcutId =
   | 'trend-title-last'
   | 'trend-title-select'
   | 'trend-title-extend'
+  | 'trend-rows-step'
+  | 'trend-rows-fine'
+  | 'trend-rows-page'
+  | 'trend-rows-limits'
+  | 'trend-rows-reset'
   | 'footer-page-previous'
   | 'footer-page-next'
   | 'footer-token-previous'
@@ -98,7 +103,7 @@ interface ShortcutStroke {
 
 interface ShortcutDefinition {
   readonly id: ShortcutId;
-  readonly group: 'Global' | 'Find' | 'Reading position history' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
+  readonly group: 'Global' | 'Find' | 'Reading position history' | 'Navigation' | 'Terms' | 'Rows' | 'Trends' | 'Trend rows' | 'Reading footer' | 'Footer size' | 'Reader' | 'Speed reader';
   readonly helpContexts: readonly ShortcutHelpContext[];
   readonly label: string;
   readonly strokes: readonly ShortcutStroke[];
@@ -133,6 +138,7 @@ export type ShortcutHelpScope =
       readonly place: Place;
       readonly activeTextCount: number;
       readonly footerAvailable: boolean;
+      readonly trendView: 'series' | 'by-book' | 'by-book-scaled';
     };
 
 export const SHORTCUT_SEQUENCE_TIMEOUT_MS = 900;
@@ -527,6 +533,41 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
       { key: 'ArrowUp', shift: true },
       { key: 'ArrowDown', shift: true },
     ],
+  },
+  {
+    id: 'trend-rows-step',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each trend row',
+    strokes: [{ key: 'ArrowUp' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'trend-rows-fine',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each row by one pixel',
+    strokes: [{ key: 'ArrowUp', shift: true }, { key: 'ArrowDown', shift: true }],
+  },
+  {
+    id: 'trend-rows-page',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Resize each row by a large step',
+    strokes: [{ key: 'PageUp' }, { key: 'PageDown' }],
+  },
+  {
+    id: 'trend-rows-limits',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Minimum or maximum row size',
+    strokes: [{ key: 'Home' }, { key: 'End' }],
+  },
+  {
+    id: 'trend-rows-reset',
+    group: 'Trend rows',
+    helpContexts: ['workbench'],
+    label: 'Restore automatic row size',
+    strokes: [{ key: 'Enter' }],
   },
   {
     id: 'footer-page-previous',
@@ -933,6 +974,11 @@ export function shortcutHelpSections(scope: ShortcutHelpScope): readonly Shortcu
         'Terms',
         ...(scope.activeTextCount > 0 && ROW_PLACES.has(scope.place) ? ['Rows' as const] : []),
         ...(scope.place === 'trends' ? ['Trends' as const] : []),
+        ...(scope.place === 'trends'
+          && scope.activeTextCount > 1
+          && scope.trendView !== 'series'
+          ? ['Trend rows' as const]
+          : []),
         ...(scope.footerAvailable ? ['Reading footer' as const] : []),
         ...(scope.footerAvailable ? ['Footer size' as const] : []),
       ];

@@ -142,9 +142,10 @@ export function HelpPane({
     && state.snapshot.readyDocs.length > 0
     && state.snapshot.readyDocs.some((doc) =>
       (state.corpusTokenCounts.get(doc) ?? 0) > 0));
+  const trendView = useApp((state) => state.trendView);
   const sections = shortcutHelpSections(context !== 'workbench'
     ? { context }
-    : { context, place, activeTextCount, footerAvailable });
+    : { context, place, activeTextCount, footerAvailable, trendView });
   const copy = helpCopy(context, place);
   const currentView = viewName(context, place);
 
