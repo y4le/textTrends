@@ -14,11 +14,15 @@ The separator also supports Arrow keys in 8px steps, Shift+Arrow in 1px steps,
 Page Up/Down in 32px steps, Home/End, and Enter or double-click to reset.
 Combined trends retain their authored height and do not show this control.
 
-The saved value is a requested per-row pitch, shared by Equal and To scale and
-kept in device-local storage rather than the workspace. Each render clamps the
-request to the width class, pointer class, and number of barcode tracks,
-so the preference can survive viewport and corpus changes without promising an
-impossible geometry. Resizing is a resident redraw and never reissues the trend
+The saved value is a requested per-row pitch plus the track, width-class, and
+pointer-class context that gave it meaning. It is shared by Equal and To scale
+and kept in device-local storage rather than the workspace. When that context
+changes, the renderer preserves the compression phase and its relative position
+instead of reusing a pixel value that might silently hide titles or barcodes.
+Legacy values and zero-track transitions clamp without reprojection. Find
+reprojects the committed treatment into its reserved-row context for display,
+but never persists that transient context; its explicit reset still restores
+automatic sizing. Resizing is a resident redraw and never reissues the trend
 query.
 
 Compression spends whitespace before data ink. At regular and wide widths, the

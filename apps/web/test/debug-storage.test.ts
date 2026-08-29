@@ -8,7 +8,10 @@ import {
 } from '../src/lib/debug-storage.ts';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
 import { ARTIFACT_DB_NAME } from '../src/shared/storage-schema.ts';
-import { TREND_ROW_PITCH_STORAGE_KEY } from '../src/lib/trend-row-storage.ts';
+import {
+  LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
+  TREND_ROW_PITCH_STORAGE_KEY,
+} from '../src/lib/trend-row-storage.ts';
 
 function open(factory: IDBFactory, name: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -24,6 +27,7 @@ function open(factory: IDBFactory, name: string): Promise<void> {
 describe('debug storage recovery', () => {
   it('owns the durable trend row-pitch preference', () => {
     expect(OWNED_LOCAL_STORAGE_KEYS).toContain(TREND_ROW_PITCH_STORAGE_KEY);
+    expect(OWNED_LOCAL_STORAGE_KEYS).toContain(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
   });
 
   it('deletes both app databases and only the allowlisted web-storage keys', async () => {

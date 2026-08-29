@@ -101,7 +101,9 @@ import {
 import {
   browserTrendRowStorage,
   loadTrendRowPitch,
+  resolveTrendRowPitch,
   saveTrendRowPitch,
+  trendRowPitchPreference,
 } from '../lib/trend-row-storage.ts';
 import {
   formatTrendDisplayValue,
@@ -234,8 +236,9 @@ export function TrendPanel() {
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const baseGeometry = trendGeometryFor(presentation.width);
-  const [rowPitchTarget, setRowPitchTarget] = useState<number | null>(() =>
+  const [rowPitchPreference, setRowPitchPreference] = useState(() =>
     loadTrendRowPitch(trendRowStorage));
+  const committedRowPitchPreference = useRef(rowPitchPreference);
   const activeTextCount = project?.data.order.length ?? 0;
   const viewSwitcher = activeTextCount > 1 ? (
     <TrendViewSwitcher
@@ -323,6 +326,12 @@ export function TrendPanel() {
       reservedTrackCount,
     );
   }, [activeSeries, displayedDispersion, graphGate, readyGeo, reservedTrackCount]);
+  const rowPitchContext = {
+    width: presentation.width,
+    coarse: presentation.coarseAvailable,
+    tracks: sizingTrackCount,
+  } as const;
+  const rowPitchTarget = resolveTrendRowPitch(rowPitchPreference, rowPitchContext);
   const rowSizing = useMemo(() => trendRowSizing({
     width: presentation.width,
     coarse: presentation.coarseAvailable,
@@ -532,10 +541,29 @@ export function TrendPanel() {
   );
   const maxValue = Math.max(1e-9, dataMaxValue);
   const strokeFor = () => geometry.strokeWidth;
-  const previewRowPitch = (target: number | null) => { setRowPitchTarget(target); };
+  const previewRowPitch = (target: number | null) => {
+    setRowPitchPreference(target === null
+      ? null
+      : trendRowPitchPreference(target, rowPitchContext));
+  };
   const commitRowPitch = (target: number | null) => {
-    setRowPitchTarget(target);
-    saveTrendRowPitch(trendRowStorage, target);
+    if (findMode && target !== null) {
+      setRowPitchPreference(committedRowPitchPreference.current);
+      return;
+    }
+    const preference = target === null
+      ? null
+      : trendRowPitchPreference(target, rowPitchContext);
+    committedRowPitchPreference.current = preference;
+    setRowPitchPreference(preference);
+    saveTrendRowPitch(trendRowStorage, preference);
+  };
+  const cancelRowPitch = (target: number | null) => {
+    if (findMode) {
+      setRowPitchPreference(committedRowPitchPreference.current);
+    } else {
+      previewRowPitch(target);
+    }
   };
 
   return (
@@ -574,6 +602,7 @@ export function TrendPanel() {
           coarse={presentation.coarseAvailable}
           onPreview={previewRowPitch}
           onCommit={commitRowPitch}
+          onCancel={cancelRowPitch}
         />
       )}
       <ScrubSurface
@@ -720,6 +749,7 @@ function TrendRowResizeHandle({
   coarse,
   onPreview,
   onCommit,
+  onCancel,
 }: {
   readonly sizing: TrendRowSizing;
   readonly target: number | null;
@@ -729,6 +759,7 @@ function TrendRowResizeHandle({
   readonly coarse: boolean;
   readonly onPreview: (target: number | null) => void;
   readonly onCommit: (target: number | null) => void;
+  readonly onCancel: (target: number | null) => void;
 }) {
   const [resizing, setResizing] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -821,7 +852,7 @@ function TrendRowResizeHandle({
         if (event.currentTarget.hasPointerCapture(active.pointerId)) {
           event.currentTarget.releasePointerCapture(active.pointerId);
         }
-        onPreview(active.startTarget);
+        onCancel(active.startTarget);
         setResizeActive(false);
         setDetentHint(null);
       }
