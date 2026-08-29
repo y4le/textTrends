@@ -13,6 +13,7 @@ import {
   INGEST_CAPS_V0,
   defaultExtractionRecipes,
   hashExtractionRecipe,
+  resolveSelection,
 } from '@texttrends/core';
 
 // D1 wiring seam: pass-through spies on the shard-binding entry points, so the
@@ -29,6 +30,7 @@ vi.mock('@texttrends/core', async (importOriginal) => {
     bindShardsIncremental: vi.fn(actual.bindShardsIncremental),
     createBindingSession: vi.fn(actual.createBindingSession),
     occurrences: vi.fn(actual.occurrences),
+    resolveSelection: vi.fn(actual.resolveSelection),
   };
 });
 
@@ -594,6 +596,38 @@ describe('query dispatch and emission (engine-retained after the executor extrac
     await h.send({ t: 'query', job: 31, snapshot: snap, query: { op: 'trend', selection: { docs: ['zz'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });
     expect(h.last('error').code).toBe('SELECTION_INVALID');
   });
+
+  it('resolves the immutable full-corpus selection once per published snapshot', async () => {
+    const h = harness();
+    const a = await docSpec('a', 'wolf one');
+    const b = await docSpec('b', 'wolf two');
+    await begin(h, [a, b]);
+    await coldIngest(h, 'g', 'a', 'wolf one', 10);
+    const firstSnapshot = h.last('snapshot-published').snapshot;
+    const selectionSpy = vi.mocked(resolveSelection);
+    selectionSpy.mockClear();
+    const stepQuery = {
+      op: 'occurrence-step' as const,
+      tracks: [{ seriesId: 's-wolf', group: wolfGroup }],
+      request: {
+        method: 'occurrence-step/1' as const,
+        doc: 'a',
+        token: 0,
+        direction: 1 as const,
+      },
+    };
+
+    await h.send({ t: 'query', job: 40, snapshot: firstSnapshot, query: stepQuery });
+    await h.send({ t: 'query', job: 41, snapshot: firstSnapshot, query: stepQuery });
+    expect(selectionSpy).toHaveBeenCalledTimes(1);
+
+    await coldIngest(h, 'g', 'b', 'wolf two', 42);
+    const secondSnapshot = h.last('snapshot-published').snapshot;
+    expect(secondSnapshot).not.toBe(firstSnapshot);
+    await h.send({ t: 'query', job: 43, snapshot: secondSnapshot, query: stepQuery });
+    expect(selectionSpy).toHaveBeenCalledTimes(2);
+  });
+
   it('trend results carry an EXPLICIT transfer list; canonical shard buffers never do', async () => {
     const { h, snap } = await ready();
     await h.send({ t: 'query', job: 50, snapshot: snap, query: { op: 'trend', selection: { docs: ['a'] }, group: wolfGroup, request: { coordinate: 'document-relative', bins: { mode: 'per-doc', count: 4 } } } });

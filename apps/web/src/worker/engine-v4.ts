@@ -60,6 +60,7 @@ import {
   type ExtractionRecipeProvisional,
   type IndexRecipeProvisional,
   type ReadyDocument,
+  type ResolvedSelection,
   type SourceDescriptorV1,
   type TextHash,
   type VerifiedText,
@@ -231,6 +232,14 @@ export class WorkerEngineV4 {
   private readonly store: ArtifactStore;
   private readonly emit: EmitV4;
   private readonly yieldControl: Yield;
+  /** Context operations without a wire-owned analytical selection all use the
+   * same immutable full-corpus selection. Hash it once per composed snapshot
+   * and let concurrent queries share the in-flight promise. Weak keys keep
+   * superseded incremental snapshots from becoming retained history. */
+  private readonly fullCorpusSelections = new WeakMap<
+    CorpusSnapshotV1,
+    Promise<ResolvedSelection>
+  >();
   private generation: GenerationStateV4 | null = null;
   private readonly activeJobs = new Set<number>();
   private readonly cancelledJobs = new Set<number>();
@@ -924,6 +933,17 @@ export class WorkerEngineV4 {
     }
   }
 
+  private fullCorpusSelection(snapshot: CorpusSnapshotV1): Promise<ResolvedSelection> {
+    let selection = this.fullCorpusSelections.get(snapshot);
+    if (selection === undefined) {
+      selection = resolveSelection(snapshot, {
+        docs: snapshot.docs.map((doc) => doc.doc),
+      });
+      this.fullCorpusSelections.set(snapshot, selection);
+    }
+    return selection;
+  }
+
   private async query(job: number, snapshotId: string, q: QueryOpV4): Promise<void> {
     const gen = this.generation;
     if (!gen?.snapshot || gen.snapshot.id !== snapshotId || !gen.bound || !gen.boundTexts) {
@@ -938,9 +958,7 @@ export class WorkerEngineV4 {
     const checkpoint = () => this.queryCheckpoint(job, gen, snapshotId);
 
     if (q.op === 'matches-window') {
-      const selection = await resolveSelection(snapshot, {
-        docs: snapshot.docs.map((doc) => doc.doc),
-      });
+      const selection = await this.fullCorpusSelection(snapshot);
       await this.queryCheckpoint(job, gen, snapshotId);
       const { method: _method, includeAxis, ...request } = q.request;
       const result = await gen.executor.matchesWindow(
@@ -974,9 +992,7 @@ export class WorkerEngineV4 {
       // selection consumer. The wire has no selection
       // degree of freedom: build the canonical base selection here so a
       // linked range can never silently filter reader marks.
-      const selection = await resolveSelection(snapshot, {
-        docs: snapshot.docs.map((d) => d.doc),
-      });
+      const selection = await this.fullCorpusSelection(snapshot);
       await this.queryCheckpoint(job, gen, snapshotId);
       const page = await gen.executor.readerPage(
         selection,
@@ -1007,9 +1023,7 @@ export class WorkerEngineV4 {
     if (q.op === 'occurrence-step') {
       // Exact term navigation is a corpus-reading operation. Its selection is
       // fixed here so an analytical linked range can never narrow w/b.
-      const selection = await resolveSelection(snapshot, {
-        docs: snapshot.docs.map((d) => d.doc),
-      });
+      const selection = await this.fullCorpusSelection(snapshot);
       await this.queryCheckpoint(job, gen, snapshotId);
       const stepped = await gen.executor.occurrenceStep(
         selection,
@@ -1034,9 +1048,7 @@ export class WorkerEngineV4 {
     }
 
     if (q.op === 'company') {
-      const selection = await resolveSelection(snapshot, {
-        docs: snapshot.docs.map((doc) => doc.doc),
-      });
+      const selection = await this.fullCorpusSelection(snapshot);
       await this.queryCheckpoint(job, gen, snapshotId);
       const company = await gen.executor.company(
         selection,
@@ -1056,9 +1068,7 @@ export class WorkerEngineV4 {
     }
 
     if (q.op === 'destinations') {
-      const selection = await resolveSelection(snapshot, {
-        docs: snapshot.docs.map((doc) => doc.doc),
-      });
+      const selection = await this.fullCorpusSelection(snapshot);
       await this.queryCheckpoint(job, gen, snapshotId);
       const destinations = await gen.executor.destinations(
         selection,
