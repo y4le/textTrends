@@ -28,6 +28,7 @@ import {
 import { barcodeBandHeight } from '../lib/trend-geometry.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import type { TrendView } from '../lib/trend-view.ts';
+import { barcodeTrackRect } from '../lib/barcode-paint.ts';
 
 interface BarcodeBandProps {
   readonly view: TrendView;
@@ -167,12 +168,15 @@ function BarcodeCanvas({
     const canvas = canvasRef.current;
     if (!canvas || width <= 0 || height <= 0) return;
     const dpr = window.devicePixelRatio || 1;
-    canvas.width = Math.round(width * dpr);
-    canvas.height = Math.round(height * dpr);
+    const deviceWidth = Math.round(width * dpr);
+    const deviceHeight = Math.round(height * dpr);
+    if (canvas.width !== deviceWidth) canvas.width = deviceWidth;
+    if (canvas.height !== deviceHeight) canvas.height = deviceHeight;
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
-    ctx.scale(dpr, dpr);
-    ctx.clearRect(0, 0, width, height);
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, deviceWidth, deviceHeight);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     const styles = getComputedStyle(canvas);
     const canvasColor = (color: string): string => {
       const property = /^var\(\s*(--[^),\s]+)\s*\)$/.exec(color)?.[1];
@@ -199,8 +203,11 @@ function BarcodeCanvas({
       for (const track of paintTracks) {
         const row = rowBySeries.get(track.seriesId);
         if (row === undefined) continue;
-        const y = overlay ? 0 : row * (trackHeight + trackGap);
-        const markHeight = overlay ? height : trackHeight;
+        const trackRect = overlay
+          ? { top: 0, height }
+          : barcodeTrackRect(row, trackHeight, trackGap, dpr);
+        const y = trackRect.top;
+        const markHeight = trackRect.height;
         // Canvas fillStyle does not resolve CSS custom-property expressions.
         // Resolve the shared series token explicitly so a per-book canvas
         // does not silently retain its default black fill.
