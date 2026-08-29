@@ -58,6 +58,13 @@ After staged review measured an unacceptable plot-height inversion, Opus
 reassessed and replaced the continuous final phase with the discrete collapse
 recorded above (request `req_consult_66f0476fc7ae1d6b`, artifact
 `art_sha256_667d5e62d919bf052f68eea9e4a7c4b1bbd916009bd7ae44c4e27f57d2014c59`).
+Pinned Opus staged reviews then approved the corrected sizing authority
+(`req_review_diff_b292d6be11326b07`), detented interaction
+(`req_review_diff_49313484d869af80`), phase-stable persistence
+(`req_review_diff_d4c7371569fac923`), and device-pixel miniature painter
+(`req_review_diff_63090e5442ded955`). The painter reviews verified the Trends
+ladder at six device-pixel ratios without finding an off-grid track edge,
+hidden-band mark, or overlapping Trends track.
 
 ## 2026-08-28 — Reading positions use a transient jump list
 

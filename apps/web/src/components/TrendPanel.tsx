@@ -558,12 +558,8 @@ export function TrendPanel() {
     setRowPitchPreference(preference);
     saveTrendRowPitch(trendRowStorage, preference);
   };
-  const cancelRowPitch = (target: number | null) => {
-    if (findMode) {
-      setRowPitchPreference(committedRowPitchPreference.current);
-    } else {
-      previewRowPitch(target);
-    }
+  const cancelRowPitch = () => {
+    setRowPitchPreference(committedRowPitchPreference.current);
   };
 
   return (
@@ -595,7 +591,6 @@ export function TrendPanel() {
       {trendView !== 'series' && docs.length > 1 && (
         <TrendRowResizeHandle
           sizing={rowSizing}
-          target={rowPitchTarget}
           trackCount={sizingTrackCount}
           legendTrackCount={tracks.length}
           occurrenceInteractive={occurrenceInteractive}
@@ -742,7 +737,6 @@ function TrendViewSwitcher({
 
 function TrendRowResizeHandle({
   sizing,
-  target,
   trackCount,
   legendTrackCount,
   occurrenceInteractive,
@@ -752,14 +746,13 @@ function TrendRowResizeHandle({
   onCancel,
 }: {
   readonly sizing: TrendRowSizing;
-  readonly target: number | null;
   readonly trackCount: number;
   readonly legendTrackCount: number;
   readonly occurrenceInteractive: boolean;
   readonly coarse: boolean;
   readonly onPreview: (target: number | null) => void;
   readonly onCommit: (target: number | null) => void;
-  readonly onCancel: (target: number | null) => void;
+  readonly onCancel: () => void;
 }) {
   const [resizing, setResizing] = useState(false);
   const [focused, setFocused] = useState(false);
@@ -771,7 +764,6 @@ function TrendRowResizeHandle({
     readonly pointerId: number;
     readonly startY: number;
     readonly startPitch: number;
-    readonly startTarget: number | null;
     detent: TrendRowDetentState;
     lastTarget: number;
   } | null>(null);
@@ -852,7 +844,7 @@ function TrendRowResizeHandle({
         if (event.currentTarget.hasPointerCapture(active.pointerId)) {
           event.currentTarget.releasePointerCapture(active.pointerId);
         }
-        onCancel(active.startTarget);
+        onCancel();
         setResizeActive(false);
         setDetentHint(null);
       }
@@ -937,7 +929,6 @@ function TrendRowResizeHandle({
           pointerId: event.pointerId,
           startY: event.clientY,
           startPitch: sizing.rowPitch,
-          startTarget: target,
           detent: beginTrendRowDetent(sizing.rowPitch, sizing.minPitch, event.clientY),
           lastTarget: sizing.rowPitch,
         };

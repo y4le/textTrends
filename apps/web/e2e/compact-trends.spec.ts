@@ -192,7 +192,9 @@ for (const viewport of [
     const firstRow = await firstHitRow.boundingBox();
     expect(firstRow?.height).toBe(28);
     const rowResize = page.getByRole('separator', { name: 'Resize trend rows' });
-    expect((await rowResize.boundingBox())?.height).toBeGreaterThanOrEqual(44);
+    const coarseProject = testInfo.project.name === 'webkit-compact';
+    expect((await rowResize.boundingBox())?.height)
+      .toBeGreaterThanOrEqual(coarseProject ? 44 : 24);
     await expect(rowResize).toHaveCSS('touch-action', 'none');
     await rowResize.focus();
     await rowResize.press('ArrowUp');
@@ -202,6 +204,19 @@ for (const viewport of [
       .locator('[data-title-painted="false"]')).toHaveCount(
         await byBook.locator('[data-trend-row-axis]').count(),
       );
+    if (coarseProject) {
+      await rowResize.press('Home');
+      await expect(rowResize).toHaveAttribute('aria-valuenow', '26');
+      await expect(rowResize).toHaveAttribute('data-row-phase', 'drop');
+      await expect(scrubber.locator('canvas[data-barcode-band="by-book"]')).toHaveCount(0);
+      expect(Number(await firstHitRow.getAttribute('height'))).toBe(24);
+      await rowResize.press('ArrowDown');
+      await expect(rowResize).toHaveAttribute('aria-valuenow', '39');
+      await expect(rowResize).toHaveAttribute('data-row-phase', 'ink');
+      await expect(scrubber.locator('canvas[data-barcode-band="by-book"]')).toHaveCount(
+        await byBook.locator('[data-trend-row-axis]').count(),
+      );
+    }
     await rowResize.press('Enter');
     await expect(byBook.locator('[data-trend-row-title]')).not.toHaveCount(0);
 

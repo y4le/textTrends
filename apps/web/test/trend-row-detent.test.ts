@@ -81,6 +81,38 @@ describe('trend row collapse detent', () => {
     })).toMatchObject({ pitch: 24, hint: null, state: { mode: 'above' } });
   });
 
+  it('passes ordinary pitches through before the miniature boundary', () => {
+    const start = beginTrendRowDetent(40, 14, 100);
+    expect(moveTrendRowDetent(start, {
+      clientY: 96, requestedPitch: 36, minPitch: 14, inkPitch: 24, coarse: false,
+    })).toMatchObject({ pitch: 36, hint: null, state: { mode: 'above' } });
+  });
+
+  it('does not re-arm collapse while continuing downward after restore', () => {
+    const restored = moveTrendRowDetent(beginTrendRowDetent(14, 14, 100), {
+      clientY: 110, requestedPitch: 24, minPitch: 14, inkPitch: 24, coarse: false,
+    });
+    expect(moveTrendRowDetent(restored.state, {
+      clientY: 112, requestedPitch: 16, minPitch: 14, inkPitch: 24, coarse: false,
+    })).toMatchObject({ pitch: 24, hint: null, state: { mode: 'above' } });
+  });
+
+  it('can collapse the seven-pixel fine miniature in one deliberate move', () => {
+    const start = beginTrendRowDetent(21, 14, 100);
+    expect(moveTrendRowDetent(start, {
+      clientY: 93, requestedPitch: 14, minPitch: 14, inkPitch: 21, coarse: false,
+    })).toMatchObject({ pitch: 14, hint: null, state: { mode: 'below' } });
+  });
+
+  it('stays collapsed while a pointer below the detent keeps moving upward', () => {
+    const below = moveTrendRowDetent(beginTrendRowDetent(24, 14, 100), {
+      clientY: 90, requestedPitch: 14, minPitch: 14, inkPitch: 24, coarse: false,
+    });
+    expect(moveTrendRowDetent(below.state, {
+      clientY: 86, requestedPitch: 14, minPitch: 14, inkPitch: 24, coarse: false,
+    })).toMatchObject({ pitch: 14, hint: null, state: { mode: 'below' } });
+  });
+
   it('becomes a pass-through when no barcode gap exists', () => {
     const state = beginTrendRowDetent(14, 14, 100);
     expect(moveTrendRowDetent(state, {
