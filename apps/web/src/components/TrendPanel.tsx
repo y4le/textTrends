@@ -64,6 +64,7 @@ import {
   trendBinAtToken,
   trendBinSpan,
   trendRowsForDoc,
+  trendStageDocument,
   trendStageHit,
   type SequenceLayout,
   type TrendLabelBand,
@@ -126,6 +127,15 @@ import {
   RANGE_CLEAR_SUPPRESSION_MS,
   rangeClearDecision,
 } from '../lib/range-clear-gesture.ts';
+import {
+  idleTrendTitleGesture,
+  resetTrendTitleGesture,
+  trendTitleDown,
+  trendTitleMove,
+  trendTitleUp,
+  type TrendTitleEffect,
+  type TrendTitleGesture,
+} from '../lib/trend-title-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 interface ReadySeries {
@@ -150,7 +160,7 @@ function accessibleTrendSeries(ready: readonly DisplayedSeries[]): string {
 }
 
 interface RangePreview {
-  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle';
+  readonly mode: 'pointer' | 'touch' | 'touch-anchor' | 'keyboard' | 'handle' | 'title';
   readonly origin: ScrubTarget;
   readonly head: ScrubTarget;
 }
@@ -498,6 +508,7 @@ export function TrendPanel() {
         barcodeHeight={barcodeHeight}
         rowPitch={rowPitch}
         rowDomain={rowDomain}
+        labelBands={labelBands}
         barcodeTracks={tracks}
         captureBarcode={captureBarcode}
         hitSpec={hitSpec}
@@ -644,6 +655,7 @@ function ScrubSurface({
   barcodeHeight,
   rowPitch,
   rowDomain,
+  labelBands,
   barcodeTracks,
   captureBarcode,
   hitSpec,
@@ -664,6 +676,7 @@ function ScrubSurface({
   barcodeHeight: number;
   rowPitch: number;
   rowDomain: readonly number[];
+  labelBands: readonly TrendLabelBand[];
   barcodeTracks: readonly BarcodeTrackVM[];
   captureBarcode: CaptureBarcodePointer;
   hitSpec: TrendStageSpec;
@@ -700,6 +713,7 @@ function ScrubSurface({
     head: ScrubTarget;
     moved: boolean;
   } | null>(null);
+  const titleGesture = useRef<TrendTitleGesture>(idleTrendTitleGesture());
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -792,6 +806,49 @@ function ScrubSurface({
     );
   };
 
+  const wholeTextRange = (anchor: number, head: number): RangePreview | null => {
+    const first = Math.min(anchor, head);
+    const last = Math.max(anchor, head);
+    const firstDoc = docs[first];
+    const lastDoc = docs[last];
+    const firstCount = docTokenCount[first] ?? 0;
+    const lastCount = docTokenCount[last] ?? 0;
+    if (!firstDoc || !lastDoc || firstCount <= 0 || lastCount <= 0) return null;
+    return {
+      mode: 'title',
+      origin: { doc: firstDoc, token: 0 },
+      head: { doc: lastDoc, token: lastCount - 1 },
+    };
+  };
+
+  const applyTitleEffect = (effect: TrendTitleEffect) => {
+    switch (effect.kind) {
+      case 'preview': {
+        const range = wholeTextRange(effect.anchor, effect.head);
+        if (range) setPreview(range);
+        return;
+      }
+      case 'commit': {
+        const range = wholeTextRange(effect.anchor, effect.head);
+        if (range) commitPreview(range);
+        else setPreview((current) => current?.mode === 'title' ? null : current);
+        if (effect.dragged) {
+          suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+        }
+        return;
+      }
+      case 'cancel':
+        setPreview((current) => current?.mode === 'title' ? null : current);
+        return;
+      case 'none':
+        return;
+      default: {
+        const exhaustive: never = effect;
+        return exhaustive;
+      }
+    }
+  };
+
   const applyTouchRangeEffect = (effect: TouchRangeEffect) => {
     switch (effect.kind) {
       case 'scrub':
@@ -868,6 +925,9 @@ function ScrubSurface({
     const reset = resetTouchRangeGesture(touchGesture.current);
     touchGesture.current = reset.state;
     trendDoubleTap.current = idleTrendDoubleTap();
+    const titleReset = resetTrendTitleGesture(titleGesture.current);
+    titleGesture.current = titleReset.state;
+    applyTitleEffect(titleReset.effect);
     applyTouchRangeEffect(reset.effect);
   }, [snapshot?.snapshot, trend, trendView]);
 
@@ -1132,7 +1192,7 @@ function ScrubSurface({
     moved: boolean;
   } | null>(null);
   return (
-    <div ref={containerRef} style={{ width: '100%' }}>
+    <div ref={containerRef} style={{ width: '100%', position: 'relative' }}>
       <div
         ref={sliderRef}
         className="trend-scrubber"
@@ -1630,6 +1690,144 @@ function ScrubSurface({
             }}
           />
         )}
+      </div>
+      <div
+        className="trend-title-controls"
+        role="group"
+        aria-label="Select whole texts"
+        style={{
+          width: plotW,
+          height: labelBands.reduce(
+            (maximum, band) => Math.max(maximum, band.top + band.height),
+            0,
+          ),
+        }}
+      >
+        {labelBands.map((band) => {
+          const doc = docs[band.d];
+          const title = doc ? titleByDoc.get(doc) ?? doc : '';
+          const disabled = !doc || (docTokenCount[band.d] ?? 0) <= 0;
+          const titleTargetFromPointer = (clientX: number, clientY: number): number | null => {
+            const rect = sliderRef.current?.getBoundingClientRect();
+            if (!rect) return null;
+            const ordinal = trendStageDocument(
+              clientX - rect.left,
+              clientY - rect.top,
+              hitSpec,
+            );
+            return ordinal !== null && (docTokenCount[ordinal] ?? 0) > 0 ? ordinal : null;
+          };
+          return (
+            <button
+              key={doc ?? band.d}
+              type="button"
+              className="trend-title-control"
+              data-trend-title-control={band.d}
+              disabled={disabled}
+              aria-label={`Text ${band.d + 1} of ${docs.length}: ${title} — select whole text`}
+              title={title}
+              style={{
+                left: band.left,
+                top: band.top,
+                width: Math.max(0, band.right - band.left),
+                height: band.height,
+              }}
+              onClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+                // Direct pointers commit on pointerup. A zero-detail click is
+                // keyboard or assistive-technology activation.
+                if (event.detail === 0) {
+                  const range = wholeTextRange(band.d, band.d);
+                  if (range) commitPreview(range);
+                }
+              }}
+              onDoubleClick={(event) => {
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerDown={(event) => {
+                if (!event.isPrimary || event.button !== 0 || disabled) return;
+                trendDoubleTap.current = idleTrendDoubleTap();
+                clearTouchHold();
+                const touchReset = resetTouchRangeGesture(touchGesture.current);
+                touchGesture.current = touchReset.state;
+                applyTouchRangeEffect(touchReset.effect);
+                pointerTap.current = null;
+                pointerDrag.current = null;
+                rangeHandleDrag.current = null;
+                setPreview(null);
+                const transition = trendTitleDown(
+                  event.pointerId,
+                  band.d,
+                  event.clientX,
+                  event.clientY,
+                );
+                titleGesture.current = transition.state;
+                try {
+                  event.currentTarget.setPointerCapture(event.pointerId);
+                } catch {
+                  // Synthetic PointerEvents do not create native capture state.
+                }
+                event.preventDefault();
+                event.stopPropagation();
+              }}
+              onPointerMove={(event) => {
+                const transition = trendTitleMove(titleGesture.current, {
+                  pointerId: event.pointerId,
+                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                });
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+                if (transition.state.phase === 'pressed') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }
+              }}
+              onPointerUp={(event) => {
+                const moved = trendTitleMove(titleGesture.current, {
+                  pointerId: event.pointerId,
+                  ordinal: titleTargetFromPointer(event.clientX, event.clientY),
+                  clientX: event.clientX,
+                  clientY: event.clientY,
+                });
+                titleGesture.current = moved.state;
+                applyTitleEffect(moved.effect);
+                const transition = trendTitleUp(titleGesture.current, event.pointerId);
+                titleGesture.current = transition.state;
+                if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+                  event.currentTarget.releasePointerCapture(event.pointerId);
+                }
+                applyTitleEffect(transition.effect);
+                if (transition.effect.kind !== 'none') {
+                  event.preventDefault();
+                  event.stopPropagation();
+                }
+              }}
+              onPointerCancel={(event) => {
+                if (
+                  titleGesture.current.phase !== 'pressed'
+                  || titleGesture.current.pointerId !== event.pointerId
+                ) return;
+                const transition = resetTrendTitleGesture(titleGesture.current);
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+                event.stopPropagation();
+              }}
+              onLostPointerCapture={(event) => {
+                if (
+                  titleGesture.current.phase !== 'pressed'
+                  || titleGesture.current.pointerId !== event.pointerId
+                ) return;
+                const transition = resetTrendTitleGesture(titleGesture.current);
+                titleGesture.current = transition.state;
+                applyTitleEffect(transition.effect);
+              }}
+            />
+          );
+        })}
       </div>
       {(rangeStatus || linkedSelection) && (
         <p

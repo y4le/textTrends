@@ -6745,6 +6745,39 @@ html[data-footer-resizing='true'] * {
   inset-block-end: 5px;
 }
 
+.trend-title-controls {
+  position: absolute;
+  z-index: 3;
+  inset-block-start: 0;
+  inset-inline-start: 0;
+  pointer-events: none;
+}
+
+.trend-title-control {
+  position: absolute;
+  padding: 0;
+  border: 0;
+  border-radius: 2px;
+  background: transparent;
+  cursor: pointer;
+  pointer-events: auto;
+  touch-action: none;
+}
+
+.trend-title-control:hover {
+  background: color-mix(in srgb, var(--accent) 7%, transparent);
+}
+
+.trend-title-control:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+  background: color-mix(in srgb, var(--accent) 11%, transparent);
+}
+
+.trend-title-control:disabled {
+  pointer-events: none;
+}
+
 @media (max-width: 599.98px) {
   :root {
     --lens-block-size: calc(var(--chrome-target-block-size) + 2 * var(--space-1) + 1px);
