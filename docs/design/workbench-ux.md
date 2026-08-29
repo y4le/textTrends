@@ -548,11 +548,12 @@ Reader replaces its current page around that exact occurrence.
 Reading positions form one bounded, session-only jump list independent of
 browser Back and the governed Reader/row-detail layer stack. `Ctrl+O` visits an
 older reading position and `Ctrl+I` revisits a newer one in both the workbench
-and ordinary Reader. The workbench header mirrors those commands with labelled
-curved-arrow controls; Reader keeps the keys and Help entries without adding a
-third previous/next pair to its header. A history traversal retargets an open
-Reader in place and neither closes it nor pushes, replaces, or consumes a
-browser-history entry.
+and ordinary Reader. From 1200 CSS pixels up, the workbench header mirrors those
+commands with labelled curved-arrow controls; narrower widths reserve that row
+for the publisher, Scope, Lens, and pinned tools. Reader keeps the keys and Help
+entries without adding a third previous/next pair to its header. A history traversal
+retargets an open Reader in place and neither closes it nor pushes, replaces,
+or consumes a browser-history entry.
 
 Discrete evidence jumps record their departure and destination immediately.
 Continuous footer/Trends scrubbing, Matches scrolling, keyboard reading, and

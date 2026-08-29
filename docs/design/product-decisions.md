@@ -23,9 +23,11 @@ they prevent the browser default even at a history edge. This explicitly
 shadows the browser's Ctrl+O Open File command; Inputs remains the visible file
 acquisition path.
 
-The workbench header exposes an always-mounted, labelled pair of curved-arrow
-controls before Find. Their accessible names always say “reading position” so
-they cannot be confused with browser Back, Reader Back, fitted-page turns, or
+From 1200 CSS pixels up, the workbench header exposes a mounted, labelled pair
+of curved-arrow controls before Find. Narrower widths hide that pair to preserve
+the one-row publisher, Scope, Lens, and pinned-tool contract; the Ctrl commands
+remain available. Their accessible names always say “reading position” so they
+cannot be confused with browser Back, Reader Back, fitted-page turns, or
 occurrence navigation. Reader supports the shortcuts and Help entries but does
 not duplicate the buttons in its already crowded, fit-sensitive header.
 

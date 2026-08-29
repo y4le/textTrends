@@ -319,6 +319,13 @@ canvas {
   cursor: default;
 }
 
+@media (max-width: 1199.98px) {
+  /* The two 44px controls appear only when the one-row header has room. */
+  .position-history-actions {
+    display: none;
+  }
+}
+
 @media (max-width: 599.98px) {
   .app-header {
     gap: var(--space-1);
@@ -330,11 +337,6 @@ canvas {
 
   .header-action {
     font-size: var(--text-xs);
-  }
-
-  .position-history-action {
-    min-inline-size: 32px;
-    font-size: var(--text-md);
   }
 }
 

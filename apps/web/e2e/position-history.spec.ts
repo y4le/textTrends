@@ -8,11 +8,10 @@ test('reading position history traverses the workbench and Reader without using 
   await awaitAllReady(page, { loadDemo: true });
 
   const header = page.locator('.app-header');
-  const historyGroup = header.getByRole('group', { name: 'Reading position history' });
-  const previous = historyGroup.getByRole('button', { name: 'Previous reading position' });
-  const next = historyGroup.getByRole('button', { name: 'Next reading position' });
-  await expect(previous).toBeVisible();
-  await expect(next).toBeVisible();
+  const historyGroup = header.locator('.position-history-actions');
+  const previous = historyGroup.locator('[aria-label="Previous reading position"]');
+  const next = historyGroup.locator('[aria-label="Next reading position"]');
+  await expect(historyGroup).toBeHidden();
   await expect(previous).toBeDisabled();
   await expect(next).toBeDisabled();
 
@@ -21,14 +20,6 @@ test('reading position history traverses the workbench and Reader without using 
     scrollWidth: node.scrollWidth,
   }));
   expect(headerGeometry.scrollWidth).toBeLessThanOrEqual(headerGeometry.clientWidth + 1);
-  const coarse = await page.evaluate(() => matchMedia('(any-pointer: coarse)').matches);
-  for (const button of [previous, next]) {
-    const box = await button.boundingBox();
-    expect(box?.width).toBeGreaterThanOrEqual(coarse ? 44 : 32);
-    expect(box?.height).toBeGreaterThanOrEqual(44);
-    expect(await button.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
-      .toBeGreaterThanOrEqual(16);
-  }
 
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
   await slider.focus();
@@ -36,19 +27,42 @@ test('reading position history traverses the workbench and Reader without using 
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await page.waitForTimeout(POSITION_HISTORY_SETTLE_MS + 50);
   await slider.press('End');
-  const end = await slider.getAttribute('aria-valuenow');
-  expect(Number(end)).toBeGreaterThan(0);
+  expect(Number(await slider.getAttribute('aria-valuenow'))).toBeGreaterThan(0);
   await expect(previous).toBeEnabled();
   await expect(next).toBeDisabled();
 
   const workbenchHistoryLength = await page.evaluate(() => history.length);
+  await page.setViewportSize({ width: 1200, height: 568 });
+  await expect(historyGroup).toBeVisible();
+  await expect(header.getByRole('group', { name: 'Reading position history' })).toBeVisible();
+  await page.waitForTimeout(POSITION_HISTORY_SETTLE_MS + 50);
+  await expect(previous).toBeEnabled();
+  await expect(next).toBeDisabled();
+  const wideDestination = await slider.getAttribute('aria-valuenow');
+  expect(Number(wideDestination)).toBeGreaterThan(0);
+  for (const button of [previous, next]) {
+    const box = await button.boundingBox();
+    expect(box?.width).toBeGreaterThanOrEqual(44);
+    expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(await button.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
+      .toBeGreaterThanOrEqual(16);
+  }
   await previous.click();
   await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await expect(next).toBeEnabled();
   expect(await page.evaluate(() => history.length)).toBe(workbenchHistoryLength);
+  await next.click();
+  await expect(slider).toHaveAttribute('aria-valuenow', wideDestination!);
 
+  await page.setViewportSize({ width: 320, height: 568 });
+  await expect(historyGroup).toBeHidden();
+  await page.waitForTimeout(POSITION_HISTORY_SETTLE_MS + 50);
+  const compactDestination = await slider.getAttribute('aria-valuenow');
+  expect(Number(compactDestination)).toBeGreaterThan(0);
+  await page.keyboard.press('Control+o');
+  await expect(slider).toHaveAttribute('aria-valuenow', '0');
   await page.keyboard.press('Control+i');
-  await expect(slider).toHaveAttribute('aria-valuenow', end!);
+  await expect(slider).toHaveAttribute('aria-valuenow', compactDestination!);
   await expect(page.getByRole('status', { name: 'Navigation status' }))
     .toContainText('Next reading position');
 
