@@ -301,6 +301,10 @@ The trend plate preserves these rules:
 - a hard path break at every document boundary;
 - color plus dash plus text identity, never color alone;
 - direct labels where space permits;
+- in separate-row Equal and To scale views, a sticky full-width separator sets
+  one device-local per-row height target; whitespace contracts before plot ink,
+  titles stop painting below their legible lane while remaining keyboard and
+  assistive-technology selectors, and Combined retains its authored height;
 - dispersion rows embedded at the bottom of the plot;
 - whole-text selection by activating a title, plus inclusive title-to-title
   press-and-drag selection in either reading-order direction;

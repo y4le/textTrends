@@ -4,6 +4,43 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-29 — Separate trend rows have a durable vertical-size target
+
+Equal and To scale trends with more than one text expose one full-width
+separator immediately above the chart. It remains pinned below the sticky app
+header while the chart section is in view, so a long stack does not put its
+resize control at the stack's far edge. Dragging down makes every row taller.
+The separator also supports Arrow keys in 8px steps, Shift+Arrow in 1px steps,
+Page Up/Down in 32px steps, Home/End, and Enter or double-click to reset.
+Combined trends retain their authored height and do not show this control.
+
+The saved value is a requested per-row pitch, shared by Equal and To scale and
+kept in device-local storage rather than the workspace. Each render clamps the
+request to the width class, pointer class, and number of barcode tracks,
+so the preference can survive viewport and corpus changes without promising an
+impossible geometry. Resizing is a resident redraw and never reissues the trend
+query.
+
+Compression spends whitespace before data ink. At regular and wide widths, the
+title lane shrinks from its authored height to 8px while titles remain visible;
+compact's authored lane already starts at that threshold, so its first
+decrement hides the titles. Below 8px, visible titles disappear and the
+remaining gap can shrink to 2px. Only then does the plot contract, with a 12px
+fine-pointer or 24px coarse-pointer floor. Barcode height, strokes, and data
+projection stay invariant. When titles are hidden, their controls stop taking
+pointer hits but remain keyboard and assistive-technology selectors with a
+whole-row focus outline. The chart's arbitrary range gesture therefore remains
+available, and reset restores the authored title treatment.
+
+The interaction and compression policy was planned with pinned Claude Opus
+through Parley (request `req_consult_04dc74f0209b46be`, artifact
+`art_sha256_8817c29fd5aa44f4b11b9facb3e95a1fe4b0e09f958bfeb98295b3f141616ba7`).
+Its focused staged reviews approved the sizing authority
+(`req_review_diff_3a89359bb7740fff`), title/focus geometry
+(`req_review_diff_51bf75e68a41198c`), device-local persistence
+(`req_review_diff_2be418c9e31bcfab`), and wired interaction plus acceptance
+coverage (`req_review_diff_910547cf8712cd0c`).
+
 ## 2026-08-28 — Reading positions use a transient jump list
 
 The shared corpus cursor now feeds one session-only reading-position history,
