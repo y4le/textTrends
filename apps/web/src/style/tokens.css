@@ -309,7 +309,7 @@ canvas {
 }
 
 .position-history-action {
-  min-inline-size: 32px;
+  min-inline-size: 44px;
   font-size: var(--text-md);
   text-decoration: none;
 }
@@ -330,6 +330,11 @@ canvas {
 
   .header-action {
     font-size: var(--text-xs);
+  }
+
+  .position-history-action {
+    min-inline-size: 32px;
+    font-size: var(--text-md);
   }
 }
 

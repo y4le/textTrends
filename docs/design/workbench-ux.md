@@ -533,7 +533,8 @@ as the visible control. Resize and font settlement preserve the current start
 token and deliberately recompute later boundaries for the new geometry.
 Each settled page also publishes the shared reading position: an initial
 around-token request retains its exact anchor, while ordinary page turns use
-the fitted page's first token.
+the fitted page's first token. Every Reader entrance, including “read from
+here,” moves that shared cursor to the requested reading position.
 
 `w` and `b` move to the next and previous exact occurrence of any shown term
 across the full declared corpus. Overlapping raw matches at one token start are

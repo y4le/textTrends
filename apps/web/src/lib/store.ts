@@ -99,6 +99,7 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
+  clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_SETTLE_MS,
   reconcilePositionHistory,
@@ -1467,6 +1468,11 @@ export function createAppRuntime(
   let saveWorkspaceNow = (): void => undefined;
   let positionHistoryTimer: ReturnType<typeof setTimeout> | null = null;
   let pendingPositionSettle: PositionHistoryEntry | null = null;
+  let pendingPositionReconciliation: {
+    readonly projectId: string;
+    readonly history: PositionHistory;
+    readonly tokenCounts: ReadonlyMap<string, number>;
+  } | null = null;
   // A demo acquisition knows its declared first document before concurrent
   // extraction has made that document ready. Keep that one-shot intent outside
   // the durable workspace so async completion order cannot choose Book 2.
@@ -3612,11 +3618,18 @@ export function createAppRuntime(
         }
         settlePositionHistory();
         const state = get();
-        const current = state.positionHistory.entries[state.positionHistory.index];
-        const transition = state.scrub === null && current !== undefined
-          ? { history: state.positionHistory, target: current }
-          : traversePositionHistory(state.positionHistory, direction);
+        const snapshot = state.snapshot;
+        if (snapshot === null) return null;
+        const transition = traversePositionHistory(state.positionHistory, direction);
         if (transition === null) return null;
+        const tokenCount = state.corpusTokenCounts.get(transition.target.doc);
+        if (
+          transition.target.snapshot !== snapshot.snapshot
+          || !snapshot.readyDocs.includes(transition.target.doc)
+          || !Number.isSafeInteger(transition.target.token)
+          || transition.target.token < 0
+          || (tokenCount !== undefined && transition.target.token >= tokenCount)
+        ) return null;
         const target = { doc: transition.target.doc, token: transition.target.token };
         occurrenceLane.supersede();
         set({
@@ -4596,6 +4609,7 @@ export function createAppRuntime(
           selectedDispersionLane.supersede();
           companyLane.supersede();
           destinationsLane.supersede();
+          settlePositionHistory();
           set({
             trends: new Map(),
             scrub: null,
@@ -4777,6 +4791,10 @@ export function createAppRuntime(
                   corpusInventory: ready,
                   inventory: state.linkedSelection === null ? ready : state.inventory,
                   corpusTokenCounts,
+                  positionHistory: clampPositionHistoryExtents(
+                    state.positionHistory,
+                    corpusTokenCounts,
+                  ),
                 };
               });
               const current = get();
@@ -4851,6 +4869,10 @@ export function createAppRuntime(
                   state: { status: 'ready', result: data.inventory },
                 },
                 corpusTokenCounts,
+                positionHistory: clampPositionHistoryExtents(
+                  state.positionHistory,
+                  corpusTokenCounts,
+                ),
               };
             });
           },
@@ -6073,21 +6095,33 @@ export function createAppRuntime(
     } else {
       keynessView = reconcileKeynessView(currentKeynessView, readyDocs);
     }
-    const current = store.getState();
+    let current = store.getState();
     if (prevKey !== nextKey) {
-      clearPositionHistoryTimer();
-      pendingPositionSettle = null;
+      settlePositionHistory();
+      current = store.getState();
     }
-    const positionHistory = prevKey === nextKey
-      ? current.positionHistory
-      : next.snapshot === null
-        ? EMPTY_POSITION_HISTORY
-        : reconcilePositionHistory(
-            current.positionHistory,
-            next.snapshot.snapshot,
-            readyDocs,
-            current.corpusTokenCounts,
-          );
+    let positionHistory = current.positionHistory;
+    if (prevKey !== nextKey && next.snapshot === null) {
+      if (current.snapshot !== null && current.positionHistory.entries.length > 0) {
+        pendingPositionReconciliation = {
+          projectId: current.projectSession?.project.id ?? next.project.id,
+          history: current.positionHistory,
+          tokenCounts: current.corpusTokenCounts,
+        };
+      }
+      positionHistory = EMPTY_POSITION_HISTORY;
+    } else if (prevKey !== nextKey) {
+      const pending = pendingPositionReconciliation?.projectId === next.project.id
+        ? pendingPositionReconciliation
+        : null;
+      positionHistory = reconcilePositionHistory(
+        pending?.history ?? current.positionHistory,
+        next.snapshot!.snapshot,
+        readyDocs,
+        pending?.tokenCounts ?? current.corpusTokenCounts,
+      );
+      pendingPositionReconciliation = null;
+    }
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
@@ -6278,6 +6312,7 @@ export function createAppRuntime(
       }
       clearPositionHistoryTimer();
       pendingPositionSettle = null;
+      pendingPositionReconciliation = null;
       clearWorkspaceTimer();
       workspaceSaveToken += 1;
       unsubscribeHistory();

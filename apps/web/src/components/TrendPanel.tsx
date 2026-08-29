@@ -188,7 +188,6 @@ export function TrendPanel() {
   const setTrendView = useApp((s) => s.setTrendView);
   const trendMeasure = useApp((s) => s.trendMeasure);
   const centerKwicAt = useApp((s) => s.centerKwicAt);
-  const setScrub = useApp((s) => s.setScrub);
   const openReader = useApp((s) => s.openReader);
   const presentation = usePresentation();
   const geometry = trendGeometryFor(presentation.width);
@@ -403,7 +402,6 @@ export function TrendPanel() {
     openExact = false,
   ) => {
     if (!target) return;
-    setScrub({ doc: target.doc, token: target.token });
     centerKwicAt(
       track.seriesId,
       target.doc,

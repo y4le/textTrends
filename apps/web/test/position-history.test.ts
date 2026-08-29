@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_MAX_ENTRIES,
   POSITION_HISTORY_NEAR_TOKENS,
@@ -127,6 +128,36 @@ describe('reading position history', () => {
     ]);
     expect(reconciled.index).toBe(0);
     expect(reconciled.tail).toBe('hardened');
+  });
+
+  it('retains a ready document until its replacement extent is known', () => {
+    const history = jump(EMPTY_POSITION_HISTORY, 10, 1_000);
+    const unresolved = reconcilePositionHistory(history, 's2', ['a'], new Map());
+    expect(unresolved.entries.map((entry) => ({ snapshot: entry.snapshot, token: entry.token })))
+      .toEqual([
+        { snapshot: 's2', token: 10 },
+        { snapshot: 's2', token: 1_000 },
+      ]);
+
+    const measured = reconcilePositionHistory(
+      unresolved,
+      's2',
+      ['a'],
+      new Map([['a', 500]]),
+    );
+    expect(measured.entries.map((entry) => entry.token)).toEqual([10, 499]);
+  });
+
+  it('clamps measured extents without hardening a traversal landing', () => {
+    const visited = jump(jump(EMPTY_POSITION_HISTORY, 0, 5_000), 5_000, 10_000);
+    const back = traversePositionHistory(visited, -1)!;
+    const clamped = clampPositionHistoryExtents(
+      back.history,
+      new Map([['a', 6_000]]),
+    );
+    expect(clamped.entries.map((entry) => entry.token)).toEqual([0, 5_000, 5_999]);
+    expect(clamped.tail).toBe('settling');
+    expect(nextPosition(clamped)?.token).toBe(5_999);
   });
 
   it('returns no traversal at either edge and empties when no document survives', () => {

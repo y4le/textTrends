@@ -60,7 +60,10 @@ import {
   RSVP_RHYTHM_RESET,
   type RsvpPacing,
 } from '@texttrends/rsvp';
-import { POSITION_HISTORY_SETTLE_MS } from '../src/lib/position-history.ts';
+import {
+  EMPTY_POSITION_HISTORY,
+  POSITION_HISTORY_SETTLE_MS,
+} from '../src/lib/position-history.ts';
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -3579,6 +3582,82 @@ describe('reading position history intent', () => {
     }
   });
 
+  it('keeps the traversal landing contract when measured extents arrive', async () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      const inventory = f.inventories().at(-1)!;
+      for (const token of [0, 5_000, 10_000]) {
+        f.store.getState().setScrub(
+          { doc: 'a', token },
+          { kind: 'jump', origin: 'occurrence' },
+        );
+      }
+      expect(f.store.getState().stepPositionHistory(-1)).toEqual({ doc: 'a', token: 5_000 });
+      expect(f.store.getState().positionHistory.tail).toBe('settling');
+
+      inventory.resolve(fakeInventoryResult(6_000, [{ doc: 'a', fullTokens: 6_000 }]));
+      await Promise.resolve();
+      await Promise.resolve();
+      expect(f.store.getState().positionHistory.tail).toBe('settling');
+      f.store.getState().setScrub({ doc: 'a', token: 5_500 });
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS);
+      expect(f.store.getState().positionHistory.entries.map((entry) => entry.token))
+        .toEqual([0, 5_500, 5_999]);
+      expect(f.store.getState().stepPositionHistory(1)).toEqual({ doc: 'a', token: 5_999 });
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('settles before the shared cursor clears and traverses the destination named by the controls', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    for (const token of [0, 1_000, 2_000]) {
+      f.store.getState().setScrub(
+        { doc: 'a', token },
+        { kind: 'jump', origin: 'occurrence' },
+      );
+    }
+    f.store.getState().setScrub({ doc: 'a', token: 3_000 });
+    const group = f.store.getState().notebook.groups[0]!;
+    f.store.getState().setGroupActive(group.id, false);
+
+    expect(f.store.getState().scrub).toBeNull();
+    expect(f.store.getState().positionHistory.entries.map((entry) => entry.token))
+      .toEqual([0, 1_000, 2_000, 3_000]);
+    expect(f.store.getState().stepPositionHistory(-1)).toEqual({ doc: 'a', token: 2_000 });
+    expect(f.store.getState().stepPositionHistory(1)).toEqual({ doc: 'a', token: 3_000 });
+    f.runtime.dispose();
+  });
+
+  it('preserves an unsettled scrub departure when a barcode jump follows', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().quickAdd('holmes');
+      const seriesId = f.store.getState().series[0]!.id;
+      f.store.getState().setScrub({ doc: 'a', token: 40_000 });
+      f.store.getState().centerKwicAt(
+        seriesId,
+        'a',
+        90_000,
+        { kind: 'bucket', count: 1 },
+      );
+      expect(f.store.getState().positionHistory.entries).toMatchObject([
+        { doc: 'a', token: 40_000 },
+        { doc: 'a', token: 90_000, origin: 'barcode' },
+      ]);
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('retargets an open Reader without closing its governed browser-history layer', () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');
@@ -3611,25 +3690,93 @@ describe('reading position history intent', () => {
     runtime.dispose();
   });
 
-  it('reconciles surviving positions onto a replacement snapshot', () => {
+  it('moves the shared cursor on Reader entry and maps Reader origins into history', () => {
     const f = harness();
-    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
-    f.store.setState({ corpusTokenCounts: new Map([['a', 500], ['b', 300]]) });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 100, from: 'kwic',
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 100 });
+    expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
+      token: 100, origin: 'matches',
+    });
+
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 1_000, from: 'footer',
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 1_000 });
+    expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
+      token: 1_000, origin: 'seek',
+    });
+
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 2_000, from: 'occurrence',
+    });
+    expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2_000 });
+    expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
+      token: 2_000, origin: 'occurrence',
+    });
+    f.runtime.dispose();
+  });
+
+  it('reconciles surviving positions through the real null-to-replacement publication sequence', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+      f.store.setState({ corpusTokenCounts: new Map([['a', 500], ['b', 300]]) });
+      f.store.getState().setScrub(
+        { doc: 'a', token: 100 },
+        { kind: 'jump', origin: 'seek' },
+      );
+      f.store.getState().setScrub(
+        { doc: 'b', token: 250 },
+        { kind: 'jump', origin: 'barcode' },
+      );
+      f.store.getState().setScrub({ doc: 'b', token: 275 });
+
+      f.port.emit(sessionState(null));
+      expect(f.store.getState().positionHistory).toBe(EMPTY_POSITION_HISTORY);
+      f.port.publishSnapshot('g2', 's2', ['b']);
+      expect(f.store.getState().positionHistory).toMatchObject({
+        index: 0,
+        entries: [{ snapshot: 's2', doc: 'b', token: 275 }],
+      });
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS);
+      expect(f.store.getState().positionHistory.entries).toHaveLength(1);
+      f.runtime.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('does not carry pending positions into a different project', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().setScrub(
       { doc: 'a', token: 100 },
       { kind: 'jump', origin: 'seek' },
     );
-    f.store.getState().setScrub(
-      { doc: 'b', token: 250 },
-      { kind: 'jump', origin: 'barcode' },
-    );
-
-    f.port.publishSnapshot('g2', 's2', ['b']);
-    expect(f.store.getState().positionHistory).toMatchObject({
-      index: 0,
-      entries: [{ snapshot: 's2', doc: 'b', token: 250 }],
-    });
+    f.port.emit(sessionState(null, { project: { id: 'library/other' } }));
+    f.port.emit(sessionState(snap('g2', 's2', ['a']), {
+      project: { id: 'library/other' },
+    }));
+    expect(f.store.getState().positionHistory).toBe(EMPTY_POSITION_HISTORY);
     f.runtime.dispose();
+  });
+
+  it('clears a pending settle timer when the runtime is disposed', () => {
+    vi.useFakeTimers();
+    try {
+      const f = harness();
+      f.port.publishSnapshot('g1', 's1', ['a']);
+      f.store.getState().setScrub({ doc: 'a', token: 100 });
+      f.runtime.dispose();
+      vi.advanceTimersByTime(POSITION_HISTORY_SETTLE_MS);
+      expect(f.store.getState().positionHistory.entries).toEqual([]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
@@ -4711,6 +4858,10 @@ describe('RSVP interaction ownership', () => {
     const navigation = f.store.getState().readerNavigation;
     const issued = f.issued.length;
     f.store.getState().enterRsvp(true);
+    const enteredHistory = f.store.getState().positionHistory;
+    expect(enteredHistory.entries.at(-1)).toMatchObject({
+      doc: 'a', token: 4, origin: 'reader',
+    });
     const interaction = f.store.getState().interaction;
     const place = f.store.getState().readerPlace;
     f.store.getState().publishRsvpPosition(-1);
@@ -4721,6 +4872,9 @@ describe('RSVP interaction ownership', () => {
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 4 });
     f.store.getState().publishRsvpPosition(5);
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 5 });
+    expect(f.store.getState().positionHistory).toBe(enteredHistory);
+    expect(f.store.getState().stepPositionHistory(-1)).toBeNull();
+    expect(f.store.getState().positionHistory).toBe(enteredHistory);
     f.store.getState().setScrub({ doc: 'a', token: 9 });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 5 });
     expect(f.store.getState().readerNavigation).toBe(navigation);
@@ -4733,6 +4887,9 @@ describe('RSVP interaction ownership', () => {
     f.store.getState().exitRsvp(6);
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 6 });
+    expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
+      doc: 'a', token: 6, origin: 'reader',
+    });
     expect(f.store.getState().readerPlace?.cursor).toEqual({ kind: 'from', token: 6 });
     expect(f.store.getState().readerNavigation).toBe(navigation);
     f.runtime.dispose();

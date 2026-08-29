@@ -911,9 +911,6 @@ function FooterInteractive({
         const target = barcodeReaderTarget(resolution, raw);
         if (!target) return;
         event.preventDefault();
-        // Preserve the clicked reading position when Back restores the footer;
-        // Reader navigation itself intentionally uses the same exact target.
-        setAbsoluteScrub({ doc: target.doc, token: target.token });
         if (
           resolution?.kind === 'activation'
           && resolution.activation.kind === 'bucket'
@@ -1196,7 +1193,8 @@ function FooterInteractive({
             : null;
           if (resolution?.kind === 'activation') {
             const { activation, track } = resolution;
-            setAbsoluteScrub({ doc: activation.doc, token: activation.token });
+            queuedPageDirection.current = null;
+            setKeyboardStatus('');
             centerKwicAt(
               track.seriesId,
               activation.doc,

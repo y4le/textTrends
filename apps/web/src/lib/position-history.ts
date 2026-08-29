@@ -196,11 +196,13 @@ export function reconcilePositionHistory(
   for (let oldIndex = 0; oldIndex < history.entries.length; oldIndex += 1) {
     const entry = history.entries[oldIndex]!;
     const tokenCount = tokenCounts.get(entry.doc);
-    if (!ready.has(entry.doc) || tokenCount === undefined || tokenCount < 1) continue;
+    if (!ready.has(entry.doc) || (tokenCount !== undefined && tokenCount < 1)) continue;
     const candidate: PositionHistoryEntry = {
       ...entry,
       snapshot,
-      token: Math.max(0, Math.min(tokenCount - 1, entry.token)),
+      token: tokenCount === undefined
+        ? entry.token
+        : Math.max(0, Math.min(tokenCount - 1, entry.token)),
     };
     const previous = entries.at(-1);
     if (within(previous, candidate, POSITION_HISTORY_NEAR_TOKENS)) {
@@ -215,6 +217,46 @@ export function reconcilePositionHistory(
     entries,
     index: Math.max(0, Math.min(entries.length - 1, index)),
     tail: 'hardened',
+  };
+}
+
+/**
+ * Apply newly measured document extents inside one live snapshot. Unlike a
+ * snapshot reconciliation, this must preserve the current tail contract so an
+ * in-flight reading run or post-traversal landing refinement stays intact.
+ */
+export function clampPositionHistoryExtents(
+  history: PositionHistory,
+  tokenCounts: ReadonlyMap<string, number>,
+): PositionHistory {
+  if (history.entries.length === 0) return history;
+  const entries: PositionHistoryEntry[] = [];
+  let index = -1;
+  let currentSurvived = false;
+  let changed = false;
+  for (let oldIndex = 0; oldIndex < history.entries.length; oldIndex += 1) {
+    const entry = history.entries[oldIndex]!;
+    const tokenCount = tokenCounts.get(entry.doc);
+    if (tokenCount !== undefined && tokenCount < 1) {
+      changed = true;
+      continue;
+    }
+    const token = tokenCount === undefined
+      ? entry.token
+      : Math.max(0, Math.min(tokenCount - 1, entry.token));
+    const candidate = token === entry.token ? entry : { ...entry, token };
+    if (candidate !== entry) changed = true;
+    entries.push(candidate);
+    if (oldIndex <= history.index) index = entries.length - 1;
+    if (oldIndex === history.index) currentSurvived = true;
+  }
+  if (entries.length === 0) return EMPTY_POSITION_HISTORY;
+  const boundedIndex = Math.max(0, Math.min(entries.length - 1, index));
+  if (!changed && boundedIndex === history.index) return history;
+  return {
+    entries,
+    index: boundedIndex,
+    tail: currentSurvived ? history.tail : 'hardened',
   };
 }
 

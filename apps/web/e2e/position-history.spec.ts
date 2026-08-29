@@ -26,6 +26,8 @@ test('reading position history traverses the workbench and Reader without using 
     const box = await button.boundingBox();
     expect(box?.width).toBeGreaterThanOrEqual(coarse ? 44 : 32);
     expect(box?.height).toBeGreaterThanOrEqual(44);
+    expect(await button.evaluate((node) => Number.parseFloat(getComputedStyle(node).fontSize)))
+      .toBeGreaterThanOrEqual(16);
   }
 
   const slider = page.getByRole('slider', { name: 'Corpus footer position' });
