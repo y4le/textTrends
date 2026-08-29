@@ -22,15 +22,21 @@ impossible geometry. Resizing is a resident redraw and never reissues the trend
 query.
 
 Compression spends whitespace before data ink. At regular and wide widths, the
-title lane shrinks from its authored height to 8px while titles remain visible;
-compact's authored lane already starts at that threshold, so its first
-decrement hides the titles. Below 8px, visible titles disappear and the
-remaining gap can shrink to 2px. Only then does the plot contract, with a 12px
-fine-pointer or 24px coarse-pointer floor. Barcode height, strokes, and data
-projection stay invariant. When titles are hidden, their controls stop taking
-pointer hits but remain keyboard and assistive-technology selectors with a
-whole-row focus outline. The chart's arbitrary range gesture therefore remains
-available, and reset restores the authored title treatment.
+title lane first shrinks from its authored height to 8px; compact starts at that
+threshold. Barcode band and inter-track whitespace then shrink while titles
+remain visible. Next the titles withdraw and their lane falls to a 2px row
+separator. Only then do plot and barcode ink contract together, to a 12px
+fine-pointer or 24px coarse-pointer plot and distinct 2px or 3px barcode tracks.
+One further collapse removes the complete barcode band and snaps directly to a
+14px fine-pointer or 26px coarse-pointer row. The non-contiguous step is
+deliberate: keeping every intervening pitch would make the plot grow while the
+row shrank, with an inversion proportional to the number of tracks.
+
+When titles are hidden, their controls stop taking pointer hits but remain
+keyboard and assistive-technology selectors with a whole-row focus outline.
+Barcode data projection also remains resident after its band disappears; only
+rendered geometry changes. The chart's arbitrary range gesture therefore
+remains available, and reset restores the authored title and barcode treatment.
 
 The interaction and compression policy was planned with pinned Claude Opus
 through Parley (request `req_consult_04dc74f0209b46be`, artifact
@@ -40,6 +46,14 @@ Its focused staged reviews approved the sizing authority
 (`req_review_diff_51bf75e68a41198c`), device-local persistence
 (`req_review_diff_2be418c9e31bcfab`), and wired interaction plus acceptance
 coverage (`req_review_diff_910547cf8712cd0c`).
+
+The late-stage barcode policy was subsequently planned with the same pinned
+Claude Opus workflow (request `req_consult_5d1c11e5216042f8`, artifact
+`art_sha256_81ac9ccd5b860aa712b9774bde0b5fe21fb4fe9c5067837272fd3e135b107af0`).
+After staged review measured an unacceptable plot-height inversion, Opus
+reassessed and replaced the continuous final phase with the discrete collapse
+recorded above (request `req_consult_66f0476fc7ae1d6b`, artifact
+`art_sha256_667d5e62d919bf052f68eea9e4a7c4b1bbd916009bd7ae44c4e27f57d2014c59`).
 
 ## 2026-08-28 — Reading positions use a transient jump list
 

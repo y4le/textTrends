@@ -753,8 +753,10 @@ function TrendRowResizeHandle({
   };
   const valuetext = `${sizing.rowPitch} pixels per text · ${
     sizing.titlesPainted ? 'titles shown' : 'titles hidden'
-  }${sizing.atMinimum && trackCount > 0
-    ? ` · minimum for ${trackCount} occurrence row${trackCount === 1 ? '' : 's'}`
+  }${trackCount > 0 && !sizing.barcodeVisible
+    ? ' · occurrence rows hidden · smallest row'
+    : trackCount > 0 && sizing.rowPitch === sizing.inkPitch
+      ? ' · occurrence rows minimized · smallest row with occurrence rows'
     : ''}`;
   const commitKeyboardTarget = () => {
     const pending = keyboardTarget.current;
