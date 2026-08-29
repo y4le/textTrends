@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test';
 import { LOCAL_LIBRARY_DB_NAME } from '../src/lib/local-library.ts';
-import { ASOIF, AUSTEN, LOTR, POLITICAL_ARGUMENTS, SHERLOCK } from '../src/lib/project.ts';
+import { ASOIF, AUSTEN, BIBLE, LOTR, POLITICAL_ARGUMENTS, QURAN, SHERLOCK } from '../src/lib/project.ts';
 import { workspaceState } from '../test/support/workspace-fixtures.ts';
 import { awaitReadyCount, openQuickAdd, trackCorpusRequests } from './helpers.ts';
 
@@ -66,6 +66,21 @@ test('a new public one-shot URL loads the complete corpus and starter terms', as
   for (const term of ['liberty', 'property', 'class']) {
     await expect(page.getByRole('button', { name: `Edit term: ${term}` })).toBeVisible();
   }
+});
+
+test('the Bible and Quran samples can be analyzed together', async ({ page }) => {
+  await page.goto('./');
+  await page.getByRole('button', { name: 'Try the World English Bible sample' }).click();
+  await awaitReadyCount(page, BIBLE.length);
+
+  const acquisition = page.getByRole('region', { name: 'Add texts' });
+  await acquisition.getByRole('button', { name: 'Show options', exact: true }).click();
+  await acquisition.getByRole('button', { name: 'Add Quran sample', exact: true }).click();
+  await awaitReadyCount(page, BIBLE.length + QURAN.length);
+
+  await expect(page.getByRole('region', { name: 'Active inputs' })
+    .getByRole('list', { name: 'Active input order' }).getByRole('listitem'))
+    .toHaveCount(BIBLE.length + QURAN.length);
 });
 
 test('demos load as additive local texts and merge useful starter terms', async ({ page }) => {
