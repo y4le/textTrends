@@ -45,6 +45,7 @@ interface BarcodeBandProps {
   readonly trackGap: number;
   readonly styleOf: (seriesId: string) => SeriesStyleV1;
   readonly coarse: boolean;
+  readonly occurrenceInteractive?: boolean;
   readonly foregroundOverlay?: boolean;
   readonly reservedTrackCount?: number;
 }
@@ -65,6 +66,7 @@ export function BarcodeBand({
   trackGap,
   styleOf,
   coarse,
+  occurrenceInteractive = true,
   foregroundOverlay = false,
   reservedTrackCount = 0,
 }: BarcodeBandProps) {
@@ -96,6 +98,7 @@ export function BarcodeBand({
         trackGap={trackGap}
         styleOf={styleOf}
         coarse={coarse}
+        occurrenceInteractive={occurrenceInteractive}
         foregroundOverlay={foregroundOverlay}
         reservedTrackCount={reservedTrackCount}
         colorScheme={presentation.colorScheme}
@@ -121,6 +124,7 @@ export function BarcodeBand({
       trackGap={trackGap}
       styleOf={styleOf}
       coarse={coarse}
+      occurrenceInteractive={occurrenceInteractive}
       foregroundOverlay={foregroundOverlay}
       reservedTrackCount={reservedTrackCount}
       colorScheme={presentation.colorScheme}
@@ -145,6 +149,7 @@ function BarcodeCanvas({
   trackGap,
   styleOf,
   coarse,
+  occurrenceInteractive = true,
   foregroundOverlay = false,
   colorScheme,
   docOrdinalById,
@@ -242,6 +247,7 @@ function BarcodeCanvas({
       data-barcode-background-series={backgroundTracks.map((track) => track.seriesId).join(' ')}
       data-barcode-foreground-overlay={foregroundOverlay || undefined}
       data-pointer-contract={coarse
+        || !occurrenceInteractive
         ? 'scrub-only'
         : tracks.length === 0
           ? 'background-only'
@@ -259,7 +265,7 @@ function BarcodeCanvas({
         width,
         height,
         display: 'block',
-        pointerEvents: coarse || tracks.length === 0 ? 'none' : 'auto',
+        pointerEvents: coarse || !occurrenceInteractive || tracks.length === 0 ? 'none' : 'auto',
         zIndex: 1,
       }}
     />

@@ -87,7 +87,17 @@ import {
 } from '../lib/selection.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { trendGeometryFor, type TrendGeometry } from '../lib/trend-compact.ts';
-import { trendRowSizing, type TrendRowSizing } from '../lib/trend-row-size.ts';
+import {
+  TREND_BARCODE_INTERACTIVE_STRIDE,
+  trendRowSizing,
+  type TrendRowSizing,
+} from '../lib/trend-row-size.ts';
+import {
+  beginTrendRowDetent,
+  moveTrendRowDetent,
+  stepTrendRowPitch,
+  type TrendRowDetentState,
+} from '../lib/trend-row-detent.ts';
 import {
   browserTrendRowStorage,
   loadTrendRowPitch,
@@ -318,7 +328,10 @@ export function TrendPanel() {
     coarse: presentation.coarseAvailable,
     trackCount: sizingTrackCount,
     targetPitch: rowPitchTarget,
+    barcodeRequired: findMode && find !== null,
   }), [
+    find,
+    findMode,
     presentation.coarseAvailable,
     presentation.width,
     rowPitchTarget,
@@ -344,16 +357,22 @@ export function TrendPanel() {
       foregroundBarcodeOverlay: findMode && find !== null,
     });
   }, [activeSeries, displayedDispersion, displayedSelection, find, findMode, geometry, graphGate, readyGeo, reservedTrackCount, selectedDispersion]);
+  const occurrenceInteractive = trendView === 'series'
+    || rowSizing.barcodeInteractive
+    || (findMode
+      && find !== null
+      && (stageProjection?.barcodeHeight ?? 0) >= TREND_BARCODE_INTERACTIVE_STRIDE);
   const stageGeometry = useMemo(() => stageProjection
     ? trendStageGeometry(stageProjection, {
         plotWidth: plotW,
         view: trendView,
         titlesPainted: trendView === 'series' || rowSizing.titlesPainted,
+        barcodeInteractive: occurrenceInteractive,
       })
     : null,
-  [plotW, rowSizing.titlesPainted, stageProjection, trendView]);
+  [occurrenceInteractive, plotW, rowSizing.titlesPainted, stageProjection, trendView]);
   const snapIndexCache = useRef<{
-    readonly projection: NonNullable<typeof stageProjection>;
+    readonly tracks: readonly BarcodeTrackVM[];
     readonly indexes: ReturnType<typeof trendStageSnapIndexes>;
   } | null>(null);
   const styleBySeries = useMemo(
@@ -437,16 +456,16 @@ export function TrendPanel() {
     allowExactSnap,
   ) => {
     // Exact tracks can contain 250k occurrences. Allocate their pixel indexes
-    // only on the first precise barcode event, retain them for this projection,
+    // only on the first precise barcode event, retain them for these tracks,
     // and never turn hover into a React render/chart commit.
     let exactIndexes: ReturnType<typeof trendStageSnapIndexes> = [];
     if (allowExactSnap) {
       const cached = snapIndexCache.current;
-      if (cached?.projection === stageProjection) {
+      if (cached?.tracks === tracks) {
         exactIndexes = cached.indexes;
       } else {
         exactIndexes = trendStageSnapIndexes(stageProjection);
-        snapIndexCache.current = { projection: stageProjection, indexes: exactIndexes };
+        snapIndexCache.current = { tracks, indexes: exactIndexes };
       }
     }
     return captureBarcodePointerTarget(
@@ -550,6 +569,8 @@ export function TrendPanel() {
           sizing={rowSizing}
           target={rowPitchTarget}
           trackCount={sizingTrackCount}
+          legendTrackCount={tracks.length}
+          occurrenceInteractive={occurrenceInteractive}
           coarse={presentation.coarseAvailable}
           onPreview={previewRowPitch}
           onCommit={commitRowPitch}
@@ -566,6 +587,8 @@ export function TrendPanel() {
         series={activeSeries}
         geometry={geometry}
         barcodeHeight={barcodeHeight}
+        barcodeVisible={trendView === 'series' || rowSizing.barcodeVisible}
+        barcodeInteractive={occurrenceInteractive}
         rowPitch={rowPitch}
         rowDomain={rowDomain}
         labelBands={labelBands}
@@ -574,7 +597,7 @@ export function TrendPanel() {
         hitSpec={hitSpec}
         coarse={presentation.coarseAvailable}
         onBarcodeActivate={activateBarcode}
-        barcodeBand={(
+        barcodeBand={(trendView === 'series' || rowSizing.barcodeVisible) ? (
           <BarcodeBand
             view={trendView}
             docs={docs}
@@ -591,10 +614,11 @@ export function TrendPanel() {
             trackGap={geometry.barcodeTrackGap}
             styleOf={styleOf}
             coarse={presentation.coarseAvailable}
+            occurrenceInteractive={occurrenceInteractive}
             foregroundOverlay={findMode && find !== null}
             reservedTrackCount={findMode ? Math.max(series.length, activeSeries.length) : 0}
           />
-        )}
+        ) : null}
       >
         {trendView === 'series' ? (
           <SeriesView
@@ -691,6 +715,8 @@ function TrendRowResizeHandle({
   sizing,
   target,
   trackCount,
+  legendTrackCount,
+  occurrenceInteractive,
   coarse,
   onPreview,
   onCommit,
@@ -698,11 +724,15 @@ function TrendRowResizeHandle({
   readonly sizing: TrendRowSizing;
   readonly target: number | null;
   readonly trackCount: number;
+  readonly legendTrackCount: number;
+  readonly occurrenceInteractive: boolean;
   readonly coarse: boolean;
   readonly onPreview: (target: number | null) => void;
   readonly onCommit: (target: number | null) => void;
 }) {
   const [resizing, setResizing] = useState(false);
+  const [focused, setFocused] = useState(false);
+  const [detentHint, setDetentHint] = useState<'hide' | 'restore' | null>(null);
   const resizeFrame = useRef<number | null>(null);
   const pendingTarget = useRef<number | null>(null);
   const keyboardTarget = useRef<number | null>(null);
@@ -711,6 +741,7 @@ function TrendRowResizeHandle({
     readonly startY: number;
     readonly startPitch: number;
     readonly startTarget: number | null;
+    detent: TrendRowDetentState;
     lastTarget: number;
   } | null>(null);
 
@@ -749,15 +780,21 @@ function TrendRowResizeHandle({
     commitPendingTarget();
     drag.current = null;
     setResizeActive(false);
+    setDetentHint(null);
     onCommit(active.lastTarget);
   };
-  const valuetext = `${sizing.rowPitch} pixels per text · ${
+  const stateText = `${sizing.rowPitch} pixels per text · ${
     sizing.titlesPainted ? 'titles shown' : 'titles hidden'
   }${trackCount > 0 && !sizing.barcodeVisible
     ? ' · occurrence rows hidden · smallest row'
     : trackCount > 0 && sizing.rowPitch === sizing.inkPitch
       ? ' · occurrence rows minimized · smallest row with occurrence rows'
     : ''}`;
+  const valuetext = detentHint === 'hide'
+    ? `${sizing.inkPitch} pixels per text · keep dragging up to hide ${trackCount} occurrence row${trackCount === 1 ? '' : 's'}`
+    : detentHint === 'restore'
+      ? `${sizing.minPitch} pixels per text · keep dragging down to restore occurrence rows`
+      : stateText;
   const commitKeyboardTarget = () => {
     const pending = keyboardTarget.current;
     keyboardTarget.current = null;
@@ -773,6 +810,7 @@ function TrendRowResizeHandle({
     if (direction === 0 && !['Home', 'End', 'Enter', 'Escape'].includes(event.key)) return;
     if (event.key === 'Escape' && drag.current === null) return;
     event.preventDefault();
+    setFocused(true);
     if (event.key === 'Escape') {
       const active = drag.current;
       if (active) {
@@ -785,6 +823,7 @@ function TrendRowResizeHandle({
         }
         onPreview(active.startTarget);
         setResizeActive(false);
+        setDetentHint(null);
       }
       return;
     }
@@ -803,9 +842,11 @@ function TrendRowResizeHandle({
       ? sizing.minPitch
       : event.key === 'End'
         ? sizing.maxPitch
-        : Math.max(
-            sizing.minPitch,
-            Math.min(sizing.maxPitch, currentPitch + direction * step),
+        : stepTrendRowPitch(
+            currentPitch,
+            direction as -1 | 1,
+            step,
+            sizing,
           );
     keyboardTarget.current = next;
     onPreview(next);
@@ -822,6 +863,11 @@ function TrendRowResizeHandle({
       aria-valuemax={sizing.maxPitch}
       aria-valuenow={sizing.rowPitch}
       aria-valuetext={valuetext}
+      aria-describedby={legendTrackCount > 0 && !sizing.barcodeVisible
+        ? 'trend-hidden-barcode-note'
+        : legendTrackCount > 0 && !occurrenceInteractive
+          ? 'trend-mini-barcode-note'
+          : undefined}
       aria-keyshortcuts={shortcutAria([
         'trend-rows-step',
         'trend-rows-fine',
@@ -832,6 +878,9 @@ function TrendRowResizeHandle({
       tabIndex={0}
       data-resizing={resizing || undefined}
       data-titles-painted={sizing.titlesPainted}
+      data-row-phase={sizing.phase}
+      data-barcode-visible={sizing.barcodeVisible}
+      data-barcode-interactive={occurrenceInteractive}
       style={{ '--trend-row-resize-target': coarse ? '44px' : '24px' } as React.CSSProperties}
       onDoubleClick={() => { onCommit(null); }}
       onKeyDown={resizeByKeyboard}
@@ -840,10 +889,17 @@ function TrendRowResizeHandle({
           commitKeyboardTarget();
         }
       }}
-      onBlur={commitKeyboardTarget}
+      onFocus={(event) => {
+        setFocused(event.currentTarget.matches(':focus-visible'));
+      }}
+      onBlur={() => {
+        setFocused(false);
+        commitKeyboardTarget();
+      }}
       onPointerDown={(event) => {
         if (!event.isPrimary || (event.pointerType === 'mouse' && event.button !== 0)) return;
         event.preventDefault();
+        setFocused(false);
         commitKeyboardTarget();
         event.currentTarget.focus();
         drag.current = {
@@ -851,6 +907,7 @@ function TrendRowResizeHandle({
           startY: event.clientY,
           startPitch: sizing.rowPitch,
           startTarget: target,
+          detent: beginTrendRowDetent(sizing.rowPitch, sizing.minPitch, event.clientY),
           lastTarget: sizing.rowPitch,
         };
         event.currentTarget.setPointerCapture(event.pointerId);
@@ -860,13 +917,24 @@ function TrendRowResizeHandle({
         const active = drag.current;
         if (active?.pointerId !== event.pointerId) return;
         event.preventDefault();
-        scheduleTarget(Math.max(
+        const requestedPitch = Math.max(
           sizing.minPitch,
           Math.min(
             sizing.maxPitch,
             Math.round(active.startPitch + event.clientY - active.startY),
           ),
-        ));
+        );
+        const transition = moveTrendRowDetent(active.detent, {
+          clientY: event.clientY,
+          requestedPitch,
+          minPitch: sizing.minPitch,
+          inkPitch: sizing.inkPitch,
+          coarse,
+        });
+        active.detent = transition.state;
+        active.lastTarget = transition.pitch;
+        setDetentHint(transition.hint);
+        scheduleTarget(transition.pitch);
       }}
       onPointerUp={(event) => {
         if (event.currentTarget.hasPointerCapture(event.pointerId)) {
@@ -878,7 +946,7 @@ function TrendRowResizeHandle({
       onLostPointerCapture={(event) => { finishResize(event.pointerId); }}
     >
       <span className="trend-row-resize-mark" aria-hidden="true" />
-      {resizing && <span className="trend-row-resize-readout">{valuetext}</span>}
+      {(resizing || focused) && <span className="trend-row-resize-readout">{valuetext}</span>}
     </div>
   );
 }
@@ -909,6 +977,8 @@ function ScrubSurface({
   series,
   geometry,
   barcodeHeight,
+  barcodeVisible,
+  barcodeInteractive,
   rowPitch,
   rowDomain,
   labelBands,
@@ -930,6 +1000,8 @@ function ScrubSurface({
   series: readonly SeriesIntent[];
   geometry: TrendGeometry;
   barcodeHeight: number;
+  barcodeVisible: boolean;
+  barcodeInteractive: boolean;
   rowPitch: number;
   rowDomain: readonly number[];
   labelBands: readonly TrendLabelBand[];
@@ -2168,6 +2240,18 @@ function ScrubSurface({
       {hiddenTitles && (
         <span id="trend-hidden-title-note" className="visually-hidden">
           Titles are hidden at this row height. Selection remains available from the keyboard.
+        </span>
+      )}
+      {!barcodeVisible && barcodeTracks.length > 0 && (
+        <span id="trend-hidden-barcode-note" className="visually-hidden">
+          Occurrence rows are hidden at this row height. Occurrence totals and stepping remain
+          available in the term legend.
+        </span>
+      )}
+      {barcodeVisible && !barcodeInteractive && barcodeTracks.length > 0 && (
+        <span id="trend-mini-barcode-note" className="visually-hidden">
+          Occurrence rows are minimized at this row height. Their marks remain visible, but
+          occurrence clicking is unavailable; totals and stepping remain in the term legend.
         </span>
       )}
       {(rangeStatus || linkedSelection) && (

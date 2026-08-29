@@ -151,6 +151,9 @@ export interface TrendStageGeometryInput {
   readonly view: TrendView;
   /** Separate-row titles may be visually withdrawn without losing focus geometry. */
   readonly titlesPainted?: boolean;
+  /** A visually miniature barcode remains context but no longer owns a narrow
+   * occurrence-specific pointer lane. Combined view ignores this switch. */
+  readonly barcodeInteractive?: boolean;
 }
 
 export interface TrendStageGeometryModel {
@@ -209,6 +212,7 @@ export function trendStageGeometry(
         barcodeBandGap: geometry.barcodeBandGap,
         barcodeHeight,
         band,
+        barcodeZone: input.barcodeInteractive === false ? 'plot' : 'tracks',
         tokenCounts,
         rowDomain,
       };

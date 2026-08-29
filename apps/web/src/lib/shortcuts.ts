@@ -559,7 +559,7 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'trend-rows-limits',
     group: 'Trend rows',
     helpContexts: ['workbench'],
-    label: 'Minimum or maximum row size',
+    label: 'Hide occurrence rows at minimum, or use maximum row size',
     strokes: [{ key: 'Home' }, { key: 'End' }],
   },
   {

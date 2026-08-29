@@ -212,6 +212,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts,
       rowDomain: tokenCounts,
     };
@@ -232,6 +233,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks',
       tokenCounts: [0, 50],
       rowDomain: [0, 50],
     }, 'locate')).toBeNull();
@@ -246,6 +248,7 @@ describe('pointer plot containment', () => {
       barcodeBandGap: 0,
       barcodeHeight: 0,
       band: { trackCount: 0, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50, 0],
       rowDomain: [100, 100, 100],
     };
@@ -297,6 +300,7 @@ describe('integrated barcode stage geometry', () => {
       barcodeBandGap: 3,
       barcodeHeight: bandHeight,
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50],
       rowDomain: [100, 50],
     };
@@ -343,6 +347,7 @@ describe('document label geometry', () => {
       barcodeBandGap: 3,
       barcodeHeight: bandHeight,
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50],
       rowDomain: [100, 100],
     };
@@ -365,6 +370,7 @@ describe('document label geometry', () => {
       barcodeBandGap: 3,
       barcodeHeight: bandHeight,
       band: { trackCount: 2, trackHeight: 7, trackGap: 2 },
+      barcodeZone: 'tracks' as const,
       tokenCounts: [100, 50],
       rowDomain: [100, 100],
     };

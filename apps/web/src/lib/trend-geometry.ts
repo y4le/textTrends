@@ -185,6 +185,9 @@ export type TrendStageSpec =
       readonly barcodeBandGap: number;
       readonly barcodeHeight: number;
       readonly band: BarcodeBandSpec;
+      /** Miniature barcode rows relinquish occurrence-specific pointer zones;
+       * their pixels become ordinary plot interaction space. */
+      readonly barcodeZone: 'tracks' | 'plot';
       readonly tokenCounts: readonly number[];
       /** Per-row x denominator: own extent for equal rows, shared maximum for
        * token-scaled rows. */
@@ -337,7 +340,11 @@ export function trendStageHit(
   const token = Math.min(domainToken, extent - 1);
   if (localY <= stage.rowHeight) return { d, token, zone: 'plot' };
   const barcodeTop = stage.rowHeight + stage.barcodeBandGap;
-  if (localY < barcodeTop || localY >= barcodeTop + stage.barcodeHeight) return null;
+  const barcodeBottom = barcodeTop + stage.barcodeHeight;
+  if (stage.barcodeZone === 'plot') {
+    return localY < barcodeBottom ? { d, token, zone: 'plot' } : null;
+  }
+  if (localY < barcodeTop || localY >= barcodeBottom) return null;
   const trackRow = barcodeTrackRow(
     localY - barcodeTop,
     stage.band.trackCount,
