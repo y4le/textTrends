@@ -119,8 +119,12 @@ for (const viewport of [
     expect(await seriesChart.locator('[data-series-path]').first().evaluate(
       (path) => (path as SVGGraphicsElement).getBBox().x,
     )).toBe(0);
-    // 132px plot + 3px band gap + three 7px compact barcode rows + 8px tail.
-    expect((await seriesChart.boundingBox())?.height).toBe(164);
+    // 132px plot + 3px band gap + three 7px compact barcode rows + 34px labels.
+    expect((await seriesChart.boundingBox())?.height).toBe(190);
+    expect(await seriesChart.locator('[data-trend-row-title]').count()).toBeGreaterThan(0);
+    expect(await seriesChart.locator('[data-trend-row-title]').first().evaluate(
+      (label) => label.firstChild?.textContent,
+    )).toBe('1');
     const barcodeBand = scrubber.locator('canvas[data-barcode-band="series"]');
     await expect(barcodeBand).toHaveCount(1);
     expect((await barcodeBand.boundingBox())?.height).toBe(21);
@@ -131,8 +135,14 @@ for (const viewport of [
       const owner = await scrubber.boundingBox();
       return chart && owner ? Math.abs(chart.width - owner.width) : Number.POSITIVE_INFINITY;
     }).toBeLessThanOrEqual(1);
-    await expect(seriesChart.locator('text')).not.toContainText('Holmes');
-    await expect(seriesChart.locator('text')).not.toContainText('Moriarty');
+    const paintedLabels = await seriesChart.locator('text').evaluateAll((labels) => labels.map(
+      (label) => [...label.childNodes]
+        .filter((node) => node.nodeType === Node.TEXT_NODE)
+        .map((node) => node.textContent ?? '')
+        .join(''),
+    ));
+    expect(paintedLabels).not.toContain('Holmes');
+    expect(paintedLabels).not.toContain('Moriarty');
 
     const strokes = await seriesChart.locator('[data-series-path]').evaluateAll((paths) =>
       [...new Set(paths.map((path) => Number(path.getAttribute('stroke-width'))))].sort(),

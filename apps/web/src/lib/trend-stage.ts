@@ -15,7 +15,9 @@ import {
   bookXFromTokenEdge,
   byBookRowPitch,
   seriesXFromTokenEdge,
+  trendLabelBands,
   type SequenceLayout,
+  type TrendLabelBand,
   type TrendStageSpec,
 } from './trend-geometry.ts';
 import { trendRowDomain, type TrendView } from './trend-view.ts';
@@ -154,6 +156,7 @@ export interface TrendStageGeometryModel {
   readonly projection: TrendStageProjection;
   readonly edgeX: (docOrdinal: number, token: number) => number;
   readonly hitSpec: TrendStageSpec;
+  readonly labelBands: readonly TrendLabelBand[];
   readonly rowDomain: readonly number[];
 }
 
@@ -211,6 +214,7 @@ export function trendStageGeometry(
     projection,
     edgeX,
     hitSpec,
+    labelBands: trendLabelBands(hitSpec),
     rowDomain,
   };
 }

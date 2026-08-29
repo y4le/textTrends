@@ -76,6 +76,8 @@ describe('trend stage projection and geometry', () => {
     expect(projected.tracks[0]?.segmentsByDocOrdinal.map((bucket) => bucket.length)).toEqual([1, 1]);
     expect(narrow.edgeX(1, 0)).toBe(100);
     expect(wide.edgeX(1, 0)).toBe(200);
+    expect(narrow.labelBands).toHaveLength(2);
+    expect(narrow.labelBands[1]).toMatchObject({ left: 100, right: 300 });
     expect(snapIndexes[0]?.[0]?.entries[0]).toMatchObject({ t0: 2, t1: 3 });
     expect(narrow.hitSpec).toMatchObject({ view: 'series', plotWidth: 300, layout: projected.layout });
   });

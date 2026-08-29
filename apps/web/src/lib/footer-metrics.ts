@@ -116,7 +116,6 @@ const COMPACT_FINE: FooterGeometry = Object.freeze({
   barcodeTrackGap: 1,
   barcodeBandGap: 3,
   strokeWidth: 1,
-  bookMarks: 'boundaries',
 });
 
 const STANDARD_FINE: FooterGeometry = Object.freeze({
@@ -133,7 +132,6 @@ const STANDARD_FINE: FooterGeometry = Object.freeze({
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
   strokeWidth: 1,
-  bookMarks: 'boundaries',
 });
 
 const coarseGeometry = (fine: FooterGeometry): FooterGeometry => Object.freeze({

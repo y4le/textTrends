@@ -9,7 +9,6 @@ export interface TrendGeometry {
   readonly barcodeTrackGap: number;
   readonly barcodeBandGap: number;
   readonly strokeWidth: number;
-  readonly bookMarks: 'ticks' | 'boundaries';
 }
 
 const STANDARD: TrendGeometry = Object.freeze({
@@ -21,7 +20,6 @@ const STANDARD: TrendGeometry = Object.freeze({
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
   strokeWidth: 1.5,
-  bookMarks: 'ticks',
 });
 
 const COMPACT: TrendGeometry = Object.freeze({
@@ -33,7 +31,6 @@ const COMPACT: TrendGeometry = Object.freeze({
   barcodeTrackGap: 2,
   barcodeBandGap: 3,
   strokeWidth: 2,
-  bookMarks: 'boundaries',
 });
 
 /** Geometry changes only the rendering; it never changes analytical intent. */

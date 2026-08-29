@@ -66,6 +66,7 @@ import {
   trendRowsForDoc,
   trendStageHit,
   type SequenceLayout,
+  type TrendLabelBand,
   type TrendStagePointerIntent,
   type TrendStageSpec,
 } from '../lib/trend-geometry.ts';
@@ -360,6 +361,7 @@ export function TrendPanel() {
   const {
     edgeX,
     hitSpec,
+    labelBands,
     rowDomain,
   } = stageGeometry;
   // Presentation titles come from the project's document metadata — doc ids
@@ -533,6 +535,7 @@ export function TrendPanel() {
             strokeFor={strokeFor}
             geometry={geometry}
             barcodeHeight={barcodeHeight}
+            labelBands={labelBands}
           />
         ) : (
           <ByBookView
@@ -546,6 +549,7 @@ export function TrendPanel() {
             plotW={plotW}
             strokeFor={strokeFor}
             geometry={geometry}
+            labelBands={labelBands}
             rowPitch={rowPitch}
             rowDomain={rowDomain}
           />
@@ -1671,6 +1675,7 @@ const SeriesView = memo(function SeriesView({
   strokeFor,
   geometry,
   barcodeHeight,
+  labelBands,
 }: {
   ready: readonly DisplayedSeries[];
   selected: readonly DisplayedSeries[];
@@ -1684,6 +1689,7 @@ const SeriesView = memo(function SeriesView({
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
   barcodeHeight: number;
+  labelBands: readonly TrendLabelBand[];
 }) {
   const foregroundReady = ready.filter((item) => !item.ghost);
   const rawReady = foregroundReady.length > 0 ? foregroundReady : ready;
@@ -1695,7 +1701,9 @@ const SeriesView = memo(function SeriesView({
   const y = linearMap(0, maxValue, geometry.seriesHeight, geometry.topPad);
   const axisY = geometry.seriesHeight;
   const barcodeBottom = axisY + barcodeBandExtent(geometry.barcodeBandGap, barcodeHeight);
-  const height = barcodeBottom + (geometry.bookMarks === 'ticks' ? 34 : 8);
+  const height = labelBands[0]
+    ? labelBands[0].top + labelBands[0].height
+    : barcodeBottom + 8;
 
   // One path segment per (series, doc) — the break at every boundary is
   // mandatory; connecting them would invent data.
@@ -1743,8 +1751,9 @@ const SeriesView = memo(function SeriesView({
         strokeWidth={1}
       />
       {docs.map((doc, d) => {
-        const x0 = x(bases[d] ?? 0);
-        const x1 = x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
+        const band = labelBands[d];
+        const x0 = band?.left ?? x(bases[d] ?? 0);
+        const x1 = band?.right ?? x((bases[d] ?? 0) + (geo.docTokenCount[d] ?? 0));
         const title = titles[d] ?? doc;
         const n = String(d + 1);
         const label = (x1 - x0) > 7 * (title.length + 4) ? `${n} · ${title}` : n;
@@ -1753,14 +1762,16 @@ const SeriesView = memo(function SeriesView({
             {d > 0 && (
               <line x1={x0} y1={0} x2={x0} y2={axisY} stroke="var(--rule)" strokeWidth={1} />
             )}
-            {geometry.bookMarks === 'ticks' && (
+            {band && (
               <text
+                data-trend-row-title={d}
                 x={(x0 + x1) / 2}
-                y={barcodeBottom + 14}
+                y={band.top + 14}
                 textAnchor="middle"
                 fill="var(--fg-muted)"
                 fontSize="var(--text-xs)"
                 fontFamily="var(--font-mono)"
+                aria-hidden="true"
               >
                 {label}
                 <title>{title}</title>
@@ -1922,6 +1933,7 @@ const ByBookView = memo(function ByBookView({
   plotW,
   strokeFor,
   geometry,
+  labelBands,
   rowPitch,
   rowDomain,
 }: {
@@ -1935,6 +1947,7 @@ const ByBookView = memo(function ByBookView({
   plotW: number;
   strokeFor: (id: string) => number;
   geometry: TrendGeometry;
+  labelBands: readonly TrendLabelBand[];
   rowPitch: number;
   rowDomain: readonly number[];
 }) {
@@ -1973,7 +1986,7 @@ const ByBookView = memo(function ByBookView({
         const domain = rowDomain[d] ?? 0;
         const rowEnd = bookXFromTokenEdge(tokens, plotW, domain);
         const titleFontSize = geometry.rowGap <= 8 ? 9 : 11;
-        const titleBandTop = rowBase + rowPitch - geometry.rowGap;
+        const titleBandTop = labelBands[d]?.top ?? rowBase + rowPitch - geometry.rowGap;
         const titleBaseline = titleBandTop + Math.max(7, Math.min(15, geometry.rowGap - 3));
         return (
           <g key={doc}>

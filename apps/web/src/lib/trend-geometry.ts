@@ -191,6 +191,18 @@ export type TrendStageSpec =
       readonly rowDomain: readonly number[];
     };
 
+export interface TrendLabelBand {
+  readonly d: number;
+  readonly left: number;
+  readonly right: number;
+  readonly top: number;
+  readonly height: number;
+}
+
+/** Combined labels use one stable lane at every width. When a title does not
+ * fit, the painter reduces it to its ordinal rather than removing identity. */
+export const TREND_SERIES_LABEL_BAND_HEIGHT = 34;
+
 /** One by-book stage row is a plot, embedded barcode, and title band (reusing
  * rowGap). Keep this centralized so painting, pointer hit-testing, cursors and
  * SVG rows can never drift apart. */
@@ -201,6 +213,61 @@ export function byBookRowPitch(
   barcodeHeight: number,
 ): number {
   return rowHeight + barcodeBandExtent(barcodeBandGap, barcodeHeight) + rowGap;
+}
+
+/** One document-label band per declared document. The SVG painter and the
+ * HTML interaction overlay both consume these rectangles, so visible labels
+ * and their targets cannot drift apart as barcodes or layouts change. */
+export function trendLabelBands(stage: TrendStageSpec): readonly TrendLabelBand[] {
+  if (stage.view === 'series') {
+    const top = stage.plotHeight
+      + barcodeBandExtent(stage.barcodeBandGap, stage.barcodeHeight);
+    return stage.layout.tokenCounts.map((count, d) => ({
+      d,
+      left: seriesXFromTokenEdge(d, 0, stage.plotWidth, stage.layout),
+      right: seriesXFromTokenEdge(d, count, stage.plotWidth, stage.layout),
+      top,
+      height: TREND_SERIES_LABEL_BAND_HEIGHT,
+    }));
+  }
+  const pitch = byBookRowPitch(
+    stage.rowHeight,
+    stage.rowGap,
+    stage.barcodeBandGap,
+    stage.barcodeHeight,
+  );
+  const bandOffset = stage.rowHeight
+    + barcodeBandExtent(stage.barcodeBandGap, stage.barcodeHeight);
+  return stage.tokenCounts.map((_, d) => ({
+    d,
+    left: 0,
+    right: stage.plotWidth,
+    top: d * pitch + bandOffset,
+    height: stage.rowGap,
+  }));
+}
+
+/** Resolve the document selected while an already-armed label drag traverses
+ * the stage. The sequence resolver and by-book row clamp extend coordinates
+ * to the first/last document, so the pointer need not stay in the label lane. */
+export function trendStageDocument(
+  px: number,
+  py: number,
+  stage: TrendStageSpec,
+): number | null {
+  if (stage.view === 'series') {
+    if (!Number.isFinite(px) || stage.plotWidth <= 0) return null;
+    return seriesTokenFromX(px, stage.plotWidth, stage.layout)?.d ?? null;
+  }
+  if (!Number.isFinite(py) || stage.tokenCounts.length === 0) return null;
+  const pitch = byBookRowPitch(
+    stage.rowHeight,
+    stage.rowGap,
+    stage.barcodeBandGap,
+    stage.barcodeHeight,
+  );
+  if (pitch <= 0) return null;
+  return Math.max(0, Math.min(stage.tokenCounts.length - 1, Math.floor(py / pitch)));
 }
 
 function barcodeTrackRow(
