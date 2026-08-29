@@ -3365,6 +3365,20 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(selTrend.selection.docs).toEqual(['a']);
   });
 
+  it('does no work when a new selection is value-equal to the active range', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().setLinkedSelection(range(f, 10, 20));
+    const active = f.store.getState().linkedSelection;
+    const issuedCount = f.issued.length;
+
+    f.store.getState().setLinkedSelection(range(f, 10, 20));
+
+    expect(f.store.getState().linkedSelection).toBe(active);
+    expect(f.issued).toHaveLength(issuedCount);
+  });
+
   it('clearing drops overlays without reissuing the full-corpus match set or resident baselines', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
@@ -3383,6 +3397,9 @@ describe('linked token-range selection (slice-2 commit E)', () => {
     expect(f.store.getState().trends.get(f.store.getState().series[0]!.id)!.status).toBe('ready'); // resident evidence stands
     expect(f.kwics()).toHaveLength(matchesCount);
     expect(matches.cancelled).toBe(false);
+    const issuedCount = f.issued.length;
+    f.store.getState().setLinkedSelection(null);
+    expect(f.issued).toHaveLength(issuedCount);
   });
 
   it('scopes range-aware detail consumers, but never Matches, to every explicit range', () => {

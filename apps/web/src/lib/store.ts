@@ -80,6 +80,7 @@ import {
 import {
   detailSelection,
   isValidSelection,
+  sameSelection,
   selectionComplement,
   type TokenRangeSelectionV1,
 } from './selection.ts';
@@ -5662,7 +5663,7 @@ export function createAppRuntime(
           && (!snapshot || !isValidSelection(selection, snapshot.snapshot, snapshot.readyDocs))) {
           return; // a stale gesture (superseded snapshot / departed doc) commits nothing
         }
-        if (get().linkedSelection === selection) return;
+        if (sameSelection(get().linkedSelection, selection)) return;
         set({ linkedSelection: selection });
         if (selection === null) {
           // Exact ready residents survive a temporary range and are reused;

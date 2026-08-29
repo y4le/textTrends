@@ -3,6 +3,7 @@ import {
   commitRange,
   detailSelection,
   isValidSelection,
+  sameSelection,
   selectionComplement,
   selectionContains,
   selectionTokenCount,
@@ -184,6 +185,23 @@ describe('commitRange — inclusive endpoints across declared books', () => {
 });
 
 describe('selection validity and membership', () => {
+  it('compares selections by snapshot and ordered range values, including null', () => {
+    expect(sameSelection(sel(), sel())).toBe(true);
+    expect(sameSelection(null, null)).toBe(true);
+    expect(sameSelection(sel(), null)).toBe(false);
+    expect(sameSelection(sel(), sel({ snapshot: 's2' }))).toBe(false);
+    expect(sameSelection(sel(), sel({ ranges: [] }))).toBe(false);
+    expect(sameSelection(sel(), sel({
+      ranges: [{ doc: 'a', tokens: { start: 10, end: 20 } }],
+    }))).toBe(false);
+    expect(sameSelection(sel(), sel({
+      ranges: [{ doc: 'b', tokens: { start: 9, end: 20 } }],
+    }))).toBe(false);
+    expect(sameSelection(sel(), sel({
+      ranges: [{ doc: 'b', tokens: { start: 10, end: 21 } }],
+    }))).toBe(false);
+  });
+
   it('accepts live ordered ranges and rejects stale, missing, repeated, reversed, or empty ranges', () => {
     expect(isValidSelection(sel(), 's1', ['a', 'b'])).toBe(true);
     expect(isValidSelection(sel(), 's2', ['a', 'b'])).toBe(false);
