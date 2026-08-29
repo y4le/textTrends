@@ -550,6 +550,7 @@ function FooterInteractive({
         setRangeAnnouncement('Range cleared.');
         return;
       case 'preview':
+        if (effect.clearsCommitted) setLinkedSelection(null);
         setRangePreview({
           mode: 'pointer',
           origin: effect.origin,
@@ -1046,6 +1047,10 @@ function FooterInteractive({
               clientY: event.clientY,
             });
             footerRange.current = transition.state;
+            if (transition.effect.kind === 'preview' && transition.effect.clearsCommitted) {
+              pointerTap.current = null;
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+            }
             applyFooterRangeEffect(transition.effect);
             event.preventDefault();
             return;
@@ -1148,7 +1153,7 @@ function FooterInteractive({
               : null,
             anchorTarget: point ? rawTarget(point.x) : null,
             zone: zone === 'graph' ? 'graph' : 'barcode',
-            primeRange: zone === 'graph'
+            primeRange: zone !== 'outside'
               && now >= suppressDoubleClickUntil.current
               && now - lastDirectPointerAt.current >= SYNTHESIZED_CLICK_WINDOW_MS,
             moved: false,
@@ -1179,10 +1184,12 @@ function FooterInteractive({
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
-            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
-            applyFooterRangeEffect(transition.effect);
-            event.preventDefault();
-            return;
+            if (range.phase === 'brushing') {
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+              applyFooterRangeEffect(transition.effect);
+              event.preventDefault();
+              return;
+            }
           }
           const tap = pointerTap.current;
           if (!tap || tap.pointerId !== event.pointerId) return;

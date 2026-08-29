@@ -334,10 +334,12 @@ The passage's native horizontal scrollport covers both the source line and its
 book/token status line; the status is a pointer-transparent visual readout, so
 wheel and touch gestures anywhere in that text area follow one scroll path.
 On either analytical graph, a stationary double-click clears the linked range.
-In the footer, holding and dragging the second press replaces it with a newly
-brushed range. A plain footer graph drag remains the reading shuttle. Barcode
-and passage or status double-clicks retain their exact navigation and Reader
-actions.
+In the footer, holding and dragging the second press over the graph or barcode
+replaces it with a newly brushed range. The graph clears on that second press;
+the barcode retains its stationary Reader action and clears only once movement
+turns the press into a brush. A plain first-press footer drag remains the
+reading shuttle. Barcode and passage or status double-clicks retain their exact
+navigation and Reader actions.
 Absolute hover continues to seek the shared corpus
 axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token

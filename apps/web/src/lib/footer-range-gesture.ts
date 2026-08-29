@@ -38,6 +38,8 @@ export type FooterRangeGesture =
       readonly origin: SelectionPoint;
       readonly downX: number;
       readonly downY: number;
+      readonly zone: 'graph' | 'barcode';
+      readonly pendingClear: boolean;
     }
   | {
       readonly phase: 'brushing';
@@ -49,7 +51,12 @@ export type FooterRangeGesture =
 export type FooterRangeEffect =
   | { readonly kind: 'none' }
   | { readonly kind: 'clear' }
-  | { readonly kind: 'preview'; readonly origin: SelectionPoint; readonly head: SelectionPoint }
+  | {
+      readonly kind: 'preview';
+      readonly origin: SelectionPoint;
+      readonly head: SelectionPoint;
+      readonly clearsCommitted: boolean;
+    }
   | { readonly kind: 'commit'; readonly origin: SelectionPoint; readonly head: SelectionPoint }
   | { readonly kind: 'cancel' };
 
@@ -87,7 +94,7 @@ export function footerRangeDown(
     && Math.hypot(input.clientX - state.x, input.clientY - state.y)
       <= FOOTER_RANGE_DOUBLE_PRESS_SLOP_PX;
   if (
-    input.zone !== 'graph'
+    input.zone === 'outside'
     || input.point === null
     || input.suppressed
     || input.recentDirectPointer
@@ -102,8 +109,10 @@ export function footerRangeDown(
       origin: input.point,
       downX: input.clientX,
       downY: input.clientY,
+      zone: input.zone,
+      pendingClear: input.zone === 'barcode',
     },
-    effect: { kind: 'clear' },
+    effect: input.zone === 'graph' ? { kind: 'clear' } : { kind: 'none' },
   };
 }
 
@@ -134,7 +143,12 @@ export function footerRangeMove(
   };
   return {
     state: next,
-    effect: { kind: 'preview', origin: next.origin, head: next.head },
+    effect: {
+      kind: 'preview',
+      origin: next.origin,
+      head: next.head,
+      clearsCommitted: state.phase === 'armed' && state.pendingClear,
+    },
   };
 }
 

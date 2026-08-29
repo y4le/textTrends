@@ -110,6 +110,24 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await page.mouse.click(x(0.65), graphY, { clickCount: 3 });
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
+  // The barcode keeps stationary double-click → Reader, but takes ownership
+  // once its second press moves far enough to become a range brush.
+  await page.waitForTimeout(600);
+  const barcodeY = barcodeBox.y + 3;
+  const barcodeX = (fraction: number) => barcodeBox.x + barcodeBox.width * fraction;
+  await page.mouse.click(barcodeX(0.25), barcodeY, { clickCount: 1 });
+  await page.mouse.move(barcodeX(0.25), barcodeY);
+  await page.mouse.down();
+  await page.mouse.move(barcodeX(0.65), barcodeY, { steps: 8 });
+  await expect(page.getByTestId('footer-selection-preview')).toBeVisible();
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(slider).toHaveAttribute('data-range-brushing', 'true');
+  await expect(slider).not.toHaveAttribute('data-shuttling', 'true');
+  await page.mouse.up();
+  await expect(page.getByTestId('footer-selection-preview')).toHaveCount(0);
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+  await expect(page.getByRole('main', { name: /Reader:/ })).toHaveCount(0);
+
   // Keyboard users get the same footer-owned range and clear operations.
   await slider.focus();
   await slider.press('s');
