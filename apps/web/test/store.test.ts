@@ -24,6 +24,7 @@ import {
   reconcileKeynessView,
   MAX_SERIES,
   occurrenceNavigationText,
+  WORKSPACE_SEMANTIC_SOURCE_KEYS,
   workspaceFromApp,
   workspaceSemanticKey,
   type MetaPatch,
@@ -43,6 +44,7 @@ import { BUILTIN_SHERLOCK_ID, SHERLOCK } from '../src/lib/project.ts';
 import { WorkerClientError } from '../src/lib/client.ts';
 import type { SnapshotInfo } from '../src/lib/client.ts';
 import {
+  canonicalJson,
   DEFAULT_INDEX_RECIPE,
   parseWorkspace,
   STOPLIST_EN_ID,
@@ -64,6 +66,14 @@ import {
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_SETTLE_MS,
 } from '../src/lib/position-history.ts';
+
+vi.mock('@texttrends/core', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@texttrends/core')>();
+  return {
+    ...actual,
+    canonicalJson: vi.fn(actual.canonicalJson),
+  };
+});
 
 // ── A fake QueryClient that records issued analysis queries. ──
 interface Issued {
@@ -4111,6 +4121,57 @@ describe('temporary corpus Find', () => {
     f.store.getState().enterFind();
     return f;
   };
+
+  it('keeps the persistence source list exhaustive as the workspace projection evolves', () => {
+    const f = harness(undefined, { workspace: new FakeWorkspaceStore() });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    // activeGroupIds is read inside a group filter, so the probe must contain
+    // a group or an incomplete source list could pass accidentally.
+    f.store.getState().quickAdd('wolf');
+    const read = new Set<string>();
+    const probe = new Proxy(
+      f.store.getState() as unknown as Record<string, unknown>,
+      {
+        get(target, key) {
+          if (typeof key === 'string') read.add(key);
+          return Reflect.get(target, key);
+        },
+      },
+    );
+
+    expect(workspaceFromApp(probe as never)).not.toBeNull();
+    expect([...read].sort()).toEqual([...WORKSPACE_SEMANTIC_SOURCE_KEYS].sort());
+    f.runtime.dispose();
+  });
+
+  it('does not serialize the durable workspace while Find advances transient surfaces', async () => {
+    const workspace = new FakeWorkspaceStore();
+    const f = harness(undefined, { workspace });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.setState({ corpusTokenCounts: new Map([['a', 100]]) });
+    f.store.getState().enterFind();
+    const serialize = vi.mocked(canonicalJson);
+    serialize.mockClear();
+    const workspaceSerializations = () => serialize.mock.calls.filter(
+      ([value]) => (value as { schema?: string } | null)?.schema === 'texttrends/workspace/1',
+    );
+    const persistenceBefore = f.store.getState().workspacePersistence;
+
+    expect(f.store.getState().submitFind('holmes')).toBe(true);
+    const step = f.occurrenceSteps().at(-1)!;
+    step.resolve(resultFor(step, {
+      doc: 'a', token: 4, spanTokens: 1, members: [0],
+    }));
+    await flush();
+
+    expect(workspaceSerializations()).toHaveLength(0);
+    expect(f.store.getState().workspacePersistence).toEqual(persistenceBefore);
+
+    f.store.getState().setTrendView('series');
+    expect(workspaceSerializations().length).toBeGreaterThan(0);
+    f.runtime.dispose();
+    serialize.mockClear();
+  });
 
   it('issues one multi-alias Terms track with an empty notebook without calling the first hit a wrap', async () => {
     const f = setup();

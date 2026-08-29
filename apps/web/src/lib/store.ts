@@ -1309,6 +1309,37 @@ export function emptyLibraryWorkspace(): WorkspaceV1 {
   };
 }
 
+/** Exact referential inputs to `workspaceFromApp`. The persistence subscriber
+ * sees every transient Zustand write (Find, Reader, Matches, cursor, …), so it
+ * must reject states that cannot possibly change the durable projection before
+ * paying for a full canonical serialization of the library metadata. Keep this
+ * tuple adjacent to and in lockstep with `workspaceFromApp`. */
+export const WORKSPACE_SEMANTIC_SOURCE_KEYS = [
+  'projectSession',
+  'notebook',
+  'activeGroupIds',
+  'trendViewPreference',
+  'trendBins',
+  'trendMeasure',
+  'frequencyView',
+  'keynessView',
+] as const satisfies readonly (keyof AppState)[];
+
+function workspaceSemanticSources(state: AppState): readonly unknown[] {
+  return WORKSPACE_SEMANTIC_SOURCE_KEYS.map((key) =>
+    key === 'projectSession'
+      ? state.projectSession?.project ?? null
+      : state[key]);
+}
+
+function sameWorkspaceSemanticSources(
+  left: readonly unknown[],
+  right: readonly unknown[],
+): boolean {
+  return left.length === right.length
+    && left.every((value, index) => Object.is(value, right[index]));
+}
+
 export function workspaceSemanticKey(state: AppState): string | null {
   const workspace = workspaceFromApp(state);
   return workspace === null ? null : canonicalJson(workspace);
@@ -6026,7 +6057,11 @@ export function createAppRuntime(
     });
   };
 
+  let workspaceSources = workspaceSemanticSources(store.getState());
   const unsubscribeWorkspace = store.subscribe((state) => {
+    const nextSources = workspaceSemanticSources(state);
+    if (sameWorkspaceSemanticSources(workspaceSources, nextSources)) return;
+    workspaceSources = nextSources;
     if (!workspaceHydrated) return;
     const key = workspaceSemanticKey(state);
     if (key === workspacePausedKey) return;
