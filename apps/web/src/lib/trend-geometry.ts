@@ -195,8 +195,14 @@ export interface TrendLabelBand {
   readonly d: number;
   readonly left: number;
   readonly right: number;
+  /** Painted title lane, retained even when its title is withdrawn. */
   readonly top: number;
   readonly height: number;
+  /** Keyboard focus rectangle. Hidden titles use their complete row. */
+  readonly focusTop: number;
+  readonly focusHeight: number;
+  /** Painted titles accept pointers; hidden titles remain keyboard/AT only. */
+  readonly titlePainted: boolean;
 }
 
 /** Combined labels use one stable lane at every width. When a title does not
@@ -218,7 +224,10 @@ export function byBookRowPitch(
 /** One document-label band per declared document. The SVG painter and the
  * HTML interaction overlay both consume these rectangles, so visible labels
  * and their targets cannot drift apart as barcodes or layouts change. */
-export function trendLabelBands(stage: TrendStageSpec): readonly TrendLabelBand[] {
+export function trendLabelBands(
+  stage: TrendStageSpec,
+  titlesPainted = true,
+): readonly TrendLabelBand[] {
   if (stage.view === 'series') {
     const top = stage.plotHeight
       + barcodeBandExtent(stage.barcodeBandGap, stage.barcodeHeight);
@@ -228,6 +237,9 @@ export function trendLabelBands(stage: TrendStageSpec): readonly TrendLabelBand[
       right: seriesXFromTokenEdge(d, count, stage.plotWidth, stage.layout),
       top,
       height: TREND_SERIES_LABEL_BAND_HEIGHT,
+      focusTop: top,
+      focusHeight: TREND_SERIES_LABEL_BAND_HEIGHT,
+      titlePainted: true,
     }));
   }
   const pitch = byBookRowPitch(
@@ -244,6 +256,9 @@ export function trendLabelBands(stage: TrendStageSpec): readonly TrendLabelBand[
     right: stage.plotWidth,
     top: d * pitch + bandOffset,
     height: stage.rowGap,
+    focusTop: titlesPainted ? d * pitch + bandOffset : d * pitch,
+    focusHeight: titlesPainted ? stage.rowGap : pitch,
+    titlePainted: titlesPainted,
   }));
 }
 

@@ -1735,7 +1735,7 @@ function ScrubSurface({
         style={{
           width: plotW,
           height: labelBands.reduce(
-            (maximum, band) => Math.max(maximum, band.top + band.height),
+            (maximum, band) => Math.max(maximum, band.focusTop + band.focusHeight),
             0,
           ),
         }}
@@ -1750,7 +1750,9 @@ function ScrubSurface({
           // the row's full width. Combined labels use pan-y below.
           const targetWidth = trendView === 'series'
             ? bandWidth
-            : Math.min(bandWidth, Math.max(44, title.length * 7 + 12));
+            : band.titlePainted
+              ? Math.min(bandWidth, Math.max(44, title.length * 7 + 12))
+              : bandWidth;
           const titleTargetFromPointer = (clientX: number, clientY: number): number | null => {
             const rect = sliderRef.current?.getBoundingClientRect();
             if (!rect) return null;
@@ -1771,6 +1773,7 @@ function ScrubSurface({
               }}
               className="trend-title-control"
               data-trend-title-control={band.d}
+              data-title-painted={band.titlePainted || undefined}
               disabled={disabled}
               tabIndex={!disabled && band.d === titleFocusOrdinal ? 0 : -1}
               aria-keyshortcuts={TREND_TITLE_ARIA_KEYS}
@@ -1778,9 +1781,10 @@ function ScrubSurface({
               title={title}
               style={{
                 left: band.left,
-                top: band.top,
+                top: band.focusTop,
                 width: targetWidth,
-                height: band.height,
+                height: band.focusHeight,
+                pointerEvents: band.titlePainted ? undefined : 'none',
                 touchAction: trendView === 'series' ? 'pan-y' : 'none',
               }}
               onFocus={() => setTitleFocusOrdinal(band.d)}
@@ -2311,23 +2315,25 @@ const ByBookView = memo(function ByBookView({
         const tokens = geo.docTokenCount[d] ?? 0;
         const domain = rowDomain[d] ?? 0;
         const rowEnd = bookXFromTokenEdge(tokens, plotW, domain);
-        const titleFontSize = geometry.rowGap <= 8 ? 9 : 11;
+        const titleFontSize = geometry.rowGap >= 14 ? 11 : 9;
         const titleBandTop = labelBands[d]?.top ?? rowBase + rowPitch - geometry.rowGap;
         const titleBaseline = titleBandTop + Math.max(7, Math.min(15, geometry.rowGap - 3));
         return (
           <g key={doc}>
-            <text
-              data-trend-row-title={d}
-              x={0}
-              y={titleBaseline}
-              fill="var(--fg-muted)"
-              fontFamily="var(--font-mono)"
-              fontSize={titleFontSize}
-              pointerEvents="none"
-              aria-hidden="true"
-            >
-              {title}
-            </text>
+            {labelBands[d]?.titlePainted !== false && (
+              <text
+                data-trend-row-title={d}
+                x={0}
+                y={titleBaseline}
+                fill="var(--fg-muted)"
+                fontFamily="var(--font-mono)"
+                fontSize={titleFontSize}
+                pointerEvents="none"
+                aria-hidden="true"
+              >
+                {title}
+              </text>
+            )}
             <line
               data-trend-row-axis={d}
               x1={0}

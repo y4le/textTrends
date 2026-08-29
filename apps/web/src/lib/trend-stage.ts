@@ -149,6 +149,8 @@ export function trendStageSnapIndexes(
 export interface TrendStageGeometryInput {
   readonly plotWidth: number;
   readonly view: TrendView;
+  /** Separate-row titles may be visually withdrawn without losing focus geometry. */
+  readonly titlesPainted?: boolean;
 }
 
 export interface TrendStageGeometryModel {
@@ -214,7 +216,7 @@ export function trendStageGeometry(
     projection,
     edgeX,
     hitSpec,
-    labelBands: trendLabelBands(hitSpec),
+    labelBands: trendLabelBands(hitSpec, input.titlesPainted),
     rowDomain,
   };
 }
