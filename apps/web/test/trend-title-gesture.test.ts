@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   idleTrendTitleGesture,
+  nextTrendTitleFocus,
   resetTrendTitleGesture,
   trendTitleDown,
   trendTitleMove,
@@ -19,6 +20,17 @@ const move = (
 });
 
 describe('trend title selection gesture', () => {
+  it('moves a roving tab stop in reading order while skipping empty texts', () => {
+    const enabled = [true, false, true, true];
+    expect(nextTrendTitleFocus(0, 'next', enabled)).toBe(2);
+    expect(nextTrendTitleFocus(2, 'previous', enabled)).toBe(0);
+    expect(nextTrendTitleFocus(3, 'next', enabled)).toBe(3);
+    expect(nextTrendTitleFocus(0, 'previous', enabled)).toBe(0);
+    expect(nextTrendTitleFocus(2, 'first', enabled)).toBe(0);
+    expect(nextTrendTitleFocus(2, 'last', enabled)).toBe(3);
+    expect(nextTrendTitleFocus(0, 'first', [false, false])).toBeNull();
+  });
+
   it('commits a stationary title press as a whole-text selection', () => {
     const pressed = trendTitleDown(7, 1, 10, 10);
     expect(pressed).toMatchObject({

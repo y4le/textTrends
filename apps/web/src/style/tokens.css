@@ -6747,7 +6747,7 @@ html[data-footer-resizing='true'] * {
 
 .trend-title-controls {
   position: absolute;
-  z-index: 3;
+  z-index: 2;
   inset-block-start: 0;
   inset-inline-start: 0;
   pointer-events: none;

@@ -129,6 +129,7 @@ import {
 } from '../lib/range-clear-gesture.ts';
 import {
   idleTrendTitleGesture,
+  nextTrendTitleFocus,
   resetTrendTitleGesture,
   trendTitleDown,
   trendTitleMove,
@@ -138,6 +139,14 @@ import {
 } from '../lib/trend-title-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
+const TREND_TITLE_ARIA_KEYS = shortcutAria([
+  'trend-title-previous',
+  'trend-title-next',
+  'trend-title-first',
+  'trend-title-last',
+  'trend-title-select',
+  'trend-title-extend',
+]);
 interface ReadySeries {
   readonly intent: SeriesIntent;
   readonly trend: NumericTrend;
@@ -714,6 +723,10 @@ function ScrubSurface({
     moved: boolean;
   } | null>(null);
   const titleGesture = useRef<TrendTitleGesture>(idleTrendTitleGesture());
+  const titleKeyboardAnchor = useRef<number | null>(null);
+  const titleControlRefs = useRef(new Map<number, HTMLButtonElement>());
+  const [titleFocusOrdinal, setTitleFocusOrdinal] = useState(() =>
+    layout.tokenCounts.findIndex((count) => count > 0));
 
   // rAF-coalesced pointer scrubbing: the latest pointer sample wins the frame.
   const pointerSample = useRef<ScrubTarget | null>(null);
@@ -796,7 +809,7 @@ function ScrubSurface({
     if (!selection) {
       if (range.mode !== 'keyboard') setPreview(null);
       setRangeAnnouncement('Range selection cancelled.');
-      return;
+      return null;
     }
     setLinkedSelection(selection);
     setPreview(null);
@@ -804,6 +817,7 @@ function ScrubSurface({
     setRangeAnnouncement(
       `Range applied: ${tokenCount.toLocaleString()} token${tokenCount === 1 ? '' : 's'}.`,
     );
+    return selection;
   };
 
   const wholeTextRange = (anchor: number, head: number): RangePreview | null => {
@@ -821,6 +835,26 @@ function ScrubSurface({
     };
   };
 
+  const commitWholeTextRange = (anchor: number, head: number) => {
+    const range = wholeTextRange(anchor, head);
+    if (!range) {
+      setPreview((current) => current?.mode === 'title' ? null : current);
+      return;
+    }
+    const selection = commitPreview(range);
+    if (!selection) return;
+    const first = selection.ranges[0];
+    const last = selection.ranges.at(-1);
+    if (!first || !last) return;
+    if (selection.ranges.length === 1) {
+      setRangeAnnouncement(`Selected whole text: ${titleByDoc.get(first.doc) ?? first.doc}.`);
+      return;
+    }
+    setRangeAnnouncement(
+      `Selected ${selection.ranges.length} texts: ${titleByDoc.get(first.doc) ?? first.doc} through ${titleByDoc.get(last.doc) ?? last.doc}.`,
+    );
+  };
+
   const applyTitleEffect = (effect: TrendTitleEffect) => {
     switch (effect.kind) {
       case 'preview': {
@@ -829,9 +863,7 @@ function ScrubSurface({
         return;
       }
       case 'commit': {
-        const range = wholeTextRange(effect.anchor, effect.head);
-        if (range) commitPreview(range);
-        else setPreview((current) => current?.mode === 'title' ? null : current);
+        commitWholeTextRange(effect.anchor, effect.head);
         if (effect.dragged) {
           suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
         }
@@ -927,6 +959,11 @@ function ScrubSurface({
     trendDoubleTap.current = idleTrendDoubleTap();
     const titleReset = resetTrendTitleGesture(titleGesture.current);
     titleGesture.current = titleReset.state;
+    titleKeyboardAnchor.current = null;
+    setTitleFocusOrdinal((current) =>
+      (docTokenCount[current] ?? 0) > 0
+        ? current
+        : docTokenCount.findIndex((count) => count > 0));
     applyTitleEffect(titleReset.effect);
     applyTouchRangeEffect(reset.effect);
   }, [snapshot?.snapshot, trend, trendView]);
@@ -1707,6 +1744,13 @@ function ScrubSurface({
           const doc = docs[band.d];
           const title = doc ? titleByDoc.get(doc) ?? doc : '';
           const disabled = !doc || (docTokenCount[band.d] ?? 0) <= 0;
+          const bandWidth = Math.max(0, band.right - band.left);
+          // A by-book label is left-aligned. Keep its touch target around the
+          // rendered title rather than blocking vertical page scroll across
+          // the row's full width. Combined labels use pan-y below.
+          const targetWidth = trendView === 'series'
+            ? bandWidth
+            : Math.min(bandWidth, Math.max(44, title.length * 7 + 12));
           const titleTargetFromPointer = (clientX: number, clientY: number): number | null => {
             const rect = sliderRef.current?.getBoundingClientRect();
             if (!rect) return null;
@@ -1721,16 +1765,53 @@ function ScrubSurface({
             <button
               key={doc ?? band.d}
               type="button"
+              ref={(element) => {
+                if (element) titleControlRefs.current.set(band.d, element);
+                else titleControlRefs.current.delete(band.d);
+              }}
               className="trend-title-control"
               data-trend-title-control={band.d}
               disabled={disabled}
+              tabIndex={!disabled && band.d === titleFocusOrdinal ? 0 : -1}
+              aria-keyshortcuts={TREND_TITLE_ARIA_KEYS}
               aria-label={`Text ${band.d + 1} of ${docs.length}: ${title} — select whole text`}
               title={title}
               style={{
                 left: band.left,
                 top: band.top,
-                width: Math.max(0, band.right - band.left),
+                width: targetWidth,
                 height: band.height,
+                touchAction: trendView === 'series' ? 'pan-y' : 'none',
+              }}
+              onFocus={() => setTitleFocusOrdinal(band.d)}
+              onKeyDown={(event) => {
+                if (event.ctrlKey || event.metaKey || event.altKey) return;
+                const move = event.key === 'Home'
+                  ? 'first'
+                  : event.key === 'End'
+                    ? 'last'
+                    : event.key === 'ArrowLeft' || event.key === 'ArrowUp'
+                      ? 'previous'
+                      : event.key === 'ArrowRight' || event.key === 'ArrowDown'
+                        ? 'next'
+                        : null;
+                if (move === null) return;
+                const enabled = docTokenCount.map((count) => count > 0);
+                const next = nextTrendTitleFocus(band.d, move, enabled);
+                if (next === null) return;
+                event.preventDefault();
+                event.stopPropagation();
+                if (next !== band.d) {
+                  setTitleFocusOrdinal(next);
+                  titleControlRefs.current.get(next)?.focus();
+                }
+                if (event.shiftKey) {
+                  if (next === band.d) return;
+                  titleKeyboardAnchor.current ??= band.d;
+                  commitWholeTextRange(titleKeyboardAnchor.current, next);
+                } else {
+                  titleKeyboardAnchor.current = null;
+                }
               }}
               onClick={(event) => {
                 event.preventDefault();
@@ -1738,8 +1819,8 @@ function ScrubSurface({
                 // Direct pointers commit on pointerup. A zero-detail click is
                 // keyboard or assistive-technology activation.
                 if (event.detail === 0) {
-                  const range = wholeTextRange(band.d, band.d);
-                  if (range) commitPreview(range);
+                  titleKeyboardAnchor.current = null;
+                  commitWholeTextRange(band.d, band.d);
                 }
               }}
               onDoubleClick={(event) => {
@@ -1756,6 +1837,8 @@ function ScrubSurface({
                 pointerTap.current = null;
                 pointerDrag.current = null;
                 rangeHandleDrag.current = null;
+                titleKeyboardAnchor.current = null;
+                setTitleFocusOrdinal(band.d);
                 setPreview(null);
                 const transition = trendTitleDown(
                   event.pointerId,

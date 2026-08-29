@@ -50,6 +50,12 @@ export type ShortcutId =
   | 'trend-selection-commit'
   | 'trend-selection-cancel'
   | 'trend-toggle-view'
+  | 'trend-title-previous'
+  | 'trend-title-next'
+  | 'trend-title-first'
+  | 'trend-title-last'
+  | 'trend-title-select'
+  | 'trend-title-extend'
   | 'footer-page-previous'
   | 'footer-page-next'
   | 'footer-token-previous'
@@ -474,6 +480,53 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     helpContexts: ['workbench'],
     label: 'Cycle combined / equal / to scale views',
     strokes: [{ key: 'v' }],
+  },
+  {
+    id: 'trend-title-previous',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Previous selectable text title',
+    strokes: [{ key: 'ArrowLeft' }, { key: 'ArrowUp' }],
+  },
+  {
+    id: 'trend-title-next',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Next selectable text title',
+    strokes: [{ key: 'ArrowRight' }, { key: 'ArrowDown' }],
+  },
+  {
+    id: 'trend-title-first',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'First selectable text title',
+    strokes: [{ key: 'Home' }],
+  },
+  {
+    id: 'trend-title-last',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Last selectable text title',
+    strokes: [{ key: 'End' }],
+  },
+  {
+    id: 'trend-title-select',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Select the whole focused text',
+    strokes: [{ key: 'Enter' }, { key: ' ' }],
+  },
+  {
+    id: 'trend-title-extend',
+    group: 'Trends',
+    helpContexts: ['workbench'],
+    label: 'Immediately select through the previous or next text title',
+    strokes: [
+      { key: 'ArrowLeft', shift: true },
+      { key: 'ArrowRight', shift: true },
+      { key: 'ArrowUp', shift: true },
+      { key: 'ArrowDown', shift: true },
+    ],
   },
   {
     id: 'footer-page-previous',

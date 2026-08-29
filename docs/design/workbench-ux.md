@@ -302,6 +302,8 @@ The trend plate preserves these rules:
 - color plus dash plus text identity, never color alone;
 - direct labels where space permits;
 - dispersion rows embedded at the bottom of the plot;
+- whole-text selection by activating a title, plus inclusive title-to-title
+  press-and-drag selection in either reading-order direction;
 - linked-range selection by mouse drag or keyboard, plus two-touch selection
   and a press-hold-then-tap alternative on touch screens; and
 - exact graph values through the method/detail surfaces.
@@ -649,6 +651,16 @@ activate a destination until the link is invoked. With at least two active
 texts, `v` on the Trends scrubber cycles the combined, equal-row, and shared-
 token-scale presentations without issuing analysis, alongside its existing
 Arrow, Page, Home/End, and range-selection keys.
+
+The Trends title group contributes one Tab stop regardless of corpus size.
+Left/Up and Right/Down move to the previous and next selectable title without
+wrapping; Home/End move to the first and last, and titles for zero-token texts
+are skipped. Enter or Space selects the focused text in full. Shift plus a
+directional Arrow establishes the focused title as an anchor and immediately
+applies an inclusive whole-text range through each newly focused title. This
+immediate title-range contract is deliberate: unlike the token-precise
+scrubber's preview-then-Enter model, every title is already a complete,
+discrete selection endpoint.
 
 On Trends, reading-footer shortcuts are also page fallbacks; the user does not
 need to focus the footer before reading. A focused local control still wins:

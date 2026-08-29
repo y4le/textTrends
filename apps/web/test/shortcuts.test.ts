@@ -207,6 +207,22 @@ describe('shortcut registry', () => {
     expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'show-debug')?.keys).toEqual(['Shift + D']);
     expect(trends.flatMap((section) => section.entries).find((entry) =>
+      entry.id === 'trend-title-select')).toEqual({
+        id: 'trend-title-select',
+        label: 'Select the whole focused text',
+        keys: ['Enter', 'Space'],
+      });
+    expect(shortcutAria([
+      'trend-title-previous',
+      'trend-title-next',
+      'trend-title-first',
+      'trend-title-last',
+      'trend-title-select',
+      'trend-title-extend',
+    ])).toBe(
+      'ArrowLeft ArrowUp ArrowRight ArrowDown Home End Enter Space Shift+ArrowLeft Shift+ArrowRight Shift+ArrowUp Shift+ArrowDown',
+    );
+    expect(trends.flatMap((section) => section.entries).find((entry) =>
       entry.id === 'find-previous')?.keys).toEqual([
         'p',
         'Ctrl + Shift + G',

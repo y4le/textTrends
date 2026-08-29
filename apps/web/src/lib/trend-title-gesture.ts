@@ -1,5 +1,30 @@
 export const TREND_TITLE_DRAG_PX = 4;
 
+export type TrendTitleFocusMove = 'previous' | 'next' | 'first' | 'last';
+
+/** Resolve one roving-tabstop move while skipping texts that cannot be
+ * selected. Focus does not wrap: reading-order boundaries stay meaningful. */
+export function nextTrendTitleFocus(
+  current: number,
+  move: TrendTitleFocusMove,
+  enabled: readonly boolean[],
+): number | null {
+  if (enabled.length === 0) return null;
+  if (move === 'first') {
+    const first = enabled.findIndex(Boolean);
+    return first >= 0 ? first : null;
+  }
+  if (move === 'last') {
+    const last = enabled.findLastIndex(Boolean);
+    return last >= 0 ? last : null;
+  }
+  const delta = move === 'previous' ? -1 : 1;
+  for (let ordinal = current + delta; ordinal >= 0 && ordinal < enabled.length; ordinal += delta) {
+    if (enabled[ordinal]) return ordinal;
+  }
+  return enabled[current] ? current : null;
+}
+
 export type TrendTitleGesture =
   | { readonly phase: 'idle' }
   | {
