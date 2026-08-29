@@ -3,7 +3,6 @@ import type { SelectionPoint } from './selection.ts';
 export const FOOTER_RANGE_DOUBLE_PRESS_MS = 500;
 export const FOOTER_RANGE_DOUBLE_PRESS_SLOP_PX = 6;
 export const FOOTER_RANGE_DRAG_PX = 4;
-export const FOOTER_RANGE_SUPPRESSION_MS = 500;
 
 export type FooterStripZone = 'graph' | 'barcode' | 'outside';
 

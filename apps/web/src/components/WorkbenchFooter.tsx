@@ -92,7 +92,6 @@ import {
   type FooterTouchTransition,
 } from '../lib/footer-touch-gesture.ts';
 import {
-  FOOTER_RANGE_SUPPRESSION_MS,
   footerRangeDown,
   footerRangeMove,
   footerRangeUp,
@@ -103,6 +102,11 @@ import {
   type FooterRangeEffect,
   type FooterRangeGesture,
 } from '../lib/footer-range-gesture.ts';
+import {
+  RANGE_CLEAR_SUPPRESSION_MS,
+  SYNTHESIZED_CLICK_WINDOW_MS,
+  rangeClearDecision,
+} from '../lib/range-clear-gesture.ts';
 
 const BOUNDARY_GAP = 1;
 const FOOTER_HOVER_DWELL_MS = 120;
@@ -882,23 +886,31 @@ function FooterInteractive({
       data-status={showStatus || undefined}
       data-shortcut-context="footer"
       onDoubleClick={(event) => {
-        if (Date.now() - lastDirectPointerAt.current < 700) return;
-        if (Date.now() < suppressDoubleClickUntil.current) {
+        const now = Date.now();
+        const point = localPoint(event);
+        if (!point || snapshot === null) return;
+        const decision = rangeClearDecision({
+          zone: stripZoneAt(point.y),
+          interactiveTarget: event.target instanceof Element
+            && event.target.closest('button, a, [role="button"]') !== null,
+          now,
+          suppressedUntil: suppressDoubleClickUntil.current,
+          lastDirectPointerAt: lastDirectPointerAt.current,
+        });
+        if (decision.kind === 'ignore' && decision.reason === 'suppressed') {
           event.preventDefault();
           return;
         }
-        if ((event.target as Element).closest('button, a')) return;
-        const point = localPoint(event);
-        if (!point || snapshot === null) return;
-        if (stripZoneAt(point.y) === 'graph') {
+        if (decision.kind === 'clear') {
           event.preventDefault();
           footerRange.current = idleFooterRangeGesture();
           setRangePreview(null);
           setLinkedSelection(null);
           setRangeAnnouncement('Range cleared.');
-          suppressDoubleClickUntil.current = Date.now() + FOOTER_RANGE_SUPPRESSION_MS;
+          suppressDoubleClickUntil.current = now + RANGE_CLEAR_SUPPRESSION_MS;
           return;
         }
+        if (decision.reason !== 'not-graph') return;
         const captured = captureBarcodeAt(
           point.x,
           point.y,
@@ -1114,13 +1126,14 @@ function FooterInteractive({
             clientY: event.clientY,
             at: now,
             suppressed: now < suppressDoubleClickUntil.current,
-            recentDirectPointer: now - lastDirectPointerAt.current < 700,
+            recentDirectPointer:
+              now - lastDirectPointerAt.current < SYNTHESIZED_CLICK_WINDOW_MS,
           });
           footerRange.current = range.state;
           event.currentTarget.setPointerCapture(event.pointerId);
           if (range.effect.kind === 'clear') {
             pointerTap.current = null;
-            suppressDoubleClickUntil.current = now + FOOTER_RANGE_SUPPRESSION_MS;
+            suppressDoubleClickUntil.current = now + RANGE_CLEAR_SUPPRESSION_MS;
             applyFooterRangeEffect(range.effect);
             event.preventDefault();
             return;
@@ -1137,7 +1150,7 @@ function FooterInteractive({
             zone: zone === 'graph' ? 'graph' : 'barcode',
             primeRange: zone === 'graph'
               && now >= suppressDoubleClickUntil.current
-              && now - lastDirectPointerAt.current >= 700,
+              && now - lastDirectPointerAt.current >= SYNTHESIZED_CLICK_WINDOW_MS,
             moved: false,
             mode: 'tap',
             offsetPx: 0,
@@ -1166,7 +1179,7 @@ function FooterInteractive({
             if (event.currentTarget.hasPointerCapture(event.pointerId)) {
               event.currentTarget.releasePointerCapture(event.pointerId);
             }
-            suppressDoubleClickUntil.current = Date.now() + FOOTER_RANGE_SUPPRESSION_MS;
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
             applyFooterRangeEffect(transition.effect);
             event.preventDefault();
             return;
@@ -1180,7 +1193,7 @@ function FooterInteractive({
           if (tap.mode === 'shuttle') {
             footerRange.current = idleFooterRangeGesture();
             stopShuttle();
-            suppressDoubleClickUntil.current = Date.now() + 500;
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
             event.preventDefault();
             return;
           }

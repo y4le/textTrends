@@ -122,6 +122,10 @@ import {
   trendDoubleTapUp,
   type TrendDoubleTapState,
 } from '../lib/trend-double-tap.ts';
+import {
+  RANGE_CLEAR_SUPPRESSION_MS,
+  rangeClearDecision,
+} from '../lib/range-clear-gesture.ts';
 
 const BOUNDARY_GAP = 2; // px of visual silence at each book boundary
 interface ReadySeries {
@@ -687,6 +691,8 @@ function ScrubSurface({
     readonly timer: ReturnType<typeof setTimeout>;
   } | null>(null);
   const releasedTouchPointers = useRef(new Set<number>());
+  const suppressDoubleClickUntil = useRef(0);
+  const lastDirectPointerAt = useRef(0);
   const rangeHandleDrag = useRef<{
     readonly pointerId: number;
     readonly edge: 'start' | 'end';
@@ -856,12 +862,14 @@ function ScrubSurface({
   };
 
   useEffect(() => {
+    suppressDoubleClickUntil.current = 0;
+    lastDirectPointerAt.current = 0;
     clearTouchHold();
     const reset = resetTouchRangeGesture(touchGesture.current);
     touchGesture.current = reset.state;
     trendDoubleTap.current = idleTrendDoubleTap();
     applyTouchRangeEffect(reset.effect);
-  }, [snapshot?.snapshot, trend]);
+  }, [snapshot?.snapshot, trend, trendView]);
 
   const pointerDrag = useRef<{
     pointerId: number;
@@ -1165,6 +1173,37 @@ function ScrubSurface({
         onContextMenu={(event) => {
           if (touchGesture.current.phase !== 'idle') event.preventDefault();
         }}
+        onDoubleClick={(event) => {
+          const rect = event.currentTarget.getBoundingClientRect();
+          const hit = trendStageHit(
+            event.clientX - rect.left,
+            event.clientY - rect.top,
+            hitSpec,
+            'extend',
+          );
+          const decision = rangeClearDecision({
+            zone: hit?.zone === 'plot'
+              ? 'graph'
+              : hit?.zone === 'barcode' ? 'barcode' : 'outside',
+            interactiveTarget: event.target instanceof Element
+              && event.target.closest('button, a, [role="button"]') !== null,
+            now: Date.now(),
+            suppressedUntil: suppressDoubleClickUntil.current,
+            lastDirectPointerAt: lastDirectPointerAt.current,
+          });
+          if (decision.kind !== 'clear') return;
+          event.preventDefault();
+          clearTouchHold();
+          const reset = resetTouchRangeGesture(touchGesture.current);
+          touchGesture.current = reset.state;
+          applyTouchRangeEffect(reset.effect);
+          const cancelledPreview = preview !== null;
+          setPreview(null);
+          setLinkedSelection(null);
+          if (linkedSelection !== null) setRangeAnnouncement('Range cleared.');
+          else if (cancelledPreview) setRangeAnnouncement('Range selection cancelled.');
+          suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
+        }}
         onPointerMove={(e) => {
           const rect = e.currentTarget.getBoundingClientRect();
           const px = e.clientX - rect.left;
@@ -1227,6 +1266,7 @@ function ScrubSurface({
           const rect = e.currentTarget.getBoundingClientRect();
           const precise = pointerIntentFor(e.pointerType) === 'precise';
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             // Sequential taps are recognized independently from the
             // concurrent two-contact range machine. Both taps must land in
             // the plot lane; barcodes, gaps, and range handles remain inert.
@@ -1249,6 +1289,7 @@ function ScrubSurface({
             });
             trendDoubleTap.current = transition.state;
             if (transition.effect.kind === 'clear') {
+              suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
               clearTouchHold();
               const cancelledPreview = preview !== null;
               setPreview(null);
@@ -1343,6 +1384,7 @@ function ScrubSurface({
         }}
         onPointerUp={(e) => {
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             trendDoubleTap.current = trendDoubleTapUp(
               trendDoubleTap.current,
               e.pointerId,
@@ -1410,6 +1452,7 @@ function ScrubSurface({
             e.currentTarget.releasePointerCapture(e.pointerId);
           }
           if (drag.active) {
+            suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
             commitPreview({ mode: 'pointer', origin: drag.origin, head: drag.head });
           } else {
             setScrub(drag.origin);
@@ -1417,6 +1460,7 @@ function ScrubSurface({
         }}
         onPointerCancel={(e) => {
           if (e.pointerType === 'touch') {
+            lastDirectPointerAt.current = Date.now();
             trendDoubleTap.current = trendDoubleTapCancel(
               trendDoubleTap.current,
               e.pointerId,
@@ -1538,6 +1582,7 @@ function ScrubSurface({
                   event.currentTarget.releasePointerCapture(event.pointerId);
                 }
                 if (drag.moved) {
+                  suppressDoubleClickUntil.current = Date.now() + RANGE_CLEAR_SUPPRESSION_MS;
                   commitPreview({ mode: 'handle', origin: drag.fixed, head: drag.head });
                 } else {
                   setPreview(null);

@@ -311,7 +311,8 @@ an exact barcode row snap only within the specified pixel tolerance; touch
 stays on its direct raw position. This is decided per pointer event, so an iPad
 trackpad retains precise hover and snapping while the same device keeps its
 large touch controls. Density cells never pretend to be exact targets.
-Two stationary touch taps within the main graph lane clear a linked range.
+Two stationary touch taps, or a mouse double-click, within the main graph lane
+clear a linked range.
 Barcode rows, range handles, gaps, an active long-press anchor, and concurrent
 two-finger range selection do not participate in that gesture. The first tap
 retains ordinary reading feedback; the recognizing second tap is consumed.
@@ -332,10 +333,11 @@ the next is in flight, and saves no text or range.
 The passage's native horizontal scrollport covers both the source line and its
 book/token status line; the status is a pointer-transparent visual readout, so
 wheel and touch gestures anywhere in that text area follow one scroll path.
-On the footer sparkline only, a stationary double-click clears the linked
-range; holding and dragging the second press replaces it with a newly brushed
-range. A plain graph drag remains the reading shuttle. Barcode and passage or
-status double-clicks retain their exact navigation and Reader actions.
+On either analytical graph, a stationary double-click clears the linked range.
+In the footer, holding and dragging the second press replaces it with a newly
+brushed range. A plain footer graph drag remains the reading shuttle. Barcode
+and passage or status double-clicks retain their exact navigation and Reader
+actions.
 Absolute hover continues to seek the shared corpus
 axis. A mouse press-and-drag instead acts as an explicit reading
 shuttle: horizontal distance from the press point controls a bounded token

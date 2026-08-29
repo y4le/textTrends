@@ -25,8 +25,33 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await chart.press('Enter');
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
-  // The main chart no longer owns this double-click gesture.
+  // The Trends graph and footer graph share the clear gesture.
   await chart.dblclick({ position: { x: 100, y: 8 } });
+  await expect(page.getByTestId('linked-selection')).toHaveCount(0);
+  await expect(chart.locator('..').getByRole('status')).toHaveText('Range cleared.');
+  await chart.press('s');
+  await chart.press('ArrowRight');
+  await chart.press('Enter');
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+
+  // A drag commit suppresses its trailing native double-click so the newly
+  // authored range cannot immediately erase itself.
+  await page.waitForTimeout(600);
+  const chartBox = await chart.boundingBox();
+  if (!chartBox) throw new Error('Trends graph geometry is unavailable');
+  const chartDragY = chartBox.y + 8;
+  const chartDragStart = chartBox.x + chartBox.width * 0.2;
+  const chartDragEnd = chartDragStart + 12;
+  await page.mouse.move(chartDragStart, chartDragY);
+  await page.mouse.down();
+  await page.mouse.move(chartDragEnd, chartDragY, { steps: 4 });
+  await page.mouse.up();
+  await expect(page.getByTestId('linked-selection')).toBeVisible();
+  await chart.dispatchEvent('dblclick', {
+    clientX: chartDragEnd,
+    clientY: chartDragY,
+    detail: 2,
+  });
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
   const footer = page.getByRole('complementary', { name: 'Reading position' });
