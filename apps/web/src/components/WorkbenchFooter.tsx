@@ -821,6 +821,7 @@ function FooterInteractive({
         doc,
         token: current.token,
         from: 'footer',
+        anchor: 'position',
       }, keyboardReturnFocusId(event.target));
     }
   };
@@ -940,6 +941,10 @@ function FooterInteractive({
           doc: target.doc,
           token: target.token,
           from: 'footer',
+          anchor: resolution?.kind === 'activation'
+            && resolution.activation.kind === 'occurrence'
+            ? 'occurrence'
+            : 'position',
         }, 'corpus-footer-position');
       }}
     >

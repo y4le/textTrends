@@ -155,6 +155,7 @@ export function ReadingDestinations({
                         doc: card.doc,
                         token: card.anchorToken,
                         from: 'occurrence',
+                        anchor: 'occurrence',
                       }, readId)}
                     >
                       read from here

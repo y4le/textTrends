@@ -47,6 +47,11 @@ import {
   pacingFromLegacyWpm,
   saveRsvpPacing,
 } from './rsvp-storage.ts';
+import {
+  loadAtlasNormalization,
+  saveAtlasNormalization,
+} from './reader-atlas-storage.ts';
+import { DEFAULT_ATLAS_NORMALIZATION } from './reader-view.ts';
 
 // Consume the one-shot parameter before createAppRuntime performs any route
 // replace. Otherwise the route layer correctly preserves this foreign key and
@@ -58,6 +63,8 @@ const client = new WorkerClient(trace);
 const matchesStorage = browserSessionStorage(window);
 const restoredMatchesColumns = loadMatchesColumnSettings(matchesStorage);
 const rsvpStorage = browserLocalStorage(window);
+const restoredAtlasNormalization = loadAtlasNormalization(rsvpStorage)
+  ?? DEFAULT_ATLAS_NORMALIZATION;
 const hadRsvpPacingV3 = hasRsvpPacingV3(rsvpStorage);
 const storedRsvpPacing = loadRsvpPacing(rsvpStorage);
 const legacyRsvpWpm = storedRsvpPacing === null ? loadRsvpWpm(matchesStorage) : null;
@@ -73,6 +80,7 @@ const runtime = createAppRuntime(client, {
     ? {}
     : { matchesColumns: restoredMatchesColumns }),
   rsvpPacing: restoredRsvpPacing,
+  atlasNormalization: restoredAtlasNormalization,
 });
 
 /** The single React-facing store. */
@@ -142,6 +150,12 @@ const unsubscribeRsvpPacing = runtime.useApp.subscribe((state) => {
   if (serialized === savedRsvpPacing) return;
   savedRsvpPacing = serialized;
   saveRsvpPacing(rsvpStorage, pacing);
+});
+let savedAtlasNormalization = restoredAtlasNormalization;
+const unsubscribeAtlasNormalization = runtime.useApp.subscribe((state) => {
+  if (state.atlasNormalization === savedAtlasNormalization) return;
+  savedAtlasNormalization = state.atlasNormalization;
+  saveAtlasNormalization(rsvpStorage, savedAtlasNormalization);
 });
 
 /** Built-in byte acquisition: fetch a bundled document by its corpus-qualified
@@ -364,6 +378,7 @@ export async function shutdownAppForReload(options: { readonly preserveWorkspace
       unsubscribeResumeState();
       unsubscribeMatchesColumns();
       unsubscribeRsvpPacing();
+      unsubscribeAtlasNormalization();
       resumeMonitor.dispose();
       runtime.dispose();
     } finally {

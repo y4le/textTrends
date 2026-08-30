@@ -322,6 +322,7 @@ export function FooterPassage({
       doc: scrub.doc,
       token: scrub.token,
       from: 'footer',
+      anchor: 'position',
     }, 'footer-passage-node');
   };
   const line = (

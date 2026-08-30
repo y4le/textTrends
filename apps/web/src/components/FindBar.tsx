@@ -93,6 +93,7 @@ export function FindBar({
         doc: find.state.hit.doc,
         token: find.state.hit.token,
         from: 'occurrence',
+        anchor: 'occurrence',
       },
       FIND_RESULT_ID,
     );

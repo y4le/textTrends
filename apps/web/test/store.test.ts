@@ -3697,7 +3697,7 @@ describe('reading position history intent', () => {
       { kind: 'jump', origin: 'seek' },
     );
     runtime.useApp.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 1_000, from: 'kwic',
+      snapshot: 's1', doc: 'a', token: 1_000, from: 'kwic', anchor: 'occurrence',
     });
     const browserEntries = history.entries.length;
     const layerId = runtime.useApp.getState().layers.at(-1)?.id;
@@ -3721,7 +3721,7 @@ describe('reading position history intent', () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 100, from: 'kwic',
+      snapshot: 's1', doc: 'a', token: 100, from: 'kwic', anchor: 'occurrence',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 100 });
     expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
@@ -3729,7 +3729,7 @@ describe('reading position history intent', () => {
     });
 
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 1_000, from: 'footer',
+      snapshot: 's1', doc: 'a', token: 1_000, from: 'footer', anchor: 'position',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 1_000 });
     expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
@@ -3737,7 +3737,7 @@ describe('reading position history intent', () => {
     });
 
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 2_000, from: 'occurrence',
+      snapshot: 's1', doc: 'a', token: 2_000, from: 'occurrence', anchor: 'occurrence',
     });
     expect(f.store.getState().scrub).toEqual({ doc: 'a', token: 2_000 });
     expect(f.store.getState().positionHistory.entries.at(-1)).toMatchObject({
@@ -4220,7 +4220,9 @@ describe('temporary corpus Find', () => {
     f.store.setState({ corpusTokenCounts: new Map([['a', 100], ['b', 100]]) });
     f.store.getState().quickAdd('holmes, watson');
     f.store.getState().setScrub({ doc: 'a', token: 10 });
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 10, from: 'footer' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 10, from: 'footer', anchor: 'position',
+    });
     const durableSeries = f.store.getState().series;
     const durableIds = durableSeries.map((series) => series.id);
     const durableTrends = f.store.getState().trends;
@@ -4511,9 +4513,12 @@ describe('temporary corpus Find', () => {
     f.store.getState().submitFind('holmes');
     const pending = f.occurrenceSteps().at(-1)!;
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 10, from: 'footer',
+      snapshot: 's1', doc: 'a', token: 10, from: 'footer', anchor: 'position',
     });
-    const readerCount = f.readers().length;
+    f.store.getState().setReaderScale('atlas');
+    const readerCount = f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length;
 
     pending.resolve(resultFor(pending, {
       doc: 'b', token: 5, spanTokens: 1, members: [0],
@@ -4521,10 +4526,17 @@ describe('temporary corpus Find', () => {
     await flush();
 
     expect(f.store.getState().readerPlace).toMatchObject({
-      snapshot: 's1', doc: 'b', from: 'occurrence', cursor: { kind: 'around', token: 5 },
+      snapshot: 's1',
+      doc: 'b',
+      from: 'occurrence',
+      anchor: 'occurrence',
+      cursor: { kind: 'around', token: 5 },
     });
+    expect(f.store.getState().readerScale).toBe('atlas');
     expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
-    expect(f.readers()).toHaveLength(readerCount + 1);
+    expect(f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length).toBe(readerCount);
     expect(f.store.getState().interaction).toMatchObject({
       kind: 'find', find: { state: { status: 'ready' } },
     });
@@ -4646,11 +4658,13 @@ describe('exact any-term occurrence navigation', () => {
     expect(occurrenceNavigationText(null)).toBe('');
   });
 
-  it('replaces an open Reader around the exact hit without stacking another layer', async () => {
+  it('retargets Atlas around an exact hit without a prose query or another layer', async () => {
     const f = harness();
     f.port.publishSnapshot('g1', 's1', ['a', 'b']);
     f.store.getState().quickAdd('holmes');
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 3, from: 'kwic' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 3, from: 'kwic', anchor: 'occurrence',
+    });
     const initialReader = f.readers().at(-1)!;
     const initialPage = fakeReaderPage(0, 6, 10, 'a');
     if (initialPage.op !== 'reader-page') throw new Error('expected reader-page');
@@ -4662,6 +4676,10 @@ describe('exact any-term occurrence navigation', () => {
       },
     });
     await flush();
+    f.store.getState().setReaderScale('atlas');
+    const readerCount = f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length;
 
     f.store.getState().stepOccurrence(1);
     const request = f.occurrenceSteps().at(-1)!;
@@ -4674,10 +4692,15 @@ describe('exact any-term occurrence navigation', () => {
 
     expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
     expect(f.store.getState().readerPlace).toMatchObject({
-      doc: 'b', from: 'occurrence', cursor: { kind: 'around', token: 2 },
+      doc: 'b',
+      from: 'occurrence',
+      anchor: 'occurrence',
+      cursor: { kind: 'around', token: 2 },
     });
-    expect((f.readers().at(-1)!.query as { request: { doc: string; cursor: unknown } }).request)
-      .toMatchObject({ doc: 'b', cursor: { kind: 'around', token: 2 } });
+    expect(f.store.getState().readerScale).toBe('atlas');
+    expect(f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length).toBe(readerCount);
   });
 
   it('semantic edits cancel the lane and prevent a late hit from moving the reader', async () => {
@@ -4769,7 +4792,7 @@ describe('RSVP interaction ownership', () => {
   ): Promise<void> {
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: anchorToken, from: 'occurrence',
+      snapshot: 's1', doc: 'a', token: anchorToken, from: 'occurrence', anchor: 'occurrence',
     });
     latestReaderSource(f).resolve(fakeReaderPage(2, 8, 12, 'a', anchorToken));
     await flush();
@@ -4791,7 +4814,7 @@ describe('RSVP interaction ownership', () => {
     });
     f.port.publishSnapshot('g1', 's1', ['a']);
     f.store.getState().openReader({
-      snapshot: 's1', doc: 'a', token: 4, from: 'occurrence',
+      snapshot: 's1', doc: 'a', token: 4, from: 'occurrence', anchor: 'occurrence',
     });
     f.store.getState().enterRsvp(true);
     expect(f.store.getState().interaction).toEqual({ kind: 'none' });
@@ -5058,6 +5081,105 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     return f;
   };
 
+  it('keeps scale transient, makes Atlas query-free, and restores resident Read', async () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 3, from: 'footer', anchor: 'position',
+    });
+    const pending = f.readers().at(-1)!;
+    const beforeAtlas = f.readers().length;
+
+    f.store.getState().setReaderScale('atlas');
+    expect(pending.cancelled).toBe(true);
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'atlas',
+      readerPlace: { anchor: 'position' },
+    });
+    f.store.getState().setAtlasNormalization('to-scale');
+    f.store.getState().runReader();
+    expect(f.store.getState().atlasNormalization).toBe('to-scale');
+    expect(f.readers()).toHaveLength(beforeAtlas);
+
+    f.store.getState().setReaderScale('read');
+    expect(f.readers()).toHaveLength(beforeAtlas + 1);
+    f.readers().at(-1)!.resolve(fakeReaderPage(0, 6, 12, 'a', 3));
+    await flush();
+    const residentCount = f.readers().length;
+    f.store.getState().setReaderScale('atlas');
+    const group = f.store.getState().notebook.groups[0]!;
+    f.store.getState().renameGroup(group.id, 'Detective');
+    f.store.getState().setReaderScale('read');
+    expect(f.readers()).toHaveLength(residentCount);
+
+    f.store.getState().setReaderScale('atlas');
+    f.store.getState().enterFind();
+    f.store.getState().submitFind('watson');
+    const beforeFindReturn = f.readers().length;
+    f.store.getState().setReaderScale('read');
+    const find = f.store.getState().interaction;
+    if (find.kind !== 'find' || find.find === null) throw new Error('Find did not start');
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'read',
+      readerPlace: { anchor: 'position' },
+    });
+    expect(f.readers()).toHaveLength(beforeFindReturn + 1);
+    expect((f.readers().at(-1)!.query as { tracks: { seriesId: string }[] }).tracks)
+      .toEqual([{ seriesId: find.find.query.seriesId, group: find.find.query.group }]);
+
+    f.store.getState().setReaderScale('atlas');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 4, from: 'kwic', anchor: 'occurrence',
+    });
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'read',
+      readerPlace: { anchor: 'occurrence' },
+    });
+    f.runtime.dispose();
+  });
+
+  it('does not expose Atlas for one text', () => {
+    const f = setup();
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 3, from: 'kwic', anchor: 'occurrence',
+    });
+    f.store.getState().setReaderScale('atlas');
+    expect(f.store.getState().readerScale).toBe('read');
+    f.runtime.dispose();
+  });
+
+  it('preserves Atlas while position history retargets the existing layer', () => {
+    const f = harness();
+    f.port.publishSnapshot('g1', 's1', ['a', 'b']);
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 10, from: 'footer', anchor: 'position',
+    });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 200, from: 'kwic', anchor: 'occurrence',
+    });
+    f.store.getState().setReaderScale('atlas');
+    const readerCount = f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length;
+
+    expect(f.store.getState().stepPositionHistory(-1)).toEqual({ doc: 'a', token: 10 });
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'atlas',
+      readerPlace: {
+        doc: 'a',
+        anchor: 'position',
+        cursor: { kind: 'around', token: 10 },
+      },
+    });
+    expect(f.store.getState().layers.filter((layer) => layer.kind === 'reader')).toHaveLength(1);
+    expect(f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length).toBe(readerCount);
+    f.runtime.dispose();
+  });
+
   it('keeps the full reader query-free and bound to one restorable layer', async () => {
     const q = fakeQueryClient();
     const history = new FakeHistoryPort('/textTrends/?p=trends');
@@ -5074,6 +5196,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       doc: 'a',
       token: 1,
       from: 'kwic',
+      anchor: 'occurrence',
     });
     const request = q.readers().at(-1)!;
     request.resolve(fakeReaderPage(0, 4));
@@ -5116,6 +5239,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       doc: 'a',
       token: 2,
       from: 'barcode',
+      anchor: 'occurrence',
     });
     runtime.dispose();
   });
@@ -5133,7 +5257,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     const store = runtime.useApp;
 
     store.getState().openReader(
-      { snapshot: 's1', doc: 'a', token: 1, from: 'kwic' },
+      { snapshot: 's1', doc: 'a', token: 1, from: 'kwic', anchor: 'occurrence' },
       'reader-origin',
     );
     expect(store.getState()).toMatchObject({
@@ -5145,7 +5269,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     const firstLayer = store.getState().layers[0]!.id;
 
     store.getState().openReader(
-      { snapshot: 's1', doc: 'a', token: 2, from: 'barcode' },
+      { snapshot: 's1', doc: 'a', token: 2, from: 'barcode', anchor: 'occurrence' },
       'second-reader-origin',
     );
     expect(history.entries).toHaveLength(2);
@@ -5191,6 +5315,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       doc: 'a',
       token: 1,
       from: 'kwic',
+      anchor: 'occurrence',
     });
     const backs = history.backs;
     const replaces = history.replaces;
@@ -5213,6 +5338,7 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       doc: 'a',
       token: 3,
       from: 'kwic',
+      anchor: 'occurrence',
     });
     const request = f.readers().at(-1)!;
     const query = request.query as {
@@ -5242,7 +5368,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('uses fitted visible boundaries and remembers exact previous pages at one geometry', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 40, from: 'barcode', anchor: 'occurrence',
+    });
     f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
     await flush();
     f.store.getState().setReaderVisibleRange({
@@ -5294,7 +5422,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       corpusTokenCounts: new Map([['a', 4], ['empty', 0], ['b', 6]]),
     });
     f.store.getState().quickAdd('holmes');
-    f.store.getState().openReader({ snapshot: 's1', doc: 'b', token: 2, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'b', token: 2, from: 'barcode', anchor: 'occurrence',
+    });
     f.readers().at(-1)!.resolve(fakeReaderPage(0, 6, 6, 'b'));
     await flush();
     f.store.getState().setReaderVisibleRange({
@@ -5337,7 +5467,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('can refill a saturated fitted page only from its authenticated visible start', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 40, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 40, from: 'barcode', anchor: 'occurrence',
+    });
     f.readers().at(-1)!.resolve(fakeReaderPage(0, 200, 500));
     await flush();
     f.store.getState().setReaderVisibleRange({
@@ -5354,7 +5486,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('rapid cursor replacements cancel and reject an older page that arrives last', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 5, from: 'barcode', anchor: 'occurrence',
+    });
     const around = f.readers().at(-1)!;
     around.resolve(fakeReaderPage(4, 8));
     await flush();
@@ -5384,7 +5518,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('admits explicit first/last-book cursors only against a ready authenticated page', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 5, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 5, from: 'barcode', anchor: 'occurrence',
+    });
     const pendingCount = f.readers().length;
     f.store.getState().navigateReader({ kind: 'from', token: 0 });
     expect(f.readers()).toHaveLength(pendingCount);
@@ -5411,7 +5547,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
   it('rename is presentation-only; semantic and active-track changes reissue highlights', () => {
     const f = setup();
     const group = f.store.getState().notebook.groups[0]!;
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'kwic' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 1, from: 'kwic', anchor: 'occurrence',
+    });
     const first = f.readers().at(-1)!;
     const count = f.readers().length;
 
@@ -5440,7 +5578,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('close/snapshot replacement/dispose cancel the lane and late pages cannot reopen it', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'barcode' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 1, from: 'barcode', anchor: 'occurrence',
+    });
     const closed = f.readers().at(-1)!;
     f.store.getState().closeReader();
     expect(closed.cancelled).toBe(true);
@@ -5449,13 +5589,17 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     expect(f.store.getState().readerPlace).toBeNull();
     expect(f.store.getState().readerPage).toBeNull();
 
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 2, from: 'kwic' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 2, from: 'kwic', anchor: 'occurrence',
+    });
     const replaced = f.readers().at(-1)!;
     f.port.publishSnapshot('g1', 's2', ['a']);
     expect(replaced.cancelled).toBe(true);
     expect(f.store.getState().readerPlace).toBeNull();
 
-    f.store.getState().openReader({ snapshot: 's2', doc: 'a', token: 2, from: 'kwic' });
+    f.store.getState().openReader({
+      snapshot: 's2', doc: 'a', token: 2, from: 'kwic', anchor: 'occurrence',
+    });
     const disposed = f.readers().at(-1)!;
     f.runtime.dispose();
     expect(disposed.cancelled).toBe(true);
@@ -5471,7 +5615,9 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
 
   it('surfaces an impossible doc mismatch as an error instead of a permanent skeleton', async () => {
     const f = setup();
-    f.store.getState().openReader({ snapshot: 's1', doc: 'a', token: 1, from: 'kwic' });
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'a', token: 1, from: 'kwic', anchor: 'occurrence',
+    });
     f.readers().at(-1)!.resolve(fakeReaderPage(0, 4, 10, 'wrong'));
     await flush();
     expect(f.store.getState().readerPage?.state).toEqual({

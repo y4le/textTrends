@@ -560,7 +560,13 @@ export function KwicPanel({
     if (!kwic) return;
     moveToRank(rank, { kind: 'jump', origin: 'matches' });
     openReader(
-      { snapshot: kwic.snapshot, doc: row.doc, token: row.pos, from: 'kwic' },
+      {
+        snapshot: kwic.snapshot,
+        doc: row.doc,
+        token: row.pos,
+        from: 'kwic',
+        anchor: 'occurrence',
+      },
       'matches-grid',
     );
   };

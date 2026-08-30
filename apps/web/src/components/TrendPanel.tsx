@@ -506,6 +506,7 @@ export function TrendPanel() {
         doc: readerTarget.doc,
         token: readerTarget.token,
         from: 'barcode',
+        anchor: 'occurrence',
       });
     }
   };

@@ -97,12 +97,20 @@ import {
   sameReaderCursor,
   sameReaderPlace,
   type ReaderOpenIntent,
+  type ReaderAnchorKind,
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
   adjacentReadableDocument,
   readyReaderDocumentOrder,
 } from './reader-order.ts';
+import {
+  atlasAvailable,
+  DEFAULT_ATLAS_NORMALIZATION,
+  DEFAULT_READER_SCALE,
+  type AtlasNormalization,
+  type ReaderScale,
+} from './reader-view.ts';
 import {
   clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
@@ -406,6 +414,23 @@ export interface ReaderVisibleRangeV1 {
 export interface ReaderNavigationTarget {
   readonly doc: string;
   readonly cursor: ReaderPlace['cursor'];
+}
+
+/** Query residency follows the complete effective matching set. Order,
+ * labels, and styles are presentation-only; membership and matching identity
+ * are not. */
+function sameReaderTrackSet(
+  captured: readonly CapturedTrack[],
+  effective: readonly CapturedTrack[],
+): boolean {
+  if (captured.length !== effective.length) return false;
+  const capturedById = new Map(captured.map((track) => [track.seriesId, track.identity]));
+  const effectiveById = new Map(effective.map((track) => [track.seriesId, track.identity]));
+  if (capturedById.size !== captured.length || effectiveById.size !== effective.length) return false;
+  for (const [seriesId, identity] of capturedById) {
+    if (effectiveById.get(seriesId) !== identity) return false;
+  }
+  return true;
 }
 
 /** The reading footer's authenticated source slice. It deliberately has its own
@@ -904,6 +929,11 @@ export interface AppState {
   occurrenceNavigation: OccurrenceNavigationState | null;
   /** F owns only the fenced place/placeholder; H attaches reader-page state. */
   readerPlace: ReaderPlace | null;
+  /** Presentation scale is transient: it never enters the Reader layer or
+   * workspace. External evidence resets it to Read; internal movement keeps it. */
+  readerScale: ReaderScale;
+  /** Device-local Atlas legibility preference, persisted outside workspace. */
+  atlasNormalization: AtlasNormalization;
   readerPage: ReaderPageState | null;
   readerVisibleRange: ReaderVisibleRangeV1 | null;
   /** Navigation derived from browser-fitted boundaries, never from the larger
@@ -999,6 +1029,8 @@ export interface AppState {
   stepPositionHistory(direction: -1 | 1): ScrubTarget | null;
   stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
+  setReaderScale(scale: ReaderScale): void;
+  setAtlasNormalization(normalization: AtlasNormalization): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
   refitReaderAt(token: number): void;
   navigateReader(target: ReaderNavigationTarget | ReaderPlace['cursor']): void;
@@ -1410,6 +1442,8 @@ export function createAppRuntime(
     matchesColumns?: MatchesColumnSettings;
     /** Device-local RSVP rhythm, separate from workspace semantics. */
     rsvpPacing?: RsvpPacing;
+    /** Device-local Atlas geometry, separate from workspace semantics. */
+    atlasNormalization?: AtlasNormalization;
   },
 ): AppRuntime {
   const newId = opts?.newId ?? (() => crypto.randomUUID());
@@ -1653,12 +1687,22 @@ export function createAppRuntime(
       }
     };
 
-    const replaceReaderTarget = (target: ReaderNavigationTarget): void => {
+    const replaceReaderTarget = (
+      target: ReaderNavigationTarget,
+      anchor: ReaderAnchorKind = 'position',
+      from?: ReaderOpenIntent['from'],
+    ): void => {
       const place = get().readerPlace;
       const cursor = target.cursor;
+      const origin = from ?? place?.from;
       if (
         place === null
-        || (target.doc === place.doc && sameReaderCursor(cursor, place.cursor))
+        || (
+          target.doc === place.doc
+          && anchor === place.anchor
+          && origin === place.from
+          && sameReaderCursor(cursor, place.cursor)
+        )
         || !get().snapshot?.readyDocs.includes(target.doc)
         || !Number.isSafeInteger(cursor.token)
         || cursor.token < 0
@@ -1672,6 +1716,8 @@ export function createAppRuntime(
         ...place,
         doc: target.doc,
         cursor: { ...cursor },
+        anchor,
+        from: origin ?? place.from,
       };
       const nextLayer: Layer = {
         ...readerLayer,
@@ -3169,6 +3215,8 @@ export function createAppRuntime(
       footerPassage: null,
       occurrenceNavigation: null,
       readerPlace: null,
+      readerScale: DEFAULT_READER_SCALE,
+      atlasNormalization: opts?.atlasNormalization ?? DEFAULT_ATLAS_NORMALIZATION,
       readerPage: null,
       readerVisibleRange: null,
       readerNavigation: null,
@@ -3655,7 +3703,7 @@ export function createAppRuntime(
           replaceReaderTarget({
             doc: target.doc,
             cursor: { kind: 'around', token: target.token },
-          });
+          }, 'position');
         } else {
           runMatchesWindow({ kind: 'position', doc: target.doc, token: target.token });
         }
@@ -3879,13 +3927,10 @@ export function createAppRuntime(
             get().requestMatchesWindow({ kind: 'position', doc: hit.doc, token: hit.token });
             const liveReader = get().readerPlace;
             if (liveReader?.snapshot === snapshot.snapshot) {
-              const readerLayer = get().layers.findLast((layer) => layer.kind === 'reader');
-              get().openReader({
-                snapshot: snapshot.snapshot,
+              replaceReaderTarget({
                 doc: hit.doc,
-                token: hit.token,
-                from: 'occurrence',
-              }, readerLayer?.returnFocusTo);
+                cursor: { kind: 'around', token: hit.token },
+              }, 'occurrence', 'occurrence');
             }
             writeFindState({
               status: 'ready',
@@ -3919,7 +3964,7 @@ export function createAppRuntime(
 
       enterRsvp(playing) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const place = state.readerPlace;
         const pageState = state.readerPage;
         const source = pageState
@@ -4141,10 +4186,6 @@ export function createAppRuntime(
           identity: termGroupIdentity(track.group),
         }));
         const issuedReader = currentReader;
-        const readerLayer = issuedReader
-          ? state.layers.findLast((layer) => layer.kind === 'reader')
-          : undefined;
-        const returnFocusTo = readerLayer?.returnFocusTo;
         const lease = occurrenceLane.ops.begin(
           () => snapKey(get().snapshot) === issuedKey,
           () => issuedIdentities.every((entry) =>
@@ -4259,12 +4300,10 @@ export function createAppRuntime(
               groupId: chosen.group.id,
             });
             if (issuedReader !== null) {
-              get().openReader({
-                snapshot: snapshot.snapshot,
+              replaceReaderTarget({
                 doc: hit.doc,
-                token: hit.token,
-                from: 'occurrence',
-              }, returnFocusTo);
+                cursor: { kind: 'around', token: hit.token },
+              }, 'occurrence', 'occurrence');
             }
             set({
               occurrenceNavigation: {
@@ -4295,6 +4334,10 @@ export function createAppRuntime(
           snapshot?.readyDocs ?? [],
         );
         if (place) {
+          // Entrances from analytical evidence always begin in readable prose.
+          // Subsequent movement inside Reader uses replaceReaderTarget and
+          // deliberately leaves this transient scale untouched.
+          set({ readerScale: 'read' });
           const origin: PositionHistoryOrigin = intent.from === 'kwic'
             ? 'matches'
             : intent.from === 'footer'
@@ -4322,9 +4365,48 @@ export function createAppRuntime(
         }
       },
 
+      setReaderScale(scale) {
+        const state = get();
+        if (
+          state.interaction.kind === 'rsvp'
+          || state.readerPlace === null
+          || scale === state.readerScale
+          || (scale === 'atlas' && !atlasAvailable(state.snapshot?.readyDocs ?? []))
+        ) return;
+        if (scale === 'atlas') {
+          // The Atlas consumes resident dispersion. Cancel an unfinished prose
+          // request, but retain a settled page for a query-free return to Read.
+          readerLane.supersede();
+          set({
+            readerScale: scale,
+            readerPage: state.readerPage?.state.status === 'ready' ? state.readerPage : null,
+            readerVisibleRange:
+              state.readerPage?.state.status === 'ready' ? state.readerVisibleRange : null,
+            readerNavigation:
+              state.readerPage?.state.status === 'ready' ? state.readerNavigation : null,
+          });
+          return;
+        }
+        set({ readerScale: scale });
+        const current = get();
+        const effectiveTracks = effectiveTrackSpecs(current.series);
+        const pageIsResident = current.readerPage !== null
+          && sameReaderPlace(current.readerPage.place, current.readerPlace)
+          && current.readerPage.state.status === 'ready'
+          && effectiveTracks !== null
+          && sameReaderTrackSet(current.readerPage.tracks, effectiveTracks.captured);
+        if (!pageIsResident) current.runReader();
+      },
+
+      setAtlasNormalization(normalization) {
+        set((state) => state.atlasNormalization === normalization
+          ? state
+          : { atlasNormalization: normalization });
+      },
+
       setReaderVisibleRange(range) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const place = state.readerPlace;
         const source = state.readerPage
           && place
@@ -4426,7 +4508,7 @@ export function createAppRuntime(
 
       refitReaderAt(token) {
         const state = get();
-        if (state.interaction.kind === 'rsvp') return;
+        if (state.interaction.kind === 'rsvp' || state.readerScale !== 'read') return;
         const visible = state.readerVisibleRange;
         const source = state.readerPage?.state.status === 'ready'
           ? state.readerPage.state.page
@@ -4444,7 +4526,7 @@ export function createAppRuntime(
       },
 
       navigateReader(target) {
-        if (get().interaction.kind === 'rsvp') return;
+        if (get().interaction.kind === 'rsvp' || get().readerScale !== 'read') return;
         const { readerPlace: place, readerNavigation: navigation, readerPage } = get();
         const destination: ReaderNavigationTarget | null = place === null
           ? null
@@ -4493,7 +4575,7 @@ export function createAppRuntime(
 
       runReader() {
         readerLane.supersede();
-        const { snapshot, readerPlace: place, series } = get();
+        const { snapshot, readerPlace: place, readerScale, series } = get();
         if (
           !snapshot
           || !place
@@ -4503,6 +4585,7 @@ export function createAppRuntime(
           set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
           return;
         }
+        if (readerScale === 'atlas') return;
         const tracks = effectiveTrackSpecs(series);
         if (tracks === null) {
           set({ readerPage: null, readerVisibleRange: null, readerNavigation: null });
@@ -6138,6 +6221,10 @@ export function createAppRuntime(
       );
       pendingPositionReconciliation = null;
     }
+    const readerScale = current.readerScale === 'atlas'
+      && !atlasAvailable(next.snapshot?.readyDocs ?? [])
+      ? 'read'
+      : current.readerScale;
     store.setState({
       bootstrap: { phase: 'attached' },
       projectSession: next,
@@ -6145,6 +6232,7 @@ export function createAppRuntime(
       loadingPhase: describeAnalysis(next.analysis),
       loadError: next.analysis.phase === 'error' ? next.analysis.message : null,
       keynessView,
+      readerScale,
       positionHistory,
       corpusTokenCounts: prevKey !== nextKey
         ? new Map()
@@ -6203,6 +6291,8 @@ export function createAppRuntime(
       store.getState().runInventory();
       store.getState().runFrequency();
       store.getState().runKeyness();
+    } else if (readerScale !== current.readerScale && store.getState().readerPlace !== null) {
+      store.getState().runReader();
     }
   };
 
