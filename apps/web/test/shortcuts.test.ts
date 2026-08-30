@@ -75,6 +75,8 @@ describe('shortcut registry', () => {
     expect(shortcutMatches(key('?', { shiftKey: true, metaKey: true }), 'show-help')).toBe(false);
     expect(shortcutMatches(key('w', { metaKey: true }), 'reader-occurrence-next')).toBe(false);
     expect(shortcutMatches(key('l', { isComposing: true }), 'reader-page-next')).toBe(false);
+    expect(shortcutMatches(key('['), 'reader-text-previous')).toBe(true);
+    expect(shortcutMatches(key(']'), 'reader-text-next')).toBe(true);
   });
 
   it('lets focused typing controls and locally handled events win at the root', () => {
@@ -320,6 +322,8 @@ describe('shortcut registry', () => {
     const readerIds = shortcutHelpSections({ context: 'reader' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
+    expect(readerIds).toContain('reader-text-previous');
+    expect(readerIds).toContain('reader-text-next');
     expect(readerIds).toContain('position-previous');
     expect(readerIds).toContain('position-next');
     expect(readerIds).toContain('find-open');

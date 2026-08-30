@@ -5465,6 +5465,51 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
     f.runtime.dispose();
   });
 
+  it('steps texts at relative position and preserves Atlas', () => {
+    const project: ProjectView = {
+      ...BUILTIN_PROJECT,
+      data: { ...BUILTIN_PROJECT.data, order: ['a', 'empty', 'b'] },
+    };
+    const f = harness(sessionState(snap('g1', 's1', ['b', 'empty', 'a']), { project }));
+    f.store.setState({
+      corpusTokenCounts: new Map([['a', 101], ['empty', 0], ['b', 11]]),
+    });
+    f.store.getState().quickAdd('holmes');
+    f.store.getState().openReader({
+      snapshot: 's1', doc: 'b', token: 5, from: 'footer', anchor: 'position',
+    });
+
+    expect(f.store.getState().stepReaderDocument(-1)).toEqual({ doc: 'a', token: 50 });
+    expect(f.store.getState()).toMatchObject({
+      scrub: { doc: 'a', token: 50 },
+      readerPlace: {
+        doc: 'a',
+        anchor: 'position',
+        cursor: { kind: 'around', token: 50 },
+      },
+    });
+    expect((f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).at(-1)!.query as {
+      request: { doc: string; cursor: unknown };
+    }).request).toMatchObject({ doc: 'a', cursor: { kind: 'around', token: 50 } });
+
+    f.store.getState().setReaderScale('atlas');
+    const fullReaderCount = f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length;
+    expect(f.store.getState().stepReaderDocument(1)).toEqual({ doc: 'b', token: 5 });
+    expect(f.store.getState()).toMatchObject({
+      readerScale: 'atlas',
+      readerPlace: { doc: 'b', anchor: 'position' },
+    });
+    expect(f.readers().filter((entry) => (
+      entry.query as { request: { maxTokens: number } }
+    ).request.maxTokens === 4_096).length).toBe(fullReaderCount);
+    expect(f.store.getState().stepReaderDocument(1)).toBeNull();
+    f.runtime.dispose();
+  });
+
   it('can refill a saturated fitted page only from its authenticated visible start', async () => {
     const f = setup();
     f.store.getState().openReader({

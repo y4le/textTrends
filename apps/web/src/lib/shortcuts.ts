@@ -80,6 +80,8 @@ export type ShortcutId =
   | 'reader-page-next'
   | 'reader-occurrence-previous'
   | 'reader-occurrence-next'
+  | 'reader-text-previous'
+  | 'reader-text-next'
   | 'reader-book-start'
   | 'reader-book-end'
   | 'reader-close'
@@ -703,17 +705,31 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: 'w' }],
   },
   {
+    id: 'reader-text-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Previous text at the same relative position',
+    strokes: [{ key: '[' }],
+  },
+  {
+    id: 'reader-text-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Next text at the same relative position',
+    strokes: [{ key: ']' }],
+  },
+  {
     id: 'reader-book-start',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'Start of book',
+    label: 'Start of text',
     strokes: [{ key: 'Home' }],
   },
   {
     id: 'reader-book-end',
     group: 'Reader',
     helpContexts: ['reader'],
-    label: 'End of book',
+    label: 'End of text',
     strokes: [{ key: 'End' }],
   },
   {

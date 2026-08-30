@@ -195,6 +195,7 @@ export function App() {
   const setRsvpPacing = useApp((s) => s.setRsvpPacing);
   const closeReader = useApp((s) => s.closeReader);
   const navigateReader = useApp((s) => s.navigateReader);
+  const stepReaderDocument = useApp((s) => s.stepReaderDocument);
   const stepOccurrence = useApp((s) => s.stepOccurrence);
   const project = useApp((s) => s.projectSession?.project ?? null);
   const pendingInputCount = useApp((s) => s.projectSession?.imports.length ?? 0);
@@ -555,6 +556,8 @@ export function App() {
         || shortcutMatches(event, 'reader-page-next')
         || shortcutMatches(event, 'reader-occurrence-previous')
         || shortcutMatches(event, 'reader-occurrence-next')
+        || shortcutMatches(event, 'reader-text-previous')
+        || shortcutMatches(event, 'reader-text-next')
         || shortcutMatches(event, 'reader-book-start')
         || shortcutMatches(event, 'reader-book-end')
       ) {
@@ -676,6 +679,12 @@ export function App() {
     }
     setReaderKeyboardStatus('');
     navigateReader(cursor);
+  };
+  const moveReaderDocument = (direction: 1 | -1) => {
+    const target = stepReaderDocument(direction);
+    setReaderKeyboardStatus(target === null
+      ? direction === 1 ? 'last readable text' : 'first readable text'
+      : '');
   };
   const onReaderPointerDownCapture = (event: ReactPointerEvent<HTMLElement>) => {
     if (useApp.getState().interaction.kind !== 'rsvp') return;
@@ -820,6 +829,16 @@ export function App() {
             event.preventDefault();
             setReaderKeyboardStatus('');
             stepOccurrence(-1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-text-previous')) {
+            event.preventDefault();
+            moveReaderDocument(-1);
+            return;
+          }
+          if (shortcutMatches(event, 'reader-text-next')) {
+            event.preventDefault();
+            moveReaderDocument(1);
             return;
           }
           if (shortcutMatches(event, 'reader-book-start')) {

@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import {
+  adjacentReadableDocumentAtRelativePosition,
   adjacentReadableDocument,
+  readerRelativeToken,
   readyReaderDocumentOrder,
 } from '../src/lib/reader-order.ts';
 
@@ -52,5 +54,37 @@ describe('adjacentReadableDocument', () => {
     expect(adjacent('a', -1)).toBeNull();
     expect(adjacent('c', 1)).toBeNull();
     expect(adjacent('missing', 1)).toBeNull();
+  });
+});
+
+describe('relative Reader text movement', () => {
+  it('maps endpoints and midpoints across differently sized texts', () => {
+    expect(readerRelativeToken(0, 101, 11)).toBe(0);
+    expect(readerRelativeToken(50, 101, 11)).toBe(5);
+    expect(readerRelativeToken(100, 101, 11)).toBe(10);
+    expect(readerRelativeToken(500, 101, 11)).toBe(10);
+    expect(readerRelativeToken(0, 1, 11)).toBe(0);
+  });
+
+  it('skips empty and unknown extents without changing declared order', () => {
+    const counts = new Map([['a', 101], ['empty', 0], ['c', 11]]);
+    const count = (doc: string) => counts.get(doc);
+    expect(adjacentReadableDocumentAtRelativePosition(
+      ['a', 'unknown', 'empty', 'c'], 'a', 1, 50, count,
+    )).toEqual({ doc: 'c', token: 5 });
+    expect(adjacentReadableDocumentAtRelativePosition(
+      ['a', 'unknown', 'empty', 'c'], 'c', -1, 5, count,
+    )).toEqual({ doc: 'a', token: 50 });
+    expect(adjacentReadableDocumentAtRelativePosition(
+      ['a', 'unknown', 'empty', 'c'], 'a', -1, 50, count,
+    )).toBeNull();
+  });
+
+  it('rejects invalid source extents and tokens', () => {
+    expect(readerRelativeToken(0, 0, 10)).toBeNull();
+    expect(readerRelativeToken(Number.NaN, 10, 10)).toBeNull();
+    expect(adjacentReadableDocumentAtRelativePosition(
+      ['a', 'b'], 'a', 1, 0, () => undefined,
+    )).toBeNull();
   });
 });

@@ -28,6 +28,7 @@ import { DEFAULT_SERIES_STYLE, seriesColor } from '../lib/series-style.ts';
 import { SMALL_BUTTON_STYLE } from './chrome.tsx';
 import { shortcutAria } from '../lib/shortcuts.ts';
 import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
+import { ReaderRuler } from './reader/ReaderRuler.tsx';
 
 function ReaderProse({
   page,
@@ -465,6 +466,7 @@ function ReaderProseDrawer({
           </button>
         </div>
       </header>
+      <ReaderRuler />
       {(hasStaleMarks || ready?.marksTruncated) && (
         <div className="reader-feedback" role="status" aria-label="Reader mark notices">
           {hasStaleMarks && (

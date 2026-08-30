@@ -93,6 +93,7 @@ import {
 } from './footer-view.ts';
 import {
   liveReaderPlace,
+  readerCursorToken,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
@@ -101,6 +102,7 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
+  adjacentReadableDocumentAtRelativePosition,
   adjacentReadableDocument,
   readyReaderDocumentOrder,
 } from './reader-order.ts';
@@ -1029,6 +1031,8 @@ export interface AppState {
   stepPositionHistory(direction: -1 | 1): ScrubTarget | null;
   stepOccurrence(direction: 1 | -1): void;
   openReader(intent: ReaderOpenIntent, returnFocusTo?: string): void;
+  /** Move to the adjacent nonempty text at the same relative position. */
+  stepReaderDocument(direction: -1 | 1): ScrubTarget | null;
   setReaderScale(scale: ReaderScale): void;
   setAtlasNormalization(normalization: AtlasNormalization): void;
   setReaderVisibleRange(range: ReaderVisibleRangeV1): void;
@@ -4363,6 +4367,39 @@ export function createAppRuntime(
           writeNavigation(replacing ? 'replace' : 'push', get().place, layers);
           get().runReader();
         }
+      },
+
+      stepReaderDocument(direction) {
+        const state = get();
+        const snapshot = state.snapshot;
+        const place = state.readerPlace;
+        if (
+          state.interaction.kind === 'rsvp'
+          || snapshot === null
+          || place === null
+          || (direction !== -1 && direction !== 1)
+        ) return null;
+        const order = readyReaderDocumentOrder(
+          state.projectSession?.project.data.order ?? [],
+          snapshot.readyDocs,
+        );
+        const token = state.scrub?.doc === place.doc
+          ? state.scrub.token
+          : readerCursorToken(place.cursor);
+        const target = adjacentReadableDocumentAtRelativePosition(
+          order,
+          place.doc,
+          direction,
+          token,
+          (doc) => state.corpusTokenCounts.get(doc),
+        );
+        if (target === null) return null;
+        get().setScrub(target, { kind: 'jump', origin: 'reader' });
+        replaceReaderTarget({
+          doc: target.doc,
+          cursor: { kind: 'around', token: target.token },
+        }, 'position');
+        return target;
       },
 
       setReaderScale(scale) {

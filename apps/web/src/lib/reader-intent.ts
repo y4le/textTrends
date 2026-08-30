@@ -129,5 +129,11 @@ export function sameReaderCursor(
       && right !== null
       && left.kind === right.kind
       && left.token === right.token
-    );
+  );
+}
+
+/** Resolve a cursor to the real token it names. `before` is a boundary cursor
+ * and therefore names the token immediately before that boundary. */
+export function readerCursorToken(cursor: ReaderPlace['cursor']): number {
+  return cursor.kind === 'before' ? Math.max(0, cursor.token - 1) : cursor.token;
 }

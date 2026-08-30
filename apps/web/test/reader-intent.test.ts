@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
 import {
   liveReaderPlace,
+  readerCursorToken,
   readerPlaceFor,
   sameReaderCursor,
   sameReaderPlace,
 } from '../src/lib/reader-intent.ts';
 
 describe('reader open intent', () => {
+  it('resolves boundary cursors to the real token they name', () => {
+    expect(readerCursorToken({ kind: 'around', token: 7 })).toBe(7);
+    expect(readerCursorToken({ kind: 'from', token: 7 })).toBe(7);
+    expect(readerCursorToken({ kind: 'before', token: 7 })).toBe(6);
+  });
+
   it('turns a live served position into an around cursor', () => {
     expect(readerPlaceFor(
       { snapshot: 's1', doc: 'a', token: 7, from: 'kwic', anchor: 'occurrence' },

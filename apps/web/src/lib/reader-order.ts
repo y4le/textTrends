@@ -13,6 +13,11 @@ export interface ReaderBoundaryTarget {
     | { readonly kind: 'before'; readonly token: number };
 }
 
+export interface ReaderRelativeTarget {
+  readonly doc: string;
+  readonly token: number;
+}
+
 export function readyReaderDocumentOrder(
   declaredOrder: readonly string[] | undefined,
   readyDocs: readonly string[],
@@ -53,6 +58,53 @@ export function adjacentReadableDocument(
         ? { kind: 'from', token: 0 }
         : { kind: 'before', token: tokenCount },
     };
+  }
+  return null;
+}
+
+/** Preserve within-text progress when moving to a differently sized text.
+ * The endpoint-aware denominator makes first and last tokens map exactly. */
+export function readerRelativeToken(
+  token: number,
+  currentTokenCount: number,
+  targetTokenCount: number,
+): number | null {
+  if (
+    !Number.isSafeInteger(token)
+    || !Number.isSafeInteger(currentTokenCount)
+    || !Number.isSafeInteger(targetTokenCount)
+    || currentTokenCount < 1
+    || targetTokenCount < 1
+  ) return null;
+  const current = Math.max(0, Math.min(currentTokenCount - 1, token));
+  return Math.round(
+    (current / Math.max(1, currentTokenCount - 1))
+    * Math.max(0, targetTokenCount - 1),
+  );
+}
+
+/** Dedicated previous/next-text movement. Unlike fitted page rollover, this
+ * skips empty/unknown extents and transfers the active relative position. */
+export function adjacentReadableDocumentAtRelativePosition(
+  order: readonly string[],
+  doc: string,
+  direction: -1 | 1,
+  token: number,
+  tokenCountOf: (doc: string) => number | undefined,
+): ReaderRelativeTarget | null {
+  const currentIndex = order.indexOf(doc);
+  const currentTokenCount = tokenCountOf(doc);
+  if (currentIndex < 0 || currentTokenCount === undefined || currentTokenCount < 1) return null;
+  for (
+    let index = currentIndex + direction;
+    index >= 0 && index < order.length;
+    index += direction
+  ) {
+    const targetDoc = order[index]!;
+    const targetTokenCount = tokenCountOf(targetDoc);
+    if (targetTokenCount === undefined || targetTokenCount < 1) continue;
+    const targetToken = readerRelativeToken(token, currentTokenCount, targetTokenCount);
+    if (targetToken !== null) return { doc: targetDoc, token: targetToken };
   }
   return null;
 }
