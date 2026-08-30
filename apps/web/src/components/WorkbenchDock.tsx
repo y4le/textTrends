@@ -22,6 +22,7 @@ import { shortcutAria } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { useDisplayPreference, usePresentation } from './PresentationProvider.tsx';
 import { FindBar } from './FindBar.tsx';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
 
 const QuerySurface = lazy(() =>
   import('./QuerySurface.tsx').then(({ QuerySurface: surface }) => ({ default: surface })),
@@ -32,7 +33,11 @@ const WorkbenchFooter = lazy(() =>
 
 function TermsRailFallback() {
   return (
-    <aside className="query-region term-bar" aria-label="Terms">
+    <aside
+      {...guideAnchorProps('terms-rail')}
+      className="query-region term-bar"
+      aria-label="Terms"
+    >
       <strong className="term-bar-label">Terms</strong>
       <p className="region-placeholder">loading Terms…</p>
     </aside>

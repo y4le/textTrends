@@ -31,6 +31,7 @@ import { RsvpReader, type RsvpReaderSource } from './RsvpReader.tsx';
 import { ReaderRuler } from './reader/ReaderRuler.tsx';
 import { ReaderAtlas } from './reader/ReaderAtlas.tsx';
 import { ReaderScaleControl } from './reader/ReaderScaleControl.tsx';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
 
 function ReaderProse({
   page,
@@ -481,6 +482,7 @@ function ReaderProseDrawer({
         </div>
       )}
       <div
+        {...guideAnchorProps('reader-prose')}
         ref={paneRef}
         className="reader-prose-pane"
         data-reader-fitting={!fitSettled || undefined}

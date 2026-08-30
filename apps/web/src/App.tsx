@@ -41,6 +41,7 @@ import { FIND_INPUT_ID, findScope } from './lib/interaction.ts';
 import { RSVP_WPM_STEP } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
+import { guideAnchorProps } from './lib/guide/anchors.ts';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -904,7 +905,11 @@ export function App() {
                   <button type="button" onClick={closeReader}>back</button>
                 </div>
               </header>
-              <div className="reader-prose-pane" aria-hidden="true" />
+              <div
+                {...guideAnchorProps('reader-prose')}
+                className="reader-prose-pane"
+                aria-hidden="true"
+              />
             </>
           )}
         >

@@ -183,6 +183,19 @@ textarea {
   outline-offset: 3px;
 }
 
+#root[data-guide-anchor-active='terms-rail'] [data-guide-anchor='terms-rail'],
+#root[data-guide-anchor-active='trend-plate'] [data-guide-anchor='trend-plate'],
+#root[data-guide-anchor-active='dispersion-strip'] [data-guide-anchor='dispersion-strip'],
+#root[data-guide-anchor-active='chart-cursor'] [data-guide-anchor='chart-cursor'],
+#root[data-guide-anchor-active='reader-prose'] [data-guide-anchor='reader-prose'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 4px;
+}
+
+#root[data-guide-anchor-active='dispersion-strip'] [data-guide-anchor='dispersion-strip'] {
+  z-index: 3;
+}
+
 img,
 svg,
 canvas {

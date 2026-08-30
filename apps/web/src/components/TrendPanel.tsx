@@ -121,6 +121,8 @@ import { shortcutAria, shortcutMatches } from '../lib/shortcuts.ts';
 import { pointerIntentFor } from '../lib/pointer-capability.ts';
 import { useOpenSettings } from './SettingsEntryContext.tsx';
 import { contextualSettingsEntry } from '../lib/settings-entry.ts';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
+import { occurrenceActivationProps } from '../lib/guide/activation.ts';
 import {
   TOUCH_RANGE_HOLD_MS,
   beginTouchRangeGesture,
@@ -405,7 +407,7 @@ export function TrendPanel() {
   // re-fits as each line lands reads as data changing when it isn't.
   if (graphGate === 'pending') {
     return (
-      <section>
+      <section {...guideAnchorProps('trend-plate')}>
         <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
         <p style={{ color: 'var(--fg-muted)', fontSize: 'var(--text-sm)' }}>computing trends…</p>
       </section>
@@ -413,7 +415,7 @@ export function TrendPanel() {
   }
   if ((!findMode || find !== null) && activeReady.length === 0) {
     return failed.length > 0 ? (
-      <section>
+      <section {...guideAnchorProps('trend-plate')}>
         <TrendPanelHeader>{viewSwitcher}</TrendPanelHeader>
         <p style={{ color: 'var(--accent-text)', fontSize: 'var(--text-sm)' }}>
           {failed.map(failureText).join(' · ')}
@@ -564,7 +566,7 @@ export function TrendPanel() {
   };
 
   return (
-    <section>
+    <section {...guideAnchorProps('trend-plate')}>
       <TrendPanelHeader>
         {viewSwitcher}
         <BarcodeLegend
@@ -1930,6 +1932,25 @@ function ScrubSurface({
       >
         {children}
         {barcodeBand}
+        {barcodeVisible && barcodeTracks.length > 0 && (
+          <div
+            {...guideAnchorProps('dispersion-strip')}
+            {...occurrenceActivationProps({ coarse, barcodeInteractive })}
+            className="guide-dispersion-anchor"
+            aria-hidden="true"
+            style={{
+              position: 'absolute',
+              left: 0,
+              top: (trendView === 'series' ? geometry.seriesHeight : geometry.rowHeight)
+                + geometry.barcodeBandGap,
+              width: plotW,
+              height: trendView === 'series'
+                ? barcodeHeight
+                : Math.max(0, docs.length - 1) * rowPitch + barcodeHeight,
+              pointerEvents: 'none',
+            }}
+          />
+        )}
         {rangeBoxes.map((rangeBox, index) => (
           <div
             key={`${rangeBox.left}:${rangeBox.top}:${rangeBox.right}`}
@@ -2054,6 +2075,7 @@ function ScrubSurface({
         })}
         {scrubX !== null && (
           <div
+            {...guideAnchorProps('chart-cursor')}
             aria-hidden="true"
             data-testid="chart-cursor"
             style={{
