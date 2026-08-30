@@ -389,15 +389,17 @@ test('coarse input sizing does not inflate dense matches rows', async ({ browser
   await page.getByRole('button', { name: 'Add term', exact: true }).click();
   const quickAdd = page.getByRole('textbox', { name: 'New term' });
   const quickBox = await quickAdd.boundingBox();
-  const authoredTarget = await page.evaluate(() => Number.parseFloat(
+  const quickAddTarget = await page.evaluate(() => Number.parseFloat(
     getComputedStyle(document.documentElement).getPropertyValue('--term-target-block-size'),
   ));
-  expect(authoredTarget).toBe(34);
-  expect(quickBox?.height).toBeGreaterThanOrEqual(authoredTarget);
+  expect(quickAddTarget).toBe(44);
+  expect(quickBox?.height).toBeGreaterThanOrEqual(quickAddTarget);
   await page.getByRole('button', { name: 'Cancel' }).click();
 
   await gotoPlace(page, 'matches');
-  const node = page.getByRole('grid', { name: 'Matches' }).getByRole('button').first();
+  const node = page.getByRole('grid', { name: 'Matches' })
+    .locator('.kwic-virtual-row .kwic-node button')
+    .first();
   const nodeBox = await node.boundingBox();
   expect(nodeBox?.height).toBeLessThan(44);
   await context.close();
