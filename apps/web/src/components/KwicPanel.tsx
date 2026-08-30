@@ -286,8 +286,12 @@ export function KwicPanel({
     if (!port) return;
     const top = matchesScrollTop(bounded, total, rowHeight);
     if (Math.abs(port.scrollTop - top) <= SCROLL_TOLERANCE_PX) return;
-    programmaticScrollRef.current = top;
     port.scrollTop = top;
+    // Browsers may clamp or round a requested edge coordinate. Fence the
+    // value the port actually accepted so that its ensuing scroll event is
+    // not mistaken for user input and allowed to rewrite an external cursor.
+    programmaticScrollRef.current = port.scrollTop;
+    lastScrollTopRef.current = port.scrollTop;
   }, [rowHeight, total]);
 
   const requestRank = useCallback((rank: number, direction: -1 | 0 | 1) => {
@@ -390,9 +394,9 @@ export function KwicPanel({
     const port = portRef.current;
     if (port === null || total <= 0) return;
     const top = matchesScrollTop(logicalRef.current, total, rowHeight);
-    programmaticScrollRef.current = top;
-    lastScrollTopRef.current = top;
     port.scrollTop = top;
+    programmaticScrollRef.current = port.scrollTop;
+    lastScrollTopRef.current = port.scrollTop;
   }, [rowHeight, total]);
 
   useEffect(() => {
