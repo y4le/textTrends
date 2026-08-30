@@ -4,6 +4,87 @@ This file records owner decisions that resolve cross-cutting recommendations
 from architecture consultations. It is the durable repository provenance for
 choices otherwise visible only in an implementation thread.
 
+## 2026-08-30 — Reader has a fitted Read scale and a document-comparison Atlas
+
+Reader now separates two jobs without pretending they are one continuous
+camera. **Read** remains the browser-fitted prose surface for close reading.
+**Atlas** is a whole-corpus spatial overview: every ready text keeps its
+declared-order column and complete token extent, term evidence is painted on a
+shared vertical position axis, and the columns pan horizontally for immediate
+visual comparison. Horizontal movement is deliberate because the x-axis is a
+categorical sequence of texts; Atlas does not introduce arbitrary two-axis
+camera state or intercept browser pinch zoom.
+
+Equal normalization gives every text its full column height and therefore
+compares relative position. To scale uses one token domain across the corpus,
+so text height remains proportional and the empty tail below a shorter text is
+visibly inert. Changing scale, normalization, or pan does not issue analysis
+queries. The current text and authored token survive scale changes. Exact
+occurrence evidence descends to an exact highlighted Read position; an
+ambiguous exact pixel and density evidence descend honestly to position or
+approximate bucket evidence instead of inventing a hit. External evidence
+continues to open Read, while Atlas-local movement preserves the overview
+until the person explicitly descends.
+
+The text ruler is contextual rather than a second corpus navigator. In Read it
+shows the previous/current/next declared texts, ordinal, token progress, and
+relative-position switching. In Atlas it becomes a roving categorical ruler;
+short viewports retain named previous/next controls instead of hiding the only
+text switcher. The Atlas plane is one Tab stop. Registry-owned keys move
+between texts or by relative vertical steps, a settled live region announces
+the committed position once, touch distinguishes taps from horizontal pans,
+and a non-passive vertical-wheel path owns only dominant vertical movement.
+Horizontal wheels, Shift-wheel, and Ctrl/Meta-wheel remain native. Compact
+short-height ruler buttons retain 44×44 targets for coarse pointers.
+
+Atlas adds no worker operation and no chart or pan/zoom dependency. It projects
+the resident, snapshot-matched dispersion result and authoritative ready-text
+token counts into declared order. One term track keeps one exact-or-density
+representation across every column. All document shells stay semantic, while
+only an overscanned visible window plus independently pinned active/focused
+columns owns canvases; paint rows are also device-bounded. Theme changes,
+resize, normalization, and horizontal pan repaint resident data without
+querying; the current DPR is re-read whenever one of those reactive paths
+repaints.
+
+The checked-in performance gate exercises the shipped 66-book World English
+Bible with five exact tracks through the real UI and worker path. At a 1440px
+viewport the derived structural ceiling is 15 resident canvases; repeated
+runs hold 10 at first paint and 14 after a real horizontal fling. The retained
+startup records prove the Long Tasks observer is active, while Atlas first
+paint and fling produce no attributed task at or above 50ms and therefore no
+failure at the repository's 100ms threshold. The pure windowing test follows
+the current 256-document ingest cap.
+
+This decision does **not** ship continuous prose, arbitrary zoom, microscopic
+text texture, synthetic pages, a combined overview, or side-by-side prose.
+Continuous Read remains a separate source-window and anchoring programme. A
+future asymmetric reference-prose view may place two readable texts beside one
+another only after that work and a residency benchmark; it will not turn Atlas
+into a miniature document reader. The complete contract and rationale live in
+[spatial-reader.md](spatial-reader.md).
+
+The architecture and execution plan were developed with an explicitly pinned
+Claude Opus planner through Parley (request `req_consult_e80609919b55dfd9`,
+artifact
+`art_sha256_2a3b060638e624f2d23eed5dba6c5662208858d230c11987f5402859a0a71494`).
+Implementation landed in focused commits `4101508`, `0065f3e`, `711b09a`,
+`1538511`, `8cad645`, `2d0f843`, `83a7270`, and `8434c2e`. Their final Opus
+review receipts are, respectively,
+`rev_sha256_9eb79790beea0dd090e135b57eaf128a1b348e1f84d9212d02d4a4812677e163`,
+`rev_sha256_8b9eee48346041fc4b389722107071482f7f8d62f9aadc616bf5b1095d4a9b07`,
+`rev_sha256_8ab143544c59f7e3f120885601dbbb99e59d104fd2411b37c68dadf2b5ff5a4b`,
+`rev_sha256_432b2157143fd29a79bab6cad384ac657014942f907919d3ace6a47a2a4f4e4b`,
+`rev_sha256_8393950389898d48340e325218c4079df2f90b113a901d2426e1951171b26d40`,
+`rev_sha256_04960d7dc9337555ded35c4f59a6478838a34bafdcad3716a136053441bef1ff`,
+`rev_sha256_2bfadb60c52b86b6fd853116ce3b9d971b3c94c4da5b54a866d58ac69a33ec5b`,
+and
+`rev_sha256_ec902399fef788635d386a5163da22086135710c381e1fd1e0ebe5e82389bfb4`.
+The branch also contains the incidental pre-existing e2e selector repair
+`25d6085`, reviewed under
+`rev_sha256_88f01e9a12111ba821ce9d247e0a4484d06621cefcca9ae21169c10114fca82c`;
+it is not a spatial Reader implementation slice.
+
 ## 2026-08-29 — Separate trend rows have a durable vertical-size target
 
 Equal and To scale trends with more than one text expose one full-width
