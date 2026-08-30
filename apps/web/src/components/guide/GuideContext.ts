@@ -8,6 +8,7 @@ import type { GuideOrigin } from '../../lib/guide/session.ts';
 export interface GuideController {
   readonly activeGuideId: GuideId | null;
   readonly guidedTourReadiness: GuideReadiness;
+  readonly guidedTourSeen: boolean;
   readonly startGuide: (id: GuideId, origin: GuideOrigin) => Promise<boolean>;
 }
 

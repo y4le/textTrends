@@ -828,6 +828,7 @@ export function App() {
           onDebug={() => openDebug(true)}
           guideReadiness={guide.guidedTourReadiness}
           guideActive={guide.activeGuideId === 'guided-tour'}
+          guideSeen={guide.guidedTourSeen}
           onStartGuide={startGuideFromHelp}
           onGuideRemedy={applyGuideRemedy}
           onClose={() => closeUtilityPane()}

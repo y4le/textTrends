@@ -1,5 +1,9 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import {
+  GUIDE_PROGRESS_STORAGE_KEY,
+  type GuideProgressV1,
+} from '../src/lib/guide/storage.ts';
+import {
   awaitAllReady,
   awaitReadyCount,
   clearDemoInputs,
@@ -55,11 +59,76 @@ async function expectCardInsideViewport(page: Page, card: Locator) {
   expect(box!.y).toBeGreaterThanOrEqual(0);
   expect(box!.x + box!.width).toBeLessThanOrEqual(viewport!.width + 1);
   expect(box!.y + box!.height).toBeLessThanOrEqual(viewport!.height + 1);
-  for (const action of await card.locator('.guide-card-actions button').all()) {
+  for (const action of await card.getByRole('button').all()) {
     const actionBox = await action.boundingBox();
     expect(actionBox?.height ?? 0).toBeGreaterThanOrEqual(44);
   }
 }
+
+async function guideProgress(page: Page): Promise<GuideProgressV1 | null> {
+  return page.evaluate((key) => {
+    const raw = localStorage.getItem(key);
+    return raw === null ? null : JSON.parse(raw) as GuideProgressV1;
+  }, GUIDE_PROGRESS_STORAGE_KEY);
+}
+
+test('offers an eligible reader one versioned invitation without auto-starting', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'webkit-compact', 'the compact invitation is covered below');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const invitation = page.getByRole('complementary', { name: 'Guided tour invitation' });
+  await expect(invitation).toBeVisible();
+  await expect(page.locator('.guide-card')).toHaveCount(0);
+  expect(await guideProgress(page)).toBeNull();
+
+  await invitation.getByRole('button', { name: 'Not now' }).click();
+  await expect(invitation).toHaveCount(0);
+  await expect(page.locator('#global-help-open')).toBeFocused();
+  expect(await guideProgress(page)).toEqual({
+    v: 1,
+    tourSeenVersion: null,
+    dismissedInvitationVersion: 1,
+  });
+
+  await page.reload();
+  await awaitAllReady(page);
+  await expect(invitation).toHaveCount(0);
+
+  await page.evaluate((key) => localStorage.setItem(key, JSON.stringify({
+    v: 1,
+    tourSeenVersion: null,
+    dismissedInvitationVersion: 0,
+  })), GUIDE_PROGRESS_STORAGE_KEY);
+  await page.reload();
+  await awaitAllReady(page);
+  await expect(invitation).toBeVisible();
+});
+
+test('starting from the invitation dismisses it without claiming completion', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'webkit-compact', 'covered in Chromium');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+
+  const invitation = page.getByRole('complementary', { name: 'Guided tour invitation' });
+  await invitation.getByRole('button', { name: 'Start', exact: true }).click();
+  const card = page.getByRole('dialog', { name: 'A reading instrument' });
+  await expect(card).toBeVisible();
+  await expect(invitation).toHaveCount(0);
+  expect(await guideProgress(page)).toEqual({
+    v: 1,
+    tourSeenVersion: null,
+    dismissedInvitationVersion: 1,
+  });
+
+  await card.getByRole('button', { name: 'Exit guided tour' }).click();
+  await page.reload();
+  await awaitAllReady(page);
+  await expect(invitation).toHaveCount(0);
+  const help = await openHelp(page);
+  await expect(help.getByRole('button', { name: /Start the guided tour/ })).toBeVisible();
+  await expect(help.getByRole('button', { name: /Replay the guided tour/ })).toHaveCount(0);
+});
 
 test('walks from a mark to its source and restores the captured workbench place', async ({ page }, testInfo) => {
   test.skip(testInfo.project.name === 'webkit-compact', 'the compact project has its bounded path below');
@@ -96,6 +165,11 @@ test('walks from a mark to its source and restores the captured workbench place'
 
   const finish = page.getByRole('dialog', { name: 'Start with a word. End with the text.' });
   await expect(finish).toBeVisible();
+  expect(await guideProgress(page)).toEqual({
+    v: 1,
+    tourSeenVersion: 1,
+    dismissedInvitationVersion: null,
+  });
   const finishNotes = finish.getByRole('region', { name: 'Guides for this view' });
   await expect(finishNotes.getByRole('button')).toHaveCount(4);
   await finish.getByRole('button', { name: 'Back to where I was' }).click();
@@ -108,6 +182,39 @@ test('walks from a mark to its source and restores the captured workbench place'
   expect(new Set(queries.map((event) => event.op))).toEqual(new Set(['reader-page']));
   await expect(page.locator('#root')).not.toHaveAttribute('data-guide-anchor-active');
   await expect(page.locator('.guide-card')).toHaveCount(0);
+
+  const help = await openHelp(page);
+  await expect(help.getByRole('button', { name: /Replay the guided tour/ })).toBeVisible();
+});
+
+test('does not claim completion when the source leg is abridged', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'webkit-compact', 'covered in Chromium');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await startTour(page);
+  await page.locator('.guide-card').getByRole('button', { name: 'Begin' }).click();
+  await expect(page.getByRole('dialog', { name: 'The terms you track' })).toBeVisible();
+  const shownTerms = page.locator('[data-term-toggle][aria-pressed="true"]');
+  let shownCount = await shownTerms.count();
+  while (shownCount > 0) {
+    // Exercise live target churn while the fixed card may cover the rail.
+    await shownTerms.first().click({ force: true });
+    shownCount -= 1;
+    await expect(shownTerms).toHaveCount(shownCount);
+  }
+  await page.locator('.guide-card').getByRole('button', { name: 'Next' }).click();
+  await expect(page.getByRole('dialog', { name: 'One order, followed everywhere' })).toBeVisible();
+  await page.locator('.guide-card').getByRole('button', { name: 'Next' }).click();
+
+  const mark = page.locator('.guide-card');
+  await expect(mark.getByRole('button', { name: 'Continue without a mark' })).toBeVisible();
+  await mark.getByRole('button', { name: 'Continue without a mark' }).click();
+  const finish = page.getByRole('dialog', { name: 'Start with a word. End with the text.' });
+  await expect(finish).toContainText('stopped before the source');
+  expect(await guideProgress(page)).toBeNull();
+  await page.locator('[data-term-toggle][aria-pressed="false"]').first().click({ force: true });
+  await finish.getByRole('button', { name: 'Stay here' }).click();
+  await expect(page.getByRole('complementary', { name: 'Guided tour invitation' })).toBeVisible();
 });
 
 test('keeps modal Help authoritative over an active tour and abandons it on reload', async ({ page }, testInfo) => {
@@ -319,6 +426,9 @@ test('keeps the action and exit reachable in compact portrait and landscape', as
   await page.setViewportSize({ width: 320, height: 568 });
   await page.goto('./');
   await awaitAllReady(page, { loadDemo: true });
+  const invitation = page.getByRole('complementary', { name: 'Guided tour invitation' });
+  await expect(invitation).toBeVisible();
+  await expectCardInsideViewport(page, invitation);
   await startTour(page);
   let card = page.locator('.guide-card');
   await expectCardInsideViewport(page, card);

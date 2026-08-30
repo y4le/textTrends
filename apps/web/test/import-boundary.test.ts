@@ -177,6 +177,9 @@ describe('guided-learning import boundary', () => {
         ) || (
           rel === 'components/compare/ComparePanel.tsx'
           && spec.endsWith('/guide/GuideLink.tsx')
+        ) || (
+          rel === 'lib/debug-storage.ts'
+          && spec.endsWith('/guide/storage.ts')
         );
         if (
           !compositionEdge

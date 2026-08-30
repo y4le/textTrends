@@ -3,6 +3,8 @@ import type { GuideAnchorId } from './anchors.ts';
 import type { GuideContext } from './context.ts';
 import type { GuideStageIntent } from './stage.ts';
 
+export const GUIDED_TOUR_VERSION = 1;
+
 export const GUIDE_IDS = Object.freeze([
   'guided-tour',
   'terms-and-notebook',

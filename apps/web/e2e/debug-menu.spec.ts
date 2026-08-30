@@ -5,6 +5,7 @@ import {
 import {
   VOCABULARY_COLUMN_STORAGE_KEY,
 } from '../src/lib/vocabulary-column-storage.ts';
+import { GUIDE_PROGRESS_STORAGE_KEY } from '../src/lib/guide/storage.ts';
 import { awaitReadyCount, openQuickAdd } from './helpers.ts';
 
 test('puts recovery and demo corpora before diagnostic sections', async ({ page }) => {
@@ -37,14 +38,20 @@ test('cache clear preserves research state while full reset removes app-owned br
   const term = await openQuickAdd(page);
   await term.fill('Reset term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   // Clear immediately, while the debounced workspace save is still dirty. The
   // recovery action itself owns the durability barrier before teardown.
-  await page.evaluate(({ matchesKey, vocabularyKey }) => {
+  await page.evaluate(({ guideKey, matchesKey, vocabularyKey }) => {
     sessionStorage.setItem(matchesKey, '{}');
     sessionStorage.setItem(vocabularyKey, '{}');
     sessionStorage.setItem('unrelated-owner-key', 'keep');
+    localStorage.setItem(guideKey, JSON.stringify({
+      v: 1,
+      tourSeenVersion: 1,
+      dismissedInvitationVersion: 1,
+    }));
+    localStorage.setItem('unrelated-local-key', 'keep');
   }, {
+    guideKey: GUIDE_PROGRESS_STORAGE_KEY,
     matchesKey: MATCHES_COLUMN_STORAGE_KEY,
     vocabularyKey: VOCABULARY_COLUMN_STORAGE_KEY,
   });
@@ -59,14 +66,23 @@ test('cache clear preserves research state while full reset removes app-owned br
   await expect(page.getByRole('button', { name: 'Edit term: Reset term' })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Local library' })
     .getByRole('list', { name: 'Saved texts' }).getByRole('listitem')).toHaveCount(1);
-  await expect.poll(() => page.evaluate(({ matchesKey, vocabularyKey }) => [
+  await expect.poll(() => page.evaluate(({ guideKey, matchesKey, vocabularyKey }) => [
     sessionStorage.getItem(matchesKey),
     sessionStorage.getItem(vocabularyKey),
     sessionStorage.getItem('unrelated-owner-key'),
+    localStorage.getItem(guideKey),
+    localStorage.getItem('unrelated-local-key'),
   ], {
+    guideKey: GUIDE_PROGRESS_STORAGE_KEY,
     matchesKey: MATCHES_COLUMN_STORAGE_KEY,
     vocabularyKey: VOCABULARY_COLUMN_STORAGE_KEY,
-  })).toEqual(['{}', '{}', 'keep']);
+  })).toEqual([
+    '{}',
+    '{}',
+    'keep',
+    JSON.stringify({ v: 1, tourSeenVersion: 1, dismissedInvitationVersion: 1 }),
+    'keep',
+  ]);
 
   await page.keyboard.press('Shift+D');
   debug = page.getByRole('dialog', { name: 'Debug' });
@@ -85,12 +101,15 @@ test('cache clear preserves research state while full reset removes app-owned br
   await expect(page.getByText('No active inputs. Nothing is being analyzed.', { exact: true })).toBeVisible();
   await expect(page.getByText('No saved texts yet.', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Edit term: Reset term' })).toHaveCount(0);
-  await expect.poll(() => page.evaluate(({ matchesKey, vocabularyKey }) => [
+  await expect.poll(() => page.evaluate(({ guideKey, matchesKey, vocabularyKey }) => [
     sessionStorage.getItem(matchesKey),
     sessionStorage.getItem(vocabularyKey),
     sessionStorage.getItem('unrelated-owner-key'),
+    localStorage.getItem(guideKey),
+    localStorage.getItem('unrelated-local-key'),
   ], {
+    guideKey: GUIDE_PROGRESS_STORAGE_KEY,
     matchesKey: MATCHES_COLUMN_STORAGE_KEY,
     vocabularyKey: VOCABULARY_COLUMN_STORAGE_KEY,
-  })).toEqual([null, null, 'keep']);
+  })).toEqual([null, null, 'keep', null, 'keep']);
 });

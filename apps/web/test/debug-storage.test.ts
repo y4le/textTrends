@@ -12,6 +12,7 @@ import {
   LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
   TREND_ROW_PITCH_STORAGE_KEY,
 } from '../src/lib/trend-row-storage.ts';
+import { GUIDE_PROGRESS_STORAGE_KEY } from '../src/lib/guide/storage.ts';
 
 function open(factory: IDBFactory, name: string): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -28,6 +29,7 @@ describe('debug storage recovery', () => {
   it('owns the durable trend row-pitch preference', () => {
     expect(OWNED_LOCAL_STORAGE_KEYS).toContain(TREND_ROW_PITCH_STORAGE_KEY);
     expect(OWNED_LOCAL_STORAGE_KEYS).toContain(LEGACY_TREND_ROW_PITCH_STORAGE_KEY);
+    expect(OWNED_LOCAL_STORAGE_KEYS).toContain(GUIDE_PROGRESS_STORAGE_KEY);
   });
 
   it('deletes both app databases and only the allowlisted web-storage keys', async () => {

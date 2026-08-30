@@ -15,6 +15,7 @@ export interface HelpGuidesProps {
   readonly place: Place;
   readonly readiness: GuideReadiness;
   readonly active: boolean;
+  readonly seen: boolean;
   readonly onStart: (id: GuideId) => void;
   readonly onRemedy: (remedy: GuideReadinessRemedy) => void;
 }
@@ -24,6 +25,7 @@ export function HelpGuides({
   place,
   readiness,
   active,
+  seen,
   onStart,
   onRemedy,
 }: HelpGuidesProps) {
@@ -49,7 +51,8 @@ export function HelpGuides({
           {...(reasonId === undefined ? {} : { 'aria-describedby': reasonId })}
           onClick={() => onStart(GUIDED_TOUR_SYNOPSIS.id)}
         >
-          {active ? 'Restart' : 'Start'} the guided tour · {GUIDED_TOUR_SYNOPSIS.duration}
+          {active ? 'Restart' : seen ? 'Replay' : 'Start'} the guided tour ·{' '}
+          {GUIDED_TOUR_SYNOPSIS.duration}
         </button>
         {readiness.status === 'disabled' && readiness.remedy && (
           <button type="button" onClick={() => onRemedy(readiness.remedy!)}>

@@ -73,6 +73,7 @@ export function HelpPane({
   onDebug,
   guideReadiness,
   guideActive,
+  guideSeen,
   onStartGuide,
   onGuideRemedy,
   onClose,
@@ -84,6 +85,7 @@ export function HelpPane({
   readonly onDebug: () => void;
   readonly guideReadiness: HelpGuidesProps['readiness'];
   readonly guideActive: boolean;
+  readonly guideSeen: boolean;
   readonly onStartGuide: HelpGuidesProps['onStart'];
   readonly onGuideRemedy: HelpGuidesProps['onRemedy'];
   readonly onClose: () => void;
@@ -196,6 +198,7 @@ export function HelpPane({
                   place={place}
                   readiness={guideReadiness}
                   active={guideActive}
+                  seen={guideSeen}
                   onStart={onStartGuide}
                   onRemedy={onGuideRemedy}
                 />

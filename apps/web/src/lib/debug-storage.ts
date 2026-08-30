@@ -11,6 +11,7 @@ import {
   RSVP_WPM_STORAGE_KEY,
 } from './rsvp-storage.ts';
 import { ARTIFACT_DB_NAME } from '../shared/storage-schema.ts';
+import { GUIDE_PROGRESS_STORAGE_KEY } from './guide/storage.ts';
 
 export const OWNED_SESSION_STORAGE_KEYS = Object.freeze([
   MATCHES_COLUMN_STORAGE_KEY,
@@ -23,6 +24,7 @@ export const OWNED_LOCAL_STORAGE_KEYS = Object.freeze([
   RSVP_PACING_STORAGE_KEY,
   TREND_ROW_PITCH_STORAGE_KEY,
   LEGACY_TREND_ROW_PITCH_STORAGE_KEY,
+  GUIDE_PROGRESS_STORAGE_KEY,
 ]);
 
 export type DatabaseBlockedHandler = (name: string) => void;

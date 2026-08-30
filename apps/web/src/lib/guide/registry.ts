@@ -1,9 +1,10 @@
-import type {
-  GuideCopy,
-  GuideDefinition,
-  GuideId,
-  GuideStep,
-  GuideStepPhase,
+import {
+  GUIDED_TOUR_VERSION,
+  type GuideCopy,
+  type GuideDefinition,
+  type GuideId,
+  type GuideStep,
+  type GuideStepPhase,
 } from './definition.ts';
 import {
   guidedTourReadiness,
@@ -16,7 +17,8 @@ import {
 } from './help-content.ts';
 import type { GuideAnchorId } from './anchors.ts';
 
-export const GUIDED_TOUR_VERSION = 1;
+// The invitation reads this version without importing the lazy script registry.
+export { GUIDED_TOUR_VERSION } from './definition.ts';
 
 const PRIMARY_NEXT = Object.freeze([
   { id: 'primary', label: 'Next' },
