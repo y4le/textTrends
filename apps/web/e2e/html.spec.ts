@@ -50,7 +50,6 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
   const input = await openQuickAdd(page);
   await input.fill('barnowl');
   await input.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'matches');
   const matches = page.getByRole('grid', { name: 'Matches' });
   await expect(matches).toBeVisible({ timeout: 30_000 });
@@ -65,7 +64,6 @@ test('a non-well-formed HTML file imports, extracts body text, and analyzes it',
   const script = await openQuickAdd(page);
   await script.fill('SCRIPTLEAKMARKER');
   await script.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'matches');
   await expect(page.getByText('No occurrences of the enabled terms.')).toBeVisible({ timeout: 30_000 });
 });

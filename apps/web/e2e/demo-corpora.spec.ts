@@ -90,7 +90,6 @@ test('demos load as additive local texts and merge useful starter terms', async 
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
 
   await page.keyboard.press('Shift+D');
   const debug = page.getByRole('dialog', { name: 'Debug' });
@@ -155,7 +154,6 @@ test('a one-shot demo URL clears active research state but preserves saved sourc
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   await expect.poll(() => savedResearchCounts(page), { timeout: 10_000 }).toEqual([1, 1]);
   await page.reload();
   await awaitReadyCount(page, 1);
@@ -184,7 +182,6 @@ test('demo acquisition owns the library lane from fetch through activation', asy
   const term = await openQuickAdd(page);
   await term.fill('Reader term');
   await term.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done' }).click();
   const local = page.getByRole('region', { name: 'Local library' });
   await local.evaluate((target) => {
     const transfer = new DataTransfer();

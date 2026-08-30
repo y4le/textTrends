@@ -94,7 +94,6 @@ test('an EPUB imports, extracts body text, and analyzes it', async ({ page }) =>
   const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'matches');
   const matches = page.getByRole('grid', { name: 'Matches' });
   await expect(matches).toBeVisible({ timeout: 30_000 });
@@ -126,7 +125,6 @@ test('a library EPUB reopens after the artifact cache is cleared', async ({ page
   const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible({ timeout: 30_000 });
 });
@@ -168,7 +166,6 @@ test('a library EPUB rebuilds its index when only extracted text survives', asyn
   const input = await openQuickAdd(page);
   await input.fill('zephyrwood');
   await input.press('Enter');
-  await page.getByRole('dialog', { name: 'Manage terms' }).getByRole('button', { name: 'Done', exact: true }).click();
   await gotoPlace(page, 'matches');
   await expect(page.getByRole('grid', { name: 'Matches' })).toBeVisible({ timeout: 30_000 });
 });

@@ -132,8 +132,6 @@ test('record cold/warm/query clocks; gate cancel ack p95 < 250ms', async ({ page
     const input = await openQuickAdd(page);
     await input.fill(terms);
     await input.press('Enter');
-    await page.getByRole('dialog', { name: 'Manage terms' })
-      .getByRole('button', { name: 'Done', exact: true }).click();
     // Correlate by JOB id: a late-settling result from a superseded removal
     // burst (clearNotebook does not await) must never be recorded as this
     // term's latency (review-C).
