@@ -25,8 +25,13 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await chart.press('Enter');
   await expect(page.getByTestId('linked-selection')).toBeVisible();
 
-  // The Trends graph and footer graph share the clear gesture.
-  await chart.dblclick({ position: { x: 100, y: 8 } });
+  // The Trends graph and footer graph share the clear gesture. Use the chart's
+  // interior rather than its top edge, which can sit beneath the sticky row
+  // resize handle after Playwright scrolls the slider into view.
+  const initialChartBox = await chart.boundingBox();
+  if (!initialChartBox) throw new Error('Trends graph geometry is unavailable');
+  const chartGestureY = Math.min(initialChartBox.height - 8, 32);
+  await chart.dblclick({ position: { x: 100, y: chartGestureY } });
   await expect(page.getByTestId('linked-selection')).toHaveCount(0);
   await expect(chart.locator('..').getByRole('status')).toHaveText('Range cleared.');
   await chart.press('s');
@@ -39,7 +44,7 @@ test('the footer graph double-press clears or brushes without stealing shuttle a
   await page.waitForTimeout(600);
   const chartBox = await chart.boundingBox();
   if (!chartBox) throw new Error('Trends graph geometry is unavailable');
-  const chartDragY = chartBox.y + 8;
+  const chartDragY = chartBox.y + Math.min(chartBox.height - 8, 32);
   const chartDragStart = chartBox.x + chartBox.width * 0.2;
   const chartDragEnd = chartDragStart + 12;
   await page.mouse.move(chartDragStart, chartDragY);
