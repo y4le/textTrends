@@ -5098,8 +5098,10 @@ describe('latest-wins full reader intent (slice-2 H)', () => {
       readerPlace: { anchor: 'position' },
     });
     f.store.getState().setAtlasNormalization('to-scale');
+    f.store.getState().enterRsvp(true);
     f.store.getState().runReader();
     expect(f.store.getState().atlasNormalization).toBe('to-scale');
+    expect(f.store.getState().interaction.kind).not.toBe('rsvp');
     expect(f.readers()).toHaveLength(beforeAtlas);
 
     f.store.getState().setReaderScale('read');

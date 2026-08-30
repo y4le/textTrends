@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useEffectEvent,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -16,6 +17,7 @@ import {
   atlasDeviceRowCount,
   atlasDeviceRows,
   atlasLayout,
+  atlasMovedToken,
   atlasRowOpacity,
   atlasTokenAtY,
   atlasTrackActivationAt,
@@ -31,6 +33,11 @@ import {
 } from '../../lib/reader-order.ts';
 import { projectedBarcodeTracks } from '../../lib/trend-stage.ts';
 import { seriesColor } from '../../lib/series-style.ts';
+import {
+  shortcutAria,
+  shortcutMatches,
+  type ShortcutId,
+} from '../../lib/shortcuts.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { SMALL_BUTTON_STYLE } from '../chrome.tsx';
 import { usePresentation } from '../PresentationProvider.tsx';
@@ -39,6 +46,30 @@ import { ReaderScaleControl } from './ReaderScaleControl.tsx';
 const ATLAS_COLUMN_GAP = 12;
 const ATLAS_COLUMN_MIN = 116;
 const ATLAS_COLUMN_MAX = 168;
+const ATLAS_ANNOUNCEMENT_DELAY_MS = 400;
+const ATLAS_WHEEL_STEP_PX = 40;
+const ATLAS_PASSTHROUGH_SHORTCUTS = [
+  'reader-occurrence-next',
+  'reader-occurrence-previous',
+  'reader-text-previous',
+  'reader-text-next',
+  'reader-close',
+  'reader-rsvp-toggle',
+  'show-help',
+  'find-open',
+] as const satisfies readonly ShortcutId[];
+
+interface AtlasPosition {
+  readonly doc: string;
+  readonly token: number;
+}
+
+interface AtlasTouchStart {
+  readonly pointerId: number;
+  readonly x: number;
+  readonly y: number;
+  readonly scrollLeft: number;
+}
 
 function counted(count: number, singular: string, plural = `${singular}s`): string {
   return `${count.toLocaleString()} ${count === 1 ? singular : plural}`;
@@ -245,6 +276,9 @@ function ReaderAtlasRuler({
 }) {
   const listRef = useRef<HTMLDivElement | null>(null);
   const focusIndex = Math.max(0, order.indexOf(focusedDoc));
+  const activeIndex = Math.max(0, order.indexOf(activeDoc));
+  const previous = activeIndex > 0 ? order[activeIndex - 1]! : null;
+  const next = activeIndex < order.length - 1 ? order[activeIndex + 1]! : null;
 
   useEffect(() => {
     const button = listRef.current?.querySelector<HTMLElement>(
@@ -275,6 +309,28 @@ function ReaderAtlasRuler({
 
   return (
     <div className="reader-atlas-ruler" data-reader-scale="atlas">
+      <div className="reader-atlas-ruler-compact" role="group" aria-label="Active text">
+        <button
+          type="button"
+          aria-label={previous === null ? 'At first readable text' : `Previous text: ${titleOf(previous)}`}
+          disabled={previous === null}
+          onClick={() => { if (previous !== null) onActivateDoc(previous); }}
+        >
+          <span aria-hidden="true">←</span>
+        </button>
+        <div>
+          <span>text {activeIndex + 1} of {order.length}</span>
+          <strong title={titleOf(activeDoc)}>{titleOf(activeDoc)}</strong>
+        </div>
+        <button
+          type="button"
+          aria-label={next === null ? 'At last readable text' : `Next text: ${titleOf(next)}`}
+          disabled={next === null}
+          onClick={() => { if (next !== null) onActivateDoc(next); }}
+        >
+          <span aria-hidden="true">→</span>
+        </button>
+      </div>
       <div ref={listRef} className="reader-atlas-ruler-list" role="toolbar" aria-label="Texts">
         {order.map((doc, index) => (
           <button
@@ -312,9 +368,11 @@ function ReaderAtlasRuler({
 export function ReaderAtlas({
   onOpenHelp,
   onOpenSettings,
+  onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onAnnounce: (message: string) => void;
 }) {
   const place = useApp((state) => state.readerPlace);
   const snapshot = useApp((state) => state.snapshot);
@@ -333,6 +391,13 @@ export function ReaderAtlas({
   const presentation = usePresentation();
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const scrollFrame = useRef(0);
+  const positionFrame = useRef(0);
+  const queuedPosition = useRef<AtlasPosition | null>(null);
+  const navigationPosition = useRef<AtlasPosition | null>(null);
+  const navigationAnchor = useRef<'occurrence' | 'position'>('position');
+  const announcementTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const touchStart = useRef<AtlasTouchStart | null>(null);
+  const wheelRemainder = useRef(0);
   const lastCentered = useRef<string | null>(null);
   const [viewport, setViewport] = useState({ width: 0, plotHeight: 64 });
   const [scrollLeft, setScrollLeft] = useState(0);
@@ -413,6 +478,12 @@ export function ReaderAtlas({
   const canvasWindow = atlasCanvasWindow(layout, scrollLeft, viewport.width);
 
   useLayoutEffect(() => {
+    if (place === null || queuedPosition.current !== null) return;
+    navigationPosition.current = { doc: place.doc, token: activeToken };
+    navigationAnchor.current = place.anchor;
+  }, [activeToken, place]);
+
+  useLayoutEffect(() => {
     const scroller = scrollerRef.current;
     if (!scroller || typeof ResizeObserver === 'undefined') return undefined;
     const publish = () => setViewport((current) => {
@@ -436,7 +507,11 @@ export function ReaderAtlas({
     return () => observer.disconnect();
   }, [columns]);
 
-  useEffect(() => () => cancelAnimationFrame(scrollFrame.current), []);
+  useEffect(() => () => {
+    cancelAnimationFrame(scrollFrame.current);
+    cancelAnimationFrame(positionFrame.current);
+    if (announcementTimer.current !== null) clearTimeout(announcementTimer.current);
+  }, []);
 
   useEffect(() => {
     if (!place) return;
@@ -454,7 +529,41 @@ export function ReaderAtlas({
     });
   }, [place, presentation.reducedMotion]);
 
-  if (!place || !snapshot || order.length < 2) return null;
+  const atlasAvailable = place !== null && snapshot !== null && order.length >= 2;
+  const onAtlasWheel = useEffectEvent((event: WheelEvent, plane: HTMLDivElement) => {
+    if (
+      event.ctrlKey
+      || event.metaKey
+      || event.shiftKey
+      || Math.abs(event.deltaX) >= Math.abs(event.deltaY)
+      || event.deltaY === 0
+    ) return;
+    // React delegates wheel passively. Atlas owns dominant-axis vertical
+    // movement, so this listener must be explicitly non-passive to prevent
+    // a future scrollable ancestor from consuming the same gesture.
+    event.preventDefault();
+    const pixels = event.deltaMode === 1
+      ? event.deltaY * 16
+      : event.deltaMode === 2
+        ? event.deltaY * plane.clientHeight
+        : event.deltaY;
+    wheelRemainder.current += pixels;
+    const steps = Math.trunc(wheelRemainder.current / ATLAS_WHEEL_STEP_PX);
+    if (steps === 0) return;
+    wheelRemainder.current -= steps * ATLAS_WHEEL_STEP_PX;
+    moveVertical(steps < 0 ? 'previous' : 'next', Math.abs(steps));
+  });
+
+  useEffect(() => {
+    if (!atlasAvailable) return undefined;
+    const plane = scrollerRef.current;
+    if (plane === null) return undefined;
+    const onWheel = (event: WheelEvent) => onAtlasWheel(event, plane);
+    plane.addEventListener('wheel', onWheel, { passive: false });
+    return () => plane.removeEventListener('wheel', onWheel);
+  }, [atlasAvailable]);
+
+  if (!atlasAvailable) return null;
   const activeIndex = Math.max(0, order.indexOf(place.doc));
   const activeExtent = tokenCounts.get(place.doc);
   const activePercent = activeExtent && activeExtent > 1
@@ -468,12 +577,76 @@ export function ReaderAtlas({
         ? 'Loading term distribution…'
         : null;
 
-  const activateDocument = (doc: string) => {
-    const currentCount = tokenCounts.get(place.doc);
+  const announcePosition = (target: AtlasPosition) => {
+    const count = tokenCounts.get(target.doc);
+    const ordinal = order.indexOf(target.doc);
+    if (count === undefined || ordinal < 0) return;
+    const percent = count > 1 ? Math.round((target.token / (count - 1)) * 100) : 0;
+    onAnnounce(
+      `Atlas. ${titleOf(target.doc)}, text ${ordinal + 1} of ${order.length}. Token ${
+        Math.min(count, target.token + 1).toLocaleString()} of ${count.toLocaleString()}, ${percent} percent.`,
+    );
+  };
+
+  const scheduleAnnouncement = (target: AtlasPosition) => {
+    if (announcementTimer.current !== null) clearTimeout(announcementTimer.current);
+    announcementTimer.current = setTimeout(() => {
+      announcementTimer.current = null;
+      announcePosition(target);
+    }, ATLAS_ANNOUNCEMENT_DELAY_MS);
+  };
+
+  const cancelAnnouncement = () => {
+    if (announcementTimer.current !== null) clearTimeout(announcementTimer.current);
+    announcementTimer.current = null;
+  };
+
+  const cancelQueuedPosition = () => {
+    cancelAnimationFrame(positionFrame.current);
+    positionFrame.current = 0;
+    queuedPosition.current = null;
+  };
+
+  const commitPosition = (
+    target: AtlasPosition,
+    anchor: 'occurrence' | 'position' = 'position',
+    descend = false,
+  ) => {
+    cancelQueuedPosition();
+    navigationPosition.current = target;
+    navigationAnchor.current = anchor;
+    selectPosition(target, anchor, descend);
+    if (descend) cancelAnnouncement();
+    else scheduleAnnouncement(target);
+  };
+
+  const queuePosition = (target: AtlasPosition) => {
+    navigationPosition.current = target;
+    navigationAnchor.current = 'position';
+    queuedPosition.current = target;
+    if (positionFrame.current !== 0) return;
+    positionFrame.current = requestAnimationFrame(() => {
+      positionFrame.current = 0;
+      const queued = queuedPosition.current;
+      queuedPosition.current = null;
+      if (queued === null) return;
+      selectPosition(queued, 'position');
+      scheduleAnnouncement(queued);
+    });
+  };
+
+  const relativePositionIn = (doc: string, base: AtlasPosition): AtlasPosition | null => {
+    const currentCount = tokenCounts.get(base.doc);
     const targetCount = tokenCounts.get(doc);
-    if (currentCount === undefined || targetCount === undefined) return;
-    const token = readerRelativeToken(activeToken, currentCount, targetCount);
-    if (token !== null) selectPosition({ doc, token }, 'position');
+    if (currentCount === undefined || targetCount === undefined) return null;
+    const token = readerRelativeToken(base.token, currentCount, targetCount);
+    return token === null ? null : { doc, token };
+  };
+
+  const activateDocument = (doc: string) => {
+    const base = navigationPosition.current ?? { doc: place.doc, token: activeToken };
+    const target = relativePositionIn(doc, base);
+    if (target !== null) commitPosition(target);
   };
 
   const hitTrack = (
@@ -493,7 +666,7 @@ export function ReaderAtlas({
       return rail !== null && localX >= rail.x && localX < rail.x + rail.width;
     });
     if (trackOrdinal < 0) {
-      selectPosition({ doc: column.doc, token }, 'position');
+      commitPosition({ doc: column.doc, token });
       return;
     }
     const track = column.tracks[trackOrdinal]!;
@@ -503,17 +676,112 @@ export function ReaderAtlas({
       centerKwicAt(track.seriesId, column.doc, activation.token, {
         kind: 'occurrence', groupId: track.groupId,
       });
-      selectPosition({ doc: column.doc, token: activation.token }, 'occurrence', true);
+      commitPosition({ doc: column.doc, token: activation.token }, 'occurrence', true);
       return;
     }
     if (activation.kind === 'bucket') {
       centerKwicAt(track.seriesId, column.doc, activation.token, {
         kind: 'bucket', count: activation.count,
       });
-      selectPosition({ doc: column.doc, token: activation.token }, 'position', true);
+      commitPosition({ doc: column.doc, token: activation.token }, 'position', true);
       return;
     }
-    selectPosition({ doc: column.doc, token: activation.token }, 'position');
+    commitPosition({ doc: column.doc, token: activation.token });
+  };
+
+  const moveVertical = (
+    movement: Parameters<typeof atlasMovedToken>[2],
+    multiplier = 1,
+  ) => {
+    const base = navigationPosition.current ?? { doc: place.doc, token: activeToken };
+    const count = tokenCounts.get(base.doc);
+    if (count === undefined) return;
+    const token = atlasMovedToken(base.token, count, movement, multiplier);
+    if (token !== null && token !== base.token) queuePosition({ doc: base.doc, token });
+  };
+
+  const moveHorizontal = (direction: -1 | 1) => {
+    const base = navigationPosition.current ?? { doc: place.doc, token: activeToken };
+    const index = order.indexOf(base.doc);
+    const doc = index < 0 ? undefined : order[index + direction];
+    if (doc === undefined) {
+      cancelAnnouncement();
+      onAnnounce(direction < 0 ? 'First readable text.' : 'Last readable text.');
+      return;
+    }
+    const target = relativePositionIn(doc, base);
+    if (target !== null) queuePosition(target);
+  };
+
+  const onAtlasKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    const nativeEvent = event.nativeEvent;
+    if (ATLAS_PASSTHROUGH_SHORTCUTS.some((id) => shortcutMatches(nativeEvent, id))) {
+      cancelQueuedPosition();
+      cancelAnnouncement();
+      return;
+    }
+    if (shortcutMatches(nativeEvent, 'reader-atlas-descend')) {
+      event.preventDefault();
+      const target = navigationPosition.current ?? { doc: place.doc, token: activeToken };
+      commitPosition(target, navigationAnchor.current, true);
+      return;
+    }
+    if (shortcutMatches(nativeEvent, 'reader-atlas-text-previous')) {
+      event.preventDefault();
+      moveHorizontal(-1);
+    } else if (shortcutMatches(nativeEvent, 'reader-atlas-text-next')) {
+      event.preventDefault();
+      moveHorizontal(1);
+    } else if (shortcutMatches(nativeEvent, 'reader-atlas-position-previous')) {
+      event.preventDefault();
+      moveVertical('previous');
+    } else if (shortcutMatches(nativeEvent, 'reader-atlas-position-next')) {
+      event.preventDefault();
+      moveVertical('next');
+    } else if (shortcutMatches(nativeEvent, 'reader-atlas-page-previous')) {
+      event.preventDefault();
+      moveVertical('page-previous');
+    } else if (shortcutMatches(nativeEvent, 'reader-atlas-page-next')) {
+      event.preventDefault();
+      moveVertical('page-next');
+    } else if (shortcutMatches(nativeEvent, 'reader-book-start')) {
+      event.preventDefault();
+      moveVertical('start');
+    } else if (shortcutMatches(nativeEvent, 'reader-book-end')) {
+      event.preventDefault();
+      moveVertical('end');
+    }
+  };
+
+  const onTrackPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
+    touchStart.current = null;
+    if (event.pointerType !== 'touch' || !event.isPrimary) return;
+    touchStart.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: scrollerRef.current?.scrollLeft ?? 0,
+    };
+  };
+
+  const onTrackPointerUp = (
+    event: ReactPointerEvent<HTMLDivElement>,
+    column: AtlasColumnVM,
+    layoutColumn: AtlasLayoutColumn,
+  ) => {
+    if (event.pointerType !== 'touch') {
+      hitTrack(event, column, layoutColumn);
+      return;
+    }
+    const down = touchStart.current;
+    touchStart.current = null;
+    if (
+      down === null
+      || down.pointerId !== event.pointerId
+      || Math.hypot(event.clientX - down.x, event.clientY - down.y) > 8
+      || Math.abs((scrollerRef.current?.scrollLeft ?? 0) - down.scrollLeft) > 8
+    ) return;
+    hitTrack(event, column, layoutColumn);
   };
 
   const atlasLabel = [
@@ -530,7 +798,7 @@ export function ReaderAtlas({
           <h2 id="reader-title" style={{ margin: 0, fontSize: 'var(--text-lg)' }}>
             <span className="visually-hidden">Reader: </span>{titleOf(place.doc)}
           </h2>
-          <p className="reader-position" role="status" aria-atomic="true">
+          <p className="reader-position">
             text {activeIndex + 1} of {order.length} · token {Math.min(activeToken + 1, activeExtent ?? activeToken + 1).toLocaleString()} of {activeExtent?.toLocaleString() ?? 'unknown'} · {activePercent}%
           </p>
         </div>
@@ -544,7 +812,14 @@ export function ReaderAtlas({
           >
             settings
           </button>
-          <button type="button" onClick={onOpenHelp} style={SMALL_BUTTON_STYLE}>help</button>
+          <button
+            type="button"
+            aria-keyshortcuts={shortcutAria(['show-help'])}
+            onClick={onOpenHelp}
+            style={SMALL_BUTTON_STYLE}
+          >
+            help
+          </button>
           <button type="button" onClick={closeReader} style={SMALL_BUTTON_STYLE}>back</button>
         </div>
       </header>
@@ -556,7 +831,11 @@ export function ReaderAtlas({
         normalization={normalization}
         onFocusDoc={setFocusedDoc}
         onActivateDoc={activateDocument}
-        onNormalization={setNormalization}
+        onNormalization={(value) => {
+          cancelAnnouncement();
+          setNormalization(value);
+          onAnnounce(`Atlas normalization: ${value === 'equal' ? 'Equal' : 'To scale'}.`);
+        }}
       />
       {distributionStatus && (
         <div
@@ -570,21 +849,33 @@ export function ReaderAtlas({
         </div>
       )}
       <div
+        id="reader-atlas-plane"
         ref={scrollerRef}
         className="reader-atlas-plane"
         role="group"
         tabIndex={0}
         aria-label={atlasLabel}
+        aria-keyshortcuts={shortcutAria([
+          'reader-atlas-text-previous',
+          'reader-atlas-text-next',
+          'reader-atlas-position-previous',
+          'reader-atlas-position-next',
+          'reader-atlas-page-previous',
+          'reader-atlas-page-next',
+          'reader-atlas-descend',
+          'reader-occurrence-previous',
+          'reader-occurrence-next',
+          'reader-text-previous',
+          'reader-text-next',
+          'reader-book-start',
+          'reader-book-end',
+        ])}
         onScroll={(event) => {
           const left = event.currentTarget.scrollLeft;
           cancelAnimationFrame(scrollFrame.current);
           scrollFrame.current = requestAnimationFrame(() => setScrollLeft(left));
         }}
-        onKeyDown={(event) => {
-          if (event.key !== 'Enter') return;
-          event.preventDefault();
-          selectPosition({ doc: place.doc, token: activeToken }, place.anchor, true);
-        }}
+        onKeyDown={onAtlasKeyDown}
       >
         <div className="reader-atlas-columns" style={{ inlineSize: layout.width }}>
           {columns.map((column, ordinal) => {
@@ -609,12 +900,14 @@ export function ReaderAtlas({
                 {column.status === 'ready' ? (
                   keepCanvas ? (
                     <div
-                      onPointerUp={(event) => hitTrack(event, column, layoutColumn)}
+                      onPointerDown={onTrackPointerDown}
+                      onPointerUp={(event) => onTrackPointerUp(event, column, layoutColumn)}
+                      onPointerCancel={() => { touchStart.current = null; }}
                       onDoubleClick={(event) => {
                         const rect = event.currentTarget.getBoundingClientRect();
                         const token = atlasTokenAtY(layoutColumn, event.clientY - rect.top);
                         if (token !== null) {
-                          selectPosition({ doc: column.doc, token }, 'position', true);
+                          commitPosition({ doc: column.doc, token }, 'position', true);
                         }
                       }}
                     >

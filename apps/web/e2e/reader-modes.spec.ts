@@ -164,6 +164,20 @@ test('Atlas compares complete text extents without analysis queries or page over
   await expect(reader.locator('.reader-atlas-extent')).toHaveCount(SHERLOCK.length);
   await expect(reader.getByRole('button', { name: 'Atlas', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
+  await expect(plane).toBeFocused();
+  expect(await plane.evaluate((element) => getComputedStyle(element).touchAction))
+    .toContain('pinch-zoom');
+  await expect(reader.locator('.reader-atlas-ruler-list > button[tabindex="0"]')).toHaveCount(1);
+
+  const readerHelp = reader.getByRole('button', { name: 'help', exact: true });
+  await readerHelp.click();
+  const help = page.getByRole('dialog', { name: 'Help' });
+  await expect(help.getByText('Next text in Atlas', { exact: true })).toBeVisible();
+  await expect(help.getByText('Move down in the active text', { exact: true })).toBeVisible();
+  await expect(help.getByText('Read at the active Atlas position', { exact: true })).toBeVisible();
+  await expect(help.getByText('Next page', { exact: true })).toHaveCount(0);
+  await help.getByRole('button', { name: 'close', exact: true }).click();
+  await expect(readerHelp).toBeFocused();
 
   const canvases = reader.locator('[data-atlas-canvas]');
   const firstCanvas = canvases.first();
@@ -207,6 +221,65 @@ test('Atlas compares complete text extents without analysis queries or page over
   await expect.poll(async () => (await paintedColors()).includes(lightSeries)).toBe(true);
   await expect(reader.locator('canvas[data-theme-probe="resident"]')).toHaveCount(1);
 
+  await plane.focus();
+  await plane.press('Shift+S');
+  await expect(reader.getByRole('status', { name: 'Reader keyboard status' }))
+    .toContainText('Speed reading is available in Read.');
+  await expect(reader.locator('[data-rsvp-stage]')).toHaveCount(0);
+
+  await plane.press('ArrowRight');
+  await expect(reader.locator('.reader-position')).toContainText('text 2 of');
+  await expect(plane).toBeFocused();
+  await plane.press('Home');
+  await expect(reader.locator('.reader-position')).toContainText('token 1 of');
+  const beforeModifiedInput = await reader.locator('.reader-position').textContent();
+  for (const wheelInit of [
+    { ctrlKey: true, deltaX: 0, deltaY: 120 },
+    { metaKey: true, deltaX: 0, deltaY: 120 },
+    { shiftKey: true, deltaX: 0, deltaY: 120 },
+    { deltaX: 120, deltaY: 60 },
+  ]) {
+    expect(await plane.evaluate((element, init) => {
+      const wheel = new WheelEvent('wheel', { bubbles: true, cancelable: true, ...init });
+      element.dispatchEvent(wheel);
+      return wheel.defaultPrevented;
+    }, wheelInit)).toBe(false);
+  }
+  await plane.press('Shift+ArrowDown');
+  await expect(reader.locator('.reader-position')).toHaveText(beforeModifiedInput!);
+  const beforeWheel = await reader.locator('.reader-position').textContent();
+  expect(await plane.evaluate((element) => {
+    const wheel = new WheelEvent('wheel', {
+      bubbles: true, cancelable: true, deltaX: 0, deltaY: 120, deltaMode: 0,
+    });
+    element.dispatchEvent(wheel);
+    return wheel.defaultPrevented;
+  })).toBe(true);
+  await expect.poll(() => reader.locator('.reader-position').textContent()).not.toBe(beforeWheel);
+  await expect(reader.getByRole('status', { name: 'Reader keyboard status' }))
+    .toContainText('Atlas.', { timeout: 2_000 });
+
+  const activeRail = reader.locator('[data-atlas-active="true"] .reader-atlas-rail');
+  const activeRailBox = await activeRail.boundingBox();
+  expect(activeRailBox).not.toBeNull();
+  const beforeDrag = await reader.locator('.reader-position').textContent();
+  await dispatchReaderPointer(
+    activeRail,
+    'touch',
+    { x: activeRailBox!.x + 2, y: activeRailBox!.y + 40 },
+    { x: activeRailBox!.x + 50, y: activeRailBox!.y + 40 },
+  );
+  await expect(reader.locator('.reader-position')).toHaveText(beforeDrag!);
+  const activeExtentBox = await activeRail.locator('.reader-atlas-extent').boundingBox();
+  expect(activeExtentBox).not.toBeNull();
+  await dispatchReaderPointer(activeRail, 'touch', {
+    x: activeRailBox!.x + 2,
+    y: activeExtentBox!.y + activeExtentBox!.height * 0.75,
+  });
+  await expect.poll(() => reader.locator('.reader-position').textContent()).not.toBe(beforeDrag);
+  await expect(reader.getByRole('button', { name: 'Atlas', exact: true }))
+    .toHaveAttribute('aria-pressed', 'true');
+
   await plane.evaluate((element) => { element.scrollLeft = 0; });
   const thirdRail = reader.locator('[data-atlas-column]').nth(2).locator('.reader-atlas-rail');
   await thirdRail.click({ position: { x: 2, y: 32 } });
@@ -220,6 +293,13 @@ test('Atlas compares complete text extents without analysis queries or page over
 
   await reader.getByRole('button', { name: 'Equal', exact: true }).click();
   await page.setViewportSize({ width: 844, height: 390 });
+  await expect(reader.locator('.reader-atlas-ruler-compact')).toBeVisible();
+  await expect(reader.locator('.reader-atlas-ruler-list')).toBeHidden();
+  await expect(reader.locator('.reader-atlas-ruler-compact').getByRole('button')).toHaveCount(2);
+  if (await page.evaluate(() => matchMedia('(pointer: coarse), (any-pointer: coarse)').matches)) {
+    await expect(reader.locator('.reader-atlas-ruler-compact').getByRole('button').first())
+      .toHaveCSS('min-height', '44px');
+  }
   await expect.poll(() => plane.evaluate((element) =>
     Math.abs(element.scrollHeight - element.clientHeight))).toBeLessThanOrEqual(1);
   await expect.poll(() => Promise.all([
@@ -234,6 +314,7 @@ test('Atlas compares complete text extents without analysis queries or page over
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
   await expect(reader.getByRole('button', { name: 'Read', exact: true }))
     .toHaveAttribute('aria-pressed', 'true');
+  await expect(reader).toBeFocused();
 });
 
 test('Reader page turns roll over between adjacent texts', async ({ page }) => {

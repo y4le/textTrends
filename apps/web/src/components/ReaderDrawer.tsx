@@ -570,9 +570,11 @@ function ReaderProseDrawer({
 export function ReaderDrawer({
   onOpenHelp,
   onOpenSettings,
+  onAnnounce,
 }: {
   readonly onOpenHelp: () => void;
   readonly onOpenSettings: (returnFocus: HTMLElement) => void;
+  readonly onAnnounce: (message: string) => void;
 }) {
   const interaction = useApp((state) => state.interaction);
   const place = useApp((state) => state.readerPlace);
@@ -592,7 +594,11 @@ export function ReaderDrawer({
     || place.snapshot !== interaction.rsvp.snapshot
     || place.doc !== interaction.rsvp.doc
   ) return readerScale === 'atlas' ? (
-    <ReaderAtlas onOpenHelp={onOpenHelp} onOpenSettings={onOpenSettings} />
+    <ReaderAtlas
+      onOpenHelp={onOpenHelp}
+      onOpenSettings={onOpenSettings}
+      onAnnounce={onAnnounce}
+    />
   ) : (
     <ReaderProseDrawer onOpenHelp={onOpenHelp} onOpenSettings={onOpenSettings} />
   );

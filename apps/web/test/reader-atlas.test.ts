@@ -10,6 +10,7 @@ import {
   atlasDeviceRowCount,
   atlasDeviceRows,
   atlasLayout,
+  atlasMovedToken,
   atlasRowOpacity,
   atlasTrackActivationAt,
   atlasTrackRail,
@@ -122,6 +123,17 @@ describe('Atlas normalization and virtualization', () => {
     expect(atlasTokenAtY(scaled.columns[1]!, 199.9)).toBe(49);
     expect(atlasTokenAtY(scaled.columns[1]!, 200)).toBeNull();
     expect(atlasTokenAtY(scaled.columns[1]!, 350)).toBeNull();
+  });
+
+  it('moves by relative small/page steps and true text bounds', () => {
+    expect(atlasMovedToken(500, 1_001, 'previous')).toBe(490);
+    expect(atlasMovedToken(500, 1_001, 'next')).toBe(510);
+    expect(atlasMovedToken(500, 1_001, 'page-previous')).toBe(400);
+    expect(atlasMovedToken(500, 1_001, 'page-next', 2)).toBe(700);
+    expect(atlasMovedToken(500, 1_001, 'start')).toBe(0);
+    expect(atlasMovedToken(500, 1_001, 'end')).toBe(1_000);
+    expect(atlasMovedToken(0, 1, 'next')).toBe(0);
+    expect(atlasMovedToken(0, 0, 'next')).toBeNull();
   });
 
   it('keeps one bounded overscanned canvas window over all column shells', () => {

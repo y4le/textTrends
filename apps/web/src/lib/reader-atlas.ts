@@ -215,6 +215,40 @@ export function atlasYForToken(
   return (token / column.domainTokenCount) * column.plotHeight;
 }
 
+export type AtlasVerticalMovement =
+  | 'previous'
+  | 'next'
+  | 'page-previous'
+  | 'page-next'
+  | 'start'
+  | 'end';
+
+/** Token-authored keyboard/wheel movement. Small and page steps are relative
+ * to each text so the same command has comparable meaning across columns. */
+export function atlasMovedToken(
+  token: number,
+  tokenCount: number,
+  movement: AtlasVerticalMovement,
+  multiplier = 1,
+): number | null {
+  if (
+    !Number.isSafeInteger(token)
+    || !Number.isSafeInteger(tokenCount)
+    || tokenCount < 1
+    || !Number.isFinite(multiplier)
+  ) return null;
+  const current = Math.max(0, Math.min(tokenCount - 1, token));
+  if (movement === 'start') return 0;
+  if (movement === 'end') return tokenCount - 1;
+  const direction = movement === 'previous' || movement === 'page-previous' ? -1 : 1;
+  const fraction = movement === 'page-previous' || movement === 'page-next' ? 0.1 : 0.01;
+  const step = Math.max(1, Math.round(Math.max(1, tokenCount - 1) * fraction));
+  return Math.max(
+    0,
+    Math.min(tokenCount - 1, current + direction * step * Math.max(1, Math.round(multiplier))),
+  );
+}
+
 /** Resolve a body position and reject To-scale's visually empty tail. */
 export function atlasTokenAtY(
   column: AtlasLayoutColumn,

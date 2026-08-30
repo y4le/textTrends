@@ -536,6 +536,63 @@ canvas {
   scroll-snap-type: inline proximity;
 }
 
+.reader-atlas-ruler-compact {
+  display: none;
+  min-inline-size: 0;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: stretch;
+  gap: var(--space-1);
+}
+
+.reader-atlas-ruler-compact > button {
+  min-inline-size: var(--chrome-target-block-size);
+  min-block-size: var(--chrome-target-block-size);
+  border: 0;
+  background: transparent;
+  color: var(--fg);
+  cursor: pointer;
+  font: inherit;
+}
+
+.reader-atlas-ruler-compact > button:disabled {
+  color: var(--fg-muted);
+  cursor: default;
+  opacity: 0.45;
+}
+
+.reader-atlas-ruler-compact > div {
+  display: grid;
+  min-inline-size: 0;
+  justify-items: center;
+  align-content: center;
+}
+
+.reader-atlas-ruler-compact span,
+.reader-atlas-ruler-compact strong {
+  max-inline-size: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reader-atlas-ruler-compact span {
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
+}
+
+.reader-atlas-ruler-compact strong {
+  font-family: var(--font-serif);
+  font-size: var(--text-sm);
+}
+
+@media (pointer: coarse), (any-pointer: coarse) {
+  .reader-atlas-ruler-compact > button {
+    min-inline-size: 44px;
+    min-block-size: 44px;
+  }
+}
+
 .reader-atlas-ruler-list > button {
   flex: 0 0 auto;
   overflow: hidden;
@@ -584,7 +641,7 @@ canvas {
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scroll-snap-type: inline proximity;
-  touch-action: pan-x;
+  touch-action: pan-x pinch-zoom;
 }
 
 .reader-atlas-columns {
@@ -1236,7 +1293,12 @@ canvas {
   }
 
   .reader-atlas-ruler {
-    justify-items: end;
+    grid-template-columns: minmax(0, 1fr) auto;
+    justify-items: stretch;
+  }
+
+  .reader-atlas-ruler-compact {
+    display: grid;
   }
 
   .reader-atlas-column > header {

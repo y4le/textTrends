@@ -78,6 +78,13 @@ export type ShortcutId =
   | 'dock-resize-reset'
   | 'reader-page-previous'
   | 'reader-page-next'
+  | 'reader-atlas-text-previous'
+  | 'reader-atlas-text-next'
+  | 'reader-atlas-position-previous'
+  | 'reader-atlas-position-next'
+  | 'reader-atlas-page-previous'
+  | 'reader-atlas-page-next'
+  | 'reader-atlas-descend'
   | 'reader-occurrence-previous'
   | 'reader-occurrence-next'
   | 'reader-text-previous'
@@ -133,7 +140,7 @@ export interface ShortcutHelpSection {
 }
 
 export type ShortcutHelpScope =
-  | { readonly context: 'reader' }
+  | { readonly context: 'reader'; readonly scale: 'read' | 'atlas' }
   | { readonly context: 'rsvp' }
   | {
       readonly context: 'workbench';
@@ -691,6 +698,55 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     strokes: [{ key: 'l' }, { key: 'ArrowRight' }, { key: 'PageDown' }],
   },
   {
+    id: 'reader-atlas-text-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Previous text in Atlas',
+    strokes: [{ key: 'h' }, { key: 'ArrowLeft' }],
+  },
+  {
+    id: 'reader-atlas-text-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Next text in Atlas',
+    strokes: [{ key: 'l' }, { key: 'ArrowRight' }],
+  },
+  {
+    id: 'reader-atlas-position-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move up in the active text',
+    strokes: [{ key: 'ArrowUp' }],
+  },
+  {
+    id: 'reader-atlas-position-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move down in the active text',
+    strokes: [{ key: 'ArrowDown' }],
+  },
+  {
+    id: 'reader-atlas-page-previous',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move up by a large step',
+    strokes: [{ key: 'PageUp' }],
+  },
+  {
+    id: 'reader-atlas-page-next',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Move down by a large step',
+    strokes: [{ key: 'PageDown' }],
+  },
+  {
+    id: 'reader-atlas-descend',
+    group: 'Reader',
+    helpContexts: ['reader'],
+    label: 'Read at the active Atlas position',
+    strokes: [{ key: 'Enter' }],
+  },
+  {
     id: 'reader-occurrence-previous',
     group: 'Reader',
     helpContexts: ['reader'],
@@ -977,6 +1033,21 @@ const GO_PLACE: Readonly<Partial<Record<ShortcutId, Place>>> = Object.freeze({
 /** Build help from the commands that are usable in the active surface. The
  * registry still owns every binding; this projection only removes no-op or
  * unavailable sections from the menu. */
+const ATLAS_READER_SHORTCUTS = new Set<ShortcutId>([
+  'reader-atlas-text-previous',
+  'reader-atlas-text-next',
+  'reader-atlas-position-previous',
+  'reader-atlas-position-next',
+  'reader-atlas-page-previous',
+  'reader-atlas-page-next',
+  'reader-atlas-descend',
+]);
+
+const READ_READER_SHORTCUTS = new Set<ShortcutId>([
+  'reader-page-previous',
+  'reader-page-next',
+]);
+
 export function shortcutHelpSections(scope: ShortcutHelpScope): readonly ShortcutHelpSection[] {
   const order: readonly ShortcutDefinition['group'][] = scope.context === 'reader'
     ? ['Global', 'Find', 'Reading position history', 'Reader']
@@ -1005,6 +1076,10 @@ export function shortcutHelpSections(scope: ShortcutHelpScope): readonly Shortcu
           shortcut.group !== group
           || !shortcut.helpContexts.includes(scope.context)
         ) return false;
+        if (scope.context === 'reader') {
+          if (scope.scale === 'read' && ATLAS_READER_SHORTCUTS.has(shortcut.id)) return false;
+          if (scope.scale === 'atlas' && READ_READER_SHORTCUTS.has(shortcut.id)) return false;
+        }
         if (scope.context !== 'workbench') return true;
         if (GO_PLACE[shortcut.id] === scope.place) return false;
         if (shortcut.id === 'go-compare' && scope.activeTextCount < 1) return false;

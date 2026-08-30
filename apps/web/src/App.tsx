@@ -183,6 +183,7 @@ export function App() {
   const trendSettingsNotice = useApp((s) => s.trendSettingsNotice);
   const readerPlace = useApp((s) => s.readerPlace);
   const readerPage = useApp((s) => s.readerPage);
+  const readerScale = useApp((s) => s.readerScale);
   const readerNavigation = useApp((s) => s.readerNavigation);
   const readerVisibleRange = useApp((s) => s.readerVisibleRange);
   const occurrenceNavigation = useApp((s) => s.occurrenceNavigation);
@@ -571,9 +572,14 @@ export function App() {
       openFind(false, event.ctrlKey || event.metaKey);
       return true;
     }
-    if (readerOpen && shortcutMatches(event, 'reader-rsvp-toggle')) {
+    if (readerOpen && readerScale === 'read' && shortcutMatches(event, 'reader-rsvp-toggle')) {
       event.preventDefault();
       enterRsvp(!presentation.reducedMotion);
+      return true;
+    }
+    if (readerOpen && readerScale === 'atlas' && shortcutMatches(event, 'reader-rsvp-toggle')) {
+      event.preventDefault();
+      setReaderKeyboardStatus('Speed reading is available in Read.');
       return true;
     }
     if (active.kind !== 'find') return false;
@@ -599,11 +605,14 @@ export function App() {
     if (!readerOpen) return undefined;
     const frame = requestAnimationFrame(() => {
       if (document.activeElement === document.body || document.activeElement === null) {
-        document.getElementById('reader-region')?.focus({ preventScroll: true });
+        const destination = readerScale === 'atlas'
+          ? document.getElementById('reader-atlas-plane')
+          : document.getElementById('reader-region');
+        destination?.focus({ preventScroll: true });
       }
     });
     return () => cancelAnimationFrame(frame);
-  }, [readerOpen]);
+  }, [readerOpen, readerScale]);
 
   useEffect(() => {
     const onDocumentKeyDown = (event: globalThis.KeyboardEvent) => {
@@ -809,12 +818,12 @@ export function App() {
             closeReader();
             return;
           }
-          if (shortcutMatches(event, 'reader-page-previous')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-previous')) {
             event.preventDefault();
             moveReaderPage(-1);
             return;
           }
-          if (shortcutMatches(event, 'reader-page-next')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-page-next')) {
             event.preventDefault();
             moveReaderPage(1);
             return;
@@ -841,13 +850,13 @@ export function App() {
             moveReaderDocument(1);
             return;
           }
-          if (shortcutMatches(event, 'reader-book-start')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-start')) {
             event.preventDefault();
             setReaderKeyboardStatus('');
             navigateReader({ kind: 'from', token: 0 });
             return;
           }
-          if (shortcutMatches(event, 'reader-book-end')) {
+          if (readerScale === 'read' && shortcutMatches(event, 'reader-book-end')) {
             event.preventDefault();
             const page = readerPage?.state.status === 'ready' ? readerPage.state.page : null;
             if (page && page.docTokenCount > 0) {
@@ -900,6 +909,7 @@ export function App() {
           )}
         >
           <ReaderDrawer
+            onAnnounce={setReaderKeyboardStatus}
             onOpenSettings={(returnFocus) => openSettings('reader', returnFocus)}
             onOpenHelp={() => openHelp(
               interaction.kind === 'rsvp' ? 'rsvp' : 'reader',

@@ -319,7 +319,7 @@ describe('shortcut registry', () => {
     expect(empty.flatMap((section) => section.entries.map((entry) => entry.id)))
       .not.toContain('go-footer');
 
-    const readerIds = shortcutHelpSections({ context: 'reader' })
+    const readerIds = shortcutHelpSections({ context: 'reader', scale: 'read' })
       .flatMap((section) => section.entries.map((entry) => entry.id));
     expect(readerIds).toContain('reader-page-next');
     expect(readerIds).toContain('reader-text-previous');
@@ -329,6 +329,17 @@ describe('shortcut registry', () => {
     expect(readerIds).toContain('find-open');
     expect(readerIds).not.toContain('footer-page-next');
     expect(readerIds).not.toContain('reader-rsvp-toggle');
+    expect(readerIds).not.toContain('reader-atlas-descend');
+
+    const atlasIds = shortcutHelpSections({ context: 'reader', scale: 'atlas' })
+      .flatMap((section) => section.entries.map((entry) => entry.id));
+    expect(atlasIds).toContain('reader-atlas-text-previous');
+    expect(atlasIds).toContain('reader-atlas-position-next');
+    expect(atlasIds).toContain('reader-atlas-page-next');
+    expect(atlasIds).toContain('reader-atlas-descend');
+    expect(atlasIds).toContain('reader-occurrence-next');
+    expect(atlasIds).toContain('reader-text-next');
+    expect(atlasIds).not.toContain('reader-page-next');
 
     const rsvp = shortcutHelpSections({ context: 'rsvp' });
     expect(rsvp.map((section) => section.title)).toEqual(['Global', 'Speed reader']);
