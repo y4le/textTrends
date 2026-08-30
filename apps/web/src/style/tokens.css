@@ -2382,8 +2382,21 @@ html[data-trend-row-resizing='true'] * {
 }
 
 .trend-term-navigation {
+  display: flex;
   flex: 0 0 auto;
   min-inline-size: 0;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.trend-strip-method {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 0.35ch;
+  color: var(--fg-muted);
+  font-family: var(--font-mono);
+  font-size: var(--text-xs);
 }
 
 .trend-term-list {
@@ -2438,6 +2451,36 @@ html[data-trend-row-resizing='true'] * {
 
 .analysis-stack {
   margin-block-start: var(--tab-header-space-3);
+}
+
+.trend-empty-state {
+  display: grid;
+  justify-items: start;
+  max-inline-size: 36rem;
+  gap: var(--space-2);
+  margin: clamp(2rem, 10vh, 6rem) auto 0;
+  padding: var(--space-4);
+  border: 1px solid var(--rule);
+}
+
+.trend-empty-state h2,
+.trend-empty-state p {
+  margin: 0;
+}
+
+.trend-empty-state h2 {
+  font-family: var(--font-serif);
+  font-size: var(--text-lg);
+  font-weight: 500;
+}
+
+.trend-empty-state p,
+.input-card-next-step {
+  color: var(--fg-muted);
+}
+
+.trend-empty-state button {
+  min-block-size: 44px;
 }
 
 .horizontal-data-port {

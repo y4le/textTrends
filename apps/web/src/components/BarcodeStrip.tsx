@@ -29,6 +29,7 @@ import { barcodeBandHeight } from '../lib/trend-geometry.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import type { TrendView } from '../lib/trend-view.ts';
 import { barcodeTrackRect } from '../lib/barcode-paint.ts';
+import { InfoTooltip } from './InfoTooltip.tsx';
 
 interface BarcodeBandProps {
   readonly view: TrendView;
@@ -314,6 +315,14 @@ export function BarcodeLegend({
 
   return (
     <div className="trend-term-navigation">
+      <div className="trend-strip-method">
+        <span>Reading strip</span>
+        <InfoTooltip
+          id="trend-strip-evidence-help"
+          label="reading strip evidence"
+          explanation="An exact mark identifies one reference and can open it. A density band summarizes how many references fall in a span; it can open only a position, not a chosen reference."
+        />
+      </div>
       <ul
         aria-label="Term totals"
         className="trend-term-list"
