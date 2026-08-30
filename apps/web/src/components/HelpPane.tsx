@@ -9,6 +9,10 @@ import {
 } from '../lib/shortcuts.ts';
 import { useApp } from '../lib/store-instance.ts';
 import { UtilityPane } from './UtilityPane.tsx';
+import {
+  HelpGuides,
+  type HelpGuidesProps,
+} from './guide/HelpGuides.tsx';
 
 const KEY_ACCESSIBLE_NAME: Readonly<Record<string, string>> = Object.freeze({
   '←': 'Left arrow',
@@ -124,6 +128,10 @@ export function HelpPane({
   onFind,
   onSettings,
   onDebug,
+  guideReadiness,
+  guideActive,
+  onStartGuide,
+  onGuideRemedy,
   onClose,
 }: {
   readonly context: ShortcutHelpContext;
@@ -131,6 +139,10 @@ export function HelpPane({
   readonly onFind: () => void;
   readonly onSettings: () => void;
   readonly onDebug: () => void;
+  readonly guideReadiness: HelpGuidesProps['readiness'];
+  readonly guideActive: boolean;
+  readonly onStartGuide: HelpGuidesProps['onStart'];
+  readonly onGuideRemedy: HelpGuidesProps['onRemedy'];
   readonly onClose: () => void;
 }) {
   const [surface, setSurface] = useState<'help' | 'credits'>('help');
@@ -236,6 +248,12 @@ export function HelpPane({
                   <p>{copy.method}</p>
                   <p>Imported text is processed in this browser and is never uploaded.</p>
                 </section>
+                <HelpGuides
+                  readiness={guideReadiness}
+                  active={guideActive}
+                  onStart={onStartGuide}
+                  onRemedy={onGuideRemedy}
+                />
               </div>
               <section className="help-shortcuts" aria-labelledby="help-shortcuts">
                 <h3 id="help-shortcuts">Keyboard &amp; gestures</h3>

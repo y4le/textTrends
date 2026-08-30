@@ -2,10 +2,13 @@ import type {
   GuideCopy,
   GuideDefinition,
   GuideId,
-  GuideReadiness,
   GuideStepPhase,
 } from './definition.ts';
-import type { GuideContext } from './context.ts';
+import {
+  guidedTourReadiness,
+  type GuideContext,
+} from './context.ts';
+import { GUIDED_TOUR_SYNOPSIS } from './help-content.ts';
 
 export const GUIDED_TOUR_VERSION = 1;
 
@@ -21,60 +24,6 @@ const FINISH_ACTIONS = Object.freeze([
 
 const MARK_EXACT_TITLE = 'Every mark is a position';
 const MARK_EXACT_BODY = 'The strip beneath the graph is the occurrences themselves — one mark, one reference. Open one and you are in the text.';
-
-function ready(): GuideReadiness {
-  return { status: 'ready' };
-}
-
-export function guidedTourReadiness(context: GuideContext): GuideReadiness {
-  if (context.rsvpActive) {
-    return { status: 'disabled', reason: 'Exit Speed reader to start.' };
-  }
-  if (context.readerOpen) {
-    return { status: 'disabled', reason: 'Return to Trends to start the guided tour.' };
-  }
-  if (context.readyTexts === 0) {
-    return {
-      status: 'disabled',
-      reason: 'Add a ready text before starting the guided tour.',
-      remedy: { id: 'add-text', label: 'Add a text' },
-    };
-  }
-  if (context.shownTerms.length === 0) {
-    return {
-      status: 'disabled',
-      reason: 'Track at least one term before starting the guided tour.',
-      remedy: { id: 'track-term', label: 'Track a term' },
-    };
-  }
-  if (context.target.status === 'pending' || context.target.status === 'ready') {
-    return ready();
-  }
-  switch (context.target.reason) {
-    case 'no-occurrences':
-      return {
-        status: 'disabled',
-        reason: 'Show a term that occurs in a ready text.',
-      };
-    case 'failed':
-      return {
-        status: 'disabled',
-        reason: 'Retry the reading strip from the chart before starting.',
-      };
-    case 'no-corpus':
-      return {
-        status: 'disabled',
-        reason: 'Add a ready text before starting the guided tour.',
-        remedy: { id: 'add-text', label: 'Add a text' },
-      };
-    case 'no-shown-term':
-      return {
-        status: 'disabled',
-        reason: 'Track at least one term before starting the guided tour.',
-        remedy: { id: 'track-term', label: 'Track a term' },
-      };
-  }
-}
 
 function axisCopy(context: GuideContext): GuideCopy {
   const measurement = context.measure === 'count'
@@ -229,8 +178,8 @@ function finishCopy(phase: GuideStepPhase): GuideCopy {
 export const GUIDED_TOUR: GuideDefinition = {
   id: 'guided-tour',
   version: GUIDED_TOUR_VERSION,
-  title: 'A reading instrument',
-  summary: 'Follow one shown term from the chart into its source and back.',
+  title: GUIDED_TOUR_SYNOPSIS.title,
+  summary: GUIDED_TOUR_SYNOPSIS.summary,
   places: ['inputs', 'trends', 'matches', 'vocabulary', 'compare'],
   requires: guidedTourReadiness,
   steps: [

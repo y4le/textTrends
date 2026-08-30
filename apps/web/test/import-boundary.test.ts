@@ -143,6 +143,18 @@ describe('guided-learning import boundary', () => {
     expect(offenders).toEqual([]);
   });
 
+  it('keeps presentation-only guide components independent of the app store', () => {
+    const offenders: string[] = [];
+    for (const file of walk(join(SRC, 'components', 'guide'))) {
+      const rel = relative(SRC, file).split(sep).join('/');
+      if (rel === 'components/guide/GuideProvider.tsx') continue;
+      for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
+        if (spec.includes('/store')) offenders.push(`${rel} -> ${spec}`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
   it('exposes only semantic guide hooks outside the dedicated guide components', () => {
     const offenders: string[] = [];
     for (const file of walk(SRC)) {
@@ -150,7 +162,16 @@ describe('guided-learning import boundary', () => {
       if (rel.startsWith('lib/guide/') || rel.startsWith('components/guide/')) continue;
       for (const spec of moduleSpecifiers(readFileSync(file, 'utf8'))) {
         if (!spec.includes('/guide/')) continue;
+        const compositionEdge = (
+          (rel === 'main.tsx' || rel === 'App.tsx')
+          && spec.endsWith('/components/guide/GuideProvider.tsx')
+        ) || (
+          rel === 'components/HelpPane.tsx'
+          && spec.endsWith('/guide/HelpGuides.tsx')
+        );
         if (
+          !compositionEdge
+          &&
           !spec.endsWith('/guide/anchors.ts')
           && !spec.endsWith('/guide/activation.ts')
         ) offenders.push(`${rel} -> ${spec}`);

@@ -42,6 +42,11 @@ import { RSVP_WPM_STEP } from '@texttrends/rsvp';
 import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
 import { guideAnchorProps } from './lib/guide/anchors.ts';
+import {
+  useGuide,
+  type GuideId,
+  type GuideReadinessRemedy,
+} from './components/guide/GuideProvider.tsx';
 
 const ReaderDrawer = lazy(() =>
   import('./components/ReaderDrawer.tsx').then(({ ReaderDrawer: drawer }) => ({ default: drawer })),
@@ -81,6 +86,11 @@ type OpenUtilityPane =
   | { readonly kind: 'settings'; readonly entry: SettingsEntry }
   | { readonly kind: 'debug' }
   | { readonly kind: 'help'; readonly context: ShortcutHelpContext };
+
+interface CloseUtilityPaneOptions {
+  readonly restoreFocus?: boolean;
+  readonly onSettled?: (interactive: boolean) => void;
+}
 
 function isInteractiveReaderTarget(target: EventTarget | null): boolean {
   return target instanceof Element
@@ -172,6 +182,7 @@ function NoInputsPlace({ onOpenInputs }: { readonly onOpenInputs: () => void }) 
 export function App() {
   const [appHeaderEl, setAppHeaderEl] = useState<HTMLElement | null>(null);
   const presentation = usePresentation();
+  const guide = useGuide();
   const inputError = useApp((s) => s.inputError);
   const retryAnalysis = useApp((s) => s.retryAnalysis);
   const loadError = useApp((s) => s.loadError);
@@ -343,7 +354,7 @@ export function App() {
     restoreFindFocus.current = true;
     exitInteraction();
   };
-  const closeUtilityPane = () => {
+  const closeUtilityPane = (options: CloseUtilityPaneOptions = {}) => {
     const target = utilityPaneReturnFocus.current;
     const targetId = target?.id ?? '';
     setUtilityPane(null);
@@ -353,14 +364,60 @@ export function App() {
         requestAnimationFrame(() => restore(attempt + 1));
         return;
       }
-      const connectedTarget = target?.isConnected
-        ? target
-        : targetId === ''
-          ? null
-          : document.getElementById(targetId);
-      connectedTarget?.focus({ preventScroll: true });
+      const interactive = root?.inert !== true;
+      if (options.restoreFocus !== false && interactive) {
+        const connectedTarget = target?.isConnected
+          ? target
+          : targetId === ''
+            ? null
+            : document.getElementById(targetId);
+        connectedTarget?.focus({ preventScroll: true });
+      }
+      options.onSettled?.(interactive);
     };
     requestAnimationFrame(() => restore(0));
+  };
+  const startGuideFromHelp = (id: GuideId) => {
+    const originPlace = useApp.getState().place;
+    const returnId = utilityPaneReturnFocus.current?.id;
+    const focusCandidates = [
+      ...(returnId ? [returnId] : []),
+      'global-help-open',
+      `place-${originPlace}-heading`,
+    ].filter((candidate, index, all) => all.indexOf(candidate) === index);
+    closeUtilityPane({
+      restoreFocus: false,
+      onSettled: (interactive) => {
+        if (!interactive) return;
+        void guide.startGuide(id, { place: originPlace, focusCandidates }).then((started) => {
+          if (!started) document.getElementById('global-help-open')?.focus({ preventScroll: true });
+        });
+      },
+    });
+  };
+  const applyGuideRemedy = (remedy: GuideReadinessRemedy) => {
+    closeUtilityPane({
+      restoreFocus: false,
+      onSettled: (interactive) => {
+        if (!interactive) return;
+        const state = useApp.getState();
+        if (remedy.id === 'add-text') {
+          state.replacePlace('inputs');
+          focusAfterRender('place-inputs-heading');
+          return;
+        }
+        state.replacePlace('trends');
+        const openTermEntry = (attempt: number) => {
+          const control = document.getElementById('term-add');
+          if (control instanceof HTMLButtonElement) {
+            control.click();
+            return;
+          }
+          if (attempt < 3) requestAnimationFrame(() => openTermEntry(attempt + 1));
+        };
+        requestAnimationFrame(() => openTermEntry(0));
+      },
+    });
   };
   const exitActiveRsvp = (): boolean => {
     const state = useApp.getState();
@@ -769,7 +826,11 @@ export function App() {
             true,
           )}
           onDebug={() => openDebug(true)}
-          onClose={closeUtilityPane}
+          guideReadiness={guide.guidedTourReadiness}
+          guideActive={guide.activeGuideId === 'guided-tour'}
+          onStartGuide={startGuideFromHelp}
+          onGuideRemedy={applyGuideRemedy}
+          onClose={() => closeUtilityPane()}
         />
       )
     : utilityPane?.kind === 'settings'
@@ -777,14 +838,14 @@ export function App() {
           <Suspense fallback={null}>
             <SettingsPane
               entry={utilityPane.entry}
-              onClose={closeUtilityPane}
+              onClose={() => closeUtilityPane()}
             />
           </Suspense>
         )
       : utilityPane?.kind === 'debug'
         ? (
             <Suspense fallback={null}>
-              <DebugSurface onClose={closeUtilityPane} />
+              <DebugSurface onClose={() => closeUtilityPane()} />
             </Suspense>
           )
       : null;

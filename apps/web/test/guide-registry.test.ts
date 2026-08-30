@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { ObservedOccurrenceActivation } from '../src/lib/guide/activation.ts';
 import { GUIDE_ANCHOR_IDS } from '../src/lib/guide/anchors.ts';
 import type { GuideContext } from '../src/lib/guide/context.ts';
+import { guidedTourReadiness } from '../src/lib/guide/context.ts';
 import type {
   GuideCopy,
   GuideStep,
@@ -12,7 +13,6 @@ import {
   GUIDED_TOUR,
   GUIDED_TOUR_VERSION,
   guideDefinition,
-  guidedTourReadiness,
 } from '../src/lib/guide/registry.ts';
 import { GUIDE_STAGE_KINDS } from '../src/lib/guide/stage.ts';
 import type {

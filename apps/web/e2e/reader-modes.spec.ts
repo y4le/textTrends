@@ -1,7 +1,12 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { readdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { awaitAllReady, SHERLOCK, trace } from './helpers.ts';
+import {
+  awaitAllReady,
+  SHERLOCK,
+  trace,
+  workerQueriesAfter,
+} from './helpers.ts';
 
 async function openReader(page: Page) {
   await page.setViewportSize({ width: 1440, height: 900 });
@@ -16,14 +21,6 @@ async function openReader(page: Page) {
   const reader = page.getByRole('main', { name: /Reader:/ });
   await expect(reader.locator('[data-reader-page]')).toBeVisible();
   return { grid, read, reader };
-}
-
-function workerQueriesAfter(
-  events: Awaited<ReturnType<typeof trace>>['events'],
-  mark: number,
-) {
-  return events.filter((event) =>
-    event.seq > mark && event.direction === 'to-worker' && event.t === 'query');
 }
 
 async function expectNoBodyOverflow(page: Page) {

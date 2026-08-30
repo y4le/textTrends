@@ -17,6 +17,7 @@ export const DOC_COUNT = SHERLOCK.length;
 // The REAL database-name constants — a rename in src can never strand these
 // helpers on a stale string literal.
 export const DB_NAME = ARTIFACT_DB_NAME;
+export const WORKSPACE_DB_NAME = LOCAL_LIBRARY_DB_NAME;
 
 export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} texts ready`;
 
@@ -82,6 +83,26 @@ export async function trace(page: Page): Promise<TraceSnapshot> {
     if (!facade) throw new Error('e2e facade missing — was the app built with --mode e2e?');
     return facade.trace() as never;
   });
+}
+
+export async function workspaceRecord(page: Page): Promise<unknown> {
+  return page.evaluate(async (databaseName) => {
+    const database = await new Promise<IDBDatabase>((resolve, reject) => {
+      const request = indexedDB.open(databaseName);
+      request.onsuccess = () => resolve(request.result);
+      request.onerror = () => reject(request.error);
+    });
+    try {
+      return await new Promise<unknown>((resolve, reject) => {
+        const request = database.transaction('workspace', 'readonly')
+          .objectStore('workspace').get('current');
+        request.onsuccess = () => resolve(request.result);
+        request.onerror = () => reject(request.error);
+      });
+    } finally {
+      database.close();
+    }
+  }, WORKSPACE_DB_NAME);
 }
 
 /**
@@ -151,6 +172,14 @@ export function events(snapshot: TraceSnapshot, filter: Partial<ProtocolTraceEve
   return snapshot.events.filter((e) =>
     Object.entries(filter).every(([k, v]) => e[k as keyof ProtocolTraceEvent] === v),
   );
+}
+
+export function workerQueriesAfter(
+  traceEvents: TraceSnapshot['events'],
+  mark: number,
+): ProtocolTraceEvent[] {
+  return traceEvents.filter((event) =>
+    event.seq > mark && event.direction === 'to-worker' && event.t === 'query');
 }
 
 /** Wait for the app to report every Sherlock demo text ready. Demo loading is
