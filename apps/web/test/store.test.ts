@@ -66,6 +66,10 @@ import {
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_SETTLE_MS,
 } from '../src/lib/position-history.ts';
+import {
+  applyGuideStage,
+  type GuideStageActions,
+} from '../src/lib/guide/stage.ts';
 
 vi.mock('@texttrends/core', async (importOriginal) => {
   const actual = await importOriginal<typeof import('@texttrends/core')>();
@@ -588,6 +592,7 @@ function harness(initial?: SessionState, opts?: {
   seed?: boolean;
   workspace?: FakeWorkspaceStore;
   rsvpPacing?: RsvpPacing;
+  history?: HistoryPort;
 }) {
   const q = fakeQueryClient();
   // Deterministic injected UUIDs: u1, u2, … (creation order).
@@ -596,6 +601,7 @@ function harness(initial?: SessionState, opts?: {
     newId: () => `u${++n}`,
     ...(opts?.workspace === undefined ? {} : { workspace: opts.workspace }),
     ...(opts?.rsvpPacing === undefined ? {} : { rsvpPacing: opts.rsvpPacing }),
+    ...(opts?.history === undefined ? {} : { history: opts.history }),
   });
   const port = new FakeSessionPort(initial);
   runtime.attachSession(port);
@@ -609,6 +615,47 @@ function harness(initial?: SessionState, opts?: {
 const flush = () => new Promise((r) => setTimeout(r, 0));
 
 describe('workbench route and history authority', () => {
+  it('keeps every durable workspace source and linked selection identical through guide staging', () => {
+    const history = new FakeHistoryPort('/textTrends/?p=trends');
+    const f = harness(undefined, { history });
+    f.port.publishSnapshot('g1', 's1', ['a']);
+    f.store.getState().setLinkedSelection({
+      snapshot: 's1',
+      ranges: [{ doc: 'a', tokens: { start: 2, end: 5 } }],
+    });
+    const guardedKeys = [
+      ...WORKSPACE_SEMANTIC_SOURCE_KEYS,
+      'linkedSelection',
+    ] as const;
+    const before = guardedKeys.map((key) => f.store.getState()[key]);
+    const actions: GuideStageActions = {
+      replacePlace: (place) => f.store.getState().replacePlace(place),
+      openReader: (intent, returnFocusTo) =>
+        f.store.getState().openReader(intent, returnFocusTo),
+      closeReader: () => f.store.getState().closeReader(),
+    };
+
+    applyGuideStage({ kind: 'place', place: 'matches' }, actions);
+    applyGuideStage({
+      kind: 'reader-open',
+      intent: {
+        snapshot: 's1', doc: 'a', token: 3, from: 'barcode', anchor: 'occurrence',
+      },
+    }, actions);
+    expect(f.store.getState()).toMatchObject({
+      place: 'matches',
+      readerPlace: { snapshot: 's1', doc: 'a', from: 'barcode' },
+    });
+    applyGuideStage({ kind: 'reader-close' }, actions);
+
+    expect(history.backs).toBe(1);
+    expect(f.store.getState().readerPlace).toBeNull();
+    for (const [index, key] of guardedKeys.entries()) {
+      expect(Object.is(f.store.getState()[key], before[index]), key).toBe(true);
+    }
+    f.runtime.dispose();
+  });
+
   it('resolves a p-less boot exactly once from the attached corpus without pushing history', () => {
     const emptyHistory = new FakeHistoryPort('/textTrends/?foreign=kept');
     const emptyRuntime = createAppRuntime(fakeQueryClient().client, { history: emptyHistory });
