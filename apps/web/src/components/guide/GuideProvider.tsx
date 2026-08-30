@@ -1,10 +1,8 @@
 import { TREND_RATE_DENOMINATOR } from '@texttrends/core';
 import {
-  createContext,
   lazy,
   Suspense,
   useCallback,
-  useContext,
   useEffect,
   useLayoutEffect,
   useMemo,
@@ -32,7 +30,6 @@ import type {
   GuideActionId,
   GuideDefinition,
   GuideId,
-  GuideReadiness,
 } from '../../lib/guide/definition.ts';
 import {
   classifyGuideNavigation,
@@ -52,6 +49,12 @@ import {
 import { applyGuideStage, type GuideStageIntent } from '../../lib/guide/stage.ts';
 import { resolveGuideTarget } from '../../lib/guide/target.ts';
 import { usePresentation } from '../PresentationProvider.tsx';
+import {
+  GuideControllerContext,
+  type GuideController,
+} from './GuideContext.ts';
+
+export { useGuide } from './GuideContext.ts';
 
 const GuideCard = lazy(() =>
   import('./GuideCard.tsx').then(({ GuideCard: card }) => ({ default: card })),
@@ -62,15 +65,7 @@ interface ActiveGuide {
   readonly session: GuideSession;
 }
 
-export interface GuideController {
-  readonly activeGuideId: GuideId | null;
-  readonly guidedTourReadiness: GuideReadiness;
-  readonly startGuide: (id: GuideId, origin: GuideOrigin) => Promise<boolean>;
-}
-
 export type { GuideId, GuideReadinessRemedy } from '../../lib/guide/definition.ts';
-
-const GuideControllerContext = createContext<GuideController | null>(null);
 
 function navigationFacts(state: AppState): GuideNavigationFacts {
   return {
@@ -417,6 +412,10 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
             stepId={step.id}
             focusRevision={active.session.revision}
             reader={readerOpen}
+            place={place}
+            exitLabel={active.session.guideId === 'guided-tour'
+              ? 'Exit guided tour'
+              : 'Exit guide'}
             onAction={handleAction}
           />
         </Suspense>
@@ -431,10 +430,4 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
       </p>
     </GuideControllerContext.Provider>
   );
-}
-
-export function useGuide(): GuideController {
-  const value = useContext(GuideControllerContext);
-  if (value === null) throw new Error('useGuide must be used inside GuideProvider');
-  return value;
 }

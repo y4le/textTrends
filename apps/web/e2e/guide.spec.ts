@@ -96,6 +96,8 @@ test('walks from a mark to its source and restores the captured workbench place'
 
   const finish = page.getByRole('dialog', { name: 'Start with a word. End with the text.' });
   await expect(finish).toBeVisible();
+  const finishNotes = finish.getByRole('region', { name: 'Guides for this view' });
+  await expect(finishNotes.getByRole('button')).toHaveCount(4);
   await finish.getByRole('button', { name: 'Back to where I was' }).click();
   await expect(finish).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]p=compare(?:&|#|$)/);
@@ -228,6 +230,88 @@ test('treats an unrelated workbench navigation as foreign without undoing it', a
   await expect(page.locator('.guide-card')).toHaveCount(0);
   await expect(page).toHaveURL(/[?&]p=matches(?:&|#|$)/);
   await expect(page.locator('#root')).not.toHaveAttribute('data-guide-anchor-active');
+});
+
+test('lists only relevant Help notes and reads one without staging product work', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'webkit-compact', 'covered in Chromium');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  const help = await openHelp(page);
+  await expect(help.getByRole('button', { name: /Terms and the notebook/ })).toBeVisible();
+  await expect(help.getByRole('button', { name: /Reading a trend/ })).toBeVisible();
+  await expect(help.getByRole('button', { name: /The reading strip/ })).toBeVisible();
+  await expect(help.getByRole('button', { name: /Compare a passage/ })).toHaveCount(0);
+  const mark = (await trace(page)).events.at(-1)?.seq ?? -1;
+
+  await help.getByRole('button', { name: /Reading a trend/ }).click();
+  let card = page.locator('.guide-card');
+  await expect(card.getByRole('heading', { name: 'Three views, one reading order' })).toBeFocused();
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'trend-plate');
+  await card.getByRole('button', { name: 'Next' }).click();
+  await expect(card).toContainText('Height answers a chosen question');
+  await card.getByRole('button', { name: 'Next' }).click();
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'dispersion-strip');
+  await card.getByRole('button', { name: 'Next' }).click();
+  await expect(card).toContainText('The cursor is a shared place');
+  await card.getByRole('button', { name: 'Done' }).click();
+  await expect(card).toHaveCount(0);
+  await expect(page.locator('#global-help-open')).toBeFocused();
+  expect(workerQueriesAfter((await trace(page)).events, mark)).toEqual([]);
+
+  const reopened = await openHelp(page);
+  await reopened.getByRole('button', { name: /Reading a trend/ }).click();
+  card = page.locator('.guide-card');
+  await expect(card).toContainText('Three views, one reading order');
+  await card.getByRole('button', { name: 'Exit guide' }).click();
+
+  await gotoPlace(page, 'compare');
+  const compareHelp = await openHelp(page);
+  await expect(compareHelp.getByRole('button', { name: /Terms and the notebook/ })).toBeVisible();
+  await expect(compareHelp.getByRole('button', { name: /Compare a passage/ })).toBeVisible();
+  await expect(compareHelp.getByRole('button', { name: /Reading a trend/ })).toHaveCount(0);
+  await expect(compareHelp.getByRole('button', { name: /The reading strip/ })).toHaveCount(0);
+});
+
+test('opens deep notes only from the useful Compare and Matches states', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === 'webkit-compact', 'covered in Chromium');
+  await page.goto('./');
+  await awaitAllReady(page, { loadDemo: true });
+  await gotoPlace(page, 'inputs');
+  await clearDemoInputs(page);
+  await page.getByLabel('Add files').setInputFiles({
+    name: 'deep-guides.txt',
+    mimeType: 'text/plain',
+    buffer: Buffer.from('alpha beta gamma alpha', 'utf-8'),
+  });
+  await awaitReadyCount(page, 1);
+  await gotoPlace(page, 'compare');
+  const compareLink = page.getByRole('button', { name: 'Guide: Compare a passage' });
+  await expect(compareLink).toBeVisible();
+  await compareLink.click();
+  let card = page.locator('.guide-card');
+  await expect(card).toContainText('Choose a passage or two texts');
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'compare-sides');
+  await card.getByRole('button', { name: 'Next' }).click();
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'reading-footer');
+  await card.getByRole('button', { name: 'Exit guide' }).click();
+  await expect(compareLink).toBeFocused();
+
+  await clearNotebook(page);
+  await gotoPlace(page, 'matches');
+  const termsLink = page.getByRole('button', { name: 'Guide: Terms and the notebook' });
+  await expect(page.getByText('No terms shown in analysis.')).toBeVisible();
+  await expect(termsLink).toBeVisible();
+  await termsLink.click();
+  card = page.locator('.guide-card');
+  await expect(card).toContainText('A notebook, not a search box');
+  await expect(page.locator('#root')).toHaveAttribute('data-guide-anchor-active', 'terms-rail');
+  await card.getByRole('button', { name: 'Exit guide' }).click();
+
+  await gotoPlace(page, 'trends');
+  await submitAndAwaitFreshResults(page, 'term-that-never-occurs');
+  await gotoPlace(page, 'matches');
+  await expect(page.getByText('No occurrences of the enabled terms.')).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Guide: Terms and the notebook' })).toHaveCount(0);
 });
 
 test('keeps the action and exit reachable in compact portrait and landscape', async ({ page }, testInfo) => {

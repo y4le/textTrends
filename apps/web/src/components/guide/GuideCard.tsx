@@ -7,6 +7,9 @@ import type {
   GuideCopy,
   GuideStep,
 } from '../../lib/guide/definition.ts';
+import type { Place } from '../../lib/places.ts';
+import { guideSynopsis } from '../../lib/guide/help-content.ts';
+import { GuideLink } from './GuideLink.tsx';
 
 export function GuideCard({
   copy,
@@ -14,6 +17,8 @@ export function GuideCard({
   stepId,
   focusRevision,
   reader,
+  place,
+  exitLabel,
   onAction,
 }: {
   readonly copy: GuideCopy;
@@ -21,6 +26,8 @@ export function GuideCard({
   readonly stepId: string;
   readonly focusRevision: number;
   readonly reader: boolean;
+  readonly place: Place;
+  readonly exitLabel: string;
   readonly onAction: (action: GuideActionId) => void;
 }) {
   const bodyId = `guide-card-${stepId}-body`;
@@ -52,7 +59,7 @@ export function GuideCard({
         <button
           className="guide-card-close"
           type="button"
-          aria-label="Exit guided tour"
+          aria-label={exitLabel}
           onClick={() => onAction('exit')}
         >
           <span aria-hidden="true">×</span>
@@ -70,6 +77,18 @@ export function GuideCard({
           >
             {copy.status.text}
           </p>
+        )}
+        {copy.noteIds && copy.noteIds.length > 0 && (
+          <section className="guide-card-notes" aria-labelledby={`guide-card-${stepId}-notes`}>
+            <h3 id={`guide-card-${stepId}-notes`}>Guides for this view</h3>
+            <div>
+              {copy.noteIds.map((noteId) => (
+                <GuideLink key={noteId} guideId={noteId} place={place}>
+                  {guideSynopsis(noteId).title}
+                </GuideLink>
+              ))}
+            </div>
+          </section>
         )}
       </div>
       <footer className="guide-card-actions">

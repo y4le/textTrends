@@ -187,7 +187,9 @@ textarea {
 #root[data-guide-anchor-active='trend-plate'] [data-guide-anchor='trend-plate'],
 #root[data-guide-anchor-active='dispersion-strip'] [data-guide-anchor='dispersion-strip'],
 #root[data-guide-anchor-active='chart-cursor'] [data-guide-anchor='chart-cursor'],
-#root[data-guide-anchor-active='reader-prose'] [data-guide-anchor='reader-prose'] {
+#root[data-guide-anchor-active='reader-prose'] [data-guide-anchor='reader-prose'],
+#root[data-guide-anchor-active='reading-footer'] [data-guide-anchor='reading-footer'],
+#root[data-guide-anchor-active='compare-sides'] [data-guide-anchor='compare-sides'] {
   outline: 2px solid var(--accent);
   outline-offset: 4px;
 }
@@ -307,6 +309,34 @@ textarea {
 
 .guide-card-status[data-tone='unavailable'] {
   color: var(--accent-text);
+}
+
+.guide-card-notes {
+  display: grid;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--rule);
+}
+
+.guide-card-notes h3 {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.guide-card-notes > div {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.guide-card-notes button {
+  min-block-size: 44px;
+  border: 1px solid var(--rule-strong);
+  color: var(--accent-text);
+  background: transparent;
+  cursor: pointer;
 }
 
 .guide-card-actions {
@@ -3876,6 +3906,17 @@ html[data-trend-row-resizing='true'] * {
   font-size: var(--text-sm);
 }
 
+.kwic-empty-guide {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.kwic-empty-guide p {
+  margin: 0;
+}
+
 .kwic-error {
   color: var(--accent-text);
 }
@@ -5447,6 +5488,43 @@ html[data-trend-row-resizing='true'] * {
 
 .help-guide-reason {
   color: var(--accent-text) !important;
+}
+
+.help-guide-notes {
+  display: grid;
+  gap: var(--space-2);
+  padding-block-start: var(--space-2);
+  border-block-start: 1px solid var(--rule);
+}
+
+.help-guide-notes h4 {
+  margin: 0;
+  font-size: var(--text-sm);
+}
+
+.help-guide-notes ul {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.help-guide-notes li {
+  display: grid;
+  align-content: start;
+  gap: var(--space-1);
+}
+
+.help-guide-notes button {
+  justify-self: start;
+  text-align: start;
+}
+
+.help-guide-notes span {
+  color: var(--fg-muted);
+  font-size: var(--text-xs);
 }
 
 .help-overview h3,

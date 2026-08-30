@@ -69,6 +69,7 @@ import {
   DataGridHeader,
   type DataGridColumn,
 } from './data-grid/DataGridHeader.tsx';
+import { GuideLink } from './guide/GuideLink.tsx';
 
 const SCROLL_TOLERANCE_PX = 0.75;
 const ANNOUNCEMENT_INTERVAL_MS = 250;
@@ -988,7 +989,16 @@ export function KwicPanel({
   const status = kwic?.state.status ?? 'pending';
   let body: React.ReactNode;
   if (displayedSeries.length === 0) {
-    body = <p className="kwic-message">{findMode ? 'Type a Find query.' : 'No terms shown in analysis.'}</p>;
+    body = findMode
+      ? <p className="kwic-message">Type a Find query.</p>
+      : (
+          <div className="kwic-message kwic-empty-guide">
+            <p>No terms shown in analysis.</p>
+            <GuideLink guideId="terms-and-notebook" place="matches">
+              Guide: Terms and the notebook
+            </GuideLink>
+          </div>
+        );
   } else if (status === 'error' && resident === null) {
     const message = kwic?.state.status === 'error' ? kwic.state.message : 'unknown error';
     body = <p className="kwic-message kwic-error">matches failed: {message}</p>;

@@ -28,7 +28,9 @@ import {
 } from '../../lib/store.ts';
 import { useApp } from '../../lib/store-instance.ts';
 import { contextualSettingsEntry } from '../../lib/settings-entry.ts';
+import { guideAnchorProps } from '../../lib/guide/anchors.ts';
 import { useOpenSettings } from '../SettingsEntryContext.tsx';
+import { GuideLink } from '../guide/GuideLink.tsx';
 import { CompareProfile } from './CompareProfile.tsx';
 import { SignedAxis } from './SignedAxis.tsx';
 
@@ -283,7 +285,7 @@ export function ComparePanel() {
               })}
             </div>
 
-            <div className="compare-definition">
+            <div className="compare-definition" {...guideAnchorProps('compare-sides')}>
               <button
                 className="compare-reverse"
                 type="button"
@@ -383,6 +385,9 @@ export function ComparePanel() {
                               <button type="button" onClick={selectRangeInTrends}>
                                 Select a range in Trends
                               </button>
+                              <GuideLink guideId="compare-a-passage" place="compare">
+                                Guide: Compare a passage
+                              </GuideLink>
                               {readyDocs.length >= 2 && (
                                 <p>Or choose a text above to compare two texts directly.</p>
                               )}

@@ -9,6 +9,8 @@ export const GUIDE_ANCHOR_IDS = Object.freeze([
   'dispersion-strip',
   'chart-cursor',
   'reader-prose',
+  'reading-footer',
+  'compare-sides',
 ] as const);
 
 export type GuideAnchorId = (typeof GUIDE_ANCHOR_IDS)[number];

@@ -9,9 +9,18 @@ import type {
   GuideStep,
   GuideStepPhase,
 } from '../src/lib/guide/definition.ts';
+import { GUIDE_IDS } from '../src/lib/guide/definition.ts';
 import {
+  GUIDE_NOTE_SYNOPSES,
+  guideSynopsis,
+} from '../src/lib/guide/help-content.ts';
+import {
+  COMPARE_A_PASSAGE,
   GUIDED_TOUR,
   GUIDED_TOUR_VERSION,
+  READING_A_TREND,
+  READING_THE_STRIP,
+  TERMS_AND_NOTEBOOK,
   guideDefinition,
 } from '../src/lib/guide/registry.ts';
 import { GUIDE_STAGE_KINDS } from '../src/lib/guide/stage.ts';
@@ -136,7 +145,7 @@ describe('guided tour registry structure', () => {
       'welcome', 'scene', 'scene', 'scene', 'scene', 'scene', 'finish',
     ]);
     expect(guideDefinition('guided-tour')).toBe(GUIDED_TOUR);
-    expect(guideDefinition('reading-a-trend')).toBeNull();
+    expect(guideDefinition('reading-a-trend')).toBe(READING_A_TREND);
   });
 
   it('places stages on primary actions only and stays inside closed authority', () => {
@@ -168,6 +177,73 @@ describe('guided tour registry structure', () => {
         expect(guideDefinition(noteId)).not.toBeNull();
       }
     }
+  });
+});
+
+describe('guides for this view', () => {
+  const notes = [
+    TERMS_AND_NOTEBOOK,
+    READING_A_TREND,
+    READING_THE_STRIP,
+    COMPARE_A_PASSAGE,
+  ] as const;
+
+  it('resolves every declared id through one synopsis and one definition', () => {
+    expect(GUIDE_IDS).toEqual([
+      'guided-tour',
+      'terms-and-notebook',
+      'reading-a-trend',
+      'reading-the-strip',
+      'compare-a-passage',
+    ]);
+    expect(GUIDE_NOTE_SYNOPSES.map((synopsis) => synopsis.id))
+      .toEqual(GUIDE_IDS.slice(1));
+    for (const id of GUIDE_IDS) {
+      const definition = guideDefinition(id);
+      expect(definition).not.toBeNull();
+      expect(definition).toMatchObject({
+        id,
+        title: guideSynopsis(id).title,
+        summary: guideSynopsis(id).summary,
+        places: guideSynopsis(id).places,
+      });
+    }
+  });
+
+  it('keeps every note pull-only, manual, short, and independently readable', () => {
+    for (const note of notes) {
+      expect(note.steps.length).toBeGreaterThanOrEqual(2);
+      expect(note.steps.length).toBeLessThanOrEqual(4);
+      expect(note.requires(context({ readyTexts: 0, shown: false })))
+        .toEqual({ status: 'ready' });
+      note.steps.forEach((step, index) => {
+        expect(step.advance).toEqual({ kind: 'manual' });
+        expect(step.stage).toBeUndefined();
+        if (step.anchor !== undefined) expect(GUIDE_ANCHOR_IDS).toContain(step.anchor);
+        const authored = step.copy(context(), 'presenting');
+        expect(() => JSON.stringify(authored)).not.toThrow();
+        expect(authored.actions).toEqual([{
+          id: 'primary',
+          label: index === note.steps.length - 1 ? 'Done' : 'Next',
+        }]);
+        expect(JSON.stringify(authored)).not.toContain(PRIVATE_LABEL);
+      });
+    }
+  });
+
+  it('covers the four promised concepts without implying an exercise', () => {
+    const bodies = (definition: (typeof notes)[number]) => definition.steps
+      .map((step) => step.copy(context(), 'presenting').body)
+      .join(' ');
+    expect(bodies(TERMS_AND_NOTEBOOK)).toMatch(/notebook.*five shown terms|five shown terms.*notebook/i);
+    expect(bodies(READING_A_TREND)).toMatch(/Combined.*Equal.*To scale/s);
+    expect(bodies(READING_A_TREND)).toMatch(/exact.*density/s);
+    expect(bodies(READING_THE_STRIP)).toMatch(/press-drag.*touch/s);
+    expect(bodies(READING_THE_STRIP))
+      .toMatch(/keyboard moves by token, page, reference, or corpus edge/i);
+    expect(bodies(READING_THE_STRIP)).not.toMatch(/reference, text/i);
+    expect(bodies(COMPARE_A_PASSAGE)).toMatch(/corpus complement/s);
+    expect(bodies(COMPARE_A_PASSAGE)).toMatch(/never filters Matches/s);
   });
 });
 

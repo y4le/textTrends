@@ -46,6 +46,8 @@ describe('guide semantic anchors', () => {
       'dispersion-strip',
       'chart-cursor',
       'reader-prose',
+      'reading-footer',
+      'compare-sides',
     ]);
     expect(new Set(GUIDE_ANCHOR_IDS).size).toBe(GUIDE_ANCHOR_IDS.length);
   });
@@ -91,6 +93,8 @@ describe('guide semantic anchors', () => {
         'src/components/ReaderDrawer.tsx',
         'src/App.tsx',
       ],
+      'reading-footer': ['src/components/WorkbenchFooter.tsx'],
+      'compare-sides': ['src/components/compare/ComparePanel.tsx'],
     };
     const actual = Object.fromEntries(
       GUIDE_ANCHOR_IDS.map((anchor) => [anchor, new Set<string>()]),

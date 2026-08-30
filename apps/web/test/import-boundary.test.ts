@@ -168,6 +168,15 @@ describe('guided-learning import boundary', () => {
         ) || (
           rel === 'components/HelpPane.tsx'
           && spec.endsWith('/guide/HelpGuides.tsx')
+        ) || (
+          rel === 'components/HelpPane.tsx'
+          && spec.endsWith('/guide/help-content.ts')
+        ) || (
+          rel === 'components/KwicPanel.tsx'
+          && spec.endsWith('/guide/GuideLink.tsx')
+        ) || (
+          rel === 'components/compare/ComparePanel.tsx'
+          && spec.endsWith('/guide/GuideLink.tsx')
         );
         if (
           !compositionEdge

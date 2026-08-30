@@ -68,6 +68,7 @@ import {
   seriesLinecap,
 } from '../lib/series-style.ts';
 import { trendSeriesGate } from '../lib/trend-series-gate.ts';
+import { guideAnchorProps } from '../lib/guide/anchors.ts';
 import { usePresentation } from './PresentationProvider.tsx';
 import { BarcodeBand } from './BarcodeStrip.tsx';
 import { FooterPassage } from './FooterPassage.tsx';
@@ -1569,6 +1570,7 @@ export function WorkbenchFooter({
     <aside
       className="workbench-footer"
       aria-label="Reading position"
+      {...guideAnchorProps('reading-footer')}
       style={{
         '--footer-local-block-size': `${blockSize}px`,
         '--footer-passage-height': `${geometry.passageHeight}px`,
