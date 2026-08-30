@@ -81,6 +81,11 @@ test('offers an eligible reader one versioned invitation without auto-starting',
   await expect(invitation).toBeVisible();
   await expect(page.locator('.guide-card')).toHaveCount(0);
   expect(await guideProgress(page)).toBeNull();
+  await gotoPlace(page, 'inputs');
+  await expect(invitation).toHaveCount(0);
+  expect(await guideProgress(page)).toBeNull();
+  await gotoPlace(page, 'trends');
+  await expect(invitation).toBeVisible();
 
   await invitation.getByRole('button', { name: 'Not now' }).click();
   await expect(invitation).toHaveCount(0);
@@ -429,6 +434,9 @@ test('keeps the action and exit reachable in compact portrait and landscape', as
   const invitation = page.getByRole('complementary', { name: 'Guided tour invitation' });
   await expect(invitation).toBeVisible();
   await expectCardInsideViewport(page, invitation);
+  const ordinaryControl = page.getByRole('button', { name: 'Combined sequence', exact: true });
+  await ordinaryControl.click();
+  await expect(ordinaryControl).toHaveAttribute('aria-pressed', 'true');
   await startTour(page);
   let card = page.locator('.guide-card');
   await expectCardInsideViewport(page, card);

@@ -9,6 +9,14 @@ export interface GuideController {
   readonly activeGuideId: GuideId | null;
   readonly guidedTourReadiness: GuideReadiness;
   readonly guidedTourSeen: boolean;
+  readonly guidedTourInvitation:
+    | { readonly status: 'hidden' }
+    | {
+        readonly status: 'available';
+        readonly starting: boolean;
+        readonly start: () => void;
+        readonly dismiss: () => void;
+      };
   readonly startGuide: (id: GuideId, origin: GuideOrigin) => Promise<boolean>;
 }
 

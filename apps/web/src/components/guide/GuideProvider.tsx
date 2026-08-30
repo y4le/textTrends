@@ -62,12 +62,10 @@ import {
   GuideControllerContext,
   type GuideController,
 } from './GuideContext.ts';
-import {
-  GUIDE_INVITATION_START_ID,
-  GuideInvitation,
-} from './GuideInvitation.tsx';
+import { GUIDE_INVITATION_START_ID } from './GuideInvitation.tsx';
 
 export { useGuide } from './GuideContext.ts';
+export { GuideInvitation } from './GuideInvitation.tsx';
 
 const GuideCard = lazy(() =>
   import('./GuideCard.tsx').then(({ GuideCard: card }) => ({ default: card })),
@@ -440,6 +438,7 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
     GUIDED_TOUR_VERSION,
   );
   const showInvitation = active === null
+    && place === 'trends'
     && readiness.status === 'ready'
     && !guidedTourSeen
     && !invitationDismissed;
@@ -487,8 +486,25 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
     activeGuideId: active?.session.guideId ?? null,
     guidedTourReadiness: readiness,
     guidedTourSeen,
+    guidedTourInvitation: showInvitation
+      ? {
+          status: 'available',
+          starting: invitationStarting,
+          start: startFromInvitation,
+          dismiss: dismissInvitation,
+        }
+      : { status: 'hidden' },
     startGuide,
-  }), [active?.session.guideId, guidedTourSeen, readiness, startGuide]);
+  }), [
+    active?.session.guideId,
+    dismissInvitation,
+    guidedTourSeen,
+    invitationStarting,
+    readiness,
+    showInvitation,
+    startFromInvitation,
+    startGuide,
+  ]);
   const step = active === null ? null : currentStep(active);
   const showCard = active !== null
     && step !== undefined
@@ -497,13 +513,6 @@ export function GuideProvider({ children }: { readonly children: ReactNode }) {
   return (
     <GuideControllerContext.Provider value={controller}>
       {children}
-      {showInvitation && (
-        <GuideInvitation
-          starting={invitationStarting}
-          onStart={startFromInvitation}
-          onDismiss={dismissInvitation}
-        />
-      )}
       {showCard && step && (
         <Suspense fallback={null}>
           <GuideCard

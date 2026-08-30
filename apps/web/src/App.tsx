@@ -43,6 +43,7 @@ import { RSVP_WPM_INPUT_ID } from './lib/rsvp-ui.ts';
 import { usePresentation } from './components/PresentationProvider.tsx';
 import { guideAnchorProps } from './lib/guide/anchors.ts';
 import {
+  GuideInvitation,
   useGuide,
   type GuideId,
   type GuideReadinessRemedy,
@@ -1047,6 +1048,13 @@ export function App() {
         />
         <WorkbenchTabs />
       </header>
+      {guide.guidedTourInvitation.status === 'available' && (
+        <GuideInvitation
+          starting={guide.guidedTourInvitation.starting}
+          onStart={guide.guidedTourInvitation.start}
+          onDismiss={guide.guidedTourInvitation.dismiss}
+        />
+      )}
       <ResumeStatus />
       <p
         role="status"
