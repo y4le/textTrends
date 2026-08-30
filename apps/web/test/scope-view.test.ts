@@ -137,8 +137,8 @@ describe('scopeView', () => {
       },
     }), 'trends');
     expect(pending.docsInScope).toBeNull();
-    expect(pending.segments).not.toContain('6 books in scope');
-    expect(pending.segments).not.toContain('all 6 books');
+    expect(pending.segments).not.toContain('6 texts in scope');
+    expect(pending.segments).not.toContain('all 6 texts');
     expect(pending.range?.label).toBe('A Study in Scarlet · tokens 1–3 · 3 tokens');
   });
 
@@ -156,7 +156,7 @@ describe('scopeView', () => {
     }), 'trends');
     expect(staleSelection.docsInScope).toBeNull();
     expect(staleSelection.tokensInScope).toBeNull();
-    expect(staleSelection.segments).toContain('all 6 books');
+    expect(staleSelection.segments).toContain('all 6 texts');
     expect(staleSelection.segments).not.toContain('3 tokens');
 
     const staleSnapshot = scopeView(input({
@@ -174,9 +174,9 @@ describe('scopeView', () => {
     const view = scopeView(input(), 'trends');
     expect(view.docsInScope).toBe(6);
     expect(view.tokensInScope).toBe(461_992);
-    expect(view.segments).toContain('all 6 books');
+    expect(view.segments).toContain('all 6 texts');
     expect(view.segments).toContain('461,992 tokens');
-    expect(view.readyText).toBe('6/6 books ready');
+    expect(view.readyText).toBe('6/6 texts ready');
     expect(view.chip).toBeNull();
   });
 
@@ -203,7 +203,7 @@ describe('scopeView', () => {
       documents: 1,
       label: 'A Study in Scarlet · tokens 1–3 · 3 tokens',
     });
-    expect(view.segments).toContain('1 book in scope');
+    expect(view.segments).toContain('1 text in scope');
     expect(view.chip).toEqual({
       expandedTitle: 'A Study in Scarlet',
       shortTitle: 'range',
@@ -268,12 +268,12 @@ describe('scopeView', () => {
       lastToken: 4,
       tokens: 6,
       documents: 2,
-      label: 'Alpha token 9 → Beta token 4 · 6 tokens across 2 books',
+      label: 'Alpha token 9 → Beta token 4 · 6 tokens across 2 texts',
     });
-    expect(view.segments).toContain('2 books in scope');
+    expect(view.segments).toContain('2 texts in scope');
     expect(view.chip).toMatchObject({
       expandedTitle: 'Alpha → Beta',
-      shortTitle: '2-book range',
+      shortTitle: '2-text range',
       magnitude: '6 tokens',
       compactMagnitude: '6',
     });
@@ -290,7 +290,7 @@ describe('scopeView', () => {
       inventory: readyInventory(4, 100, ['e', 'f']),
     }), 'trends');
     expect(view.partial).toBe(true);
-    expect(view.readyText).toBe('4/6 books ready');
+    expect(view.readyText).toBe('4/6 texts ready');
     expect(view.segments).toContain('partial corpus');
     expect(view.chip).toMatchObject({
       expandedTitle: 'Partial corpus',

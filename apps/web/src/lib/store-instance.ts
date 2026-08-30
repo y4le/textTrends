@@ -268,7 +268,7 @@ async function bootstrap(): Promise<void> {
             void localLibrary.saveWorkspace(reconciled.workspace).catch((error: unknown) => runtime.reportWorkspaceFailure(error));
           };
           const count = reconciled.removedDocuments.length;
-          bootstrapNotice = `${count} active book${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
+          bootstrapNotice = `${count} active text${count === 1 ? '' : 's'} no longer existed in the catalog and ${count === 1 ? 'was' : 'were'} removed.`;
         }
         workspace = reconciled.workspace;
       }

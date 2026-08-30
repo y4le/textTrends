@@ -949,7 +949,7 @@ export function KwicPanel({
       headingRef: rightHeadingRef,
     },
     ...(multipleBooks
-      ? [{ key: 'book' as const, label: 'book', className: 'kwic-book-heading' }]
+      ? [{ key: 'book' as const, label: 'text', className: 'kwic-book-heading' }]
       : []),
     {
       key: 'token',

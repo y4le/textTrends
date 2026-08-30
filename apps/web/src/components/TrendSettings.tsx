@@ -86,7 +86,7 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
     }
     if (!validCount) {
       setStatus(limits === null
-        ? `This corpus cannot fit ${draft.binMode === 'per-doc' ? 'per-book' : 'fixed-token'} bins within the ${TREND_MAX_ROWS.toLocaleString()}-row limit.`
+        ? `This corpus cannot fit ${draft.binMode === 'per-doc' ? 'per-text' : 'fixed-token'} bins within the ${TREND_MAX_ROWS.toLocaleString()}-row limit.`
         : `Enter a whole number from ${limits.minimum.toLocaleString()} to ${limits.maximum.toLocaleString()} for this corpus.`);
       return;
     }
@@ -143,12 +143,12 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
               setStatus(null);
             }}
           >
-            <option value="per-doc">Equal bins per book</option>
+            <option value="per-doc">Equal bins per text</option>
             <option value="fixed-tokens">Fixed tokens per bin</option>
           </select>
         </label>
         <label>
-          {draft.binMode === 'per-doc' ? 'Bins per book' : 'Tokens per bin'}
+          {draft.binMode === 'per-doc' ? 'Bins per text' : 'Tokens per bin'}
           <input
             type="number"
             inputMode="numeric"
@@ -170,7 +170,7 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
             : limits === null
               ? alternateLimits === null
                 ? `No bin mode can fit this corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit.`
-                : `This mode cannot fit the corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit. Choose ${alternateMode === 'per-doc' ? 'Equal bins per book' : 'Fixed tokens per bin'}.`
+                : `This mode cannot fit the corpus within the ${TREND_MAX_ROWS.toLocaleString()}-row result limit. Choose ${alternateMode === 'per-doc' ? 'Equal bins per text' : 'Fixed tokens per bin'}.`
             : `${limits.minimum.toLocaleString()}–${limits.maximum.toLocaleString()} for this corpus · ${rowEstimate?.toLocaleString() ?? 'unknown'} result rows · limit ${TREND_MAX_ROWS.toLocaleString()}.`}
           {' '}Changing bins recomputes trend results.
         </p>
@@ -232,7 +232,7 @@ export function TrendSettings({ onApplied }: { readonly onApplied: () => void })
           />
           Show raw line behind smoothed line
         </label>
-        <p>Smoothing is centered, token-weighted, and never crosses book boundaries. Counts remain unsmoothed.</p>
+        <p>Smoothing is centered, token-weighted, and never crosses text boundaries. Counts remain unsmoothed.</p>
       </fieldset>
 
       {status && <p className="trend-settings-status" role="status">{status}</p>}

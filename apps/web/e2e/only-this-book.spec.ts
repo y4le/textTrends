@@ -102,6 +102,6 @@ test('text detail preserves scope while select this text explicitly rescopes lin
   await scopeChip.click();
   await page.locator('#scope-details:popover-open')
     .getByRole('button', { name: 'Use all texts' }).click();
-  await expect(scope.getByText(`all ${DOC_COUNT} books`, { exact: true })).toHaveCount(0);
+  await expect(scope.getByText(`all ${DOC_COUNT} texts`, { exact: true })).toHaveCount(0);
   await expect(rows).toHaveCount(DOC_COUNT);
 });

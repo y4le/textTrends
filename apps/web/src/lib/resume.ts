@@ -29,7 +29,7 @@ export function reconcileResume(input: ResumeInput): ResumeVM {
   if (input.missingDocuments > 0) {
     return {
       kind: 'partial',
-      message: `Resumed · ${input.readyDocuments} ${input.readyDocuments === 1 ? 'book is' : 'books are'} ready and ${input.missingDocuments} ${input.missingDocuments === 1 ? 'book is' : 'books are'} unavailable.`,
+      message: `Resumed · ${input.readyDocuments} ${input.readyDocuments === 1 ? 'text is' : 'texts are'} ready and ${input.missingDocuments} ${input.missingDocuments === 1 ? 'text is' : 'texts are'} unavailable.`,
     };
   }
   return {

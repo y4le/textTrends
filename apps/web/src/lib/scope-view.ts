@@ -102,7 +102,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
   const readyText = empty
     ? 'nothing is being analyzed'
     : input.snapshot
-      ? `${ready}/${declared} books ready`
+      ? `${ready}/${declared} texts ready`
       : input.loadingPhase ?? 'loading…';
   const inventoryMatchesScope = input.inventory !== null
     && input.snapshot !== null
@@ -136,7 +136,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
           documents,
           label: documents === 1
             ? `${docTitle} · tokens ${number.format(firstToken)}–${number.format(lastToken)} · ${number.format(tokens)} tokens`
-            : `${firstTitle} token ${number.format(firstToken)} → ${lastTitle} token ${number.format(lastToken)} · ${number.format(tokens)} tokens across ${number.format(documents)} books`,
+            : `${firstTitle} token ${number.format(firstToken)} → ${lastTitle} token ${number.format(lastToken)} · ${number.format(tokens)} tokens across ${number.format(documents)} texts`,
         };
       })();
   const exception = place === 'compare' && range !== null
@@ -147,13 +147,13 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
 
   const segments: string[] = [empty ? 'No active inputs' : corpus];
   // Whole-corpus readiness is an honest fallback only when no range is
-  // active. During a range query, "6 books in scope" would contradict the
+  // active. During a range query, "6 texts in scope" would contradict the
   // linked range while its issued inventory is still pending.
   const scopeDocs = docsInScope ?? (input.snapshot && range === null ? ready : null);
   if (scopeDocs !== null && scopeDocs > 0) {
     segments.push(range
-      ? `${number.format(scopeDocs)} ${scopeDocs === 1 ? 'book' : 'books'} in scope`
-      : `all ${number.format(scopeDocs)} ${scopeDocs === 1 ? 'book' : 'books'}`);
+      ? `${number.format(scopeDocs)} ${scopeDocs === 1 ? 'text' : 'texts'} in scope`
+      : `all ${number.format(scopeDocs)} ${scopeDocs === 1 ? 'text' : 'texts'}`);
   }
   if (tokensInScope !== null) segments.push(`${number.format(tokensInScope)} tokens`);
   if (range) segments.push(range.label);
@@ -172,7 +172,7 @@ export function scopeView(input: ScopeInput, place: Place): ScopeVM {
     ? (() => {
         const shortTitle = range.documents === 1
           ? 'range'
-          : `${number.format(range.documents)}-book range`;
+          : `${number.format(range.documents)}-text range`;
         const magnitude = `${number.format(range.tokens)} tokens`;
         const compactMagnitude = compactNumber(range.tokens);
         return {

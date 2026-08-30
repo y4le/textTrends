@@ -1551,7 +1551,7 @@ function ScrubSurface({
     const first = ranges[0]!;
     const last = ranges.at(-1)!;
     const count = selectionTokenCount({ snapshot: '', ranges });
-    return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} books`;
+    return `${titleByDoc.get(first.doc) ?? first.doc} token ${first.tokens.start + 1} → ${titleByDoc.get(last.doc) ?? last.doc} token ${last.tokens.end} · ${count.toLocaleString()} tokens across ${ranges.length} texts`;
   };
   const anchoredWaiting = preview?.mode === 'touch-anchor'
     && touchGesture.current.phase === 'anchored'
@@ -2430,7 +2430,7 @@ const SeriesView = memo(function SeriesView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} across ${docs.length} books in reading order`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} across ${docs.length} texts in reading order`}
     >
       <line
         data-trend-axis="series"
@@ -2667,7 +2667,7 @@ const ByBookView = memo(function ByBookView({
       width={plotW}
       height={height}
       role="img"
-      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} books${view === 'by-book-scaled' ? '; shared token scale, shorter books end early' : '; each book fills an equal-width row'}`}
+      aria-label={`${measure.kind === 'count' ? 'Counts' : 'Rates'} of ${accessibleTrendSeries(ready)} within each of ${docs.length} texts${view === 'by-book-scaled' ? '; shared token scale, shorter texts end early' : '; each text fills an equal-width row'}`}
     >
       {docs.map((doc, d) => {
         const rowBase = d * rowPitch;

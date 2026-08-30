@@ -55,7 +55,7 @@ test('title clicks and reading-order drags select whole texts in every trend lay
   await title('beta').press('Shift+ArrowRight');
   await expect(title('gamma')).toBeFocused();
   await expect(scope.getByRole('button', {
-    name: /2-book range.*Scope: beta token 1 → gamma token 12 · 24 tokens across 2 books/i,
+    name: /2-text range.*Scope: beta token 1 → gamma token 12 · 24 tokens across 2 texts/i,
   })).toBeVisible();
   await title('gamma').press('Shift+ArrowRight');
   await expect(title('gamma')).toBeFocused();
@@ -90,7 +90,7 @@ test('title clicks and reading-order drags select whole texts in every trend lay
       title(index === 1 ? 'alpha' : 'gamma'),
     );
     await expect(scope.getByRole('button', {
-      name: /3-book range.*Scope: alpha token 1 → gamma token 12 · 36 tokens across 3 books/i,
+      name: /3-text range.*Scope: alpha token 1 → gamma token 12 · 36 tokens across 3 texts/i,
     })).toBeVisible();
   }
 

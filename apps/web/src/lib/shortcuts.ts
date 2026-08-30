@@ -458,14 +458,14 @@ const SHORTCUTS: readonly ShortcutDefinition[] = Object.freeze([
     id: 'trend-book-start',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'Start of current book',
+    label: 'Start of current text',
     strokes: [{ key: 'Home' }],
   },
   {
     id: 'trend-book-end',
     group: 'Trends',
     helpContexts: ['workbench'],
-    label: 'End of current book',
+    label: 'End of current text',
     strokes: [{ key: 'End' }],
   },
   {

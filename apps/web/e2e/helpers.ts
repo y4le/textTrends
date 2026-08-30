@@ -18,7 +18,7 @@ export const DOC_COUNT = SHERLOCK.length;
 // helpers on a stale string literal.
 export const DB_NAME = ARTIFACT_DB_NAME;
 
-export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} books ready`;
+export const READY_TEXT = `${DOC_COUNT}/${DOC_COUNT} texts ready`;
 
 /**
  * Change place through the rendered workbench tabs, preserving the running
@@ -47,10 +47,10 @@ export async function clearDemoInputs(page: Page): Promise<void> {
   }
 }
 
-/** Wait for the header's accessible status to report `n/n books ready`. */
+/** Wait for the header's accessible status to report `n/n texts ready`. */
 export async function awaitReadyCount(page: Page, n: number, timeout = 60_000): Promise<void> {
   await expect(page.locator('.scope-organ > [role="status"]'))
-    .toContainText(`${n}/${n} books ready`, { timeout });
+    .toContainText(`${n}/${n} texts ready`, { timeout });
 }
 
 /** Clear the disposable artifact stores. Awaits transaction completion before

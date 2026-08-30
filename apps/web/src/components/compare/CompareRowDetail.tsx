@@ -102,7 +102,7 @@ export function CompareRowDetail({
           key: 'dp-a',
           label: `dispersion · ${sideLabelA}`,
           exact: proportion.format(row.dpA),
-          explanation: 'Gries’ deviation of proportions across the left side’s texts: 0 means the occurrences are spread exactly in proportion to how long each text is, and values near 1 mean they are concentrated in one text. A high keyness score with high dispersion is characteristic of one book rather than of the whole side.',
+          explanation: 'Gries’ deviation of proportions across the left side’s texts: 0 means the occurrences are spread exactly in proportion to how long each text is, and values near 1 mean they are concentrated in one text. A high keyness score with high dispersion is characteristic of one text rather than of the whole side.',
         }]),
     ...(row.dpB === null
       ? []

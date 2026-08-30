@@ -1136,7 +1136,7 @@ function trendGeometryNotice(
   after: TrendBinsSpecV1,
 ): string {
   const description = after.mode === 'per-doc'
-    ? `${after.count.toLocaleString()} bins per book`
+    ? `${after.count.toLocaleString()} bins per text`
     : `${after.count.toLocaleString()} tokens per bin`;
   const switched = before.mode !== after.mode ? ' and changed bin mode' : '';
   return `Adjusted trend geometry${switched} to ${description} for this corpus. The adjusted value is now the saved preference.`;
