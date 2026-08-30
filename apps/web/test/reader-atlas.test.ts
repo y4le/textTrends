@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { DispersionResultV1 } from '@texttrends/core';
+import { INGEST_CAPS_V0, type DispersionResultV1 } from '@texttrends/core';
 import { barcodeTracks } from '../src/lib/barcode-view.ts';
 import {
   ATLAS_MAX_DEVICE_ROWS,
@@ -138,12 +138,18 @@ describe('Atlas normalization and virtualization', () => {
 
   it('keeps one bounded overscanned canvas window over all column shells', () => {
     const many = atlasLayout(
-      Array.from({ length: 100 }, (_, index) => ({ ...columns[0]!, doc: `d${index}`, ordinal: index })),
+      Array.from(
+        { length: INGEST_CAPS_V0.maxDocsPerProject },
+        (_, index) => ({ ...columns[0]!, doc: `d${index}`, ordinal: index }),
+      ),
       'equal',
       { plotHeight: 400, columnWidth: 80, columnGap: 8 },
     );
     expect(atlasCanvasWindow(many, 880, 264)).toEqual({ start: 8, end: 15 });
-    expect(atlasCanvasWindow(many, 100_000, 264)).toEqual({ start: 97, end: 100 });
+    expect(atlasCanvasWindow(many, 100_000, 264)).toEqual({
+      start: INGEST_CAPS_V0.maxDocsPerProject - 3,
+      end: INGEST_CAPS_V0.maxDocsPerProject,
+    });
     expect(atlasCanvasWindow(many, Number.NaN, 264)).toEqual({ start: 0, end: 5 });
   });
 });
