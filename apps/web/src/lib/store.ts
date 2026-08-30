@@ -100,6 +100,10 @@ import {
   type ReaderPlace,
 } from './reader-intent.ts';
 import {
+  adjacentReadableDocument,
+  readyReaderDocumentOrder,
+} from './reader-order.ts';
+import {
   clampPositionHistoryExtents,
   EMPTY_POSITION_HISTORY,
   POSITION_HISTORY_SETTLE_MS,
@@ -1168,39 +1172,15 @@ function adjacentReaderDocument(
 ): ReaderNavigationTarget | null {
   const readyDocs = state.snapshot?.readyDocs;
   if (!readyDocs) return null;
-  const ready = new Set(readyDocs);
-  const order: string[] = [];
-  const seen = new Set<string>();
-  const appendReady = (candidate: string) => {
-    if (ready.has(candidate) && !seen.has(candidate)) {
-      seen.add(candidate);
-      order.push(candidate);
-    }
-  };
-  for (const candidate of state.projectSession?.project.data.order ?? []) appendReady(candidate);
-  // A restored or partially published session may briefly lack declared-order
-  // metadata. Keep every ready document reachable without letting arrival order
-  // override a declared position when that metadata is present.
-  for (const candidate of readyDocs) appendReady(candidate);
-
-  const current = order.indexOf(doc);
-  if (current < 0) return null;
-  for (
-    let index = current + direction;
-    index >= 0 && index < order.length;
-    index += direction
-  ) {
-    const candidate = order[index]!;
-    const tokenCount = state.corpusTokenCounts.get(candidate);
-    if (tokenCount === undefined || tokenCount <= 0) continue;
-    return {
-      doc: candidate,
-      cursor: direction === 1
-        ? { kind: 'from', token: 0 }
-        : { kind: 'before', token: tokenCount },
-    };
-  }
-  return null;
+  return adjacentReadableDocument(
+    readyReaderDocumentOrder(
+      state.projectSession?.project.data.order,
+      readyDocs,
+    ),
+    doc,
+    direction,
+    (candidate) => state.corpusTokenCounts.get(candidate),
+  );
 }
 
 function regexForLegacyFrequencyPrefix(prefix: string): string {
